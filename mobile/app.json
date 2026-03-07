@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "DART Alert",
+    "slug": "dart-alert",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "dart-alert",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#14B8A6"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dartalert.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#14B8A6",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "com.dartalert.app",
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}

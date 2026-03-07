@@ -1,0 +1,158 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ====================================
+// 사용자 관련
+// ====================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password   String?  // bcrypt 해싱
+  name       String?
+  provider   String   @default("local") // "local" | "kakao" | "google"
+  providerId String?  // kakao user id
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  devices              UserDevice[]
+  watchLists           WatchList[]
+  notificationSettings NotificationSettings?
+  notificationHistory  NotificationHistory[]
+
+  @@unique([provider, providerId])
+  @@index([email])
+  @@map("users")
+}
+
+model UserDevice {
+  id          String   @id @default(cuid())
+  userId      String
+  deviceToken String   @unique // Expo Push Token
+  platform    String   // "ios" | "android"
+  createdAt   DateTime @default(now())
+  lastUsedAt  DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([deviceToken])
+  @@map("user_devices")
+}
+
+// ====================================
+// 기업 마스터
+// ====================================
+
+model Company {
+  id        String   @id @default(cuid())
+  corpCode  String   @unique // DART 고유번호 (8자리)
+  corpName  String   // 기업명
+  stockCode String?  // 종목코드 (6자리, 비상장은 null)
+  market    String?  // "KOSPI" | "KOSDAQ" | null
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([corpName]) // 자동완성 검색용
+  @@index([stockCode])
+  @@map("companies")
+}
+
+// ====================================
+// 관심 목록
+// ====================================
+
+model WatchList {
+  id        String   @id @default(cuid())
+  userId    String
+  corpCode  String   // DART 고유번호
+  corpName  String   // 기업명 (중복 저장, 조회 성능)
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, corpCode]) // 같은 기업 중복 등록 방지
+  @@index([userId])
+  @@index([corpCode])
+  @@map("watch_lists")
+}
+
+// ====================================
+// 알림 설정
+// ====================================
+
+model NotificationSettings {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  disclosureTypes String[] // ["정기공시", "주요사항보고", "발행공시", "지분공시", "기타공시"]
+  keywords        String[] // 키워드 배열 (예: ["증자", "배당"])
+  isEnabled       Boolean  @default(true)
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notification_settings")
+}
+
+// ====================================
+// 공시 데이터
+// ====================================
+
+model Disclosure {
+  id             String   @id @default(cuid())
+  rcpNo          String   @unique // DART 접수번호 (고유키)
+  corpCode       String   // 기업 고유번호
+  corpName       String   // 기업명
+  reportName     String   // 보고서명
+  rcpDt          String   // 접수일시 (YYYYMMDD 또는 YYYYMMDDHHmmss)
+  flrName        String   // 공시제출인명
+  rmk            String   // 비고
+  disclosureType String   // 공시 유형 (정기공시, 주요사항보고 등)
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  notificationHistory NotificationHistory[]
+
+  @@index([corpCode])
+  @@index([rcpDt])
+  @@index([disclosureType])
+  @@index([createdAt]) // 최근 공시 조회용
+  @@map("disclosures")
+}
+
+// ====================================
+// 알림 히스토리
+// ====================================
+
+model NotificationHistory {
+  id           String    @id @default(cuid())
+  userId       String
+  disclosureId String
+  sentAt       DateTime  @default(now())
+  isRead       Boolean   @default(false)
+  readAt       DateTime?
+
+  // Relations
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  disclosure Disclosure @relation(fields: [disclosureId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, disclosureId]) // 중복 알림 방지
+  @@index([userId, isRead]) // 읽지 않은 알림 조회용
+  @@index([userId, sentAt]) // 알림 목록 조회용
+  @@map("notification_history")
+}

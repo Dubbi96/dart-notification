@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   TouchableOpacity,
   Alert,
@@ -9,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
@@ -114,8 +116,26 @@ export default function SignInScreen() {
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
         >
-          <View style={styles.logoIcon}>
-            <Ionicons name="pulse" size={40} color="#FFFFFF" />
+          {/* Glass Logo Icon */}
+          <View style={styles.logoIconContainer}>
+            <BlurView
+              intensity={20}
+              tint="light"
+              style={StyleSheet.absoluteFill}
+            />
+            <LinearGradient
+              colors={[
+                'rgba(255, 255, 255, 0.14)',
+                'rgba(255, 255, 255, 0.05)',
+              ]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <View style={styles.logoGlassBorder} />
+            <View style={styles.logoIconContent}>
+              <Ionicons name="pulse" size={40} color="#FFFFFF" />
+            </View>
           </View>
           <Text style={[typo.h1, { color: '#FFFFFF', marginTop: spacing.md }]}>
             DART 알리미
@@ -127,13 +147,13 @@ export default function SignInScreen() {
 
         {/* Login Area */}
         <View style={[styles.loginArea, { backgroundColor: colors.background }]}>
-          <Text style={[typo.h2, { color: colors.text, textAlign: 'center' }]}>
+          <Text style={[typo.h1, { color: colors.text, textAlign: 'center' }]}>
             {hasLoggedInBefore ? '다시 만나서 반가워요!' : '환영합니다!'}
           </Text>
           <Text
             style={[
-              typo.body,
-              { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm },
+              typo.h3,
+              { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm, fontWeight: '400' },
             ]}
           >
             소셜 계정으로 간편하게 시작하세요
@@ -141,18 +161,19 @@ export default function SignInScreen() {
 
           {/* Kakao Login Button */}
           <TouchableOpacity
-            style={styles.kakaoButton}
             onPress={handleKakaoLogin}
             activeOpacity={0.8}
             disabled={isLoading}
+            style={styles.kakaoButton}
           >
             {isLoading ? (
               <ActivityIndicator size="small" color="#191919" />
             ) : (
-              <>
-                <Text style={styles.kakaoIcon}>{'💬'}</Text>
-                <Text style={styles.kakaoButtonText}>카카오로 시작하기</Text>
-              </>
+              <Image
+                source={require('../../assets/kakao_login_large_wide.png')}
+                style={styles.kakaoImage}
+                resizeMode="contain"
+              />
             )}
           </TouchableOpacity>
 
@@ -184,13 +205,26 @@ const styles = StyleSheet.create({
     paddingVertical: spacing['4xl'],
     paddingBottom: spacing['4xl'] + radius.xl,
   },
-  logoIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+  logoIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  logoGlassBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 40,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    borderRightColor: 'rgba(255, 255, 255, 0.10)',
+  },
+  logoIconContent: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 1,
   },
   loginArea: {
     flex: 1,
@@ -201,21 +235,16 @@ const styles = StyleSheet.create({
     marginTop: -radius.xl,
   },
   kakaoButton: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FEE500',
-    borderRadius: radius.md,
-    paddingVertical: 14,
     marginTop: spacing['2xl'],
-    gap: spacing.sm,
+    height: 52,
+    borderRadius: radius.md,
+    overflow: 'hidden',
   },
-  kakaoIcon: {
-    fontSize: 20,
-  },
-  kakaoButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#191919',
+  kakaoImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: radius.md,
   },
 });

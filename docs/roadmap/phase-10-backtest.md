@@ -58,7 +58,7 @@ Phase 6~9에서 설계된 Buy Score / Exit Score / PositionThesis / Event Study�
 | Phase 8 (Exit Score 로직) | 필수 | 매도 시점 재현 |
 | Phase 9 (EventStudyResult) | 권장 | 이벤트별 기대 성과 비교 |
 
-**데이터 요구사항:** 최소 과거 3년치 일봉 데이터 + 동 기간 공시 이력. DART 공시는 `POST /scheduler/collect` 수동 백필로 확보 가능. 시세는 KIS(한국투자증권) OpenAPI 또는 FinanceDataReader 등 외부 소스에서 일괄 수집.
+**데이터 요구사항:** 최소 과거 3년치 일봉 데이터 + 동 기간 공시 이력. DART 공시는 `POST /scheduler/collect` 수동 백필로 확보 가능. 과거 시세는 **KRX 데이터마켓플레이스(공기업)** 일괄 수집을 1차 기준으로 한다(Phase 5와 동일 소스 → 백테스트와 실운용 데이터 정합).
 
 ---
 

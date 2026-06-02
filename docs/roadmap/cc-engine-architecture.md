@@ -61,7 +61,8 @@
 | PostgreSQL 14+ | BullMQ Job 대기열 또는 Redis 별도 구성 |
 | Redis (신규) | BullMQ 큐 브로커 — Engine 1·2·3 비동기 작업 |
 | 외부 LLM API | Engine 2 (OpenAI/Claude API). AI 비용 게이트(L0~L3) 구현 후 호출 |
-| 증권사 OpenAPI (KIS 등) | Engine 3 시세 수집. Phase 5 이후 필요 |
+| KRX 데이터마켓플레이스 (공기업) | Engine 3 시세 1차 소스 — 일봉·지수·종목상태. Phase 5 |
+| 증권사 OpenAPI (KIS 등) | Engine 3 실시간 현재가/분봉 *보완* + Engine 5 주문 체결. Phase 6 후반~13 |
 | DART OpenAPI | 현재 사용 중. Engine 1이 계속 소유 |
 
 ---
@@ -167,7 +168,8 @@ flowchart TD
     AI -->|BullMQ: analysis.done| Q4[큐: signal-generate]
 
     Q4 -->|워커| SIG[Engine3\nBuy Signal Worker]
-    KIS[증권사 OpenAPI] -->|현재가·일봉| MKT[Engine3\n시세 Scheduler]
+    KRX[KRX 데이터마켓플레이스] -->|일봉·지수·종목상태| MKT[Engine3\n시세 Scheduler]
+    KIS[증권사 OpenAPI] -.->|실시간 현재가/분봉 보완| MKT
     MKT -->|저장: StockDailyPrice\nTechnicalIndicator| DB
     SIG -->|DB 조회: 이벤트·분석·시세| DB
     SIG -->|저장: TradingSignal| DB

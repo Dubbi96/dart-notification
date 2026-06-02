@@ -51,30 +51,41 @@ Quant & Market Engine의 데이터 토대를 완성한다.
 | Phase 1 완료 — `Disclosure` 안정 수집 | 공시 전 선행상승률 계산 기준 |
 | `Company.stockCode` 정확도 확보 | 시드(seed.ts) 재검증 필요. 빈 값이면 수집 스킵 |
 | `Company.market` KOSPI/KOSDAQ 구분 | feature-status에서 불완전 상태. Phase 5 착수 전 보완 |
-| 증권사 OpenAPI 계정 (KIS 또는 키움) | 테스트용 모의계좌 발급으로 시작 가능 |
-| 시장지수용 지수코드 목록 | KOSPI=0001, KOSDAQ=1001 (KIS 기준) |
+| **KRX 데이터마켓플레이스 접근** | 1차 소스. 일봉·지수·종목상태·상장 메타 |
+| 증권사 OpenAPI 계정 (KIS) — *보완* | 실시간 현재가/분봉이 필요한 시점에 모의계좌로 시작. 본 Phase 필수 아님 |
+| 시장지수용 지수코드 목록 | KOSPI·KOSDAQ·업종지수 (KRX 코드 체계 기준) |
 
 ---
 
 ## 4. 상세 설계
 
-### 4-1. 증권사 OpenAPI 비교·선정
+### 4-1. 데이터 소스 선정 — KRX 데이터마켓플레이스 기준
 
-| 항목 | KIS (한국투자증권) | 키움증권 |
-|------|------------------|---------|
-| 일봉 REST | `/uapi/domestic-stock/v1/quotations/inquire-daily-price` | `opt10081` (TR) |
-| 분봉 REST | `/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice` | `opt10080` |
-| 실시간 WebSocket | 지원 (Phase 13용) | 지원 |
-| 인증 방식 | OAuth2 (앱키/앱시크릿 → Bearer 토큰, 24h) | 비밀번호 기반 접속키 |
-| 무료 한도 | 1일 최대 1만 건(모의), 실계좌 제한 없음 | 연속 호출 200ms 간격 필수 |
-| 권고 | **KIS 우선 선정** — REST 구조가 명확, 공식 NestJS SDK 예제 존재 | 필요 시 보조 소스 |
+> **결정(2026-06-02):** 시세·통계 기준 데이터의 1차 소스는 **KRX 데이터마켓플레이스(한국거래소, 공기업)** 로 한다.
+> 공기업 공식 데이터라 출처 신뢰성·라이선스가 명확하고, 일봉·지수·종목상태·통계 데이터를 표준 형식으로 제공한다.
+> 증권사 OpenAPI(KIS 등)는 **KRX가 제공하지 않는 영역(실시간 현재가/분봉/주문 체결)** 의 보완 소스로만 사용한다.
 
-**선정 근거:** KIS는 REST + OAuth2로 NestJS 통합 용이. 키움은 TR 기반 소켓 전용 구조라 배치 REST 연동이 복잡.
+**역할 분담:**
 
-**인증 갱신 전략:**
-- `KisAuthService` — 24시간 유효 토큰을 Redis(또는 메모리)에 캐시
-- 만료 1시간 전 자동 재발급 cron
-- 실패 시 재시도 3회 후 알림(Slack webhook 또는 로그)
+| 데이터 | 1차 소스 | 비고 |
+|--------|----------|------|
+| 일봉 OHLCV (종목·지수) | **KRX 데이터마켓플레이스** | EOD 일괄 수집(장 마감 후) |
+| 시장/업종 지수 일봉 | **KRX** | KOSPI·KOSDAQ·업종지수 |
+| 종목 상태(거래정지·관리·투자주의) | **KRX** | 시장조치/관리종목 데이터 |
+| 상장사 메타(종목코드·시장구분) | **KRX** | `Company.stockCode`/`market` 보완(seed 정합) |
+| 분봉 / 실시간 현재가 | 증권사 OpenAPI(KIS) — *보완* | Phase 6 실시간 신호·Phase 13 필요 시 |
+| 주문 체결(매수/매도) | 증권사 OpenAPI(KIS) — *별도* | **Phase 13~14 전용. KRX는 체결 미제공** |
+
+**선정 근거:**
+- KRX는 한국거래소가 운영하는 공식 데이터 소스로 **EOD 일봉·지수·통계·종목상태**를 신뢰성 있게 제공 → Phase 5(시세 토대)·Phase 9(Event Study)·Phase 10(백테스트)의 과거 데이터 기준으로 적합.
+- **실시간 현재가/체결은 KRX 범위 밖**이므로, 실시간 신호(Phase 6 이후)와 주문(Phase 13~14)은 증권사 OpenAPI로 보완한다.
+- 따라서 이 Phase의 핵심 산출물(일봉·지표·종목상태)은 KRX로 충분하며, 증권사 연동은 실시간/체결이 필요한 후속 Phase로 미룰 수 있다.
+
+**수집 전략:**
+- `KrxMarketService` — KRX 데이터마켓플레이스에서 일봉/지수/종목상태를 **장 마감 후 일괄(EOD) 배치** 수집
+- 응답 캐시(당일치 24h TTL), 거래일 캘린더 기반 휴장일 스킵
+- 실패 시 재시도 3회 후 알림(로그/Slack webhook) + `DisclosureCollectionLog`와 동일 패턴의 수집 로그 기록
+- 증권사 OpenAPI(KIS) 토큰 관리(`KisAuthService`, OAuth2 24h 캐시)는 **실시간/체결 보완이 필요한 시점(Phase 6 후반~13)에 도입** — 본 Phase에서는 선택 사항
 
 ### 4-2. Prisma 모델 스케치
 
@@ -198,9 +209,10 @@ DB 레벨 FK 제약은 걸지 않고, 서비스 레이어에서 Company 조회 �
 backend/src/market/
 ├── market.module.ts
 ├── market.service.ts              // 지표 조회, 종목 상태 확인
-├── kis-auth.service.ts            // OAuth2 토큰 관리
-├── kis-price.service.ts           // KIS REST 일봉/분봉 호출
-├── price-batch.service.ts         // 수집 배치 (cron)
+├── krx-market.service.ts          // KRX 일봉/지수/종목상태 수집 (1차 소스)
+├── kis-auth.service.ts            // (보완) 증권사 OAuth2 토큰 — 실시간/체결 필요 시
+├── kis-price.service.ts           // (보완) 실시간 현재가/분봉 — 후속 Phase
+├── price-batch.service.ts         // 수집 배치 (cron, EOD 일괄)
 ├── indicator-calculator.service.ts // 지표 계산 로직
 ├── market.controller.ts           // REST API (모바일 조회용)
 └── dto/
@@ -375,10 +387,10 @@ prevLowBreak = todayLowPrice < prevLow
 
 ### 5-1. 인프라 & 인증
 
-- [ ] KIS OpenAPI 앱키/시크릿 발급 (모의계좌 먼저)
-- [ ] `KisAuthService` 구현 — OAuth2 토큰 발급·갱신·캐시
-- [ ] 환경변수 추가: `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_BASE_URL`, `KIS_ACCOUNT_NO`
-- [ ] 토큰 만료 1시간 전 자동 갱신 cron 추가
+- [ ] **KRX 데이터마켓플레이스 접근 확인** — 일봉/지수/종목상태/상장 메타 엔드포인트 검증
+- [ ] `KrxMarketService` 구현 — EOD 일괄 수집 + 거래일 캘린더 휴장일 스킵 + 응답 캐시
+- [ ] 환경변수 추가: `KRX_BASE_URL` (필요 시 `KRX_API_KEY`)
+- [ ] (보완·선택) 증권사 OpenAPI 실시간 연동은 실시간 현재가/분봉이 필요한 시점에 도입: `KisAuthService` + `KIS_APP_KEY`/`KIS_APP_SECRET`/`KIS_BASE_URL`
 
 ### 5-2. DB 마이그레이션
 

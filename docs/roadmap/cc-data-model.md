@@ -379,7 +379,7 @@ model AIUsageLog {
 ### 4-6. Phase 5 — 시세·기술 지표
 
 ```prisma
-// StockDailyPrice — 일봉 OHLCV (증권사 OpenAPI / KIS 등)
+// StockDailyPrice — 일봉 OHLCV (1차 소스: KRX 데이터마켓플레이스, 공기업)
 model StockDailyPrice {
   id          String   @id @default(cuid())
   corpCode    String   // FK → Company.corpCode
@@ -393,7 +393,7 @@ model StockDailyPrice {
   tradingValue BigInt  // 거래대금 (원)
   marketCap   BigInt?  // 시가총액
   foreignRatio Float?  // 외국인 보유 비율
-  source      String   @default("KIS")  // 데이터 출처
+  source      String   @default("KRX")  // 데이터 출처 (1차: KRX, 보완: 증권사 OpenAPI)
 
   // Relations
   company Company @relation(fields: [corpCode], references: [corpCode])

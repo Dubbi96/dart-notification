@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -8,6 +8,7 @@ import {
 import { ExpoPushService } from '../expo-push/expo-push.service';
 import { ExpoPushMessage } from 'expo-server-sdk';
 import { DisclosureCollectionLog } from '@prisma/client';
+import { DisclosureDocumentsService } from '../disclosure-documents/disclosure-documents.service';
 
 @Injectable()
 export class SchedulerService {
@@ -18,6 +19,12 @@ export class SchedulerService {
     private readonly prisma: PrismaService,
     private readonly dartApiService: DartApiService,
     private readonly expoPushService: ExpoPushService,
+    /**
+     * @Optional: DisclosureDocumentsModule이 등록되지 않은 환경(테스트 등)에서도
+     * SchedulerService가 정상 동작하도록 Optional 처리
+     */
+    @Optional()
+    private readonly disclosureDocumentsService?: DisclosureDocumentsService,
   ) {}
 
   /**
@@ -109,6 +116,18 @@ export class SchedulerService {
       // DB 저장
       newCount = await this.saveDisclosures(newDisclosures);
       this.logger.log(`${newCount}개 신규 공시 저장 완료`);
+
+      // M1 연결점: 신규 저장된 공시 rcpNo를 파싱 큐에 등록
+      if (this.disclosureDocumentsService && newDisclosures.length > 0) {
+        const newRcpNos = newDisclosures.map((d) => d.rcept_no);
+        setImmediate(async () => {
+          try {
+            await this.disclosureDocumentsService!.enqueueParsing(newRcpNos);
+          } catch (enqueueError) {
+            this.logger.error('파싱 큐 등록 오류', enqueueError);
+          }
+        });
+      }
 
       // 알림 매칭 및 발송 — 오류 시 failedCount 증가, throw하지 않음
       try {

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 픽스처: 유상증자 결정 합성 DART 문서 (rcpNo: 20240601000004) -->
+<ROOT>
+  <SECTION-1>
+    <TITLE>유상증자결정</TITLE>
+    <BODY>
+      <P>당사 이사회는 2024년 6월 1일 유상증자를 결의하였습니다.</P>
+      <TABLE>
+        <TR><TH>항목</TH><TH>내용</TH></TR>
+        <TR><TD>발행방법</TD><TD>주주배정후 실권주 일반공모</TD></TR>
+        <TR><TD>신주 발행 주식수</TD><TD>5,000,000주</TD></TR>
+        <TR><TD>발행 금액</TD><TD>100,000,000,000원</TD></TR>
+        <TR><TD>기존 발행 주식수</TD><TD>45,000,000주</TD></TR>
+        <TR><TD>할인율</TD><TD>0.2000</TD></TR>
+        <TR><TD>배정기준일</TD><TD>2024.07.15</TD></TR>
+        <TR><TD>납입일</TD><TD>2024.08.01</TD></TR>
+      </TABLE>
+    </BODY>
+  </SECTION-1>
+</ROOT>

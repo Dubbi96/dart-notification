@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 픽스처: 자기주식 취득 합성 DART 문서 (rcpNo: 20240601000002) -->
+<ROOT>
+  <SECTION-1>
+    <TITLE>자기주식취득결정</TITLE>
+    <BODY>
+      <P>당사 이사회는 2024년 6월 1일 자기주식 취득을 결의하였습니다.</P>
+      <TABLE>
+        <TR><TH>항목</TH><TH>내용</TH></TR>
+        <TR><TD>취득방법</TD><TD>장내 직접매수</TD></TR>
+        <TR><TD>취득 예정 주식수</TD><TD>1,000,000주</TD></TR>
+        <TR><TD>취득 예정 금액</TD><TD>50,000,000,000원</TD></TR>
+        <TR><TD>취득 예정 기간</TD><TD>2024.06.03 ~ 2024.09.02</TD></TR>
+        <TR><TD>취득목적</TD><TD>주주가치 제고 및 주가 안정</TD></TR>
+      </TABLE>
+    </BODY>
+  </SECTION-1>
+</ROOT>

@@ -16,6 +16,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { DartApiModule } from './dart-api/dart-api.module';
 import { ExpoPushModule } from './expo-push/expo-push.module';
+import { DisclosureDocumentsModule } from './disclosure-documents/disclosure-documents.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { ExpoPushModule } from './expo-push/expo-push.module';
     SchedulerModule,
     DartApiModule,
     ExpoPushModule,
+    DisclosureDocumentsModule,
   ],
   providers: [
     {

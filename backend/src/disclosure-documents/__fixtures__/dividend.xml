@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 픽스처: 현금배당 결정 합성 DART 문서 (rcpNo: 20240601000003) -->
+<ROOT>
+  <SECTION-1>
+    <TITLE>현금배당결정</TITLE>
+    <BODY>
+      <P>당사 이사회는 2024년 6월 1일 현금배당을 결의하였습니다.</P>
+      <TABLE>
+        <CAPTION>현금배당 내역</CAPTION>
+        <TR><TH>항목</TH><TH>내용</TH></TR>
+        <TR><TD>배당구분</TD><TD>결산배당</TD></TR>
+        <TR><TD>주당 배당금</TD><TD>500원</TD></TR>
+        <TR><TD>배당금 총액</TD><TD>25,000,000,000원</TD></TR>
+        <TR><TD>배당기준일</TD><TD>2024.12.31</TD></TR>
+        <TR><TD>배당 지급 예정일</TD><TD>2025.04.20</TD></TR>
+        <TR><TD>배당수익률</TD><TD>1.5%</TD></TR>
+      </TABLE>
+    </BODY>
+  </SECTION-1>
+</ROOT>

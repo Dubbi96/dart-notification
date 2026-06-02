@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 픽스처: 전환사채(CB) 발행 합성 DART 문서 (rcpNo: 20240601000005) -->
+<ROOT>
+  <SECTION-1>
+    <TITLE>전환사채권발행결정</TITLE>
+    <BODY>
+      <P>당사 이사회는 2024년 6월 1일 전환사채(CB) 발행을 결의하였습니다.</P>
+      <TABLE>
+        <TR><TH>항목</TH><TH>내용</TH></TR>
+        <TR><TD>발행금액</TD><TD>30,000,000,000원</TD></TR>
+        <TR><TD>표면 이자율</TD><TD>0.0</TD></TR>
+        <TR><TD>만기 이자율</TD><TD>3.0</TD></TR>
+        <TR><TD>전환가액</TD><TD>20,000원</TD></TR>
+        <TR><TD>만기일</TD><TD>2027.06.01</TD></TR>
+        <TR><TD>발행일</TD><TD>2024.06.15</TD></TR>
+        <TR><TD>전환 청구 기간</TD><TD>2025.06.15 ~ 2027.05.31</TD></TR>
+      </TABLE>
+    </BODY>
+  </SECTION-1>
+</ROOT>

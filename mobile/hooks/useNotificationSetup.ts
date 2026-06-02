@@ -9,15 +9,21 @@ import { deviceService } from '@services/device.service';
 const PROJECT_ID = 'dbdd30ba-72aa-4f90-ae45-54aa8fd43aa7';
 const isExpoGo = Constants.appOwnership === 'expo';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+// Expo Go(안드로이드)는 SDK 53부터 expo-notifications 원격 푸시가 제거됨 → 호출 시 throw.
+// 해당 환경에서는 알림 관련 호출을 전부 건너뛴다(앱 크래시 방지). 푸시는 Dev Build에서 동작.
+const pushUnsupported = isExpoGo && Platform.OS === 'android';
+
+if (!pushUnsupported) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
 
 export function useNotificationSetup() {
   const router = useRouter();
@@ -30,7 +36,7 @@ export function useNotificationSetup() {
   // Expo Go + Android에서는 SDK 53부터 푸시 알림 미지원
   useEffect(() => {
     if (!isAuthenticated) return;
-    if (isExpoGo && Platform.OS === 'android') return;
+    if (pushUnsupported) return;
 
     async function registerTokenIfPermitted() {
       const { status } = await Notifications.getPermissionsAsync();
@@ -55,6 +61,7 @@ export function useNotificationSetup() {
 
   // 알림 탭 → 공시 상세 이동 (앱 실행 중)
   useEffect(() => {
+    if (pushUnsupported) return;
     const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data;
       if (data?.disclosureRcpNo) {
@@ -67,6 +74,7 @@ export function useNotificationSetup() {
 
   // 콜드스타트: 앱 종료 상태에서 알림 탭으로 열린 경우
   useEffect(() => {
+    if (pushUnsupported) return;
     if (coldStartHandled.current) return;
 
     async function handleColdStart() {

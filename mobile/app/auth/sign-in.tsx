@@ -21,7 +21,8 @@ import LogoCards from '@/assets/logo/logo-cards.svg';
 import { useAuthStore } from '@stores/authStore';
 import { api } from '@services/api';
 
-const KAKAO_REST_API_KEY = '551d536a94a299e7d4847dffc98ee51f';
+// 카카오 REST API 키 — mobile/.env 의 EXPO_PUBLIC_KAKAO_REST_API_KEY 로 주입 (백엔드 KAKAO_REST_API_KEY 와 동일 앱)
+const KAKAO_REST_API_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY || '';
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
 const REDIRECT_URI = `${API_BASE_URL}/auth/kakao/callback`;
 

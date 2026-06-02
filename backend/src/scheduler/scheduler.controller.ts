@@ -1,5 +1,10 @@
-import { Controller, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
+import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { SchedulerService } from './scheduler.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -18,7 +23,19 @@ export class SchedulerController {
     @Query('bgnDe') bgnDe: string,
     @Query('endDe') endDe: string,
   ) {
-    const result = await this.schedulerService.collectByDate(bgnDe, endDe);
+    const result = await this.schedulerService.collectByDate(bgnDe, endDe, 'MANUAL');
     return { success: true, data: result };
+  }
+
+  @Get('collection-logs')
+  @ApiOperation({ summary: '공시 수집 이력 조회 (최근 50건)' })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['RUNNING', 'SUCCESS', 'PARTIAL', 'FAILED'],
+    description: '상태 필터 (미지정 시 전체)',
+  })
+  async getCollectionLogs(@Query('status') status?: string) {
+    return this.schedulerService.getCollectionLogs(status);
   }
 }

@@ -7,6 +7,7 @@ import {
 } from '../dart-api/dart-api.service';
 import { ExpoPushService } from '../expo-push/expo-push.service';
 import { ExpoPushMessage } from 'expo-server-sdk';
+import { DisclosureCollectionLog } from '@prisma/client';
 
 @Injectable()
 export class SchedulerService {
@@ -25,55 +26,150 @@ export class SchedulerService {
   @Cron('*/10 8-17 * * 1-5')
   async collectDisclosures() {
     const today = this.formatDate(new Date());
-    return this.collectByDate(today, today);
+    return this.collectByDate(today, today, 'CRON');
   }
 
   /**
    * 날짜 범위 지정 수집 (수동 트리거용)
+   *
+   * @param bgnDe - 수집 시작일 (YYYYMMDD)
+   * @param endDe - 수집 종료일 (YYYYMMDD)
+   * @param triggeredBy - 'CRON' | 'MANUAL' (기본값: 'MANUAL')
    */
-  async collectByDate(bgnDe: string, endDe: string) {
+  async collectByDate(
+    bgnDe: string,
+    endDe: string,
+    triggeredBy: 'CRON' | 'MANUAL' = 'MANUAL',
+  ): Promise<{ saved: number; total?: number; message?: string }> {
+    // ① isCollecting 락 — 중복 실행 시 로그를 생성하지 않고 조기 반환
     if (this.isCollecting) {
       this.logger.warn('이전 수집 작업이 아직 진행 중입니다. 건너뜁니다.');
       return { saved: 0, message: '이전 작업 진행 중' };
     }
 
     this.isCollecting = true;
+
+    // ② CollectionLog RUNNING 상태로 생성
+    const log = await this.prisma.disclosureCollectionLog.create({
+      data: { bgnDe, endDe, triggeredBy, status: 'RUNNING' },
+    });
+
+    let fetchedCount = 0;
+    let newCount = 0;
+    let failedCount = 0;
+
     try {
-      this.logger.log(`공시 수집 시작... (${bgnDe} ~ ${endDe})`);
+      this.logger.log(
+        `공시 수집 시작... (${bgnDe} ~ ${endDe}) [triggeredBy=${triggeredBy}]`,
+      );
 
       const disclosures = await this.dartApiService.getAllDisclosures(
         bgnDe,
         endDe,
       );
+      fetchedCount = disclosures.length;
 
       if (disclosures.length === 0) {
         this.logger.log('새로운 공시가 없습니다.');
+        // ③-a 결과 없음도 정상 완료 → SUCCESS
+        await this.prisma.disclosureCollectionLog.update({
+          where: { id: log.id },
+          data: {
+            endedAt: new Date(),
+            fetchedCount: 0,
+            newCount: 0,
+            skippedCount: 0,
+            failedCount: 0,
+            status: 'SUCCESS',
+          },
+        });
         return { saved: 0, total: 0 };
       }
 
       // 신규 공시 필터링 (DB에 없는 것만)
       const newDisclosures = await this.filterNewDisclosures(disclosures);
+      const skippedCount = fetchedCount - newDisclosures.length;
 
       if (newDisclosures.length === 0) {
         this.logger.log('모든 공시가 이미 수집되었습니다.');
-        return { saved: 0, total: disclosures.length };
+        await this.prisma.disclosureCollectionLog.update({
+          where: { id: log.id },
+          data: {
+            endedAt: new Date(),
+            fetchedCount,
+            newCount: 0,
+            skippedCount,
+            failedCount: 0,
+            status: 'SUCCESS',
+          },
+        });
+        return { saved: 0, total: fetchedCount };
       }
 
       // DB 저장
-      const saved = await this.saveDisclosures(newDisclosures);
-      this.logger.log(`${saved}개 신규 공시 저장 완료`);
+      newCount = await this.saveDisclosures(newDisclosures);
+      this.logger.log(`${newCount}개 신규 공시 저장 완료`);
 
-      // 알림 매칭 및 발송
-      await this.matchAndNotify(newDisclosures);
+      // 알림 매칭 및 발송 — 오류 시 failedCount 증가, throw하지 않음
+      try {
+        await this.matchAndNotify(newDisclosures);
+      } catch (notifyError) {
+        this.logger.error('알림 발송 오류', notifyError);
+        failedCount = newDisclosures.length; // 매칭 전체 실패로 간주
+      }
 
-      this.logger.log('공시 수집 완료.');
-      return { saved, total: disclosures.length };
+      const skippedFinal = fetchedCount - newCount;
+      const finalStatus = failedCount > 0 ? 'PARTIAL' : 'SUCCESS';
+
+      // ③-b SUCCESS / PARTIAL 로 갱신
+      await this.prisma.disclosureCollectionLog.update({
+        where: { id: log.id },
+        data: {
+          endedAt: new Date(),
+          fetchedCount,
+          newCount,
+          skippedCount: skippedFinal,
+          failedCount,
+          status: finalStatus,
+        },
+      });
+
+      this.logger.log(`공시 수집 완료. [status=${finalStatus}]`);
+      return { saved: newCount, total: fetchedCount };
     } catch (error) {
       this.logger.error('공시 수집 실패', error);
-      throw error;
+
+      // ③-c FAILED 로 갱신
+      await this.prisma.disclosureCollectionLog.update({
+        where: { id: log.id },
+        data: {
+          endedAt: new Date(),
+          fetchedCount,
+          newCount,
+          skippedCount: fetchedCount - newCount,
+          failedCount,
+          status: 'FAILED',
+          errorMessage: error instanceof Error ? error.message : String(error),
+        },
+      });
+
+      throw error; // 컨트롤러 레이어에서 500 응답 처리
     } finally {
       this.isCollecting = false;
     }
+  }
+
+  /**
+   * 수집 이력 조회 — 최근 50건, 상태 필터 선택
+   *
+   * @param status - 'RUNNING' | 'SUCCESS' | 'PARTIAL' | 'FAILED' (미지정 시 전체)
+   */
+  async getCollectionLogs(status?: string): Promise<DisclosureCollectionLog[]> {
+    return this.prisma.disclosureCollectionLog.findMany({
+      where: status ? { status } : undefined,
+      orderBy: { startedAt: 'desc' },
+      take: 50,
+    });
   }
 
   /**
@@ -82,6 +178,7 @@ export class SchedulerService {
    */
   @Cron('0 6-7,18-22 * * 1-5')
   async collectDisclosuresOffHours() {
+    // collectDisclosures가 'CRON' 전달하므로 변경 없음
     await this.collectDisclosures();
   }
 

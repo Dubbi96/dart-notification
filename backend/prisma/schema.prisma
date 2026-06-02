@@ -197,3 +197,27 @@ model NotificationHistory {
   @@index([userId, sentAt]) // 알림 목록 조회용
   @@map("notification_history")
 }
+
+// ====================================
+// 공시 수집 로그 (M0 신규)
+// ====================================
+
+model DisclosureCollectionLog {
+  id           Int      @id @default(autoincrement())
+  startedAt    DateTime @default(now())         // 수집 시작 시각
+  endedAt      DateTime?                        // 수집 종료 시각 (RUNNING 중에는 null)
+  bgnDe        String                           // 수집 시작일 (YYYYMMDD)
+  endDe        String                           // 수집 종료일 (YYYYMMDD)
+  fetchedCount Int      @default(0)             // DART API 에서 받아온 총 건수
+  newCount     Int      @default(0)             // 신규 저장된 건수
+  skippedCount Int      @default(0)             // 중복으로 건너뛴 건수 (fetchedCount - newCount)
+  failedCount  Int      @default(0)             // 저장/매칭 오류 건수
+  status       String   @default("RUNNING")     // "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED"
+  errorMessage String?                          // 실패 시 오류 메시지 (SUCCESS/PARTIAL 시 null)
+  triggeredBy  String                           // "CRON" | "MANUAL"
+
+  @@index([startedAt])                          // 최근 N건 조회용
+  @@index([status])                             // 상태 필터 조회용
+  @@index([triggeredBy])
+  @@map("disclosure_collection_logs")
+}

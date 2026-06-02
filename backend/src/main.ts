@@ -11,7 +11,17 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   // Security
-  app.use(helmet());
+  // 개발 환경(http)에서는 Helmet의 https 강제 헤더를 끈다.
+  // (upgrade-insecure-requests / HSTS / COOP 가 http 접속을 깨뜨림 — Swagger·카카오 콜백 등)
+  const isProd = process.env.NODE_ENV === 'production';
+  app.use(
+    helmet({
+      contentSecurityPolicy: isProd ? undefined : false,
+      hsts: isProd ? undefined : false,
+      crossOriginOpenerPolicy: isProd ? undefined : false,
+      crossOriginResourcePolicy: isProd ? undefined : false,
+    }),
+  );
 
   // CORS
   app.enableCors({

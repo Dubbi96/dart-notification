@@ -39,6 +39,7 @@ function AppContent() {
           >
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="auth/sign-in" />
+            <Stack.Screen name="kakao" options={{ animation: 'none' }} />
             <Stack.Screen name="disclosures/index" />
             <Stack.Screen
               name="disclosure/[id]"

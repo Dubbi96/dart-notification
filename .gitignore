@@ -68,3 +68,10 @@ docker-compose.override.yml
 # Backups
 *.backup
 *.bak
+
+# Internal planning
+NEXT_STEPS.md
+
+# Local merge artifacts (do not commit)
+_develop_extract/
+dart-notification-develop.zip

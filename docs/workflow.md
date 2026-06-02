@@ -89,7 +89,7 @@ sequenceDiagram
     end
 
     User->>Mobile: 푸시 알림 클릭
-    Mobile->>Backend: GET /disclosures/:id
+    Mobile->>Backend: GET /disclosures/:rcpNo
     Backend-->>Mobile: 공시 상세 반환
     Mobile->>User: 공시 상세 화면 표시
 
@@ -122,7 +122,7 @@ sequenceDiagram
    ```
 
 3. **중복 알림 방지**
-   - `NotificationHistory` 테이블에서 `(userId, disclosureId)` 조합 조회
+   - `NotificationHistory` 테이블에서 `(userId, disclosureRcpNo)` 조합 조회
    - 이미 존재하면 알림 발송 스킵
 
 4. **푸시 알림 발송**
@@ -135,7 +135,7 @@ sequenceDiagram
        "body": "주주총회소집공고",
        "data": {
          "type": "disclosure",
-         "disclosureId": "clx..."
+         "disclosureRcpNo": "20260307000123"
        }
      }
      ```
@@ -147,10 +147,10 @@ sequenceDiagram
 6. **사용자 알림 수신**
    - 모바일 앱에서 푸시 알림 수신
    - 알림 클릭 → Deep Link 처리
-   - `disclosure/:disclosureId` 화면으로 이동
+   - `disclosure/:rcpNo` 화면으로 이동
 
 7. **공시 상세 조회**
-   - `GET /disclosures/:id` 호출
+   - `GET /disclosures/:rcpNo` 호출
    - 공시 정보 표시:
      - 기업명, 공시명, 접수일시, 공시 유형, 제출인명
      - "DART 원문 보기" 버튼
@@ -321,9 +321,9 @@ async notifyMatchedUsers(disclosure: Disclosure) {
     // 중복 체크
     const existing = await this.prisma.notificationHistory.findUnique({
       where: {
-        userId_disclosureId: {
+        userId_disclosureRcpNo: {
           userId: user.id,
-          disclosureId: disclosure.id,
+          disclosureRcpNo: disclosure.rcpNo,
         },
       },
     });
@@ -340,7 +340,7 @@ async notifyMatchedUsers(disclosure: Disclosure) {
         body: disclosure.reportName,
         data: {
           type: 'disclosure',
-          disclosureId: disclosure.id,
+          disclosureRcpNo: disclosure.rcpNo,
         },
       });
 
@@ -348,7 +348,7 @@ async notifyMatchedUsers(disclosure: Disclosure) {
       await this.prisma.notificationHistory.create({
         data: {
           userId: user.id,
-          disclosureId: disclosure.id,
+          disclosureRcpNo: disclosure.rcpNo,
         },
       });
     } catch (error) {

@@ -19,7 +19,7 @@ export class UpdateNotificationSettingsDto {
   })
   @IsArray()
   @IsString({ each: true })
-  @ArrayMaxSize(10)
+  @ArrayMaxSize(5)
   @IsOptional()
   keywords?: string[];
 

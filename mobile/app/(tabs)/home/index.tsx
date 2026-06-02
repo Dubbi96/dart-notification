@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -8,31 +8,46 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, Feather } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
+import { FileText, MoonStars, Sun, CloudSun, Moon } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { GlassCard } from '@components/common/GlassCard';
 import { useDisclosures } from '@hooks/useDisclosures';
+import { useWatchlist } from '@hooks/useWatchlist';
+import { useSavedDisclosures } from '@hooks/useSavedDisclosures';
+import { useNotifications } from '@hooks/useNotifications';
+import { useRequireAuth } from '@hooks/useRequireAuth';
+import { useAuthStore } from '@stores/authStore';
+import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
+import { parse, format } from 'date-fns';
 
-function getTypeColor(type: string, primary: string, info: string, warning: string) {
-  switch (type) {
-    case '정기보고서':
-      return primary;
-    case '주요사항보고':
-      return info;
-    case '지분변동':
-      return warning;
-    default:
-      return primary;
-  }
+function getGreeting(): { text: string; Icon: typeof Sun } {
+  const hour = new Date().getHours();
+
+  if (hour < 6) return { text: '오늘도 늦게까지 고생 많으시네요', Icon: MoonStars };
+  if (hour < 12) return { text: '좋은 아침이에요', Icon: Sun };
+  if (hour < 18) return { text: '기분 좋은 오후예요', Icon: CloudSun };
+  return { text: '편안한 밤 보내세요', Icon: Moon };
 }
 
 export default function HomeScreen() {
+  const insets = useSafeAreaInsets();
   const { colors, typography: typo, isDark } = useTheme();
+  const { isAuthenticated, requireAuth } = useRequireAuth();
+  const userName = useAuthStore((s) => s.user?.name);
+
+  const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
+  const watchlistCount = watchlistData?.meta?.total ?? 0;
+
+  const hasWatchlist = isAuthenticated && watchlistCount > 0;
+  const [feedTab, setFeedTab] = useState<'all' | 'watchlist'>(hasWatchlist ? 'watchlist' : 'all');
+  const isWatchlistFeed = feedTab === 'watchlist';
+
   const {
     data,
     fetchNextPage,
@@ -40,38 +55,51 @@ export default function HomeScreen() {
     isFetchingNextPage,
     isLoading,
     refetch,
-  } = useDisclosures();
+  } = useDisclosures(undefined, isWatchlistFeed);
 
-  const disclosures = useMemo(
-    () => data?.pages.flatMap((page) => page.data) ?? [],
-    [data],
-  );
+  const disclosures = useMemo(() => {
+    const all = data?.pages.flatMap((page) => page.data) ?? [];
+    const seen = new Set<string>();
+    return all.filter((item) => {
+      if (seen.has(item.rcpNo)) return false;
+      seen.add(item.rcpNo);
+      return true;
+    });
+  }, [data]);
 
   const totalCount = data?.pages[0]?.meta.total ?? 0;
+
+  const { data: savedData } = useSavedDisclosures({ enabled: isAuthenticated });
+  const savedCount = savedData?.data?.length ?? 0;
+
+  const { data: notifData } = useNotifications({ enabled: isAuthenticated });
+  const unreadCount = notifData?.pages[0]?.meta.unreadCount ?? 0;
 
   const renderDisclosureItem = ({ item }: { item: any }) => (
     <TouchableOpacity
       activeOpacity={0.7}
-      onPress={() => router.push(`/disclosure/${item.id}`)}
+      onPress={() => router.push(`/disclosure/${item.rcpNo}`)}
     >
       <Card style={styles.disclosureCard} variant="elevated">
         <View style={styles.disclosureHeader}>
           <View
             style={[
               styles.typeBadge,
-              { backgroundColor: getTypeColor(item.disclosureType, colors.primaryLight, colors.info + '20', colors.warning + '20') },
+              { backgroundColor: getTypeStyle(item.disclosureType, isDark).bg },
             ]}
           >
             <Text
               style={[
                 typo.small,
-                { color: getTypeColor(item.disclosureType, colors.primary, colors.info, colors.warning), fontWeight: '600' },
+                { color: getTypeStyle(item.disclosureType, isDark).text, fontWeight: '600' },
               ]}
             >
-              {item.disclosureType}
+              {getTypeLabel(item.disclosureType)}
             </Text>
           </View>
-          <Text style={[typo.small, { color: colors.textTertiary }]}>{item.rcpDt}</Text>
+          <Text style={[typo.small, { color: colors.textTertiary }]}>
+            {format(parse(item.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd')}
+          </Text>
         </View>
         <Text style={[typo.bodyMedium, { color: colors.text, marginTop: spacing.sm }]} numberOfLines={2}>
           {item.reportName}
@@ -85,125 +113,193 @@ export default function HomeScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-        <View style={styles.loadingContainer}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.loadingContainer, { paddingTop: insets.top }]}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header - Paychain style gradient header */}
       <LinearGradient
         colors={[colors.cardGradientStart, colors.cardGradientEnd]}
-        style={styles.header}
+        style={[styles.header, { paddingTop: insets.top + spacing.base }]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       >
         <View style={styles.headerTop}>
           <View>
-            <Text style={[typo.caption, { color: 'rgba(255,255,255,0.7)' }]}>좋은 아침이에요</Text>
-            <Text style={[typo.h2, { color: '#FFFFFF', marginTop: 2 }]}>DART 알리미</Text>
+            <Text style={[typo.small, { color: 'rgba(255,255,255,0.5)' }]}>실시간 DART 공시 알리미</Text>
+            <Text style={[typo.h2, { color: '#FFFFFF', marginTop: 2 }]}>{userName ? `${userName} 님` : '공시온'}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+              {(() => { const { text, Icon } = getGreeting(); return (
+                <>
+                  <Text style={[typo.caption, { color: 'rgba(255,255,255,0.7)' }]}>{text}</Text>
+                  <Icon size={16} color="rgba(255,255,255,0.7)" weight="duotone" />
+                </>
+              ); })()}
+            </View>
           </View>
           <TouchableOpacity
             style={styles.headerIcon}
-            onPress={() => router.push('/(tabs)/notifications')}
+            onPress={() => {
+              if (requireAuth()) router.push('/(tabs)/notifications');
+            }}
           >
             <GlassCard intensity={20} variant="iridescent" style={styles.headerIconGlass}>
               <View style={styles.headerIconInner}>
                 <Ionicons name="notifications-outline" size={22} color="#FFFFFF" />
               </View>
             </GlassCard>
+            {unreadCount > 0 && (
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifBadgeText}>
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 
         {/* Summary card - Glassmorphism + Holographic iridescent */}
         <GlassCard style={styles.summaryCard} intensity={30} variant="iridescent">
           <View style={styles.summaryContent}>
-            <View style={styles.summaryItem}>
+            <TouchableOpacity style={styles.summaryItem} onPress={() => router.push('/disclosures')}>
               <Text style={[typo.h2, { color: '#FFFFFF' }]}>{totalCount}</Text>
               <Text style={[typo.small, { color: 'rgba(255,255,255,0.8)' }]}>오늘의 공시</Text>
-            </View>
+            </TouchableOpacity>
             <View style={[styles.summaryDivider, { backgroundColor: 'rgba(255,255,255,0.25)' }]} />
-            <View style={styles.summaryItem}>
-              <Text style={[typo.h2, { color: '#FFFFFF' }]}>-</Text>
+            <TouchableOpacity style={styles.summaryItem} onPress={() => {
+              if (requireAuth()) router.push('/settings-detail/watchlist');
+            }}>
+              <Text style={[typo.h2, { color: '#FFFFFF' }]}>{isAuthenticated ? watchlistCount : '-'}</Text>
               <Text style={[typo.small, { color: 'rgba(255,255,255,0.8)' }]}>관심 기업</Text>
-            </View>
+            </TouchableOpacity>
             <View style={[styles.summaryDivider, { backgroundColor: 'rgba(255,255,255,0.25)' }]} />
-            <View style={styles.summaryItem}>
-              <Text style={[typo.h2, { color: '#FFFFFF' }]}>-</Text>
-              <Text style={[typo.small, { color: 'rgba(255,255,255,0.8)' }]}>새 알림</Text>
-            </View>
+            <TouchableOpacity style={styles.summaryItem} onPress={() => {
+              if (requireAuth()) router.push('/settings-detail/saved-disclosures');
+            }}>
+              <Text style={[typo.h2, { color: '#FFFFFF' }]}>{isAuthenticated ? savedCount : '-'}</Text>
+              <Text style={[typo.small, { color: 'rgba(255,255,255,0.8)' }]}>저장된 공시</Text>
+            </TouchableOpacity>
           </View>
         </GlassCard>
       </LinearGradient>
 
       {/* Content area with top border radius */}
       <View style={[styles.contentArea, { backgroundColor: colors.background }]}>
-      {/* Quick Actions - Paychain style icon row */}
-      <View style={styles.quickActions}>
-        {[
-          { icon: 'search-outline' as const, label: '검색' },
-          { icon: 'star-outline' as const, label: '관심목록' },
-          { icon: 'filter-outline' as const, label: '필터' },
-          { icon: 'bookmark-outline' as const, label: '저장됨' },
-        ].map((action) => (
-          <TouchableOpacity key={action.label} style={styles.actionItem}>
-            <View style={[styles.actionIcon, { backgroundColor: colors.primaryLight }]}>
-              <Ionicons name={action.icon} size={22} color={colors.primary} />
-            </View>
-            <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
-              {action.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Recent Disclosures */}
-      <View style={styles.sectionHeader}>
-        <Text style={[typo.h3, { color: colors.text }]}>최근 공시</Text>
-        <TouchableOpacity>
-          <Text style={[typo.captionMedium, { color: colors.primary }]}>전체보기</Text>
-        </TouchableOpacity>
-      </View>
-
-      <FlatList
-        data={disclosures}
-        renderItem={renderDisclosureItem}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        onEndReached={() => {
-          if (hasNextPage && !isFetchingNextPage) {
-            fetchNextPage();
-          }
-        }}
-        onEndReachedThreshold={0.5}
-        refreshControl={
-          <RefreshControl
-            refreshing={false}
-            onRefresh={refetch}
-            tintColor={colors.primary}
-          />
-        }
-        ListFooterComponent={
-          isFetchingNextPage ? (
-            <ActivityIndicator style={{ paddingVertical: spacing.lg }} color={colors.primary} />
-          ) : null
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Feather name="file-text" size={44} color={colors.textTertiary} />
-            <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.md }]}>
-              공시 데이터가 없습니다
-            </Text>
+        {/* Disclosures */}
+        <View style={styles.sectionHeader}>
+          <View style={styles.segmentControl}>
+            <TouchableOpacity
+              style={[
+                styles.segmentTab,
+                feedTab === 'all'
+                  ? { backgroundColor: colors.primary }
+                  : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
+              ]}
+              onPress={() => setFeedTab('all')}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  typo.captionMedium,
+                  { color: feedTab === 'all' ? '#FFFFFF' : colors.textSecondary },
+                ]}
+              >
+                전체 공시
+              </Text>
+            </TouchableOpacity>
+            {hasWatchlist && (
+              <TouchableOpacity
+                style={[
+                  styles.segmentTab,
+                  feedTab === 'watchlist'
+                    ? { backgroundColor: colors.primary }
+                    : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
+                ]}
+                onPress={() => setFeedTab('watchlist')}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="star"
+                  size={12}
+                  color={feedTab === 'watchlist' ? '#FFFFFF' : colors.textSecondary}
+                  style={{ marginRight: 4 }}
+                />
+                <Text
+                  style={[
+                    typo.captionMedium,
+                    { color: feedTab === 'watchlist' ? '#FFFFFF' : colors.textSecondary },
+                  ]}
+                >
+                  관심 기업
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
-        }
-      />
+          <TouchableOpacity onPress={() => router.push(
+            isWatchlistFeed
+              ? { pathname: '/disclosures', params: { watchlistOnly: 'true' } }
+              : '/disclosures'
+          )}>
+            <Text style={[typo.captionMedium, { color: colors.primary }]}>전체보기</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* 관심기업 등록 유도 배너 */}
+        {isAuthenticated && watchlistCount === 0 && (
+          <TouchableOpacity
+            style={[styles.guideBanner, { backgroundColor: colors.primaryLight }]}
+            onPress={() => router.push('/settings-detail/watchlist')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="star-outline" size={16} color={colors.primary} />
+            <Text style={[typo.caption, { color: colors.primary, flex: 1, marginLeft: spacing.sm }]}>
+              관심 기업을 등록하면 맞춤 공시를 볼 수 있어요
+            </Text>
+            <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+          </TouchableOpacity>
+        )}
+
+        <FlatList
+          data={disclosures}
+          renderItem={renderDisclosureItem}
+          keyExtractor={(item) => item.rcpNo}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage) {
+              fetchNextPage();
+            }
+          }}
+          onEndReachedThreshold={0.5}
+          refreshControl={
+            <RefreshControl
+              refreshing={false}
+              onRefresh={refetch}
+              tintColor={colors.primary}
+            />
+          }
+          ListFooterComponent={
+            isFetchingNextPage ? (
+              <ActivityIndicator style={{ paddingVertical: spacing.lg }} color={colors.primary} />
+            ) : null
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <FileText size={48} color={colors.textTertiary} weight="thin" />
+              <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.md }]}>
+                공시 데이터가 없습니다
+              </Text>
+            </View>
+          }
+        />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -237,13 +333,14 @@ const styles = StyleSheet.create({
   headerIconGlass: {
     width: 44,
     height: 44,
-    borderRadius: radius.md,
+    borderRadius: radius.xl,
   },
   headerIconInner: {
     width: 44,
     height: 44,
     justifyContent: 'center',
     alignItems: 'center',
+    borderRadius: radius.xl,
   },
   summaryCard: {
     marginTop: spacing.lg,
@@ -265,36 +362,60 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.xl,
     marginTop: -radius.xl,
   },
-  quickActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.base,
-  },
-  actionItem: {
-    alignItems: 'center',
-  },
-  actionIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.md,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
     marginBottom: spacing.md,
   },
+  segmentControl: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  segmentTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+  },
+  guideBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: radius.md,
+  },
   listContent: {
+    paddingTop: spacing.md,
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xl,
     gap: spacing.md,
   },
   disclosureCard: {
     marginBottom: 0,
+  },
+  notifBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FF3B30',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  notifBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 14,
   },
   disclosureHeader: {
     flexDirection: 'row',

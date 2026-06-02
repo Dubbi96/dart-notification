@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import { authService } from '@services/auth.service';
 import { useAuthStore } from '@stores/authStore';
@@ -20,13 +20,42 @@ export function useKakaoLogin() {
   });
 }
 
-export function useLogout() {
-  const { clearAuth } = useAuthStore();
-  return useMutation({
-    mutationFn: authService.logout,
-    onSuccess: () => {
-      clearAuth();
-      router.replace('/auth/sign-in');
+export function useMe() {
+  const { isAuthenticated, setAuth, clearAuth, accessToken, refreshToken } = useAuthStore();
+  return useQuery({
+    queryKey: ['users', 'me'],
+    queryFn: async () => {
+      try {
+        const data = await authService.getMe();
+        if (data && accessToken && refreshToken) {
+          setAuth(data, accessToken, refreshToken);
+        }
+        return data;
+      } catch (err: any) {
+        if (err?.response?.status === 401 || err?.response?.status === 403) {
+          clearAuth();
+          router.replace('/auth/sign-in');
+        }
+        throw err;
+      }
     },
+    enabled: isAuthenticated,
+    retry: false,
+    staleTime: 1000 * 60 * 5, // 5분
+  });
+}
+
+export function useLogout() {
+  const { clearAuth, expoPushToken } = useAuthStore();
+
+  const handleLogout = () => {
+    clearAuth();
+    router.replace('/auth/sign-in');
+  };
+
+  return useMutation({
+    mutationFn: () => authService.logout(expoPushToken ?? undefined),
+    onSuccess: handleLogout,
+    onError: handleLogout,
   });
 }

@@ -28,6 +28,14 @@ export const palette = {
   gray900: '#111827',
   gray950: '#030712',
 
+  // Navy (Dark mode backgrounds)
+  navy950: '#060A18',
+  navy900: '#0C1026',
+  navy800: '#141836',
+  navy700: '#1C2146',
+  navy600: '#282E58',
+  navy500: '#3B4178',
+
   // Semantic
   white: '#FFFFFF',
   black: '#000000',
@@ -53,7 +61,7 @@ export const lightColors = {
 
   // Primary
   primary: palette.teal500,
-  primaryLight: palette.teal100,
+  primaryLight: palette.teal50,
   primaryDark: palette.teal700,
   primaryForeground: palette.white,
 
@@ -84,7 +92,7 @@ export const lightColors = {
   tabInactive: palette.gray400,
 
   // Input
-  inputBackground: palette.gray100,
+  inputBackground: palette.white,
   inputBorder: palette.gray300,
   inputText: palette.gray900,
   inputPlaceholder: palette.gray400,
@@ -98,31 +106,31 @@ export const lightColors = {
 } as const;
 
 export const darkColors = {
-  // Backgrounds
-  background: palette.gray950,
-  surface: palette.gray900,
-  surfaceSecondary: palette.gray800,
-  surfaceElevated: palette.gray800,
+  // Backgrounds - Deep navy tone
+  background: palette.navy950,
+  surface: palette.navy900,
+  surfaceSecondary: palette.navy800,
+  surfaceElevated: palette.navy800,
 
-  // Primary
-  primary: palette.teal400,
-  primaryLight: palette.teal900,
-  primaryDark: palette.teal300,
-  primaryForeground: palette.gray950,
+  // Primary - Soft lavender for navy dark mode
+  primary: '#818CF8',
+  primaryLight: '#1A1D3A',
+  primaryDark: '#A5B4FC',
+  primaryForeground: palette.navy950,
 
   // Text
-  text: palette.gray50,
-  textSecondary: palette.gray400,
-  textTertiary: palette.gray500,
-  textInverse: palette.gray900,
+  text: '#E8EAF0',
+  textSecondary: '#8B90A8',
+  textTertiary: '#5C6180',
+  textInverse: palette.navy900,
 
   // Borders
-  border: palette.gray700,
-  borderLight: palette.gray800,
+  border: palette.navy600,
+  borderLight: palette.navy700,
 
   // Card
-  cardGradientStart: palette.teal600,
-  cardGradientEnd: palette.teal950,
+  cardGradientStart: '#1A3A5C',
+  cardGradientEnd: palette.navy900,
 
   // Status
   success: palette.green400,
@@ -131,23 +139,23 @@ export const darkColors = {
   info: palette.blue400,
 
   // Tab bar
-  tabBar: palette.gray900,
-  tabBarBorder: palette.gray800,
-  tabActive: palette.teal400,
-  tabInactive: palette.gray500,
+  tabBar: palette.navy900,
+  tabBarBorder: palette.navy800,
+  tabActive: '#818CF8',
+  tabInactive: '#5C6180',
 
   // Input
-  inputBackground: palette.gray800,
-  inputBorder: palette.gray700,
-  inputText: palette.gray50,
-  inputPlaceholder: palette.gray500,
+  inputBackground: palette.navy800,
+  inputBorder: palette.navy600,
+  inputText: '#E8EAF0',
+  inputPlaceholder: '#5C6180',
 
   // Overlay
-  overlay: 'rgba(0, 0, 0, 0.7)',
+  overlay: 'rgba(4, 6, 16, 0.75)',
 
   // Shadows
-  shadow: 'rgba(0, 0, 0, 0.3)',
-  shadowMedium: 'rgba(0, 0, 0, 0.5)',
+  shadow: 'rgba(0, 0, 0, 0.4)',
+  shadowMedium: 'rgba(0, 0, 0, 0.6)',
 } as const;
 
 // Use widened string type so light and dark are assignable to the same type

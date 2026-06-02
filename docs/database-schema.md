@@ -27,8 +27,7 @@
        │           │    ┌──────────────────────┐
        │           └───>│NotificationSettings  │
        │                ├──────────────────────┤
-       │                │ id                   │
-       │                │ userId               │
+       │                │ userId (PK)          │
        │                │ disclosureTypes      │
        │                │ keywords             │
        │                │ isEnabled            │
@@ -40,7 +39,7 @@
                         ├──────────────────────┤
                    ┌───>│ id                   │
                    │    │ userId               │
-                   │    │ disclosureId         │
+                   │    │ disclosureRcpNo      │
                    │    │ sentAt               │
                    │    │ isRead               │
                    │    │ readAt               │
@@ -49,8 +48,7 @@
 ┌──────────────┐   │
 │ Disclosures  │───┘
 ├──────────────┤
-│ id           │
-│ rcpNo        │ (고유번호)
+│ rcpNo (PK)   │ (DART 접수번호)
 │ corpCode     │
 │ corpName     │
 │ reportName   │
@@ -66,8 +64,7 @@
 ┌──────────────┐
 │  Companies   │
 ├──────────────┤
-│ id           │
-│ corpCode     │ (종목코드)
+│ corpCode(PK) │ (DART 고유번호)
 │ corpName     │ (기업명)
 │ stockCode    │ (상장코드, nullable)
 │ market       │ (코스피/코스닥, nullable)
@@ -133,14 +130,17 @@ model UserDevice {
 // ====================================
 
 model Company {
-  id        String   @id @default(cuid())
-  corpCode  String   @unique // DART 고유번호 (8자리)
+  corpCode  String   @id // DART 고유번호 (8자리, Natural Key)
   corpName  String   // 기업명
   stockCode String?  // 종목코드 (6자리, 비상장은 null)
   market    String?  // "KOSPI" | "KOSDAQ" | null
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Relations
+  watchLists  WatchList[]
+  disclosures Disclosure[]
 
   @@index([corpName]) // 자동완성 검색용
   @@index([stockCode])
@@ -172,8 +172,7 @@ model WatchList {
 // ====================================
 
 model NotificationSettings {
-  id              String   @id @default(cuid())
-  userId          String   @unique
+  userId          String   @id // User와 1:1, Natural Key
   disclosureTypes String[] // ["정기공시", "주요사항보고", "발행공시", "지분공시", "기타공시"]
   keywords        String[] // 키워드 배열 (예: ["증자", "배당"])
   isEnabled       Boolean  @default(true)
@@ -182,7 +181,6 @@ model NotificationSettings {
   // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
   @@map("notification_settings")
 }
 
@@ -191,8 +189,7 @@ model NotificationSettings {
 // ====================================
 
 model Disclosure {
-  id             String   @id @default(cuid())
-  rcpNo          String   @unique // DART 접수번호 (고유키)
+  rcpNo          String   @id // DART 접수번호 (Natural Key)
   corpCode       String   // 기업 고유번호
   corpName       String   // 기업명
   reportName     String   // 보고서명
@@ -204,6 +201,7 @@ model Disclosure {
   createdAt DateTime @default(now())
 
   // Relations
+  company             Company              @relation(fields: [corpCode], references: [corpCode])
   notificationHistory NotificationHistory[]
 
   @@index([corpCode])
@@ -218,18 +216,18 @@ model Disclosure {
 // ====================================
 
 model NotificationHistory {
-  id           String   @id @default(cuid())
-  userId       String
-  disclosureId String
-  sentAt       DateTime @default(now())
-  isRead       Boolean  @default(false)
-  readAt       DateTime?
+  id               String    @id @default(cuid())
+  userId           String
+  disclosureRcpNo  String    // DART 접수번호 (FK → Disclosure.rcpNo)
+  sentAt           DateTime  @default(now())
+  isRead           Boolean   @default(false)
+  readAt           DateTime?
 
   // Relations
   user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  disclosure Disclosure @relation(fields: [disclosureId], references: [id], onDelete: Cascade)
+  disclosure Disclosure @relation(fields: [disclosureRcpNo], references: [rcpNo], onDelete: Cascade)
 
-  @@unique([userId, disclosureId]) // 중복 알림 방지
+  @@unique([userId, disclosureRcpNo]) // 중복 알림 방지
   @@index([userId, isRead]) // 읽지 않은 알림 조회용
   @@index([userId, sentAt]) // 알림 목록 조회용
   @@map("notification_history")
@@ -281,8 +279,7 @@ model NotificationHistory {
 
 | 컬럼명 | 타입 | 설명 | 제약 조건 |
 |--------|------|------|----------|
-| id | String | 기업 고유 ID | PK, cuid() |
-| corpCode | String | DART 고유번호 (8자리) | UNIQUE, NOT NULL |
+| corpCode | String | DART 고유번호 (8자리) | PK (Natural Key) |
 | corpName | String | 기업명 | NOT NULL |
 | stockCode | String | 종목코드 (6자리) | NULLABLE |
 | market | String | "KOSPI" \| "KOSDAQ" | NULLABLE |
@@ -323,8 +320,7 @@ model NotificationHistory {
 
 | 컬럼명 | 타입 | 설명 | 제약 조건 |
 |--------|------|------|----------|
-| id | String | 설정 고유 ID | PK, cuid() |
-| userId | String | 사용자 ID | FK -> users.id, UNIQUE |
+| userId | String | 사용자 ID | PK, FK -> users.id |
 | disclosureTypes | String[] | 공시 유형 배열 | default: [] |
 | keywords | String[] | 키워드 배열 | default: [] |
 | isEnabled | Boolean | 알림 전체 on/off | default: true |
@@ -350,8 +346,7 @@ model NotificationHistory {
 
 | 컬럼명 | 타입 | 설명 | 제약 조건 |
 |--------|------|------|----------|
-| id | String | 공시 고유 ID | PK, cuid() |
-| rcpNo | String | DART 접수번호 | UNIQUE, NOT NULL |
+| rcpNo | String | DART 접수번호 | PK (Natural Key) |
 | corpCode | String | 기업 고유번호 | NOT NULL |
 | corpName | String | 기업명 | NOT NULL |
 | reportName | String | 보고서명 | NOT NULL |
@@ -362,7 +357,7 @@ model NotificationHistory {
 | createdAt | DateTime | DB 저장일시 | default: now() |
 
 **인덱스**:
-- `rcpNo` (중복 체크, 조회 성능)
+- `rcpNo` (PK, 자연키)
 - `corpCode` (기업별 공시 조회)
 - `rcpDt` (날짜별 공시 조회)
 - `disclosureType` (유형별 공시 조회)
@@ -381,7 +376,7 @@ https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcpNo}
 |--------|------|------|----------|
 | id | String | 알림 고유 ID | PK, cuid() |
 | userId | String | 사용자 ID | FK -> users.id |
-| disclosureId | String | 공시 ID | FK -> disclosures.id |
+| disclosureRcpNo | String | DART 접수번호 | FK -> disclosures.rcpNo |
 | sentAt | DateTime | 발송일시 | default: now() |
 | isRead | Boolean | 읽음 여부 | default: false |
 | readAt | DateTime | 읽은 일시 | NULLABLE |
@@ -389,10 +384,10 @@ https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcpNo}
 **인덱스**:
 - `(userId, isRead)` (읽지 않은 알림 조회)
 - `(userId, sentAt)` (알림 목록 조회, 최신순 정렬)
-- Composite Unique: `(userId, disclosureId)` (중복 알림 방지)
+- Composite Unique: `(userId, disclosureRcpNo)` (중복 알림 방지)
 
 **중복 알림 방지 메커니즘**:
-- `(userId, disclosureId)` 조합이 유니크
+- `(userId, disclosureRcpNo)` 조합이 유니크
 - 알림 발송 전에 이 조합으로 조회하여 이미 존재하면 스킵
 
 ## 4. 초기 데이터 설정
@@ -517,4 +512,5 @@ pg_restore -d dart_notification backup.sql
 ---
 
 **작성일**: 2026-03-07
-**버전**: 1.0 (MVP)
+**최종 수정일**: 2026-03-08
+**버전**: 1.1 (Natural Key PK 재설계)

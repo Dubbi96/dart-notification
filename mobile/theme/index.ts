@@ -1,5 +1,6 @@
 import { useColorScheme } from 'react-native';
 import { createContext, useContext } from 'react';
+import { useSettingsStore } from '@stores/settingsStore';
 import {
   MD3LightTheme,
   MD3DarkTheme,
@@ -37,8 +38,11 @@ export function useTheme(): Theme {
 
 export function useAppColorScheme(): ColorScheme {
   const systemScheme = useColorScheme();
-  // For now, follow system. Later can add manual override via settingsStore.
-  return systemScheme === 'dark' ? 'dark' : 'light';
+  const override = useSettingsStore((s) => s.colorSchemeOverride);
+  if (override === 'system') {
+    return systemScheme === 'dark' ? 'dark' : 'light';
+  }
+  return override;
 }
 
 export function getPaperTheme(scheme: ColorScheme): MD3Theme {

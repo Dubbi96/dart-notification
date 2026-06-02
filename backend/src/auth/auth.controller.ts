@@ -18,8 +18,10 @@ import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { KakaoAuthDto } from './dto/kakao-auth.dto';
+import { LogoutDto } from './dto/logout.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { JwtRefreshGuard } from './guards/jwt-refresh.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -63,21 +65,24 @@ export class AuthController {
       this.authService.storeAuthResult(state, result);
 
       // Return HTML that closes the browser
-      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(`
-        <html><body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background:#F0FDFA;">
+        <html><head><meta charset="utf-8"></head>
+        <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background:#F0FDFA;">
           <div style="text-align:center;">
-            <p style="font-size:20px;color:#0D9488;">로그인 성공!</p>
-            <p style="color:#6B7280;">앱으로 돌아가주세요.</p>
+            <p style="font-size:20px;color:#0D9488;">✓ 로그인 성공!</p>
+            <p style="color:#6B7280;">잠시 후 앱으로 돌아갑니다...</p>
           </div>
+          <script>setTimeout(function(){window.close()},1500);</script>
         </body></html>
       `);
     } catch (e) {
       console.error('[KakaoCallback Error]', e?.message || e);
       const errorMsg = e?.message || '알 수 없는 오류';
-      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(`
-        <html><body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background:#FEF2F2;">
+        <html><head><meta charset="utf-8"></head>
+        <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background:#FEF2F2;">
           <div style="text-align:center;">
             <p style="font-size:20px;color:#DC2626;">로그인 실패</p>
             <p style="color:#6B7280;">${errorMsg}</p>
@@ -112,7 +117,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '로그아웃' })
-  async logout() {
-    await this.authService.logout();
+  async logout(@CurrentUser('id') userId: string, @Body() dto: LogoutDto) {
+    await this.authService.logout(userId, dto.deviceToken);
   }
 }

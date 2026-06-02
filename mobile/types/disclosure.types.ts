@@ -1,5 +1,4 @@
 export interface Disclosure {
-  id: string;
   rcpNo: string;
   corpCode: string;
   corpName: string;
@@ -10,4 +9,11 @@ export interface Disclosure {
   disclosureType: string;
   createdAt: string;
   dartUrl?: string;
+}
+
+export interface DisclosureType {
+  id: string;
+  label: string;
+  description: string;
+  sortOrder: number;
 }

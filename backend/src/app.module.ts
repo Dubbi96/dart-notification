@@ -11,6 +11,7 @@ import { CompaniesModule } from './companies/companies.module';
 import { WatchlistModule } from './watchlist/watchlist.module';
 import { NotificationSettingsModule } from './notification-settings/notification-settings.module';
 import { DisclosuresModule } from './disclosures/disclosures.module';
+import { SavedDisclosuresModule } from './saved-disclosures/saved-disclosures.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { DartApiModule } from './dart-api/dart-api.module';
@@ -46,6 +47,7 @@ import { ExpoPushModule } from './expo-push/expo-push.module';
     WatchlistModule,
     NotificationSettingsModule,
     DisclosuresModule,
+    SavedDisclosuresModule,
     NotificationsModule,
     SchedulerModule,
     DartApiModule,

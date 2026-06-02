@@ -17,11 +17,38 @@ export class WatchlistService {
     const watchlist = await this.prisma.watchList.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
+      include: {
+        company: {
+          select: { stockCode: true, market: true },
+        },
+      },
     });
 
+    const corpCodes = watchlist.map((w) => w.corpCode);
+
+    // 각 기업의 최근 공시 날짜 조회
+    const latestDisclosures = corpCodes.length > 0
+      ? await this.prisma.disclosure.groupBy({
+          by: ['corpCode'],
+          where: { corpCode: { in: corpCodes } },
+          _max: { rcpDt: true },
+        })
+      : [];
+
+    const latestMap = new Map(
+      latestDisclosures.map((d) => [d.corpCode, d._max.rcpDt]),
+    );
+
+    const items = watchlist.map(({ company, ...item }) => ({
+      ...item,
+      stockCode: company?.stockCode ?? null,
+      market: company?.market ?? null,
+      lastDisclosureDate: latestMap.get(item.corpCode) ?? null,
+    }));
+
     return {
-      items: watchlist,
-      total: watchlist.length,
+      items,
+      total: items.length,
       limit: MAX_WATCHLIST_COUNT,
     };
   }

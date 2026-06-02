@@ -1,7 +1,7 @@
 export interface Notification {
   id: string;
   userId: string;
-  disclosureId: string;
+  disclosureRcpNo: string;
   sentAt: string;
   isRead: boolean;
   readAt: string | null;

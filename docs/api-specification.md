@@ -182,9 +182,12 @@ Production: https://api.dart-notification.com/api
 **Request Body**:
 ```json
 {
-  "refreshToken": "eyJ..."
+  "deviceToken": "ExponentPushToken[...]"  // optional
 }
 ```
+
+**특징**:
+- `deviceToken`을 전달하면 해당 디바이스의 푸시 토큰을 서버에서 삭제하여 로그아웃 후 알림이 오지 않도록 처리
 
 **Response**: `204 No Content`
 
@@ -560,7 +563,7 @@ GET /disclosures?page=1&limit=20&corpCode=00126380
 
 ### 7.2 공시 상세 조회
 
-**Endpoint**: `GET /disclosures/:id`
+**Endpoint**: `GET /disclosures/:rcpNo`
 
 **Headers**: `Authorization: Bearer {accessToken}`
 
@@ -569,7 +572,6 @@ GET /disclosures?page=1&limit=20&corpCode=00126380
 {
   "success": true,
   "data": {
-    "id": "clx...",
     "rcpNo": "20260307000123",
     "corpCode": "00126380",
     "corpName": "삼성전자",
@@ -656,7 +658,7 @@ GET /notifications?isRead=false&page=1&limit=20
   "data": [
     {
       "id": "clx...",
-      "disclosureId": "clx...",
+      "disclosureRcpNo": "20260307000123",
       "sentAt": "2026-03-07T12:10:00Z",
       "isRead": false,
       "readAt": null,
@@ -780,16 +782,15 @@ X-RateLimit-Reset: 1678190400
   "body": "주주총회소집공고",
   "data": {
     "type": "disclosure",
-    "disclosureId": "clx...",
-    "rcpNo": "20260307000123"
+    "disclosureRcpNo": "20260307000123"
   }
 }
 ```
 
 **Deep Link**:
-- 앱 내 라우팅: `disclosure/:disclosureId`
+- 앱 내 라우팅: `disclosure/:rcpNo`
 
 ---
 
-**작성일**: 2026-03-07
-**버전**: 1.0 (MVP)
+**작성일**: 2026-04-18
+**버전**: 1.1 (로그아웃 API 개선)

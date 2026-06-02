@@ -1,0 +1,9 @@
+{
+  "name": "dart-notification",
+  "private": true,
+  "scripts": {
+    "db": "docker-compose -f docker-compose.dev.yml up -d",
+    "db:down": "docker-compose -f docker-compose.dev.yml down",
+    "db:logs": "docker-compose -f docker-compose.dev.yml logs -f"
+  }
+}

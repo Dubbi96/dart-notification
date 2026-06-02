@@ -7,12 +7,34 @@ import { QueryDisclosureDto, SearchDisclosureDto } from './dto/query-disclosure.
 export class DisclosuresService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query: QueryDisclosureDto) {
-    const { page = 1, limit = 20, corpCode, disclosureType } = query;
+  async findAll(query: QueryDisclosureDto, userId?: string) {
+    const { page = 1, limit = 20, corpCode, disclosureType, watchlistOnly, keywords } = query;
+
+    let watchlistCorpCodes: string[] | undefined;
+    if (watchlistOnly) {
+      if (!userId) {
+        // 미인증 상태에서 관심목록 필터 → 빈 결과
+        return { items: [], meta: { page, limit, total: 0, totalPages: 0 } };
+      }
+      const watchlist = await this.prisma.watchList.findMany({
+        where: { userId },
+        select: { corpCode: true },
+      });
+      watchlistCorpCodes = watchlist.map((w) => w.corpCode);
+      if (watchlistCorpCodes.length === 0) {
+        return { items: [], meta: { page, limit, total: 0, totalPages: 0 } };
+      }
+    }
 
     const where: Prisma.DisclosureWhereInput = {
       ...(corpCode && { corpCode }),
       ...(disclosureType && { disclosureType }),
+      ...(watchlistCorpCodes && { corpCode: { in: watchlistCorpCodes } }),
+      ...(keywords && keywords.length > 0 && {
+        OR: keywords.map((kw) => ({
+          reportName: { contains: kw, mode: 'insensitive' as const },
+        })),
+      }),
     };
 
     const [items, total] = await Promise.all([
@@ -20,7 +42,7 @@ export class DisclosuresService {
         where,
         skip: (page - 1) * limit,
         take: limit,
-        orderBy: { rcpDt: 'desc' },
+        orderBy: [{ rcpDt: 'desc' }, { rcpNo: 'desc' }],
       }),
       this.prisma.disclosure.count({ where }),
     ]);
@@ -36,9 +58,9 @@ export class DisclosuresService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(rcpNo: string) {
     const disclosure = await this.prisma.disclosure.findUnique({
-      where: { id },
+      where: { rcpNo },
     });
 
     if (!disclosure) {
@@ -52,13 +74,14 @@ export class DisclosuresService {
   }
 
   async search(query: SearchDisclosureDto) {
-    const { q, page = 1, limit = 20 } = query;
+    const { q, page = 1, limit = 20, disclosureType } = query;
 
     const where: Prisma.DisclosureWhereInput = {
       OR: [
         { reportName: { contains: q, mode: 'insensitive' } },
         { corpName: { contains: q, mode: 'insensitive' } },
       ],
+      ...(disclosureType && { disclosureType }),
     };
 
     const [items, total] = await Promise.all([
@@ -66,7 +89,7 @@ export class DisclosuresService {
         where,
         skip: (page - 1) * limit,
         take: limit,
-        orderBy: { rcpDt: 'desc' },
+        orderBy: [{ rcpDt: 'desc' }, { rcpNo: 'desc' }],
       }),
       this.prisma.disclosure.count({ where }),
     ]);

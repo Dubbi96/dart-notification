@@ -68,7 +68,7 @@ External APIs:
 - **책임**: 회원가입, 로그인, JWT 발급/검증, 토큰 갱신
 - **주요 기능**:
   - 이메일/비밀번호 기반 회원가입
-  - JWT Access Token (15분) + Refresh Token (7일) 발급
+  - JWT Access Token (15분) + Refresh Token (90일, sliding) 발급
   - 비밀번호 해싱 (bcrypt)
   - Guard를 통한 인증 확인
 - **엔드포인트**:
@@ -90,7 +90,9 @@ External APIs:
 - **책임**: 푸시 알림을 위한 디바이스 토큰 관리
 - **주요 기능**:
   - Expo Push Token 등록/갱신
-  - 만료된 토큰 삭제
+  - 로그아웃 시 디바이스 토큰 삭제
+  - 푸시 실패(DeviceNotRegistered) 시 자동 삭제
+  - 90일 미사용 토큰 정리 (스케줄러)
 - **엔드포인트**:
   - `POST /devices/register`
   - `DELETE /devices/:deviceId`
@@ -125,7 +127,7 @@ External APIs:
   - 공시 검색 (기업명, 공시명)
 - **엔드포인트**:
   - `GET /disclosures` (목록)
-  - `GET /disclosures/:id` (상세)
+  - `GET /disclosures/:rcpNo` (상세)
   - `GET /disclosures/search?q=증자`
 
 #### Notifications Module
@@ -151,8 +153,8 @@ External APIs:
      - 조건 만족 시 알림 생성 및 발송
      - 중복 알림 방지 (NotificationHistory 체크)
   3. **만료 토큰 정리 작업** (매일 자정)
-     - 만료된 Refresh Token 삭제
-     - 오래된 푸시 토큰 삭제
+     - 90일 이상 미사용 디바이스 토큰 삭제
+     - 90일 이상 된 읽은 알림 삭제
 
 ### 2.3 Database (PostgreSQL + Prisma)
 
@@ -183,6 +185,9 @@ External APIs:
 - **제약사항**:
   - 토큰 만료 시 재등록 필요
   - 배치 전송 지원 (최대 100개)
+- **무효 토큰 처리**:
+  - 발송 ticket/receipt에서 `DeviceNotRegistered` 감지 시 DB에서 자동 삭제
+  - 로그아웃 시 클라이언트가 deviceToken을 전달하여 서버에서 삭제
 
 ## 3. 데이터 흐름
 
@@ -238,12 +243,12 @@ External APIs:
            ▼
 ┌──────────────────────┐
 │  앱 열림 (Deep Link) │
-│  disclosure/:id      │
+│  disclosure/:rcpNo   │
 └──────────┬───────────┘
            ▼
 ┌──────────────────────┐
 │  공시 상세 API 호출  │
-│  GET /disclosures/:id│
+│  GET /disclosures/:rcpNo│
 └──────────┬───────────┘
            ▼
 ┌──────────────────────┐
@@ -302,7 +307,7 @@ External APIs:
 ┌─────────────────┐
 │  JWT 발급       │
 │  - Access: 15분 │
-│  - Refresh: 7일 │
+│  - Refresh: 90일│
 └────────┬────────┘
          ▼
 [매 API 요청]
@@ -347,29 +352,29 @@ External APIs:
 #### NotificationHistory 테이블 설계
 ```prisma
 model NotificationHistory {
-  id           String   @id @default(cuid())
-  userId       String
-  disclosureId String
-  sentAt       DateTime @default(now())
-  isRead       Boolean  @default(false)
+  id               String   @id @default(cuid())
+  userId           String
+  disclosureRcpNo  String
+  sentAt           DateTime @default(now())
+  isRead           Boolean  @default(false)
 
   user         User       @relation(...)
-  disclosure   Disclosure @relation(...)
+  disclosure   Disclosure @relation(fields: [disclosureRcpNo], references: [rcpNo])
 
-  @@unique([userId, disclosureId])  // 복합 유니크 제약
+  @@unique([userId, disclosureRcpNo])  // 복합 유니크 제약
   @@index([userId, isRead])
 }
 ```
 
 #### 알림 발송 로직
 ```typescript
-async sendNotification(userId: string, disclosureId: string) {
+async sendNotification(userId: string, disclosureRcpNo: string) {
   // 1. 이미 알림을 보낸 적이 있는지 체크
   const existing = await prisma.notificationHistory.findUnique({
     where: {
-      userId_disclosureId: {
+      userId_disclosureRcpNo: {
         userId,
-        disclosureId,
+        disclosureRcpNo,
       },
     },
   });
@@ -386,7 +391,7 @@ async sendNotification(userId: string, disclosureId: string) {
   await prisma.notificationHistory.create({
     data: {
       userId,
-      disclosureId,
+      disclosureRcpNo,
     },
   });
 }
@@ -477,8 +482,10 @@ async sendNotification(userId: string, disclosureId: string) {
 | **상태 관리** | React Query + Zustand | 서버/클라이언트 상태 분리, 캐싱, 간결함 |
 | **UI** | NativeWind | Tailwind CSS 익숙도, 빠른 스타일링 |
 | **푸시 알림** | Expo Push | Expo와 통합, 간단한 설정 |
+| **인프라 (MVP)** | GCP (Cloud Run + Cloud SQL) | Cloud Run 무료 티어(월 200만 요청, vCPU 180,000초), Cloud SQL 소규모 인스턴스 저렴. 1인 개발 MVP 단계에서 비용 부담 최소화 |
+| **인프라 (확장 시)** | AWS 이관 예정 | 사용자 증가 시 안정성·세밀한 인프라 제어가 필요해지면 AWS ECS + RDS로 이관. AWS ECS Fargate는 무료 티어가 없어 초기에는 비용 비효율적 |
 
 ---
 
-**작성일**: 2026-03-07
-**버전**: 1.0 (MVP)
+**작성일**: 2026-04-18
+**버전**: 1.1 (토큰 관리 개선)

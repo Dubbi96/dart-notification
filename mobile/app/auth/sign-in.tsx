@@ -5,12 +5,10 @@ import {
   Image,
   StyleSheet,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
@@ -18,6 +16,8 @@ import * as SecureStore from 'expo-secure-store';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
+import { useDialog } from '@components/common/DialogProvider';
+import LogoCards from '@/assets/logo/logo-cards.svg';
 import { useAuthStore } from '@stores/authStore';
 import { api } from '@services/api';
 
@@ -27,6 +27,7 @@ const REDIRECT_URI = `${API_BASE_URL}/auth/kakao/callback`;
 
 export default function SignInScreen() {
   const { colors, typography: typo } = useTheme();
+  const { showDialog } = useDialog();
   const [hasLoggedInBefore, setHasLoggedInBefore] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { setAuth } = useAuthStore();
@@ -61,6 +62,9 @@ export default function SignInScreen() {
           setAuth(user, tokens.accessToken, tokens.refreshToken);
           SecureStore.setItemAsync('hasLoggedIn', 'true');
           setIsLoading(false);
+
+          // Close the in-app browser before navigating
+          WebBrowser.dismissBrowser();
 
           if (isNewUser) {
             router.replace('/onboarding');
@@ -102,48 +106,29 @@ export default function SignInScreen() {
     } catch (e) {
       if (pollingRef.current) clearInterval(pollingRef.current);
       setIsLoading(false);
-      Alert.alert('오류', '카카오 로그인 중 문제가 발생했습니다.');
+      showDialog({ title: '오류', message: '카카오 로그인 중 문제가 발생했습니다.', icon: { name: 'alert-circle', color: '#EF4444' } });
     }
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.content}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <LinearGradient
+        colors={[colors.cardGradientStart, colors.cardGradientEnd]}
+        style={styles.logoGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
+      <SafeAreaView style={styles.content}>
         {/* Logo Area */}
-        <LinearGradient
-          colors={[colors.cardGradientStart, colors.cardGradientEnd]}
-          style={styles.logoArea}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        >
-          {/* Glass Logo Icon */}
-          <View style={styles.logoIconContainer}>
-            <BlurView
-              intensity={20}
-              tint="light"
-              style={StyleSheet.absoluteFill}
-            />
-            <LinearGradient
-              colors={[
-                'rgba(255, 255, 255, 0.14)',
-                'rgba(255, 255, 255, 0.05)',
-              ]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={styles.logoGlassBorder} />
-            <View style={styles.logoIconContent}>
-              <Ionicons name="pulse" size={40} color="#FFFFFF" />
-            </View>
-          </View>
-          <Text style={[typo.h1, { color: '#FFFFFF', marginTop: spacing.md }]}>
-            DART 알리미
+        <View style={styles.logoArea}>
+          <Text style={[{ fontSize: 60, fontWeight: '300', color: '#FFFFFF' }]}>
+            공시<Text style={{ color: '#2DD4BF', fontWeight: '700' }}>온</Text>
           </Text>
-          <Text style={[typo.caption, { color: 'rgba(255,255,255,0.7)', marginTop: spacing.xs }]}>
-            실시간 공시 알림 서비스
+          <Text style={[typo.caption, { color: 'rgba(255,255,255,0.5)', marginTop: spacing.sm }]}>
+            실시간 DART 공시 알리미
           </Text>
-        </LinearGradient>
+          <LogoCards width={300} height={150} style={{ marginTop: spacing.sm }} />
+        </View>
 
         {/* Login Area */}
         <View style={[styles.loginArea, { backgroundColor: colors.background }]}>
@@ -184,11 +169,39 @@ export default function SignInScreen() {
               { color: colors.textTertiary, textAlign: 'center', marginTop: spacing.xl, lineHeight: 18 },
             ]}
           >
-            로그인 시 서비스 이용약관 및{'\n'}개인정보 처리방침에 동의합니다.
+            로그인 시{' '}
+            <Text
+              style={{ color: colors.primary, textDecorationLine: 'underline' }}
+              onPress={() => router.push('/legal/terms')}
+            >
+              서비스 이용약관
+            </Text>
+            {' 및\n'}
+            <Text
+              style={{ color: colors.primary, textDecorationLine: 'underline' }}
+              onPress={() => router.push('/legal/privacy')}
+            >
+              개인정보 처리방침
+            </Text>
+            에 동의합니다.
           </Text>
+
+          {/* Guest Browse */}
+          <TouchableOpacity
+            style={styles.guestButton}
+            onPress={() => {
+              useAuthStore.getState().enterGuest();
+              router.replace('/(tabs)/home');
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={[typo.caption, { color: colors.textSecondary }]}>
+              로그인 없이 둘러보기
+            </Text>
+          </TouchableOpacity>
         </View>
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -196,35 +209,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  logoGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '60%',
+  },
   content: {
     flex: 1,
   },
   logoArea: {
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing['4xl'],
-    paddingBottom: spacing['4xl'] + radius.xl,
-  },
-  logoIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  logoGlassBorder: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 40,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
-    borderRightColor: 'rgba(255, 255, 255, 0.10)',
-  },
-  logoIconContent: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1,
+    paddingTop: spacing['4xl'] * 1.5,
+    paddingBottom: spacing['2xl'] + radius.xl,
   },
   loginArea: {
     flex: 1,
@@ -246,5 +244,10 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     borderRadius: radius.md,
+  },
+  guestButton: {
+    alignItems: 'center',
+    marginTop: spacing.lg,
+    paddingVertical: spacing.sm,
   },
 });

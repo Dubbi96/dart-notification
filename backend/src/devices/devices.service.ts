@@ -28,4 +28,16 @@ export class DevicesService {
       where: { id: deviceId, userId },
     });
   }
+
+  async removeByToken(userId: string, deviceToken: string) {
+    await this.prisma.userDevice.deleteMany({
+      where: { userId, deviceToken },
+    });
+  }
+
+  async removeByDeviceToken(deviceToken: string) {
+    await this.prisma.userDevice.deleteMany({
+      where: { deviceToken },
+    });
+  }
 }

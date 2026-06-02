@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,27 +8,40 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons, Feather } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
+import { Star } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
+import { formatDistanceToNow, parse } from 'date-fns';
+import { ko } from 'date-fns/locale';
 import { useWatchlist, useRemoveFromWatchlist } from '@hooks/useWatchlist';
+import { useDialog } from '@components/common/DialogProvider';
+import { CompanySearchModal } from '@components/common/CompanySearchModal';
 
 export default function WatchlistScreen() {
   const { colors, typography: typo } = useTheme();
+  const { showDialog } = useDialog();
   const { data, isLoading, refetch } = useWatchlist();
   const removeFromWatchlist = useRemoveFromWatchlist();
+
+  const [searchVisible, setSearchVisible] = useState(false);
 
   const watchlistItems = data?.data ?? [];
   const total = data?.meta?.total ?? 0;
   const limit = data?.meta?.limit ?? 30;
+
+  const existingCorpCodes = useMemo(
+    () => watchlistItems.map((item) => item.corpCode),
+    [watchlistItems],
+  );
 
   if (isLoading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
-            <Ionicons name="arrow-back" size={24} color={colors.text} />
+            <Ionicons name="chevron-back" size={26} color={colors.text} />
           </TouchableOpacity>
           <Text style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}>
             관심목록
@@ -46,13 +59,17 @@ export default function WatchlistScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
+          <Ionicons name="chevron-back" size={26} color={colors.text} />
         </TouchableOpacity>
         <Text style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}>
           관심목록
         </Text>
-        <TouchableOpacity style={styles.headerButton}>
-          <Ionicons name="add" size={24} color={colors.primary} />
+        <TouchableOpacity
+          style={styles.headerButton}
+          onPress={() => setSearchVisible(true)}
+          disabled={total >= limit}
+        >
+          <Ionicons name="add" size={24} color={total >= limit ? colors.textTertiary : colors.primary} />
         </TouchableOpacity>
       </View>
 
@@ -68,7 +85,7 @@ export default function WatchlistScreen() {
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Feather name="star" size={44} color={colors.textTertiary} />
+            <Star size={48} color={colors.textTertiary} weight="thin" />
             <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.md }]}>
               관심 기업이 없습니다
             </Text>
@@ -78,26 +95,51 @@ export default function WatchlistScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <View
+          <TouchableOpacity
             style={[
               styles.watchlistItem,
               { backgroundColor: colors.surface, borderColor: colors.borderLight },
             ]}
+            activeOpacity={0.7}
+            onPress={() => router.push(`/company/${item.corpCode}`)}
           >
             <View style={styles.itemContent}>
               <Text style={[typo.bodyMedium, { color: colors.text }]}>{item.corpName}</Text>
-              <Text style={[typo.small, { color: colors.textSecondary }]}>{item.corpCode}</Text>
+              <Text style={[typo.small, { color: colors.textSecondary }]}>
+                {item.stockCode ? `${item.stockCode}${item.market ? ` · ${item.market}` : ''}` : ''}
+                {item.stockCode && item.lastDisclosureDate ? ' · ' : ''}
+                {item.lastDisclosureDate
+                  ? `마지막 공시 ${formatDistanceToNow(parse(item.lastDisclosureDate, 'yyyyMMdd', new Date()), { addSuffix: true, locale: ko })}`
+                  : !item.stockCode ? '공시 없음' : ''}
+              </Text>
             </View>
             <View style={styles.itemActions}>
               <TouchableOpacity
                 style={styles.actionBtn}
-                onPress={() => removeFromWatchlist.mutate(item.id)}
+                onPress={() => {
+                  showDialog({
+                    title: '관심목록 해제',
+                    message: `${item.corpName}을(를) 관심목록에서 제거할까요?`,
+                    icon: { name: 'trash-2', color: colors.error },
+                    buttons: [
+                      { text: '취소', style: 'cancel' },
+                      { text: '해제', style: 'destructive', onPress: () => removeFromWatchlist.mutate(item.id) },
+                    ],
+                  });
+                }}
               >
                 <Ionicons name="trash-outline" size={20} color={colors.error} />
               </TouchableOpacity>
             </View>
-          </View>
+          </TouchableOpacity>
         )}
+      />
+
+      <CompanySearchModal
+        visible={searchVisible}
+        onClose={() => setSearchVisible(false)}
+        existingCorpCodes={existingCorpCodes}
+        currentCount={total}
       />
     </SafeAreaView>
   );

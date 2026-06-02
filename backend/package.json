@@ -21,7 +21,8 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "ts-node prisma/seed.ts"
+    "prisma:seed": "ts-node prisma/seed.ts",
+    "seed:notifications": "ts-node prisma/seed-notifications.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",
@@ -34,26 +35,32 @@
     "@nestjs/swagger": "^7.0.0",
     "@nestjs/throttler": "^5.0.0",
     "@prisma/client": "^5.0.0",
+    "adm-zip": "^0.5.16",
     "axios": "^1.6.0",
     "axios-retry": "^4.0.0",
     "bcrypt": "^5.1.0",
     "class-transformer": "^0.5.0",
     "class-validator": "^0.14.0",
     "expo-server-sdk": "^3.7.0",
+    "fast-xml-parser": "^5.4.2",
     "helmet": "^7.0.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.0",
+    "prisma": "^5.22.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.0.0",
     "@nestjs/schematics": "^10.0.0",
     "@nestjs/testing": "^10.0.0",
+    "@types/adm-zip": "^0.5.7",
     "@types/bcrypt": "^5.0.0",
     "@types/node": "^20.0.0",
     "@types/passport-jwt": "^4.0.0",
-    "prisma": "^5.0.0",
     "ts-loader": "^9.0.0",
     "ts-node": "^10.0.0",
     "typescript": "^5.0.0"

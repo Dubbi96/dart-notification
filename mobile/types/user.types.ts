@@ -3,11 +3,13 @@ export interface WatchlistItem {
   userId: string;
   corpCode: string;
   corpName: string;
+  stockCode: string | null;
+  market: string | null;
+  lastDisclosureDate: string | null;
   createdAt: string;
 }
 
 export interface NotificationSettings {
-  id: string;
   userId: string;
   disclosureTypes: string[];
   keywords: string[];
@@ -16,9 +18,34 @@ export interface NotificationSettings {
 }
 
 export interface Company {
-  id: string;
   corpCode: string;
   corpName: string;
   stockCode: string | null;
   market: string | null;
+}
+
+export interface CompanyOverview {
+  corpCode: string;
+  corpName: string;
+  corpNameEng: string | null;
+  stockName: string | null;
+  ceoName: string | null;
+  corpCls: string | null;
+  address: string | null;
+  homepageUrl: string | null;
+  industryCode: string | null;
+  estDate: string | null;
+  accMonth: string | null;
+}
+
+export interface CompanyDetail extends Company {
+  overview: CompanyOverview | null;
+  recentDisclosures: Array<{
+    rcpNo: string;
+    corpName: string;
+    corpCode: string;
+    reportName: string;
+    rcpDt: string;
+    disclosureType: string;
+  }>;
 }

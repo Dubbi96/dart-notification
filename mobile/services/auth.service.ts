@@ -14,5 +14,9 @@ export const authService = {
       )
       .then((r) => r.data.data),
 
-  logout: () => api.post('/auth/logout'),
+  logout: (deviceToken?: string) =>
+    api.post('/auth/logout', { deviceToken }),
+
+  getMe: () =>
+    api.get<ApiResponse<{ id: string; email: string; name: string | null }>>('/users/me').then((r) => r.data.data),
 };

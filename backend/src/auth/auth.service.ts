@@ -7,6 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
+import { DevicesService } from '../devices/devices.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 
@@ -19,6 +20,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly devicesService: DevicesService,
   ) {}
 
   storeAuthResult(state: string, result: any) {
@@ -141,12 +143,17 @@ export class AuthService {
 
     const kakaoId = String(kakaoUser.id);
     const email = kakaoUser.kakao_account?.email;
-    const name = kakaoUser.kakao_account?.profile?.nickname;
+    const name =
+      kakaoUser.kakao_account?.profile?.nickname ||
+      kakaoUser.properties?.nickname ||
+      '카카오 사용자';
 
     // 3. Find or create user
     let user = await this.prisma.user.findFirst({
       where: { provider: 'kakao', providerId: kakaoId },
     });
+
+    let isNewUser = false;
 
     if (!user) {
       user = await this.prisma.user.create({
@@ -164,6 +171,20 @@ export class AuthService {
           },
         },
       });
+      isNewUser = true;
+    } else {
+      // 기존 사용자: 프로필 정보 업데이트
+      if (name && name !== user.name) {
+        user = await this.prisma.user.update({
+          where: { id: user.id },
+          data: { name },
+        });
+      }
+      // 관심 기업이 없으면 온보딩 필요
+      const watchlistCount = await this.prisma.watchList.count({
+        where: { userId: user.id },
+      });
+      isNewUser = watchlistCount === 0;
     }
 
     // 4. Generate JWT tokens
@@ -177,7 +198,7 @@ export class AuthService {
         createdAt: user.createdAt,
       },
       tokens,
-      isNewUser: !user.updatedAt || user.createdAt.getTime() === user.updatedAt.getTime(),
+      isNewUser,
     };
   }
 
@@ -190,10 +211,10 @@ export class AuthService {
     return tokens;
   }
 
-  async logout() {
-    // In a stateless JWT setup, logout is handled client-side
-    // For stateful refresh tokens, invalidate the refresh token here
-    return;
+  async logout(userId: string, deviceToken?: string) {
+    if (deviceToken) {
+      await this.devicesService.removeByToken(userId, deviceToken);
+    }
   }
 
   private async generateTokens(userId: string, email: string) {
@@ -206,7 +227,7 @@ export class AuthService {
       }),
       this.jwtService.signAsync(payload, {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-        expiresIn: '7d',
+        expiresIn: '90d',
       }),
     ]);
 

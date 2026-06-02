@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "DART Alert",
+    "name": "공시온",
     "slug": "dart-alert",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "scheme": "dart-alert",
+    "scheme": "gongsion",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -14,7 +14,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.dartalert.app"
+      "bundleIdentifier": "com.gongsion.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -23,7 +26,8 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.dartalert.app",
+      "package": "com.gongsion.app",
+      "versionCode": 1,
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -31,7 +35,21 @@
       "bundler": "metro"
     },
     "plugins": [
-      "expo-router"
-    ]
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#14B8A6"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "dbdd30ba-72aa-4f90-ae45-54aa8fd43aa7"
+      },
+      "router": {}
+    },
+    "owner": "yuna_kim"
   }
 }

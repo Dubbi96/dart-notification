@@ -1,18 +1,33 @@
 import { api } from './api';
 import type { ApiResponse, PaginationMeta } from '@app-types/api.types';
-import type { Disclosure } from '@app-types/disclosure.types';
+import type { Disclosure, DisclosureType } from '@app-types/disclosure.types';
 
 export const disclosureService = {
-  getList: (page = 1, limit = 20) =>
+  getTypes: () =>
     api
-      .get<ApiResponse<Disclosure[]>>('/disclosures', { params: { page, limit } })
+      .get<ApiResponse<DisclosureType[]>>('/disclosures/types')
+      .then((r) => r.data.data),
+
+  getList: (page = 1, limit = 20, disclosureType?: string, watchlistOnly?: boolean, keywords?: string[]) =>
+    api
+      .get<ApiResponse<Disclosure[]>>('/disclosures', {
+        params: {
+          page,
+          limit,
+          ...(disclosureType && { disclosureType }),
+          ...(watchlistOnly && { watchlistOnly: true }),
+          ...(keywords && keywords.length > 0 && { keywords: keywords.join(',') }),
+        },
+      })
       .then((r) => ({ data: r.data.data, meta: r.data.meta as PaginationMeta })),
 
-  getDetail: (id: string) =>
-    api.get<ApiResponse<Disclosure>>(`/disclosures/${id}`).then((r) => r.data.data),
+  getDetail: (rcpNo: string) =>
+    api.get<ApiResponse<Disclosure>>(`/disclosures/${rcpNo}`).then((r) => r.data.data),
 
-  search: (query: string, page = 1) =>
+  search: (q: string, page = 1, disclosureType?: string) =>
     api
-      .get<ApiResponse<Disclosure[]>>('/disclosures/search', { params: { query, page } })
+      .get<ApiResponse<Disclosure[]>>('/disclosures/search', {
+        params: { q, page, ...(disclosureType && { disclosureType }) },
+      })
       .then((r) => ({ data: r.data.data, meta: r.data.meta as PaginationMeta })),
 };

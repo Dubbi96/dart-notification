@@ -102,7 +102,7 @@
   - `PATCH /notification-settings` - 알림 설정 수정
 - [x] Disclosures Module
   - `GET /disclosures` - 공시 목록 (페이징)
-  - `GET /disclosures/:id` - 공시 상세
+  - `GET /disclosures/:rcpNo` - 공시 상세
 
 ---
 

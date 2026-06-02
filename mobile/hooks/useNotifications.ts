@@ -1,8 +1,12 @@
+import { useEffect } from 'react';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notificationService } from '@services/notification.service';
+import { useNotificationStore } from '@stores/notificationStore';
 
-export function useNotifications() {
-  return useInfiniteQuery({
+export function useNotifications(options?: { enabled?: boolean }) {
+  const setUnreadCount = useNotificationStore((s) => s.setUnreadCount);
+
+  const query = useInfiniteQuery({
     queryKey: ['notifications'],
     queryFn: ({ pageParam = 1 }) => notificationService.getList(pageParam),
     getNextPageParam: (lastPage) => {
@@ -10,7 +14,15 @@ export function useNotifications() {
       return undefined;
     },
     initialPageParam: 1,
+    enabled: options?.enabled ?? true,
   });
+
+  useEffect(() => {
+    const count = query.data?.pages[0]?.meta.unreadCount ?? 0;
+    setUnreadCount(count);
+  }, [query.data]);
+
+  return query;
 }
 
 export function useMarkAsRead() {

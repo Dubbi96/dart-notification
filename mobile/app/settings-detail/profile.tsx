@@ -1,44 +1,45 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useForm, Controller } from 'react-hook-form';
 import { useTheme } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing } from '@theme/spacing';
 import { Input } from '@components/common/Input';
 import { Button } from '@components/common/Button';
+import { useDialog } from '@components/common/DialogProvider';
 import { useAuthStore } from '@stores/authStore';
 import { api } from '@services/api';
 
+interface ProfileForm {
+  name: string;
+}
+
 export default function ProfileScreen() {
   const { colors, typography: typo } = useTheme();
+  const { showDialog } = useDialog();
   const { user } = useAuthStore();
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => {
-    if (user) {
-      setName(user.name || '');
-      setEmail(user.email || '');
-    }
-  }, [user]);
+  const { control, handleSubmit, formState: { isDirty } } = useForm<ProfileForm>({
+    defaultValues: { name: user?.name || '' },
+  });
 
-  const handleSave = async () => {
+  const onSubmit = async (data: ProfileForm) => {
     setIsSaving(true);
     try {
-      await api.patch('/users/me', { name });
-      Alert.alert('저장 완료', '프로필이 업데이트되었습니다.');
+      await api.patch('/users/me', { name: data.name });
+      showDialog({ title: '저장 완료', message: '프로필이 업데이트되었습니다.', icon: { name: 'check-circle' } });
       router.back();
     } catch {
-      Alert.alert('오류', '프로필 저장에 실패했습니다.');
+      showDialog({ title: '오류', message: '프로필 저장에 실패했습니다.', icon: { name: 'alert-circle', color: '#EF4444' } });
     } finally {
       setIsSaving(false);
     }
@@ -48,7 +49,7 @@ export default function ProfileScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
+          <Ionicons name="chevron-back" size={26} color={colors.text} />
         </TouchableOpacity>
         <Text style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}>
           프로필
@@ -58,30 +59,35 @@ export default function ProfileScreen() {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.avatarSection}>
-          <View style={[styles.avatar, { backgroundColor: colors.primaryLight }]}>
+          <View style={[styles.avatar, {
+            backgroundColor: colors.primaryLight,
+            borderColor: colors.primary + '25',
+            shadowColor: colors.primary,
+          }]}>
             <Ionicons name="person" size={40} color={colors.primary} />
           </View>
-          <TouchableOpacity style={{ marginTop: spacing.sm }}>
-            <Text style={[typo.captionMedium, { color: colors.primary }]}>사진 변경</Text>
-          </TouchableOpacity>
         </View>
 
-        <Input label="이름" value={name} onChangeText={setName} />
+        <Controller
+          control={control}
+          name="name"
+          render={({ field: { onChange, value } }) => (
+            <Input label="이름" value={value} onChangeText={onChange} />
+          )}
+        />
         <Input
           label="이메일"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
+          value={user?.email || ''}
           editable={false}
         />
 
         <Button
           title="변경사항 저장"
-          onPress={handleSave}
+          onPress={handleSubmit(onSubmit)}
           fullWidth
           size="lg"
           loading={isSaving}
+          disabled={!isDirty}
           style={{ marginTop: spacing.lg }}
         />
       </ScrollView>
@@ -108,13 +114,18 @@ const styles = StyleSheet.create({
   },
   avatarSection: {
     alignItems: 'center',
-    marginBottom: spacing['2xl'],
+    marginBottom: spacing['xl'],
   },
   avatar: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 2,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
 });

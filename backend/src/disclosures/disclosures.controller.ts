@@ -2,19 +2,29 @@ import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { DisclosuresService } from './disclosures.service';
 import { QueryDisclosureDto, SearchDisclosureDto } from './dto/query-disclosure.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { DISCLOSURE_TYPES } from './constants/disclosure-types.constant';
 
 @ApiTags('Disclosures')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('disclosures')
 export class DisclosuresController {
   constructor(private readonly disclosuresService: DisclosuresService) {}
 
+  @Get('types')
+  @ApiOperation({ summary: '공시 유형 목록 조회' })
+  getDisclosureTypes() {
+    return { success: true, data: DISCLOSURE_TYPES };
+  }
+
   @Get()
+  @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({ summary: '공시 목록 조회' })
-  async findAll(@Query() query: QueryDisclosureDto) {
-    const result = await this.disclosuresService.findAll(query);
+  async findAll(
+    @Query() query: QueryDisclosureDto,
+    @CurrentUser('id') userId?: string,
+  ) {
+    const result = await this.disclosuresService.findAll(query, userId);
     return { success: true, data: result.items, meta: result.meta };
   }
 
@@ -25,10 +35,10 @@ export class DisclosuresController {
     return { success: true, data: result.items, meta: result.meta };
   }
 
-  @Get(':id')
+  @Get(':rcpNo')
   @ApiOperation({ summary: '공시 상세 조회' })
-  async findOne(@Param('id') id: string) {
-    const disclosure = await this.disclosuresService.findOne(id);
+  async findOne(@Param('rcpNo') rcpNo: string) {
+    const disclosure = await this.disclosuresService.findOne(rcpNo);
     return { success: true, data: disclosure };
   }
 }

@@ -1,6 +1,6 @@
 import { api } from './api';
 import type { ApiResponse } from '@app-types/api.types';
-import type { Company } from '@app-types/user.types';
+import type { Company, CompanyDetail } from '@app-types/user.types';
 
 export const companyService = {
   search: (query: string) =>
@@ -10,6 +10,11 @@ export const companyService = {
 
   getByCorpCode: (corpCode: string) =>
     api
-      .get<ApiResponse<Company>>(`/companies/${corpCode}`)
+      .get<ApiResponse<CompanyDetail>>(`/companies/${corpCode}`)
+      .then((r) => r.data.data),
+
+  getPopular: () =>
+    api
+      .get<ApiResponse<Company[]>>('/companies/popular')
       .then((r) => r.data.data),
 };

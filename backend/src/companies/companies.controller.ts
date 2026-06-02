@@ -1,14 +1,18 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
+import { Controller, Get, Param, Query } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { CompaniesService } from './companies.service';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('Companies')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('companies')
 export class CompaniesController {
   constructor(private readonly companiesService: CompaniesService) {}
+
+  @Get('popular')
+  @ApiOperation({ summary: '인기 기업 목록 (온보딩용)' })
+  async getPopular() {
+    const companies = await this.companiesService.getPopularCompanies();
+    return { success: true, data: companies };
+  }
 
   @Get('search')
   @ApiOperation({ summary: '기업 검색 (자동완성)' })

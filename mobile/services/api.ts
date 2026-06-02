@@ -1,7 +1,9 @@
 import axios from 'axios';
+import { Platform } from 'react-native';
 import { useAuthStore } from '@stores/authStore';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
+const DEV_HOST = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || `http://${DEV_HOST}:3000/api`;
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -29,9 +31,9 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
 
-      const { refreshToken, setAuth, clearAuth } = useAuthStore.getState();
+      const { refreshToken, setAuth, clearAuth, isGuest } = useAuthStore.getState();
       if (!refreshToken) {
-        clearAuth();
+        if (!isGuest) clearAuth();
         return Promise.reject(error);
       }
 
@@ -44,7 +46,7 @@ api.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${refreshData.accessToken}`;
         return api(originalRequest);
       } catch {
-        clearAuth();
+        if (!useAuthStore.getState().isGuest) clearAuth();
         return Promise.reject(error);
       }
     }

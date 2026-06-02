@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0D9488"/>
+      <stop offset="1" stop-color="#0F766E"/>
+    </linearGradient>
+    <linearGradient id="mintAccent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#5EEAD4"/>
+      <stop offset="100%" style="stop-color:#2DD4BF"/>
+    </linearGradient>
+  </defs>
+
+  <path d="M400 0H112C50.1441 0 0 50.1441 0 112V400C0 461.856 50.1441 512 112 512H400C461.856 512 512 461.856 512 400V112C512 50.1441 461.856 0 400 0Z" fill="url(#bg)"/>
+
+  <g transform="translate(0, 35)">
+    <!-- 공시온 -->
+    <text x="256" y="215" text-anchor="middle" font-family="'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif" font-size="150" font-weight="300" fill="rgba(255,255,255,0.85)">공시<tspan fill="url(#mintAccent)" font-weight="600">온</tspan></text>
+
+    <!-- Notification card -->
+    <path d="M446 250H66C52.7452 250 42 260.745 42 274V341C42 354.255 52.7452 365 66 365H446C459.255 365 470 354.255 470 341V274C470 260.745 459.255 250 446 250Z" fill="white" fill-opacity="0.26" stroke="white" stroke-opacity="0.38" stroke-width="1.5"/>
+    <rect x="66" y="274" width="50" height="50" rx="14" fill="white" fill-opacity="0.18" stroke="white" stroke-opacity="0.3"/>
+    <rect x="132" y="281" width="184" height="12" rx="6" fill="white" fill-opacity="0.65"/>
+    <rect x="390" y="281" width="49" height="10" rx="5" fill="white" fill-opacity="0.22"/>
+    <rect x="132" y="304" width="286" height="9" rx="4.5" fill="white" fill-opacity="0.32"/>
+    <rect x="132" y="322" width="206" height="9" rx="4.5" fill="white" fill-opacity="0.22"/>
+
+    <!-- Red dot -->
+    <circle cx="462" cy="250" r="13" fill="#F43F5E"/>
+  </g>
+</svg>

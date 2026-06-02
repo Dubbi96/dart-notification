@@ -9,22 +9,28 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons, Feather } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
+import { BellSlash } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing } from '@theme/spacing';
+import { useAuthStore } from '@stores/authStore';
 import { useNotifications, useMarkAsRead, useMarkAllAsRead } from '@hooks/useNotifications';
-import { formatRelativeTime } from '@utils/date';
+import { getTypeLabel } from '@utils/disclosureType';
+import { formatDistanceToNow } from 'date-fns';
+import { ko } from 'date-fns/locale';
 
 export default function NotificationsScreen() {
   const { colors, typography: typo } = useTheme();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
   const {
     data,
     fetchNextPage,
     hasNextPage,
     isLoading,
     refetch,
-  } = useNotifications();
+  } = useNotifications({ enabled: isAuthenticated });
   const markAsRead = useMarkAsRead();
   const markAllAsRead = useMarkAllAsRead();
 
@@ -35,11 +41,36 @@ export default function NotificationsScreen() {
 
   const unreadCount = data?.pages[0]?.meta.unreadCount ?? 0;
 
+  if (!isAuthenticated) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.header, { borderBottomColor: colors.borderLight }]}>
+          <Text style={[typo.h2, { color: colors.text }]}>알림</Text>
+        </View>
+        <View style={styles.guestContainer}>
+          <BellSlash size={48} color={colors.textTertiary} weight="thin" />
+          <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.md }]}>
+            로그인하고 알림을 받아보세요
+          </Text>
+          <TouchableOpacity
+            style={[styles.loginButton, { backgroundColor: colors.primary }]}
+            onPress={() => {
+              useAuthStore.getState().clearAuth();
+              router.push('/auth/sign-in');
+            }}
+          >
+            <Text style={[typo.bodyMedium, { color: '#FFFFFF' }]}>로그인</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   const handleNotificationPress = (item: any) => {
     if (!item.isRead) {
       markAsRead.mutate(item.id);
     }
-    router.push(`/disclosure/${item.disclosureId}`);
+    router.push(`/disclosure/${item.disclosureRcpNo}`);
   };
 
   const handleMarkAllAsRead = () => {
@@ -66,7 +97,7 @@ export default function NotificationsScreen() {
       />
       <View style={styles.notificationContent}>
         <Text style={[typo.captionMedium, { color: colors.text }]} numberOfLines={1}>
-          {item.disclosure.corpName} - {item.disclosure.disclosureType}
+          {item.disclosure.corpName} - {getTypeLabel(item.disclosure.disclosureType)}
         </Text>
         <Text
           style={[typo.caption, { color: colors.textSecondary, marginTop: 2 }]}
@@ -75,7 +106,7 @@ export default function NotificationsScreen() {
           {item.disclosure.reportName}
         </Text>
         <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
-          {formatRelativeTime(item.sentAt)}
+          {formatDistanceToNow(new Date(item.sentAt), { addSuffix: true, locale: ko })}
         </Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
@@ -99,14 +130,19 @@ export default function NotificationsScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <View style={styles.headerLeft}>
-          <Text style={[typo.h2, { color: colors.text }]}>알림</Text>
-          {unreadCount > 0 && (
-            <View style={[styles.unreadBadge, { backgroundColor: colors.primary }]}>
-              <Text style={[typo.small, { color: '#FFFFFF', fontWeight: '600' }]}>{unreadCount}</Text>
-            </View>
-          )}
-        </View>
+        <Text style={[typo.h2, { color: colors.text }]}>알림</Text>
+        <TouchableOpacity onPress={() => router.push('/settings-detail/notification-settings')} hitSlop={8}>
+          <Text style={[typo.captionMedium, { color: colors.primary }]}>알림 설정</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.subHeader}>
+        {unreadCount > 0 && (
+          <View style={[styles.unreadBadge, { backgroundColor: colors.primary }]}>
+            <Text style={[typo.small, { color: '#FFFFFF', fontWeight: '600' }]}>{unreadCount}개 안 읽음</Text>
+          </View>
+        )}
+        <View style={{ flex: 1 }} />
         <TouchableOpacity onPress={handleMarkAllAsRead}>
           <Text style={[typo.captionMedium, { color: colors.primary }]}>모두 읽음</Text>
         </TouchableOpacity>
@@ -132,7 +168,7 @@ export default function NotificationsScreen() {
         }
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Feather name="bell-off" size={44} color={colors.textTertiary} />
+            <BellSlash size={48} color={colors.textTertiary} weight="thin" />
             <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.md }]}>
               알림이 아직 없어요
             </Text>
@@ -165,6 +201,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
+  subHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
   unreadBadge: {
     minWidth: 22,
     height: 22,
@@ -195,5 +237,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingTop: 120,
+  },
+  guestContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loginButton: {
+    marginTop: spacing.lg,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.sm,
+    borderRadius: 20,
   },
 });

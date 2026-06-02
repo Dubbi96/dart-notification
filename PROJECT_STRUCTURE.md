@@ -20,6 +20,7 @@ dart-notification/
 │   │   │   │   └── refresh-token.dto.ts
 │   │   │   ├── guards/
 │   │   │   │   ├── jwt-auth.guard.ts
+│   │   │   │   ├── optional-jwt-auth.guard.ts
 │   │   │   │   └── jwt-refresh.guard.ts
 │   │   │   ├── strategies/
 │   │   │   │   ├── jwt.strategy.ts
@@ -112,10 +113,15 @@ dart-notification/
 │   │   │   └── _layout.tsx
 │   │   ├── auth/
 │   │   │   └── sign-in.tsx    # 카카오 OAuth 로그인
+│   │   ├── company/
+│   │   │   └── [corpCode].tsx # 기업 상세
 │   │   ├── disclosure/
 │   │   │   └── [id].tsx       # 공시 상세
 │   │   ├── onboarding/
 │   │   │   └── index.tsx      # 온보딩
+│   │   ├── legal/             # 법적 문서
+│   │   │   ├── terms.tsx      # 서비스 이용약관
+│   │   │   └── privacy.tsx    # 개인정보 처리방침
 │   │   ├── settings-detail/   # 설정 하위 화면
 │   │   │   ├── watchlist.tsx  # 관심 기업 관리
 │   │   │   ├── notification-settings.tsx  # 알림 설정
@@ -134,6 +140,7 @@ dart-notification/
 │   │   ├── api.ts            # Axios 인스턴스
 │   │   ├── auth.service.ts
 │   │   ├── company.service.ts
+│   │   ├── device.service.ts  # 디바이스 토큰 등록
 │   │   ├── disclosure.service.ts
 │   │   ├── notification.service.ts
 │   │   ├── notification-settings.service.ts
@@ -143,7 +150,10 @@ dart-notification/
 │   │   ├── useCompanySearch.ts
 │   │   ├── useDisclosures.ts
 │   │   ├── useNotifications.ts
+│   │   ├── useCompanyDetail.ts       # 기업 상세 조회
+│   │   ├── useNotificationSetup.ts  # 푸시 알림 초기화 + 딥링크
 │   │   ├── useNotificationSettings.ts
+│   │   ├── useRequireAuth.ts        # 인증 필요 기능 가드
 │   │   └── useWatchlist.ts
 │   ├── stores/                # Zustand 상태 관리
 │   │   ├── authStore.ts      # 사용자 정보, 토큰 (SecureStore 연동)
@@ -452,5 +462,5 @@ EXPO_PUBLIC_APP_ENV=development
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-03-08
+**최종 수정일**: 2026-04-12
 **버전**: 1.1 (MVP)

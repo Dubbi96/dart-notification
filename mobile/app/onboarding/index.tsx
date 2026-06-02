@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Bell } from 'phosphor-react-native';
 import { router } from 'expo-router';
-import * as Notifications from 'expo-notifications';
+import { getNotifications } from '@utils/notifications';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Button } from '@components/common/Button';
@@ -62,14 +62,18 @@ export default function OnboardingScreen() {
   const handleEnableNotifications = async () => {
     setIsSubmitting(true);
     try {
-      const { status } = await Notifications.requestPermissionsAsync();
-      if (status === 'granted') {
-        const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: PROJECT_ID });
-        const token = tokenData.data;
-        const platform = Platform.OS === 'ios' ? 'ios' : 'android';
-        await deviceService.register(token, platform);
-        setExpoPushToken(token);
+      const Notifications = getNotifications();
+      if (Notifications) {
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status === 'granted') {
+          const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: PROJECT_ID });
+          const token = tokenData.data;
+          const platform = Platform.OS === 'ios' ? 'ios' : 'android';
+          await deviceService.register(token, platform);
+          setExpoPushToken(token);
+        }
       }
+      // Expo Go 안드로이드 등 미지원 환경: 권한 단계 건너뛰고 온보딩 계속
     } catch (err) {
       console.warn('푸시 알림 설정 실패:', err);
     } finally {

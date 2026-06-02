@@ -64,30 +64,35 @@ export class AuthController {
       // Store result temporarily with the state key
       this.authService.storeAuthResult(state, result);
 
-      // Return HTML that closes the browser
+      // 앱 딥링크로 리다이렉트 → openAuthSessionAsync가 감지해 브라우저 자동 종료.
+      // (안드로이드 Custom Tab은 window.close()가 막혀서 HTML 자동닫기 불가)
+      const deepLink = `gongsion://kakao?state=${encodeURIComponent(state)}`;
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(`
-        <html><head><meta charset="utf-8"></head>
+        <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background:#F0FDFA;">
           <div style="text-align:center;">
             <p style="font-size:20px;color:#0D9488;">✓ 로그인 성공!</p>
-            <p style="color:#6B7280;">잠시 후 앱으로 돌아갑니다...</p>
+            <p style="color:#6B7280;">앱으로 돌아갑니다...</p>
+            <p style="margin-top:16px;"><a href="${deepLink}" style="color:#0D9488;font-weight:600;">돌아가지 않으면 여기를 누르세요</a></p>
           </div>
-          <script>setTimeout(function(){window.close()},1500);</script>
+          <script>setTimeout(function(){window.location.href=${JSON.stringify(deepLink)};},300);</script>
         </body></html>
       `);
     } catch (e) {
       console.error('[KakaoCallback Error]', e?.message || e);
       const errorMsg = e?.message || '알 수 없는 오류';
+      const deepLink = `gongsion://kakao?error=${encodeURIComponent(errorMsg)}`;
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(`
-        <html><head><meta charset="utf-8"></head>
+        <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background:#FEF2F2;">
           <div style="text-align:center;">
             <p style="font-size:20px;color:#DC2626;">로그인 실패</p>
             <p style="color:#6B7280;">${errorMsg}</p>
-            <p style="color:#9CA3AF;font-size:12px;">앱으로 돌아가서 다시 시도해주세요.</p>
+            <p style="margin-top:16px;"><a href="${deepLink}" style="color:#DC2626;font-weight:600;">앱으로 돌아가기</a></p>
           </div>
+          <script>setTimeout(function(){window.location.href=${JSON.stringify(deepLink)};},300);</script>
         </body></html>
       `);
     }

@@ -94,9 +94,11 @@ export default function SignInScreen() {
       // Start polling before opening browser
       pollForResult(state);
 
-      await WebBrowser.openBrowserAsync(authUrl);
+      // openAuthSessionAsync: 백엔드가 gongsion:// 로 리다이렉트하면 자동으로 브라우저를 닫고 복귀
+      // (안드로이드 Custom Tab 자동 종료 문제 해결)
+      await WebBrowser.openAuthSessionAsync(authUrl, 'gongsion://kakao');
 
-      // Browser closed — give a few more seconds for polling
+      // 브라우저 닫힘 — 폴링이 아직 결과 못 받았으면 몇 초 더 대기 후 정리
       setTimeout(() => {
         if (pollingRef.current) {
           clearInterval(pollingRef.current);

@@ -31,7 +31,7 @@ export default function KakaoCallback() {
         return;
       }
       try {
-        const { data } = await api.get(`/auth/kakao/result?state=${state}`);
+        const { data } = await api.get(`/auth/kakao/result?state=${encodeURIComponent(state)}`);
         if (data?.success && data?.data) {
           const { user, tokens, isNewUser } = data.data;
           setAuth(user, tokens.accessToken, tokens.refreshToken);

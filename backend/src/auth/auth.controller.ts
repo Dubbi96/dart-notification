@@ -64,9 +64,11 @@ export class AuthController {
       // Store result temporarily with the state key
       this.authService.storeAuthResult(state, result);
 
-      // 앱 딥링크로 리다이렉트 → openAuthSessionAsync가 감지해 브라우저 자동 종료.
-      // (안드로이드 Custom Tab은 window.close()가 막혀서 HTML 자동닫기 불가)
-      const deepLink = `gongsion://kakao?state=${encodeURIComponent(state)}`;
+      // state 안에 인코딩된 앱 리턴 URL(Expo Go=exp://.../--/kakao, 빌드=gongsion://kakao)로 리다이렉트.
+      // openAuthSessionAsync가 이 URL을 감지해 브라우저를 자동 종료한다.
+      const returnUrl = this.extractReturnUrl(state);
+      const sep = returnUrl.includes('?') ? '&' : '?';
+      const deepLink = `${returnUrl}${sep}state=${encodeURIComponent(state)}`;
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(`
         <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -82,7 +84,9 @@ export class AuthController {
     } catch (e) {
       console.error('[KakaoCallback Error]', e?.message || e);
       const errorMsg = e?.message || '알 수 없는 오류';
-      const deepLink = `gongsion://kakao?error=${encodeURIComponent(errorMsg)}`;
+      const returnUrl = this.extractReturnUrl(state);
+      const sep = returnUrl.includes('?') ? '&' : '?';
+      const deepLink = `${returnUrl}${sep}error=${encodeURIComponent(errorMsg)}`;
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(`
         <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -96,6 +100,24 @@ export class AuthController {
         </body></html>
       `);
     }
+  }
+
+  /**
+   * state 형식: `${nonce}~${encodeURIComponent(returnUrl)}`
+   * returnUrl 은 모바일이 Linking.createURL('kakao')로 만든 앱 복귀 주소.
+   * 없거나 파싱 실패 시 커스텀 스킴 폴백.
+   */
+  private extractReturnUrl(state: string): string {
+    const tilde = (state ?? '').indexOf('~');
+    if (tilde > -1) {
+      try {
+        const decoded = decodeURIComponent(state.slice(tilde + 1));
+        if (/^[a-z][a-z0-9+.-]*:\/\//i.test(decoded)) return decoded;
+      } catch {
+        // fall through
+      }
+    }
+    return 'gongsion://kakao';
   }
 
   @Get('kakao/result')

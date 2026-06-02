@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
+import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
@@ -55,7 +56,7 @@ export default function SignInScreen() {
       }
 
       try {
-        const { data } = await api.get(`/auth/kakao/result?state=${state}`);
+        const { data } = await api.get(`/auth/kakao/result?state=${encodeURIComponent(state)}`);
         if (data.success && data.data) {
           if (pollingRef.current) clearInterval(pollingRef.current);
 
@@ -82,23 +83,46 @@ export default function SignInScreen() {
   const handleKakaoLogin = async () => {
     try {
       setIsLoading(true);
-      const state = Crypto.randomUUID();
+
+      // 환경에 맞는 앱 복귀 URL (Expo Go: exp://.../--/kakao, 빌드: gongsion://kakao)
+      const returnUrl = Linking.createURL('kakao');
+      // state 에 복귀 URL 을 실어 보낸다 → 백엔드가 이 URL 로 리다이렉트
+      const nonce = Crypto.randomUUID();
+      const state = `${nonce}~${encodeURIComponent(returnUrl)}`;
 
       const authUrl =
         `https://kauth.kakao.com/oauth/authorize` +
         `?client_id=${KAKAO_REST_API_KEY}` +
         `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
         `&response_type=code` +
-        `&state=${state}`;
+        `&state=${encodeURIComponent(state)}`;
 
-      // Start polling before opening browser
+      // 폴백 폴링 시작
       pollForResult(state);
 
-      // openAuthSessionAsync: 백엔드가 gongsion:// 로 리다이렉트하면 자동으로 브라우저를 닫고 복귀
-      // (안드로이드 Custom Tab 자동 종료 문제 해결)
-      await WebBrowser.openAuthSessionAsync(authUrl, 'gongsion://kakao');
+      // returnUrl 로 리다이렉트되면 openAuthSessionAsync 가 감지해 브라우저 자동 종료 후 복귀
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, returnUrl);
 
-      // 브라우저 닫힘 — 폴링이 아직 결과 못 받았으면 몇 초 더 대기 후 정리
+      if (result.type === 'success') {
+        try {
+          const { data } = await api.get(
+            `/auth/kakao/result?state=${encodeURIComponent(state)}`,
+          );
+          if (data?.success && data?.data) {
+            if (pollingRef.current) clearInterval(pollingRef.current);
+            const { user, tokens, isNewUser } = data.data;
+            setAuth(user, tokens.accessToken, tokens.refreshToken);
+            SecureStore.setItemAsync('hasLoggedIn', 'true');
+            setIsLoading(false);
+            router.replace(isNewUser ? '/onboarding' : '/(tabs)/home');
+            return;
+          }
+        } catch {
+          // 폴링 폴백에 맡김
+        }
+      }
+
+      // 취소/실패 — 폴링이 아직 결과 못 받았으면 잠시 더 대기 후 정리
       setTimeout(() => {
         if (pollingRef.current) {
           clearInterval(pollingRef.current);

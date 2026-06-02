@@ -17,6 +17,7 @@ import { SchedulerModule } from './scheduler/scheduler.module';
 import { DartApiModule } from './dart-api/dart-api.module';
 import { ExpoPushModule } from './expo-push/expo-push.module';
 import { DisclosureDocumentsModule } from './disclosure-documents/disclosure-documents.module';
+import { DisclosureEventsModule } from './disclosure-events/disclosure-events.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { DisclosureDocumentsModule } from './disclosure-documents/disclosure-doc
     DartApiModule,
     ExpoPushModule,
     DisclosureDocumentsModule,
+    DisclosureEventsModule,
   ],
   providers: [
     {

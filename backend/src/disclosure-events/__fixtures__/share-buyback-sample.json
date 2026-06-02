@@ -1,0 +1,10 @@
+{
+  "docType": "SHARE_BUYBACK",
+  "rawTableCount": 1,
+  "keyValueSource": "table_0",
+  "acquisitionShares": 2000000,
+  "acquisitionAmount": 10000000000,
+  "acquisitionMethod": "장내매수",
+  "acquisitionStartDate": "2024-06-01",
+  "acquisitionEndDate": "2024-08-31"
+}

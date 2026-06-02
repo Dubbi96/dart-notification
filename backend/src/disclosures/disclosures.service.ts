@@ -61,6 +61,22 @@ export class DisclosuresService {
   async findOne(rcpNo: string) {
     const disclosure = await this.prisma.disclosure.findUnique({
       where: { rcpNo },
+      include: {
+        // M2: 이벤트 추출 결과 포함 (없으면 null)
+        disclosureEvent: {
+          select: {
+            eventType: true,
+            extractedData: true,
+            polarity: true,
+            confidence: true,
+            extractionStatus: true,
+            isAiAssisted: true,
+            isAmendment: true,
+            originalRcpNo: true,
+            extractedAt: true,
+          },
+        },
+      },
     });
 
     if (!disclosure) {
@@ -70,6 +86,8 @@ export class DisclosuresService {
     return {
       ...disclosure,
       dartUrl: `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${disclosure.rcpNo}`,
+      // event 필드: M2 추출 결과 (미추출 시 null)
+      event: disclosure.disclosureEvent ?? null,
     };
   }
 

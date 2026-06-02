@@ -1,0 +1,10 @@
+{
+  "docType": "CB_BW_ISSUANCE",
+  "rawTableCount": 2,
+  "keyValueSource": "table_0",
+  "bondType": "CB",
+  "issuanceAmount": 30000000000,
+  "interestRate": 0.0,
+  "conversionPrice": 4500,
+  "maturityDate": "2029-06-01"
+}

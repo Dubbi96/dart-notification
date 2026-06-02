@@ -69,6 +69,7 @@ model Company {
   watchLists           WatchList[]
   disclosures          Disclosure[]
   disclosureDocuments  DisclosureDocument[]
+  disclosureEvents     DisclosureEvent[]
 
   @@index([corpName]) // 자동완성 검색용
   @@index([stockCode])
@@ -151,6 +152,7 @@ model Disclosure {
   savedDisclosures    SavedDisclosure[]
   notificationHistory NotificationHistory[]
   document            DisclosureDocument?
+  disclosureEvent     DisclosureEvent?
 
   @@index([corpCode])
   @@index([rcpDt])
@@ -265,6 +267,97 @@ model DisclosureDocument {
   @@index([originalRcpNo])
   @@index([fetchedAt])
   @@map("disclosure_documents")
+}
+
+// ====================================
+// 이벤트 타입 enum (M2 신규)
+// ====================================
+
+enum EventType {
+  // ── 우선 추출 7종 ──────────────────────────────
+  SUPPLY_CONTRACT           // 단일판매·공급계약 체결
+  SHARE_BUYBACK             // 자기주식 취득
+  SHARE_CANCELLATION        // 자기주식 소각
+  DIVIDEND_INCREASE         // 배당 확대 (현금·현물)
+  PAID_IN_CAPITAL_INCREASE  // 유상증자 (주주배정·일반공모)
+  CB_ISSUANCE               // 전환사채 발행
+  BW_ISSUANCE               // 신주인수권부사채 발행
+
+  // ── enum 포함 (추출 구현은 후속 이터레이션) ──────
+  CONTRACT_CANCELLATION     // 단일판매·공급계약 해제·취소
+  DIVIDEND_CUT              // 배당 축소·중단
+  THIRD_PARTY_ALLOTMENT     // 제3자배정 유상증자
+  EARNINGS_SURPRISE         // 실적 서프라이즈
+  EARNINGS_SHOCK            // 실적 쇼크
+  MAJOR_SHAREHOLDER_CHANGE  // 최대주주 변경
+  LAWSUIT                   // 소송·횡령·배임
+  AUDIT_OPINION_RISK        // 감사의견 거절·한정
+  TRADING_SUSPENSION        // 거래정지
+  DELISTING_RISK            // 상장폐지 위험·관리종목
+
+  OTHER                     // 분류 불가 (NEEDS_REVIEW 대상)
+}
+
+// ====================================
+// 추출 상태 enum (M2 신규)
+// ====================================
+
+enum ExtractionStatus {
+  PENDING       // 추출 미처리
+  SUCCESS       // 추출 완료
+  FAILED        // 추출 실패 (parsedJson 없음 또는 파서 오류)
+  NEEDS_REVIEW  // confidence 낮거나 필수 필드 누락 — 관리자 검토 대기
+}
+
+// ====================================
+// 공시 이벤트 추출 결과 (M2 신규)
+// ====================================
+
+model DisclosureEvent {
+  id String @id @default(cuid())
+
+  // ── FK: Disclosure (rcpNo 자연키, 1:1) ──────────────────────
+  // 공시 1건 = 이벤트 1건 원칙.
+  // 복수 이벤트 공시(CB + 유상증자 동시)는 extractedData.events[] 배열로 처리하고
+  // eventType은 우선순위 높은 것으로 단일 지정한다.
+  rcpNo    String @unique
+  corpCode String // 역정규화 — 조회 성능용. Disclosure.corpCode와 항상 동일
+
+  // ── 이벤트 분류 ──────────────────────────────────────────────
+  eventType EventType
+
+  // ── 이벤트별 핵심 수치 JSON ────────────────────────────────────
+  // 이벤트 타입별 스키마는 계약서 §2 참고. 추출 실패 시 빈 JSON `{}` 저장.
+  extractedData Json @default("{}")
+
+  // ── 극성 ──────────────────────────────────────────────────────
+  // Rule 매핑 테이블의 polarity 값으로 초기 설정. AI 보정은 M3.
+  polarity String @default("UNKNOWN") // "POSITIVE" | "NEGATIVE" | "MIXED" | "UNKNOWN"
+
+  // ── 신뢰도 및 검증 ────────────────────────────────────────────
+  confidence       Float            @default(0.0)   // 0.0~1.0. Rule ≥ 0.85, AI보조 0.6~0.85
+  isAiAssisted     Boolean          @default(false) // confidence < 0.85 시 AI L1 개입 여부
+  extractionStatus ExtractionStatus @default(PENDING)
+  failReason       String?                          // 실패 사유 (500자 상한)
+
+  // ── 정정공시 연결 ────────────────────────────────────────────
+  isAmendment   Boolean @default(false)
+  originalRcpNo String? // 정정 대상 원공시 rcpNo
+
+  extractedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  disclosure Disclosure @relation(fields: [rcpNo],      references: [rcpNo])
+  company    Company    @relation(fields: [corpCode],   references: [corpCode])
+
+  @@index([corpCode])
+  @@index([eventType])
+  @@index([polarity])
+  @@index([extractionStatus])
+  @@index([extractedAt])
+  @@index([isAmendment])
+  @@map("disclosure_events")
 }
 
 // ====================================

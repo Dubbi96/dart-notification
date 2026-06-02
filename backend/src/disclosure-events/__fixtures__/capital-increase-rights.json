@@ -1,0 +1,10 @@
+{
+  "docType": "PAID_IN_CAPITAL_INCREASE",
+  "rawTableCount": 2,
+  "keyValueSource": "table_0",
+  "issueMethod": "주주배정",
+  "newShares": 10000000,
+  "existingShares": 50000000,
+  "fundingAmount": 50000000000,
+  "discountRate": 0.10
+}

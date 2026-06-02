@@ -1,7 +1,7 @@
 // backend/src/disclosure-documents/disclosure-documents.service.ts
 // 파싱 파이프라인 오케스트레이터 (M1)
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { ParseStatus, DisclosureDocument } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -22,6 +22,9 @@ import { classifyInvestmentEventType } from '../disclosures/constants/disclosure
 import { ParsedJson } from './types/parsed-json.type';
 import { Table } from './types/table.type';
 import { AmendmentDiff } from './types/amendment-diff.type';
+// M2 체이닝: @Optional() 주입 — DisclosureEventsService가 미배포 상태에서도 M1 파이프라인 무중단 동작
+// 순환 참조 방지: disclosure-events 모듈이 disclosure-documents 모듈을 import하지 않음
+import type { DisclosureEventsService } from '../disclosure-events/disclosure-events.service';
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 const MAX_RETRY = 3;
@@ -42,6 +45,9 @@ export class DisclosureDocumentsService {
     private readonly prisma: PrismaService,
     private readonly dartApiService: DartApiService,
     private readonly storageService: LocalStorageService,
+    // M2 체이닝: DisclosureEventsService가 없어도(미배포 시) 정상 동작하도록 @Optional() 사용
+    @Optional()
+    private readonly disclosureEventsService?: DisclosureEventsService,
   ) {}
 
   /**
@@ -261,6 +267,17 @@ export class DisclosureDocumentsService {
       this.logger.log(
         `파싱 완료: rcpNo=${rcpNo}, eventType=${eventType}, tables=${tables.length}`,
       );
+
+      // M2 체이닝: 파싱 완료(parseStatus = DONE) 직후 비동기 이벤트 추출 시작
+      // await 없음 — M2 실패가 M1 결과에 영향을 주지 않도록
+      if (this.disclosureEventsService) {
+        this.disclosureEventsService
+          .onDocumentParsed(rcpNo)
+          .catch((err: Error) =>
+            this.logger.warn(`M2 체이닝 실패 rcpNo=${rcpNo}: ${err.message}`),
+          );
+      }
+
       return updatedDoc;
     } catch (error) {
       this.logger.error(`파싱 실패: rcpNo=${rcpNo}`, error);

@@ -1,0 +1,11 @@
+{
+  "docType": "SUPPLY_CONTRACT",
+  "rawTableCount": 1,
+  "keyValueSource": "table_0",
+  "contractAmount": 120000000000,
+  "recentSales": 500000000000,
+  "salesRatio": 0.24,
+  "counterparty": "글로벌바이어주식회사",
+  "contractStartDate": "2024-06-01",
+  "contractEndDate": "2025-05-31"
+}

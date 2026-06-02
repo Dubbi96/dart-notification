@@ -1,0 +1,9 @@
+{
+  "docType": "SUPPLY_CONTRACT",
+  "rawTableCount": 1,
+  "keyValueSource": "table_0",
+  "contractAmount": 50000000000,
+  "counterparty": "국내중견업체",
+  "contractStartDate": "2024-07-01",
+  "contractEndDate": "2025-06-30"
+}

@@ -42,7 +42,10 @@
           "icon": "./assets/icon.png",
           "color": "#14B8A6"
         }
-      ]
+      ],
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-status-bar"
     ],
     "extra": {
       "eas": {

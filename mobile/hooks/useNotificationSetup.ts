@@ -1,28 +1,34 @@
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@stores/authStore';
 import { deviceService } from '@services/device.service';
 
 const PROJECT_ID = 'dbdd30ba-72aa-4f90-ae45-54aa8fd43aa7';
-const isExpoGo = Constants.appOwnership === 'expo';
+// appOwnership은 deprecated → executionEnvironment로 Expo Go 감지 (SDK 56에서 appOwnership undefined)
+const isExpoGo =
+  Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 
 // Expo Go(안드로이드)는 SDK 53부터 expo-notifications 원격 푸시가 제거됨 → 호출 시 throw.
 // 해당 환경에서는 알림 관련 호출을 전부 건너뛴다(앱 크래시 방지). 푸시는 Dev Build에서 동작.
 const pushUnsupported = isExpoGo && Platform.OS === 'android';
 
 if (!pushUnsupported) {
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    }),
-  });
+  try {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
+    });
+  } catch {
+    // 미지원 환경(Expo Go 등) 무시
+  }
 }
 
 export function useNotificationSetup() {

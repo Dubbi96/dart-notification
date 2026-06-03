@@ -194,7 +194,9 @@ export class DisclosureDocumentsService {
       const wasTruncated = wordCount > MAX_RAWTEXT_LENGTH;
 
       // Step 3: 표 추출 — 원본 전체에서 수행 (truncate 이전, P-05)
-      const tables: Table[] = html ? parseTables(html) : [];
+      // 실제 DART 문서는 대부분 XML(<TABLE><TE>)이므로 html 없으면 xml에서도 표 추출 (라이브 검증 발견)
+      const tableSource = html ?? xml ?? '';
+      const tables: Table[] = tableSource ? parseTables(tableSource) : [];
 
       // Step 4: key-value 매핑
       const eventType = classifyInvestmentEventType(disclosure.reportName);

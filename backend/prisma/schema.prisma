@@ -1033,3 +1033,127 @@ model PortfolioRiskSnapshot {
   @@index([portfolioId, snapshotDate])
   @@map("portfolio_risk_snapshots")
 }
+
+// ====================================
+// M9-A: 백테스트 엔진 (DAR-13)
+// AI 금지영역: 백테스트 로직·체결 시뮬은 순수 Rule. AI 개입 0.
+// ====================================
+
+enum BacktestStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum ExitReason {
+  TAKE_PROFIT
+  STOP_LOSS
+  TRAILING_STOP
+  THESIS_BREAK
+  MAX_HOLD_DAYS
+  CHART_BREAK
+  LIQUIDITY_EXIT
+  FORCE_EXIT
+}
+
+model BacktestRun {
+  id              String         @id @default(cuid())
+  name            String
+  description     String?
+
+  // 전략 파라미터 JSON
+  strategyParams  Json
+
+  // 테스트 기간
+  startDate       DateTime
+  endDate         DateTime
+  universe        String         // "WATCHLIST" | "KOSPI200" | "ALL_LISTED"
+
+  // 비용 파라미터
+  commissionRate  Decimal        @db.Decimal(6, 5)
+  taxRate         Decimal        @db.Decimal(6, 5)
+  slippagePct     Decimal        @db.Decimal(6, 5)
+
+  // 실행 상태
+  status          BacktestStatus @default(PENDING)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  errorMessage    String?
+
+  // 성과 요약 (완료 후 저장)
+  summary         Json?
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  trades          BacktestTrade[]
+
+  @@index([status])
+  @@index([startDate, endDate])
+  @@map("backtest_runs")
+}
+
+model BacktestTrade {
+  id                  String      @id @default(cuid())
+  backtestRunId       String
+
+  // 공시 연결 (lookahead bias 방지: rcpDt 기준 진입만 허용)
+  disclosureRcpNo     String      // FK → Disclosure.rcpNo
+  corpCode            String      // FK → Company.corpCode
+  stockCode           String
+
+  eventType           String
+  persona             String
+
+  // 진입 (다음 거래일 시가 진입 — lookahead bias 방지 핵심)
+  disclosureAt        DateTime    // 공시 실제 접수 시각
+  isAfterMarket       Boolean     // 장마감(15:30) 후 공시 여부
+  entryDate           DateTime    // 실제 진입 거래일
+  entryPrice          Decimal     @db.Decimal(12, 2)
+  entryShares         Int
+  entryValue          Decimal     @db.Decimal(16, 2)
+
+  // 매도
+  exitDate            DateTime?
+  exitPrice           Decimal?    @db.Decimal(12, 2)
+  exitShares          Int?
+  exitValue           Decimal?    @db.Decimal(16, 2)
+  exitReason          ExitReason?
+
+  // 비용
+  commission          Decimal     @db.Decimal(12, 2) @default(0)
+  tax                 Decimal     @db.Decimal(12, 2) @default(0)
+  slippage            Decimal     @db.Decimal(12, 2) @default(0)
+
+  // 성과
+  grossPnl            Decimal?    @db.Decimal(12, 2)
+  netPnl              Decimal?    @db.Decimal(12, 2)
+  returnPct           Decimal?    @db.Decimal(8, 4)
+  holdDays            Int?
+
+  // 현실 제약 플래그
+  wasLimitUp          Boolean     @default(false)
+  wasLimitDown        Boolean     @default(false)
+  wasTradingSuspended Boolean     @default(false)
+  wasAdminStock       Boolean     @default(false)
+  isPartialFill       Boolean     @default(false)
+  fillRate            Decimal?    @db.Decimal(5, 4)
+  lowLiquidityFlag    Boolean     @default(false)
+
+  // 진입 시점 점수 스냅샷
+  buyScoreSnapshot    Int?
+  exitScoreSnapshot   Int?
+
+  createdAt           DateTime    @default(now())
+
+  backtestRun BacktestRun @relation(fields: [backtestRunId], references: [id], onDelete: Cascade)
+
+  @@index([backtestRunId])
+  @@index([corpCode])
+  @@index([eventType])
+  @@index([persona])
+  @@index([entryDate])
+  @@index([returnPct])
+  @@map("backtest_trades")
+}

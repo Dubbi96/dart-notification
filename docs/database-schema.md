@@ -910,6 +910,84 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 
 ---
 
+## 14. M9-A 백테스트 엔진 (DAR-13)
+
+### 14.1 BacktestRun 모델
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| id | String (PK, cuid) | |
+| name | String | 실행 이름 (예: "SUPPLY_CONTRACT_GROWTH_2023") |
+| description | String? | 설명 |
+| strategyParams | Json | 전략 파라미터 (eventTypes·personas·minBuyScore·entryRule·exitRules·sizeRule·maxPositions·initialCapital) |
+| startDate / endDate | DateTime | 백테스트 기간 |
+| universe | String | "WATCHLIST" / "KOSPI200" / "ALL_LISTED" |
+| commissionRate | Decimal(6,5) | 수수료율 (예: 0.00015) |
+| taxRate | Decimal(6,5) | 매도세 (예: 0.0018) |
+| slippagePct | Decimal(6,5) | 슬리피지 (예: 0.003) |
+| status | BacktestStatus | PENDING / RUNNING / COMPLETED / FAILED |
+| startedAt / completedAt | DateTime? | 실행 시각 |
+| errorMessage | String? | 실패 메시지 |
+| summary | Json? | 성과 요약 (totalReturn·winRate·mdd·sharpe·worstTrades·realWorldGate·passedGate 등) |
+
+### 14.2 BacktestTrade 모델
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| id | String (PK, cuid) | |
+| backtestRunId | String (FK → backtest_runs.id) | CASCADE DELETE |
+| disclosureRcpNo | String | 공시 rcpNo (lookahead bias 방지: rcpDt 기준 진입) |
+| corpCode / stockCode | String | 종목 식별 |
+| eventType / persona | String | 이벤트 타입·페르소나 |
+| disclosureAt | DateTime | 공시 실제 접수 시각 |
+| isAfterMarket | Boolean | 장마감(15:30) 후 공시 여부 |
+| entryDate | DateTime | **다음 거래일 시가 진입** (공시 당일 종가 진입 금지) |
+| entryPrice / entryShares / entryValue | Decimal/Int | 진입 가격·수량·금액 |
+| exitDate / exitPrice / exitShares / exitValue | Decimal?/Int? | 청산 정보 |
+| exitReason | ExitReason? | TAKE_PROFIT / STOP_LOSS / TRAILING_STOP / THESIS_BREAK / MAX_HOLD_DAYS / CHART_BREAK / LIQUIDITY_EXIT / FORCE_EXIT |
+| commission / tax / slippage | Decimal | 비용 |
+| grossPnl / netPnl | Decimal? | 수수료 전/후 손익 |
+| returnPct / holdDays | Decimal?/Int? | 수익률·보유기간 |
+| wasLimitUp / wasLimitDown / wasTradingSuspended / wasAdminStock | Boolean | 현실 제약 플래그 |
+| isPartialFill / fillRate / lowLiquidityFlag | Boolean/Decimal? | 부분체결·유동성 플래그 |
+| buyScoreSnapshot / exitScoreSnapshot | Int? | 진입 시점 점수 스냅샷 |
+
+### 14.3 lookahead bias 방지 설계
+
+**핵심 원칙:**
+1. 각 시점 의사결정에 **그 시점까지의 데이터만** 사용
+2. **공시 당일 종가 진입 절대 금지** — 항상 다음 거래일 시가(`entryRule: "NEXT_OPEN"`)
+3. `InMemoryPriceDataAdapter.enableLookaheadAudit(date)`로 미래 데이터 접근 시 예외 발생
+4. 진입·청산 판정은 해당 일봉 데이터를 받은 시점에만 수행
+
+### 14.4 현실 제약
+
+| 제약 | 구현 |
+|------|------|
+| 수수료 | 매수·매도 각각 commissionRate 적용 |
+| 세금 | 매도 시 taxRate 적용 |
+| 슬리피지 | 진입: open × (1 + slippagePct) / 청산: price × (1 - slippagePct) |
+| 거래정지 | 진입 불가 (`isTradingSuspended`) |
+| 관리종목 | 진입 불가 (`isAdminStock`) |
+| 상한가 | 진입 불가 (`isLimitUp`) |
+| 부분체결 | 거래량 기반 fillRate (0~1) |
+| 유동성 | 거래량 < 10,000주 시 `lowLiquidityFlag` 경고 |
+
+### 14.5 성과 지표
+
+- **totalReturn**: 총수익률(%), **annualizedReturn**: 연환산 수익률
+- **winRate**: 승률, **profitFactor**: 손익비 (avgWin×wonCount / |avgLoss×lossCount|)
+- **mdd**: 최대낙폭(%, 음수), **sharpe**: Sharpe Ratio (연환산, 무위험수익률 0)
+- **worstTrades**: 최악 10거래, **monthlyReturns**: 월별 수익
+- **byEventType / byPersona**: 이벤트·페르소나별 성과
+- **realWorldGate**: 실전 투입 기준 6개 판정 (allMarketConditions·netPositiveAfterCost·diversified·sufficientSamples·mddAcceptable·recentPeriodConsistent)
+
+### 14.6 FK 정합
+
+- `BacktestTrade.backtestRunId` → `BacktestRun.id` (N:1, CASCADE DELETE)
+
+---
+
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-06-04
-**버전**: 1.7 (M8-A DAR-12: Portfolio·Position·ExitSignal·PortfolioRiskSnapshot 모델 추가)
+**최종 수정일**: 2026-06-05
+**버전**: 1.8 (M9-A DAR-13: BacktestRun·BacktestTrade 모델 추가, lookahead bias 방지 엔진)

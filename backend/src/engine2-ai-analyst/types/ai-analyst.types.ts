@@ -55,3 +55,16 @@ export interface AiCostMetrics {
   l0Ratio: number; // L0(미사용) 비율 — 70%+ 유지 목표
   costPerDisclosure: number;
 }
+
+/** LLM 호출 1회의 토큰·모델 정보 (비용 기록용) */
+export interface TaskUsage {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** AI Task 실행 결과 — 검증된 산출물 + 사용량(비용 기록) */
+export interface TaskRunResult<T> {
+  result: T;
+  usage: TaskUsage;
+}

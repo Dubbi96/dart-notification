@@ -556,3 +556,44 @@ model MarketIndex {
   @@index([tradeDate])
   @@map("market_indices")
 }
+
+// ====================================
+// 종목 상태 (M4-C KRX 수집, DAR-8)
+// ====================================
+
+model StockStatus {
+  stockCode              String   @id // Company.stockCode (6자리)
+  tradeDate              String   // 마지막 갱신 거래일 YYYYMMDD
+  isTradingSuspended     Boolean  @default(false) // 거래정지
+  isManagement           Boolean  @default(false) // 관리종목
+  isInvestmentCaution    Boolean  @default(false) // 투자주의
+  isAbnormalSurge        Boolean  @default(false) // 이상급등(투자위험/경고)
+  statusNote             String?  // 사유 (예: "불성실공시법인 지정")
+  updatedAt              DateTime @updatedAt
+
+  @@index([tradeDate])
+  @@map("stock_statuses")
+}
+
+// ====================================
+// 시세 수집 로그 (M4-C KRX 수집, DAR-8)
+// ====================================
+
+model MarketDataCollectionLog {
+  id           String   @id @default(cuid())
+  tradeDate    String   // 수집 대상 거래일 YYYYMMDD
+  triggeredBy  String   @default("CRON") // "CRON" | "MANUAL"
+  status       String   @default("RUNNING") // "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED"
+  stockCount   Int      @default(0)  // 수집 시도 종목 수
+  savedCount   Int      @default(0)  // 저장 성공 종목 수
+  failedCount  Int      @default(0)  // 실패 종목 수
+  indexSaved   Boolean  @default(false) // 지수 저장 여부
+  statusSaved  Boolean  @default(false) // 종목상태 저장 여부
+  errorMessage String?
+  startedAt    DateTime @default(now())
+  endedAt      DateTime?
+
+  @@index([tradeDate])
+  @@index([status])
+  @@map("market_data_collection_logs")
+}

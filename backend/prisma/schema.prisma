@@ -153,6 +153,8 @@ model Disclosure {
   notificationHistory NotificationHistory[]
   document            DisclosureDocument?
   disclosureEvent     DisclosureEvent?
+  disclosureAnalyses  DisclosureAnalysis[]
+  personaAnalysis     PersonaAnalysis?
 
   @@index([corpCode])
   @@index([rcpDt])
@@ -382,4 +384,89 @@ model DisclosureCollectionLog {
   @@index([status])                             // 상태 필터 조회용
   @@index([triggeredBy])
   @@map("disclosure_collection_logs")
+}
+
+// ====================================
+// AI 분석 태스크 식별자 enum (M3 신규)
+// ====================================
+
+enum AiTaskName {
+  summary
+  event_classification  @map("event-classification")
+  persona_interpretation @map("persona-interpretation")
+  position_thesis       @map("position-thesis")
+}
+
+// ====================================
+// AI 비용 등급 enum (M3 신규)
+// ====================================
+
+enum AiCostLevel {
+  L0
+  L1
+  L2
+  L3
+}
+
+// ====================================
+// AI 분석 결과 캐시 — 멱등 캐시 (M3 신규)
+// ====================================
+
+model DisclosureAnalysis {
+  id         String      @id @default(cuid())
+  rcpNo      String                           // 공시 접수번호 (FK → Disclosure.rcpNo)
+  task       AiTaskName                       // AI 태스크 식별자
+  level      AiCostLevel                      // 비용 등급
+  resultJson Json                             // 태스크 실행 결과 JSON
+  createdAt  DateTime    @default(now())
+
+  // Relations
+  disclosure Disclosure @relation(fields: [rcpNo], references: [rcpNo], onDelete: Cascade)
+
+  @@unique([rcpNo, task])  // 멱등 캐시 복합 유니크
+  @@index([rcpNo])
+  @@index([task])
+  @@index([createdAt])
+  @@map("disclosure_analyses")
+}
+
+// ====================================
+// Persona 해석 결과 (M3 신규)
+// persona-interpretation 태스크 결과를 별도 테이블로 구체화
+// ====================================
+
+model PersonaAnalysis {
+  id         String   @id @default(cuid())
+  rcpNo      String   @unique                 // 공시 접수번호 (1:1, FK → Disclosure.rcpNo)
+  resultJson Json                             // PersonaInterpretation 전체 JSON
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  disclosure Disclosure @relation(fields: [rcpNo], references: [rcpNo], onDelete: Cascade)
+
+  @@index([rcpNo])
+  @@map("persona_analyses")
+}
+
+// ====================================
+// AI 사용량 로그 — 비용 거버넌스 (M3 신규)
+// ====================================
+
+model AIUsageLog {
+  id           String      @id @default(cuid())
+  rcpNo        String                           // 공시 접수번호
+  task         AiTaskName                       // AI 태스크 식별자
+  level        AiCostLevel                      // 비용 등급
+  model        String                           // 사용 LLM 모델명
+  inputTokens  Int                              // 입력 토큰 수
+  outputTokens Int                              // 출력 토큰 수
+  costUsd      Float                            // 비용 (USD)
+  createdAt    DateTime    @default(now())
+
+  @@index([rcpNo])
+  @@index([task])
+  @@index([level])
+  @@index([createdAt])
+  @@map("ai_usage_logs")
 }

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { TaskRunResult } from '../types/ai-analyst.types';
 import { LlmClient } from '../llm/llm-client';
-import { OutputSchema, parseAndValidateArray } from '../validation/json-output.validator';
+import { OutputSchema, parseAndValidateArray, JsonOutputValidationError } from '../validation/json-output.validator';
 import { DisclosureSummaryDraft } from './summary.task';
 
 export type PersonaType = 'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE' | 'EVENT_DRIVEN';
@@ -20,7 +20,7 @@ export interface PersonaAnalysisDraft {
 
 const SYSTEM_PROMPT =
   '너는 한국 주식 투자자 Persona 해석 전문가다. 공시 요약을 투자 성향별로 해석한다. ' +
-  '추측·과장 금지. 반드시 JSON 배열만 출력한다.';
+  '추측·과장 금지. 반드시 JSON 객체로 출력한다.';
 
 const ITEM_SCHEMA: OutputSchema = {
   persona: { type: 'enum', values: ['CONSERVATIVE', 'BALANCED', 'AGGRESSIVE', 'EVENT_DRIVEN'] },
@@ -37,6 +37,32 @@ function formatSummaryForPrompt(s: DisclosureSummaryDraft): string {
   ].join('\n');
 }
 
+/**
+ * OpenAI json_object 모드는 최상위 배열 반환 불가.
+ * 래퍼 객체 { "personas": [...] }로 요청하고, 파싱 후 배열을 추출한다.
+ */
+function parsePersonaArray(raw: string): PersonaAnalysisDraft[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new JsonOutputValidationError('JSON 파싱 실패');
+  }
+  // 직접 배열 반환 (비-json_object 모드 또는 일부 모델)
+  if (Array.isArray(parsed)) {
+    return parseAndValidateArray<PersonaAnalysisDraft>(raw, ITEM_SCHEMA);
+  }
+  // 래퍼 객체 { "personas": [...] } 또는 유사 형태
+  if (typeof parsed === 'object' && parsed !== null) {
+    const obj = parsed as Record<string, unknown>;
+    const arrayValue = obj['personas'] ?? obj['items'] ?? obj['results'] ?? Object.values(obj)[0];
+    if (Array.isArray(arrayValue)) {
+      return parseAndValidateArray<PersonaAnalysisDraft>(JSON.stringify(arrayValue), ITEM_SCHEMA);
+    }
+  }
+  throw new JsonOutputValidationError('최상위가 배열이 아님');
+}
+
 /** L2 — Persona 4종 관점별 해석. Summary 산출물을 입력으로 받아 입력 최소화. */
 @Injectable()
 export class PersonaInterpretationTask {
@@ -47,8 +73,8 @@ export class PersonaInterpretationTask {
     const user = [
       `[공시 요약]\n${formatSummaryForPrompt(input.summary)}`,
       '',
-      `다음 Persona(${personaList}) 각각에 대해 JSON 배열을 출력하라: ` +
-        '[{ "persona": "CONSERVATIVE"|"BALANCED"|"AGGRESSIVE"|"EVENT_DRIVEN", "interpretation": string, "fitScore": number(0~100) }, ...]',
+      `다음 Persona(${personaList}) 각각에 대해 다음 JSON 형식으로 출력하라: ` +
+        '{ "personas": [{ "persona": "CONSERVATIVE"|"BALANCED"|"AGGRESSIVE"|"EVENT_DRIVEN", "interpretation": string, "fitScore": number(0~100) }, ...] }',
     ].join('\n');
 
     const res = await this.llm.complete({
@@ -58,7 +84,7 @@ export class PersonaInterpretationTask {
       maxOutputTokens: 600,
     });
 
-    const result = parseAndValidateArray<PersonaAnalysisDraft>(res.text, ITEM_SCHEMA);
+    const result = parsePersonaArray(res.text);
 
     return {
       result,

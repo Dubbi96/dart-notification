@@ -11,7 +11,7 @@
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
-dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
 import axios from 'axios';
 import { HttpLlmClient } from '../llm/http-llm-client';

@@ -1,51 +1,30 @@
 import { Injectable } from '@nestjs/common';
+import { calcAllIndicators, Candle } from './indicators';
+import { AllIndicators } from './indicators';
 
-export interface TechnicalIndicator {
+export interface TechnicalIndicator extends AllIndicators {
   stockCode: string;
   baseDate: string;
-  ma5: number | null;
-  ma20: number | null;
-  ma60: number | null;
-  ma120: number | null;
-  rsi14: number | null;
-  macdLine: number | null;
-  macdSignal: number | null;
-  macdHistogram: number | null;
-  bollingerUpper: number | null;
-  bollingerMid: number | null;
-  bollingerLower: number | null;
-  atr14: number | null;
-  vwap: number | null;
 }
 
 /**
- * 기술지표 계산 서비스 — M4 스켈레톤.
- * MA5/20/60/120, RSI14, MACD(12,26,9), Bollinger(20,2), ATR14, VWAP.
- * TODO(M6): 실제 계산 로직 구현 (BullMQ 컨슈머 트리거).
+ * 기술지표 계산 서비스.
+ * 외부 수집 없이 캔들 데이터를 받아 순수 함수로 지표를 계산한다.
+ * 데이터 부족 구간은 null 반환 (에러 없음).
  */
 @Injectable()
 export class TechnicalIndicatorService {
-  async calculateIndicators(
+  calculateIndicators(
     stockCode: string,
     baseDate: string,
-  ): Promise<TechnicalIndicator> {
-    // TODO(M6): 일봉 데이터 조회 후 지표 계산
+    candles: Candle[],
+    disclosureIdx: number | null = null,
+  ): TechnicalIndicator {
+    const indicators = calcAllIndicators(candles, disclosureIdx);
     return {
       stockCode,
       baseDate,
-      ma5: null,
-      ma20: null,
-      ma60: null,
-      ma120: null,
-      rsi14: null,
-      macdLine: null,
-      macdSignal: null,
-      macdHistogram: null,
-      bollingerUpper: null,
-      bollingerMid: null,
-      bollingerLower: null,
-      atr14: null,
-      vwap: null,
+      ...indicators,
     };
   }
 }

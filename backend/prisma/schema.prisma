@@ -70,6 +70,8 @@ model Company {
   disclosures          Disclosure[]
   disclosureDocuments  DisclosureDocument[]
   disclosureEvents     DisclosureEvent[]
+  stockDailyPrices    StockDailyPrice[]
+  technicalIndicators TechnicalIndicator[]
 
   @@index([corpName]) // 자동완성 검색용
   @@index([stockCode])
@@ -469,4 +471,88 @@ model AIUsageLog {
   @@index([level])
   @@index([createdAt])
   @@map("ai_usage_logs")
+}
+
+// ====================================
+// 일봉 시세 (M4 신규)
+// ====================================
+
+model StockDailyPrice {
+  id           String   @id @default(cuid())
+  corpCode     String   // DART 고유번호 (FK → Company.corpCode)
+  stockCode    String   // 종목코드 6자리
+  tradeDate    String   // 거래일 (YYYYMMDD)
+  openPrice    Int      // 시가
+  highPrice    Int      // 고가
+  lowPrice     Int      // 저가
+  closePrice   Int      // 종가
+  volume       BigInt   // 거래량
+  tradingValue BigInt?  // 거래대금 (원)
+  createdAt    DateTime @default(now())
+
+  company Company @relation(fields: [corpCode], references: [corpCode])
+
+  @@unique([stockCode, tradeDate])
+  @@index([corpCode])
+  @@index([tradeDate])
+  @@map("stock_daily_prices")
+}
+
+// ====================================
+// 기술지표 (M4 신규)
+// ====================================
+
+model TechnicalIndicator {
+  id             String   @id @default(cuid())
+  corpCode       String   // DART 고유번호 (FK → Company.corpCode)
+  stockCode      String   // 종목코드 6자리
+  tradeDate      String   // 기준 거래일 (YYYYMMDD)
+  ma5            Float?   // 5일 이동평균
+  ma20           Float?   // 20일 이동평균
+  ma60           Float?   // 60일 이동평균
+  ma120          Float?   // 120일 이동평균
+  rsi14          Float?   // RSI (14일)
+  macdLine       Float?   // MACD 선 (12,26)
+  macdSignal     Float?   // MACD 신호선 (9)
+  macdHistogram  Float?   // MACD 히스토그램
+  bollingerUpper Float?   // 볼린저 상단 (20,2σ)
+  bollingerMid   Float?   // 볼린저 중단 (20 SMA)
+  bollingerLower Float?   // 볼린저 하단 (20,2σ)
+  atr14          Float?   // ATR (14일)
+  vwap           Float?   // VWAP (당일)
+  volumeRatio20  Float?   // 거래량비율 (20일 평균 대비)
+  high52w        Int?     // 52주 최고가
+  low52w         Int?     // 52주 최저가
+  preDsclReturn  Float?   // 공시 전 선행상승률 D-5~D-1 (%)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company Company @relation(fields: [corpCode], references: [corpCode])
+
+  @@unique([stockCode, tradeDate])
+  @@index([corpCode])
+  @@index([tradeDate])
+  @@map("technical_indicators")
+}
+
+// ====================================
+// 시장 지수 (M4 신규)
+// ====================================
+
+model MarketIndex {
+  id           String   @id @default(cuid())
+  indexCode    String   // 지수코드 (0001=KOSPI, 1001=KOSDAQ)
+  indexName    String   // 지수명
+  tradeDate    String   // 거래일 (YYYYMMDD)
+  openIndex    Float    // 시가지수
+  highIndex    Float    // 고가지수
+  lowIndex     Float    // 저가지수
+  closeIndex   Float    // 종가지수
+  volume       BigInt?  // 거래량
+  tradingValue BigInt?  // 거래대금
+  createdAt    DateTime @default(now())
+
+  @@unique([indexCode, tradeDate])
+  @@index([tradeDate])
+  @@map("market_indices")
 }

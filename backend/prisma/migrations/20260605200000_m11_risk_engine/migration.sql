@@ -114,13 +114,13 @@ CREATE INDEX "trading_audit_logs_executionId_idx" ON "trading_audit_logs"("execu
 CREATE INDEX "trading_audit_logs_createdAt_idx" ON "trading_audit_logs"("createdAt");
 
 -- AddForeignKey
-ALTER TABLE "order_requests" ADD CONSTRAINT "order_requests_corpCode_fkey" FOREIGN KEY ("corpCode") REFERENCES "companies"("corp_code") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "order_requests" ADD CONSTRAINT "order_requests_corpCode_fkey" FOREIGN KEY ("corpCode") REFERENCES "companies"("corpCode") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "order_requests" ADD CONSTRAINT "order_requests_executionId_fkey" FOREIGN KEY ("executionId") REFERENCES "order_executions"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "order_executions" ADD CONSTRAINT "order_executions_corpCode_fkey" FOREIGN KEY ("corpCode") REFERENCES "companies"("corp_code") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "order_executions" ADD CONSTRAINT "order_executions_corpCode_fkey" FOREIGN KEY ("corpCode") REFERENCES "companies"("corpCode") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "trading_audit_logs" ADD CONSTRAINT "trading_audit_logs_orderRequestId_fkey" FOREIGN KEY ("orderRequestId") REFERENCES "order_requests"("id") ON DELETE SET NULL ON UPDATE CASCADE;

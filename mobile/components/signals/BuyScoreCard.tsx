@@ -1,0 +1,193 @@
+import React, { useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Surface, Chip } from 'react-native-paper';
+import { Feather } from '@expo/vector-icons';
+import { useTheme } from '@theme';
+import { spacing, radius } from '@theme/spacing';
+import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
+import { ScoreGauge } from '@components/common/ScoreGauge';
+import { gradeColor, gradeLabel } from '@utils/signalDisplay';
+
+import type { TradingSignal, EntryCondition } from '@app-types/signal.types';
+
+// 매수 신호 카드(기획 §3 SCR-SIGNALS). Surface(elevation=2) 컨테이너.
+// 색상 단독 의미 전달 금지 — 색상 + 텍스트 레이블 + 아이콘 병행.
+
+interface BuyScoreCardProps {
+  signal: TradingSignal;
+  onPress?: (signal: TradingSignal) => void;
+}
+
+function EntryConditionRow({ condition }: { condition: EntryCondition }) {
+  const { colors, typography: typo } = useTheme();
+  const metColor = condition.met
+    ? colors.success
+    : condition.required
+      ? colors.error
+      : colors.textTertiary;
+  const iconName = condition.met ? 'check-circle' : 'circle';
+  return (
+    <View style={styles.conditionRow}>
+      <Feather name={iconName} size={14} color={metColor} />
+      <Text style={[typo.small, { color: colors.textSecondary, flex: 1 }]}>
+        {condition.required ? '필수 ' : ''}
+        {condition.label}
+      </Text>
+    </View>
+  );
+}
+
+export function BuyScoreCard({ signal, onPress }: BuyScoreCardProps) {
+  const { colors, typography: typo } = useTheme();
+  const isBlocked = signal.grade === 'BLOCKED';
+  const handlePress = useCallback(() => onPress?.(signal), [onPress, signal]);
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.8}
+      onPress={handlePress}
+      accessibilityRole="button"
+      accessibilityLabel={`${signal.corpName} 매수 신호, Buy Score ${signal.buyScore}, ${gradeLabel(
+        signal.grade,
+      )}`}
+    >
+      <Surface
+        elevation={2}
+        style={[
+          styles.card,
+          {
+            backgroundColor: isBlocked ? colors.surfaceSecondary : colors.surface,
+            borderColor: colors.border,
+          },
+        ]}
+      >
+        <View style={styles.headerRow}>
+          <View style={styles.headerLeft}>
+            {signal.eventType ? (
+              <Chip compact mode="flat" style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
+                textStyle={[typo.small, { color: colors.textSecondary }]}>
+                {signal.eventType}
+              </Chip>
+            ) : null}
+            <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
+              {signal.corpName}
+            </Text>
+          </View>
+          <Chip
+            compact
+            mode="flat"
+            style={[styles.gradeChip, { backgroundColor: colors.surfaceSecondary }]}
+            textStyle={[typo.small, { color: gradeColor(signal.grade, colors), fontWeight: '700' }]}
+          >
+            {gradeLabel(signal.grade)}
+          </Chip>
+        </View>
+
+        {signal.ticker ? (
+          <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
+            {signal.ticker}
+            {signal.eventType ? ` · ${signal.eventType}` : ''}
+          </Text>
+        ) : null}
+
+        {isBlocked ? (
+          <View style={[styles.blockedBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Feather name="slash" size={14} color={colors.textTertiary} />
+            <Text style={[typo.small, { color: colors.textTertiary, flex: 1 }]}>
+              {signal.blockedReason ?? '조건 미충족으로 차단된 신호입니다.'}
+            </Text>
+          </View>
+        ) : (
+          <>
+            <View style={styles.gaugeWrap}>
+              <ScoreGauge score={signal.buyScore} kind="buy" statusText={gradeLabel(signal.grade)} />
+            </View>
+
+            {signal.summary ? (
+              <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.sm }]} numberOfLines={2}>
+                {signal.summary}
+              </Text>
+            ) : null}
+
+            {signal.entryConditions.length > 0 ? (
+              <View style={styles.conditionList}>
+                {signal.entryConditions.slice(0, 3).map((c) => (
+                  <EntryConditionRow key={c.id} condition={c} />
+                ))}
+              </View>
+            ) : null}
+
+            {signal.riskFlags.length > 0 ? (
+              <View style={styles.riskRow}>
+                <Feather name="alert-triangle" size={13} color={colors.warning} />
+                <Text style={[typo.small, { color: colors.textSecondary, flex: 1 }]} numberOfLines={1}>
+                  {signal.riskFlags[0].label}
+                </Text>
+              </View>
+            ) : null}
+
+            <View style={styles.footerRow}>
+              <AiReferenceLabel />
+            </View>
+          </>
+        )}
+      </Surface>
+    </TouchableOpacity>
+  );
+}
+
+const styles = StyleSheet.create({
+  card: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.base,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flex: 1,
+  },
+  eventChip: {
+    height: 26,
+  },
+  gradeChip: {
+    height: 26,
+  },
+  gaugeWrap: {
+    marginTop: spacing.md,
+  },
+  conditionList: {
+    marginTop: spacing.sm,
+    gap: spacing.xs,
+  },
+  conditionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  riskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  blockedBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  footerRow: {
+    marginTop: spacing.md,
+  },
+});

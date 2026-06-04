@@ -9,23 +9,40 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Surface, Chip } from 'react-native-paper';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
+import { parse, format } from 'date-fns';
+
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { Button } from '@components/common/Button';
-import { useDisclosureDetail } from '@hooks/useDisclosures';
+import { DisclaimerSection } from '@components/common/DisclaimerSection';
+import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
+import { useDisclosureDetail, useDisclosureEvent } from '@hooks/useDisclosures';
 import { useCheckSaved, useSaveDisclosure, useUnsaveDisclosure } from '@hooks/useSavedDisclosures';
 import { useRequireAuth } from '@hooks/useRequireAuth';
-import { parse, format } from 'date-fns';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
+
+const POLARITY_LABEL: Record<string, string> = {
+  POSITIVE: '긍정적',
+  NEGATIVE: '부정적',
+  NEUTRAL: '중립',
+};
+
+function polarityColor(polarity: string, colors: { success: string; error: string; textSecondary: string }): string {
+  if (polarity === 'POSITIVE') return colors.success;
+  if (polarity === 'NEGATIVE') return colors.error;
+  return colors.textSecondary;
+}
 
 export default function DisclosureDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors, typography: typo, isDark } = useTheme();
   const { isAuthenticated, requireAuth } = useRequireAuth();
   const { data: disclosure, isLoading } = useDisclosureDetail(id!);
+  const { data: disclosureEvent } = useDisclosureEvent(id!);
   const { data: isSaved, refetch: refetchSaved } = useCheckSaved(id!, { enabled: isAuthenticated });
   const saveMutation = useSaveDisclosure();
   const removeMutation = useUnsaveDisclosure();
@@ -35,8 +52,6 @@ export default function DisclosureDetailScreen() {
     if (!requireAuth()) return;
 
     if (isSaved) {
-      // 저장 해제: 먼저 savedDisclosure id를 가져와야 함
-      // checkSaved만으로는 id를 모르므로, save/remove를 rcpNo 기반으로 처리
       await removeMutation.mutateAsync(disclosure.rcpNo);
     } else {
       await saveMutation.mutateAsync(disclosure.rcpNo);
@@ -135,6 +150,68 @@ export default function DisclosureDetailScreen() {
           ))}
         </Card>
 
+        {/* AI 분석 섹션 — GET /disclosure-events/:rcpNo 실연동 (기획 §3 SCR-DISCLOSURE-AI) */}
+        {disclosureEvent ? (
+          <Surface
+            elevation={0}
+            style={[styles.aiSection, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          >
+            {/* 섹션 헤더 */}
+            <View style={styles.aiHeader}>
+              <View style={styles.aiTitleRow}>
+                <Feather name="cpu" size={16} color={colors.primary} />
+                <Text style={[typo.captionMedium, { color: colors.text, marginLeft: spacing.xs }]}>
+                  AI 분석 결과
+                </Text>
+              </View>
+              <AiReferenceLabel />
+            </View>
+
+            {/* 이벤트 분류 */}
+            <View style={[styles.aiRow, { marginTop: spacing.sm }]}>
+              <Text style={[typo.small, { color: colors.textSecondary }]}>이벤트 유형</Text>
+              <Chip
+                compact
+                mode="flat"
+                style={[styles.aiChip, { backgroundColor: colors.surfaceSecondary }]}
+                textStyle={[typo.small, { color: colors.text }]}
+              >
+                {disclosureEvent.eventType}
+              </Chip>
+            </View>
+
+            {/* 이벤트 방향 (긍/부정) */}
+            <View style={styles.aiRow}>
+              <Text style={[typo.small, { color: colors.textSecondary }]}>이벤트 극성</Text>
+              <View style={styles.polarityRow}>
+                <Feather
+                  name={disclosureEvent.polarity === 'POSITIVE' ? 'trending-up' : disclosureEvent.polarity === 'NEGATIVE' ? 'trending-down' : 'minus'}
+                  size={14}
+                  color={polarityColor(disclosureEvent.polarity, colors)}
+                />
+                <Text style={[typo.captionMedium, { color: polarityColor(disclosureEvent.polarity, colors), marginLeft: spacing.xs }]}>
+                  {POLARITY_LABEL[disclosureEvent.polarity] ?? disclosureEvent.polarity}
+                </Text>
+              </View>
+            </View>
+
+            {/* AI 신뢰도 */}
+            {disclosureEvent.isAiAssisted ? (
+              <View style={styles.aiRow}>
+                <Text style={[typo.small, { color: colors.textSecondary }]}>AI 신뢰도</Text>
+                <Text style={[typo.captionMedium, { color: colors.text }]}>
+                  {Math.round(disclosureEvent.confidence * 100)}%
+                </Text>
+              </View>
+            ) : null}
+
+            {/* 면책 문구 (인라인) — 기획 §5 공시 상세 AI 섹션 위치 */}
+            <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.sm }]}>
+              AI 분석은 참고 정보이며 투자 결정의 책임은 투자자 본인에게 있습니다.
+            </Text>
+          </Surface>
+        ) : null}
+
         {/* Action Buttons */}
         <Button
           title="원문 보기"
@@ -163,6 +240,9 @@ export default function DisclosureDetailScreen() {
           size="lg"
           style={{ marginTop: spacing.md }}
         />
+
+        {/* DisclaimerSection — disclosure에 AI 분석이 있을 때만 표시 */}
+        {disclosureEvent ? <DisclaimerSection style={styles.disclaimer} /> : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -209,5 +289,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.md,
+  },
+  aiSection: {
+    marginTop: spacing.xl,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.base,
+    gap: spacing.sm,
+  },
+  aiHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  aiTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  aiRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  aiChip: {
+    height: 24,
+  },
+  polarityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  disclaimer: {
+    marginTop: spacing.lg,
   },
 });

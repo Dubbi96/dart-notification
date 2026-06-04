@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { SignalGrade, ExitAction, Prisma } from '@prisma/client';
 
 type MobileGrade = 'STRONG_BUY' | 'BUY' | 'WATCH' | 'BLOCKED';

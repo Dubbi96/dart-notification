@@ -10,13 +10,22 @@ import { PositionThesisService } from './services/position-thesis.service';
 import { InMemoryPositionThesisRepository } from './repositories/in-memory-position-thesis.repository';
 import { InMemoryExitSignalRepository } from './repositories/in-memory-exit-signal.repository';
 import { ExitEngineService } from './services/exit-engine.service';
+import { PrismaModule } from '../prisma/prisma.module';
+import { PortfolioController } from './portfolio/portfolio.controller';
+import { PortfolioService } from './portfolio/portfolio.service';
+import { PositionThesisController } from './portfolio/position-thesis.controller';
+import { PositionThesisService as PortfolioPositionThesisService } from './portfolio/position-thesis.service';
 
 @Module({
+  imports: [PrismaModule],
+  controllers: [PortfolioController, PositionThesisController],
   providers: [
     PositionThesisService,
     InMemoryPositionThesisRepository,
     InMemoryExitSignalRepository,
     ExitEngineService,
+    PortfolioService,
+    PortfolioPositionThesisService,
   ],
   exports: [
     PositionThesisService,

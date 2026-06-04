@@ -64,6 +64,13 @@ dart-notification/
 │   │   │   ├── dart-api/            # DART OpenAPI 클라이언트
 │   │   │   ├── disclosure-documents/ # 원문 파싱 (HTML/XML/표·정정 diff) — M1
 │   │   │   └── disclosure-events/   # 이벤트·수치 추출 (extractors) — M2
+│   │   ├── engine3-quant-market/ # 🟧 Engine3: Quant Market 엔진 (M4, DAR-25)
+│   │   │   ├── CLAUDE.md
+│   │   │   ├── signals/             # REST API — /api/signals [DAR-25: signals/ 이동]
+│   │   │   │   ├── signals.controller.ts
+│   │   │   │   ├── signals.service.ts
+│   │   │   │   └── signals.module.ts
+│   │   │   └── quant-market.module.ts
 │   │   ├── engine4-portfolio-exit/ # 🟩 Engine4: Position Thesis 엔진 (M7, DAR-11)
 │   │   │   ├── CLAUDE.md            # 도메인 규칙 + AI 금지영역
 │   │   │   ├── domain/
@@ -74,6 +81,12 @@ dart-notification/
 │   │   │   │   └── in-memory-position-thesis.repository.ts    # 인메모리 어댑터 (M7)
 │   │   │   ├── services/
 │   │   │   │   └── position-thesis.service.ts  # createFromSignal, invalidate, close
+│   │   │   ├── portfolio/           # REST API — /api/positions, /api/portfolio [DAR-25: portfolio/ 이동]
+│   │   │   │   ├── portfolio.controller.ts
+│   │   │   │   ├── portfolio.service.ts
+│   │   │   │   ├── portfolio.module.ts
+│   │   │   │   ├── position-thesis.controller.ts
+│   │   │   │   └── position-thesis.service.ts
 │   │   │   ├── position-thesis.spec.ts          # fixture 단위 테스트 (32건)
 │   │   │   └── portfolio-exit.module.ts
 │   │   ├── engine5-trading-risk/ # 🟥 Engine5: 모의투자 엔진 (M10-A, DAR-16)
@@ -88,6 +101,10 @@ dart-notification/
 │   │   │   │   └── in-memory-paper-trade.repository.ts    # 인메모리 어댑터 (M10-A)
 │   │   │   ├── services/
 │   │   │   │   └── paper-trade.service.ts      # placeOrder → 체결 시뮬 실행
+│   │   │   ├── paper-trading/       # REST API — /api/paper-trading [DAR-25: paper-trading/ 이동]
+│   │   │   │   ├── paper-trading.controller.ts
+│   │   │   │   ├── paper-trading.service.ts
+│   │   │   │   └── paper-trading.module.ts
 │   │   │   ├── fill-simulator.spec.ts           # fixture 단위 테스트 (11건)
 │   │   │   ├── paper-portfolio.spec.ts          # fixture 단위 테스트 (9건)
 │   │   │   ├── cost-metrics.spec.ts             # fixture 단위 테스트 (5건)

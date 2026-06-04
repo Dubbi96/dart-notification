@@ -11,9 +11,15 @@ import { OrderRiskService } from './services/order-risk.service';
 import { InMemoryPaperTradeRepository } from './repositories/in-memory-paper-trade.repository';
 import { InMemoryAuditLogRepository } from './repositories/in-memory-audit-log.repository';
 import { KillSwitchManager } from './domain/kill-switch';
+import { PrismaModule } from '../prisma/prisma.module';
+import { PaperTradingController } from './paper-trading/paper-trading.controller';
+import { PaperTradingService } from './paper-trading/paper-trading.service';
 
 @Module({
+  imports: [PrismaModule],
+  controllers: [PaperTradingController],
   providers: [
+    PaperTradingService,
     InMemoryPaperTradeRepository,
     InMemoryAuditLogRepository,
     KillSwitchManager,

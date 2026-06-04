@@ -13,6 +13,9 @@ import { BuySignalService } from './buy-signal/buy-signal.service';
 import { MarketCalendarService } from './backtest/constraint/market-calendar.service';
 import { PriceConstraintService } from './backtest/constraint/price-constraint.service';
 import { PerformanceCalculatorService } from './backtest/metrics/performance-calculator.service';
+import { PrismaModule } from '../prisma/prisma.module';
+import { SignalsController } from './signals/signals.controller';
+import { SignalsService } from './signals/signals.service';
 
 /**
  * Engine 3 — Quant Market Engine.
@@ -23,7 +26,9 @@ import { PerformanceCalculatorService } from './backtest/metrics/performance-cal
  * 설계: docs/roadmap/cc-engine-architecture.md §3·§4-5, phase-05, phase-10
  */
 @Module({
-  imports: [MarketDataModule, IndicatorsModule, EventStudyModule, BuySignalModule, BacktestModule],
+  imports: [MarketDataModule, IndicatorsModule, EventStudyModule, BuySignalModule, BacktestModule, PrismaModule],
+  controllers: [SignalsController],
+  providers: [SignalsService],
   exports: [
     MarketDataService,
     KrxApiService,

@@ -1,4 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { TaskRunResult } from '../types/ai-analyst.types';
+import { LlmClient } from '../llm/llm-client';
+import { OutputSchema, parseAndValidate } from '../validation/json-output.validator';
 import { DisclosureSummaryDraft } from './summary.task';
 import { PersonaAnalysisDraft } from './persona-interpretation.task';
 
@@ -17,14 +20,55 @@ export interface PositionThesisDraft {
   riskNotes: string;
 }
 
+const SYSTEM_PROMPT =
+  '너는 한국 주식 공시 기반 포지션 초안 작성 전문가다. ' +
+  '이 결과는 참고 정보일 뿐이며 최종 매수/주문 결정은 별도 시스템이 내린다. ' +
+  '추측·과장 금지. 반드시 JSON만 출력한다.';
+
+const OUTPUT_SCHEMA: OutputSchema = {
+  initialThesis: { type: 'string' },
+  invalidConditions: { type: 'string[]' },
+  riskNotes: { type: 'string' },
+};
+
+function formatPersonaViews(views: PersonaAnalysisDraft[]): string {
+  return views
+    .map((v) => `- ${v.persona}(적합도 ${v.fitScore}): ${v.interpretation}`)
+    .join('\n');
+}
+
 /**
  * L3 — 실제 매수 후보(buyScore 높음)에만 실행하는 최고비용 Task.
- * 출력은 Engine4 PositionThesis 의 초안일 뿐, **최종 매수/주문 결정은 AI가 하지 않는다**(금지영역).
+ * 출력은 Engine4 PositionThesis 의 초안일 뿐, 최종 매수/주문 결정은 AI가 하지 않는다(금지영역).
  */
 @Injectable()
 export class PositionThesisTask {
-  async run(_input: PositionThesisInput): Promise<PositionThesisDraft> {
-    // TODO(M7, phase-07): Thesis 초안 생성 + invalidConditions를 기계 평가 가능한 형태로 강제
-    throw new Error('M3/M7 미구현: PositionThesisTask.run');
+  constructor(private readonly llm: LlmClient) {}
+
+  async run(input: PositionThesisInput): Promise<TaskRunResult<PositionThesisDraft>> {
+    const user = [
+      `[신호 ID] ${input.signalId}  [Buy Score] ${input.buyScore}`,
+      `[공시 요약] ${input.summary.summary}  [방향성] ${input.summary.polarity}`,
+      input.chartSummary ? `[차트 요약] ${input.chartSummary}` : '',
+      `[Persona 해석]\n${formatPersonaViews(input.personaViews)}`,
+      '',
+      '위 정보만으로 포지션 초안 JSON을 출력하라. invalidConditions는 기계가 평가 가능한 조건 목록: ' +
+        '{ "initialThesis": string, "invalidConditions": string[], "riskNotes": string }',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const res = await this.llm.complete({
+      system: SYSTEM_PROMPT,
+      user,
+      jsonMode: true,
+      maxOutputTokens: 600,
+    });
+
+    const result = parseAndValidate<PositionThesisDraft>(res.text, OUTPUT_SCHEMA);
+    return {
+      result,
+      usage: { model: res.model, inputTokens: res.inputTokens, outputTokens: res.outputTokens },
+    };
   }
 }

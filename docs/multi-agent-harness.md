@@ -114,29 +114,27 @@ feat/ddd-harness-m3, feat/m3-ai-analyst  (병합완료된 과거 브랜치)
 
 ---
 
-## 6. paperclip 백로그 이슈 — 현황 (2026-06-04 06:13)
+## 6. paperclip 이슈 보드 — 현황 (2026-06-04 17:20, main `7934d30`)
 
-| 이슈 | 내용 | 선행조건 | 상태 |
-|---|---|---|---|
-| DAR-1 `b492b931` | test Task | — | ✅ done |
-| DAR-2 `5e45a92b` | M3 나머지 3 AI Task | — | ✅ done (main 병합·이슈 close) |
-| DAR-3 `37ae394e` M4 | engine3-quant-market 스캐폴딩 | 없음 | ✅ done (main `5e2d33b`) |
-| DAR-4 `7be69287` M3-A | Prisma 모델3종+마이그레이션+어댑터 | DB 가동(✅) | ✅ done (main `83bbd86`) |
-| DAR-7 `2901fe4e` M4-B | 기술지표 엔진+시세 Prisma 모델(무블록) | DB 가동(✅) | ✅ done (main `54d09b8`, +32 테스트) |
-| DAR-5 `e3823e6f` M3-B | event.extracted 큐 컨슈머 | Redis/BullMQ ❌ | ⛔ 미할당(BLOCKED) |
-| DAR-6 `27aafc7d` M3-C | 라이브 LLM 통합+게이트 실측 | LLM_API_KEY ❌(사용자: 나중에) | ⛔ 미할당(BLOCKED) |
-| DAR-8 `562019d6` M4-C | KRX 라이브 일봉 수집+Cron | `KRX_API_KEY`(.env) + DAR-7(✅) | ⛔ 미할당 — **키 들어오면 할당 가능** |
+**DAR-1~8 전부 ✅ done.** M3(AI Analyst) + M4(시세 데이터) 핵심이 모두 main 병합됨. (origin보다 18커밋 앞섬, 미push)
 
-> **리드 루프 가동 중**(ScheduleWakeup ~20분, memory: orchestration-leadership-mandate). 무블록 이슈는 검증→ff병합→done, env블록 이슈는 미할당 유지. 최종승인(origin push·env키·위험결정)만 사용자 alert.
-> main: `9688746` (origin보다 11커밋 앞섬, 미push). M0~M3코어+영속화 / M4 스캐폴딩+지표엔진+시세모델 landing.
+| 이슈 | 내용 | main |
+|---|---|---|
+| DAR-1~2 | test / M3 나머지 3 AI Task | `4fc3ddb` |
+| DAR-3 M4 | engine3 스캐폴딩 | `5e2d33b` |
+| DAR-4 M3-A | AI분석 영속화(Prisma 3모델) | `83bbd86` |
+| DAR-7 M4-B | 기술지표 엔진+시세모델(+32테스트) | `54d09b8` |
+| DAR-5 M3-B | event.extracted BullMQ 큐 컨슈머 | `57400e7` |
+| DAR-6 M3-C | 라이브 LLM 통합+스모크 하네스 | `d371899` |
+| DAR-8 M4-C | KRX 라이브 수집 어댑터+Cron+차트API | `7934d30` |
 
-### DAR-5·DAR-6 활성화 방법 (환경 준비 후)
-1. **환경 준비**: Redis 컨테이너 가동(`docker-compose`에 redis 추가 후 up) / `.env`에 `LLM_API_KEY` 설정.
-2. 해당 이슈 **할당**: `PATCH /api/issues/<id>?companyId=<C>` `{"assigneeAgentId":"ee81f071-..."}` → 할당 즉시 wakeOnDemand로 자동 착수.
-   - 또는 이미 idle인 ORCHESTRATOR를 `POST /api/agents/<id>/wakeup?companyId=<C>`로 명시 깨움.
-3. ⚠️ **환경 미충족 이슈는 할당 금지**(=자동 착수 사고 §7). heartbeat OFF이므로 할당/wakeup 전엔 자동 실행 없음.
+> 현재 320 테스트 그린(tsc 0). 리드 루프 가동 중(memory: orchestration-leadership-mandate, 직렬 1개씩).
 
-> 엔드포인트 정정: 이슈 단건은 `/api/issues/<id>?companyId=<C>`(GET/PATCH), `/api/companies/<C>/issues/<id>`는 404.
+### ⚠️ 검증 부채 (코드 완료 ≠ 라이브 검증) — 다음 단계 필수
+- **DAR-8 마이그레이션 미적용**: `20260604120000_add_stock_status_and_collection_log`가 dev DB 미반영. `migrate deploy`는 `.claude` 훅이 차단(deny) → **사람 수동 실행** 또는 다음 agent(skip-perms)가 `migrate dev` 시 적용. paperclip agent는 `dangerouslySkipPermissions:true`라 마이그레이션 적용 가능, 메인세션(나)은 불가.
+- **라이브 미실행**: KRX 실수집(StockDailyPrice 적재)·LLM 스모크(SMOKE_LLM=1 비용실측)가 아직 미실행 → M5 Event Study 통계는 실데이터 수집 후라야 유의미. 엔진 코드는 fixture로 선구현 가능(DAR-7 패턴).
+
+> 엔드포인트: 이슈 단건 `/api/issues/<id>?companyId=<C>`(GET/PATCH), 에이전트 `/api/agents/<id>/{resume,pause,wakeup}?companyId=<C>`.
 
 ## 7. ⚠️ 핸드오프 인시던트 & WIP 보존 (2026-06-04)
 

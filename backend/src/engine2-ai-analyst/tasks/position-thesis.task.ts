@@ -32,8 +32,9 @@ const OUTPUT_SCHEMA: OutputSchema = {
 };
 
 /**
- * LLM이 string 필드를 배열로 반환하는 경우를 처리한다.
- * initialThesis·riskNotes가 배열이면 문자열로 결합 (필드 계약: string 유지).
+ * LLM 응답 필드를 계약 타입으로 정규화한다.
+ * - initialThesis·riskNotes: string — 배열이면 join, 객체면 stringify
+ * - invalidConditions: string[] — 객체 배열·단일 문자열·null 등 모두 string[]로 변환
  */
 function coerceStringFields(raw: string): string {
   let parsed: unknown;
@@ -48,6 +49,7 @@ function coerceStringFields(raw: string): string {
     !Array.isArray(parsed)
   ) {
     const obj = parsed as Record<string, unknown>;
+
     for (const field of ['initialThesis', 'riskNotes'] as const) {
       const val = obj[field];
       if (val === null || val === undefined) {
@@ -60,6 +62,36 @@ function coerceStringFields(raw: string): string {
         obj[field] = String(val);
       }
     }
+
+    // invalidConditions를 반드시 string[]로 정규화
+    const ic = obj['invalidConditions'];
+    if (ic === null || ic === undefined) {
+      obj['invalidConditions'] = [];
+    } else if (typeof ic === 'string') {
+      obj['invalidConditions'] = ic.trim() ? [ic.trim()] : [];
+    } else if (Array.isArray(ic)) {
+      obj['invalidConditions'] = ic
+        .map((item) => {
+          if (typeof item === 'string') return item;
+          if (item === null || item === undefined) return '';
+          if (typeof item === 'object') {
+            const o = item as Record<string, unknown>;
+            for (const k of ['condition', 'text', 'description', 'value', 'item']) {
+              if (typeof o[k] === 'string') return o[k] as string;
+            }
+            return JSON.stringify(o);
+          }
+          return String(item);
+        })
+        .filter((s) => s.length > 0);
+    } else if (typeof ic === 'object') {
+      obj['invalidConditions'] = Object.values(ic as Record<string, unknown>)
+        .map((v) => (typeof v === 'string' ? v : String(v)))
+        .filter((s) => s.length > 0);
+    } else {
+      obj['invalidConditions'] = [String(ic)];
+    }
+
     return JSON.stringify(obj);
   }
   return raw;
@@ -86,8 +118,9 @@ export class PositionThesisTask {
       input.chartSummary ? `[차트 요약] ${input.chartSummary}` : '',
       `[Persona 해석]\n${formatPersonaViews(input.personaViews)}`,
       '',
-      '위 정보만으로 포지션 초안 JSON을 출력하라. invalidConditions는 기계가 평가 가능한 조건 목록: ' +
-        '{ "initialThesis": string, "invalidConditions": string[], "riskNotes": string }',
+      '위 정보만으로 포지션 초안 JSON을 출력하라. ' +
+        'invalidConditions는 기계가 평가 가능한 조건을 평문 문자열 배열로 나열한다(객체 금지). ' +
+        '스키마: { "initialThesis": "string", "invalidConditions": ["string", ...], "riskNotes": "string" }',
     ]
       .filter(Boolean)
       .join('\n');

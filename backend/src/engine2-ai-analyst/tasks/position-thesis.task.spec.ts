@@ -46,4 +46,63 @@ describe('PositionThesisTask.run', () => {
     const task = new PositionThesisTask(llmReturning('이것은 JSON이 아님'));
     await expect(task.run(input)).rejects.toBeInstanceOf(JsonOutputValidationError);
   });
+
+  it('invalidConditions가 객체 배열이면 string[]로 정규화', async () => {
+    const llm = llmReturning(
+      JSON.stringify({
+        initialThesis: '진입 논리',
+        invalidConditions: [
+          { condition: '계약 해지 공시' },
+          { text: '분기 매출 감소' },
+          { description: '주가 급락 -10%' },
+        ],
+        riskNotes: '주의',
+      }),
+    );
+    const task = new PositionThesisTask(llm);
+    const { result } = await task.run(input);
+    expect(result.invalidConditions).toEqual(['계약 해지 공시', '분기 매출 감소', '주가 급락 -10%']);
+  });
+
+  it('invalidConditions가 단일 문자열이면 단일 원소 배열로 정규화', async () => {
+    const llm = llmReturning(
+      JSON.stringify({
+        initialThesis: '진입 논리',
+        invalidConditions: '계약 해지 공시',
+        riskNotes: '주의',
+      }),
+    );
+    const task = new PositionThesisTask(llm);
+    const { result } = await task.run(input);
+    expect(result.invalidConditions).toEqual(['계약 해지 공시']);
+  });
+
+  it('invalidConditions가 null이면 빈 배열로 정규화', async () => {
+    const llm = llmReturning(
+      JSON.stringify({
+        initialThesis: '진입 논리',
+        invalidConditions: null,
+        riskNotes: '주의',
+      }),
+    );
+    const task = new PositionThesisTask(llm);
+    const { result } = await task.run(input);
+    expect(result.invalidConditions).toEqual([]);
+  });
+
+  it('invalidConditions 배열에 비문자열 원소가 섞여 있으면 string으로 변환', async () => {
+    const llm = llmReturning(
+      JSON.stringify({
+        initialThesis: '진입 논리',
+        invalidConditions: ['계약 해지', 42, true, { label: '급락' }],
+        riskNotes: '주의',
+      }),
+    );
+    const task = new PositionThesisTask(llm);
+    const { result } = await task.run(input);
+    expect(result.invalidConditions).toHaveLength(4);
+    expect(result.invalidConditions[0]).toBe('계약 해지');
+    expect(result.invalidConditions[1]).toBe('42');
+    expect(result.invalidConditions[2]).toBe('true');
+  });
 });

@@ -683,6 +683,77 @@ pg_restore -d dart_notification backup.sql
 
 ---
 
+---
+
+## 11. TradingSignal 모델 (M6-A 신규, DAR-10)
+
+### 11.1 개요
+
+`TradingSignal`은 Buy Score 엔진(M6)의 최종 산출물이다. 공시 이벤트 1건 × Persona 1개 조합으로 생성되며, 자동매수·주문은 절대 금지(참고정보만).
+
+### 11.2 테이블: `trading_signals`
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | CUID PK | |
+| rcpNo | String | FK → disclosures.rcpNo (자연키) |
+| corpCode | String | FK → companies.corpCode (자연키) |
+| stockCode | String | 종목코드 6자리 (역정규화) |
+| eventType | String | DisclosureEvent.eventType 값 |
+| subCategory | String? | 이벤트 세분류 |
+| persona | String | 'GROWTH' \| 'VALUE' \| 'MOMENTUM' \| 'EVENT_DRIVEN' |
+| buyScore | Int | -100 ~ 100 (정수) |
+| signal | SignalGrade | 신호 등급 enum |
+| scoreBreakdown | Json | 7컴포넌트별 점수 JSON |
+| riskPenalty | Int | 차감된 패널티 합계 |
+| entryConditionMet | String[] | 충족된 진입 조건 label 목록 |
+| entryConditionUnmet | String[] | 미충족 진입 조건 label 목록 |
+| entryReady | Boolean | 필수 진입조건 전부 충족 여부 |
+| riskFactors | String[] | 리스크 요인 (human-readable) |
+| signalSummary | String? | Phase 4 AI 요약 재사용 (새 AI 호출 없음) |
+| blockedReason | String? | BLOCKED 사유 |
+| validUntil | DateTime? | 신호 유효 시간 |
+| isNotified | Boolean | Push 발송 여부 |
+| notifiedAt | DateTime? | 발송 시각 |
+| createdAt | DateTime | |
+| updatedAt | DateTime | |
+
+### 11.3 SignalGrade Enum
+
+| 등급 | 기준 |
+|------|------|
+| STRONG_BUY_CANDIDATE | buyScore >= 80 |
+| BUY_CANDIDATE | 60 ≤ buyScore < 80 |
+| WATCH | 30 ≤ buyScore < 60 |
+| NEUTRAL | -29 ≤ buyScore < 30 |
+| AVOID | buyScore < -29 |
+| BLOCKED | 거래정지·관리종목·투자주의·이상급등·차단 이벤트 타입 |
+
+### 11.4 Buy Score 공식 (7컴포넌트)
+
+```
+Buy Score = W1×C1 + W2×C2 + W3×C3 + W4×C4 + W5×C5 + W6×C6 + W7×C7 − RiskPenalty
+```
+
+| 컴포넌트 | 가중치 | 설명 |
+|----------|--------|------|
+| C1 DisclosureEventScore | 0.25 | 이벤트 타입 기본 점수 + polarity 보정 |
+| C2 KeyMetricScore | 0.20 | 핵심 수치 점수 (계약금액/희석률 등) |
+| C3 PersonaFitScore | 0.15 | Phase 4 AI personaViews → Rule 변환 |
+| C4 HistoricalEventScore | 0.10 | EventStudyResult avgArD5 기반 |
+| C5 ChartScore | 0.15 | 기술지표 (MA/RSI/MACD/BB) |
+| C6 VolumeLiquidityScore | 0.10 | 거래량·거래대금 수급 |
+| C7 MarketSectorScore | 0.05 | KOSPI/KOSDAQ/업종/VIX |
+| RiskPenalty | — | 양수 차감. Infinity 시 BLOCKED |
+
+### 11.5 FK 정합
+
+- `TradingSignal.rcpNo` → `Disclosure.rcpNo` (N:1, 공시 1건에 Persona 수만큼 생성)
+- `TradingSignal.corpCode` → `Company.corpCode` (N:1)
+- 고유 제약: `(rcpNo, persona)` UNIQUE
+
+---
+
 **작성일**: 2026-03-07
 **최종 수정일**: 2026-06-04
-**버전**: 1.4 (M5-A DAR-9: EventStudyResult, EventStudyObservation + Event Study 계산 엔진)
+**버전**: 1.5 (M6-A DAR-10: TradingSignal + Buy Score 7컴포넌트 엔진)

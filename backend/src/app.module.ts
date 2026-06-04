@@ -22,6 +22,7 @@ import { DisclosureEventsModule } from './engine1-disclosure/disclosure-events/d
 import { AiAnalystModule } from './engine2-ai-analyst/ai-analyst.module';
 import { QuantMarketModule } from './engine3-quant-market/quant-market.module';
 import { PortfolioExitModule } from './engine4-portfolio-exit/portfolio-exit.module';
+import { TradingRiskModule } from './engine5-trading-risk/trading-risk.module';
 
 @Module({
   imports: [
@@ -81,6 +82,9 @@ import { PortfolioExitModule } from './engine4-portfolio-exit/portfolio-exit.mod
 
     // Engine 4 — Portfolio Exit / Position Thesis (M7)
     PortfolioExitModule,
+
+    // Engine 5 — Trading Risk / Paper Trade (M10)
+    TradingRiskModule,
   ],
   providers: [
     {

@@ -76,6 +76,7 @@ model Company {
   tradingSignals      TradingSignal[]
   positionTheses      PositionThesis[]
   positions           Position[]
+  paperTrades         PaperTrade[]
 
   @@index([corpName]) // 자동완성 검색용
   @@index([stockCode])
@@ -757,6 +758,7 @@ model TradingSignal {
   disclosure      Disclosure     @relation(fields: [rcpNo],   references: [rcpNo])
   company         Company        @relation(fields: [corpCode], references: [corpCode])
   positionThesis  PositionThesis?
+  paperTrades     PaperTrade[]
 
   @@unique([rcpNo, persona])
   @@index([corpCode])
@@ -825,6 +827,7 @@ model PositionThesis {
   disclosure       Disclosure    @relation(fields: [rcpNo],           references: [rcpNo])
   company          Company       @relation(fields: [corpCode],        references: [corpCode])
   position         Position?     // optional 1:1 back-relation from Position
+  paperTrades      PaperTrade[]
 
   @@index([corpCode])
   @@index([rcpNo])
@@ -1156,4 +1159,76 @@ model BacktestTrade {
   @@index([entryDate])
   @@index([returnPct])
   @@map("backtest_trades")
+}
+
+// ====================================
+// M10 — Engine5 Paper Trade (DAR-16)
+// AI 금지영역: 체결·Risk 로직 순수 Rule. AI 개입 0.
+// ====================================
+
+enum PaperTradeStatus {
+  PENDING       // 주문 대기
+  FILLED        // 완전 체결
+  PARTIAL       // 부분 체결
+  CANCELLED     // 취소
+  REJECTED      // 거부 (Risk 한도 초과)
+}
+
+enum PaperTradeDirection {
+  BUY
+  SELL
+}
+
+model PaperTrade {
+  id                String              @id @default(cuid())
+
+  // 종목 (FK → Company.corpCode)
+  corpCode          String
+  stockCode         String
+
+  // 방향·수량
+  direction         PaperTradeDirection
+  orderedShares     Int                 // 주문 수량
+  filledShares      Int                 @default(0)   // 체결 수량
+  fillRate          Decimal             @db.Decimal(5, 4) @default(0) // 체결률 0~1
+
+  // 가격
+  entryPrice        Decimal             @db.Decimal(12, 2)  // 진입 기준가 (다음거래일 시가)
+  filledPrice       Decimal?            @db.Decimal(12, 2)  // 실제 체결가 (슬리피지 반영)
+
+  // 비용 (KRW 절대값)
+  commission        Decimal             @db.Decimal(12, 2) @default(0)  // 수수료
+  tax               Decimal             @db.Decimal(12, 2) @default(0)  // 세금 (매도 시 증권거래세)
+  slippage          Decimal             @db.Decimal(12, 2) @default(0)  // 슬리피지 비용
+
+  // 손익 (체결 완료 후)
+  grossPnl          Decimal?            @db.Decimal(12, 2)
+  netPnl            Decimal?            @db.Decimal(12, 2)
+  returnPct         Decimal?            @db.Decimal(8, 4)
+
+  // 상태
+  status            PaperTradeStatus    @default(PENDING)
+
+  // 메타
+  entryDate         DateTime            // 체결 예정 거래일 (다음거래일 시가 진입)
+  filledAt          DateTime?           // 실제 체결 시각
+
+  // 신호·논리 연결 (optional — fixture 테스트에서는 null 허용)
+  tradingSignalId   String?
+  positionThesisId  String?
+
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  company           Company             @relation(fields: [corpCode], references: [corpCode])
+  tradingSignal     TradingSignal?      @relation(fields: [tradingSignalId], references: [id])
+  positionThesis    PositionThesis?     @relation(fields: [positionThesisId], references: [id])
+
+  @@index([corpCode])
+  @@index([stockCode])
+  @@index([status])
+  @@index([entryDate])
+  @@index([tradingSignalId])
+  @@index([positionThesisId])
+  @@map("paper_trades")
 }

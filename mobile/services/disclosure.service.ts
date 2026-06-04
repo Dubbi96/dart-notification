@@ -1,6 +1,6 @@
 import { api } from './api';
 import type { ApiResponse, PaginationMeta } from '@app-types/api.types';
-import type { Disclosure, DisclosureEvent, DisclosureType } from '@app-types/disclosure.types';
+import type { Disclosure, DisclosureAnalysis, DisclosureEvent, DisclosureType } from '@app-types/disclosure.types';
 
 export const disclosureService = {
   getTypes: () =>
@@ -36,5 +36,12 @@ export const disclosureService = {
     api
       .get<DisclosureEvent>(`/disclosure-events/${rcpNo}`)
       .then((r) => r.data)
+      .catch(() => null),
+
+  /** 공시 AI 분석 상세 (GET /disclosures/:rcpNo/analysis) */
+  getAnalysis: (rcpNo: string) =>
+    api
+      .get<ApiResponse<DisclosureAnalysis>>(`/disclosures/${rcpNo}/analysis`)
+      .then((r) => r.data.data)
       .catch(() => null),
 };

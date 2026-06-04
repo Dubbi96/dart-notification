@@ -34,3 +34,21 @@ export interface DisclosureType {
   description: string;
   sortOrder: number;
 }
+
+export interface DisclosureAnalysisItem {
+  task: string;
+  level: number;
+  result: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface PersonaAnalysis {
+  result: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface DisclosureAnalysis {
+  rcpNo: string;
+  analyses: DisclosureAnalysisItem[];
+  personaAnalysis: PersonaAnalysis | null;
+}

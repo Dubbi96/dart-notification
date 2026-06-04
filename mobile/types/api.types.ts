@@ -11,3 +11,11 @@ export interface PaginationMeta {
   totalPages?: number;
   unreadCount?: number;
 }
+
+export interface AiCostMetrics {
+  totalCostUsd: number;
+  totalTokens: number;
+  byTask: Record<string, { costUsd: number; tokens: number; count: number }>;
+  byLevel: Record<string, { costUsd: number; count: number }>;
+  period: { from: string; to: string };
+}

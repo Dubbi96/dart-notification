@@ -86,3 +86,16 @@ export interface SignalFilters {
   grade?: SignalGrade;
   entryReady?: boolean;
 }
+
+/** 이벤트 스터디 결과 */
+export interface EventStudyResult {
+  id: string;
+  eventType: string;
+  marketType: string;
+  /** 이벤트 발생 후 n일 CAR (%) */
+  car5d?: number;
+  car20d?: number;
+  sampleSize?: number;
+  status: string;
+  calculatedAt: string;
+}

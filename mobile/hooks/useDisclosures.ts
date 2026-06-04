@@ -43,3 +43,12 @@ export function useDisclosureEvent(rcpNo: string) {
     retry: false,
   });
 }
+
+export function useDisclosureAnalysis(rcpNo: string) {
+  return useQuery({
+    queryKey: ['disclosure-analysis', rcpNo],
+    queryFn: () => disclosureService.getAnalysis(rcpNo),
+    enabled: !!rcpNo,
+    retry: false,
+  });
+}

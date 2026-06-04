@@ -41,6 +41,15 @@ DART 공시 실시간 알림 모바일 앱 (React Native Expo + NestJS)
 5. 변경 영역 문서 동기화 (아래 "문서 자동 업데이트 규칙")
 6. 매 마일스톤 종료 시 ↩︎ 이전단계 회귀 + 전역 회귀 매트릭스(`01-execution-roadmap.md §3`) 점검
 
+**paperclip AI 멀티에이전트 하네스 (외부 오케스트레이션 툴):** `.agents/`(ORCHESTRATOR/PLANNER/DEVELOPER/REVIEWER) + `harness/`(VERIFICATION·KNOWN_FAILURES·ENTROPY_CHECK·tools) + `AGENTS.md`(브랜치/PR/worktree/통지 규약). Claude Code 네이티브 `.claude/agents/`(be/fe/ai/qa-verifier)와는 별개 레이어로 **공존**한다 — 전자는 paperclip이, 후자는 Claude Code가 읽는다.
+
+**토큰 규율 (모든 에이전트 공통):**
+- 작업에 필요한 컨텍스트만 로드. 저장소 통째 로드 금지. 이미 로드한 파일 재로드 금지 — 경로 참조로 전달.
+- 서브에이전트는 **최종 산출물만** 반환(중간 탐색 반환 금지).
+- 출력 압축(caveman/전보체)은 **버려지는 내부 추론에만** 허용. 전달·보존 산출물(명세/증거/판정/영구 `.md`)은 평문 유지.
+
+**작업 흐름:** 작업 단위 = GitHub Issue 1건. **main 직접 커밋 금지** → `feat/<issue-id>-<slug>` 브랜치 + PR. 코드 편집 에이전트는 격리 worktree에서 작업. 권한 경계: Planner/Reviewer는 `docs/`만 수정(코드 금지), Prisma 스키마 변경은 직렬 처리. 완료는 주장이 아니라 **증거**(`harness/VERIFICATION.md` 6대 증거 첨부). 상세 규약: `AGENTS.md`.
+
 ## 기술 스택 & 규칙
 
 ### 패키지 매니저

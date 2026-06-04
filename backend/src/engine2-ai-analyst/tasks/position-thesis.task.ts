@@ -32,10 +32,10 @@ const OUTPUT_SCHEMA: OutputSchema = {
 };
 
 /**
- * LLM이 riskNotes를 배열로 반환하는 경우를 처리한다.
- * JSON 파싱 후 riskNotes가 배열이면 문자열로 결합 (필드 계약은 string 유지).
+ * LLM이 string 필드를 배열로 반환하는 경우를 처리한다.
+ * initialThesis·riskNotes가 배열이면 문자열로 결합 (필드 계약: string 유지).
  */
-function coerceRiskNotes(raw: string): string {
+function coerceStringFields(raw: string): string {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -48,10 +48,19 @@ function coerceRiskNotes(raw: string): string {
     !Array.isArray(parsed)
   ) {
     const obj = parsed as Record<string, unknown>;
-    if (Array.isArray(obj['riskNotes'])) {
-      obj['riskNotes'] = (obj['riskNotes'] as string[]).join('. ');
-      return JSON.stringify(obj);
+    for (const field of ['initialThesis', 'riskNotes'] as const) {
+      const val = obj[field];
+      if (val === null || val === undefined) {
+        obj[field] = '';
+      } else if (Array.isArray(val)) {
+        obj[field] = val.map((v) => (typeof v === 'string' ? v : String(v))).join(' ');
+      } else if (typeof val === 'object') {
+        obj[field] = JSON.stringify(val);
+      } else if (typeof val !== 'string') {
+        obj[field] = String(val);
+      }
     }
+    return JSON.stringify(obj);
   }
   return raw;
 }
@@ -90,7 +99,7 @@ export class PositionThesisTask {
       maxOutputTokens: 600,
     });
 
-    const result = parseAndValidate<PositionThesisDraft>(coerceRiskNotes(res.text), OUTPUT_SCHEMA);
+    const result = parseAndValidate<PositionThesisDraft>(coerceStringFields(res.text), OUTPUT_SCHEMA);
     return {
       result,
       usage: { model: res.model, inputTokens: res.inputTokens, outputTokens: res.outputTokens },

@@ -59,9 +59,14 @@ export class KrxApiService {
   private readonly baseUrl: string;
 
   constructor(private readonly config: ConfigService) {
-    this.baseUrl = config.get<string>('KRX_BASE_URL') ?? 'http://data-dbg.krx.co.kr/svc/apis';
+    // KRX 데이터마켓플레이스는 HTTPS 전용 — http:// 입력 시 자동 보정
+    const rawUrl = config.get<string>('KRX_BASE_URL') ?? 'https://data-dbg.krx.co.kr/svc/apis';
+    this.baseUrl = rawUrl.replace(/^http:\/\//, 'https://');
 
-    this.client = axios.create({ timeout: 30_000 });
+    this.client = axios.create({
+      timeout: 30_000,
+      maxRedirects: 0, // HTTPS로 보정하므로 리다이렉트 불필요
+    });
     axiosRetry(this.client, {
       retries: 3,
       retryDelay: (retryCount) => retryCount * 2_000,
@@ -89,18 +94,23 @@ export class KrxApiService {
     return { AUTH_KEY: this.getApiKey() };
   }
 
+  private buildParams(base: Record<string, string>): Record<string, string> {
+    // AUTH_KEY를 쿼리 파라미터에도 추가 (헤더+파라미터 이중 전송으로 호환성 확보)
+    return { ...base, AUTH_KEY: this.getApiKey() };
+  }
+
   /**
    * 종목 일봉 OHLCV 수집.
    * @param basDd 기준일 (YYYYMMDD)
    * @param stockCode 종목코드 6자리. 생략하면 전 종목.
    */
   async fetchStockDaily(basDd: string, stockCode?: string): Promise<KrxStockDailyRow[]> {
-    const params: Record<string, string> = { basDd };
-    if (stockCode) params['isuCd'] = stockCode;
+    const rawParams: Record<string, string> = { basDd };
+    if (stockCode) rawParams['isuCd'] = stockCode;
 
     try {
       const { data } = await this.client.get(`${this.baseUrl}/sto/stk_bydd_trd`, {
-        params,
+        params: this.buildParams(rawParams),
         headers: this.buildHeaders(),
       });
 
@@ -138,7 +148,7 @@ export class KrxApiService {
 
     try {
       const { data } = await this.client.get(endpoint, {
-        params: { basDd },
+        params: this.buildParams({ basDd }),
         headers: this.buildHeaders(),
       });
 
@@ -167,7 +177,7 @@ export class KrxApiService {
   async fetchStockStatus(basDd: string): Promise<KrxStockStatus[]> {
     try {
       const { data } = await this.client.get(`${this.baseUrl}/sto/isu_mrktact_info`, {
-        params: { basDd },
+        params: this.buildParams({ basDd }),
         headers: this.buildHeaders(),
       });
 

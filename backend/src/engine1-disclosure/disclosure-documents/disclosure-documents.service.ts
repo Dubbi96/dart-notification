@@ -3,7 +3,7 @@
 
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { ParseStatus, DisclosureDocument } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import {
   DartApiService,
   DartApiUnavailableError,

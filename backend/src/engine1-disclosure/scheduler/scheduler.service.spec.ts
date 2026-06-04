@@ -1,8 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SchedulerService } from './scheduler.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { DartApiService } from '../dart-api/dart-api.service';
-import { ExpoPushService } from '../expo-push/expo-push.service';
+import { ExpoPushService } from '../../expo-push/expo-push.service';
 
 /**
  * SchedulerService 단위 테스트

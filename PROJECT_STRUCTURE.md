@@ -57,25 +57,21 @@ dart-notification/
 │   │   │   ├── notification-settings.controller.ts
 │   │   │   ├── notification-settings.service.ts
 │   │   │   └── notification-settings.module.ts
-│   │   ├── disclosures/       # 공시 데이터
-│   │   │   ├── dto/
-│   │   │   │   └── query-disclosure.dto.ts
-│   │   │   ├── disclosures.controller.ts
-│   │   │   ├── disclosures.service.ts
-│   │   │   └── disclosures.module.ts
+│   │   ├── engine1-disclosure/ # 🟦 Engine1: 공시 인텔리전스 도메인 (DDD Bounded Context)
+│   │   │   ├── CLAUDE.md            # 도메인 규칙 (작업 시 자동 로드)
+│   │   │   ├── disclosures/         # 공시 조회 (GET /disclosures)
+│   │   │   ├── scheduler/           # 수집 배치 (DART 폴링·재시도) — M0
+│   │   │   ├── dart-api/            # DART OpenAPI 클라이언트
+│   │   │   ├── disclosure-documents/ # 원문 파싱 (HTML/XML/표·정정 diff) — M1
+│   │   │   └── disclosure-events/   # 이벤트·수치 추출 (extractors) — M2
 │   │   ├── notifications/     # 알림 히스토리
 │   │   │   ├── dto/
 │   │   │   │   └── query-notification.dto.ts
 │   │   │   ├── notifications.controller.ts
 │   │   │   ├── notifications.service.ts
 │   │   │   └── notifications.module.ts
-│   │   ├── scheduler/         # 배치 작업
-│   │   │   ├── scheduler.service.ts
-│   │   │   └── scheduler.module.ts
-│   │   ├── dart-api/          # DART API 클라이언트
-│   │   │   ├── dart-api.service.ts
-│   │   │   └── dart-api.module.ts
-│   │   ├── expo-push/         # Expo Push 서비스
+│   │   │                      # (scheduler·dart-api는 engine1-disclosure/ 하위로 이동)
+│   │   ├── expo-push/         # Expo Push 서비스 (알림 횡단)
 │   │   │   ├── expo-push.service.ts
 │   │   │   └── expo-push.module.ts
 │   │   ├── prisma/            # Prisma 서비스 모듈

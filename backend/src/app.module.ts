@@ -10,14 +10,14 @@ import { DevicesModule } from './devices/devices.module';
 import { CompaniesModule } from './companies/companies.module';
 import { WatchlistModule } from './watchlist/watchlist.module';
 import { NotificationSettingsModule } from './notification-settings/notification-settings.module';
-import { DisclosuresModule } from './disclosures/disclosures.module';
+import { DisclosuresModule } from './engine1-disclosure/disclosures/disclosures.module';
 import { SavedDisclosuresModule } from './saved-disclosures/saved-disclosures.module';
 import { NotificationsModule } from './notifications/notifications.module';
-import { SchedulerModule } from './scheduler/scheduler.module';
-import { DartApiModule } from './dart-api/dart-api.module';
+import { SchedulerModule } from './engine1-disclosure/scheduler/scheduler.module';
+import { DartApiModule } from './engine1-disclosure/dart-api/dart-api.module';
 import { ExpoPushModule } from './expo-push/expo-push.module';
-import { DisclosureDocumentsModule } from './disclosure-documents/disclosure-documents.module';
-import { DisclosureEventsModule } from './disclosure-events/disclosure-events.module';
+import { DisclosureDocumentsModule } from './engine1-disclosure/disclosure-documents/disclosure-documents.module';
+import { DisclosureEventsModule } from './engine1-disclosure/disclosure-events/disclosure-events.module';
 
 @Module({
   imports: [

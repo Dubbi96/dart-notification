@@ -2,8 +2,8 @@ import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { DisclosuresService } from './disclosures.service';
 import { QueryDisclosureDto, SearchDisclosureDto } from './dto/query-disclosure.dto';
-import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { OptionalJwtAuthGuard } from '../../auth/guards/optional-jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { DISCLOSURE_TYPES } from './constants/disclosure-types.constant';
 
 @ApiTags('Disclosures')

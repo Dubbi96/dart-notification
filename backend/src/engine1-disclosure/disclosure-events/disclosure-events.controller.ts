@@ -22,7 +22,7 @@ import { EventType, ExtractionStatus } from '@prisma/client';
 import { DisclosureEventsService } from './disclosure-events.service';
 import { DisclosureEventResponseDto } from './dto/disclosure-event-response.dto';
 import { BatchExtractResultDto } from './dto/batch-extract.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 
 @ApiTags('disclosure-events')
 @Controller('disclosure-events')

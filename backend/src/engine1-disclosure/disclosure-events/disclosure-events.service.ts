@@ -3,7 +3,7 @@
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DisclosureEvent, EventType, ExtractionStatus } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { ParsedJson } from '../disclosure-documents/types/parsed-json.type';
 import { classifyEventType } from './extractors/event-classifier';
 import { extractEventData } from './extractors/index';

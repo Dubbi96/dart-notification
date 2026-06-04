@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { DartApiService } from '../dart-api/dart-api.service';
+import { DartApiService } from '../engine1-disclosure/dart-api/dart-api.service';
 
 const OVERVIEW_CACHE_TTL = 1000 * 60 * 60 * 24; // 24시간
 

@@ -5,7 +5,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { EventType, ExtractionStatus } from '@prisma/client';
 import { DisclosureEventsService } from './disclosure-events.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
 // ─── DB mock ────────────────────────────────────────────────────────────────
 

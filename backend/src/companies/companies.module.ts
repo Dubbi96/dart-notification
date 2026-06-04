@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CompaniesController } from './companies.controller';
 import { CompaniesService } from './companies.service';
-import { DartApiModule } from '../dart-api/dart-api.module';
+import { DartApiModule } from '../engine1-disclosure/dart-api/dart-api.module';
 
 @Module({
   imports: [DartApiModule],

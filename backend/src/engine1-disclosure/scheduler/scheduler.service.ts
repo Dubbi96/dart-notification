@@ -1,11 +1,11 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import {
   DartApiService,
   DartDisclosureItem,
 } from '../dart-api/dart-api.service';
-import { ExpoPushService } from '../expo-push/expo-push.service';
+import { ExpoPushService } from '../../expo-push/expo-push.service';
 import { ExpoPushMessage } from 'expo-server-sdk';
 import { DisclosureCollectionLog } from '@prisma/client';
 import { DisclosureDocumentsService } from '../disclosure-documents/disclosure-documents.service';

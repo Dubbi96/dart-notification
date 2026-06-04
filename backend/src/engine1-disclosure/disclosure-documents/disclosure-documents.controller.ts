@@ -21,7 +21,7 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { ParseStatus } from '@prisma/client';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { DisclosureDocumentsService } from './disclosure-documents.service';
 import { ParseResultDto } from './dto/parse-result.dto';
 import { BatchResultDto, RetryResultDto } from './dto/batch-result.dto';

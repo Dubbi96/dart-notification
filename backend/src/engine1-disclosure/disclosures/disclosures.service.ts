@@ -91,6 +91,32 @@ export class DisclosuresService {
     };
   }
 
+  async findAnalysis(rcpNo: string) {
+    const [analyses, persona] = await Promise.all([
+      this.prisma.disclosureAnalysis.findMany({
+        where: { rcpNo },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.personaAnalysis.findUnique({ where: { rcpNo } }),
+    ]);
+
+    return {
+      rcpNo,
+      analyses: analyses.map((a) => ({
+        task: a.task,
+        level: a.level,
+        result: a.resultJson,
+        createdAt: a.createdAt.toISOString(),
+      })),
+      personaAnalysis: persona
+        ? {
+            result: persona.resultJson,
+            createdAt: persona.createdAt.toISOString(),
+          }
+        : null,
+    };
+  }
+
   async search(query: SearchDisclosureDto) {
     const { q, page = 1, limit = 20, disclosureType } = query;
 

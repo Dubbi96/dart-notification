@@ -21,6 +21,7 @@ import { DisclosureDocumentsModule } from './engine1-disclosure/disclosure-docum
 import { DisclosureEventsModule } from './engine1-disclosure/disclosure-events/disclosure-events.module';
 import { AiAnalystModule } from './engine2-ai-analyst/ai-analyst.module';
 import { QuantMarketModule } from './engine3-quant-market/quant-market.module';
+import { SignalsModule } from './signals/signals.module';
 import { PortfolioExitModule } from './engine4-portfolio-exit/portfolio-exit.module';
 import { TradingRiskModule } from './engine5-trading-risk/trading-risk.module';
 
@@ -64,6 +65,7 @@ import { TradingRiskModule } from './engine5-trading-risk/trading-risk.module';
     DevicesModule,
     CompaniesModule,
     WatchlistModule,
+    SignalsModule,
     NotificationSettingsModule,
     DisclosuresModule,
     SavedDisclosuresModule,

@@ -35,6 +35,13 @@ export class DisclosuresController {
     return { success: true, data: result.items, meta: result.meta };
   }
 
+  @Get(':rcpNo/analysis')
+  @ApiOperation({ summary: '공시 AI 분석 결과 조회 (요약·polarity·Persona 해석)' })
+  async findAnalysis(@Param('rcpNo') rcpNo: string) {
+    const data = await this.disclosuresService.findAnalysis(rcpNo);
+    return { success: true, data };
+  }
+
   @Get(':rcpNo')
   @ApiOperation({ summary: '공시 상세 조회' })
   async findOne(@Param('rcpNo') rcpNo: string) {

@@ -7,7 +7,10 @@
 
 ## 0. ✅ 재개 첫 작업 — 완료 (2026-06-04)
 
-> 🛑 **현재 paperclip 4 에이전트는 전부 PAUSED 상태다.** (할당된 이슈가 wakeOnDemand를 자동 트리거해 선행조건 미충족 작업까지 자율 착수한 사고 → 통제 위해 일시정지함.) 재개 시 **환경 준비 후 의도적으로 unpause + wakeup** 할 것. 미할당/BLOCKED 이슈는 환경 충족 전 할당 금지. (상세: §7)
+> ✅ **2026-06-04 06:13 재개 완료: 4 에이전트 unpause(idle), ORCHESTRATOR running, DAR-3·DAR-4 in_progress.**
+> 안전 재개 절차(사고 재발 방지): DAR-5(Redis 미충족)·DAR-6(LLM키 미충족)을 **할당해제**한 뒤 unpause → wakeOnDemand가 BLOCKED 이슈를 자동 착수하지 못하게 함. DAR-3(M4, 선행조건 없음)·DAR-4(M3-A Prisma, DB 가동·스키마 동기화 확인)만 ORCHESTRATOR에 할당된 상태로 wakeup.
+> ⚠️ **DAR-4 주의**: 신규 Prisma 모델 3종 마이그레이션 시 `npx prisma migrate`는 `.claude` 훅이 **휴먼 승인(ask)** 요구 → 에이전트가 멈추면 사람이 승인해야 진행. WIP 브랜치 `feat/DAR-4-ai-analysis-prisma`(075fb0d)는 참고용(미검증, 깨끗이 재구현 권장).
+> 재(再)pause 필요 시: `POST /api/agents/<id>/pause?companyId=<C>`. (상세 사고 경위: §7)
 
 **✅ `feat/DAR-2-remaining-ai-tasks` → main ff-병합 + 부트스트랩 커밋 완료.**
 재개 세션이 아래를 실행했다(병합 전 재검증: tsc 0 / jest 22스위트·251테스트 그린 재확인):
@@ -20,7 +23,7 @@ git commit -m "chore(harness): paperclip 부트스트랩 + 멀티에이전트 �
 ```
 > 결과: main = `7577ac1` (DAR-2 + 하네스 부트스트랩 포함). 미push 상태.
 > push는 별도(요청 시) — `git push origin main`은 하네스가 휴먼 승인 요구.
-> **다음 작업**: §6 백로그 — `37ae394e`(M4 engine3 스캐폴딩)은 선행조건 없음·즉시 가능. 나머지(M3-A/B/C)는 환경(DB/Redis/LLM키) 준비 후.
+> 이후 DAR-2 이슈(`5e45a92b`)는 paperclip에서 `done` 처리, **DAR-3·DAR-4 자율 진행 시작**(위 박스 참조).
 
 ---
 
@@ -111,20 +114,24 @@ feat/ddd-harness-m3, feat/m3-ai-analyst  (병합완료된 과거 브랜치)
 
 ---
 
-## 6. 다음 작업 (paperclip 백로그 이슈, 전부 todo·ORCHESTRATOR 할당)
+## 6. paperclip 백로그 이슈 — 현황 (2026-06-04 06:13)
 
-| 이슈 | 내용 | 선행조건 |
-|---|---|---|
-| `37ae394e` M4 | engine3-quant-market 스캐폴딩 | **없음 — 즉시 가능** |
-| `7be69287` M3-A | Prisma 모델3종+마이그레이션+Prisma 어댑터 | docker DB 가동 + migrate 승인 |
-| `e3823e6f` M3-B | event.extracted 큐 컨슈머 | Redis/BullMQ 설치 |
-| `27aafc7d` M3-C | 라이브 LLM 통합+게이트 실측 | LLM_API_KEY 설정 |
+| 이슈 | 내용 | 선행조건 | 상태 |
+|---|---|---|---|
+| DAR-1 `b492b931` | test Task | — | ✅ done |
+| DAR-2 `5e45a92b` | M3 나머지 3 AI Task | — | ✅ done (main 병합·이슈 close) |
+| DAR-3 `37ae394e` M4 | engine3-quant-market 스캐폴딩 | **없음** | 🚧 **in_progress** (ORCHESTRATOR) |
+| DAR-4 `7be69287` M3-A | Prisma 모델3종+마이그레이션+어댑터 | DB 가동(✅충족) + migrate 승인 | 🚧 **in_progress** (ORCHESTRATOR) |
+| DAR-5 `e3823e6f` M3-B | event.extracted 큐 컨슈머 | Redis/BullMQ ❌ | ⛔ 미할당(BLOCKED) |
+| DAR-6 `27aafc7d` M3-C | 라이브 LLM 통합+게이트 실측 | LLM_API_KEY ❌ | ⛔ 미할당(BLOCKED) |
 
-### 활성화 방법(재개 시)
-1. **먼저 환경 준비** (BLOCKED 이슈): `docker-compose -f docker-compose.dev.yml up -d`(DB·Redis), `.env`에 `LLM_API_KEY` 등.
-2. **에이전트 unpause**: `POST /api/agents/<id>/resume?companyId=<C>` (또는 paperclip UI). 4개 모두 현재 paused.
-3. ORCHESTRATOR 깨우기: `POST /api/agents/ee81f071-.../wakeup?companyId=c45545cc-...` `{"reason":"<이슈> 진행"}`
-4. ⚠️ **이슈 할당 = 자동 깨움**(wakeOnDemand). 준비 안 된 이슈는 할당하지 말 것. heartbeat는 OFF.
+### DAR-5·DAR-6 활성화 방법 (환경 준비 후)
+1. **환경 준비**: Redis 컨테이너 가동(`docker-compose`에 redis 추가 후 up) / `.env`에 `LLM_API_KEY` 설정.
+2. 해당 이슈 **할당**: `PATCH /api/issues/<id>?companyId=<C>` `{"assigneeAgentId":"ee81f071-..."}` → 할당 즉시 wakeOnDemand로 자동 착수.
+   - 또는 이미 idle인 ORCHESTRATOR를 `POST /api/agents/<id>/wakeup?companyId=<C>`로 명시 깨움.
+3. ⚠️ **환경 미충족 이슈는 할당 금지**(=자동 착수 사고 §7). heartbeat OFF이므로 할당/wakeup 전엔 자동 실행 없음.
+
+> 엔드포인트 정정: 이슈 단건은 `/api/issues/<id>?companyId=<C>`(GET/PATCH), `/api/companies/<C>/issues/<id>`는 404.
 
 ## 7. ⚠️ 핸드오프 인시던트 & WIP 보존 (2026-06-04)
 

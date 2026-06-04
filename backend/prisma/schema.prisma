@@ -597,3 +597,86 @@ model MarketDataCollectionLog {
   @@index([status])
   @@map("market_data_collection_logs")
 }
+
+// ====================================
+// Event Study 결과 (M5 신규, DAR-9)
+// ====================================
+
+// 버킷 단위 집계 결과
+model EventStudyResult {
+  id              String   @id @default(cuid())
+
+  // 집계 식별 키 (자연키)
+  eventType       String   // DisclosureEvent.eventType enum 값
+  bucketKey       String   // 버킷 식별자
+  marketType      String   // "KOSPI" | "KOSDAQ" | "ALL"
+
+  // 표본 정보
+  sampleCount     Int      // 집계 표본 수
+  isSignificant   Boolean  // p < 0.05 기준
+  tStatistic      Float?   // t-통계량
+  pValue          Float?   // p-값
+  variance        Float?   // D+1 AR 분산 (과신 방지용)
+
+  // D+N 평균 수익률 (종목 기준)
+  avgReturnD1     Float    // D0→D+1 단순 수익률 평균 (%)
+  avgReturnD3     Float    // D0→D+3 누적 수익률 평균 (%)
+  avgReturnD5     Float    // D0→D+5 누적 수익률 평균 (%)
+  avgReturnD20    Float    // D0→D+20 누적 수익률 평균 (%)
+
+  // 시장 대비 초과수익 (Abnormal Return)
+  avgArD1         Float    // D+1 평균 AR (종목수익률 - 시장수익률)
+  avgArD3         Float    // D+3 누적 평균 AR
+  avgArD5         Float    // D+5 누적 평균 AR
+  avgArD20        Float    // D+20 누적 평균 AR
+
+  // 분포 지표
+  upProbD5        Float    // D+5 기준 상승 확률 (0~1)
+  crashProbD5     Float    // D+5 기준 급락(-5% 이상) 확률 (0~1)
+  avgMaxDrawdown  Float    // D0~D+20 평균 최대낙폭 MDD (%)
+
+  // 거래량
+  avgVolumeRatioD1 Float   // D+1 거래량 / D-5 평균거래량 배율
+  avgVolumeRatioD3 Float   // D+3 평균
+
+  // 메타
+  calculatedAt    DateTime @default(now())
+  dataFromDate    String   // 집계 기간 시작 (YYYYMMDD)
+  dataToDate      String   // 집계 기간 종료 (YYYYMMDD)
+  status          String   @default("READY")
+  // "READY" | "INSUFFICIENT" | "CALCULATING" | "ERROR"
+
+  @@unique([eventType, bucketKey, marketType])
+  @@index([eventType])
+  @@index([bucketKey])
+  @@index([calculatedAt])
+  @@map("event_study_results")
+}
+
+// 개별 이벤트 관측치 (집계 재현·디버깅용)
+model EventStudyObservation {
+  id              String   @id @default(cuid())
+  eventId         String   // DisclosureEvent.id (논리 FK, Prisma relation 없음)
+  rcpNo           String   // Disclosure.rcpNo
+  corpCode        String   // Company.corpCode
+  eventType       String
+  bucketKey       String
+  d0Date          String   // 실제 D0 날짜 (YYYYMMDD)
+
+  // D-5~D+20 일별 수익률·AR (JSON)
+  dailyReturns    Json     // {"dm5":0.01, "d0":0.02, "d1":0.03, ...}
+  dailyAR         Json     // 일별 초과수익
+  cumulativeAR    Json     // 누적 초과수익
+
+  volumeRatios    Json     // {"d1":3.2, "d3":2.1}
+  maxDrawdown     Float    // D0~D+20 최대낙폭 (%)
+  isUpD5          Boolean  // D+5 기준 양수 수익 여부
+  isCrashD5       Boolean  // D+5 기준 -5% 이하 여부
+
+  createdAt       DateTime @default(now())
+
+  @@index([eventType, bucketKey])
+  @@index([rcpNo])
+  @@index([corpCode])
+  @@map("event_study_observations")
+}

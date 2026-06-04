@@ -584,29 +584,105 @@ Engine 3 (Quant Market)의 모든 지표 계산은 **순수 Rule 기반**. LLM/A
 
 ---
 
-## 8. 백업 및 복구 전략
+## 8. M5 Event Study 모델 (신규, DAR-9)
 
-### 7.1 정기 백업
+### 8.1 EventStudyResult (event_study_results) — DAR-9 신규
+
+이벤트 타입 × 버킷 × 시장 구분 단위의 집계 결과. 자연키: `(eventType, bucketKey, marketType)`.
+
+**목적**: 특정 공시 이벤트가 발생했을 때 통계적으로 유의미한 주가 반응이 있었는지 집계·저장.
+매수 신호 점수 계산(Phase 6)의 근거 데이터로 사용된다.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | TEXT PK | CUID |
+| eventType | TEXT | DisclosureEvent.eventType enum 값 |
+| bucketKey | TEXT | 버킷 식별자 (규모·특성 세분화 키) |
+| marketType | TEXT | "KOSPI" / "KOSDAQ" / "ALL" |
+| sampleCount | INT | 집계 표본 수 |
+| isSignificant | BOOL | p < 0.05 기준 통계적 유의성 |
+| tStatistic | FLOAT? | t-통계량 (INSUFFICIENT시 null) |
+| pValue | FLOAT? | p-값 (INSUFFICIENT시 null) |
+| variance | FLOAT? | D+1 AR 분산 (과신 방지용) |
+| avgReturnD1 / D3 / D5 / D20 | FLOAT | D+N 평균 수익률 (%) |
+| avgArD1 / D3 / D5 / D20 | FLOAT | D+N 평균 초과수익 AR (%) |
+| upProbD5 | FLOAT | D+5 기준 상승 확률 (0~1) |
+| crashProbD5 | FLOAT | D+5 기준 급락(-5% 이상) 확률 (0~1) |
+| avgMaxDrawdown | FLOAT | D0~D+20 평균 최대낙폭 MDD (%) |
+| avgVolumeRatioD1 / D3 | FLOAT | D+N 거래량 / D-5 평균거래량 배율 |
+| calculatedAt | TIMESTAMP | 집계 실행 시각 |
+| dataFromDate / dataToDate | TEXT | 집계 기간 (YYYYMMDD) |
+| status | TEXT | READY / INSUFFICIENT / CALCULATING / ERROR |
+
+```prisma
+model EventStudyResult {
+  @@unique([eventType, bucketKey, marketType])
+  @@index([eventType])
+  @@index([bucketKey])
+  @@index([calculatedAt])
+  @@map("event_study_results")
+}
+```
+
+### 8.2 EventStudyObservation (event_study_observations) — DAR-9 신규
+
+개별 이벤트 관측치. 집계 재현·디버깅·재집계를 위한 원본 데이터 저장.
+
+**목적**: 버킷 집계 결과를 감사(audit)하거나 재집계할 때 개별 이벤트 수준 데이터를 제공한다.
+논리 FK로 DisclosureEvent.id를 참조하지만 Prisma relation은 없다(성능·유연성 우선).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | TEXT PK | CUID |
+| eventId | TEXT | DisclosureEvent.id (논리 FK) |
+| rcpNo | TEXT | Disclosure.rcpNo |
+| corpCode | TEXT | Company.corpCode |
+| eventType | TEXT | 이벤트 타입 |
+| bucketKey | TEXT | 버킷 식별자 |
+| d0Date | TEXT | 실제 D0 날짜 (YYYYMMDD) |
+| dailyReturns | JSONB | {"dm5":…, "d0":…, "d1":…, …} 일별 수익률 |
+| dailyAR | JSONB | 일별 초과수익 (주식 - 시장) |
+| cumulativeAR | JSONB | d1부터 누적 초과수익 |
+| volumeRatios | JSONB | {"d1": 배율, "d3": 배율} |
+| maxDrawdown | FLOAT | D0~D+20 최대낙폭 (%) |
+| isUpD5 | BOOL | D+5 기준 양수 수익 여부 |
+| isCrashD5 | BOOL | D+5 기준 -5% 이하 여부 |
+| createdAt | TIMESTAMP | 저장 시각 |
+
+```prisma
+model EventStudyObservation {
+  @@index([eventType, bucketKey])
+  @@index([rcpNo])
+  @@index([corpCode])
+  @@map("event_study_observations")
+}
+```
+
+---
+
+## 9. 백업 및 복구 전략
+
+### 9.1 정기 백업
 - PostgreSQL `pg_dump` 사용
 - 매일 자정 자동 백업 (크론)
 - 백업 파일은 S3 또는 GCS에 저장
 
-### 7.2 복구
+### 9.2 복구
 ```bash
 pg_restore -d dart_notification backup.sql
 ```
 
-## 8. 데이터 정리 정책 (향후)
+## 10. 데이터 정리 정책 (향후)
 
-### 8.1 오래된 공시 삭제
+### 10.1 오래된 공시 삭제
 - 2년 이상 된 공시는 Archive 테이블로 이동 또는 삭제
 - NotificationHistory와의 FK 관계 고려
 
-### 8.2 읽은 알림 삭제
+### 10.2 읽은 알림 삭제
 - 90일 이상 지난 읽은 알림은 삭제
 
 ---
 
 **작성일**: 2026-03-07
 **최종 수정일**: 2026-06-04
-**버전**: 1.3 (M4-C DAR-8: StockStatus, MarketDataCollectionLog + KRX 수집 어댑터)
+**버전**: 1.4 (M5-A DAR-9: EventStudyResult, EventStudyObservation + Event Study 계산 엔진)

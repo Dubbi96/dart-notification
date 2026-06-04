@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { TechnicalIndicator } from '../indicators/technical-indicator.service';
-import type { EventStudyResult } from '../event-study/event-study.service';
+import type { AggregatedResult as EventStudyResult } from '../event-study/event-study.service';
 
 export interface BuyScoreParams {
   stockCode: string;
@@ -85,9 +85,10 @@ export class BuySignalService {
   }
 
   private scoreHistory(studyResult: EventStudyResult | null): number {
-    // 과거 D+5 평균 반응 × 10
-    return studyResult?.d5AvgReturn != null
-      ? studyResult.d5AvgReturn * 10
+    // 과거 D+5 평균 AR × 10
+    // TODO(M6): 더 정교한 계산으로 교체
+    return studyResult?.avgArD5 != null
+      ? studyResult.avgArD5 * 10
       : 0;
   }
 

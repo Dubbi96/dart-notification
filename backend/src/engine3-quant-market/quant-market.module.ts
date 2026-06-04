@@ -4,15 +4,6 @@ import { IndicatorsModule } from './indicators/indicators.module';
 import { EventStudyModule } from './event-study/event-study.module';
 import { BuySignalModule } from './buy-signal/buy-signal.module';
 import { BacktestModule } from './backtest/backtest.module';
-import { MarketDataService } from './market-data/market-data.service';
-import { KrxApiService } from './market-data/krx-api.service';
-import { KrxMarketDataScheduler } from './market-data/krx-market-data.scheduler';
-import { TechnicalIndicatorService } from './indicators/technical-indicator.service';
-import { EventStudyService } from './event-study/event-study.service';
-import { BuySignalService } from './buy-signal/buy-signal.service';
-import { MarketCalendarService } from './backtest/constraint/market-calendar.service';
-import { PriceConstraintService } from './backtest/constraint/price-constraint.service';
-import { PerformanceCalculatorService } from './backtest/metrics/performance-calculator.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SignalsController } from './signals/signals.controller';
 import { SignalsService } from './signals/signals.service';
@@ -29,16 +20,8 @@ import { SignalsService } from './signals/signals.service';
   imports: [MarketDataModule, IndicatorsModule, EventStudyModule, BuySignalModule, BacktestModule, PrismaModule],
   controllers: [SignalsController],
   providers: [SignalsService],
-  exports: [
-    MarketDataService,
-    KrxApiService,
-    KrxMarketDataScheduler,
-    TechnicalIndicatorService,
-    EventStudyService,
-    BuySignalService,
-    MarketCalendarService,
-    PriceConstraintService,
-    PerformanceCalculatorService,
-  ],
+  // NestJS는 import한 모듈의 provider를 개별 re-export 불가 → 모듈 자체를 re-export한다.
+  // (각 서브모듈이 자신의 서비스를 exports하므로, 이 모듈을 import하면 그 서비스들을 주입받을 수 있다.)
+  exports: [MarketDataModule, IndicatorsModule, EventStudyModule, BuySignalModule, BacktestModule],
 })
 export class QuantMarketModule {}

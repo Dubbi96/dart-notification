@@ -19,6 +19,7 @@ import { ExpoPushModule } from './expo-push/expo-push.module';
 import { DisclosureDocumentsModule } from './engine1-disclosure/disclosure-documents/disclosure-documents.module';
 import { DisclosureEventsModule } from './engine1-disclosure/disclosure-events/disclosure-events.module';
 import { AiAnalystModule } from './engine2-ai-analyst/ai-analyst.module';
+import { QuantMarketModule } from './engine3-quant-market/quant-market.module';
 
 @Module({
   imports: [
@@ -60,6 +61,9 @@ import { AiAnalystModule } from './engine2-ai-analyst/ai-analyst.module';
 
     // Engine 2 — AI Analyst (M3)
     AiAnalystModule,
+
+    // Engine 3 — Quant Market (M4 스캐폴딩)
+    QuantMarketModule,
   ],
   providers: [
     {

@@ -190,10 +190,48 @@ async function main(): Promise<void> {
     failed++;
   }
 
-  // ── 4. 종목상태 API 응답 구조 검증 ────────────────────────────────────
-  printSection('4. 종목상태 (isu_mrktact_info)');
+  // ── 4. 코스닥 일봉 API 응답 구조 검증 (sto/ksq_bydd_trd) ─────────────
+  printSection('4. 코스닥 일봉 OHLCV (ksq_bydd_trd)');
   try {
-    const { data } = await axios.get(`${KRX_BASE_URL}/sto/isu_mrktact_info`, {
+    const { data } = await axios.get(`${KRX_BASE_URL}/sto/ksq_bydd_trd`, {
+      params: withAuthKey({ basDd: SAMPLE_DATE, isuCd: '035720' }), // 카카오 — 코스닥 유동성 높은 표본
+      headers: header(),
+      timeout: 30_000,
+    });
+
+    printInfo(`응답 최상위 키: ${Object.keys(data).join(', ')}`);
+    const rows: RawRow[] = data?.OutBlock1 ?? data?.output1 ?? [];
+    printInfo(`레코드 수: ${rows.length}개`);
+
+    if (rows.length > 0) {
+      const r = rows[0];
+      const stockCode = r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '';
+      const closePrice = parseNum(r['TDD_CLSPRC'] ?? r['tddClsprc'] ?? '0');
+      printInfo(`종목코드: ${stockCode}, 종가: ${closePrice.toLocaleString()}`);
+
+      if (stockCode && closePrice > 0) {
+        printPass(`코스닥 일봉 API 구조 정상 — sto/ksq_bydd_trd 경로 유효`);
+        passed++;
+      } else {
+        printFail(`필수 필드 매핑 실패 — stockCode="${stockCode}", closePrice=${closePrice}`);
+        printInfo(`실제 키 샘플: ${JSON.stringify(r).slice(0, 200)}`);
+        failed++;
+      }
+    } else {
+      printInfo('레코드 없음 — 비거래일 또는 API 승인 대기 중');
+      printPass('코스닥 일봉 API 호출 성공 (빈 결과, 401=경로 유효)');
+      passed++;
+    }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    printFail(`코스닥 일봉 API 실패: ${msg}`);
+    failed++;
+  }
+
+  // ── 5. 유가증권 종목기본정보 (sto/stk_isu_base_info) ───────────────
+  printSection('5. 유가증권 종목기본정보 (stk_isu_base_info)');
+  try {
+    const { data } = await axios.get(`${KRX_BASE_URL}/sto/stk_isu_base_info`, {
       params: withAuthKey({ basDd: SAMPLE_DATE }),
       headers: header(),
       timeout: 30_000,
@@ -206,31 +244,70 @@ async function main(): Promise<void> {
     if (rows.length > 0) {
       const r = rows[0];
       const stockCode = r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '';
-      const corpName = r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '';
-      const statusCode = r['MKT_ACT_TP_CD'] ?? r['mktActTpCd'] ?? '';
-      printInfo(`샘플: stockCode=${stockCode}, corpName=${corpName}, statusCode=${statusCode}`);
+      const stockName = r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '';
+      printInfo(`샘플: stockCode=${stockCode}, stockName=${stockName}`);
+      printInfo(`전체 키: ${Object.keys(r).slice(0, 15).join(', ')}`);
 
       if (stockCode) {
-        printPass(`종목상태 API 구조 정상`);
+        printPass(`유가증권 종목기본정보 API 구조 정상`);
         passed++;
       } else {
         printFail(`종목코드 매핑 실패`);
-        printInfo(`실제 키 샘플: ${JSON.stringify(r).slice(0, 200)}`);
+        printInfo(`실제 키 샘플: ${JSON.stringify(r).slice(0, 300)}`);
         failed++;
       }
     } else {
-      printInfo('빈 결과');
-      printPass('종목상태 API 호출 성공 (빈 결과)');
+      printInfo('빈 결과 — API 승인 대기 중 가능성');
+      printPass('유가증권 종목기본정보 API 호출 성공 (빈 결과)');
       passed++;
     }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    printFail(`종목상태 API 실패: ${msg}`);
+    printFail(`유가증권 종목기본정보 API 실패: ${msg}`);
     failed++;
   }
 
-  // ── 5. DB 적재 시뮬 (단일 종목 일봉 → PrismaClient upsert) ───────────
-  printSection('5. DB 적재 (단일 종목 삼성전자 일봉)');
+  // ── 6. 코스닥 종목기본정보 (sto/ksq_isu_base_info) ────────────────
+  printSection('6. 코스닥 종목기본정보 (ksq_isu_base_info)');
+  try {
+    const { data } = await axios.get(`${KRX_BASE_URL}/sto/ksq_isu_base_info`, {
+      params: withAuthKey({ basDd: SAMPLE_DATE }),
+      headers: header(),
+      timeout: 30_000,
+    });
+
+    printInfo(`응답 최상위 키: ${Object.keys(data).join(', ')}`);
+    const rows: RawRow[] = data?.OutBlock1 ?? data?.output1 ?? [];
+    printInfo(`레코드 수: ${rows.length}개`);
+
+    if (rows.length > 0) {
+      const r = rows[0];
+      const stockCode = r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '';
+      const stockName = r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '';
+      printInfo(`샘플: stockCode=${stockCode}, stockName=${stockName}`);
+      printInfo(`전체 키: ${Object.keys(r).slice(0, 15).join(', ')}`);
+
+      if (stockCode) {
+        printPass(`코스닥 종목기본정보 API 구조 정상`);
+        passed++;
+      } else {
+        printFail(`종목코드 매핑 실패`);
+        printInfo(`실제 키 샘플: ${JSON.stringify(r).slice(0, 300)}`);
+        failed++;
+      }
+    } else {
+      printInfo('빈 결과 — API 승인 대기 중 가능성');
+      printPass('코스닥 종목기본정보 API 호출 성공 (빈 결과)');
+      passed++;
+    }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    printFail(`코스닥 종목기본정보 API 실패: ${msg}`);
+    failed++;
+  }
+
+  // ── 7. DB 적재 시뮬 (단일 종목 일봉 → PrismaClient upsert) ───────────
+  printSection('7. DB 적재 (단일 종목 삼성전자 일봉)');
   try {
     // Prisma 동적 로드
     const { PrismaClient } = await import('@prisma/client');

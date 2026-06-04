@@ -46,6 +46,14 @@ export interface KrxStockStatus {
   isSurge: boolean;        // 이상급등
 }
 
+/** 종목 기본정보 (stk_isu_base_info / ksq_isu_base_info) */
+export interface KrxStockBaseInfo {
+  stockCode: string;
+  stockName: string;
+  marketType: 'KOSPI' | 'KOSDAQ' | 'KONEX';
+  // TODO: isManagement, isHalted — 실응답 필드명 확인 후 매핑 (승인 후 확정)
+}
+
 /**
  * KRX 데이터마켓플레이스 HTTP 클라이언트.
  * env: KRX_API_KEY(필수) · KRX_BASE_URL(기본값 제공)
@@ -133,6 +141,39 @@ export class KrxApiService {
   }
 
   /**
+   * 코스닥 종목 일봉 OHLCV 수집 (sto/ksq_bydd_trd).
+   * @param basDd 기준일 (YYYYMMDD)
+   * @param stockCode 종목코드 6자리. 생략하면 전 코스닥 종목.
+   */
+  async fetchKosqdaqDaily(basDd: string, stockCode?: string): Promise<KrxStockDailyRow[]> {
+    const rawParams: Record<string, string> = { basDd };
+    if (stockCode) rawParams['isuCd'] = stockCode;
+
+    try {
+      const { data } = await this.client.get(`${this.baseUrl}/sto/ksq_bydd_trd`, {
+        params: this.buildParams(rawParams),
+        headers: this.buildHeaders(),
+      });
+
+      const rows = data?.OutBlock1 ?? data?.output1 ?? [];
+      return rows.map((r: Record<string, string>) => ({
+        stockCode: r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '',
+        isuAbbrv: r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '',
+        openPrice: this.parseNum(r['TDD_OPNPRC'] ?? r['tddOpnprc'] ?? '0'),
+        highPrice: this.parseNum(r['TDD_HGPRC'] ?? r['tddHgprc'] ?? '0'),
+        lowPrice: this.parseNum(r['TDD_LWPRC'] ?? r['tddLwprc'] ?? '0'),
+        closePrice: this.parseNum(r['TDD_CLSPRC'] ?? r['tddClsprc'] ?? '0'),
+        volume: this.parseNum(r['ACML_VOL'] ?? r['acmlVol'] ?? '0'),
+        tradingValue: this.parseNum(r['ACML_TRAD_PBMN'] ?? r['acmlTradPbmn'] ?? '0'),
+      }));
+    } catch (e) {
+      if (e instanceof KrxApiUnavailableError) throw e;
+      this.logger.error(`[KRX] ksq_bydd_trd 실패 basDd=${basDd}: ${(e as Error).message}`);
+      return [];
+    }
+  }
+
+  /**
    * 시장지수 일봉 수집 (KOSPI/KOSDAQ).
    * @param indexType 'KOSPI' | 'KOSDAQ'
    * @param basDd 기준일 (YYYYMMDD)
@@ -171,12 +212,13 @@ export class KrxApiService {
   }
 
   /**
-   * 종목 상태 수집 (거래정지·관리종목·투자주의·이상급등).
+   * 유가증권(KOSPI) 종목기본정보 수집 (sto/stk_isu_base_info).
+   * 종목코드·종목명·시장구분 매핑. Company.stockCode 정합용.
    * @param basDd 기준일
    */
-  async fetchStockStatus(basDd: string): Promise<KrxStockStatus[]> {
+  async fetchStkIsuBaseInfo(basDd: string): Promise<KrxStockBaseInfo[]> {
     try {
-      const { data } = await this.client.get(`${this.baseUrl}/sto/isu_mrktact_info`, {
+      const { data } = await this.client.get(`${this.baseUrl}/sto/stk_isu_base_info`, {
         params: this.buildParams({ basDd }),
         headers: this.buildHeaders(),
       });
@@ -184,11 +226,64 @@ export class KrxApiService {
       const rows = data?.OutBlock1 ?? data?.output1 ?? [];
       return rows.map((r: Record<string, string>) => ({
         stockCode: r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '',
-        corpName: r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '',
-        isHalted: (r['MKT_ACT_TP_CD'] ?? r['mktActTpCd'] ?? '') === '11',
-        isManagement: (r['MKT_ACT_TP_CD'] ?? r['mktActTpCd'] ?? '') === '12',
-        isWarning: (r['MKT_ACT_TP_CD'] ?? r['mktActTpCd'] ?? '') === '21',
-        isSurge: (r['MKT_ACT_TP_CD'] ?? r['mktActTpCd'] ?? '') === '31',
+        stockName: r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '',
+        marketType: 'KOSPI' as const,
+        // TODO: isManagement, isHalted — 실응답 필드명 확인 후 매핑 (KRX 승인 후)
+      }));
+    } catch (e) {
+      if (e instanceof KrxApiUnavailableError) throw e;
+      this.logger.error(`[KRX] stk_isu_base_info 실패 basDd=${basDd}: ${(e as Error).message}`);
+      return [];
+    }
+  }
+
+  /**
+   * 코스닥 종목기본정보 수집 (sto/ksq_isu_base_info).
+   * 종목코드·종목명·시장구분 매핑. Company.stockCode 정합용.
+   * @param basDd 기준일
+   */
+  async fetchKsqIsuBaseInfo(basDd: string): Promise<KrxStockBaseInfo[]> {
+    try {
+      const { data } = await this.client.get(`${this.baseUrl}/sto/ksq_isu_base_info`, {
+        params: this.buildParams({ basDd }),
+        headers: this.buildHeaders(),
+      });
+
+      const rows = data?.OutBlock1 ?? data?.output1 ?? [];
+      return rows.map((r: Record<string, string>) => ({
+        stockCode: r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '',
+        stockName: r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '',
+        marketType: 'KOSDAQ' as const,
+        // TODO: isManagement, isHalted — 실응답 필드명 확인 후 매핑 (KRX 승인 후)
+      }));
+    } catch (e) {
+      if (e instanceof KrxApiUnavailableError) throw e;
+      this.logger.error(`[KRX] ksq_isu_base_info 실패 basDd=${basDd}: ${(e as Error).message}`);
+      return [];
+    }
+  }
+
+  /**
+   * 종목 상태 수집.
+   * isu_mrktact_info(404 확인) → stk_isu_base_info + ksq_isu_base_info로 교체.
+   * 거래정지·관리종목 필드는 실응답 확인 후 매핑 예정 (TODO 참조).
+   * @param basDd 기준일
+   */
+  async fetchStockStatus(basDd: string): Promise<KrxStockStatus[]> {
+    try {
+      const [stkRows, ksqRows] = await Promise.all([
+        this.fetchStkIsuBaseInfo(basDd),
+        this.fetchKsqIsuBaseInfo(basDd),
+      ]);
+
+      return [...stkRows, ...ksqRows].map((info) => ({
+        stockCode: info.stockCode,
+        corpName: info.stockName,
+        // TODO: KRX 승인 후 실응답에서 거래정지/관리종목 필드명 확인하여 매핑
+        isHalted: false,
+        isManagement: false,
+        isWarning: false,
+        isSurge: false,
       }));
     } catch (e) {
       if (e instanceof KrxApiUnavailableError) throw e;

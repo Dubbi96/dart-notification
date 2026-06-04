@@ -4,6 +4,42 @@
 
 DART 공시 실시간 알림 모바일 앱 (React Native Expo + NestJS)
 - 모든 UI 텍스트는 **한국어**로 작성
+- 제품 방향: 공시 알림 → 투자판단·포트폴리오·(제한적)자동매매. SSOT: `docs/roadmap/00-vision-and-principles.md`, 실행 순서: `docs/roadmap/01-execution-roadmap.md`(M0~M12)
+
+## 아키텍처: DDD 도메인 구조 (필수 준수)
+
+코드는 **도메인(Bounded Context) 단위**로 묶는다. 기능 모듈을 평면 나열하지 않는다.
+백엔드는 **5개 엔진**으로 분리한다 (정본: `docs/roadmap/cc-engine-architecture.md §4-1`).
+
+| 도메인 폴더 (`backend/src/`) | 책임 | 마일스톤 | 상태 |
+|---|---|---|---|
+| `engine1-disclosure/` | 공시 수집·파싱·이벤트추출 | M0~M2 | ✅ 통합완료 |
+| `engine2-ai-analyst/` | 4 AI Task·비용게이트(L0~L3)·`AIUsageLog` | M3 | 🚧 스캐폴딩 |
+| `engine3-quant-market/` | 시세·지표·Event Study·Buy Score | M4~M6,M9 | ⬜ |
+| `engine4-portfolio-exit/` | 포트폴리오·포지션·Exit Score | M7~M8 | ⬜ |
+| `engine5-trading-risk/` | Risk 하드룰·모의/실주문 | M11~M12 | ⬜ |
+| 횡단(독립) | auth·users·companies·watchlist·notifications·notification-settings·expo-push·devices·saved-disclosures·prisma·common | 전 구간 | — |
+
+**도메인 구축 규칙 (점진적·지속):**
+- 새 마일스톤 착수 시 해당 `engineN-*/` 폴더를 만들고, **그 폴더에 `CLAUDE.md`(도메인 규칙 + 담당 마일스톤 로드맵 발췌)를 반드시 동반**한다.
+- 컨텍스트 계층화: 작업 디렉터리에서 가장 가까운 `CLAUDE.md`가 자동 로드된다. 현재 존재: `backend/`, `backend/prisma/`, `mobile/`, `backend/src/engine1-disclosure/`.
+- 엔진 간 통신은 BullMQ 큐 + DB. 엔진끼리 서비스 직접 호출 최소화.
+- 런타임 `@/` alias는 미등록 → **상대경로 import** 사용.
+
+## 멀티에이전트 하네스 & 검증 절차
+
+**권한 경계(`.claude/`):** `settings.json` 권한 매트릭스 + 훅(`hooks/guard-bash.mjs`, `hooks/risk-guard.mjs`)이 파괴적 명령과 **AI 금지영역**을 코드로 차단한다. `git push`·`prisma migrate`는 휴먼 승인(ask), `prisma migrate reset`·force push·`rm -rf`는 차단(deny).
+
+**서브에이전트 = 컨텍스트 방화벽(`.claude/agents/`):** 긴 작업의 세부 단위를 격리된 컨텍스트의 서브에이전트에 위임하고 결과만 회수한다. 역할별 에이전트는 조직도가 아니라 **위임 단위 + 도구(권한) 경계**다.
+- `be-engineer` — 백엔드 도메인 구현 / `ai-prompt-engineer` — Engine2 프롬프트·스키마·비용 / `fe-engineer` — 모바일 / `qa-verifier` — 검증(읽기전용)
+
+**검증 절차 (DoD — 모든 구현/위임 완료 조건):**
+1. `npx tsc --noEmit` 에러 0 · `npm run build` 통과
+2. `npm test`(jest) **그린** — 기존 테스트 회귀 없음
+3. 스키마 변경 시 마이그레이션 커밋(`backend/prisma/CLAUDE.md`) + 자연키(rcpNo/corpCode) FK 정합
+4. **AI 금지영역 미침범** (Engine5 Risk 독립) · AI 사용 시 `AIUsageLog` 기록 누락 0
+5. 변경 영역 문서 동기화 (아래 "문서 자동 업데이트 규칙")
+6. 매 마일스톤 종료 시 ↩︎ 이전단계 회귀 + 전역 회귀 매트릭스(`01-execution-roadmap.md §3`) 점검
 
 ## 기술 스택 & 규칙
 

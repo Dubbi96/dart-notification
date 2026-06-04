@@ -18,6 +18,7 @@ import { DartApiModule } from './engine1-disclosure/dart-api/dart-api.module';
 import { ExpoPushModule } from './expo-push/expo-push.module';
 import { DisclosureDocumentsModule } from './engine1-disclosure/disclosure-documents/disclosure-documents.module';
 import { DisclosureEventsModule } from './engine1-disclosure/disclosure-events/disclosure-events.module';
+import { AiAnalystModule } from './engine2-ai-analyst/ai-analyst.module';
 
 @Module({
   imports: [
@@ -56,6 +57,9 @@ import { DisclosureEventsModule } from './engine1-disclosure/disclosure-events/d
     ExpoPushModule,
     DisclosureDocumentsModule,
     DisclosureEventsModule,
+
+    // Engine 2 — AI Analyst (M3)
+    AiAnalystModule,
   ],
   providers: [
     {

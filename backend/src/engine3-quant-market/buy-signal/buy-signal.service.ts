@@ -1,112 +1,206 @@
-import { Injectable } from '@nestjs/common';
-import type { TechnicalIndicator } from '../indicators/technical-indicator.service';
-import type { AggregatedResult as EventStudyResult } from '../event-study/event-study.service';
+/**
+ * Buy Score 오케스트레이터 서비스 — M6-A (DAR-10)
+ *
+ * AI 금지영역: Buy Score 계산은 순수 Rule 기반. AI/LLM 개입 절대 금지.
+ * 자동매수·주문 절대 금지 — 참고정보(TradingSignal 레코드) 생성만.
+ *
+ * 공식:
+ *   Buy Score = Σ(Wi × Ci) − RiskPenalty
+ *   clamp(-100, 100), 정수 반환
+ */
 
-export interface BuyScoreParams {
-  stockCode: string;
-  eventType: string;
-  keyMetrics: Record<string, number | string | null>;
-  indicator: TechnicalIndicator;
-  studyResult: EventStudyResult | null;
-  userPersona?: string;
+import { Injectable } from '@nestjs/common';
+import { BUY_SCORE_WEIGHTS, SIGNAL_GRADE_THRESHOLDS } from './config/buy-signal.config';
+import {
+  DisclosureEventInput,
+  scoreDisclosureEvent,
+} from './scoring/disclosure-event.scorer';
+import { KeyMetricInput, scoreKeyMetric } from './scoring/key-metric.scorer';
+import {
+  PersonaFitInput,
+  scorePersonaFit,
+} from './scoring/persona-fit.scorer';
+import {
+  HistoricalEventInput,
+  scoreHistoricalEvent,
+} from './scoring/historical-event.scorer';
+import { ChartInput, scoreChart } from './scoring/chart.scorer';
+import {
+  VolumeLiquidityInput,
+  scoreVolumeLiquidity,
+} from './scoring/volume-liquidity.scorer';
+import {
+  MarketSectorInput,
+  scoreMarketSector,
+} from './scoring/market-sector.scorer';
+import {
+  RiskPenaltyInput,
+  scoreRiskPenalty,
+} from './scoring/risk-penalty.scorer';
+import {
+  EntryConditionInput,
+  evaluateEntryConditions,
+} from './entry/entry-condition.evaluator';
+
+export type SignalGrade =
+  | 'STRONG_BUY_CANDIDATE'
+  | 'BUY_CANDIDATE'
+  | 'WATCH'
+  | 'NEUTRAL'
+  | 'AVOID'
+  | 'BLOCKED';
+
+export interface ScoreBreakdown {
+  disclosureEvent: number;
+  keyMetric: number;
+  personaFit: number;
+  historicalEvent: number;
+  chart: number;
+  volumeLiquidity: number;
+  marketSector: number;
 }
 
-export interface TradingSignal {
+export interface BuyScoreParams {
+  rcpNo: string;
+  corpCode: string;
   stockCode: string;
-  score: number;
-  breakdown: {
-    base: number;
-    numeric: number;
-    persona: number;
-    history: number;
-    chart: number;
-    market: number;
-    penalty: number;
-  };
+  persona: string;
+  disclosureEvent: DisclosureEventInput;
+  keyMetric: KeyMetricInput;
+  personaFitInput: PersonaFitInput;
+  historicalEvent: HistoricalEventInput;
+  chart: ChartInput;
+  volumeLiquidity: VolumeLiquidityInput;
+  marketSector: MarketSectorInput;
+  riskPenalty: RiskPenaltyInput;
+  entryCondition: EntryConditionInput;
+  subCategory?: string;
+  signalSummary?: string;
+  validUntil?: Date;
+}
+
+export interface BuySignalResult {
+  rcpNo: string;
+  corpCode: string;
+  stockCode: string;
+  persona: string;
+  eventType: string;
+  subCategory?: string;
+  buyScore: number;
+  signal: SignalGrade;
+  scoreBreakdown: ScoreBreakdown;
+  riskPenalty: number;
+  entryConditionMet: string[];
+  entryConditionUnmet: string[];
+  entryReady: boolean;
+  riskFactors: string[];
+  signalSummary?: string;
+  blockedReason?: string;
+  validUntil?: Date;
   computedAt: Date;
 }
 
-/**
- * 매수신호 서비스 — M4 스켈레톤.
- *
- * AI 금지영역: 점수 공식은 순수 Rule 기반. AI 개입 절대 금지.
- *
- * 점수 공식(cc-engine-architecture §4-5):
- *   base + numeric + persona + history + chart + market - penalty
- *   clamp(-100, 100)
- *
- * TODO(M6): 각 세부 계산 함수 구현.
- */
+export function mapScoreToGrade(score: number): SignalGrade {
+  if (score >= SIGNAL_GRADE_THRESHOLDS.STRONG_BUY_CANDIDATE)
+    return 'STRONG_BUY_CANDIDATE';
+  if (score >= SIGNAL_GRADE_THRESHOLDS.BUY_CANDIDATE) return 'BUY_CANDIDATE';
+  if (score >= SIGNAL_GRADE_THRESHOLDS.WATCH) return 'WATCH';
+  if (score >= SIGNAL_GRADE_THRESHOLDS.NEUTRAL) return 'NEUTRAL';
+  return 'AVOID';
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 @Injectable()
 export class BuySignalService {
-  computeBuyScore(params: BuyScoreParams): TradingSignal {
-    const breakdown = {
-      base: this.scoreBase(params.eventType),
-      numeric: this.scoreNumericFields(params.keyMetrics),
-      persona: this.scorePersonaFit(params.userPersona),
-      history: this.scoreHistory(params.studyResult),
-      chart: this.scoreChart(params.indicator),
-      market: this.scoreMarketSentiment(),
-      penalty: this.scorePenalty(params.eventType, params.indicator),
+  computeBuyScore(params: BuyScoreParams): BuySignalResult {
+    const penalty = scoreRiskPenalty(params.riskPenalty);
+
+    // 하드 차단 → BLOCKED 즉시 반환
+    if (!isFinite(penalty)) {
+      const entry = evaluateEntryConditions(params.entryCondition);
+      return {
+        rcpNo: params.rcpNo,
+        corpCode: params.corpCode,
+        stockCode: params.stockCode,
+        persona: params.persona,
+        eventType: params.disclosureEvent.eventType,
+        subCategory: params.subCategory,
+        buyScore: -100,
+        signal: 'BLOCKED',
+        scoreBreakdown: {
+          disclosureEvent: 0,
+          keyMetric: 0,
+          personaFit: 0,
+          historicalEvent: 0,
+          chart: 0,
+          volumeLiquidity: 0,
+          marketSector: 0,
+        },
+        riskPenalty: 100,
+        entryConditionMet: entry.met,
+        entryConditionUnmet: entry.unmet,
+        entryReady: false,
+        riskFactors: ['매매 불가 종목 조건'],
+        blockedReason: '거래정지·관리종목·투자주의·이상급등·차단 이벤트 타입',
+        signalSummary: params.signalSummary,
+        validUntil: params.validUntil,
+        computedAt: new Date(),
+      };
+    }
+
+    const W = BUY_SCORE_WEIGHTS;
+    const breakdown: ScoreBreakdown = {
+      disclosureEvent: scoreDisclosureEvent(params.disclosureEvent),
+      keyMetric:       scoreKeyMetric(params.keyMetric),
+      personaFit:      scorePersonaFit(params.personaFitInput),
+      historicalEvent: scoreHistoricalEvent(params.historicalEvent),
+      chart:           scoreChart(params.chart),
+      volumeLiquidity: scoreVolumeLiquidity(params.volumeLiquidity),
+      marketSector:    scoreMarketSector(params.marketSector),
     };
 
-    const raw =
-      breakdown.base +
-      breakdown.numeric +
-      breakdown.persona +
-      breakdown.history +
-      breakdown.chart +
-      breakdown.market -
-      breakdown.penalty;
+    const weightedSum =
+      W.disclosureEvent * breakdown.disclosureEvent +
+      W.keyMetric       * breakdown.keyMetric +
+      W.personaFit      * breakdown.personaFit +
+      W.historicalEvent * breakdown.historicalEvent +
+      W.chart           * breakdown.chart +
+      W.volumeLiquidity * breakdown.volumeLiquidity +
+      W.marketSector    * breakdown.marketSector;
+
+    const buyScore = Math.round(clamp(weightedSum - penalty, -100, 100));
+    const signal = mapScoreToGrade(buyScore);
+
+    const entry = evaluateEntryConditions(params.entryCondition);
+
+    const riskFactors: string[] = [];
+    if (params.riskPenalty.isAmendment) riskFactors.push('정정공시');
+    if ((params.riskPenalty.preDsclReturn ?? 0) > 10) riskFactors.push('선행급등');
+    if (params.riskPenalty.avgDailyVolume != null && params.riskPenalty.avgDailyVolume < 100_000) {
+      riskFactors.push('저유동성');
+    }
 
     return {
+      rcpNo: params.rcpNo,
+      corpCode: params.corpCode,
       stockCode: params.stockCode,
-      score: Math.max(-100, Math.min(100, raw)),
-      breakdown,
+      persona: params.persona,
+      eventType: params.disclosureEvent.eventType,
+      subCategory: params.subCategory,
+      buyScore,
+      signal,
+      scoreBreakdown: breakdown,
+      riskPenalty: penalty,
+      entryConditionMet: entry.met,
+      entryConditionUnmet: entry.unmet,
+      entryReady: entry.entryReady,
+      riskFactors,
+      signalSummary: params.signalSummary,
+      validUntil: params.validUntil,
       computedAt: new Date(),
     };
-  }
-
-  private scoreBase(_eventType: string): number {
-    // TODO(M6): EVENT_SCORE_TABLE[eventType]
-    return 0;
-  }
-
-  private scoreNumericFields(
-    _keyMetrics: Record<string, number | string | null>,
-  ): number {
-    // TODO(M6): 계약금액/희석률 등 수치 점수
-    return 0;
-  }
-
-  private scorePersonaFit(_userPersona?: string): number {
-    // TODO(M6): 페르소나 적합도
-    return 0;
-  }
-
-  private scoreHistory(studyResult: EventStudyResult | null): number {
-    // 과거 D+5 평균 AR × 10
-    // TODO(M6): 더 정교한 계산으로 교체
-    return studyResult?.avgArD5 != null
-      ? studyResult.avgArD5 * 10
-      : 0;
-  }
-
-  private scoreChart(_indicator: TechnicalIndicator): number {
-    // TODO(M6): MA 위치, 거래량
-    return 0;
-  }
-
-  private scoreMarketSentiment(): number {
-    // TODO(M6): KOSPI/KOSDAQ 상태
-    return 0;
-  }
-
-  private scorePenalty(
-    _eventType: string,
-    _indicator: TechnicalIndicator,
-  ): number {
-    // TODO(M6): 관리종목/급등/희석 등
-    return 0;
   }
 }

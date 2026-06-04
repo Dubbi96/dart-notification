@@ -1,12 +1,15 @@
 // backend/src/disclosure-events/disclosure-events.service.ts
 // 이벤트 추출 파이프라인 진입점 (M2)
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { DisclosureEvent, EventType, ExtractionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ParsedJson } from '../disclosure-documents/types/parsed-json.type';
 import { classifyEventType } from './extractors/event-classifier';
 import { extractEventData } from './extractors/index';
+import { QUEUE, JOB, AiAnalyzeJobData } from '../../common/queues/queue.constants';
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 
@@ -34,7 +37,10 @@ const REQUIRED_FIELDS_MAP: Partial<Record<EventType, string[]>> = {
 export class DisclosureEventsService {
   private readonly logger = new Logger(DisclosureEventsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() @InjectQueue(QUEUE.AI_ANALYZE) private readonly aiQueue: Queue | null,
+  ) {}
 
   /**
    * 공시 1건 처리 파이프라인
@@ -154,6 +160,20 @@ export class DisclosureEventsService {
       this.logger.log(
         `이벤트 추출 완료: rcpNo=${rcpNo}, eventType=${eventType}, status=${extractionStatus}, confidence=${combinedConfidence}`,
       );
+
+      // Engine2로 비동기 AI 분석 트리거 (SUCCESS / NEEDS_REVIEW 모두 큐에 발행)
+      if (this.aiQueue) {
+        const payload: AiAnalyzeJobData = {
+          rcpNo,
+          corpCode: disclosure.corpCode,
+          eventType,
+          polarity,
+          confidence: combinedConfidence,
+          isAiAssisted,
+        };
+        await this.aiQueue.add(JOB.EVENT_EXTRACTED, payload);
+        this.logger.debug(`[Engine1→Engine2] ${JOB.EVENT_EXTRACTED} 큐 발행: rcpNo=${rcpNo}`);
+      }
 
       return saved;
     } catch (error) {

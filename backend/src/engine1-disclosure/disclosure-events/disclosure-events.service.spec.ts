@@ -6,6 +6,8 @@ import { NotFoundException } from '@nestjs/common';
 import { EventType, ExtractionStatus } from '@prisma/client';
 import { DisclosureEventsService } from './disclosure-events.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { getQueueToken } from '@nestjs/bullmq';
+import { QUEUE } from '../../common/queues/queue.constants';
 
 // ─── DB mock ────────────────────────────────────────────────────────────────
 
@@ -23,6 +25,9 @@ const mockPrismaService = {
     upsert: jest.fn(),
   },
 };
+
+// 큐 mock — add 호출 여부만 검증
+const mockAiQueue = { add: jest.fn().mockResolvedValue(undefined) };
 
 // ─── 픽스처 ─────────────────────────────────────────────────────────────────
 
@@ -95,6 +100,7 @@ describe('DisclosureEventsService', () => {
       providers: [
         DisclosureEventsService,
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: getQueueToken(QUEUE.AI_ANALYZE), useValue: mockAiQueue },
       ],
     }).compile();
 

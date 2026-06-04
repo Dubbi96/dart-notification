@@ -38,6 +38,30 @@ export function parseAndValidate<T>(raw: string, schema: OutputSchema): T {
   return out as T;
 }
 
+export function parseAndValidateArray<T>(raw: string, itemSchema: OutputSchema): T[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new JsonOutputValidationError('JSON 파싱 실패');
+  }
+  if (!Array.isArray(parsed)) {
+    throw new JsonOutputValidationError('최상위가 배열이 아님');
+  }
+  return parsed.map((item, idx) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      throw new JsonOutputValidationError(`항목[${idx}]: 객체가 아님`);
+    }
+    const src = item as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const [key, spec] of Object.entries(itemSchema)) {
+      validateField(key, src[key], spec);
+      out[key] = src[key];
+    }
+    return out as T;
+  });
+}
+
 function validateField(key: string, value: unknown, spec: FieldSpec): void {
   const fail = (msg: string): never => {
     throw new JsonOutputValidationError(`필드 '${key}': ${msg}`);

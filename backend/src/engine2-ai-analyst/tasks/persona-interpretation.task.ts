@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { TaskRunResult } from '../types/ai-analyst.types';
 import { LlmClient } from '../llm/llm-client';
-import { OutputSchema, parseAndValidate, JsonOutputValidationError } from '../validation/json-output.validator';
+import { OutputSchema, parseAndValidateArray } from '../validation/json-output.validator';
 import { DisclosureSummaryDraft } from './summary.task';
 
 export type PersonaType = 'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE' | 'EVENT_DRIVEN';
@@ -58,20 +58,7 @@ export class PersonaInterpretationTask {
       maxOutputTokens: 600,
     });
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(res.text);
-    } catch {
-      throw new JsonOutputValidationError('JSON 파싱 실패');
-    }
-
-    if (!Array.isArray(parsed)) {
-      throw new JsonOutputValidationError('최상위가 배열이 아님');
-    }
-
-    const result: PersonaAnalysisDraft[] = (parsed as unknown[]).map((item) =>
-      parseAndValidate<PersonaAnalysisDraft>(JSON.stringify(item), ITEM_SCHEMA),
-    );
+    const result = parseAndValidateArray<PersonaAnalysisDraft>(res.text, ITEM_SCHEMA);
 
     return {
       result,

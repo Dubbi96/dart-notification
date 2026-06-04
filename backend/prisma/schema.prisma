@@ -30,6 +30,7 @@ model User {
   savedDisclosures     SavedDisclosure[]
   notificationSettings NotificationSettings?
   notificationHistory  NotificationHistory[]
+  portfolios           Portfolio[]
 
   @@unique([provider, providerId])
   @@index([email])
@@ -74,6 +75,7 @@ model Company {
   technicalIndicators TechnicalIndicator[]
   tradingSignals      TradingSignal[]
   positionTheses      PositionThesis[]
+  positions           Position[]
 
   @@index([corpName]) // 자동완성 검색용
   @@index([stockCode])
@@ -161,6 +163,7 @@ model Disclosure {
   personaAnalysis     PersonaAnalysis?
   tradingSignals      TradingSignal[]
   positionTheses      PositionThesis[]
+  exitSignals         ExitSignal[]
 
   @@index([corpCode])
   @@index([rcpDt])
@@ -821,10 +824,212 @@ model PositionThesis {
   tradingSignal    TradingSignal @relation(fields: [tradingSignalId], references: [id])
   disclosure       Disclosure    @relation(fields: [rcpNo],           references: [rcpNo])
   company          Company       @relation(fields: [corpCode],        references: [corpCode])
+  position         Position?     // optional 1:1 back-relation from Position
 
   @@index([corpCode])
   @@index([rcpNo])
   @@index([status])
   @@index([createdAt])
   @@map("position_theses")
+}
+
+// ====================================
+// M8 — Portfolio & Exit Engine (DAR-12)
+// AI 금지영역: Exit Score·트리거·5액션 순수 Rule 기반. AI 개입 0.
+// ====================================
+
+enum PositionStatus {
+  OPEN
+  CLOSED
+  PARTIAL
+}
+
+enum ExitTriggerType {
+  STOP_LOSS
+  TAKE_PROFIT
+  THESIS_INVALIDATED
+  TIME_LIMIT
+  CHART_BREAKDOWN
+  REBALANCING
+}
+
+enum ExitAction {
+  HOLD
+  WATCH
+  REDUCE
+  EXIT
+  BLOCK_REBUY
+}
+
+model Portfolio {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String   @default("기본 포트폴리오")
+  currency    String   @default("KRW")
+  isActive    Boolean  @default(true)
+  maxSinglePositionPct  Float @default(10.0)
+  maxSectorPct          Float @default(30.0)
+  maxDailyLossPct       Float @default(2.0)
+  maxWeeklyLossPct      Float @default(5.0)
+  stopLossGlobalPct     Float @default(15.0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  positions Position[]
+  riskSnapshots PortfolioRiskSnapshot[]
+
+  @@index([userId])
+  @@map("portfolios")
+}
+
+model Position {
+  id           String         @id @default(cuid())
+  portfolioId  String
+  corpCode     String
+  stockCode    String
+  positionThesisId String?   @unique
+
+  entryDate    DateTime
+  entryPrice   Float
+  quantity     Int
+  entryAmount  Float
+
+  currentPrice Float?
+  currentValue Float?
+  unrealizedPnl Float?
+  unrealizedPnlPct Float?
+
+  stopLossPct   Float?
+  takeProfitPct Float?
+  maxHoldDays   Int?
+
+  highestPrice  Float?
+  highestAt     DateTime?
+
+  status       PositionStatus @default(OPEN)
+  closedAt     DateTime?
+
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  portfolio      Portfolio              @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  company        Company                @relation(fields: [corpCode], references: [corpCode])
+  positionThesis PositionThesis?        @relation(fields: [positionThesisId], references: [id])
+  dailySnapshots PositionDailySnapshot[]
+  exitSignals    ExitSignal[]
+
+  @@index([portfolioId, status])
+  @@index([corpCode])
+  @@index([stockCode])
+  @@map("positions")
+}
+
+model PositionDailySnapshot {
+  id            String   @id @default(cuid())
+  positionId    String
+  snapshotDate  String
+
+  openPrice     Float?
+  closePrice    Float?
+  highPrice     Float?
+  lowPrice      Float?
+  volume        BigInt?
+
+  ma5           Float?
+  ma20          Float?
+  ma60          Float?
+  rsi14         Float?
+  atr14         Float?
+  vwap          Float?
+
+  quantity      Int
+  positionValue Float
+  unrealizedPnl Float
+  unrealizedPnlPct Float
+
+  exitScore     Int?
+  exitAction    String?
+
+  createdAt     DateTime @default(now())
+
+  position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+
+  @@unique([positionId, snapshotDate])
+  @@index([positionId, snapshotDate])
+  @@map("position_daily_snapshots")
+}
+
+model ExitSignal {
+  id           String          @id @default(cuid())
+  positionId   String
+  checkTime    String
+
+  lossRiskScore       Int      @default(0)
+  thesisBreakScore    Int      @default(0)
+  chartBreakScore     Int      @default(0)
+  disclosureRiskScore Int      @default(0)
+  overweightScore     Int      @default(0)
+  timeExceededScore   Int      @default(0)
+  positiveMomentumBonus Int    @default(0)
+
+  exitScore    Int
+  exitAction   ExitAction
+  triggerType  ExitTriggerType?
+  triggerTypes String[]
+
+  scoreDetail  Json
+
+  triggerRcpNo String?
+
+  aiExplanation String?
+  aiUsed        Boolean  @default(false)
+
+  isAcknowledged Boolean  @default(false)
+  acknowledgedAt DateTime?
+  userAction     String?
+
+  checkedAt    DateTime        @default(now())
+  createdAt    DateTime        @default(now())
+
+  position   Position    @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  disclosure Disclosure? @relation(fields: [triggerRcpNo], references: [rcpNo])
+
+  @@index([positionId, checkedAt])
+  @@index([exitAction])
+  @@index([exitScore])
+  @@index([triggerRcpNo])
+  @@map("exit_signals")
+}
+
+model PortfolioRiskSnapshot {
+  id            String   @id @default(cuid())
+  portfolioId   String
+  snapshotDate  String
+
+  totalValue    Float
+  cashAmount    Float?
+  unrealizedPnl Float
+  unrealizedPnlPct Float
+
+  topPositionPct    Float
+  topSectorPct      Float?
+  openPositionCount Int
+
+  dailyPnl     Float?
+  dailyPnlPct  Float?
+  weeklyPnl    Float?
+  weeklyPnlPct Float?
+
+  riskLevel    String   @default("NORMAL")
+  hardRuleBreached Boolean @default(false)
+  hardRuleDetail   String?
+
+  createdAt    DateTime @default(now())
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@unique([portfolioId, snapshotDate])
+  @@index([portfolioId, snapshotDate])
+  @@map("portfolio_risk_snapshots")
 }

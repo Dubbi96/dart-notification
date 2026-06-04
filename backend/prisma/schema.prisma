@@ -77,6 +77,8 @@ model Company {
   positionTheses      PositionThesis[]
   positions           Position[]
   paperTrades         PaperTrade[]
+  orderRequests       OrderRequest[]
+  orderExecutions     OrderExecution[]
 
   @@index([corpName]) // 자동완성 검색용
   @@index([stockCode])

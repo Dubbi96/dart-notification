@@ -754,6 +754,61 @@ Buy Score = W1×C1 + W2×C2 + W3×C3 + W4×C4 + W5×C5 + W6×C6 + W7×C7 − Ris
 
 ---
 
+## 12. PositionThesis (M7 신규, DAR-11)
+
+**위치**: `engine4-portfolio-exit/`  
+**마이그레이션**: `20260604160000_m7_position_thesis`  
+**AI 금지영역**: 생성·평가는 순수 Rule 기반. exitRules·maxWeight는 AI 변경 불가. Engine5 Risk가 최종 강제.
+
+### 12.1 ThesisStatus Enum
+
+| 상태 | 설명 |
+|------|------|
+| ACTIVE | 논리 유효, 추적 중 (초기 상태) |
+| INVALIDATED | 무효 조건 충족 → Exit Engine 대상 |
+| CLOSED | 포지션 청산 완료 (최종 상태) |
+
+생명주기 FSM: `ACTIVE → INVALIDATED → CLOSED` (역방향 금지)
+
+### 12.2 PositionThesis 모델
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| id | String (PK, cuid) | |
+| tradingSignalId | String (UNIQUE FK → trading_signals.id) | 매수 신호 1:1 연결 |
+| rcpNo | String (FK → disclosures.rcpNo) | 공시 자연키 |
+| corpCode | String (FK → companies.corpCode) | 종목 자연키 |
+| entryReason | String | 진입 사유 한 문장 요약 |
+| initialThesis | Json (string[]) | 매수 근거 항목 배열 |
+| invalidConditions | Json (InvalidCondition[]) | **기계 평가 가능 구조화 조건** (추상 자연어 금지) |
+| exitRules | Json (ExitRule[]) | 청산룰, Rule 기반 하드코딩 |
+| maxWeight | Float (default 5.0) | 최대 포트폴리오 비중 %, 상한 10% 하드룰 |
+| status | ThesisStatus (default ACTIVE) | 생명주기 상태 |
+| createdAt | DateTime | |
+| updatedAt | DateTime | |
+
+### 12.3 InvalidCondition 타입 (기계 평가 가능 구조)
+
+| type | 평가 소스 | 필수 필드 |
+|------|-----------|-----------|
+| `PRICE_BELOW` | M4 시세 | `value` (원) |
+| `PRICE_ABOVE` | M4 시세 | `value` (원) |
+| `AMENDMENT_NEGATIVE` | M2 정정공시 | (없음) |
+| `THESIS_METRIC_BREACH` | M4 지표/M5 통계 | `metric`, `threshold` |
+| `VOLUME_COLLAPSE` | M4 거래량 | `threshold` (비율 0~1) |
+| `EVENT_STUDY_UNDERPERFORM` | M5 EventStudy | `horizon` (D1/D3/D5/D20), `threshold` (%) |
+| `STOP_LOSS_PCT` | M4 시세 | `value` (% 손실) |
+| `MAX_HOLD_DAYS` | 경과일 | `value` (일) |
+
+### 12.4 FK 정합
+
+- `PositionThesis.tradingSignalId` → `TradingSignal.id` (1:1 UNIQUE)
+- `PositionThesis.rcpNo` → `Disclosure.rcpNo` (N:1)
+- `PositionThesis.corpCode` → `Company.corpCode` (N:1)
+- TradingSignal당 PositionThesis 1건 자동 생성 (BUY 등급만)
+
+---
+
 **작성일**: 2026-03-07
 **최종 수정일**: 2026-06-04
-**버전**: 1.5 (M6-A DAR-10: TradingSignal + Buy Score 7컴포넌트 엔진)
+**버전**: 1.6 (M7-A DAR-11: PositionThesis + engine4-portfolio-exit 신규 도메인)

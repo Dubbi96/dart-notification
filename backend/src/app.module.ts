@@ -21,6 +21,7 @@ import { DisclosureDocumentsModule } from './engine1-disclosure/disclosure-docum
 import { DisclosureEventsModule } from './engine1-disclosure/disclosure-events/disclosure-events.module';
 import { AiAnalystModule } from './engine2-ai-analyst/ai-analyst.module';
 import { QuantMarketModule } from './engine3-quant-market/quant-market.module';
+import { PortfolioExitModule } from './engine4-portfolio-exit/portfolio-exit.module';
 
 @Module({
   imports: [
@@ -77,6 +78,9 @@ import { QuantMarketModule } from './engine3-quant-market/quant-market.module';
 
     // Engine 3 — Quant Market (M4 스캐폴딩)
     QuantMarketModule,
+
+    // Engine 4 — Portfolio Exit / Position Thesis (M7)
+    PortfolioExitModule,
   ],
   providers: [
     {

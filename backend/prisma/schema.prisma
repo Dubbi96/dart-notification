@@ -73,6 +73,7 @@ model Company {
   stockDailyPrices    StockDailyPrice[]
   technicalIndicators TechnicalIndicator[]
   tradingSignals      TradingSignal[]
+  positionTheses      PositionThesis[]
 
   @@index([corpName]) // 자동완성 검색용
   @@index([stockCode])
@@ -159,6 +160,7 @@ model Disclosure {
   disclosureAnalyses  DisclosureAnalysis[]
   personaAnalysis     PersonaAnalysis?
   tradingSignals      TradingSignal[]
+  positionTheses      PositionThesis[]
 
   @@index([corpCode])
   @@index([rcpDt])
@@ -749,8 +751,9 @@ model TradingSignal {
   updatedAt            DateTime   @updatedAt
 
   // Relations
-  disclosure   Disclosure @relation(fields: [rcpNo],   references: [rcpNo])
-  company      Company    @relation(fields: [corpCode], references: [corpCode])
+  disclosure      Disclosure     @relation(fields: [rcpNo],   references: [rcpNo])
+  company         Company        @relation(fields: [corpCode], references: [corpCode])
+  positionThesis  PositionThesis?
 
   @@unique([rcpNo, persona])
   @@index([corpCode])
@@ -761,4 +764,67 @@ model TradingSignal {
   @@index([persona])
   @@index([entryReady])
   @@map("trading_signals")
+}
+
+// ====================================
+// Position Thesis 생명주기 상태 enum (M7 신규, DAR-11)
+// ====================================
+
+enum ThesisStatus {
+  ACTIVE       // 논리 유효, 추적 중
+  INVALIDATED  // 무효 조건 충족 → Exit Engine 대상
+  CLOSED       // 포지션 청산 완료
+}
+
+// ====================================
+// Position Thesis — 매수 논리 저장소 (M7 신규, DAR-11)
+//
+// 매수 신호(TradingSignal)당 1:1 자동 생성.
+// AI 금지영역: 생성·평가는 순수 Rule 기반. exitRules·maxWeight는 AI 변경 불가.
+// ====================================
+
+model PositionThesis {
+  id               String        @id @default(cuid())
+
+  // 매수 신호 연결 (1:1, FK → TradingSignal.id)
+  tradingSignalId  String        @unique
+
+  // 공시 자연키 연결 (FK → Disclosure.rcpNo)
+  rcpNo            String
+
+  // 종목 연결 (FK → Company.corpCode, 조회 성능)
+  corpCode         String
+
+  // 매수 논리
+  entryReason      String        // 진입 사유 (한 문장 요약)
+  initialThesis    Json          // 근거 항목 배열 (string[])
+
+  // 무효 조건 — 기계 평가 가능한 구조화 형태 (추상 자연어 금지)
+  // 스키마: InvalidCondition[] — invalid-condition.types.ts 참조
+  // 예: [{"type":"PRICE_BELOW","value":45000}, {"type":"AMENDMENT_NEGATIVE"}]
+  invalidConditions Json
+
+  // 청산 룰 — Rule 기반, AI 변경 불가
+  // 예: [{"type":"STOP_LOSS_PCT","value":8}, {"type":"MAX_HOLD_DAYS","value":20}]
+  exitRules        Json
+
+  // 최대 비중 (%) — 하드룰, Engine5 Risk가 최종 강제
+  maxWeight        Float         @default(5.0)
+
+  // 생명주기 상태
+  status           ThesisStatus  @default(ACTIVE)
+
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  // Relations
+  tradingSignal    TradingSignal @relation(fields: [tradingSignalId], references: [id])
+  disclosure       Disclosure    @relation(fields: [rcpNo],           references: [rcpNo])
+  company          Company       @relation(fields: [corpCode],        references: [corpCode])
+
+  @@index([corpCode])
+  @@index([rcpNo])
+  @@index([status])
+  @@index([createdAt])
+  @@map("position_theses")
 }

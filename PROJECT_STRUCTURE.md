@@ -64,6 +64,18 @@ dart-notification/
 │   │   │   ├── dart-api/            # DART OpenAPI 클라이언트
 │   │   │   ├── disclosure-documents/ # 원문 파싱 (HTML/XML/표·정정 diff) — M1
 │   │   │   └── disclosure-events/   # 이벤트·수치 추출 (extractors) — M2
+│   │   ├── engine4-portfolio-exit/ # 🟩 Engine4: Position Thesis 엔진 (M7, DAR-11)
+│   │   │   ├── CLAUDE.md            # 도메인 규칙 + AI 금지영역
+│   │   │   ├── domain/
+│   │   │   │   ├── invalid-condition.types.ts  # 기계 평가 가능 InvalidCondition 타입
+│   │   │   │   └── position-thesis.types.ts    # ThesisStatus FSM, PositionThesisRecord
+│   │   │   ├── repositories/
+│   │   │   │   ├── position-thesis.repository.ts              # IPositionThesisRepository 인터페이스
+│   │   │   │   └── in-memory-position-thesis.repository.ts    # 인메모리 어댑터 (M7)
+│   │   │   ├── services/
+│   │   │   │   └── position-thesis.service.ts  # createFromSignal, invalidate, close
+│   │   │   ├── position-thesis.spec.ts          # fixture 단위 테스트 (32건)
+│   │   │   └── portfolio-exit.module.ts
 │   │   ├── notifications/     # 알림 히스토리
 │   │   │   ├── dto/
 │   │   │   │   └── query-notification.dto.ts

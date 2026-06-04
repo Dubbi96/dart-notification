@@ -80,7 +80,8 @@ export const lightColors = {
   cardGradientEnd: palette.teal800,
 
   // Status
-  success: palette.green500,
+  success: palette.green600,
+  successSurface: '#D1FAE5',
   error: palette.red500,
   warning: palette.yellow500,
   info: palette.blue500,
@@ -134,6 +135,7 @@ export const darkColors = {
 
   // Status
   success: palette.green400,
+  successSurface: '#052E16',
   error: palette.red400,
   warning: palette.yellow400,
   info: palette.blue400,

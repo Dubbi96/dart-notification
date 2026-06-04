@@ -12,4 +12,14 @@ export const eventStudyService = {
         },
       })
       .then((r) => r.data.data),
+
+  getByCorpCode: (corpCode: string, eventType?: string, marketType?: string) =>
+    api
+      .get<ApiResponse<EventStudyResult[]>>(`/companies/${corpCode}/event-study`, {
+        params: {
+          ...(eventType && { eventType }),
+          ...(marketType && { marketType }),
+        },
+      })
+      .then((r) => r.data.data),
 };

@@ -13,6 +13,7 @@ import { Divider } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
+import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
 import { GlassCard } from '@components/common/GlassCard';
 import { useSnackbar } from '@components/common/SnackbarProvider';
@@ -52,7 +53,7 @@ function MenuItem({ icon, title, subtitle, onPress, badgeCount, showChevron = tr
       <View style={styles.menuRight}>
         {badgeCount != null && badgeCount > 0 && (
           <View style={[styles.badge, { backgroundColor: colors.primary }]}>
-            <Text style={[typo.small, { color: '#FFF', fontWeight: '600' }]}>{badgeCount}</Text>
+            <Text style={[typo.small, { color: colors.primaryForeground, fontWeight: '600' }]}>{badgeCount}</Text>
           </View>
         )}
         {showChevron && <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />}
@@ -100,17 +101,17 @@ export default function SettingsScreen() {
         end={{ x: 1, y: 1 }}
       >
         <View style={styles.profileRow}>
-          <Text style={[typo.h2, { color: '#FFFFFF' }]}>프로필</Text>
+          <Text style={[typo.h2, { color: palette.white }]}>프로필</Text>
         </View>
 
         {isAuthenticated ? (
           <>
             <View style={styles.profileInfo}>
               <View style={[styles.avatar, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                <Ionicons name="person" size={32} color="#FFFFFF" />
+                <Ionicons name="person" size={32} color={palette.white} />
               </View>
               <View style={styles.profileText}>
-                <Text style={[typo.h3, { color: '#FFFFFF' }]}>{user?.name || '사용자'}</Text>
+                <Text style={[typo.h3, { color: palette.white }]}>{user?.name || '사용자'}</Text>
                 <Text style={[typo.caption, { color: 'rgba(255,255,255,0.7)' }]}>
                   {user?.email?.includes('@kakao.user') ? '카카오 로그인' : user?.email || '-'}
                 </Text>
@@ -121,7 +122,7 @@ export default function SettingsScreen() {
               <GlassCard style={styles.promoBanner} intensity={25} variant="iridescent">
                 <View style={styles.promoContent}>
                   <View>
-                    <Text style={[typo.captionMedium, { color: '#FFFFFF' }]}>
+                    <Text style={[typo.captionMedium, { color: palette.white }]}>
                       Pro로 업그레이드
                     </Text>
                     <Text style={[typo.small, { color: 'rgba(255,255,255,0.8)' }]}>
@@ -136,10 +137,10 @@ export default function SettingsScreen() {
         ) : (
           <View style={styles.profileInfo}>
             <View style={[styles.avatar, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-              <Ionicons name="person" size={32} color="#FFFFFF" />
+              <Ionicons name="person" size={32} color={palette.white} />
             </View>
             <View style={styles.profileText}>
-              <Text style={[typo.h3, { color: '#FFFFFF' }]}>GUEST</Text>
+              <Text style={[typo.h3, { color: palette.white }]}>GUEST</Text>
               <TouchableOpacity onPress={() => {
                 useAuthStore.getState().clearAuth();
                 router.push('/auth/sign-in');

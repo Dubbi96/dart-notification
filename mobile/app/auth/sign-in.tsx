@@ -16,6 +16,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
+import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
 import { useDialog } from '@components/common/DialogProvider';
 import LogoCards from '@/assets/logo/logo-cards.svg';
@@ -133,7 +134,7 @@ export default function SignInScreen() {
     } catch (e) {
       if (pollingRef.current) clearInterval(pollingRef.current);
       setIsLoading(false);
-      showDialog({ title: '오류', message: '카카오 로그인 중 문제가 발생했습니다.', icon: { name: 'alert-circle', color: '#EF4444' } });
+      showDialog({ title: '오류', message: '카카오 로그인 중 문제가 발생했습니다.', icon: { name: 'alert-circle', color: palette.red500 } });
     }
   };
 
@@ -148,8 +149,8 @@ export default function SignInScreen() {
       <SafeAreaView style={styles.content}>
         {/* Logo Area */}
         <View style={styles.logoArea}>
-          <Text style={[{ fontSize: 60, fontWeight: '300', color: '#FFFFFF' }]}>
-            공시<Text style={{ color: '#2DD4BF', fontWeight: '700' }}>온</Text>
+          <Text style={[{ fontSize: 60, fontWeight: '300', color: palette.white }]}>
+            공시<Text style={{ color: palette.teal400, fontWeight: '700' }}>온</Text>
           </Text>
           <Text style={[typo.caption, { color: 'rgba(255,255,255,0.5)', marginTop: spacing.sm }]}>
             실시간 DART 공시 알리미
@@ -179,7 +180,7 @@ export default function SignInScreen() {
             style={styles.kakaoButton}
           >
             {isLoading ? (
-              <ActivityIndicator size="small" color="#191919" />
+              <ActivityIndicator size="small" color={palette.gray900} />
             ) : (
               <Image
                 source={require('../../assets/kakao_login_large_wide.png')}

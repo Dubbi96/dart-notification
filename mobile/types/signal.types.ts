@@ -87,15 +87,35 @@ export interface SignalFilters {
   entryReady?: boolean;
 }
 
-/** 이벤트 스터디 결과 */
+/** 이벤트 스터디 결과 — Prisma EventStudyResult 모델과 1:1 대응 */
 export interface EventStudyResult {
   id: string;
   eventType: string;
+  bucketKey: string;
   marketType: string;
-  /** 이벤트 발생 후 n일 CAR (%) */
-  car5d?: number;
-  car20d?: number;
-  sampleSize?: number;
+  sampleCount: number;
+  isSignificant: boolean;
+  tStatistic?: number;
+  pValue?: number;
+  variance?: number;
+  /** D+N 단순 수익률 평균 (%) */
+  avgReturnD1: number;
+  avgReturnD3: number;
+  avgReturnD5: number;
+  avgReturnD20: number;
+  /** D+N 시장 대비 초과수익 (AR, %) */
+  avgArD1: number;
+  avgArD3: number;
+  avgArD5: number;
+  avgArD20: number;
+  /** 분포 지표 */
+  upProbD5: number;
+  crashProbD5: number;
+  avgMaxDrawdown: number;
+  avgVolumeRatioD1: number;
+  avgVolumeRatioD3: number;
   status: string;
   calculatedAt: string;
+  dataFromDate: string;
+  dataToDate: string;
 }

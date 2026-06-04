@@ -809,6 +809,107 @@ Buy Score = W1×C1 + W2×C2 + W3×C3 + W4×C4 + W5×C5 + W6×C6 + W7×C7 − Ris
 
 ---
 
+---
+
+## 13. M8-A Portfolio & Exit 엔진 (DAR-12)
+
+### 13.1 신규 Enum
+
+| Enum | 값 |
+|------|----|
+| `PositionStatus` | `OPEN`, `CLOSED`, `PARTIAL` |
+| `ExitTriggerType` | `STOP_LOSS`, `TAKE_PROFIT`, `THESIS_INVALIDATED`, `TIME_LIMIT`, `CHART_BREAKDOWN`, `REBALANCING` |
+| `ExitAction` | `HOLD`, `WATCH`, `REDUCE`, `EXIT`, `BLOCK_REBUY` |
+
+### 13.2 Portfolio 모델
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| id | String (PK, cuid) | |
+| userId | String (FK → users.id) | |
+| name | String (default "기본 포트폴리오") | |
+| currency | String (default "KRW") | |
+| isActive | Boolean (default true) | |
+| maxSinglePositionPct | Float (default 10.0) | 단일 종목 최대 비중 % — 하드룰 |
+| maxSectorPct | Float (default 30.0) | 단일 섹터 최대 비중 % |
+| maxDailyLossPct | Float (default 2.0) | 일일 최대 손실 % |
+| maxWeeklyLossPct | Float (default 5.0) | 주간 최대 손실 % |
+| stopLossGlobalPct | Float (default 15.0) | 전체 포트폴리오 손실한도 % |
+
+### 13.3 Position 모델
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| id | String (PK, cuid) | |
+| portfolioId | String (FK → portfolios.id) | |
+| corpCode | String (FK → companies.corpCode) | 종목 자연키 |
+| stockCode | String | 종목코드 6자리 |
+| positionThesisId | String? (UNIQUE FK → position_theses.id) | PositionThesis 1:1 |
+| entryDate / entryPrice / quantity / entryAmount | 진입 정보 | |
+| currentPrice / currentValue / unrealizedPnl / unrealizedPnlPct | 현재 평가 | |
+| stopLossPct / takeProfitPct / maxHoldDays | 리스크 기준 | |
+| highestPrice / highestAt | 고점 추적 | 트레일링 스탑용 |
+| status | PositionStatus (default OPEN) | |
+
+### 13.4 PositionDailySnapshot 모델
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| id | String (PK, cuid) | |
+| positionId | String (FK → positions.id) | |
+| snapshotDate | String (YYYYMMDD) | UNIQUE(positionId, snapshotDate) |
+| OHLCV / 기술지표 (ma5/ma20/ma60/rsi14/atr14/vwap) | Float? | 일별 스냅샷 |
+| exitScore / exitAction | Int? / String? | 당일 Exit 점수·액션 |
+
+### 13.5 ExitSignal 모델
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| id | String (PK, cuid) | |
+| positionId | String (FK → positions.id) | |
+| checkTime | String | "PRE_MARKET" / "INTRADAY" / "POST_MARKET" |
+| lossRiskScore (0~20) / thesisBreakScore (0~20) / chartBreakScore (0~20) / disclosureRiskScore (0~20) / overweightScore (0~10) / timeExceededScore (0~10) / positiveMomentumBonus (0~20 감산) | Int | Exit Score 구성 요소 |
+| exitScore | Int | 최종 합산 |
+| exitAction | ExitAction | HOLD/WATCH/REDUCE/EXIT/BLOCK_REBUY |
+| triggerType / triggerTypes | ExitTriggerType? / String[] | 발동 트리거 |
+| triggerRcpNo | String? (FK → disclosures.rcpNo, nullable) | 공시 악재 연결 |
+| aiUsed | Boolean (default false) | AI 사용 여부 — Rule 기반이므로 false가 원칙 |
+
+**Exit Score 공식** (순수 Rule, AI 개입 0):
+```
+Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
+           + disclosureRiskScore + overweightScore + timeExceededScore
+           - positiveMomentumBonus
+범위: 0~100
+0~29: HOLD / 30~49: WATCH / 50~69: REDUCE / 70~89: EXIT / 90+: BLOCK_REBUY
+```
+
+### 13.6 PortfolioRiskSnapshot 모델
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| id | String (PK, cuid) | |
+| portfolioId | String (FK → portfolios.id) | |
+| snapshotDate | String (YYYYMMDD) | UNIQUE(portfolioId, snapshotDate) |
+| totalValue / cashAmount / unrealizedPnl / unrealizedPnlPct | Float | 평가 금액 |
+| topPositionPct / topSectorPct / openPositionCount | Float/Int | 집중도 위험 |
+| dailyPnl / weeklyPnl | Float? | 기간 손익 |
+| riskLevel | String (NORMAL/CAUTION/DANGER/CRITICAL) | |
+| hardRuleBreached | Boolean (default false) | 하드룰 위반 — AI 금지 영역, Rule만 |
+
+### 13.7 FK 정합
+
+- `Portfolio.userId` → `User.id` (N:1)
+- `Position.portfolioId` → `Portfolio.id` (N:1)
+- `Position.corpCode` → `Company.corpCode` (N:1 자연키)
+- `Position.positionThesisId` → `PositionThesis.id` (1:1 UNIQUE, nullable)
+- `PositionDailySnapshot.positionId` → `Position.id` (N:1)
+- `ExitSignal.positionId` → `Position.id` (N:1)
+- `ExitSignal.triggerRcpNo` → `Disclosure.rcpNo` (nullable)
+- `PortfolioRiskSnapshot.portfolioId` → `Portfolio.id` (N:1)
+
+---
+
 **작성일**: 2026-03-07
 **최종 수정일**: 2026-06-04
-**버전**: 1.6 (M7-A DAR-11: PositionThesis + engine4-portfolio-exit 신규 도메인)
+**버전**: 1.7 (M8-A DAR-12: Portfolio·Position·ExitSignal·PortfolioRiskSnapshot 모델 추가)

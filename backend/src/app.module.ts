@@ -24,6 +24,8 @@ import { QuantMarketModule } from './engine3-quant-market/quant-market.module';
 import { SignalsModule } from './signals/signals.module';
 import { PortfolioExitModule } from './engine4-portfolio-exit/portfolio-exit.module';
 import { TradingRiskModule } from './engine5-trading-risk/trading-risk.module';
+import { PortfolioModule } from './portfolio/portfolio.module';
+import { PaperTradingModule } from './paper-trading/paper-trading.module';
 
 @Module({
   imports: [
@@ -87,6 +89,10 @@ import { TradingRiskModule } from './engine5-trading-risk/trading-risk.module';
 
     // Engine 5 — Trading Risk / Paper Trade (M10)
     TradingRiskModule,
+
+    // DAR-22 — Portfolio / Position / Thesis / Paper Trading REST API
+    PortfolioModule,
+    PaperTradingModule,
   ],
   providers: [
     {

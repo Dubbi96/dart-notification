@@ -1042,9 +1042,99 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 
 ---
 
+## 16. Engine5 — Risk 엔진 (M11-A, DAR-18)
+
+> **AI 금지영역**: Risk 판정·주문 승인은 순수 Rule. AI 개입 0.
+
+### 16.1 OrderRequest 모델
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `id` | String (cuid) | PK |
+| `idempotencyKey` | String (unique) | 멱등 주문키 (중복 방지) |
+| `corpCode` | String | 종목 종목코드 (FK → Company) |
+| `stockCode` | String | 주식 코드 |
+| `side` | OrderSide | BUY / SELL |
+| `requestedShares` | Int | 주문 수량 |
+| `limitPrice` | Decimal? | 지정가 (null = 시장가) |
+| `status` | OrderRequestStatus | PENDING/APPROVED/REJECTED/KILLED/EXECUTED/CANCELLED |
+| `rejectionReason` | String? | 거부 사유 (하드룰 위반 내용) |
+| `capitalSnapshot` | Decimal | 판정 시점 총자산 |
+| `dailyLossSnapshot` | Decimal | 판정 시점 당일 손실 |
+| `weeklyLossSnapshot` | Decimal | 판정 시점 주간 손실 |
+| `positionWeightSnap` | Decimal | 판정 시점 종목 비중 |
+| `buyScoreSnapshot` | Int? | Buy Score 스냅샷 (Risk veto 증적) |
+| `executionId` | String? | FK → OrderExecution |
+| `createdAt` | DateTime | 생성 시각 |
+
+**인덱스**: `idempotencyKey`(unique), `corpCode`, `stockCode`, `status`, `createdAt`
+
+### 16.2 OrderExecution 모델
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `id` | String (cuid) | PK |
+| `corpCode` | String | FK → Company |
+| `stockCode` | String | 주식 코드 |
+| `side` | OrderSide | BUY / SELL |
+| `executedShares` | Int | 체결 수량 |
+| `executedPrice` | Decimal | 체결가 |
+| `commission` | Decimal | 수수료 |
+| `tax` | Decimal | 세금 |
+| `slippage` | Decimal | 슬리피지 비용 |
+| `netAmount` | Decimal | 체결금액 - 비용 |
+| `executedAt` | DateTime | 체결 시각 |
+
+**인덱스**: `corpCode`, `executedAt`
+
+### 16.3 TradingAuditLog 모델 (전 주문 audit)
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `id` | String (cuid) | PK |
+| `action` | AuditAction | ORDER_REQUESTED/RISK_PASSED/RISK_REJECTED/KILL_SWITCH_FIRED/ORDER_EXECUTED/ORDER_CANCELLED/KILL_SWITCH_SET/KILL_SWITCH_RESET |
+| `actorKind` | String | SYSTEM / RISK_ENGINE / KILL_SWITCH / USER |
+| `summary` | String | 한줄 요약 |
+| `orderRequestId` | String? | FK → OrderRequest (nullable — Kill Switch 수동 등) |
+| `executionId` | String? | FK → OrderExecution |
+| `meta` | Json? | 상세 메타 (위반 내용, veto 증적 등) |
+| `createdAt` | DateTime | 기록 시각 |
+
+**인덱스**: `action`, `orderRequestId`, `executionId`, `createdAt`
+
+### 16.4 KillSwitchState 모델
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `id` | String (cuid) | PK |
+| `isActive` | Boolean | Kill Switch 활성 여부 |
+| `reason` | String? | 발동 사유 |
+| `triggeredBy` | String | SYSTEM / USER |
+| `activatedAt` | DateTime? | 활성화 시각 |
+| `deactivatedAt` | DateTime? | 비활성화 시각 |
+
+### 16.5 Risk 하드룰 파라미터 (DEFAULT_RISK_LIMITS)
+
+| 규칙 | 기본값 | 설명 |
+|---|---|---|
+| singleBuyMaxPct | 3% | 1회 매수 최대 비율 |
+| singlePositionMaxPct | 10% | 단일 종목 최대 비중 |
+| dailyLossMaxPct | -2% | 일간 손실 한도 |
+| weeklyLossMaxPct | -5% | 주간 손실 한도 |
+| maxOpenOrders | 5 | 최대 미체결 주문 수 |
+| maxDailyTrades | 10 | 일간 최대 거래 횟수 |
+
+### 16.6 FK 관계
+
+- `OrderRequest.corpCode` → `Company.corpCode` (N:1, RESTRICT)
+- `OrderRequest.executionId` → `OrderExecution.id` (N:1, SET NULL)
+- `OrderExecution.corpCode` → `Company.corpCode` (N:1, RESTRICT)
+- `TradingAuditLog.orderRequestId` → `OrderRequest.id` (N:1, SET NULL)
+- `TradingAuditLog.executionId` → `OrderExecution.id` (N:1, SET NULL)
+
 ---
 
-## 16. Engine2 — AI 비용 거버넌스 (M10-B, DAR-17)
+## 17. Engine2 — AI 비용 거버넌스 (M10-B, DAR-17)
 
 > AI 금지영역: 비용 게이트·한도 가드는 순수 Rule. LLM 개입 0.
 
@@ -1096,4 +1186,4 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 
 **작성일**: 2026-03-07
 **최종 수정일**: 2026-06-05
-**버전**: 2.0 (M10-B DAR-17: AI 비용 거버넌스 — AIUsageLog 집계·한도 가드·L0 비율 모니터 추가)
+**버전**: 2.1 (M11-A DAR-18: Risk 엔진 — OrderRequest·OrderExecution·TradingAuditLog·KillSwitchState 추가)

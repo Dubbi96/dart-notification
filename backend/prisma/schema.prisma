@@ -1232,3 +1232,137 @@ model PaperTrade {
   @@index([positionThesisId])
   @@map("paper_trades")
 }
+
+// ====================================
+// M11 — Engine5 Risk Engine (DAR-18)
+// AI 금지영역: Risk 판정은 순수 Rule. AI 개입 0.
+// ====================================
+
+enum OrderRequestStatus {
+  PENDING       // 위험성 검사 전
+  APPROVED      // 위험성 검사 통과
+  REJECTED      // 위험성 검사 거부 (하드룰 위반)
+  KILLED        // Kill Switch에 의해 차단
+  EXECUTED      // 체결 완료
+  CANCELLED     // 취소
+}
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum AuditAction {
+  ORDER_REQUESTED   // 주문 요청
+  RISK_PASSED       // 위험성 검사 통과
+  RISK_REJECTED     // 위험성 검사 거부
+  KILL_SWITCH_FIRED // Kill Switch 발동
+  ORDER_EXECUTED    // 체결 완료
+  ORDER_CANCELLED   // 취소
+  KILL_SWITCH_SET   // Kill Switch 수동 설정
+  KILL_SWITCH_RESET // Kill Switch 수동 해제
+}
+
+model OrderRequest {
+  id              String             @id @default(cuid())
+  idempotencyKey  String             @unique // 멱등 주문키 (중복 방지)
+
+  corpCode        String
+  stockCode       String
+  side            OrderSide
+  requestedShares Int
+  limitPrice      Decimal?           @db.Decimal(12, 2) // null = 시장가
+
+  // Risk 판정 결과
+  status          OrderRequestStatus @default(PENDING)
+  rejectionReason String?            // 거부 사유 (하드룰 위반 내용)
+
+  // 스냅샷 (판정 시점 포트폴리오 상태)
+  capitalSnapshot     Decimal        @db.Decimal(14, 2)  // 판정 시점 총자산
+  dailyLossSnapshot   Decimal        @db.Decimal(12, 2)  // 판정 시점 당일 손실
+  weeklyLossSnapshot  Decimal        @db.Decimal(12, 2)  // 판정 시점 주간 손실
+  positionWeightSnap  Decimal        @db.Decimal(5, 4)   // 판정 시점 종목 비중
+
+  // Buy Score 스냅샷 (Risk veto 증적 — AI가 긍정이어도 Risk가 거부하면 거부 기록)
+  buyScoreSnapshot    Int?
+
+  // 실행 연결
+  paperTradeId    String?
+  executionId     String?            // OrderExecution FK
+
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  company         Company            @relation(fields: [corpCode], references: [corpCode])
+  execution       OrderExecution?    @relation(fields: [executionId], references: [id])
+  auditLogs       TradingAuditLog[]
+
+  @@index([corpCode])
+  @@index([stockCode])
+  @@index([status])
+  @@index([createdAt])
+  @@map("order_requests")
+}
+
+model OrderExecution {
+  id              String        @id @default(cuid())
+
+  corpCode        String
+  stockCode       String
+  side            OrderSide
+  executedShares  Int
+  executedPrice   Decimal       @db.Decimal(12, 2)
+  commission      Decimal       @db.Decimal(12, 2) @default(0)
+  tax             Decimal       @db.Decimal(12, 2) @default(0)
+  slippage        Decimal       @db.Decimal(12, 2) @default(0)
+  netAmount       Decimal       @db.Decimal(14, 2) // 체결금액 - 비용
+
+  executedAt      DateTime
+  createdAt       DateTime      @default(now())
+
+  company         Company       @relation(fields: [corpCode], references: [corpCode])
+  orderRequests   OrderRequest[]
+  auditLogs       TradingAuditLog[]
+
+  @@index([corpCode])
+  @@index([executedAt])
+  @@map("order_executions")
+}
+
+model TradingAuditLog {
+  id              String        @id @default(cuid())
+  action          AuditAction
+  actorKind       String        // "SYSTEM" | "RISK_ENGINE" | "KILL_SWITCH" | "USER"
+  summary         String        // 한줄 요약
+
+  // 연결 (nullable — Kill Switch 수동 조작 등 주문 없이도 기록)
+  orderRequestId  String?
+  executionId     String?
+
+  // 상세 메타 (JSON)
+  meta            Json?
+
+  createdAt       DateTime      @default(now())
+
+  orderRequest    OrderRequest? @relation(fields: [orderRequestId], references: [id])
+  execution       OrderExecution? @relation(fields: [executionId], references: [id])
+
+  @@index([action])
+  @@index([orderRequestId])
+  @@index([executionId])
+  @@index([createdAt])
+  @@map("trading_audit_logs")
+}
+
+model KillSwitchState {
+  id              String        @id @default(cuid())
+  isActive        Boolean       @default(false)
+  reason          String?       // 발동 사유
+  triggeredBy     String        @default("SYSTEM") // "SYSTEM" | "USER"
+  activatedAt     DateTime?
+  deactivatedAt   DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("kill_switch_states")
+}

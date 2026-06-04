@@ -75,4 +75,18 @@ export class PrismaAiAnalysisRepository extends AiAnalysisRepository {
       },
     });
   }
+
+  async getUsageSummary(from: Date, to: Date) {
+    return this.prisma.aIUsageLog.findMany({
+      where: { createdAt: { gte: from, lte: to } },
+      select: {
+        task: true,
+        level: true,
+        costUsd: true,
+        inputTokens: true,
+        outputTokens: true,
+        rcpNo: true,
+      },
+    });
+  }
 }

@@ -54,6 +54,30 @@ export interface AiCostMetrics {
   callCount: number;
   l0Ratio: number; // L0(미사용) 비율 — 70%+ 유지 목표
   costPerDisclosure: number;
+  l0Warning: boolean; // true when l0Ratio < 0.7
+}
+
+export interface AiCostPeriodSummary {
+  totalCostUsd: number;
+  callCount: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  l0Count: number;
+  l1Count: number;
+  l2Count: number;
+  l3Count: number;
+  l0Ratio: number;
+  byTask: Record<AiTaskName, { costUsd: number; callCount: number }>;
+}
+
+export interface AiCostLimitStatus {
+  dailyCostUsd: number;
+  dailyLimitUsd: number;
+  dailyExceeded: boolean;
+  monthlyCostUsd: number;
+  monthlyLimitUsd: number;
+  monthlyExceeded: boolean;
+  forcedLevel: AiCostLevel | null; // null = not forced
 }
 
 /** LLM 호출 1회의 토큰·모델 정보 (비용 기록용) */

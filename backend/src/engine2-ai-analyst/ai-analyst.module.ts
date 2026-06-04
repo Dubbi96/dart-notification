@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { AiCostGateService } from './cost-gate/ai-cost-gate.service';
+import { AiCostLimitGuardService } from './cost-gate/ai-cost-limit-guard.service';
 import { AiUsageLogService } from './usage-log/ai-usage-log.service';
+import { AiCostAggregationService } from './cost-aggregation/ai-cost-aggregation.service';
+import { AiCostMetricsController } from './cost-metrics/ai-cost-metrics.controller';
 import { AiAnalystService } from './ai-analyst.service';
 import { SummaryTask } from './tasks/summary.task';
 import { EventClassificationTask } from './tasks/event-classification.task';
@@ -28,10 +31,13 @@ import { QUEUE } from '../common/queues/queue.constants';
   imports: [
     BullModule.registerQueue({ name: QUEUE.AI_ANALYZE }),
   ],
+  controllers: [AiCostMetricsController],
   providers: [
     AiAnalystService,
     AiCostGateService,
+    AiCostLimitGuardService,
     AiUsageLogService,
+    AiCostAggregationService,
     SummaryTask,
     EventClassificationTask,
     PersonaInterpretationTask,
@@ -41,6 +47,6 @@ import { QUEUE } from '../common/queues/queue.constants';
     { provide: AiAnalysisRepository, useClass: PrismaAiAnalysisRepository },
     EventExtractedConsumer,
   ],
-  exports: [AiAnalystService, AiCostGateService, AiUsageLogService],
+  exports: [AiAnalystService, AiCostGateService, AiCostLimitGuardService, AiUsageLogService, AiCostAggregationService],
 })
 export class AiAnalystModule {}

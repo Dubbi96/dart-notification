@@ -21,8 +21,14 @@ export class AiUsageLogService {
     );
   }
 
-  async getCostMetrics(_from: Date, _to: Date): Promise<AiCostMetrics> {
-    // TODO(M3, DB 가동 시): AIUsageLog 집계 — L0 비율 ≥70% / 비용·순익 ≤20% 모니터링
-    return { totalCostUsd: 0, callCount: 0, l0Ratio: 1, costPerDisclosure: 0 };
+  async getCostMetrics(from: Date, to: Date): Promise<AiCostMetrics> {
+    const rows = await this.repo.getUsageSummary(from, to);
+    const totalCostUsd = rows.reduce((s, r) => s + r.costUsd, 0);
+    const callCount = rows.length;
+    const l0Count = rows.filter(r => r.level === 'L0').length;
+    const l0Ratio = callCount > 0 ? l0Count / callCount : 1;
+    const disclosureCount = new Set(rows.map(r => r.rcpNo)).size;
+    const costPerDisclosure = disclosureCount > 0 ? totalCostUsd / disclosureCount : 0;
+    return { totalCostUsd, callCount, l0Ratio, costPerDisclosure, l0Warning: l0Ratio < 0.7 };
   }
 }

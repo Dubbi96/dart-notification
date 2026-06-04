@@ -22,4 +22,12 @@ export abstract class AiAnalysisRepository {
   abstract findAnalysis(rcpNo: string, task: AiTaskName): Promise<StoredAnalysis | null>;
   abstract saveAnalysis(analysis: StoredAnalysis): Promise<void>;
   abstract saveUsage(usage: AiUsageLogParams & { createdAt: Date }): Promise<void>;
+  abstract getUsageSummary(from: Date, to: Date): Promise<Array<{
+    task: string;
+    level: string;
+    costUsd: number;
+    inputTokens: number;
+    outputTokens: number;
+    rcpNo: string;
+  }>>;
 }

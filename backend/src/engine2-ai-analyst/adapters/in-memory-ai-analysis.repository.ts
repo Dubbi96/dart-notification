@@ -27,4 +27,23 @@ export class InMemoryAiAnalysisRepository extends AiAnalysisRepository {
   async saveUsage(usage: AiUsageLogParams & { createdAt: Date }): Promise<void> {
     this.usages.push(usage);
   }
+
+  async getUsageSummary(from: Date, to: Date) {
+    const taskMap: Record<AiTaskName, string> = {
+      summary: 'summary',
+      'event-classification': 'event_classification',
+      'persona-interpretation': 'persona_interpretation',
+      'position-thesis': 'position_thesis',
+    };
+    return this.usages
+      .filter(u => u.createdAt >= from && u.createdAt <= to)
+      .map(u => ({
+        task: taskMap[u.task] ?? u.task,
+        level: u.level as string,
+        costUsd: u.costUsd,
+        inputTokens: u.inputTokens,
+        outputTokens: u.outputTokens,
+        rcpNo: u.rcpNo,
+      }));
+  }
 }

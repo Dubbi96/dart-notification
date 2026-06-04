@@ -1042,6 +1042,58 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 
 ---
 
+---
+
+## 16. Engine2 — AI 비용 거버넌스 (M10-B, DAR-17)
+
+> AI 금지영역: 비용 게이트·한도 가드는 순수 Rule. LLM 개입 0.
+
+### 16.1 AIUsageLog 모델 (기존 M3 모델, 집계 기반)
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `id` | String (cuid) | PK |
+| `rcpNo` | String | 공시 접수번호 (FK → Disclosure.rcpNo) |
+| `task` | AiTaskName | summary / event_classification / persona_interpretation / position_thesis |
+| `level` | AiCostLevel | L0 / L1 / L2 / L3 |
+| `model` | String | 사용 LLM 모델명 |
+| `inputTokens` | Int | 입력 토큰 수 |
+| `outputTokens` | Int | 출력 토큰 수 |
+| `costUsd` | Float | 비용 (USD) |
+| `createdAt` | DateTime | 기록 시각 |
+
+**인덱스**: `rcpNo`, `task`, `level`, `createdAt`
+
+### 16.2 비용 집계 서비스 (AiCostAggregationService)
+
+`AIUsageLog`를 기간별로 집계. 읽기 전용 — DB 직접 쿼리, AI 비호출.
+
+| 지표 | 계산식 |
+|---|---|
+| `totalCostUsd` | SUM(costUsd) |
+| `callCount` | COUNT(*) |
+| `l0Ratio` | COUNT(level=L0) / COUNT(*) |
+| `costPerDisclosure` | totalCostUsd / DISTINCT(rcpNo) |
+| `costPerSignal` | totalAiCostKrw / TradingSignal.count |
+| `costPerTrade` | totalAiCostKrw / PaperTrade.count |
+
+### 16.3 비용 한도 가드 (AiCostLimitGuardService — 순수 Rule)
+
+| 파라미터 | 기본값 | 설명 |
+|---|---|---|
+| `DAILY_LIMIT_USD` | 1.0 | 일 누적 한도 초과 시 L0 강등 |
+| `MONTHLY_LIMIT_USD` | 20.0 | 월 누적 한도 초과 시 L0 강등 |
+
+- 한도 초과: `forcedLevel = L0` (AI 호출 차단)
+- 한도 미달: `forcedLevel = null` (원래 게이트 레벨 유지)
+
+### 16.4 L0 비율 모니터
+
+- 목표: L0 비율 ≥ 70% (AI 미사용 비율 극대화)
+- 임계 미달(`l0Ratio < 0.7`) 시 `AiCostMetrics.l0Warning = true`
+
+---
+
 **작성일**: 2026-03-07
 **최종 수정일**: 2026-06-05
-**버전**: 1.9 (M10-A DAR-16: PaperTrade 모의투자 체결 모델 추가, engine5-trading-risk 신규 도메인)
+**버전**: 2.0 (M10-B DAR-17: AI 비용 거버넌스 — AIUsageLog 집계·한도 가드·L0 비율 모니터 추가)

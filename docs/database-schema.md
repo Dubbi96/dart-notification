@@ -488,7 +488,76 @@ const disclosures = await prisma.disclosure.findMany({
 });
 ```
 
-## 7. 백업 및 복구 전략
+## 7. M4 시장 데이터 모델 (신규)
+
+### 7.1 StockDailyPrice (stock_daily_prices)
+
+일봉 시세 데이터. 자연키: `(stockCode, tradeDate)`.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | TEXT PK | CUID |
+| corpCode | TEXT FK | DART 고유번호 → Company.corpCode |
+| stockCode | TEXT | 종목코드 6자리 |
+| tradeDate | TEXT | 거래일 YYYYMMDD |
+| openPrice | INT | 시가 |
+| highPrice | INT | 고가 |
+| lowPrice | INT | 저가 |
+| closePrice | INT | 종가 |
+| volume | BIGINT | 거래량 |
+| tradingValue | BIGINT? | 거래대금 |
+
+```prisma
+model StockDailyPrice {
+  @@unique([stockCode, tradeDate])
+  @@index([corpCode])
+  @@index([tradeDate])
+  @@map("stock_daily_prices")
+}
+```
+
+### 7.2 TechnicalIndicator (technical_indicators)
+
+기술지표 계산 결과. MA/RSI/MACD/BB/ATR/VWAP/VolumeRatio/52W/선행상승률. 자연키: `(stockCode, tradeDate)`.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | TEXT PK | CUID |
+| corpCode | TEXT FK | DART 고유번호 → Company.corpCode |
+| stockCode | TEXT | 종목코드 |
+| tradeDate | TEXT | 기준 거래일 |
+| ma5/20/60/120 | FLOAT? | 이동평균 (데이터 부족 시 null) |
+| rsi14 | FLOAT? | RSI 14일 |
+| macdLine/Signal/Histogram | FLOAT? | MACD (12,26,9) |
+| bollingerUpper/Mid/Lower | FLOAT? | 볼린저 밴드 (20,2σ) |
+| atr14 | FLOAT? | ATR 14일 |
+| vwap | FLOAT? | VWAP 당일 |
+| volumeRatio20 | FLOAT? | 거래량비율 (20일 평균 대비) |
+| high52w / low52w | INT? | 52주 최고/최저 |
+| preDsclReturn | FLOAT? | 공시 전 선행상승률 D-5~D-1 (%) |
+
+### 7.3 MarketIndex (market_indices)
+
+시장 지수 (KOSPI=0001, KOSDAQ=1001, 업종지수). 자연키: `(indexCode, tradeDate)`.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | TEXT PK | CUID |
+| indexCode | TEXT | 지수코드 |
+| indexName | TEXT | 지수명 |
+| tradeDate | TEXT | 거래일 YYYYMMDD |
+| openIndex/highIndex/lowIndex/closeIndex | FLOAT | OHLC 지수 |
+| volume | BIGINT? | 거래량 |
+| tradingValue | BIGINT? | 거래대금 |
+
+### 7.4 AI 정책
+
+Engine 3 (Quant Market)의 모든 지표 계산은 **순수 Rule 기반**. LLM/AI 개입 절대 금지.
+계산 함수: `backend/src/engine3-quant-market/indicators/indicators.ts`
+
+---
+
+## 8. 백업 및 복구 전략
 
 ### 7.1 정기 백업
 - PostgreSQL `pg_dump` 사용
@@ -512,5 +581,5 @@ pg_restore -d dart_notification backup.sql
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-03-08
-**버전**: 1.1 (Natural Key PK 재설계)
+**최종 수정일**: 2026-06-04
+**버전**: 1.2 (M4 시장 데이터 모델 추가: StockDailyPrice, TechnicalIndicator, MarketIndex)

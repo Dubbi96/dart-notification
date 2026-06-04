@@ -114,25 +114,28 @@ feat/ddd-harness-m3, feat/m3-ai-analyst  (병합완료된 과거 브랜치)
 
 ---
 
-## 6. paperclip 이슈 보드 — 현황 (2026-06-04 17:20, main `7934d30`)
+## 6. paperclip 이슈 보드 — 현황 (2026-06-05, main `b73c547`)
 
-**DAR-1~8 전부 ✅ done.** M3(AI Analyst) + M4(시세 데이터) 핵심이 모두 main 병합됨. (origin보다 18커밋 앞섬, 미push)
+**DAR-1~13 전부 ✅ done. 순수 코드 마일스톤 M3~M9 완료.** (origin보다 31커밋 앞섬, 미push) · 582 테스트 그린(tsc 0)
 
-| 이슈 | 내용 | main |
+| 이슈 | 마일스톤 | main |
 |---|---|---|
-| DAR-1~2 | test / M3 나머지 3 AI Task | `4fc3ddb` |
-| DAR-3 M4 | engine3 스캐폴딩 | `5e2d33b` |
-| DAR-4 M3-A | AI분석 영속화(Prisma 3모델) | `83bbd86` |
-| DAR-7 M4-B | 기술지표 엔진+시세모델(+32테스트) | `54d09b8` |
-| DAR-5 M3-B | event.extracted BullMQ 큐 컨슈머 | `57400e7` |
-| DAR-6 M3-C | 라이브 LLM 통합+스모크 하네스 | `d371899` |
-| DAR-8 M4-C | KRX 라이브 수집 어댑터+Cron+차트API | `7934d30` |
+| DAR-1~6 | M3 AI Analyst(4Task·영속화·비용게이트·큐·라이브LLM) | `d371899` |
+| DAR-3,7,8 | M4 시세데이터(스캐폴딩·지표엔진·시세모델·KRX수집·차트API) | `7934d30` |
+| DAR-9 | M5 Event Study 엔진(AR/CAR·통계) | `8bcdd15` |
+| DAR-10 | M6 Buy Score 엔진(7컴포넌트−리스크패널티) | `da73e5c` |
+| DAR-11 | M7 Position Thesis(engine4 신규, 기계평가 invalidConditions) | `14e39f0` |
+| DAR-12 | M8 Portfolio&Exit(Exit Score·6트리거·5액션) | `1bf038a` |
+| DAR-13 | M9 백테스트(BacktestRun/Trade·lookahead방지·현실제약) | `b73c547` |
 
-> 현재 320 테스트 그린(tsc 0). 리드 루프 가동 중(memory: orchestration-leadership-mandate, 직렬 1개씩).
+> 리드 루프 가동 중(memory: orchestration-leadership-mandate, 직렬 1개씩, 주기 270s).
 
-### ⚠️ 검증 부채 (코드 완료 ≠ 라이브 검증) — 다음 단계 필수
-- **DAR-8 마이그레이션 미적용**: `20260604120000_add_stock_status_and_collection_log`가 dev DB 미반영. `migrate deploy`는 `.claude` 훅이 차단(deny) → **사람 수동 실행** 또는 다음 agent(skip-perms)가 `migrate dev` 시 적용. paperclip agent는 `dangerouslySkipPermissions:true`라 마이그레이션 적용 가능, 메인세션(나)은 불가.
-- **라이브 미실행**: KRX 실수집(StockDailyPrice 적재)·LLM 스모크(SMOKE_LLM=1 비용실측)가 아직 미실행 → M5 Event Study 통계는 실데이터 수집 후라야 유의미. 엔진 코드는 fixture로 선구현 가능(DAR-7 패턴).
+### ⚠️ M10 분기점 — 라이브 검증 패스 필요 (사용자 결정 대기)
+M3~M9는 **fixture 기반 코드 완료**. M10(모의투자)은 MVP 졸업 게이트로 실데이터·라이브·실비용이 필수. 누적된 검증 부채:
+- **누적 마이그레이션 미적용**(DAR-8/9/10/11/12/13의 신규 모델): `migrate deploy`는 `.claude` 훅 deny → 사람 수동(`! cd backend && npx prisma migrate dev`) 또는 agent(skip-perms)가 적용. dev DB가 schema.prisma보다 여러 마이그레이션 뒤처짐.
+- **라이브 미실행**: KRX 실수집(StockDailyPrice 적재)·LLM 스모크(SMOKE_LLM=1 실비용)·end-to-end 통합회귀 미실행.
+- **origin 미push 31커밋**: push는 사용자 승인(하네스 ask).
+→ 2026-06-05 M9 완료 시점에 사용자에 방향 확인(라이브 검증 패스 vs 코드 계속).
 
 > 엔드포인트: 이슈 단건 `/api/issues/<id>?companyId=<C>`(GET/PATCH), 에이전트 `/api/agents/<id>/{resume,pause,wakeup}?companyId=<C>`.
 

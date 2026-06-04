@@ -5,22 +5,22 @@
 
 ---
 
-## 0. ⏳ 재개 시 첫 작업 (PENDING)
+## 0. ✅ 재개 첫 작업 — 완료 (2026-06-04)
 
 > 🛑 **현재 paperclip 4 에이전트는 전부 PAUSED 상태다.** (할당된 이슈가 wakeOnDemand를 자동 트리거해 선행조건 미충족 작업까지 자율 착수한 사고 → 통제 위해 일시정지함.) 재개 시 **환경 준비 후 의도적으로 unpause + wakeup** 할 것. 미할당/BLOCKED 이슈는 환경 충족 전 할당 금지. (상세: §7)
 
-**15:00(KST) 이후 `feat/DAR-2-remaining-ai-tasks` → main 병합 + 부트스트랩 커밋.**
-자동 예약은 안전상 불가(crontab=하네스 우회로 차단, ScheduleWakeup=세션종속, CronCreate=원격이라 로컬 git 불가). 재개 세션이 아래를 실행한다:
+**✅ `feat/DAR-2-remaining-ai-tasks` → main ff-병합 + 부트스트랩 커밋 완료.**
+재개 세션이 아래를 실행했다(병합 전 재검증: tsc 0 / jest 22스위트·251테스트 그린 재확인):
 
 ```bash
-cd /Users/gangjong-won/Dubbi/dart-notification
 git switch main
-git merge --ff-only feat/DAR-2-remaining-ai-tasks          # DAR-2(검증완료) 병합
+git merge --ff-only feat/DAR-2-remaining-ai-tasks          # 4fc3ddb 병합 완료
 git add .agents AGENTS.md harness CLAUDE.md docs/multi-agent-harness.md
-git commit -m "chore(harness): paperclip 부트스트랩 + 멀티에이전트 문서 정리"
+git commit -m "chore(harness): paperclip 부트스트랩 + 멀티에이전트 문서 정리"   # 7577ac1
 ```
-> DAR-2는 이미 독립 검증 통과(tsc 0 / jest 22스위트·251테스트 / AI금지영역 clean). 병합은 ff.
+> 결과: main = `7577ac1` (DAR-2 + 하네스 부트스트랩 포함). 미push 상태.
 > push는 별도(요청 시) — `git push origin main`은 하네스가 휴먼 승인 요구.
+> **다음 작업**: §6 백로그 — `37ae394e`(M4 engine3 스캐폴딩)은 선행조건 없음·즉시 가능. 나머지(M3-A/B/C)는 환경(DB/Redis/LLM키) 준비 후.
 
 ---
 
@@ -96,12 +96,14 @@ git commit -m "chore(harness): paperclip 부트스트랩 + 멀티에이전트 �
 ## 5. 진행 이력 (git, 로컬 — origin 미push)
 
 ```
-main: 6c17b38  (하네스+DDD+M3코어)   ← origin/main(a066704)보다 앞섬, 미push
-feat/DAR-2-remaining-ai-tasks: 4fc3ddb  (M3 나머지 3 Task, 검증완료) ← §0에서 main 병합 대기
+main: 7577ac1  (DAR-2 병합 + 하네스 부트스트랩)   ← origin/main(a066704)보다 5커밋 앞섬, 미push
+  ├ 4fc3ddb  feat/DAR-2 (M3 나머지 3 Task, ff 병합 완료)
+  └ 6c17b38  (하네스+DDD+M3코어)
+feat/DAR-2-remaining-ai-tasks: 4fc3ddb  (main에 ff 병합 완료 — 삭제 가능)
+feat/DAR-4-ai-analysis-prisma, feat/DAR-5-bullmq-queue-consumer  (미검증 WIP, §7 참조)
 feat/ddd-harness-m3, feat/m3-ai-analyst  (병합완료된 과거 브랜치)
-미커밋(working tree): .agents/ AGENTS.md harness/ CLAUDE.md(paperclip 병합) ← §0 커밋 대상
 ```
-> ⚠️ 현재 repo는 `feat/DAR-2` 브랜치에 체크아웃돼 있음(자율 에이전트가 worktree 대신 in-place 전환). 재개 시 §0대로 main 복귀+병합.
+> ✅ 재개 세션이 §0대로 main 복귀 + ff 병합 + 부트스트랩 커밋 완료. working tree clean.
 
 ### 첫 자율 실행(DAR-2) 결과 & 관찰된 deviation
 - ✅ ORCHESTRATOR가 이슈를 읽고 브랜치 생성→3 Task 구현→테스트→커밋, 이슈를 in_review로. 검증 통과.

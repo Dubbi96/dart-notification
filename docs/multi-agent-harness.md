@@ -120,10 +120,15 @@ feat/ddd-harness-m3, feat/m3-ai-analyst  (병합완료된 과거 브랜치)
 |---|---|---|---|
 | DAR-1 `b492b931` | test Task | — | ✅ done |
 | DAR-2 `5e45a92b` | M3 나머지 3 AI Task | — | ✅ done (main 병합·이슈 close) |
-| DAR-3 `37ae394e` M4 | engine3-quant-market 스캐폴딩 | **없음** | 🚧 **in_progress** (ORCHESTRATOR) |
-| DAR-4 `7be69287` M3-A | Prisma 모델3종+마이그레이션+어댑터 | DB 가동(✅충족) + migrate 승인 | 🚧 **in_progress** (ORCHESTRATOR) |
+| DAR-3 `37ae394e` M4 | engine3-quant-market 스캐폴딩 | 없음 | ✅ done (main `5e2d33b`) |
+| DAR-4 `7be69287` M3-A | Prisma 모델3종+마이그레이션+어댑터 | DB 가동(✅) | ✅ done (main `83bbd86`) |
+| DAR-7 `2901fe4e` M4-B | 기술지표 엔진+시세 Prisma 모델(무블록) | DB 가동(✅) | ✅ done (main `54d09b8`, +32 테스트) |
 | DAR-5 `e3823e6f` M3-B | event.extracted 큐 컨슈머 | Redis/BullMQ ❌ | ⛔ 미할당(BLOCKED) |
-| DAR-6 `27aafc7d` M3-C | 라이브 LLM 통합+게이트 실측 | LLM_API_KEY ❌ | ⛔ 미할당(BLOCKED) |
+| DAR-6 `27aafc7d` M3-C | 라이브 LLM 통합+게이트 실측 | LLM_API_KEY ❌(사용자: 나중에) | ⛔ 미할당(BLOCKED) |
+| DAR-8 `562019d6` M4-C | KRX 라이브 일봉 수집+Cron | `KRX_API_KEY`(.env) + DAR-7(✅) | ⛔ 미할당 — **키 들어오면 할당 가능** |
+
+> **리드 루프 가동 중**(ScheduleWakeup ~20분, memory: orchestration-leadership-mandate). 무블록 이슈는 검증→ff병합→done, env블록 이슈는 미할당 유지. 최종승인(origin push·env키·위험결정)만 사용자 alert.
+> main: `9688746` (origin보다 11커밋 앞섬, 미push). M0~M3코어+영속화 / M4 스캐폴딩+지표엔진+시세모델 landing.
 
 ### DAR-5·DAR-6 활성화 방법 (환경 준비 후)
 1. **환경 준비**: Redis 컨테이너 가동(`docker-compose`에 redis 추가 후 up) / `.env`에 `LLM_API_KEY` 설정.

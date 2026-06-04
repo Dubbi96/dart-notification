@@ -72,6 +72,7 @@ model Company {
   disclosureEvents     DisclosureEvent[]
   stockDailyPrices    StockDailyPrice[]
   technicalIndicators TechnicalIndicator[]
+  tradingSignals      TradingSignal[]
 
   @@index([corpName]) // 자동완성 검색용
   @@index([stockCode])
@@ -157,6 +158,7 @@ model Disclosure {
   disclosureEvent     DisclosureEvent?
   disclosureAnalyses  DisclosureAnalysis[]
   personaAnalysis     PersonaAnalysis?
+  tradingSignals      TradingSignal[]
 
   @@index([corpCode])
   @@index([rcpDt])
@@ -679,4 +681,84 @@ model EventStudyObservation {
   @@index([rcpNo])
   @@index([corpCode])
   @@map("event_study_observations")
+}
+
+// ====================================
+// 매수 신호 등급 enum (M6-A 신규, DAR-10)
+// ====================================
+
+enum SignalGrade {
+  STRONG_BUY_CANDIDATE
+  BUY_CANDIDATE
+  WATCH
+  NEUTRAL
+  AVOID
+  BLOCKED
+}
+
+// ====================================
+// 매수 신호 결과 (M6-A 신규, DAR-10)
+// ====================================
+
+model TradingSignal {
+  id              String      @id @default(cuid())
+
+  // 공시 연결 (자연키 FK: Disclosure.rcpNo)
+  rcpNo           String
+  // 종목 연결 (자연키 FK: Company.corpCode)
+  corpCode        String
+  stockCode       String      // 종목코드 6자리 (조회 성능용 역정규화)
+
+  // 이벤트
+  eventType       String      // DisclosureEvent.eventType enum 값
+  subCategory     String?     // 이벤트 세분류 (예: 'salesRatio_20pct_above')
+
+  // Persona
+  persona         String      // 'GROWTH' | 'VALUE' | 'MOMENTUM' | 'EVENT_DRIVEN'
+
+  // Buy Score 결과
+  buyScore        Int         // -100 ~ 100 (정수)
+  signal          SignalGrade
+
+  // 컴포넌트별 점수 (추적·디버깅용)
+  scoreBreakdown  Json        // { disclosureEvent, keyMetric, personaFit, historicalEvent, chart, volumeLiquidity, marketSector }
+  riskPenalty     Int         // 차감된 패널티 합계
+
+  // 진입 조건
+  entryConditionMet    String[]   // 충족된 조건 label 목록
+  entryConditionUnmet  String[]   // 미충족 조건 label 목록
+  entryReady           Boolean    @default(false)
+
+  // 리스크 요인 (human-readable)
+  riskFactors          String[]
+
+  // AI Phase 4 DisclosureAnalysis 참조 요약 (새 AI 호출 없음)
+  signalSummary        String?
+
+  // 차단 사유 (signal=BLOCKED 시)
+  blockedReason        String?
+
+  // 유효 시간
+  validUntil           DateTime?
+
+  // 상태
+  isNotified           Boolean    @default(false)
+  notifiedAt           DateTime?
+
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  // Relations
+  disclosure   Disclosure @relation(fields: [rcpNo],   references: [rcpNo])
+  company      Company    @relation(fields: [corpCode], references: [corpCode])
+
+  @@unique([rcpNo, persona])
+  @@index([corpCode])
+  @@index([stockCode])
+  @@index([signal])
+  @@index([rcpNo])
+  @@index([createdAt])
+  @@index([persona])
+  @@index([entryReady])
+  @@map("trading_signals")
 }

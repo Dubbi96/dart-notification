@@ -76,6 +76,22 @@ dart-notification/
 │   │   │   │   └── position-thesis.service.ts  # createFromSignal, invalidate, close
 │   │   │   ├── position-thesis.spec.ts          # fixture 단위 테스트 (32건)
 │   │   │   └── portfolio-exit.module.ts
+│   │   ├── engine5-trading-risk/ # 🟥 Engine5: 모의투자 엔진 (M10-A, DAR-16)
+│   │   │   ├── CLAUDE.md            # 도메인 규칙 + AI 금지영역 (최강조)
+│   │   │   ├── domain/
+│   │   │   │   ├── paper-trade.types.ts        # TradeDirection, FillParams, PaperPortfolioState 등
+│   │   │   │   ├── fill-simulator.ts           # 체결 시뮬레이터 (슬리피지·부분체결·수수료·세금, 순수 Rule)
+│   │   │   │   ├── paper-portfolio.ts          # 가상 포트폴리오 (보유·평가손익·현금·비중)
+│   │   │   │   └── cost-metrics.ts             # 비용지표 (CostPerDisclosure/Signal/Trade)
+│   │   │   ├── repositories/
+│   │   │   │   ├── paper-trade.repository.ts              # IPaperTradeRepository 인터페이스
+│   │   │   │   └── in-memory-paper-trade.repository.ts    # 인메모리 어댑터 (M10-A)
+│   │   │   ├── services/
+│   │   │   │   └── paper-trade.service.ts      # placeOrder → 체결 시뮬 실행
+│   │   │   ├── fill-simulator.spec.ts           # fixture 단위 테스트 (11건)
+│   │   │   ├── paper-portfolio.spec.ts          # fixture 단위 테스트 (9건)
+│   │   │   ├── cost-metrics.spec.ts             # fixture 단위 테스트 (5건)
+│   │   │   └── trading-risk.module.ts
 │   │   ├── notifications/     # 알림 히스토리
 │   │   │   ├── dto/
 │   │   │   │   └── query-notification.dto.ts

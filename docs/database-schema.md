@@ -988,6 +988,60 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 
 ---
 
+## 15. Engine5 — 모의투자 (M10-A, DAR-16)
+
+> AI 금지영역: 체결·Risk 로직은 순수 Rule. AI 개입 0.
+
+### 15.1 PaperTrade 모델
+
+가상 주문·체결 기록. 공시 분석에서 생성된 신호(TradingSignal)와 투자 논리(PositionThesis)를 연결하여 실거래 없이 전략 성과를 측정한다.
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `id` | String (cuid) | PK |
+| `corpCode` | String | FK → Company.corpCode |
+| `stockCode` | String | 종목코드 6자리 |
+| `direction` | PaperTradeDirection | BUY / SELL |
+| `orderedShares` | Int | 주문 수량 |
+| `filledShares` | Int | 체결 수량 |
+| `fillRate` | Decimal(5,4) | 체결률 0~1 |
+| `entryPrice` | Decimal(12,2) | 진입 기준가 (다음거래일 시가) |
+| `filledPrice` | Decimal(12,2)? | 실제 체결가 (슬리피지 반영) |
+| `commission` | Decimal(12,2) | 수수료 (KRW) |
+| `tax` | Decimal(12,2) | 세금: 매도 시 증권거래세 (KRW) |
+| `slippage` | Decimal(12,2) | 슬리피지 비용 (KRW) |
+| `grossPnl` | Decimal(12,2)? | 총손익 (체결 완료 후) |
+| `netPnl` | Decimal(12,2)? | 순손익 |
+| `returnPct` | Decimal(8,4)? | 수익률 |
+| `status` | PaperTradeStatus | PENDING/FILLED/PARTIAL/CANCELLED/REJECTED |
+| `entryDate` | DateTime | 체결 예정 거래일 |
+| `filledAt` | DateTime? | 실제 체결 시각 |
+| `tradingSignalId` | String? | FK → TradingSignal.id (optional) |
+| `positionThesisId` | String? | FK → PositionThesis.id (optional) |
+
+**Enum:**
+- `PaperTradeStatus`: PENDING / FILLED / PARTIAL / CANCELLED / REJECTED
+- `PaperTradeDirection`: BUY / SELL
+
+**진입 규칙**: 다음거래일 시가 진입 (lookahead bias 방지, 백테스트 일관성)
+
+### 15.2 체결 시뮬레이터 파라미터
+
+| 파라미터 | 기본값 | 설명 |
+|---|---|---|
+| commissionRate | 0.00015 | 0.015% 수수료 (매수·매도 공통) |
+| sellTaxRate | 0.0018 | 0.18% 증권거래세 (매도만) |
+| slippagePct | 0.0005 | 0.05% 슬리피지 |
+| partialFillThreshold | 0.1 | 유동성비율 10% 미만 시 부분체결 |
+
+### 15.3 FK 정합
+
+- `PaperTrade.corpCode` → `Company.corpCode` (N:1, RESTRICT)
+- `PaperTrade.tradingSignalId` → `TradingSignal.id` (N:1, SET NULL)
+- `PaperTrade.positionThesisId` → `PositionThesis.id` (N:1, SET NULL)
+
+---
+
 **작성일**: 2026-03-07
 **최종 수정일**: 2026-06-05
-**버전**: 1.8 (M9-A DAR-13: BacktestRun·BacktestTrade 모델 추가, lookahead bias 방지 엔진)
+**버전**: 1.9 (M10-A DAR-16: PaperTrade 모의투자 체결 모델 추가, engine5-trading-risk 신규 도메인)

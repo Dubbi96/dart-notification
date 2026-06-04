@@ -550,7 +550,34 @@ model StockDailyPrice {
 | volume | BIGINT? | 거래량 |
 | tradingValue | BIGINT? | 거래대금 |
 
-### 7.4 AI 정책
+### 7.4 StockStatus (stock_statuses) — DAR-8 신규
+
+종목별 거래정지·관리종목·투자주의 상태. 매 거래일 장 시작 전 KRX 수집으로 갱신.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| stockCode | TEXT PK | 종목코드 6자리 |
+| tradeDate | TEXT | 마지막 갱신 거래일 YYYYMMDD |
+| isTradingSuspended | BOOL | 거래정지 여부 |
+| isManagement | BOOL | 관리종목 여부 |
+| isInvestmentCaution | BOOL | 투자주의 여부 |
+| isAbnormalSurge | BOOL | 이상급등 여부 |
+| statusNote | TEXT? | 상태 사유 |
+
+### 7.5 MarketDataCollectionLog (market_data_collection_logs) — DAR-8 신규
+
+KRX EOD 수집 이력 로그 (DART DisclosureCollectionLog 동일 패턴).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | TEXT PK | CUID |
+| tradeDate | TEXT | 수집 대상 거래일 |
+| triggeredBy | TEXT | CRON 또는 MANUAL |
+| status | TEXT | RUNNING / SUCCESS / PARTIAL / FAILED |
+| stockCount / savedCount / failedCount | INT | 수집 통계 |
+| indexSaved / statusSaved | BOOL | 지수·종목상태 저장 여부 |
+
+### 7.6 AI 정책
 
 Engine 3 (Quant Market)의 모든 지표 계산은 **순수 Rule 기반**. LLM/AI 개입 절대 금지.
 계산 함수: `backend/src/engine3-quant-market/indicators/indicators.ts`
@@ -582,4 +609,4 @@ pg_restore -d dart_notification backup.sql
 
 **작성일**: 2026-03-07
 **최종 수정일**: 2026-06-04
-**버전**: 1.2 (M4 시장 데이터 모델 추가: StockDailyPrice, TechnicalIndicator, MarketIndex)
+**버전**: 1.3 (M4-C DAR-8: StockStatus, MarketDataCollectionLog + KRX 수집 어댑터)

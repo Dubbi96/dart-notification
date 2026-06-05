@@ -2,13 +2,21 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { QueryDisclosureDto, SearchDisclosureDto } from './dto/query-disclosure.dto';
+import {
+  tokenize,
+  normalizePeriod,
+  scoreDisclosure,
+  compareRecency,
+  RELEVANCE_SCAN_LIMIT,
+} from './search.util';
 
 @Injectable()
 export class DisclosuresService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(query: QueryDisclosureDto, userId?: string) {
-    const { page = 1, limit = 20, corpCode, disclosureType, watchlistOnly, keywords } = query;
+    const { page = 1, limit = 20, corpCode, disclosureType, watchlistOnly, keywords, from, to } = query;
+    const period = normalizePeriod(from, to);
 
     let watchlistCorpCodes: string[] | undefined;
     if (watchlistOnly) {
@@ -35,6 +43,7 @@ export class DisclosuresService {
           reportName: { contains: kw, mode: 'insensitive' as const },
         })),
       }),
+      ...(period && { rcpDt: period }),
     };
 
     const [items, total] = await Promise.all([
@@ -117,17 +126,81 @@ export class DisclosuresService {
     };
   }
 
+  /**
+   * SEO식(스마트) 검색 (DAR-45)
+   * - 다중필드: reportName · corpName · flrName · Company.stockCode
+   * - 토큰 분해: 공백 단위로 분해해 토큰 간 AND, 각 토큰은 필드 간 OR
+   *   (예: "삼성 유상증자" → "삼성"·"유상증자" 둘 다 어느 필드든 매칭)
+   * - 정렬: latest(최신순, 기본) | relevance(관련도순)
+   * - 무마이그레이션 구현: 관련도는 최근 RELEVANCE_SCAN_LIMIT건 스캔 후 메모리 재정렬.
+   */
   async search(query: SearchDisclosureDto) {
-    const { q, page = 1, limit = 20, disclosureType } = query;
+    const { q, page = 1, limit = 20, disclosureType, from, to, sort = 'latest' } = query;
+
+    const tokens = tokenize(q);
+    const period = normalizePeriod(from, to);
 
     const where: Prisma.DisclosureWhereInput = {
-      OR: [
-        { reportName: { contains: q, mode: 'insensitive' } },
-        { corpName: { contains: q, mode: 'insensitive' } },
-      ],
+      ...(tokens.length > 0 && {
+        AND: tokens.map((token) => ({
+          OR: [
+            { reportName: { contains: token, mode: 'insensitive' as const } },
+            { corpName: { contains: token, mode: 'insensitive' as const } },
+            { flrName: { contains: token, mode: 'insensitive' as const } },
+            { company: { stockCode: { contains: token, mode: 'insensitive' as const } } },
+          ],
+        })),
+      }),
       ...(disclosureType && { disclosureType }),
+      ...(period && { rcpDt: period }),
     };
 
+    // 관련도 정렬: 최근 N건을 스캔해 메모리에서 점수순 재정렬 (DB LIKE는 관련도 정렬 불가).
+    if (sort === 'relevance' && tokens.length > 0) {
+      const normalized = q.trim().toLowerCase();
+      const [scanned, total] = await Promise.all([
+        this.prisma.disclosure.findMany({
+          where,
+          take: RELEVANCE_SCAN_LIMIT,
+          orderBy: [{ rcpDt: 'desc' }, { rcpNo: 'desc' }],
+          include: { company: { select: { stockCode: true } } },
+        }),
+        this.prisma.disclosure.count({ where }),
+      ]);
+
+      const ranked = scanned
+        .map((d) => ({
+          d,
+          score: scoreDisclosure(
+            { ...d, stockCode: d.company?.stockCode ?? null },
+            tokens,
+            normalized,
+          ),
+        }))
+        .sort((a, b) => b.score - a.score || compareRecency(a.d, b.d))
+        // include로 끌어온 company는 응답 형태 일관성을 위해 제거.
+        .map(({ d }) => {
+          const { company, ...rest } = d;
+          void company;
+          return rest;
+        });
+
+      const items = ranked.slice((page - 1) * limit, (page - 1) * limit + limit);
+
+      return {
+        items,
+        meta: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+          sort: 'relevance' as const,
+          scanned: scanned.length,
+        },
+      };
+    }
+
+    // 최신순(기본): DB 정렬 + 페이지네이션.
     const [items, total] = await Promise.all([
       this.prisma.disclosure.findMany({
         where,
@@ -145,6 +218,7 @@ export class DisclosuresService {
         limit,
         total,
         totalPages: Math.ceil(total / limit),
+        sort: 'latest' as const,
       },
     };
   }

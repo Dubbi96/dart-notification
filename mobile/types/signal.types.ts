@@ -29,6 +29,11 @@ export interface BuyScoreComponent {
   label: string;
   score: number;
   max: number;
+  /**
+   * 통계 근거 항목의 표본수(n). ScoreBreakdownSection이 'n=N건'으로 신뢰도를 동반 노출.
+   * 백엔드(engine3 scoreBreakdown)가 표본수를 실으면 채워지며, 미존재 시 undefined(미표시).
+   */
+  sampleN?: number;
 }
 
 /** 매수 신호 */

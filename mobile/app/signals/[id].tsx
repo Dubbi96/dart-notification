@@ -214,6 +214,7 @@ export default function SignalDetailScreen() {
               label: c.label,
               score: c.score,
               maxContribution: c.max,
+              sampleN: c.sampleN,
             }))}
           />
         ) : null}

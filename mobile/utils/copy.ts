@@ -44,7 +44,8 @@ if (__DEV__) {
   };
   for (const [tableName, table] of Object.entries(tables)) {
     for (const [key, value] of Object.entries(table)) {
-      if (!value.includes('참고')) {
+      // 정밀도 강화(DAR-33): 단순 '참고'가 아닌 정확한 '(참고)' 꼬리표 형태를 검증.
+      if (!value.includes('(참고)')) {
         // eslint-disable-next-line no-console
         console.warn(
           `[copy.ts] 해석 카피 '${tableName}.${key}'에 '(참고)' 꼬리표 누락: "${value}"`,

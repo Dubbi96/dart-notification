@@ -1184,6 +1184,42 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 
 ---
 
+## 18. 리포지토리 영속화 계층 (DAR-35/36)
+
+### 18.1 개요
+
+Engine4·Engine5의 도메인 모델은 **헥사고날 포트/어댑터 패턴**으로 영속화 구현이 교체 가능하다.
+Prisma 스키마 변경 없이 기존 모델(§12~§16)을 그대로 사용하여 InMemory → Prisma 어댑터로 전환했다.
+
+### 18.2 Engine4 — PositionThesis · ExitSignal (DAR-35)
+
+| 포트 인터페이스 | InMemory 어댑터 | Prisma 어댑터 |
+|----------------|----------------|--------------|
+| `IPositionThesisRepository` | `in-memory-position-thesis.repository.ts` | `prisma-position-thesis.repository.ts` |
+| `IExitSignalRepository` | `in-memory-exit-signal.repository.ts` | `prisma-exit-signal.repository.ts` |
+
+- **사용 모델**: `PositionThesis` (§12), `ExitSignal` (§13.5)
+- **스키마 변경**: 없음. 기존 마이그레이션(`20260604160000_m7_position_thesis` 외) 그대로 사용.
+- **전환 결과**: `PositionThesisService`·`ExitSignalService`가 Prisma 어댑터를 주입받아 영구 저장.
+
+### 18.3 Engine5 — PaperTrade · TradingAuditLog (DAR-36)
+
+| 포트 인터페이스 | InMemory 어댑터 | Prisma 어댑터 |
+|----------------|----------------|--------------|
+| `IPaperTradeRepository` | `in-memory-paper-trade.repository.ts` | `prisma-paper-trade.repository.ts` |
+| `IAuditLogRepository` | `in-memory-audit-log.repository.ts` | `prisma-audit-log.repository.ts` |
+
+- **사용 모델**: `PaperTrade` (§15.1), `TradingAuditLog` (§16.3)
+- **스키마 변경**: 없음. 기존 모델 사용.
+- **전환 결과**: 모의투자 체결 기록·감사 로그가 재시작 후에도 유실되지 않음.
+
+### 18.4 AI 정책
+
+- Engine4·Engine5의 영속화 로직은 **순수 Rule 기반**. AI 개입 없음.
+- Prisma 어댑터는 DB 입출력만 담당하며 도메인 계산은 서비스 계층에 위임.
+
+---
+
 **작성일**: 2026-03-07
 **최종 수정일**: 2026-06-05
-**버전**: 2.1 (M11-A DAR-18: Risk 엔진 — OrderRequest·OrderExecution·TradingAuditLog·KillSwitchState 추가)
+**버전**: 2.2 (DAR-35/36: Engine4·5 헥사고날 Prisma 어댑터 영속화 계층 추가)

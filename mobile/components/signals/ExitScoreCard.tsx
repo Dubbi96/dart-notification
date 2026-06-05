@@ -35,6 +35,20 @@ function reasonColor(kind: ExitReason['kind'], colors: ThemeColors): string {
   }
 }
 
+// 색맹·스크린리더 대응(§8-2/§8-4): 매도 근거 종류를 색 대신 텍스트로도 읽게 한다
+function reasonKindLabel(kind: ExitReason['kind']): string {
+  switch (kind) {
+    case 'loss':
+      return '손실';
+    case 'thesis':
+      return '논거 훼손';
+    case 'chart':
+      return '차트';
+    case 'time':
+      return '시간';
+  }
+}
+
 export function ExitScoreCard({ signal, onPress }: ExitScoreCardProps) {
   const { colors, typography: typo } = useTheme();
   const handlePress = useCallback(() => onPress?.(signal), [onPress, signal]);
@@ -44,11 +58,20 @@ export function ExitScoreCard({ signal, onPress }: ExitScoreCardProps) {
       activeOpacity={0.8}
       onPress={handlePress}
       accessibilityRole="button"
+      // 카드 그룹핑(§8-1/§8-4): 카드를 단일 단위로 읽기
       accessibilityLabel={`${signal.corpName} 매도 신호, Exit Score ${signal.exitScore}, ${exitActionLabel(
         signal.action,
       )}`}
+      accessibilityActions={[{ name: 'activate', label: '신호 상세 보기' }]}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === 'activate') handlePress();
+      }}
     >
-      <Surface elevation={2} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <Surface
+        elevation={2}
+        importantForAccessibility="no-hide-descendants"
+        style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
+      >
         <View style={styles.headerRow}>
           <Text style={[typo.bodyMedium, { color: colors.text, flex: 1 }]} numberOfLines={1}>
             {signal.corpName}
@@ -64,13 +87,22 @@ export function ExitScoreCard({ signal, onPress }: ExitScoreCardProps) {
         </View>
 
         <View style={styles.gaugeWrap}>
-          <ScoreGauge score={signal.exitScore} kind="exit" statusText={exitActionLabel(signal.action)} />
+          <ScoreGauge
+            score={signal.exitScore}
+            kind="exit"
+            statusText={exitActionLabel(signal.action)}
+            accessibilityHidden
+          />
         </View>
 
         {signal.reasons.length > 0 ? (
           <View style={styles.reasonList}>
             {signal.reasons.slice(0, 3).map((r) => (
-              <View key={r.id} style={styles.reasonRow}>
+              <View
+                key={r.id}
+                style={styles.reasonRow}
+                accessibilityLabel={`매도 근거 ${reasonKindLabel(r.kind)}: ${r.label}`}
+              >
                 <Feather name="alert-circle" size={13} color={reasonColor(r.kind, colors)} />
                 <Text style={[typo.small, { color: colors.textSecondary, flex: 1 }]}>{r.label}</Text>
               </View>

@@ -65,7 +65,8 @@ function MenuItem({ icon, title, subtitle, onPress, badgeCount, showChevron = tr
 export default function SettingsScreen() {
   const { colors, typography: typo } = useTheme();
   const { user, isAuthenticated } = useAuthStore();
-  const { colorSchemeOverride, setColorScheme } = useSettingsStore();
+  const { colorSchemeOverride, setColorScheme, textScaleOverride, setTextScaleOverride } =
+    useSettingsStore();
   const { mutate: logout } = useLogout();
   const { refetch: refetchMe } = useMe();
   const insets = useSafeAreaInsets();
@@ -85,6 +86,19 @@ export default function SettingsScreen() {
     const order: (ColorScheme | 'system')[] = ['system', 'light', 'dark'];
     const idx = order.indexOf(colorSchemeOverride);
     setColorScheme(order[(idx + 1) % order.length]);
+  };
+
+  // 글자 크기(§9) — 시스템 따름 → 크게(1.25x) → 아주 크게(1.5x) 순환. 1.5x 클램프는 테마에서 보장.
+  const textScaleLabel =
+    textScaleOverride === null
+      ? '시스템 따름'
+      : textScaleOverride === 1.25
+        ? '크게 (1.25x)'
+        : '아주 크게 (1.5x)';
+  const cycleTextScale = () => {
+    const order: (typeof textScaleOverride)[] = [null, 1.25, 1.5];
+    const idx = order.indexOf(textScaleOverride);
+    setTextScaleOverride(order[(idx + 1) % order.length]);
   };
 
   const handleLogout = () => {
@@ -198,6 +212,14 @@ export default function SettingsScreen() {
                 title="화면 설정"
                 subtitle={`현재: ${themeLabel} 모드`}
                 onPress={cycleTheme}
+                showChevron={false}
+              />
+              <Divider style={{ backgroundColor: colors.borderLight }} />
+              <MenuItem
+                icon="text-outline"
+                title="글자 크기"
+                subtitle={`현재: ${textScaleLabel}`}
+                onPress={cycleTextScale}
                 showChevron={false}
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />

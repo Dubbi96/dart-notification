@@ -15,10 +15,16 @@ const DISCLAIMER_TEXT =
 
 interface DisclaimerSectionProps {
   style?: ViewStyle;
+  /**
+   * 화면별 동적 위험 맥락 고지(§6). 기존 면책 본문 위에 '상태 고지'로 추가만 한다 —
+   * 법적 본문은 절대 변경/약화하지 않는다. 상위 화면에서 사실 고지 문구를 주입.
+   */
+  contextNotes?: string[];
 }
 
-export function DisclaimerSection({ style }: DisclaimerSectionProps) {
+export function DisclaimerSection({ style, contextNotes }: DisclaimerSectionProps) {
   const { colors, typography: typo } = useTheme();
+  const notes = contextNotes?.filter((n) => n && n.trim().length > 0) ?? [];
 
   return (
     <Surface
@@ -28,6 +34,24 @@ export function DisclaimerSection({ style }: DisclaimerSectionProps) {
     >
       <Feather name="alert-triangle" size={16} color={colors.textSecondary} />
       <View style={styles.textWrap}>
+        {/* 동적 위험 맥락 고지 — 면책 본문 위에 추가만(약화 금지) */}
+        {notes.length > 0 ? (
+          <View style={styles.contextNotes}>
+            {notes.map((note, idx) => (
+              <View
+                key={`${idx}-${note}`}
+                style={styles.contextRow}
+                accessibilityLabel={note}
+              >
+                <Feather name="alert-triangle" size={13} color={colors.warning} />
+                <Text style={[typo.captionMedium, styles.contextText, { color: colors.textSecondary }]}>
+                  {note}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>⚠ 투자자문 아님</Text>
         <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
           {DISCLAIMER_TEXT}
@@ -46,6 +70,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   textWrap: {
+    flex: 1,
+  },
+  contextNotes: {
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  contextRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+  },
+  contextText: {
     flex: 1,
   },
 });

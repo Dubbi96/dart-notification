@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { MoonStars, Sun, CloudSun, Moon } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
+import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { GlassCard } from '@components/common/GlassCard';
@@ -20,6 +21,7 @@ import { EmptyState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { AppRefreshControl } from '@components/common/AppRefreshControl';
+import { SearchOverlay } from '@components/common/SearchOverlay';
 import { useDisclosures } from '@hooks/useDisclosures';
 import { useWatchlist } from '@hooks/useWatchlist';
 import { useSavedDisclosures } from '@hooks/useSavedDisclosures';
@@ -50,6 +52,13 @@ export default function HomeScreen() {
   const hasWatchlist = isAuthenticated && watchlistCount > 0;
   const [feedTab, setFeedTab] = useState<'all' | 'watchlist'>(hasWatchlist ? 'watchlist' : 'all');
   const isWatchlistFeed = feedTab === 'watchlist';
+
+  // 홈 헤더 검색 직결(§10) — 1탭 진입. 비로그인은 기존 인증 게이트 유지.
+  const [searchVisible, setSearchVisible] = useState(false);
+  const handleSearchOpen = () => {
+    if (!requireAuth()) return;
+    setSearchVisible(true);
+  };
 
   const {
     data,
@@ -148,25 +157,43 @@ export default function HomeScreen() {
               ); })()}
             </View>
           </View>
-          <TouchableOpacity
-            style={styles.headerIcon}
-            onPress={() => {
-              if (requireAuth()) router.push('/(tabs)/notifications');
-            }}
-          >
-            <GlassCard intensity={20} variant="iridescent" style={styles.headerIconGlass}>
-              <View style={styles.headerIconInner}>
-                <Ionicons name="notifications-outline" size={22} color="#FFFFFF" />
-              </View>
-            </GlassCard>
-            {unreadCount > 0 && (
-              <View style={styles.notifBadge}>
-                <Text style={styles.notifBadgeText}>
-                  {unreadCount > 99 ? '99+' : unreadCount}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            {/* 검색 1탭 진입(§10) */}
+            <TouchableOpacity
+              style={styles.headerIcon}
+              onPress={handleSearchOpen}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="기업 검색"
+            >
+              <GlassCard intensity={20} variant="iridescent" style={styles.headerIconGlass}>
+                <View style={styles.headerIconInner}>
+                  <Ionicons name="search" size={22} color={palette.white} />
+                </View>
+              </GlassCard>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerIcon}
+              onPress={() => {
+                if (requireAuth()) router.push('/(tabs)/notifications');
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="알림"
+            >
+              <GlassCard intensity={20} variant="iridescent" style={styles.headerIconGlass}>
+                <View style={styles.headerIconInner}>
+                  <Ionicons name="notifications-outline" size={22} color={palette.white} />
+                </View>
+              </GlassCard>
+              {unreadCount > 0 && (
+                <View style={styles.notifBadge}>
+                  <Text style={styles.notifBadgeText}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Summary card - Glassmorphism + Holographic iridescent */}
@@ -259,7 +286,7 @@ export default function HomeScreen() {
         {isAuthenticated && watchlistCount === 0 && (
           <TouchableOpacity
             style={[styles.guideBanner, { backgroundColor: colors.primaryLight }]}
-            onPress={() => router.push('/settings-detail/watchlist')}
+            onPress={handleSearchOpen}
             activeOpacity={0.7}
           >
             <Ionicons name="star-outline" size={16} color={colors.primary} />
@@ -290,9 +317,18 @@ export default function HomeScreen() {
               <ActivityIndicator style={{ paddingVertical: spacing.lg }} color={colors.primary} />
             ) : null
           }
-          ListEmptyComponent={<EmptyState {...emptyStateCopy.homeDisclosureEmpty} />}
+          ListEmptyComponent={
+            <EmptyState
+              {...emptyStateCopy.homeDisclosureEmpty}
+              actionLabel="기업 검색"
+              onAction={handleSearchOpen}
+            />
+          }
         />
       </View>
+
+      {/* 검색 오버레이(§10) — 1탭 진입 */}
+      <SearchOverlay visible={searchVisible} onClose={() => setSearchVisible(false)} />
     </View>
   );
 }
@@ -310,6 +346,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   headerIcon: {
     width: 44,

@@ -19,6 +19,7 @@ import { Card } from '@components/common/Card';
 import { Button } from '@components/common/Button';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
+import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { useDisclosureDetail, useDisclosureEvent } from '@hooks/useDisclosures';
@@ -179,6 +180,17 @@ export default function DisclosureDetailScreen() {
               </View>
               <AiReferenceLabel />
             </View>
+
+            {/* 출처·시점 바(§7) — AI 분석이 언제 생성됐는지 상시 노출 */}
+            {disclosureEvent.extractedAt ? (
+              <ProvenanceBar
+                items={
+                  [
+                    { icon: 'clock', label: `분석 ${relativeTime(disclosureEvent.extractedAt)}` },
+                  ] as ProvenanceItem[]
+                }
+              />
+            ) : null}
 
             {/* 이벤트 분류 */}
             <View style={[styles.aiRow, { marginTop: spacing.sm }]}>

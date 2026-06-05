@@ -14,6 +14,7 @@ import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
+import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { ScoreBreakdownSection } from '@components/signals/ScoreBreakdownSection';
 import { LoadingState, ErrorState } from '@components/common/StateView';
@@ -24,6 +25,7 @@ import {
   buyScoreColor,
   scoreOneLiner,
 } from '@utils/signalDisplay';
+import { RISK_CONTEXT_NOTE } from '@utils/copy';
 
 import type { EntryCondition, RiskFlag } from '@app-types/signal.types';
 
@@ -123,6 +125,23 @@ export default function SignalDetailScreen() {
   const isExpired =
     signal.expiresAt ? new Date(signal.expiresAt) < new Date() : false;
   const scoreColor = buyScoreColor(signal.buyScore, colors);
+
+  // 위험 맥락 고지(§6) — riskFlags의 매핑 키 + 만료 임박을 면책 contextNotes로 승격(약화 아님, 추가만)
+  const expiresSoon =
+    signal.expiresAt && !isExpired
+      ? new Date(signal.expiresAt).getTime() - new Date().getTime() < 1000 * 60 * 60 * 24
+      : false;
+  const contextNotes = [
+    ...signal.riskFlags
+      .map((f) => (f.key ? RISK_CONTEXT_NOTE[f.key] : undefined))
+      .filter((n): n is string => Boolean(n)),
+    ...(expiresSoon ? [RISK_CONTEXT_NOTE.EXPIRY_SOON] : []),
+  ];
+
+  // 출처·시점 바(§7) — 신호 생성 시점을 상시 노출. 백엔드 미존재 필드는 조건부 생략
+  const provenanceItems: ProvenanceItem[] = signal.createdAt
+    ? [{ icon: 'clock', label: `분석 ${relativeTime(signal.createdAt)}` }]
+    : [];
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
@@ -232,6 +251,9 @@ export default function SignalDetailScreen() {
               </Text>
               <AiReferenceLabel />
             </View>
+            {provenanceItems.length > 0 ? (
+              <ProvenanceBar items={provenanceItems} style={{ marginTop: spacing.sm }} />
+            ) : null}
             <Text style={[typo.body, { color: colors.text, marginTop: spacing.sm }]}>
               {signal.summary}
             </Text>
@@ -270,8 +292,8 @@ export default function SignalDetailScreen() {
         ) : null}
       </ScrollView>
 
-      {/* DisclaimerSection — 화면 최하단 고정(§10-2: 스크롤 콘텐츠 아래 항상 표시) */}
-      <DisclaimerSection style={styles.disclaimer} />
+      {/* DisclaimerSection — 화면 최하단 고정(§10-2). contextNotes는 면책 위에 추가만(§6) */}
+      <DisclaimerSection style={styles.disclaimer} contextNotes={contextNotes} />
     </SafeAreaView>
   );
 }

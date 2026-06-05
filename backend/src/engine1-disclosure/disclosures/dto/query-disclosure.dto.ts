@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsInt, IsBoolean, IsArray, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsInt, IsBoolean, IsArray, IsIn, Matches, Min, Max } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
 
@@ -28,6 +28,16 @@ export class QueryDisclosureDto {
   @IsString()
   disclosureType?: string;
 
+  @ApiProperty({ required: false, description: '기간 시작(YYYYMMDD)' })
+  @IsOptional()
+  @Matches(/^\d{8}$/, { message: 'from은 YYYYMMDD 8자리여야 합니다' })
+  from?: string;
+
+  @ApiProperty({ required: false, description: '기간 종료(YYYYMMDD)' })
+  @IsOptional()
+  @Matches(/^\d{8}$/, { message: 'to는 YYYYMMDD 8자리여야 합니다' })
+  to?: string;
+
   @ApiProperty({ required: false, description: '관심목록 기업만 필터' })
   @IsOptional()
   @Transform(({ value }) => value === 'true' || value === true)
@@ -51,6 +61,25 @@ export class SearchDisclosureDto {
   @IsOptional()
   @IsString()
   disclosureType?: string;
+
+  @ApiProperty({ required: false, description: '기간 시작(YYYYMMDD)' })
+  @IsOptional()
+  @Matches(/^\d{8}$/, { message: 'from은 YYYYMMDD 8자리여야 합니다' })
+  from?: string;
+
+  @ApiProperty({ required: false, description: '기간 종료(YYYYMMDD)' })
+  @IsOptional()
+  @Matches(/^\d{8}$/, { message: 'to는 YYYYMMDD 8자리여야 합니다' })
+  to?: string;
+
+  @ApiProperty({
+    required: false,
+    default: 'latest',
+    description: '정렬: latest(최신순) | relevance(관련도순)',
+  })
+  @IsOptional()
+  @IsIn(['latest', 'relevance'])
+  sort?: 'latest' | 'relevance' = 'latest';
 
   @ApiProperty({ required: false, default: 1 })
   @IsOptional()

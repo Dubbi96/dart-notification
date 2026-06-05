@@ -13,7 +13,6 @@ import { Surface, Chip } from 'react-native-paper';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { parse, format } from 'date-fns';
-
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
@@ -25,13 +24,14 @@ import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy
 import { useDisclosureDetail, useDisclosureEvent } from '@hooks/useDisclosures';
 import { useCheckSaved, useSaveDisclosure, useUnsaveDisclosure } from '@hooks/useSavedDisclosures';
 import { useRequireAuth } from '@hooks/useRequireAuth';
-import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
+import {
+  getTypeStyle,
+  getTypeLabel,
+  getEventTypeLabel,
+  getPolarityLabel,
+} from '@utils/disclosureType';
 
-const POLARITY_LABEL: Record<string, string> = {
-  POSITIVE: '긍정적',
-  NEGATIVE: '부정적',
-  NEUTRAL: '중립',
-};
+// 극성/이벤트 평문 매핑은 utils/disclosureType.ts(단일 출처)로 통합 — raw enum 단독 노출 금지(P0-B).
 
 function polarityColor(polarity: string, colors: { success: string; error: string; textSecondary: string }): string {
   if (polarity === 'POSITIVE') return colors.success;
@@ -189,7 +189,7 @@ export default function DisclosureDetailScreen() {
                 style={[styles.aiChip, { backgroundColor: colors.surfaceSecondary }]}
                 textStyle={[typo.small, { color: colors.text }]}
               >
-                {disclosureEvent.eventType}
+                {getEventTypeLabel(disclosureEvent.eventType)}
               </Chip>
             </View>
 
@@ -203,7 +203,7 @@ export default function DisclosureDetailScreen() {
                   color={polarityColor(disclosureEvent.polarity, colors)}
                 />
                 <Text style={[typo.captionMedium, { color: polarityColor(disclosureEvent.polarity, colors), marginLeft: spacing.xs }]}>
-                  {POLARITY_LABEL[disclosureEvent.polarity] ?? disclosureEvent.polarity}
+                  {getPolarityLabel(disclosureEvent.polarity)}
                 </Text>
               </View>
             </View>

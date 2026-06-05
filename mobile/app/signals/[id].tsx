@@ -10,18 +10,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Chip, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ScoreGauge } from '@components/common/ScoreGauge';
+import { ScoreBreakdownSection } from '@components/signals/ScoreBreakdownSection';
 import { LoadingState, ErrorState } from '@components/common/StateView';
 import { useSignalDetail } from '@hooks/useSignals';
 import {
   gradeColor,
   gradeLabel,
   buyScoreColor,
+  scoreOneLiner,
 } from '@utils/signalDisplay';
 
 import type { EntryCondition, RiskFlag } from '@app-types/signal.types';
@@ -177,8 +178,26 @@ export default function SignalDetailScreen() {
               </Text>
             ) : null}
           </View>
-          <ScoreGauge score={signal.buyScore} kind="buy" statusText={gradeLabel(signal.grade)} />
+          <ScoreGauge
+            score={signal.buyScore}
+            kind="buy"
+            statusText={gradeLabel(signal.grade)}
+            oneLiner={scoreOneLiner(signal.buyScore, signal.grade)}
+          />
         </View>
+
+        {/* Score 근거 분해(P0-C) — HeaderSection 직후. scoreBreakdown 미연동 시 graceful null */}
+        {signal.scoreBreakdown && signal.scoreBreakdown.length > 0 ? (
+          <ScoreBreakdownSection
+            totalScore={signal.buyScore}
+            items={signal.scoreBreakdown.map((c) => ({
+              id: c.key,
+              label: c.label,
+              score: c.score,
+              maxContribution: c.max,
+            }))}
+          />
+        ) : null}
 
         {/* 진입 조건 */}
         {signal.entryConditions.length > 0 ? (

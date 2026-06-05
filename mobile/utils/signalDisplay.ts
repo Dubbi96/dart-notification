@@ -5,7 +5,46 @@
 import type { SignalGrade, ExitAction } from '@app-types/signal.types';
 import type { ThesisStatus } from '@app-types/portfolio.types';
 
+import { SCORE_ONE_LINER, EXIT_SCORE_ONE_LINER } from './copy';
+
 import type { ThemeColors } from '@theme';
+
+/**
+ * Buy Score 1줄 평문 (기획 §3-3). grade 우선, 없으면 점수 구간 폴백.
+ * 반환 문구는 utils/copy.ts 기준이며 항상 '(참고)' 꼬리표를 포함한다.
+ */
+export function scoreOneLiner(score: number, grade?: SignalGrade): string {
+  switch (grade) {
+    case 'STRONG_BUY':
+      return SCORE_ONE_LINER.STRONG_BUY;
+    case 'BUY':
+      return SCORE_ONE_LINER.BUY;
+    case 'WATCH':
+      return SCORE_ONE_LINER.WATCH;
+    case 'BLOCKED':
+      return SCORE_ONE_LINER.BLOCKED;
+    default:
+      if (score >= 80) return SCORE_ONE_LINER.SCORE_80_PLUS;
+      if (score >= 60) return SCORE_ONE_LINER.SCORE_60_79;
+      if (score >= 30) return SCORE_ONE_LINER.SCORE_30_59;
+      return SCORE_ONE_LINER.SCORE_0_29;
+  }
+}
+
+/** Exit Score 1줄 평문 (기획 §3-3). 항상 '(참고)' 꼬리표 포함. */
+export function exitScoreOneLiner(action: ExitAction): string {
+  switch (action) {
+    case 'EXIT':
+    case 'BLOCK_REBUY':
+      return EXIT_SCORE_ONE_LINER.EXIT;
+    case 'REDUCE':
+      return EXIT_SCORE_ONE_LINER.REDUCE;
+    case 'WATCH':
+      return EXIT_SCORE_ONE_LINER.WATCH;
+    case 'HOLD':
+      return EXIT_SCORE_ONE_LINER.HOLD;
+  }
+}
 
 /** Buy Score 구간별 색상: 0~29 error / 30~59 warning / 60~79 primary / 80↑ success */
 export function buyScoreColor(score: number, colors: ThemeColors): string {

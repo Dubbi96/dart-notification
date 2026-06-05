@@ -1,0 +1,187 @@
+// 인메모리 시뮬레이션 포트 어댑터 (테스트용, M10 DAR-40)
+// 결정론적 단위 테스트에서 buy→snapshot→exit→metrics 한 사이클을 DB 없이 재현.
+
+import { simulateFill, DEFAULT_FILL_PARAMS } from '../../domain/fill-simulator';
+import {
+  BuyCandidate,
+  ClosePositionInput,
+  DailySnapshotInput,
+  OpenPositionInput,
+  OpenPositionView,
+  RiskSnapshotInput,
+} from '../domain/simulation.types';
+import {
+  ExitAccuracySample,
+  HitRateSample,
+} from '../domain/graduation-metrics.calculator';
+import { CumulativeState, ISimulationPort } from '../ports/simulation.port';
+
+interface MemPosition extends OpenPositionView {
+  status: 'OPEN' | 'CLOSED';
+}
+
+export interface InMemorySeed {
+  portfolioId?: string;
+  initialCapital: number;
+  /** tradeDate → 후보 목록 */
+  candidatesByDate?: Record<string, BuyCandidate[]>;
+  /** stockCode → 평가 종가 (getLatestClose 응답) */
+  closeByStock?: Record<string, number>;
+  aiCostKrw?: number;
+}
+
+let SEQ = 0;
+
+export class InMemorySimulationAdapter implements ISimulationPort {
+  readonly portfolioId: string;
+  private readonly initialCapital: number;
+  private cash: number;
+  private realizedPnl = 0;
+  private positions: MemPosition[] = [];
+  private candidatesByDate: Record<string, BuyCandidate[]>;
+  private closeByStock: Record<string, number>;
+  private aiCostKrw: number;
+
+  // 기록(검증용)
+  readonly dailySnapshots: DailySnapshotInput[] = [];
+  readonly riskSnapshots: RiskSnapshotInput[] = [];
+  readonly closes: ClosePositionInput[] = [];
+  private hitSamples: HitRateSample[] = [];
+  private exitSamples: ExitAccuracySample[] = [];
+
+  constructor(seed: InMemorySeed) {
+    this.portfolioId = seed.portfolioId ?? 'sim-portfolio';
+    this.initialCapital = seed.initialCapital;
+    this.cash = seed.initialCapital;
+    this.candidatesByDate = seed.candidatesByDate ?? {};
+    this.closeByStock = seed.closeByStock ?? {};
+    this.aiCostKrw = seed.aiCostKrw ?? 0;
+  }
+
+  /** 종목 평가가 설정(테스트에서 가격 변동 주입) */
+  setClose(stockCode: string, price: number): void {
+    this.closeByStock[stockCode] = price;
+  }
+
+  setHitRateSamples(samples: HitRateSample[]): void {
+    this.hitSamples = samples;
+  }
+
+  setExitAccuracySamples(samples: ExitAccuracySample[]): void {
+    this.exitSamples = samples;
+  }
+
+  async resolveSimPortfolioId(): Promise<string> {
+    return this.portfolioId;
+  }
+
+  async getBuyCandidates(tradeDate: string): Promise<BuyCandidate[]> {
+    return this.candidatesByDate[tradeDate] ?? [];
+  }
+
+  async getOpenPositions(_portfolioId: string): Promise<OpenPositionView[]> {
+    return this.positions
+      .filter((p) => p.status === 'OPEN')
+      .map(({ status: _status, ...view }) => ({ ...view }));
+  }
+
+  async getLatestClose(
+    stockCode: string,
+    _tradeDate: string,
+  ): Promise<number | null> {
+    return this.closeByStock[stockCode] ?? null;
+  }
+
+  async openPosition(
+    _portfolioId: string,
+    input: OpenPositionInput,
+  ): Promise<void> {
+    const fill = simulateFill(
+      {
+        direction: 'BUY',
+        orderedShares: input.shares,
+        entryPrice: input.candidate.entryPrice,
+      },
+      DEFAULT_FILL_PARAMS,
+    );
+    if (fill.filledShares <= 0) return;
+    const cost =
+      fill.filledPrice * fill.filledShares + fill.commission + fill.tax;
+    this.cash -= cost;
+    this.positions.push({
+      positionId: `pos-${++SEQ}`,
+      corpCode: input.candidate.corpCode,
+      stockCode: input.candidate.stockCode,
+      entryPrice: fill.filledPrice,
+      quantity: fill.filledShares,
+      entryDate: input.entryDate,
+      stopLossPct: input.stopLossPct,
+      takeProfitPct: input.takeProfitPct,
+      maxHoldDays: input.maxHoldDays,
+      highestPrice: fill.filledPrice,
+      status: 'OPEN',
+    });
+  }
+
+  async closePosition(input: ClosePositionInput): Promise<void> {
+    const pos = this.positions.find(
+      (p) => p.positionId === input.position.positionId && p.status === 'OPEN',
+    );
+    if (!pos) return;
+    const fill = simulateFill(
+      {
+        direction: 'SELL',
+        orderedShares: pos.quantity,
+        entryPrice: input.exitPrice,
+      },
+      DEFAULT_FILL_PARAMS,
+    );
+    const proceeds =
+      fill.filledPrice * fill.filledShares - fill.commission - fill.tax;
+    const entryCost = pos.entryPrice * fill.filledShares;
+    this.realizedPnl += proceeds - entryCost;
+    this.cash += proceeds;
+    pos.status = 'CLOSED';
+    this.closes.push(input);
+  }
+
+  async saveDailySnapshot(input: DailySnapshotInput): Promise<void> {
+    this.dailySnapshots.push(input);
+  }
+
+  async saveRiskSnapshot(input: RiskSnapshotInput): Promise<void> {
+    this.riskSnapshots.push(input);
+  }
+
+  async getCumulativeState(_portfolioId: string): Promise<CumulativeState> {
+    let holdingsValue = 0;
+    for (const p of this.positions.filter((x) => x.status === 'OPEN')) {
+      const price = this.closeByStock[p.stockCode] ?? p.entryPrice;
+      holdingsValue += price * p.quantity;
+    }
+    return {
+      initialCapital: this.initialCapital,
+      currentValue: this.cash + holdingsValue,
+      cash: this.cash,
+      netPnlKrw: this.realizedPnl,
+    };
+  }
+
+  async getHitRateSamples(
+    _portfolioId: string,
+    _horizonDays: number,
+  ): Promise<HitRateSample[]> {
+    return this.hitSamples;
+  }
+
+  async getExitAccuracySamples(
+    _portfolioId: string,
+    _horizonDays: number,
+  ): Promise<ExitAccuracySample[]> {
+    return this.exitSamples;
+  }
+
+  async getAiCostKrw(_usdKrwRate: number): Promise<number> {
+    return this.aiCostKrw;
+  }
+}

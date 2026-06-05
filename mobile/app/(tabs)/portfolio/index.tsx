@@ -6,7 +6,7 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { PositionCard } from '@components/portfolio/PositionCard';
-import { EmptyState, ErrorState } from '@components/common/StateView';
+import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { AppRefreshControl } from '@components/common/AppRefreshControl';
@@ -51,7 +51,7 @@ export default function PortfolioScreen() {
   const renderLive = () => {
     if (positionsQuery.isLoading) return <SkeletonList variant="buyScore" />;
     if (positionsQuery.isError) {
-      return <ErrorState title="포지션을 불러오지 못했습니다." onRetry={positionsQuery.refetch} />;
+      return <ApiErrorState error={positionsQuery.error} title="포지션을 불러오지 못했습니다." onRetry={positionsQuery.refetch} />;
     }
 
     const summary = summaryQuery.data;
@@ -99,7 +99,7 @@ export default function PortfolioScreen() {
   const renderPaper = () => {
     if (paperQuery.isLoading) return <SkeletonList variant="buyScore" />;
     if (paperQuery.isError) {
-      return <ErrorState title="모의투자 정보를 불러오지 못했습니다." onRetry={paperQuery.refetch} />;
+      return <ApiErrorState error={paperQuery.error} title="모의투자 정보를 불러오지 못했습니다." onRetry={paperQuery.refetch} />;
     }
 
     const paper = paperQuery.data;

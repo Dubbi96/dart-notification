@@ -16,6 +16,7 @@ import { useTheme } from '@theme';
 import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
 import { GlassCard } from '@components/common/GlassCard';
+import { DevConnectionStatus } from '@components/common/DevConnectionStatus';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { useAuthStore } from '@stores/authStore';
 import { useSettingsStore } from '@stores/settingsStore';
@@ -261,6 +262,16 @@ export default function SettingsScreen() {
               )}
             </View>
           </View>
+
+          {/* 개발용 연결 진단(DAR-43 §4) — 프로덕션 빌드에는 노출되지 않음 */}
+          {__DEV__ && (
+            <View style={styles.section}>
+              <Text style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}>
+                개발자
+              </Text>
+              <DevConnectionStatus />
+            </View>
+          )}
 
           <View style={{ height: spacing['2xl'] }} />
         </ScrollView>

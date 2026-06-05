@@ -6,7 +6,6 @@ import {
   FlatList,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -28,6 +27,7 @@ import {
   type PeriodKey,
   type SortKey,
 } from '@utils/searchFilters';
+import type { Disclosure } from '@app-types/disclosure.types';
 import { useDisclosureTypes } from '@hooks/useDisclosureTypes';
 import { useRequireAuth } from '@hooks/useRequireAuth';
 import { useAuthStore } from '@stores/authStore';
@@ -92,7 +92,7 @@ export default function DisclosuresScreen() {
     setActiveFilter(filter);
   };
 
-  const renderItem = ({ item }: { item: any }) => {
+  const renderItem = ({ item }: { item: Disclosure }) => {
     const typeStyle = getTypeStyle(item.disclosureType, isDark);
     return (
       <TouchableOpacity
@@ -435,6 +435,28 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     flexGrow: 1,
     gap: spacing.sm,
+  },
+  subFilterRow: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+    flexGrow: 1,
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  subFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    height: 30,
+    gap: spacing.xs,
+  },
+  subFilterDivider: {
+    width: 1,
+    height: 18,
+    marginHorizontal: spacing.xs,
   },
   filterChip: {
     flexDirection: 'row',

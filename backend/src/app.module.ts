@@ -23,6 +23,7 @@ import { AiAnalystModule } from './engine2-ai-analyst/ai-analyst.module';
 import { QuantMarketModule } from './engine3-quant-market/quant-market.module';
 import { PortfolioExitModule } from './engine4-portfolio-exit/portfolio-exit.module';
 import { TradingRiskModule } from './engine5-trading-risk/trading-risk.module';
+import { PaperSimulationModule } from './engine5-trading-risk/paper-simulation/paper-simulation.module';
 
 @Module({
   imports: [
@@ -85,6 +86,9 @@ import { TradingRiskModule } from './engine5-trading-risk/trading-risk.module';
 
     // Engine 5 — Trading Risk / Paper Trade (M10)
     TradingRiskModule,
+
+    // Engine 5 — 일일 모의운용 오케스트레이터 (M10 모의운용, DAR-40)
+    PaperSimulationModule,
 
   ],
   providers: [

@@ -1087,5 +1087,186 @@ const addToWatchlist = useMutation({
 
 ---
 
+---
+
+## 13. 화면별 UX 체크리스트
+
+> FE 착수 전 각 화면 구현 시 확인하는 체크리스트. 각 항목은 수용 기준(Acceptance Criteria)으로 검증 가능한 형태.
+
+### 공통 (모든 화면)
+
+- [ ] 빈 상태: `EmptyState` 컴포넌트 적용, 한국어 카피 §2-2 기준 사용
+- [ ] 로딩 상태: 스켈레톤(리스트·카드) 또는 스피너(단일 데이터) §2-1 기준 적용
+- [ ] 에러 상태: 에러 메시지 + [재시도] 버튼 (네트워크·서버 오류)
+- [ ] 터치 영역: 모든 탭 가능 요소 ≥ 44pt × 44pt
+- [ ] `accessibilityLabel`, `accessibilityRole` 투자 판단 요소에 적용
+- [ ] 색상 단독 의미 전달 금지 (텍스트 또는 아이콘 병행)
+- [ ] 하드코딩 색상(`#XXXXXX`) 없음 — 테마 토큰만 사용
+
+---
+
+### 홈 피드 `/(tabs)/home`
+
+- [ ] 관심기업 0개: EmptyState + [관심 기업 추가] CTA 표시
+- [ ] 관심기업 있고 공시 없음: "오늘 공시가 아직 없어요." 메시지
+- [ ] `SectionList` 기반 섹션 구분 (오늘의 공시 / AI 분석 / 매수 후보)
+- [ ] 첫 로드: 스켈레톤 카드 3개
+- [ ] Pull-to-refresh (`RefreshControl`, tintColor=primary)
+- [ ] 오프라인 배너: `feather:wifi-off` + "오프라인 — 마지막 업데이트 시각"
+- [ ] DisclosureCard 탭 → `/disclosure/{id}` 이동
+- [ ] BuyScoreCard 탭 → `/signals/{id}` 이동 (M6~)
+- [ ] [관심 기업 추가] → SearchOverlay 오픈
+
+---
+
+### 공시 피드 `/(tabs)/notifications`
+
+- [ ] 날짜별 섹션 그룹핑 (`SectionList` + sticky header)
+- [ ] 오늘/어제/날짜 표시 규칙 적용
+- [ ] 무한스크롤 (`onEndReachedThreshold=0.3`)
+- [ ] 스켈레톤 카드 (첫 로드)
+- [ ] Pull-to-refresh
+- [ ] 공시 카드 탭 → `/disclosure/{id}`
+- [ ] 기업명 탭 → `/company/{corpCode}`
+
+---
+
+### 공시 상세 `/disclosure/[id]`
+
+- [ ] AI 분석 섹션: 기본 펼침 상태
+- [ ] AI 분석 요약 텍스트: 최대 2~3줄 + `[더보기]` Accordion
+- [ ] `PersonaInterpretationRow`: Persona 선택 시 해당 탭 활성화
+- [ ] AI 분석 로딩: 스켈레톤 3행
+- [ ] AI 분석 없음: "이 공시는 AI 분석 대상이 아닙니다." (재시도 없음)
+- [ ] AI 분석 실패: "분석을 불러오지 못했습니다." + [재시도]
+- [ ] `DisclaimerSection` (compact): AI 분석 섹션 하단 인라인
+- [ ] `AIChip` "AI 분석 참고용": 섹션 헤더 우측 표시
+- [ ] 공시 저장 버튼: 낙관적 업데이트 + 성공/실패 Snackbar
+
+---
+
+### 관심목록 `/settings-detail/watchlist`
+
+- [ ] FAB `+` 버튼 → `SearchOverlay` 오픈
+- [ ] 빈 목록: "아직 관심 기업이 없어요." + [기업 검색] CTA
+- [ ] 아이템 좌측 스와이프 → [🗑️ 제거] 버튼
+- [ ] 제거: 낙관적 삭제 + "...관심목록에서 제거했어요. [실행 취소]" Snackbar 8초
+- [ ] [실행 취소] 탭: 즉시 목록 복원 + 반대 API 호출
+- [ ] 목록 Pull-to-refresh
+
+---
+
+### 검색 오버레이 (SearchOverlay)
+
+- [ ] 마운트 즉시 `SearchBar` 포커스
+- [ ] 2글자 미만: 최근검색 + 인기종목 표시
+- [ ] 2글자 이상: API 호출 (debounce 300ms)
+- [ ] 로딩 중: `ActivityIndicator` 결과 영역
+- [ ] 결과 아이템: 종목명·종목코드·시장·[+추가/✓추가됨]
+- [ ] [+추가] 탭: 낙관적 업데이트 (즉시 `[✓]` 전환) + 성공 Snackbar
+- [ ] 이미 추가된 종목: `[✓ 추가됨]` 비활성 버튼
+- [ ] 빈 결과: "검색 결과가 없습니다." + 힌트 텍스트
+- [ ] [취소] 탭: 키보드 + 오버레이 동시 닫기
+- [ ] 최근검색 개별 `[×]` 삭제 가능
+- [ ] 인기종목 Chip: 탭 → 해당 종목명으로 검색 자동 실행
+
+---
+
+### 신호 피드 `/(tabs)/signals`
+
+- [ ] 매수/매도 서브탭 (`SegmentedButtons`)
+- [ ] FilterBar: Persona · 등급 · 진입준비 토글
+- [ ] 관심기업 0개: EmptyState + [관심 기업 추가] CTA
+- [ ] 필터 결과 없음: "선택한 조건에 맞는 신호가 없어요." + [필터 초기화]
+- [ ] 스켈레톤 BuyScoreCard 3개 (첫 로드)
+- [ ] 무한스크롤
+- [ ] Pull-to-refresh
+- [ ] 필터 상태 Zustand 보존 (탭 전환 후 복원)
+- [ ] BuyScoreCard: `accessibilityLabel="{종목명} 매수 신호, Buy Score {점수}"`
+- [ ] BLOCKED 카드: `surfaceSecondary` 배경 + 차단 사유 표시
+
+---
+
+### 매수 후보 상세 `/signals/[id]`
+
+- [ ] Buy Score 옆 `[?]` 아이콘 → 툴팁(Bottom Sheet) 표시
+- [ ] 진입 조건: 필수/선택 구분 + 충족(●)/미충족(○) 아이콘
+- [ ] `AIChip` "AI 분석 참고용": AI 근거 텍스트 옆 표시
+- [ ] `DisclaimerSection` (full): 화면 하단 고정
+- [ ] 신호 만료: 콘텐츠 흐림 + "유효 기간이 지난 신호입니다." Banner
+- [ ] 스켈레톤 (전체 화면 첫 로드)
+- [ ] 에러: "신호를 불러오지 못했습니다." + [재시도]
+
+---
+
+### 포트폴리오 `/(tabs)/portfolio`
+
+- [ ] 실전/모의 서브탭 (M10~)
+- [ ] VIOLATED/EXPIRED 포지션 상단 고정
+- [ ] 스켈레톤 PositionCard 3개
+- [ ] 빈 포지션: "보유 종목이 없어요." + [신호 탭으로] CTA
+- [ ] MDD 초과: `red100` 배너 표시 (초과 시만)
+- [ ] Pull-to-refresh
+- [ ] PositionCard 탭 → `/portfolio/{portfolioId}/position/{positionId}`
+- [ ] ThesisStatus 배지: `accessibilityLabel="Thesis 상태: {상태}"`
+
+---
+
+### Thesis 상세 `.../thesis`
+
+- [ ] 위반 조건: `red` + `feather:x-circle`, 미위반: `textTertiary` + `feather:circle`
+- [ ] 위반 항목 위반 날짜 표시: "(YYYY.MM.DD 위반)"
+- [ ] 4개 초과 조건: `[N개 더 보기]` Accordion
+- [ ] 청산 룰 수치: `editable={false}` + 탭 시 Toast "시스템 관리 안전 한도 — 변경 불가"
+- [ ] `DisclaimerSection` (full): 화면 하단 고정
+- [ ] ThesisStatus 배지 `accessibilityLabel` 적용
+
+---
+
+### 주문 승인 대기 `/orders/pending` (M11)
+
+- [ ] `[승인 →]` 탭 → `Alert.alert()` 확인 모달 필수 (단일 탭 즉시 실행 금지)
+- [ ] 확인 모달: "{종목명} {수량}주 {유형} 실행합니다. 투자 결과의 책임은 본인에게 있습니다." + [취소][실행]
+- [ ] [실행] → 버튼 로딩 상태 + Risk 최종 체크
+- [ ] 카운트다운: 3분~1분 `warning`, 1분 미만 `error` 색상 + 배너
+- [ ] 카운트다운 만료: 카드 비활성화 + "이 주문안이 만료됐습니다." + [닫기]
+- [ ] RISK_BLOCKED: 카드 회색 + 차단 사유 표시 + 승인 버튼 제거
+- [ ] `AIChip` "AI 분석 참고용": AI 근거 섹션 옆
+- [ ] `DisclaimerSection` (full): 화면 하단 고정
+- [ ] 승인 대기 없음: "대기 중인 주문안이 없어요." EmptyState
+
+---
+
+### 설정 / 알림 설정
+
+- [ ] 마스터 스위치 OFF → 하위 토글 비활성화 (dimmed)
+- [ ] 토글 변경 즉시 서버 저장 (낙관적 업데이트)
+- [ ] 저장 실패: Toast + 토글 롤백
+- [ ] 알림 권한 없음: "알림 권한이 꺼져 있습니다. [설정으로 이동]" 배너
+- [ ] 뒤로가기(미저장 변경 있음): Alert "변경사항을 저장하지 않겠습니까?"
+
+---
+
+### 기업 상세 차트·지표 탭 `/company/[corpCode]` (M4)
+
+- [ ] `PeriodSelector` [1W][1M][3M][1Y]: 탭 즉시 차트 로딩 스켈레톤
+- [ ] `IndicatorToggleRow`: 최대 3개 동시 활성, 초과 탭 시 Toast "최대 3개까지"
+- [ ] 거래정지: `StockStatusBanner` (red) + 차트 회색 처리
+- [ ] 차트 터치 크로스헤어 (P1): 날짜·가격 오버레이 인포바
+- [ ] 차트 `accessibilityLabel="차트: 핵심 수치는 아래 지표 요약 카드 참고"`
+
+---
+
+### 자동매매 설정 `/settings-detail/auto-trading` (M12)
+
+- [ ] 진입 게이트: 백테스트·모의투자 조건 미충족 시 [설정 진행] 비활성
+- [ ] 마스터 스위치 OFF → 하위 토글 전체 비활성
+- [ ] 하드 리스크 룰: 편집 불가 (`textTertiary`) + 탭 시 Toast
+- [ ] KillSwitchButton: 빨간 배경 + 모달 확인 2단계
+- [ ] Kill Switch 작동 후: `red100` 오버레이 배너 + 재개 링크
+- [ ] `DisclaimerSection` (banner): 화면 하단
+
+---
+
 *작성: PLANNER (DAR-26) · 2026-06-05 · feat/DAR-26 브랜치*
 *다음 단계: 이 문서와 screen-plan.md를 함께 참고해 FE 구현(DAR-21)에서 UX를 구체화한다.*

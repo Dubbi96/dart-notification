@@ -6,6 +6,7 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
 import { EmptyState } from '@components/common/StateView';
+import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 
 export default function OrderPendingScreen() {
@@ -34,8 +35,7 @@ export default function OrderPendingScreen() {
         contentContainerStyle={styles.scrollContent}
       >
         <EmptyState
-          icon="inbox"
-          title="대기 중인 주문이 없습니다."
+          {...emptyStateCopy.ordersPendingEmpty}
           description="Risk 체크를 통과한 주문 안건이 생기면 여기서 확인하고 직접 승인하세요."
         />
       </ScrollView>

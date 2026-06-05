@@ -6,17 +6,20 @@ import {
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
-  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { FileText, MoonStars, Sun, CloudSun, Moon } from 'phosphor-react-native';
+import { MoonStars, Sun, CloudSun, Moon } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { GlassCard } from '@components/common/GlassCard';
+import { EmptyState } from '@components/common/StateView';
+import { emptyStateCopy } from '@components/common/emptyStateCopy';
+import { SkeletonList } from '@components/common/SkeletonCard';
+import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { useDisclosures } from '@hooks/useDisclosures';
 import { useWatchlist } from '@hooks/useWatchlist';
 import { useSavedDisclosures } from '@hooks/useSavedDisclosures';
@@ -54,6 +57,7 @@ export default function HomeScreen() {
     hasNextPage,
     isFetchingNextPage,
     isLoading,
+    isRefetching,
     refetch,
   } = useDisclosures(undefined, isWatchlistFeed);
 
@@ -112,10 +116,11 @@ export default function HomeScreen() {
   );
 
   if (isLoading) {
+    // 공시 피드 스켈레톤(§2-1)
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={[styles.loadingContainer, { paddingTop: insets.top }]}>
-          <ActivityIndicator size="large" color={colors.primary} />
+        <View style={{ paddingTop: insets.top }}>
+          <SkeletonList variant="disclosure" />
         </View>
       </View>
     );
@@ -259,7 +264,7 @@ export default function HomeScreen() {
           >
             <Ionicons name="star-outline" size={16} color={colors.primary} />
             <Text style={[typo.caption, { color: colors.primary, flex: 1, marginLeft: spacing.sm }]}>
-              관심 기업을 등록하면 맞춤 공시를 볼 수 있어요
+              {emptyStateCopy.homeWatchlistEmpty.title}
             </Text>
             <Ionicons name="chevron-forward" size={14} color={colors.primary} />
           </TouchableOpacity>
@@ -278,25 +283,14 @@ export default function HomeScreen() {
           }}
           onEndReachedThreshold={0.5}
           refreshControl={
-            <RefreshControl
-              refreshing={false}
-              onRefresh={refetch}
-              tintColor={colors.primary}
-            />
+            <AppRefreshControl refreshing={isRefetching && !isFetchingNextPage} onRefresh={refetch} />
           }
           ListFooterComponent={
             isFetchingNextPage ? (
               <ActivityIndicator style={{ paddingVertical: spacing.lg }} color={colors.primary} />
             ) : null
           }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <FileText size={48} color={colors.textTertiary} weight="thin" />
-              <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.md }]}>
-                공시 데이터가 없습니다
-              </Text>
-            </View>
-          }
+          ListEmptyComponent={<EmptyState {...emptyStateCopy.homeDisclosureEmpty} />}
         />
       </View>
     </View>
@@ -306,15 +300,6 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    paddingTop: 60,
   },
   header: {
     paddingHorizontal: spacing.lg,

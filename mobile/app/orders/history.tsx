@@ -6,6 +6,7 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { EmptyState } from '@components/common/StateView';
+import { emptyStateCopy } from '@components/common/emptyStateCopy';
 
 export default function OrderHistoryScreen() {
   const { colors, typography: typo } = useTheme();
@@ -33,8 +34,7 @@ export default function OrderHistoryScreen() {
         contentContainerStyle={styles.scrollContent}
       >
         <EmptyState
-          icon="clock"
-          title="아직 처리된 주문이 없습니다."
+          {...emptyStateCopy.ordersHistoryEmpty}
           description="주문이 승인되거나 거절되면 여기에 이력이 쌓입니다."
         />
       </ScrollView>

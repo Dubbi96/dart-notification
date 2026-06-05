@@ -8,7 +8,14 @@ export const disclosureService = {
       .get<ApiResponse<DisclosureType[]>>('/disclosures/types')
       .then((r) => r.data.data),
 
-  getList: (page = 1, limit = 20, disclosureType?: string, watchlistOnly?: boolean, keywords?: string[]) =>
+  getList: (
+    page = 1,
+    limit = 20,
+    disclosureType?: string,
+    watchlistOnly?: boolean,
+    keywords?: string[],
+    from?: string,
+  ) =>
     api
       .get<ApiResponse<Disclosure[]>>('/disclosures', {
         params: {
@@ -17,6 +24,7 @@ export const disclosureService = {
           ...(disclosureType && { disclosureType }),
           ...(watchlistOnly && { watchlistOnly: true }),
           ...(keywords && keywords.length > 0 && { keywords: keywords.join(',') }),
+          ...(from && { from }),
         },
       })
       .then((r) => ({ data: r.data.data, meta: r.data.meta as PaginationMeta })),
@@ -24,10 +32,22 @@ export const disclosureService = {
   getDetail: (rcpNo: string) =>
     api.get<ApiResponse<Disclosure>>(`/disclosures/${rcpNo}`).then((r) => r.data.data),
 
-  search: (q: string, page = 1, disclosureType?: string) =>
+  search: (
+    q: string,
+    page = 1,
+    disclosureType?: string,
+    sort?: 'latest' | 'relevance',
+    from?: string,
+  ) =>
     api
       .get<ApiResponse<Disclosure[]>>('/disclosures/search', {
-        params: { q, page, ...(disclosureType && { disclosureType }) },
+        params: {
+          q,
+          page,
+          ...(disclosureType && { disclosureType }),
+          ...(sort && { sort }),
+          ...(from && { from }),
+        },
       })
       .then((r) => ({ data: r.data.data, meta: r.data.meta as PaginationMeta })),
 

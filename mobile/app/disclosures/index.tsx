@@ -15,11 +15,19 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
-import { EmptyState } from '@components/common/StateView';
+import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { AppRefreshControl } from '@components/common/AppRefreshControl';
+import { InfiniteListFooter } from '@components/common/InfiniteListFooter';
 import { useDisclosures, useDisclosureSearch } from '@hooks/useDisclosures';
+import {
+  PERIOD_OPTIONS,
+  SORT_OPTIONS,
+  periodToFrom,
+  type PeriodKey,
+  type SortKey,
+} from '@utils/searchFilters';
 import { useDisclosureTypes } from '@hooks/useDisclosureTypes';
 import { useRequireAuth } from '@hooks/useRequireAuth';
 import { useAuthStore } from '@stores/authStore';
@@ -34,6 +42,8 @@ export default function DisclosuresScreen() {
   const filters = useMemo(() => ['전체', ...disclosureTypes.map((t) => t.id)], [disclosureTypes]);
   const [activeFilter, setActiveFilter] = useState<string>('전체');
   const [watchlistOnly, setWatchlistOnly] = useState(params.watchlistOnly === 'true');
+  const [period, setPeriod] = useState<PeriodKey>('all');
+  const [sort, setSort] = useState<SortKey>('latest');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [timer, setTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
@@ -41,15 +51,18 @@ export default function DisclosuresScreen() {
 
   const disclosureType = activeFilter === '전체' ? undefined : activeFilter;
   const isSearching = debouncedQuery.length > 0;
-  const isFilterActive = activeFilter !== '전체' || watchlistOnly;
+  const from = useMemo(() => periodToFrom(period), [period]);
+  const isFilterActive = activeFilter !== '전체' || watchlistOnly || period !== 'all';
 
   const resetFilters = useCallback(() => {
     setActiveFilter('전체');
     setWatchlistOnly(false);
+    setPeriod('all');
+    setSort('latest');
   }, []);
 
-  const listQuery = useDisclosures(disclosureType, watchlistOnly);
-  const searchQueryResult = useDisclosureSearch(debouncedQuery, disclosureType);
+  const listQuery = useDisclosures(disclosureType, watchlistOnly, undefined, from);
+  const searchQueryResult = useDisclosureSearch(debouncedQuery, disclosureType, sort, from);
 
   const activeQuery = isSearching ? searchQueryResult : listQuery;
 
@@ -221,6 +234,89 @@ export default function DisclosuresScreen() {
           </ScrollView>
         </View>
 
+      {/* 기간 / 정렬 필터 (DAR-45 §2) */}
+      <View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.subFilterRow}
+        >
+          {PERIOD_OPTIONS.map((opt) => {
+            const isActive = period === opt.key;
+            return (
+              <TouchableOpacity
+                key={opt.key}
+                style={[
+                  styles.subFilterChip,
+                  isActive
+                    ? { backgroundColor: colors.primaryLight, borderColor: colors.primary, borderWidth: 1 }
+                    : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
+                ]}
+                onPress={() => setPeriod(opt.key)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={`${opt.label} 기간 필터`}
+              >
+                <Text
+                  style={[
+                    typo.small,
+                    {
+                      color: isActive ? colors.primaryDark : colors.textSecondary,
+                      fontWeight: isActive ? '600' : '400',
+                    },
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+          {/* 정렬: 검색 중일 때만 의미 있음(관련도순) */}
+          {isSearching && (
+            <>
+              <View style={[styles.subFilterDivider, { backgroundColor: colors.border }]} />
+              {SORT_OPTIONS.map((opt) => {
+                const isActive = sort === opt.key;
+                return (
+                  <TouchableOpacity
+                    key={opt.key}
+                    style={[
+                      styles.subFilterChip,
+                      isActive
+                        ? { backgroundColor: colors.primaryLight, borderColor: colors.primary, borderWidth: 1 }
+                        : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
+                    ]}
+                    onPress={() => setSort(opt.key)}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isActive }}
+                    accessibilityLabel={`${opt.label} 정렬`}
+                  >
+                    <Ionicons
+                      name={opt.key === 'relevance' ? 'sparkles-outline' : 'time-outline'}
+                      size={12}
+                      color={isActive ? colors.primaryDark : colors.textTertiary}
+                    />
+                    <Text
+                      style={[
+                        typo.small,
+                        {
+                          color: isActive ? colors.primaryDark : colors.textSecondary,
+                          fontWeight: isActive ? '600' : '400',
+                        },
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </>
+          )}
+        </ScrollView>
+      </View>
+
       {/* Login Banner */}
       {!isAuthenticated && (
         <TouchableOpacity
@@ -258,12 +354,16 @@ export default function DisclosuresScreen() {
           keyExtractor={(item) => item.rcpNo}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={11}
+          removeClippedSubviews
           onEndReached={() => {
             if (activeQuery.hasNextPage && !activeQuery.isFetchingNextPage) {
               activeQuery.fetchNextPage();
             }
           }}
-          onEndReachedThreshold={0.5}
+          onEndReachedThreshold={0.4}
           refreshControl={
             <AppRefreshControl
               refreshing={activeQuery.isRefetching && !activeQuery.isFetchingNextPage}
@@ -271,12 +371,21 @@ export default function DisclosuresScreen() {
             />
           }
           ListFooterComponent={
-            activeQuery.isFetchingNextPage ? (
-              <ActivityIndicator style={{ paddingVertical: spacing.lg }} color={colors.primary} />
-            ) : null
+            <InfiniteListFooter
+              isFetchingNextPage={activeQuery.isFetchingNextPage}
+              hasNextPage={!!activeQuery.hasNextPage}
+              itemCount={items.length}
+            />
           }
           ListEmptyComponent={
-            isSearching ? (
+            activeQuery.isError ? (
+              // 연결 실패 시 빈 화면 대신 사유+재시도(DAR-43 §1).
+              <ApiErrorState
+                error={activeQuery.error}
+                onRetry={activeQuery.refetch}
+                title="공시를 불러오지 못했습니다"
+              />
+            ) : isSearching ? (
               // 공시 검색 빈 결과(§1-2)
               <EmptyState icon="search" title={`'${debouncedQuery}' 검색 결과가 없어요`} />
             ) : isFilterActive ? (

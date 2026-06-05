@@ -1,0 +1,125 @@
+import { DisclosuresService } from './disclosures.service';
+import { PrismaService } from '../../prisma/prisma.service';
+
+type FindManyArgs = { where?: any; take?: number; skip?: number; include?: any };
+
+function makeRow(over: Partial<Record<string, unknown>> = {}) {
+  return {
+    rcpNo: '1',
+    corpCode: 'c1',
+    corpName: '삼성전자',
+    reportName: '단일판매·공급계약 체결',
+    rcpDt: '20240101',
+    flrName: '삼성전자',
+    rmk: '',
+    disclosureType: 'MATERIAL',
+    createdAt: new Date('2024-01-01'),
+    ...over,
+  };
+}
+
+describe('DisclosuresService.search (DAR-45)', () => {
+  let service: DisclosuresService;
+  let findMany: jest.Mock;
+  let count: jest.Mock;
+
+  beforeEach(() => {
+    findMany = jest.fn();
+    count = jest.fn();
+    const prisma = { disclosure: { findMany, count } } as unknown as PrismaService;
+    service = new DisclosuresService(prisma);
+  });
+
+  it('공백 검색어를 토큰으로 분해해 토큰 간 AND로 매칭한다 ("삼성 유상증자")', async () => {
+    findMany.mockResolvedValue([]);
+    count.mockResolvedValue(0);
+
+    await service.search({ q: '삼성 유상증자' });
+
+    const args: FindManyArgs = findMany.mock.calls[0][0];
+    expect(args.where.AND).toHaveLength(2);
+    // 각 토큰은 4개 필드에 대한 OR
+    expect(args.where.AND[0].OR).toHaveLength(4);
+    const fields = args.where.AND[0].OR.map((c: Record<string, unknown>) => Object.keys(c)[0]);
+    expect(fields).toEqual(['reportName', 'corpName', 'flrName', 'company']);
+    // 토큰 값이 각 필드 contains에 적용된다
+    expect(args.where.AND[0].OR[0].reportName.contains).toBe('삼성');
+    expect(args.where.AND[1].OR[0].reportName.contains).toBe('유상증자');
+  });
+
+  it('종목코드 필드는 Company 관계를 통해 매칭한다', async () => {
+    findMany.mockResolvedValue([]);
+    count.mockResolvedValue(0);
+
+    await service.search({ q: '005930' });
+
+    const args: FindManyArgs = findMany.mock.calls[0][0];
+    expect(args.where.AND[0].OR[3].company.stockCode.contains).toBe('005930');
+  });
+
+  it('기간(from/to)·공시유형 필터를 where에 반영한다', async () => {
+    findMany.mockResolvedValue([]);
+    count.mockResolvedValue(0);
+
+    await service.search({ q: '삼성', from: '20240101', to: '20241231', disclosureType: 'MATERIAL' });
+
+    const args: FindManyArgs = findMany.mock.calls[0][0];
+    expect(args.where.disclosureType).toBe('MATERIAL');
+    expect(args.where.rcpDt).toEqual({ gte: '20240101', lte: '20241231999999' });
+  });
+
+  it('기본 정렬은 latest — skip/take 페이지네이션을 사용한다', async () => {
+    findMany.mockResolvedValue([makeRow()]);
+    count.mockResolvedValue(1);
+
+    const res = await service.search({ q: '삼성', page: 2, limit: 10 });
+
+    const args: FindManyArgs = findMany.mock.calls[0][0];
+    expect(args.skip).toBe(10);
+    expect(args.take).toBe(10);
+    expect(res.meta.sort).toBe('latest');
+  });
+
+  it('sort=relevance면 관련도순으로 재정렬한다 (기업명 정확 일치 우선)', async () => {
+    // DB는 최신순으로 돌려주지만(관련 없는 게 먼저), 점수순 재정렬 후 정확일치가 1위여야 한다.
+    findMany.mockResolvedValue([
+      makeRow({ rcpNo: 'A', corpName: '대신증권', reportName: '삼성 관련 단순언급', rcpDt: '20240301', company: { stockCode: '111111' } }),
+      makeRow({ rcpNo: 'B', corpName: '삼성전자', reportName: '분기보고서', rcpDt: '20240101', company: { stockCode: '005930' } }),
+    ]);
+    count.mockResolvedValue(2);
+
+    const res = await service.search({ q: '삼성전자', sort: 'relevance' });
+
+    expect(res.meta.sort).toBe('relevance');
+    expect((res.items[0] as { rcpNo: string }).rcpNo).toBe('B'); // 정확 일치가 1위
+    // include로 끌어온 company는 응답에서 제거된다
+    expect((res.items[0] as Record<string, unknown>).company).toBeUndefined();
+    // relevance 모드는 include + take(스캔)로 조회
+    const args: FindManyArgs = findMany.mock.calls[0][0];
+    expect(args.include).toEqual({ company: { select: { stockCode: true } } });
+  });
+
+  it('빈 검색어는 토큰 없는 where로 처리한다 (AND 없음)', async () => {
+    findMany.mockResolvedValue([]);
+    count.mockResolvedValue(0);
+
+    await service.search({ q: '   ' });
+
+    const args: FindManyArgs = findMany.mock.calls[0][0];
+    expect(args.where.AND).toBeUndefined();
+  });
+});
+
+describe('DisclosuresService.findAll (DAR-45 기간 필터)', () => {
+  it('from/to를 rcpDt 범위로 반영한다', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const count = jest.fn().mockResolvedValue(0);
+    const prisma = { disclosure: { findMany, count }, watchList: { findMany: jest.fn() } } as unknown as PrismaService;
+    const service = new DisclosuresService(prisma);
+
+    await service.findAll({ from: '20240101', to: '20240131' });
+
+    const args: FindManyArgs = findMany.mock.calls[0][0];
+    expect(args.where.rcpDt).toEqual({ gte: '20240101', lte: '20240131999999' });
+  });
+});

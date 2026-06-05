@@ -6,16 +6,17 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { PositionCard } from '@components/portfolio/PositionCard';
-import { EmptyState, ErrorState } from '@components/common/StateView';
+import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { AppRefreshControl } from '@components/common/AppRefreshControl';
+import { SimulationStatusSection } from '@components/portfolio/SimulationStatusSection';
 import { usePositions, usePortfolioSummary, usePaperPortfolio } from '@hooks/usePortfolio';
 import { pnlColor, formatPnlPercent } from '@utils/signalDisplay';
 
 import type { Position } from '@app-types/portfolio.types';
 
-type SubTab = 'live' | 'paper';
+type SubTab = 'live' | 'paper' | 'sim';
 
 // VIOLATED/EXPIRED 포지션을 리스트 최상단으로 고정하는 정렬 우선순위.
 const STATUS_ORDER: Record<Position['thesisStatus'], number> = {
@@ -50,7 +51,7 @@ export default function PortfolioScreen() {
   const renderLive = () => {
     if (positionsQuery.isLoading) return <SkeletonList variant="buyScore" />;
     if (positionsQuery.isError) {
-      return <ErrorState title="포지션을 불러오지 못했습니다." onRetry={positionsQuery.refetch} />;
+      return <ApiErrorState error={positionsQuery.error} title="포지션을 불러오지 못했습니다." onRetry={positionsQuery.refetch} />;
     }
 
     const summary = summaryQuery.data;
@@ -98,7 +99,7 @@ export default function PortfolioScreen() {
   const renderPaper = () => {
     if (paperQuery.isLoading) return <SkeletonList variant="buyScore" />;
     if (paperQuery.isError) {
-      return <ErrorState title="모의투자 정보를 불러오지 못했습니다." onRetry={paperQuery.refetch} />;
+      return <ApiErrorState error={paperQuery.error} title="모의투자 정보를 불러오지 못했습니다." onRetry={paperQuery.refetch} />;
     }
 
     const paper = paperQuery.data;
@@ -162,11 +163,14 @@ export default function PortfolioScreen() {
           buttons={[
             { value: 'live', label: '실전', icon: 'wallet' },
             { value: 'paper', label: '모의', icon: 'flask' },
+            { value: 'sim', label: '모의운용', icon: 'chart-line' },
           ]}
         />
       </View>
 
-      <View style={styles.body}>{subTab === 'live' ? renderLive() : renderPaper()}</View>
+      <View style={styles.body}>
+        {subTab === 'live' ? renderLive() : subTab === 'paper' ? renderPaper() : <SimulationStatusSection />}
+      </View>
     </SafeAreaView>
   );
 }

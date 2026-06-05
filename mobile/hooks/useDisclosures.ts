@@ -1,10 +1,16 @@
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { disclosureService } from '@services/disclosure.service';
 
-export function useDisclosures(disclosureType?: string, watchlistOnly?: boolean, keywords?: string[]) {
+export function useDisclosures(
+  disclosureType?: string,
+  watchlistOnly?: boolean,
+  keywords?: string[],
+  from?: string,
+) {
   return useInfiniteQuery({
-    queryKey: ['disclosures', disclosureType, watchlistOnly, keywords],
-    queryFn: ({ pageParam = 1 }) => disclosureService.getList(pageParam, 20, disclosureType, watchlistOnly, keywords),
+    queryKey: ['disclosures', disclosureType, watchlistOnly, keywords, from],
+    queryFn: ({ pageParam = 1 }) =>
+      disclosureService.getList(pageParam, 20, disclosureType, watchlistOnly, keywords, from),
     getNextPageParam: (lastPage) => {
       if (lastPage.meta.page < (lastPage.meta.totalPages ?? 1)) return lastPage.meta.page + 1;
       return undefined;
@@ -13,10 +19,16 @@ export function useDisclosures(disclosureType?: string, watchlistOnly?: boolean,
   });
 }
 
-export function useDisclosureSearch(query: string, disclosureType?: string) {
+export function useDisclosureSearch(
+  query: string,
+  disclosureType?: string,
+  sort?: 'latest' | 'relevance',
+  from?: string,
+) {
   return useInfiniteQuery({
-    queryKey: ['disclosures', 'search', query, disclosureType],
-    queryFn: ({ pageParam = 1 }) => disclosureService.search(query, pageParam, disclosureType),
+    queryKey: ['disclosures', 'search', query, disclosureType, sort, from],
+    queryFn: ({ pageParam = 1 }) =>
+      disclosureService.search(query, pageParam, disclosureType, sort, from),
     getNextPageParam: (lastPage) => {
       if (lastPage.meta.page < (lastPage.meta.totalPages ?? 1)) return lastPage.meta.page + 1;
       return undefined;

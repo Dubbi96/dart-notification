@@ -8,7 +8,7 @@ import { spacing } from '@theme/spacing';
 import { BuyScoreCard } from '@components/signals/BuyScoreCard';
 import { ExitScoreCard } from '@components/signals/ExitScoreCard';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
-import { EmptyState, ErrorState } from '@components/common/StateView';
+import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { AppRefreshControl } from '@components/common/AppRefreshControl';
@@ -55,7 +55,8 @@ export default function SignalsScreen() {
     }
     if (activeQuery.isError) {
       return (
-        <ErrorState
+        <ApiErrorState
+          error={activeQuery.error}
           title="신호를 불러오지 못했습니다."
           description="잠시 후 다시 시도해 주세요."
           onRetry={activeQuery.refetch}

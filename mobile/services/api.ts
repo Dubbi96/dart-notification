@@ -3,7 +3,11 @@ import { Platform } from 'react-native';
 import { useAuthStore } from '@stores/authStore';
 
 const DEV_HOST = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || `http://${DEV_HOST}:3000/api`;
+// 앱↔백엔드 연결의 단일 진실원천. 진단 UI(연결 실패 안내·dev 인디케이터)도 이 값을 표기한다.
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || `http://${DEV_HOST}:3000/api`;
+
+// 연결 실패 판별 순수 함수는 RN 비의존 모듈로 분리(결정론적 단위 검증용) — 여기서 재노출한다.
+export { isConnectionError } from './connectionError';
 
 export const api = axios.create({
   baseURL: API_BASE_URL,

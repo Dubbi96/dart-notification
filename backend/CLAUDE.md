@@ -47,3 +47,8 @@
 3. 스키마 변경 시 마이그레이션 커밋(`prisma/CLAUDE.md`) + 자연키 FK 정합
 4. AI 금지영역 미침범(Engine5 독립성) · `AIUsageLog` 기록 누락 0(AI 사용 시)
 5. 변경 영역 문서 동기화(`docs/database-schema.md`·`docs/api-specification.md` 등)
+
+## 6. 테스트 분리 — 단위 vs 통합
+
+- **단위**: `npm test`(`jest.config.js`, `*.spec.ts`, DB 불필요) — 항상 그린 유지.
+- **통합**: `npm run test:integration`(`jest.integration.config.js`, `*.integration-spec.ts`) — **실 Postgres 필요**(`DATABASE_URL`, dev DB 가동 전제). DB 의존이라 단위 파이프라인과 분리. 각 테스트는 인터랙티브 트랜잭션 내부에서 수행 후 **롤백**(`test/integration/with-rollback.ts`)하여 dev DB 잔여 row 0·데모 데이터 무변경을 보장한다.

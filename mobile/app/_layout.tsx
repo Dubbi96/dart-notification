@@ -3,7 +3,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PaperProvider } from 'react-native-paper';
-import { ThemeContext, getTheme, useAppColorScheme, getPaperTheme } from '@theme';
+import { ThemeContext, getTheme, useAppColorScheme, useTextScale, getPaperTheme } from '@theme';
 import { SnackbarProvider } from '@components/common/SnackbarProvider';
 import { DialogProvider } from '@components/common/DialogProvider';
 import { useNotificationSetup } from '@hooks/useNotificationSetup';
@@ -19,7 +19,8 @@ const queryClient = new QueryClient({
 
 function AppContent() {
   const colorScheme = useAppColorScheme();
-  const theme = getTheme(colorScheme);
+  const textScale = useTextScale();
+  const theme = getTheme(colorScheme, textScale);
   const paperTheme = getPaperTheme(colorScheme);
 
   useNotificationSetup();

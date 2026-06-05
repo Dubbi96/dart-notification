@@ -46,6 +46,21 @@ export function exitScoreOneLiner(action: ExitAction): string {
   }
 }
 
+// ScoreGauge 등급 밴드 컷(§5). 게이지에 등급 경계 틱을 그릴 위치.
+export const BUY_SCORE_CUTS = [30, 60, 80] as const; // 등급 경계
+export const EXIT_SCORE_CUTS = [30, 70] as const; // Exit 등급 경계
+
+/**
+ * 다음 등급 컷까지 남은 점수(§5). 최상위 구간이면 null.
+ * 예: buy score 78 → '+2'(다음 컷 80)
+ */
+export function nextCutGap(score: number, kind: 'buy' | 'exit'): string | null {
+  const cuts = kind === 'buy' ? BUY_SCORE_CUTS : EXIT_SCORE_CUTS;
+  const next = cuts.find((c) => c > score);
+  if (next === undefined) return null;
+  return `+${next - score}`;
+}
+
 /** Buy Score 구간별 색상: 0~29 error / 30~59 warning / 60~79 primary / 80↑ success */
 export function buyScoreColor(score: number, colors: ThemeColors): string {
   if (score >= 80) return colors.success;

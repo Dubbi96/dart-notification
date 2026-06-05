@@ -15,9 +15,14 @@ const secureStorage: StateStorage = {
   },
 };
 
+/** 글자 크기 배율(§9): 1.0 보통 / 1.25 크게 / 1.5 아주 크게 / null=시스템 따름 */
+export type TextScaleOverride = 1.0 | 1.25 | 1.5 | null;
+
 interface SettingsState {
   colorSchemeOverride: ColorScheme | 'system';
   setColorScheme: (scheme: ColorScheme | 'system') => void;
+  textScaleOverride: TextScaleOverride;
+  setTextScaleOverride: (scale: TextScaleOverride) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -25,6 +30,8 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       colorSchemeOverride: 'system',
       setColorScheme: (scheme) => set({ colorSchemeOverride: scheme }),
+      textScaleOverride: null,
+      setTextScaleOverride: (scale) => set({ textScaleOverride: scale }),
     }),
     {
       name: 'settings-storage',

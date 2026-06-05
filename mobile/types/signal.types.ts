@@ -19,6 +19,8 @@ export interface RiskFlag {
   id: string;
   label: string;
   severity: 'high' | 'medium' | 'low';
+  /** 위험 맥락 고지 매핑 키(§6, copy.ts RISK_CONTEXT_NOTE). 백엔드 제공 시 면책 contextNotes로 승격 */
+  key?: string;
 }
 
 /** Buy Score 구성 항목(상세 화면용, Phase B) */

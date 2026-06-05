@@ -27,9 +27,23 @@ function EntryConditionRow({ condition }: { condition: EntryCondition }) {
     : condition.required
       ? colors.error
       : colors.textSecondary;
-  const iconName = condition.met ? 'check-circle' : 'circle';
+  // 색맹 대응(§8-2): 필수 미충족은 형태가 다른 alert-circle로 구분(색 단독 의존 제거)
+  const iconName = condition.met
+    ? 'check-circle'
+    : condition.required
+      ? 'alert-circle'
+      : 'circle';
+  // 상태어 합성(§8-2): 스크린리더가 색 대신 '필수 미충족' 등 텍스트로 읽도록
+  const conditionStatus = condition.met
+    ? '충족'
+    : condition.required
+      ? '필수 미충족'
+      : '미충족';
   return (
-    <View style={styles.conditionRow}>
+    <View
+      style={styles.conditionRow}
+      accessibilityLabel={`${condition.required ? '필수 진입 조건' : '선택 진입 조건'} ${condition.label}: ${conditionStatus}`}
+    >
       <Feather name={iconName} size={14} color={metColor} />
       <Text style={[typo.small, { color: colors.textSecondary, flex: 1 }]}>
         {condition.required ? '필수 ' : ''}
@@ -49,12 +63,18 @@ export function BuyScoreCard({ signal, onPress }: BuyScoreCardProps) {
       activeOpacity={0.8}
       onPress={handlePress}
       accessibilityRole="button"
+      // 카드 그룹핑(§8-1): 카드를 단일 단위로 읽고, 내부 요소 중복 읽기를 막는다
       accessibilityLabel={`${signal.corpName} 매수 신호, Buy Score ${signal.buyScore}, ${gradeLabel(
         signal.grade,
       )}`}
+      accessibilityActions={[{ name: 'activate', label: '신호 상세 보기' }]}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === 'activate') handlePress();
+      }}
     >
       <Surface
         elevation={2}
+        importantForAccessibility="no-hide-descendants"
         style={[
           styles.card,
           {
@@ -103,11 +123,17 @@ export function BuyScoreCard({ signal, onPress }: BuyScoreCardProps) {
         ) : (
           <>
             <View style={styles.gaugeWrap}>
-              <ScoreGauge score={signal.buyScore} kind="buy" statusText={gradeLabel(signal.grade)} />
+              <ScoreGauge
+                score={signal.buyScore}
+                kind="buy"
+                statusText={gradeLabel(signal.grade)}
+                accessibilityHidden
+              />
             </View>
 
+            {/* §9-5: Dynamic Type 1.5x에서 2줄 클립 방지 → 3줄로 완화 */}
             {signal.summary ? (
-              <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.sm }]} numberOfLines={2}>
+              <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.sm }]} numberOfLines={3}>
                 {signal.summary}
               </Text>
             ) : null}

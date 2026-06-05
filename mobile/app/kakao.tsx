@@ -23,7 +23,12 @@ export default function KakaoCallback() {
     handled.current = true;
 
     // 딥링크로 앱 복귀 시 뒤에 남아있는 브라우저 탭 정리
-    WebBrowser.dismissBrowser().catch(() => {});
+    // dismissBrowser()는 SDK 버전에 따라 void를 반환할 수 있어 .catch 직접 호출 시 크래시 → try/catch로 방어
+    try {
+      void WebBrowser.dismissBrowser();
+    } catch {
+      // 정리 실패는 무시(앱 복귀 흐름에 영향 없음)
+    }
 
     async function complete() {
       if (error || !state) {

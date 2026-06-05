@@ -7,7 +7,7 @@
  *   - 최종 주문 승인·손절가 결정: 이 서비스 범위 외.
  */
 
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import {
   PositionThesisRecord,
@@ -19,7 +19,10 @@ import {
   canTransition,
 } from '../domain/position-thesis.types';
 import { validateInvalidConditions } from '../domain/invalid-condition.types';
-import { InMemoryPositionThesisRepository } from '../repositories/in-memory-position-thesis.repository';
+import {
+  IPositionThesisRepository,
+  POSITION_THESIS_REPOSITORY,
+} from '../repositories/position-thesis.repository';
 
 // 매수 등급 — Thesis 자동 생성 대상
 const BUY_SIGNAL_GRADES = new Set(['STRONG_BUY_CANDIDATE', 'BUY_CANDIDATE']);
@@ -37,7 +40,8 @@ export interface TradingSignalInput {
 @Injectable()
 export class PositionThesisService {
   constructor(
-    private readonly repository: InMemoryPositionThesisRepository,
+    @Inject(POSITION_THESIS_REPOSITORY)
+    private readonly repository: IPositionThesisRepository,
   ) {}
 
   /**

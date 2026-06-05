@@ -108,6 +108,7 @@ export default function ThesisScreen() {
           </Text>
         </View>
       ) : (
+        <>
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           {/* 상태 배지 + 헤더 */}
           <Surface
@@ -215,9 +216,10 @@ export default function ThesisScreen() {
               </Surface>
             </TouchableOpacity>
           ) : null}
-
-          <DisclaimerSection style={styles.disclaimer} />
         </ScrollView>
+        {/* DisclaimerSection — 화면 최하단 고정(§10-2) */}
+        <DisclaimerSection style={styles.disclaimer} />
+        </>
       )}
     </SafeAreaView>
   );
@@ -272,5 +274,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  disclaimer: { marginTop: spacing.md },
+  disclaimer: { margin: spacing.lg },
 });

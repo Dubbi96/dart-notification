@@ -8,8 +8,12 @@ import { spacing } from '@theme/spacing';
 import { BuyScoreCard } from '@components/signals/BuyScoreCard';
 import { ExitScoreCard } from '@components/signals/ExitScoreCard';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
-import { LoadingState, EmptyState, ErrorState } from '@components/common/StateView';
+import { EmptyState, ErrorState } from '@components/common/StateView';
+import { emptyStateCopy } from '@components/common/emptyStateCopy';
+import { SkeletonList } from '@components/common/SkeletonCard';
+import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { useBuySignals, useExitSignals } from '@hooks/useSignals';
+import { useWatchlist } from '@hooks/useWatchlist';
 
 import type { TradingSignal, ExitSignal } from '@app-types/signal.types';
 
@@ -21,6 +25,8 @@ export default function SignalsScreen() {
 
   const buyQuery = useBuySignals();
   const exitQuery = useExitSignals();
+  const { data: watchlistData } = useWatchlist();
+  const hasWatchlist = (watchlistData?.meta?.total ?? 0) > 0;
 
   const handleBuyPress = useCallback((signal: TradingSignal) => {
     router.push(`/signals/${signal.id}`);
@@ -44,7 +50,8 @@ export default function SignalsScreen() {
 
   const renderBody = () => {
     if (activeQuery.isLoading) {
-      return <LoadingState message="신호를 불러오는 중…" />;
+      // 신호 피드 스켈레톤(§2-1: 구조 예측 가능한 카드 리스트)
+      return <SkeletonList variant="buyScore" />;
     }
     if (activeQuery.isError) {
       return (
@@ -65,14 +72,19 @@ export default function SignalsScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <AppRefreshControl refreshing={buyQuery.isRefetching} onRefresh={buyQuery.refetch} />
+          }
           ListEmptyComponent={
-            <EmptyState
-              icon="zap"
-              title="현재 조건에 맞는 매수 신호가 없습니다."
-              description="관심 종목을 추가하면 매수 신호를 알려드려요."
-              actionLabel="관심 종목 추가"
-              onAction={() => router.push('/settings-detail/watchlist')}
-            />
+            // 관심기업 유무로 §2-2 카피 분기: 없으면 추가 유도, 있으면 신호 없음 안내
+            hasWatchlist ? (
+              <EmptyState {...emptyStateCopy.signalsBuyEmpty} />
+            ) : (
+              <EmptyState
+                {...emptyStateCopy.signalsWatchlistEmpty}
+                onAction={() => router.push('/settings-detail/watchlist')}
+              />
+            )
           }
           ListFooterComponent={data.length > 0 ? <DisclaimerSection style={styles.disclaimer} /> : null}
         />
@@ -87,13 +99,10 @@ export default function SignalsScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          <EmptyState
-            icon="check-circle"
-            title="매도 신호 없음"
-            description="모든 포지션이 정상입니다."
-          />
+        refreshControl={
+          <AppRefreshControl refreshing={exitQuery.isRefetching} onRefresh={exitQuery.refetch} />
         }
+        ListEmptyComponent={<EmptyState {...emptyStateCopy.exitSignalsEmpty} />}
         ListFooterComponent={data.length > 0 ? <DisclaimerSection style={styles.disclaimer} /> : null}
       />
     );

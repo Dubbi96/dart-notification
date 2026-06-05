@@ -20,6 +20,8 @@ import { Card } from '@components/common/Card';
 import { Button } from '@components/common/Button';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
+import { useSnackbar } from '@components/common/SnackbarProvider';
+import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { useDisclosureDetail, useDisclosureEvent } from '@hooks/useDisclosures';
 import { useCheckSaved, useSaveDisclosure, useUnsaveDisclosure } from '@hooks/useSavedDisclosures';
 import { useRequireAuth } from '@hooks/useRequireAuth';
@@ -41,6 +43,7 @@ export default function DisclosureDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors, typography: typo, isDark } = useTheme();
   const { isAuthenticated, requireAuth } = useRequireAuth();
+  const { showSnackbar } = useSnackbar();
   const { data: disclosure, isLoading } = useDisclosureDetail(id!);
   const { data: disclosureEvent } = useDisclosureEvent(id!);
   const { data: isSaved, refetch: refetchSaved } = useCheckSaved(id!, { enabled: isAuthenticated });
@@ -51,12 +54,22 @@ export default function DisclosureDetailScreen() {
     if (!disclosure) return;
     if (!requireAuth()) return;
 
-    if (isSaved) {
-      await removeMutation.mutateAsync(disclosure.rcpNo);
-    } else {
-      await saveMutation.mutateAsync(disclosure.rcpNo);
+    const wasSaved = isSaved;
+    try {
+      if (wasSaved) {
+        await removeMutation.mutateAsync(disclosure.rcpNo);
+        showSnackbar(snackbarCopy.disclosureUnsaved, { duration: SNACKBAR_DURATION.success });
+      } else {
+        await saveMutation.mutateAsync(disclosure.rcpNo);
+        showSnackbar(snackbarCopy.disclosureSaved, {
+          duration: SNACKBAR_DURATION.success,
+          action: { label: '저장된 공시 보기', onPress: () => router.push('/settings-detail/saved-disclosures') },
+        });
+      }
+      refetchSaved();
+    } catch {
+      showSnackbar(snackbarCopy.disclosureSaveFailed, { duration: SNACKBAR_DURATION.error });
     }
-    refetchSaved();
   };
 
   if (isLoading || !disclosure) {

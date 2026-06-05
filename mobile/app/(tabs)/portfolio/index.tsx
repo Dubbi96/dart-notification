@@ -6,7 +6,10 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { PositionCard } from '@components/portfolio/PositionCard';
-import { LoadingState, EmptyState, ErrorState } from '@components/common/StateView';
+import { EmptyState, ErrorState } from '@components/common/StateView';
+import { emptyStateCopy } from '@components/common/emptyStateCopy';
+import { SkeletonList } from '@components/common/SkeletonCard';
+import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { usePositions, usePortfolioSummary, usePaperPortfolio } from '@hooks/usePortfolio';
 import { pnlColor, formatPnlPercent } from '@utils/signalDisplay';
 
@@ -45,7 +48,7 @@ export default function PortfolioScreen() {
   );
 
   const renderLive = () => {
-    if (positionsQuery.isLoading) return <LoadingState message="포지션을 불러오는 중…" />;
+    if (positionsQuery.isLoading) return <SkeletonList variant="buyScore" />;
     if (positionsQuery.isError) {
       return <ErrorState title="포지션을 불러오지 못했습니다." onRetry={positionsQuery.refetch} />;
     }
@@ -59,6 +62,9 @@ export default function PortfolioScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <AppRefreshControl refreshing={positionsQuery.isRefetching} onRefresh={positionsQuery.refetch} />
+        }
         ListHeaderComponent={
           summary ? (
             <Surface elevation={1} style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -81,10 +87,7 @@ export default function PortfolioScreen() {
         }
         ListEmptyComponent={
           <EmptyState
-            icon="briefcase"
-            title="보유 종목이 없습니다."
-            description="매수 후보 탭에서 신호를 확인하세요."
-            actionLabel="신호 보기"
+            {...emptyStateCopy.portfolioEmpty}
             onAction={() => router.push('/(tabs)/signals')}
           />
         }
@@ -93,7 +96,7 @@ export default function PortfolioScreen() {
   };
 
   const renderPaper = () => {
-    if (paperQuery.isLoading) return <LoadingState message="모의투자 정보를 불러오는 중…" />;
+    if (paperQuery.isLoading) return <SkeletonList variant="buyScore" />;
     if (paperQuery.isError) {
       return <ErrorState title="모의투자 정보를 불러오지 못했습니다." onRetry={paperQuery.refetch} />;
     }
@@ -107,6 +110,9 @@ export default function PortfolioScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <AppRefreshControl refreshing={paperQuery.isRefetching} onRefresh={paperQuery.refetch} />
+        }
         ListHeaderComponent={
           <View style={styles.paperHeader}>
             <Banner visible actions={[]} icon="information" style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}>
@@ -136,11 +142,7 @@ export default function PortfolioScreen() {
           paper?.started ? (
             <EmptyState icon="activity" title="아직 실행된 모의투자 신호가 없습니다." />
           ) : (
-            <EmptyState
-              icon="play-circle"
-              title="모의투자를 시작해 보세요."
-              description="모의투자를 시작하면 AI 신호 기반 가상 주문이 자동으로 진행됩니다."
-            />
+            <EmptyState {...emptyStateCopy.paperTradingEmpty} />
           )
         }
       />

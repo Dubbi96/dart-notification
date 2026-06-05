@@ -12,6 +12,7 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { LoadingState, ErrorState, EmptyState } from '@components/common/StateView';
+import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { useAiCostMetrics } from '@hooks/useAiCost';
 
 const USD_TO_KRW = 1300;
@@ -59,11 +60,7 @@ export default function AiCostScreen() {
           onRetry={refetch}
         />
       ) : !data ? (
-        <EmptyState
-          icon="bar-chart-2"
-          title="비용 데이터가 없습니다"
-          description="아직 기록된 AI 비용이 없습니다."
-        />
+        <EmptyState {...emptyStateCopy.aiCostEmpty} />
       ) : (
         <ScrollView
           contentContainerStyle={styles.content}

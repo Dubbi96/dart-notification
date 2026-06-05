@@ -249,10 +249,10 @@ export default function SignalDetailScreen() {
             </Text>
           </View>
         ) : null}
-
-        {/* DisclaimerSection — 화면 최하단 고정 */}
-        <DisclaimerSection style={styles.disclaimer} />
       </ScrollView>
+
+      {/* DisclaimerSection — 화면 최하단 고정(§10-2: 스크롤 콘텐츠 아래 항상 표시) */}
+      <DisclaimerSection style={styles.disclaimer} />
     </SafeAreaView>
   );
 }
@@ -322,7 +322,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     justifyContent: 'flex-end',
   },
-  disclaimer: { marginTop: spacing.md },
+  disclaimer: { margin: spacing.lg },
   emptyState: {
     flex: 1,
     justifyContent: 'center',

@@ -6,15 +6,18 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { BellSlash } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
 import { useAuthStore } from '@stores/authStore';
+import { EmptyState } from '@components/common/StateView';
+import { emptyStateCopy } from '@components/common/emptyStateCopy';
+import { AppRefreshControl } from '@components/common/AppRefreshControl';
+import { useSnackbar } from '@components/common/SnackbarProvider';
+import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { useNotifications, useMarkAsRead, useMarkAllAsRead } from '@hooks/useNotifications';
 import { getTypeLabel } from '@utils/disclosureType';
 import { formatDistanceToNow } from 'date-fns';
@@ -23,12 +26,14 @@ import { ko } from 'date-fns/locale';
 export default function NotificationsScreen() {
   const { colors, typography: typo } = useTheme();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const { showSnackbar } = useSnackbar();
 
   const {
     data,
     fetchNextPage,
     hasNextPage,
     isLoading,
+    isRefetching,
     refetch,
   } = useNotifications({ enabled: isAuthenticated });
   const markAsRead = useMarkAsRead();
@@ -47,21 +52,13 @@ export default function NotificationsScreen() {
         <View style={[styles.header, { borderBottomColor: colors.borderLight }]}>
           <Text style={[typo.h2, { color: colors.text }]}>알림</Text>
         </View>
-        <View style={styles.guestContainer}>
-          <BellSlash size={48} color={colors.textTertiary} weight="thin" />
-          <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.md }]}>
-            로그인하고 알림을 받아보세요
-          </Text>
-          <TouchableOpacity
-            style={[styles.loginButton, { backgroundColor: colors.primary }]}
-            onPress={() => {
-              useAuthStore.getState().clearAuth();
-              router.push('/auth/sign-in');
-            }}
-          >
-            <Text style={[typo.bodyMedium, { color: '#FFFFFF' }]}>로그인</Text>
-          </TouchableOpacity>
-        </View>
+        <EmptyState
+          {...emptyStateCopy.notificationsGuest}
+          onAction={() => {
+            useAuthStore.getState().clearAuth();
+            router.push('/auth/sign-in');
+          }}
+        />
       </SafeAreaView>
     );
   }
@@ -74,7 +71,10 @@ export default function NotificationsScreen() {
   };
 
   const handleMarkAllAsRead = () => {
+    if (unreadCount === 0) return;
+    const count = unreadCount;
     markAllAsRead.mutate();
+    showSnackbar(snackbarCopy.allNotificationsRead(count), { duration: SNACKBAR_DURATION.success });
   };
 
   const renderItem = ({ item }: { item: any }) => (
@@ -160,20 +160,9 @@ export default function NotificationsScreen() {
         }}
         onEndReachedThreshold={0.5}
         refreshControl={
-          <RefreshControl
-            refreshing={false}
-            onRefresh={refetch}
-            tintColor={colors.primary}
-          />
+          <AppRefreshControl refreshing={isRefetching} onRefresh={refetch} />
         }
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <BellSlash size={48} color={colors.textTertiary} weight="thin" />
-            <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.md }]}>
-              알림이 아직 없어요
-            </Text>
-          </View>
-        }
+        ListEmptyComponent={<EmptyState {...emptyStateCopy.notificationsEmpty} />}
       />
     </SafeAreaView>
   );
@@ -195,11 +184,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.base,
     borderBottomWidth: 1,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
   },
   subHeader: {
     flexDirection: 'row',
@@ -231,22 +215,5 @@ const styles = StyleSheet.create({
   notificationContent: {
     flex: 1,
     marginRight: spacing.sm,
-  },
-  empty: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 120,
-  },
-  guestContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loginButton: {
-    marginTop: spacing.lg,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.sm,
-    borderRadius: 20,
   },
 });

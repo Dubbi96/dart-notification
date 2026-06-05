@@ -33,3 +33,22 @@ export function useDisclosureDetail(rcpNo: string) {
     enabled: !!rcpNo,
   });
 }
+
+/** 공시 AI 이벤트 분석 — GET /disclosure-events/:rcpNo 실연동. 미존재 시 null. */
+export function useDisclosureEvent(rcpNo: string) {
+  return useQuery({
+    queryKey: ['disclosure-event', rcpNo],
+    queryFn: () => disclosureService.getEvent(rcpNo),
+    enabled: !!rcpNo,
+    retry: false,
+  });
+}
+
+export function useDisclosureAnalysis(rcpNo: string) {
+  return useQuery({
+    queryKey: ['disclosure-analysis', rcpNo],
+    queryFn: () => disclosureService.getAnalysis(rcpNo),
+    enabled: !!rcpNo,
+    retry: false,
+  });
+}

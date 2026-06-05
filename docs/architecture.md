@@ -4,35 +4,55 @@
 
 ```
 ┌─────────────────┐
-│   Mobile App    │  React Native (Expo)
+│   Mobile App    │  React Native (Expo) + React Native Paper
 │  (React Native) │  - 사용자 UI
-└────────┬────────┘  - 푸시 알림 수신
-         │           - Deep Link 처리
+└────────┬────────┘  - 푸시 알림 수신 · Deep Link 처리
          │ HTTPS/REST API
          ▼
-┌─────────────────────────────────────────┐
-│         NestJS Backend API              │
-├─────────────────────────────────────────┤
-│  ┌─────────┐  ┌──────────┐  ┌────────┐ │
-│  │  Auth   │  │  Users   │  │Devices │ │
-│  └─────────┘  └──────────┘  └────────┘ │
-│  ┌─────────┐  ┌──────────┐  ┌────────┐ │
-│  │Watchlist│  │Disclosure│  │  Push  │ │
-│  └─────────┘  └──────────┘  │  Notif │ │
-│  ┌─────────┐                └────────┘ │
-│  │Companies│  Scheduler (Cron)         │
-│  └─────────┘  - 공시 수집 (10분마다)   │
-└─────────┬───────────────────────────────┘
-          │
-          ▼
-┌─────────────────────┐
-│   PostgreSQL DB     │
-│  (with Prisma ORM)  │
-└─────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│              NestJS Backend (모놀리스·5엔진 DDD)                      │
+├──────────────────────────────────────────────────────────────────────┤
+│  5개 Bounded Context 엔진 (backend/src/engine1-* ~ engine5-*)        │
+│                                                                      │
+│  ┌───────────────────────────────────────────────────────────────┐   │
+│  │engine1-disclosure    engine2-ai-analyst   engine3-quant-market│   │
+│  │공시 수집·파싱·이벤트  AI 분석·비용게이트   시세·지표·신호     │   │
+│  │(M0~M2 ✅)            (L0~L3, M3 🚧)       (M4~M6, M9 ⬜)    │   │
+│  └──────────────────────────┬────────────────────────────────────┘   │
+│               BullMQ 큐 파이프라인                                    │
+│      (disclosure-parse → event-extract → ai-analyze                  │
+│       → signal-generate → portfolio-check → exit-evaluate → ...)     │
+│  ┌───────────────────────────▼────────────────────────────────────┐  │
+│  │ engine4-portfolio-exit           engine5-trading-risk          │  │
+│  │ 포트폴리오·포지션·Exit Score     모의투자·Risk 하드룰           │  │
+│  │ (M7~M8 ⬜)                       (M11~M12 ⬜)                  │  │
+│  │ 헥사고날 포트/어댑터:             헥사고날 포트/어댑터:          │  │
+│  │ IPositionThesisRepository         IPaperTradeRepository         │  │
+│  │  └─ InMemory / Prisma 어댑터       └─ InMemory / Prisma 어댑터 │  │
+│  │ IExitSignalRepository             IAuditLogRepository           │  │
+│  │  └─ InMemory / Prisma 어댑터       └─ InMemory / Prisma 어댑터 │  │
+│  │                           ⚠ AI 금지영역: Engine5 Risk 독립     │  │
+│  │                             (AI 서비스 의존성 0)                │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+│  ── 횡단 모듈 (독립 유지) ───────────────────────────────────────    │
+│  auth · users · companies · watchlist · notifications                │
+│  notification-settings · expo-push · devices · saved-disclosures     │
+│  prisma · common                                                     │
+└────────────────────────────────┬─────────────────────────────────────┘
+                                 │
+                                 ▼
+                       ┌─────────────────────┐
+                       │   PostgreSQL DB      │
+                       │  (with Prisma ORM)   │
+                       └─────────────────────┘
 
 External APIs:
 - DART Open API (공시 수집)
 - Expo Push Notification Service (푸시 발송)
+- KRX 데이터마켓플레이스 (시세, Phase 5+ 예정)
+- 증권사 OpenAPI (실거래, Phase 13+ 예정)
+- LLM API: OpenAI/Claude (Engine2 AI 분석, Phase 3+ 예정)
 ```
 
 ## 2. 컴포넌트 상세 설명
@@ -57,104 +77,57 @@ External APIs:
 - Expo Router (파일 기반 라우팅)
 - React Query (서버 상태 관리)
 - Zustand (클라이언트 상태 관리)
-- NativeWind (Tailwind CSS)
+- React Native Paper + StyleSheet (UI, NativeWind 미사용)
 - Expo Notifications (푸시 알림)
 
 ### 2.2 Backend API (NestJS)
 
-**모듈 구조**
+**아키텍처 패턴**: DDD Bounded Context (5개 엔진) + 헥사고날 포트/어댑터
 
-#### Auth Module
-- **책임**: 회원가입, 로그인, JWT 발급/검증, 토큰 갱신
-- **주요 기능**:
-  - 이메일/비밀번호 기반 회원가입
-  - JWT Access Token (15분) + Refresh Token (90일, sliding) 발급
-  - 비밀번호 해싱 (bcrypt)
-  - Guard를 통한 인증 확인
-- **엔드포인트**:
-  - `POST /auth/signup`
-  - `POST /auth/login`
-  - `POST /auth/refresh`
-  - `POST /auth/logout`
+백엔드는 기능 모듈의 평면 나열 대신 **5개 독립 엔진(Bounded Context)**으로 조직된다.
+엔진 간 통신은 서비스 직접 호출 대신 **BullMQ 큐**를 통해 비동기로 연결된다.
 
-#### Users Module
-- **책임**: 사용자 프로필 조회/수정
-- **주요 기능**:
-  - 현재 사용자 정보 조회
-  - 프로필 수정 (이름, 이메일 등)
-- **엔드포인트**:
-  - `GET /users/me`
-  - `PATCH /users/me`
+#### Engine 1 — Disclosure Intelligence (`engine1-disclosure/`)
+- **책임**: 공시 수집 → HTML/XML 파싱 → 이벤트·수치 추출 (M0~M2, ✅ 완료)
+- **하위 모듈**: collection(DART 폴링·재시도), dart-api, disclosures(HTTP 조회), disclosure-documents(파싱), disclosure-events(이벤트 추출·분류)
+- **BullMQ 발행**: `disclosure-parse`, `event-extract`
+- **주요 엔드포인트**: `GET /disclosures`, `GET /disclosures/:rcpNo`, `POST /scheduler/collect`
 
-#### Devices Module
-- **책임**: 푸시 알림을 위한 디바이스 토큰 관리
-- **주요 기능**:
-  - Expo Push Token 등록/갱신
-  - 로그아웃 시 디바이스 토큰 삭제
-  - 푸시 실패(DeviceNotRegistered) 시 자동 삭제
-  - 90일 미사용 토큰 정리 (스케줄러)
-- **엔드포인트**:
-  - `POST /devices/register`
-  - `DELETE /devices/:deviceId`
+#### Engine 2 — AI Analyst (`engine2-ai-analyst/`)
+- **책임**: 공시 요약·Persona 해석·Position Thesis AI 초안 생성 (M3, 🚧 스캐폴딩)
+- **비용 게이트**: L0(AI 금지) ~ L3(Position Thesis) 4단계 분류. 일/월 한도 초과 시 L0 강등.
+- **구성**: tasks/(summary·persona·thesis), cost-gate, cost-metrics, cost-aggregation, usage-log, llm, adapters, ports
+- **BullMQ 소비**: `ai-analyze` / **발행**: `signal-generate`
 
-#### Companies Module
-- **책임**: 기업 마스터 데이터 관리
-- **주요 기능**:
-  - 기업 목록 조회 (자동완성 검색용)
-  - 종목코드로 기업 조회
-- **엔드포인트**:
-  - `GET /companies/search?query=삼성` (자동완성)
-  - `GET /companies/:corpCode`
+#### Engine 3 — Quant Market (`engine3-quant-market/`)
+- **책임**: 시세 수집·기술지표 계산·Event Study·Buy Score 생성 (M4~M6, M9, ⬜ 예정)
+- **AI 정책**: Buy Score 계산은 **순수 Rule 기반** (AI 개입 금지)
+- **구성**: market-data, indicators, buy-signal, event-study, signals(HTTP), backtest
+- **BullMQ 소비**: `signal-generate` / **발행**: `portfolio-check`
+- **주요 엔드포인트**: `GET /signals`, `GET /signals/:id`
 
-#### Watchlist Module
-- **책임**: 사용자의 관심 기업 및 알림 설정 관리
-- **주요 기능**:
-  - 관심 기업 등록/삭제 (최대 30개)
-  - 공시 유형 선택
-  - 키워드 설정
-  - 알림 on/off 토글
-- **엔드포인트**:
-  - `GET /watchlist`
-  - `POST /watchlist`
-  - `DELETE /watchlist/:id`
-  - `PATCH /watchlist/:id/settings`
+#### Engine 4 — Portfolio & Exit (`engine4-portfolio-exit/`)
+- **책임**: 포트폴리오·포지션 관리·Exit Score 계산 (M7~M8, ⬜ 예정)
+- **헥사고날 포트/어댑터**:
+  - `IPositionThesisRepository` ↔ InMemory 어댑터 / Prisma 어댑터 (DAR-35)
+  - `IExitSignalRepository` ↔ InMemory 어댑터 / Prisma 어댑터 (DAR-35)
+- **구성**: domain/(FSM 타입·조건 타입), repositories/, services/, portfolio(HTTP)
+- **BullMQ 소비**: `portfolio-check` / **발행**: `exit-evaluate`
+- **주요 엔드포인트**: `GET /portfolio`, `GET /positions/:id`, `GET /positions/:id/thesis`
 
-#### Disclosures Module
-- **책임**: 공시 데이터 조회
-- **주요 기능**:
-  - 최근 공시 목록 조회 (페이징)
-  - 공시 상세 조회
-  - 공시 검색 (기업명, 공시명)
-- **엔드포인트**:
-  - `GET /disclosures` (목록)
-  - `GET /disclosures/:rcpNo` (상세)
-  - `GET /disclosures/search?q=증자`
+#### Engine 5 — Trading & Risk (`engine5-trading-risk/`)
+- **책임**: 모의투자 체결 시뮬레이션·Risk 하드룰 검증 (M10~M12, ⬜ 예정)
+- **AI 금지영역**: Risk 판정·주문 승인·손절 하드룰에 AI 개입 절대 불가. `RiskCheckService`는 AI 서비스 의존성 0.
+- **헥사고날 포트/어댑터**:
+  - `IPaperTradeRepository` ↔ InMemory 어댑터 / Prisma 어댑터 (DAR-36)
+  - `IAuditLogRepository` ↔ InMemory 어댑터 / Prisma 어댑터 (DAR-36)
+- **구성**: domain/(체결 시뮬·가상 포트·비용지표), repositories/, services/, paper-trading(HTTP)
+- **주요 엔드포인트**: `GET /paper-trading`, `POST /paper-trading/order`
 
-#### Notifications Module
-- **책임**: 알림 히스토리 조회 및 읽음 처리
-- **주요 기능**:
-  - 알림 히스토리 조회
-  - 알림 읽음 처리
-  - 알림 삭제
-- **엔드포인트**:
-  - `GET /notifications`
-  - `PATCH /notifications/:id/read`
-  - `DELETE /notifications/:id`
-
-#### Scheduler Module
-- **책임**: 배치 작업 실행
-- **주요 기능**:
-  1. **공시 수집 작업** (10분마다 실행)
-     - DART Open API 호출하여 신규 공시 조회
-     - 중복 체크 (고유키: rcp_no)
-     - 신규 공시 DB 저장
-  2. **알림 매칭 및 발송 작업** (공시 수집 직후)
-     - 신규 공시와 사용자 관심 설정 매칭
-     - 조건 만족 시 알림 생성 및 발송
-     - 중복 알림 방지 (NotificationHistory 체크)
-  3. **만료 토큰 정리 작업** (매일 자정)
-     - 90일 이상 미사용 디바이스 토큰 삭제
-     - 90일 이상 된 읽은 알림 삭제
+#### 횡단 모듈 (독립 유지)
+- `auth` · `users` · `companies` · `watchlist` · `notifications` · `notification-settings` · `expo-push` · `devices` · `saved-disclosures` · `prisma` · `common`
+- 모든 엔진이 공유하는 인증·알림·기업 마스터 등을 담당한다.
+- Scheduler는 engine1-disclosure/scheduler/로 흡수·래핑됨.
 
 ### 2.3 Database (PostgreSQL + Prisma)
 
@@ -480,7 +453,7 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
 | **Scheduler** | @nestjs/schedule | NestJS 네이티브 통합, cron 지원 |
 | **모바일 프레임워크** | React Native (Expo) | 빠른 개발, 푸시 알림 간편, Deep Link 지원 |
 | **상태 관리** | React Query + Zustand | 서버/클라이언트 상태 분리, 캐싱, 간결함 |
-| **UI** | NativeWind | Tailwind CSS 익숙도, 빠른 스타일링 |
+| **UI** | React Native Paper + StyleSheet | RN Paper 컴포넌트 사용, NativeWind 미사용 |
 | **푸시 알림** | Expo Push | Expo와 통합, 간단한 설정 |
 | **인프라 (MVP)** | GCP (Cloud Run + Cloud SQL) | Cloud Run 무료 티어(월 200만 요청, vCPU 180,000초), Cloud SQL 소규모 인스턴스 저렴. 1인 개발 MVP 단계에서 비용 부담 최소화 |
 | **인프라 (확장 시)** | AWS 이관 예정 | 사용자 증가 시 안정성·세밀한 인프라 제어가 필요해지면 AWS ECS + RDS로 이관. AWS ECS Fargate는 무료 티어가 없어 초기에는 비용 비효율적 |
@@ -488,4 +461,5 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
 ---
 
 **작성일**: 2026-04-18
-**버전**: 1.1 (토큰 관리 개선)
+**최종 수정일**: 2026-06-05
+**버전**: 2.0 (5엔진 DDD 구조·헥사고날 포트/어댑터·BullMQ 큐 반영)

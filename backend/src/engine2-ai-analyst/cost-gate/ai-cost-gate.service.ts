@@ -1,0 +1,39 @@
+import { Injectable } from '@nestjs/common';
+import { AiCostLevel, AiGateInput } from '../types/ai-analyst.types';
+
+/**
+ * AI 비용 게이트 — 어떤 공시가 어느 AI 레벨로 라우팅되는지 결정한다.
+ * 이 판단은 **Rule 기반(AI 미사용)** 이다. cc-engine-architecture.md §6
+ *
+ * M3 범위: L0/L1/L2 분기까지 구현. buyScore/isHolding 기반 L3 분기는
+ * M6(Buy Score)·M8(보유)에서 입력이 채워지면 활성화된다.
+ */
+@Injectable()
+export class AiCostGateService {
+  /** 거래대금 하한 — 이 미만은 분석 가치 낮아 L0(스킵). 잠정값, DQ 파트가 확정. */
+  private static readonly THRESHOLD_MIN_TRADING_VALUE = 100_000_000; // 1억원
+
+  evaluateGate(input: AiGateInput): AiCostLevel {
+    // 1. 무조건 L0(AI 미사용) 조건
+    if (input.isManagementStock) return AiCostLevel.L0;
+    if (!input.isTargetEventType) return AiCostLevel.L0;
+    if (input.tradingValue < AiCostGateService.THRESHOLD_MIN_TRADING_VALUE) {
+      return AiCostLevel.L0;
+    }
+
+    // 2. 추출 신뢰도 낮으면 보조(L1)만
+    if (input.confidence < 0.5) return AiCostLevel.L1;
+
+    // 3. M6 이후: Buy Score 기반 분기
+    if (typeof input.buyScore === 'number') {
+      if (input.buyScore < 60) return AiCostLevel.L1;
+      // M8 이후: 보유 종목 악재 → Thesis 재평가(L3)
+      if (input.isHolding && input.polarity === 'NEGATIVE') return AiCostLevel.L3;
+      if (input.buyScore >= 80) return AiCostLevel.L3;
+      return AiCostLevel.L2;
+    }
+
+    // 4. M3 기본값 — 대상 이벤트 + 충분한 신뢰도면 요약·Persona(L2)
+    return AiCostLevel.L2;
+  }
+}

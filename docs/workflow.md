@@ -553,5 +553,110 @@ datasource db {
 
 ---
 
+## 5. KRX 시세 수집 플로우 (M4-C, DAR-8)
+
+### 5.1 EOD 일봉 수집 (평일 18:30)
+
+```
+KrxMarketDataScheduler.collectDailyPricesForDate()
+  ├─ 주말·휴장일 체크 → 스킵
+  ├─ isCollecting 락 → 중복 방지
+  ├─ Company.findMany (stockCode NOT NULL)
+  └─ for each company:
+       KrxApiService.fetchStockDaily(basDd, stockCode)
+         └─ GET /sto/stk_bydd_trd?basDd=&isuCd=&auth=
+              (axios-retry 3회, exponential backoff)
+       StockDailyPrice.upsert(stockCode, tradeDate)
+```
+
+### 5.2 시장지수 수집 (평일 18:45)
+
+```
+KrxMarketDataScheduler.collectMarketIndicesForDate()
+  └─ for KOSPI, KOSDAQ:
+       KrxApiService.fetchIndexDaily(indexType, basDd)
+         └─ GET /idx/kospi_dd_trd | /idx/kosdaq_dd_trd
+       MarketIndex.upsert(indexCode, tradeDate)
+```
+
+### 5.3 종목상태 수집 (평일 08:50, 장 시작 전)
+
+```
+KrxMarketDataScheduler.collectStockStatusesForDate()
+  └─ KrxApiService.fetchStockStatus(basDd)
+       └─ GET /sto/isu_mrktact_info
+            (거래정지=11, 관리=12, 투자주의=21, 이상급등=31)
+     StockStatus.upsert(stockCode) — 거래정지/관리/투자주의/이상급등 플래그
+```
+
+### 5.4 KRX API 에러 처리
+
+| 상황 | 처리 |
+|------|------|
+| KRX_API_KEY 미설정 | KrxApiUnavailableError → graceful 로그, 수집 스킵 (앱 정상 부팅 유지) |
+| 429 Too Many Requests | axios-retry exponential backoff 3회 |
+| 503 / 네트워크 오류 | 동일 backoff 재시도 |
+| 주말 호출 | isWeekend() 체크 후 즉시 스킵 |
+| 수집 중 개별 종목 실패 | 경고 로그, skipped++ 증가, 나머지 계속 |
+
+### 5.5 수동 트리거 (관리자)
+
+```
+POST /market-data/collect/all?basDd=YYYYMMDD
+  → collectAll() — 일봉+지수+종목상태 병렬 + MarketDataCollectionLog 기록
+GET  /market-data/collection-logs?tradeDate=YYYYMMDD
+  → MarketDataCollectionLog 조회 (최근 20건)
+```
+
+---
+
+## 6. Portfolio & Exit 엔진 점검 스케줄 (M8-A DAR-12)
+
+### 6.1 하루 3회 점검 (평일만)
+
+| 점검 시간 | Cron | CheckTime 레이블 | 설명 |
+|-----------|------|-----------------|------|
+| 09:00 | `0 9 * * 1-5` | `PRE_MARKET` | 장 시작 전 — 전날 종가·overnight 리스크 점검 |
+| 13:00 | `0 13 * * 1-5` | `INTRADAY` | 장중 — VWAP·장중 이탈 점검 |
+| 16:30 | `30 16 * * 1-5` | `POST_MARKET` | 장 마감 후 — 종가 기준 일별 스냅샷 업데이트 |
+
+### 6.2 점검 흐름
+
+```
+IExitCheckScheduler.runPreMarketCheck() / runIntradayCheck() / runPostMarketCheck()
+  └─ ExitEngineService.checkAllPositions(checkTime)
+       └─ for each OPEN Position:
+            IPositionProvider.getTechnicalSnapshot(stockCode)
+            IPositionProvider.getThesisSnapshot(positionId)
+            IPositionProvider.getDisclosureEvents(corpCode, since)
+            calculateExitScore(pos, tech, thesis, events)   ← 순수 Rule, AI 0
+              ├─ calcLossRiskScore()     — 손실 리스크 (0~20)
+              ├─ calcThesisBreakScore()  — 투자논리 훼손 (0~20, invalidConditions 평가)
+              ├─ calcChartBreakScore()   — 차트 훼손 (0~20)
+              ├─ calcTimeExceededScore() — 시간 초과 (0~10)
+              ├─ calcOverweightScore()   — 과다 비중 (0~10)
+              └─ calcPositiveMomentumBonus() — 긍정 모멘텀 감산 (0~20)
+            → Exit Score 합산 → ExitAction 결정
+            IExitSignalRepository.save(ExitSignal)
+```
+
+### 6.3 Exit Action 판정 기준 (순수 Rule)
+
+| Exit Score | ExitAction | 의미 |
+|-----------|-----------|------|
+| 0~29 | HOLD | 보유 유지 |
+| 30~49 | WATCH | 주의 관찰 |
+| 50~69 | REDUCE | 일부 축소 (25~50% 매도 제안) |
+| 70~89 | EXIT | 전량 매도 후보 |
+| 90~100 | BLOCK_REBUY | 즉시 리스크 매도 + 재매수 금지 |
+
+### 6.4 AI 금지영역
+
+- Exit Score 공식·트리거 가중치·비중 한도: 순수 Rule 전용, AI 개입 절대 금지
+- 손절/익절 하드룰·주문 수량: Engine5(Risk)가 독립 강제 — 이 엔진은 신호/점검만
+- `ExitSignal.aiUsed = false` 원칙 (논리훼손 해석 보조 시에만 true 허용, AIUsageLog 기록 필수)
+
+---
+
 **작성일**: 2026-03-07
-**버전**: 1.0 (MVP)
+**버전**: 1.2 (M8-A DAR-12: Portfolio & Exit 엔진 점검 스케줄 추가)

@@ -7,16 +7,18 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  RefreshControl,
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { FileText, MagnifyingGlass } from 'phosphor-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
+import { EmptyState } from '@components/common/StateView';
+import { emptyStateCopy } from '@components/common/emptyStateCopy';
+import { SkeletonList } from '@components/common/SkeletonCard';
+import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { useDisclosures, useDisclosureSearch } from '@hooks/useDisclosures';
 import { useDisclosureTypes } from '@hooks/useDisclosureTypes';
 import { useRequireAuth } from '@hooks/useRequireAuth';
@@ -39,6 +41,12 @@ export default function DisclosuresScreen() {
 
   const disclosureType = activeFilter === '전체' ? undefined : activeFilter;
   const isSearching = debouncedQuery.length > 0;
+  const isFilterActive = activeFilter !== '전체' || watchlistOnly;
+
+  const resetFilters = useCallback(() => {
+    setActiveFilter('전체');
+    setWatchlistOnly(false);
+  }, []);
 
   const listQuery = useDisclosures(disclosureType, watchlistOnly);
   const searchQueryResult = useDisclosureSearch(debouncedQuery, disclosureType);
@@ -242,9 +250,7 @@ export default function DisclosuresScreen() {
 
       {/* List */}
       {activeQuery.isLoading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
+        <SkeletonList variant="disclosure" />
       ) : (
         <FlatList
           data={items}
@@ -259,10 +265,9 @@ export default function DisclosuresScreen() {
           }}
           onEndReachedThreshold={0.5}
           refreshControl={
-            <RefreshControl
-              refreshing={false}
+            <AppRefreshControl
+              refreshing={activeQuery.isRefetching && !activeQuery.isFetchingNextPage}
               onRefresh={activeQuery.refetch}
-              tintColor={colors.primary}
             />
           }
           ListFooterComponent={
@@ -271,15 +276,17 @@ export default function DisclosuresScreen() {
             ) : null
           }
           ListEmptyComponent={
-            <View style={styles.centered}>
-              {isSearching
-                ? <MagnifyingGlass size={48} color={colors.textTertiary} weight="thin" />
-                : <FileText size={48} color={colors.textTertiary} weight="thin" />
-              }
-              <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.md }]}>
-                {isSearching ? '검색 결과가 없습니다' : '공시 데이터가 없습니다'}
-              </Text>
-            </View>
+            isSearching ? (
+              // 공시 검색 빈 결과(§1-2)
+              <EmptyState icon="search" title={`'${debouncedQuery}' 검색 결과가 없어요`} />
+            ) : isFilterActive ? (
+              <EmptyState
+                {...emptyStateCopy.disclosureFilterEmpty}
+                onAction={resetFilters}
+              />
+            ) : (
+              <EmptyState {...emptyStateCopy.homeDisclosureEmpty} />
+            )
           }
         />
       )}
@@ -353,12 +360,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     borderRadius: radius.sm,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 60,
   },
   loginBanner: {
     flexDirection: 'row',

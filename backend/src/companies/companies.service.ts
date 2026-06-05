@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { DartApiService } from '../dart-api/dart-api.service';
+import { DartApiService } from '../engine1-disclosure/dart-api/dart-api.service';
 
 const OVERVIEW_CACHE_TTL = 1000 * 60 * 60 * 24; // 24시간
 
@@ -73,15 +73,22 @@ export class CompaniesService {
   }
 
   async search(query: string, limit?: number) {
+    // 종목명·종목코드 부분일치 검색. 종목코드 6자리 직접검색도 stockCode contains 로 처리.
+    const term = (query ?? '').trim();
+    if (!term) {
+      return [];
+    }
+
     const take = Math.min(Number(limit) || 10, 20);
     const companies = await this.prisma.company.findMany({
       where: {
-        corpName: {
-          contains: query,
-          mode: 'insensitive',
-        },
+        OR: [
+          { corpName: { contains: term, mode: 'insensitive' } },
+          { stockCode: { contains: term } },
+        ],
       },
       take,
+      orderBy: { corpName: 'asc' },
       select: {
         corpCode: true,
         corpName: true,

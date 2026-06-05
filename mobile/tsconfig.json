@@ -2,6 +2,7 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
       "@/*": ["./*"],
@@ -20,5 +21,6 @@
       "@utils": ["utils"],
       "@utils/*": ["utils/*"]
     }
-  }
+  },
+  "exclude": ["node_modules", "scripts"]
 }

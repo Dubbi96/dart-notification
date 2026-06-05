@@ -57,25 +57,106 @@ dart-notification/
 │   │   │   ├── notification-settings.controller.ts
 │   │   │   ├── notification-settings.service.ts
 │   │   │   └── notification-settings.module.ts
-│   │   ├── disclosures/       # 공시 데이터
-│   │   │   ├── dto/
-│   │   │   │   └── query-disclosure.dto.ts
-│   │   │   ├── disclosures.controller.ts
-│   │   │   ├── disclosures.service.ts
-│   │   │   └── disclosures.module.ts
+│   │   ├── engine1-disclosure/ # 🟦 Engine1: 공시 인텔리전스 도메인 (DDD Bounded Context)
+│   │   │   ├── CLAUDE.md            # 도메인 규칙 (작업 시 자동 로드)
+│   │   │   ├── disclosures/         # 공시 조회 (GET /disclosures)
+│   │   │   ├── scheduler/           # 수집 배치 (DART 폴링·재시도) — M0
+│   │   │   ├── dart-api/            # DART OpenAPI 클라이언트
+│   │   │   ├── disclosure-documents/ # 원문 파싱 (HTML/XML/표·정정 diff) — M1
+│   │   │   └── disclosure-events/   # 이벤트·수치 추출 (extractors) — M2
+│   │   ├── engine2-ai-analyst/ # 🟨 Engine2: AI Analyst 엔진 (M3, DAR-17)
+│   │   │   ├── CLAUDE.md
+│   │   │   ├── tasks/               # 4개 AI Task (summary·event-classification·persona·thesis)
+│   │   │   ├── cost-gate/           # AI 비용 게이트 L0~L3 분기
+│   │   │   ├── cost-metrics/        # CostPerDisclosure/Signal/Trade 지표
+│   │   │   ├── cost-aggregation/    # AIUsageLog 기간별 집계
+│   │   │   ├── usage-log/           # AIUsageLogService
+│   │   │   ├── llm/                 # LLM API 클라이언트 (OpenAI/Claude)
+│   │   │   ├── adapters/            # LLM 어댑터 (구현체)
+│   │   │   ├── ports/               # 포트 인터페이스
+│   │   │   ├── input/               # 공시 입력 빌더
+│   │   │   ├── pricing/             # 모델별 토큰 단가
+│   │   │   ├── validation/          # AI 응답 검증
+│   │   │   ├── types/               # 타입 정의
+│   │   │   ├── consumers/           # BullMQ 컨슈머 (ai-analyze 큐)
+│   │   │   ├── smoke/               # 스모크 테스트
+│   │   │   └── ai-analyst.module.ts
+│   │   ├── engine3-quant-market/ # 🟧 Engine3: Quant Market 엔진 (M4~M6, M9, DAR-25)
+│   │   │   ├── CLAUDE.md
+│   │   │   ├── market-data/         # KRX/증권사 시세 수집 (Phase 5+)
+│   │   │   ├── indicators/          # 기술지표 계산 (MA/RSI/MACD/BB/ATR/VWAP)
+│   │   │   ├── buy-signal/          # Buy Score 7컴포넌트 계산 (Rule 기반)
+│   │   │   │   ├── config/
+│   │   │   │   ├── entry/
+│   │   │   │   └── scoring/
+│   │   │   ├── event-study/         # Event Study 집계 (DAR-9)
+│   │   │   │   ├── adapters/
+│   │   │   │   ├── ports/
+│   │   │   │   └── utils/
+│   │   │   ├── backtest/            # 백테스트 엔진 (DAR-13)
+│   │   │   │   ├── constraint/
+│   │   │   │   ├── dto/
+│   │   │   │   ├── metrics/
+│   │   │   │   └── ports/
+│   │   │   ├── signals/             # REST API — /api/signals [DAR-25: signals/ 이동]
+│   │   │   │   ├── signals.controller.ts
+│   │   │   │   ├── signals.service.ts
+│   │   │   │   └── signals.module.ts
+│   │   │   └── quant-market.module.ts
+│   │   ├── engine4-portfolio-exit/ # 🟩 Engine4: Position Thesis 엔진 (M7, DAR-11)
+│   │   │   ├── CLAUDE.md            # 도메인 규칙 + AI 금지영역
+│   │   │   ├── domain/
+│   │   │   │   ├── invalid-condition.types.ts  # 기계 평가 가능 InvalidCondition 타입
+│   │   │   │   └── position-thesis.types.ts    # ThesisStatus FSM, PositionThesisRecord
+│   │   │   ├── repositories/
+│   │   │   │   ├── position-thesis.repository.ts              # IPositionThesisRepository 인터페이스
+│   │   │   │   ├── in-memory-position-thesis.repository.ts    # 인메모리 어댑터 (M7)
+│   │   │   │   ├── prisma-position-thesis.repository.ts       # Prisma 어댑터 (DAR-35)
+│   │   │   │   ├── exit-signal.repository.ts                  # IExitSignalRepository 인터페이스
+│   │   │   │   ├── in-memory-exit-signal.repository.ts        # 인메모리 어댑터
+│   │   │   │   └── prisma-exit-signal.repository.ts           # Prisma 어댑터 (DAR-35)
+│   │   │   ├── services/
+│   │   │   │   └── position-thesis.service.ts  # createFromSignal, invalidate, close
+│   │   │   ├── portfolio/           # REST API — /api/positions, /api/portfolio [DAR-25: portfolio/ 이동]
+│   │   │   │   ├── portfolio.controller.ts
+│   │   │   │   ├── portfolio.service.ts
+│   │   │   │   ├── portfolio.module.ts
+│   │   │   │   ├── position-thesis.controller.ts
+│   │   │   │   └── position-thesis.service.ts
+│   │   │   ├── position-thesis.spec.ts          # fixture 단위 테스트 (32건)
+│   │   │   └── portfolio-exit.module.ts
+│   │   ├── engine5-trading-risk/ # 🟥 Engine5: 모의투자 엔진 (M10-A, DAR-16)
+│   │   │   ├── CLAUDE.md            # 도메인 규칙 + AI 금지영역 (최강조)
+│   │   │   ├── domain/
+│   │   │   │   ├── paper-trade.types.ts        # TradeDirection, FillParams, PaperPortfolioState 등
+│   │   │   │   ├── fill-simulator.ts           # 체결 시뮬레이터 (슬리피지·부분체결·수수료·세금, 순수 Rule)
+│   │   │   │   ├── paper-portfolio.ts          # 가상 포트폴리오 (보유·평가손익·현금·비중)
+│   │   │   │   └── cost-metrics.ts             # 비용지표 (CostPerDisclosure/Signal/Trade)
+│   │   │   ├── repositories/
+│   │   │   │   ├── paper-trade.repository.ts              # IPaperTradeRepository 인터페이스
+│   │   │   │   ├── in-memory-paper-trade.repository.ts    # 인메모리 어댑터 (M10-A)
+│   │   │   │   ├── prisma-paper-trade.repository.ts       # Prisma 어댑터 (DAR-36)
+│   │   │   │   ├── audit-log.repository.ts                # IAuditLogRepository 인터페이스
+│   │   │   │   ├── in-memory-audit-log.repository.ts      # 인메모리 어댑터
+│   │   │   │   └── prisma-audit-log.repository.ts         # Prisma 어댑터 (DAR-36)
+│   │   │   ├── services/
+│   │   │   │   └── paper-trade.service.ts      # placeOrder → 체결 시뮬 실행
+│   │   │   ├── paper-trading/       # REST API — /api/paper-trading [DAR-25: paper-trading/ 이동]
+│   │   │   │   ├── paper-trading.controller.ts
+│   │   │   │   ├── paper-trading.service.ts
+│   │   │   │   └── paper-trading.module.ts
+│   │   │   ├── fill-simulator.spec.ts           # fixture 단위 테스트 (11건)
+│   │   │   ├── paper-portfolio.spec.ts          # fixture 단위 테스트 (9건)
+│   │   │   ├── cost-metrics.spec.ts             # fixture 단위 테스트 (5건)
+│   │   │   └── trading-risk.module.ts
 │   │   ├── notifications/     # 알림 히스토리
 │   │   │   ├── dto/
 │   │   │   │   └── query-notification.dto.ts
 │   │   │   ├── notifications.controller.ts
 │   │   │   ├── notifications.service.ts
 │   │   │   └── notifications.module.ts
-│   │   ├── scheduler/         # 배치 작업
-│   │   │   ├── scheduler.service.ts
-│   │   │   └── scheduler.module.ts
-│   │   ├── dart-api/          # DART API 클라이언트
-│   │   │   ├── dart-api.service.ts
-│   │   │   └── dart-api.module.ts
-│   │   ├── expo-push/         # Expo Push 서비스
+│   │   │                      # (scheduler·dart-api는 engine1-disclosure/ 하위로 이동)
+│   │   ├── expo-push/         # Expo Push 서비스 (알림 횡단)
 │   │   │   ├── expo-push.service.ts
 │   │   │   └── expo-push.module.ts
 │   │   ├── prisma/            # Prisma 서비스 모듈
@@ -103,20 +184,30 @@ dart-notification/
 │
 ├── mobile/                     # React Native 모바일 앱 (Expo + React Native Paper)
 │   ├── app/                   # Expo Router 기반 화면
-│   │   ├── (tabs)/           # 탭 네비게이션
+│   │   ├── (tabs)/           # 5탭 IA: 홈/공시/신호/포트폴리오/설정
 │   │   │   ├── home/
 │   │   │   │   └── index.tsx  # 홈 화면 (최근 공시)
 │   │   │   ├── notifications/
-│   │   │   │   └── index.tsx  # 알림 히스토리
+│   │   │   │   └── index.tsx  # 공시 알림 히스토리
+│   │   │   ├── signals/
+│   │   │   │   └── index.tsx  # 신호 피드 (매수/매도 서브탭) [DAR-21]
+│   │   │   ├── portfolio/
+│   │   │   │   └── index.tsx  # 포트폴리오 (실전/모의 서브탭) [DAR-21]
 │   │   │   ├── settings/
 │   │   │   │   └── index.tsx  # 설정 화면
-│   │   │   └── _layout.tsx
+│   │   │   └── _layout.tsx    # 신호(zap)·포트폴리오(briefcase) 탭 추가 [DAR-21]
 │   │   ├── auth/
 │   │   │   └── sign-in.tsx    # 카카오 OAuth 로그인
 │   │   ├── company/
 │   │   │   └── [corpCode].tsx # 기업 상세
 │   │   ├── disclosure/
-│   │   │   └── [id].tsx       # 공시 상세
+│   │   │   └── [id].tsx       # 공시 상세 + AI 분석 섹션(/disclosure-events 실연동) [DAR-21]
+│   │   ├── signals/
+│   │   │   └── [id].tsx       # 매수 후보 상세 [DAR-21]
+│   │   ├── portfolio/
+│   │   │   └── [portfolioId]/position/[positionId]/
+│   │   │       ├── index.tsx  # 포지션 상세 [DAR-21]
+│   │   │       └── thesis.tsx # Thesis 상세 [DAR-21]
 │   │   ├── onboarding/
 │   │   │   └── index.tsx      # 온보딩
 │   │   ├── legal/             # 법적 문서
@@ -130,12 +221,24 @@ dart-notification/
 │   │   ├── _layout.tsx
 │   │   └── index.tsx
 │   ├── components/            # 재사용 컴포넌트
-│   │   └── common/
-│   │       ├── Button.tsx
-│   │       ├── Card.tsx
-│   │       ├── GlassCard.tsx
-│   │       ├── Input.tsx
-│   │       └── Loading.tsx
+│   │   ├── common/
+│   │   │   ├── Button.tsx
+│   │   │   ├── Card.tsx
+│   │   │   ├── GlassCard.tsx
+│   │   │   ├── Input.tsx
+│   │   │   ├── Loading.tsx
+│   │   │   ├── AiReferenceLabel.tsx   # "AI 분석 참고용" 칩 [DAR-21]
+│   │   │   ├── DisclaimerSection.tsx  # AI 면책 표준 컴포넌트 [DAR-21]
+│   │   │   ├── ScoreGauge.tsx         # Buy/Exit 점수 게이지 [DAR-21]
+│   │   │   ├── StateView.tsx          # 로딩/빈/에러 상태 뷰 [DAR-21]
+│   │   │   ├── ProvenanceBar.tsx      # AI 출처 표시 바 [DAR-32]
+│   │   │   └── PriceChangeChip.tsx    # 등락률 칩 컴포넌트 [DAR-32]
+│   │   ├── signals/                  # [DAR-21]
+│   │   │   ├── BuyScoreCard.tsx       # 매수 신호 카드
+│   │   │   ├── ExitScoreCard.tsx      # 매도 신호 카드
+│   │   │   └── ScoreBreakdownSection.tsx  # Buy/Exit Score 7컴포넌트 분해 섹션 [DAR-32]
+│   │   └── portfolio/                # [DAR-21]
+│   │       └── PositionCard.tsx       # 포지션 카드
 │   ├── services/              # API 클라이언트
 │   │   ├── api.ts            # Axios 인스턴스
 │   │   ├── auth.service.ts
@@ -144,7 +247,9 @@ dart-notification/
 │   │   ├── disclosure.service.ts
 │   │   ├── notification.service.ts
 │   │   ├── notification-settings.service.ts
-│   │   └── watchlist.service.ts
+│   │   ├── watchlist.service.ts
+│   │   ├── signal.service.ts        # 신호 계약(미존재 엔드포인트는 빈상태) [DAR-21]
+│   │   └── portfolio.service.ts     # 포트폴리오 계약 [DAR-21]
 │   ├── hooks/                 # Custom Hooks
 │   │   ├── useAuth.ts
 │   │   ├── useCompanySearch.ts
@@ -154,7 +259,10 @@ dart-notification/
 │   │   ├── useNotificationSetup.ts  # 푸시 알림 초기화 + 딥링크
 │   │   ├── useNotificationSettings.ts
 │   │   ├── useRequireAuth.ts        # 인증 필요 기능 가드
-│   │   └── useWatchlist.ts
+│   │   ├── useWatchlist.ts
+│   │   ├── useSignals.ts            # 매수/매도 신호 (React Query) [DAR-21]
+│   │   ├── usePortfolio.ts          # 포지션/모의투자 (React Query) [DAR-21]
+│   │   └── useReducedMotion.ts      # 접근성: 모션 감소 선호 감지 [DAR-32]
 │   ├── stores/                # Zustand 상태 관리
 │   │   ├── authStore.ts      # 사용자 정보, 토큰 (SecureStore 연동)
 │   │   └── settingsStore.ts  # 앱 설정 (다크모드 등)
@@ -168,9 +276,14 @@ dart-notification/
 │   │   ├── auth.types.ts
 │   │   ├── disclosure.types.ts
 │   │   ├── notification.types.ts
-│   │   └── user.types.ts
+│   │   ├── user.types.ts
+│   │   ├── signal.types.ts          # 신호 도메인 계약 [DAR-21]
+│   │   └── portfolio.types.ts       # 포트폴리오/Thesis/모의투자 계약 [DAR-21]
 │   ├── utils/                 # 유틸리티 함수
-│   │   └── date.ts
+│   │   ├── date.ts
+│   │   ├── signalDisplay.ts         # 점수/상태 → 테마색·레이블 매핑 [DAR-21]
+│   │   ├── copy.ts                  # UI 문자열 상수 (복사 텍스트) [DAR-32]
+│   │   └── disclosureType.ts        # 공시 유형 분류 유틸 [DAR-32]
 │   ├── assets/                # 정적 자산
 │   │   ├── android-icon-background.png
 │   │   ├── android-icon-foreground.png
@@ -462,5 +575,5 @@ EXPO_PUBLIC_APP_ENV=development
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-04-12
-**버전**: 1.1 (MVP)
+**최종 수정일**: 2026-06-05
+**버전**: 2.0 (5엔진 DDD 구조·engine2 추가·engine4/5 Prisma 어댑터·mobile 신규 컴포넌트 반영)

@@ -9,21 +9,30 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { BookmarkSimple } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
+import { EmptyState } from '@components/common/StateView';
+import { emptyStateCopy } from '@components/common/emptyStateCopy';
+import { useSnackbar } from '@components/common/SnackbarProvider';
+import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { useSavedDisclosures, useRemoveSavedDisclosure } from '@hooks/useSavedDisclosures';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { parse, format } from 'date-fns';
 
 export default function SavedDisclosuresScreen() {
   const { colors, typography: typo, isDark } = useTheme();
+  const { showSnackbar } = useSnackbar();
   const { data, isLoading } = useSavedDisclosures();
   const removeMutation = useRemoveSavedDisclosure();
 
   const items = data?.data ?? [];
+
+  const handleRemove = (id: string) => {
+    removeMutation.mutate(id);
+    showSnackbar(snackbarCopy.disclosureUnsaved, { duration: SNACKBAR_DURATION.success });
+  };
 
   const renderItem = ({ item }: { item: any }) => {
     const typeStyle = getTypeStyle(item.disclosureType, isDark);
@@ -41,7 +50,7 @@ export default function SavedDisclosuresScreen() {
             </View>
             <TouchableOpacity
               hitSlop={8}
-              onPress={() => removeMutation.mutate(item.id)}
+              onPress={() => handleRemove(item.id)}
             >
               <Ionicons name="bookmark" size={20} color={colors.primary} />
             </TouchableOpacity>
@@ -89,17 +98,7 @@ export default function SavedDisclosuresScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          ListEmptyComponent={
-            <View style={styles.centered}>
-              <BookmarkSimple size={48} color={colors.textTertiary} weight="thin" />
-              <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.md }]}>
-                저장된 공시가 없습니다
-              </Text>
-              <Text style={[typo.caption, { color: colors.textTertiary, marginTop: spacing.xs }]}>
-                공시 상세에서 북마크 버튼을 눌러 저장하세요
-              </Text>
-            </View>
-          }
+          ListEmptyComponent={<EmptyState {...emptyStateCopy.savedDisclosuresEmpty} />}
         />
       )}
     </SafeAreaView>

@@ -10,6 +10,7 @@
 7. [공시 (Disclosures)](#7-공시-disclosures)
 8. [알림 히스토리 (Notifications)](#8-알림-히스토리-notifications)
 9. [에러 코드](#9-에러-코드)
+10. [AI 비용 거버넌스 (AI Cost Governance)](#10-ai-비용-거버넌스-ai-cost-governance)
 
 ---
 
@@ -792,5 +793,145 @@ X-RateLimit-Reset: 1678190400
 
 ---
 
-**작성일**: 2026-04-18
-**버전**: 1.1 (로그아웃 API 개선)
+---
+
+## 10. AI 비용 거버넌스 (AI Cost Governance)
+
+> **인증 불필요** (내부 대시보드용 읽기 전용 API). Engine2 `AIUsageLog` 집계 기반.
+
+### 10.1 비용 지표 조회
+
+```
+GET /api/ai-cost/metrics
+```
+
+| 쿼리 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `from` | string (ISO date) | 선택 | 집계 시작일 (기본: 당월 1일) |
+| `to` | string (ISO date) | 선택 | 집계 종료일 (기본: 오늘) |
+
+**응답**:
+```json
+{
+  "success": true,
+  "data": {
+    "totalCostUsd": 0.0085,
+    "callCount": 12,
+    "l0Ratio": 0.75,
+    "costPerDisclosure": 0.00071,
+    "l0Warning": false
+  }
+}
+```
+
+- `l0Warning`: L0 비율 < 70%일 때 `true` (비용 이상 경보)
+
+---
+
+### 10.2 일별 AI 비용 집계
+
+```
+GET /api/ai-cost/daily
+```
+
+| 쿼리 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `date` | string (ISO date) | 선택 | 조회 날짜 (기본: 오늘) |
+
+**응답**:
+```json
+{
+  "success": true,
+  "data": {
+    "totalCostUsd": 0.0023,
+    "callCount": 4,
+    "totalInputTokens": 850,
+    "totalOutputTokens": 350,
+    "l0Count": 3,
+    "l1Count": 1,
+    "l2Count": 2,
+    "l3Count": 1,
+    "l0Ratio": 0.75,
+    "byTask": {
+      "summary": { "costUsd": 0.001, "callCount": 2 },
+      "event-classification": { "costUsd": 0.0003, "callCount": 1 },
+      "persona-interpretation": { "costUsd": 0.0005, "callCount": 1 },
+      "position-thesis": { "costUsd": 0.001, "callCount": 1 }
+    }
+  }
+}
+```
+
+---
+
+### 10.3 월별 AI 비용 집계
+
+```
+GET /api/ai-cost/monthly
+```
+
+| 쿼리 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `year` | number | 선택 | 연도 (기본: 현재 연도) |
+| `month` | number | 선택 | 월 1~12 (기본: 현재 월) |
+
+**응답**: `10.2`와 동일 구조.
+
+---
+
+### 10.4 비용 한도 현황
+
+```
+GET /api/ai-cost/limit-status
+```
+
+**응답**:
+```json
+{
+  "success": true,
+  "data": {
+    "dailyCostUsd": 0.42,
+    "dailyLimitUsd": 1.0,
+    "dailyExceeded": false,
+    "monthlyCostUsd": 8.50,
+    "monthlyLimitUsd": 20.0,
+    "monthlyExceeded": false,
+    "forcedLevel": null
+  }
+}
+```
+
+- `forcedLevel`: `"L0"` = 한도 초과로 AI 호출 차단 중 / `null` = 정상
+
+---
+
+### 10.5 Cross-engine 비용 지표
+
+```
+GET /api/ai-cost/cross-engine
+```
+
+| 쿼리 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `from` | string (ISO date) | 선택 | 기본: 당월 1일 |
+| `to` | string (ISO date) | 선택 | 기본: 오늘 |
+
+**응답**:
+```json
+{
+  "success": true,
+  "data": {
+    "costPerDisclosure": 520.5,
+    "costPerSignal": 2600.0,
+    "costPerTrade": 8666.7,
+    "aiCostToNetPnlRatio": -1
+  }
+}
+```
+
+단위: KRW (1 USD = 1,380원 환산). `aiCostToNetPnlRatio = -1`은 순익 없음.
+
+---
+
+**작성일**: 2026-06-05
+**버전**: 1.2 (AI 비용 거버넌스 API 추가 — DAR-17)

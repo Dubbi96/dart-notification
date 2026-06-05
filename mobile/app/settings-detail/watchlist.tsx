@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Star } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
@@ -17,7 +16,9 @@ import { formatDistanceToNow, parse } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { useWatchlist, useRemoveFromWatchlist } from '@hooks/useWatchlist';
 import { useDialog } from '@components/common/DialogProvider';
-import { CompanySearchModal } from '@components/common/CompanySearchModal';
+import { SearchOverlay } from '@components/common/SearchOverlay';
+import { EmptyState } from '@components/common/StateView';
+import { emptyStateCopy } from '@components/common/emptyStateCopy';
 
 export default function WatchlistScreen() {
   const { colors, typography: typo } = useTheme();
@@ -30,11 +31,6 @@ export default function WatchlistScreen() {
   const watchlistItems = data?.data ?? [];
   const total = data?.meta?.total ?? 0;
   const limit = data?.meta?.limit ?? 30;
-
-  const existingCorpCodes = useMemo(
-    () => watchlistItems.map((item) => item.corpCode),
-    [watchlistItems],
-  );
 
   if (isLoading) {
     return (
@@ -84,15 +80,10 @@ export default function WatchlistScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Star size={48} color={colors.textTertiary} weight="thin" />
-            <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.md }]}>
-              관심 기업이 없습니다
-            </Text>
-            <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
-              기업을 추가하여 공시 알림을 받아보세요
-            </Text>
-          </View>
+          <EmptyState
+            {...emptyStateCopy.watchlistEmpty}
+            onAction={() => setSearchVisible(true)}
+          />
         }
         renderItem={({ item }) => (
           <TouchableOpacity
@@ -135,11 +126,9 @@ export default function WatchlistScreen() {
         )}
       />
 
-      <CompanySearchModal
+      <SearchOverlay
         visible={searchVisible}
         onClose={() => setSearchVisible(false)}
-        existingCorpCodes={existingCorpCodes}
-        currentCount={total}
       />
     </SafeAreaView>
   );
@@ -151,10 +140,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    paddingTop: 60,
   },
   header: {
     flexDirection: 'row',

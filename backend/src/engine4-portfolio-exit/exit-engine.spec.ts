@@ -1,0 +1,664 @@
+/**
+ * exit-engine.spec.ts — M8 Exit Engine Fixture 테스트 (DAR-12)
+ *
+ * 실제 DB/AI 없이 순수 Rule 함수·도메인 로직만 검증.
+ * AI 금지영역: Exit Score·트리거·5액션 계산에 AI 개입 절대 금지.
+ */
+
+import {
+  scoreToAction,
+  calcLossRiskScore,
+  calcThesisBreakScore,
+  calcChartBreakScore,
+  calcTimeExceededScore,
+  calcOverweightScore,
+  calcPositiveMomentumBonus,
+  calculateExitScore,
+} from './domain/exit-score.calculator';
+import { ExitEngineService, IPositionProvider } from './services/exit-engine.service';
+import { InMemoryExitSignalRepository } from './repositories/in-memory-exit-signal.repository';
+import type {
+  PositionSnapshot,
+  TechnicalSnapshot,
+  ThesisSnapshot,
+  DisclosureEvent,
+} from './domain/exit-engine.types';
+
+// ─── Fixture helpers ─────────────────────────────────────────────────
+
+function makePosition(overrides: Partial<PositionSnapshot> = {}): PositionSnapshot {
+  return {
+    id: 'pos-001',
+    corpCode: '00126380',
+    stockCode: '005930',
+    entryPrice: 70000,
+    quantity: 10,
+    entryAmount: 700000,
+    currentPrice: 70000,
+    highestPrice: null,
+    stopLossPct: null,
+    takeProfitPct: null,
+    maxHoldDays: null,
+    entryDate: new Date(Date.now() - 2 * 86400000), // 2 days ago
+    // 10 * 70000 = 700000 = 7% of 10,000,000 — within default 10% limit
+    portfolioTotalValue: 10000000,
+    portfolioMaxSinglePositionPct: 10.0,
+    portfolioMaxSectorPct: 30.0,
+    portfolioMaxDailyLossPct: 2.0,
+    portfolioDailyLossPct: null,
+    ...overrides,
+  };
+}
+
+function makeTech(overrides: Partial<TechnicalSnapshot> = {}): TechnicalSnapshot {
+  return {
+    closePrice: 70000,
+    openPrice: 70000,
+    ma5: null,
+    ma20: null,
+    low20: null,
+    vwap: null,
+    atr14: null,
+    volumeRatio3d: null,
+    excessReturn5d: null,
+    avgVolumeRatio5d: null,
+    ...overrides,
+  };
+}
+
+function makeThesis(overrides: Partial<ThesisSnapshot> = {}): ThesisSnapshot {
+  return {
+    invalidConditions: [],
+    maxHoldDays: null,
+    ...overrides,
+  };
+}
+
+// ─── 1. scoreToAction — 5 thresholds ─────────────────────────────────
+
+describe('scoreToAction', () => {
+  it('score 0 → HOLD', () => {
+    expect(scoreToAction(0)).toBe('HOLD');
+  });
+
+  it('score 29 → HOLD', () => {
+    expect(scoreToAction(29)).toBe('HOLD');
+  });
+
+  it('score 30 → WATCH', () => {
+    expect(scoreToAction(30)).toBe('WATCH');
+  });
+
+  it('score 49 → WATCH', () => {
+    expect(scoreToAction(49)).toBe('WATCH');
+  });
+
+  it('score 50 → REDUCE', () => {
+    expect(scoreToAction(50)).toBe('REDUCE');
+  });
+
+  it('score 69 → REDUCE', () => {
+    expect(scoreToAction(69)).toBe('REDUCE');
+  });
+
+  it('score 70 → EXIT', () => {
+    expect(scoreToAction(70)).toBe('EXIT');
+  });
+
+  it('score 89 → EXIT', () => {
+    expect(scoreToAction(89)).toBe('EXIT');
+  });
+
+  it('score 90 → BLOCK_REBUY', () => {
+    expect(scoreToAction(90)).toBe('BLOCK_REBUY');
+  });
+
+  it('score 100 → BLOCK_REBUY', () => {
+    expect(scoreToAction(100)).toBe('BLOCK_REBUY');
+  });
+});
+
+// ─── 2. calcLossRiskScore ─────────────────────────────────────────────
+
+describe('calcLossRiskScore', () => {
+  it('stopLossPct triggered → score=20, triggered=true', () => {
+    const pos = makePosition({ entryPrice: 70000, stopLossPct: 8 });
+    const tech = makeTech({ closePrice: 64000 }); // -8.57% > -8%
+    const result = calcLossRiskScore(pos, tech);
+    expect(result.score).toBe(20);
+    expect(result.triggered).toBe(true);
+  });
+
+  it('stopLossPct exactly at threshold → triggered', () => {
+    const pos = makePosition({ entryPrice: 70000, stopLossPct: 8 });
+    const tech = makeTech({ closePrice: 70000 * (1 - 0.08) }); // exactly -8%
+    const result = calcLossRiskScore(pos, tech);
+    expect(result.score).toBe(20);
+    expect(result.triggered).toBe(true);
+  });
+
+  it('ATR stop triggered → score=15, triggered=true', () => {
+    const pos = makePosition({ entryPrice: 70000, stopLossPct: null });
+    // atrStop = 70000 - 1.5 * 2000 = 67000; currentPrice = 66000 < 67000
+    const tech = makeTech({ closePrice: 66000, atr14: 2000 });
+    const result = calcLossRiskScore(pos, tech);
+    expect(result.score).toBe(15);
+    expect(result.triggered).toBe(true);
+  });
+
+  it('no triggers → score=0, triggered=false (HOLD)', () => {
+    const pos = makePosition({ entryPrice: 70000, stopLossPct: 8 });
+    const tech = makeTech({ closePrice: 70000 }); // 0% change, no stop hit
+    const result = calcLossRiskScore(pos, tech);
+    expect(result.score).toBe(0);
+    expect(result.triggered).toBe(false);
+  });
+
+  it('portfolio daily loss limit exceeded → adds score', () => {
+    const pos = makePosition({
+      entryPrice: 70000,
+      stopLossPct: null,
+      portfolioMaxDailyLossPct: 2.0,
+      portfolioDailyLossPct: -2.5, // exceeded
+    });
+    const tech = makeTech({ closePrice: 70000, atr14: null });
+    const result = calcLossRiskScore(pos, tech);
+    expect(result.score).toBeGreaterThan(0);
+    expect(result.triggered).toBe(true);
+  });
+});
+
+// ─── 3. calcThesisBreakScore ──────────────────────────────────────────
+
+describe('calcThesisBreakScore', () => {
+  it('thesis=null → score=0, triggered=false', () => {
+    const result = calcThesisBreakScore(null, []);
+    expect(result.score).toBe(0);
+    expect(result.triggered).toBe(false);
+  });
+
+  it('empty invalidConditions → score=0, triggered=false', () => {
+    const thesis = makeThesis({ invalidConditions: [] });
+    const result = calcThesisBreakScore(thesis, []);
+    expect(result.score).toBe(0);
+    expect(result.triggered).toBe(false);
+  });
+
+  it('1 condition hit (_triggered=true) → score=16 (primary), triggered=true', () => {
+    const thesis = makeThesis({
+      invalidConditions: [{ type: 'PRICE_BELOW', value: 50000, _triggered: true }],
+    });
+    const result = calcThesisBreakScore(thesis, []);
+    // primaryTriggered → max(8, 16) = 16
+    expect(result.score).toBe(16);
+    expect(result.triggered).toBe(true);
+  });
+
+  it('2 conditions hit → score=14', () => {
+    const thesis = makeThesis({
+      invalidConditions: [
+        { type: 'STOP_LOSS_PCT', value: 8 }, // not evaluated here
+        { type: 'PRICE_BELOW', value: 50000, _triggered: true },
+        { type: 'VOLUME_COLLAPSE', threshold: 0.3, _triggered: true },
+      ],
+    });
+    const result = calcThesisBreakScore(thesis, []);
+    // 2 hit (PRICE_BELOW + VOLUME_COLLAPSE), first hit is PRICE_BELOW which is isFirst=false (STOP_LOSS_PCT is first)
+    // so primaryTriggered=false, triggeredCount=2 → score=14
+    expect(result.score).toBe(14);
+    expect(result.triggered).toBe(true);
+  });
+
+  it('3 conditions hit → score=20', () => {
+    const thesis = makeThesis({
+      invalidConditions: [
+        { type: 'PRICE_BELOW', value: 50000, _triggered: true },
+        { type: 'VOLUME_COLLAPSE', threshold: 0.3, _triggered: true },
+        { type: 'THESIS_METRIC_BREACH', metric: 'rsi14', threshold: 80, _triggered: true },
+      ],
+    });
+    const result = calcThesisBreakScore(thesis, []);
+    expect(result.score).toBe(20);
+    expect(result.triggered).toBe(true);
+  });
+
+  it('AMENDMENT_NEGATIVE condition + matching disclosure event → hit', () => {
+    const thesis = makeThesis({
+      invalidConditions: [{ type: 'AMENDMENT_NEGATIVE' }],
+    });
+    const events: DisclosureEvent[] = [
+      { type: 'AMENDMENT_NEGATIVE', rcpNo: 'RCP001' },
+    ];
+    const result = calcThesisBreakScore(thesis, events);
+    expect(result.triggered).toBe(true);
+    expect(result.score).toBeGreaterThan(0);
+  });
+
+  it('primary condition (first) hit → score = max(base, 16)', () => {
+    const thesis = makeThesis({
+      invalidConditions: [
+        { type: 'PRICE_BELOW', value: 50000, _triggered: true }, // first → primaryTriggered
+      ],
+    });
+    const result = calcThesisBreakScore(thesis, []);
+    // triggeredCount=1 → base=8, primaryTriggered → max(8,16)=16
+    expect(result.score).toBe(16);
+  });
+});
+
+// ─── 4. calcChartBreakScore ───────────────────────────────────────────
+
+describe('calcChartBreakScore', () => {
+  it('all chart signals active → score capped at 20', () => {
+    const tech = makeTech({
+      closePrice: 60000,
+      openPrice: 65000, // -7.7% drop
+      ma5: 65000,       // below ma5: +6
+      ma20: 63000,      // below ma20: +10
+      vwap: 62000,      // below vwap: +4
+      low20: 61000,     // below low20: +8
+    });
+    const result = calcChartBreakScore(tech);
+    expect(result.score).toBe(20); // capped
+    expect(result.triggered).toBe(true);
+  });
+
+  it('no triggers → score=0, triggered=false', () => {
+    const tech = makeTech({
+      closePrice: 70000,
+      openPrice: 69000,
+      ma5: 68000,  // above → no trigger
+      ma20: 65000, // above → no trigger
+      vwap: 66000, // above → no trigger
+      low20: 64000, // above → no trigger
+    });
+    const result = calcChartBreakScore(tech);
+    expect(result.score).toBe(0);
+    expect(result.triggered).toBe(false);
+  });
+
+  it('below ma5 only → score=6', () => {
+    const tech = makeTech({
+      closePrice: 67000,
+      openPrice: 67500, // -0.74% drop — not enough
+      ma5: 68000, // below: +6
+      ma20: null,
+      vwap: null,
+      low20: null,
+    });
+    const result = calcChartBreakScore(tech);
+    expect(result.score).toBe(6);
+    expect(result.triggered).toBe(true);
+  });
+
+  it('below ma20 only → score=10', () => {
+    const tech = makeTech({
+      closePrice: 62000,
+      openPrice: null,
+      ma5: null,
+      ma20: 63000, // below: +10
+      vwap: null,
+      low20: null,
+    });
+    const result = calcChartBreakScore(tech);
+    expect(result.score).toBe(10);
+    expect(result.triggered).toBe(true);
+  });
+
+  it('candle drop -3% or more → +6', () => {
+    const tech = makeTech({
+      closePrice: 66000,
+      openPrice: 70000, // -5.7% drop
+      ma5: null,
+      ma20: null,
+      vwap: null,
+      low20: null,
+    });
+    const result = calcChartBreakScore(tech);
+    expect(result.score).toBe(6);
+    expect(result.triggered).toBe(true);
+  });
+});
+
+// ─── 5. calcTimeExceededScore ─────────────────────────────────────────
+
+describe('calcTimeExceededScore', () => {
+  it('maxHoldDays exceeded via thesis → score>=8', () => {
+    const pos = makePosition({
+      entryDate: new Date(Date.now() - 30 * 86400000), // 30 days ago
+      maxHoldDays: null,
+    });
+    const thesis = makeThesis({ maxHoldDays: 10 }); // exceeded
+    const tech = makeTech();
+    const result = calcTimeExceededScore(pos, thesis, tech);
+    expect(result.score).toBeGreaterThanOrEqual(8);
+    expect(result.triggered).toBe(true);
+  });
+
+  it('maxHoldDays exceeded via position → score>=8', () => {
+    const pos = makePosition({
+      entryDate: new Date(Date.now() - 30 * 86400000), // 30 days ago
+      maxHoldDays: 10,
+    });
+    const thesis = makeThesis({ maxHoldDays: null });
+    const tech = makeTech();
+    const result = calcTimeExceededScore(pos, thesis, tech);
+    expect(result.score).toBeGreaterThanOrEqual(8);
+    expect(result.triggered).toBe(true);
+  });
+
+  it('no thesis maxHoldDays, no position maxHoldDays → score=0 if recent', () => {
+    const pos = makePosition({
+      entryDate: new Date(), // just now
+      maxHoldDays: null,
+    });
+    const thesis = makeThesis({ maxHoldDays: null });
+    const tech = makeTech({ excessReturn5d: null, avgVolumeRatio5d: null });
+    const result = calcTimeExceededScore(pos, thesis, tech);
+    expect(result.score).toBe(0);
+    expect(result.triggered).toBe(false);
+  });
+
+  it('score capped at 10', () => {
+    const pos = makePosition({
+      entryDate: new Date(Date.now() - 60 * 86400000),
+      maxHoldDays: 1,
+    });
+    const thesis = makeThesis({ maxHoldDays: 1 });
+    const tech = makeTech({
+      excessReturn5d: -5, // negative → +4
+      avgVolumeRatio5d: 0.3, // < 0.5 → +2
+    });
+    const result = calcTimeExceededScore(pos, thesis, tech);
+    expect(result.score).toBeLessThanOrEqual(10);
+  });
+});
+
+// ─── 6. calcOverweightScore ───────────────────────────────────────────
+
+describe('calcOverweightScore', () => {
+  it('position within limit → score=0, triggered=false', () => {
+    // 10 * 70000 = 700000; pct = 7% of 10,000,000 < 10% limit
+    const pos = makePosition({
+      currentPrice: 70000,
+      quantity: 10,
+      portfolioTotalValue: 10000000,
+      portfolioMaxSinglePositionPct: 10.0,
+    });
+    const result = calcOverweightScore(pos);
+    expect(result.score).toBe(0);
+    expect(result.triggered).toBe(false);
+  });
+
+  it('position overweight → score > 0, triggered=true', () => {
+    // 70000 * 10 = 700000; pct = 70% of 1,000,000 → far exceeds 10% limit
+    const pos = makePosition({
+      currentPrice: 70000,
+      quantity: 10,
+      portfolioTotalValue: 1000000,
+      portfolioMaxSinglePositionPct: 10.0,
+    });
+    const result = calcOverweightScore(pos);
+    expect(result.score).toBeGreaterThan(0);
+    expect(result.triggered).toBe(true);
+  });
+
+  it('portfolioTotalValue=0 → score=0', () => {
+    const pos = makePosition({ portfolioTotalValue: 0 });
+    const result = calcOverweightScore(pos);
+    expect(result.score).toBe(0);
+    expect(result.triggered).toBe(false);
+  });
+});
+
+// ─── 7. calcPositiveMomentumBonus ────────────────────────────────────
+
+describe('calcPositiveMomentumBonus', () => {
+  it('strong excess return > 5% + high volume → max bonus 14', () => {
+    const tech = makeTech({
+      excessReturn5d: 7,
+      volumeRatio3d: 2.0, // > 1.5
+    });
+    const bonus = calcPositiveMomentumBonus(tech);
+    // 8 (excessReturn > 5) + 6 (volumeRatio > 1.5) = 14
+    expect(bonus).toBe(14);
+  });
+
+  it('moderate excess return 2~5% → +4', () => {
+    const tech = makeTech({
+      excessReturn5d: 3,
+      volumeRatio3d: null,
+    });
+    const bonus = calcPositiveMomentumBonus(tech);
+    expect(bonus).toBe(4);
+  });
+
+  it('no momentum → bonus=0', () => {
+    const tech = makeTech({
+      excessReturn5d: -1,
+      volumeRatio3d: 1.0,
+    });
+    const bonus = calcPositiveMomentumBonus(tech);
+    expect(bonus).toBe(0);
+  });
+
+  it('bonus capped at 20', () => {
+    const tech = makeTech({
+      excessReturn5d: 100,
+      volumeRatio3d: 10,
+    });
+    const bonus = calcPositiveMomentumBonus(tech);
+    expect(bonus).toBeLessThanOrEqual(20);
+  });
+});
+
+// ─── 8. calculateExitScore (integration) ─────────────────────────────
+
+describe('calculateExitScore integration', () => {
+  it('all clear (no triggers) → HOLD action, exitScore < 30', () => {
+    const pos = makePosition({
+      entryPrice: 70000,
+      currentPrice: 72000,
+      stopLossPct: null,
+    });
+    const tech = makeTech({
+      closePrice: 72000,
+      openPrice: 71000,
+      ma5: 70000, // above ma5 — no trigger
+      ma20: 68000, // above ma20
+      excessReturn5d: 3, // positive
+      volumeRatio3d: 1.8, // high volume bonus
+    });
+    const thesis = makeThesis();
+    const result = calculateExitScore(pos, tech, thesis, []);
+    expect(result.exitAction).toBe('HOLD');
+    expect(result.exitScore).toBeLessThan(30);
+    expect(result.triggerTypes).toHaveLength(0);
+    expect(result.primaryTrigger).toBeNull();
+  });
+
+  it('stop loss hit → EXIT action, STOP_LOSS in triggerTypes', () => {
+    const pos = makePosition({
+      entryPrice: 70000,
+      currentPrice: 63000, // -10% > -8% stop
+      stopLossPct: 8,
+    });
+    const tech = makeTech({ closePrice: 63000, openPrice: 63500 });
+    const thesis = makeThesis();
+    const result = calculateExitScore(pos, tech, thesis, []);
+    expect(result.triggerTypes).toContain('STOP_LOSS');
+    expect(['EXIT', 'BLOCK_REBUY']).toContain(result.exitAction);
+  });
+
+  it('thesis invalidated (disclosure) → THESIS_INVALIDATED in triggerTypes', () => {
+    const pos = makePosition();
+    const tech = makeTech({ closePrice: 70000, openPrice: 70000 });
+    const thesis = makeThesis({
+      invalidConditions: [{ type: 'AMENDMENT_NEGATIVE' }],
+    });
+    const events: DisclosureEvent[] = [
+      { type: 'AMENDMENT_NEGATIVE', rcpNo: 'RCP001' },
+    ];
+    const result = calculateExitScore(pos, tech, thesis, events);
+    expect(result.triggerTypes).toContain('THESIS_INVALIDATED');
+  });
+
+  it('exitScore = max(0, raw) — clamp to [0, 100]', () => {
+    const pos = makePosition();
+    const tech = makeTech({
+      excessReturn5d: 100, // massive bonus
+      volumeRatio3d: 10,
+    });
+    const result = calculateExitScore(pos, tech, makeThesis(), []);
+    expect(result.exitScore).toBeGreaterThanOrEqual(0);
+    expect(result.exitScore).toBeLessThanOrEqual(100);
+  });
+
+  it('components sum matches exitScore (clamped, no hard-stop override)', () => {
+    // No stopLossPct set — no hard override. Only chart signals fire.
+    const pos = makePosition({
+      entryPrice: 70000,
+      currentPrice: 62000,
+      stopLossPct: null, // no hard stop override
+    });
+    const tech = makeTech({
+      closePrice: 62000,
+      openPrice: 65000, // -4.6% drop → +6 chart
+      ma5: 65000,       // below ma5 → +6
+      ma20: 63000,      // below ma20 → +10
+      vwap: 64000,      // below vwap → +4
+      low20: null,
+    });
+    const result = calculateExitScore(pos, tech, makeThesis(), []);
+    const { components } = result;
+    const rawExpected =
+      components.lossRiskScore +
+      components.thesisBreakScore +
+      components.chartBreakScore +
+      components.disclosureRiskScore +
+      components.overweightScore +
+      components.timeExceededScore -
+      components.positiveMomentumBonus;
+    // When lossRiskScore < 20 (no hard override), exitScore = clamped rawScore
+    expect(result.exitScore).toBe(Math.max(0, Math.min(100, rawExpected)));
+  });
+});
+
+// ─── 9. Thesis-driven exit ────────────────────────────────────────────
+
+describe('thesis-driven exit', () => {
+  it('thesis invalidCondition _triggered=true → THESIS_INVALIDATED in triggerTypes and action >= WATCH', () => {
+    const pos = makePosition({ currentPrice: 70000 });
+    const tech = makeTech({ closePrice: 70000, openPrice: 70000 });
+    const thesis = makeThesis({
+      invalidConditions: [
+        { type: 'PRICE_BELOW', value: 50000, _triggered: true },
+        { type: 'VOLUME_COLLAPSE', threshold: 0.3, _triggered: true },
+        { type: 'THESIS_METRIC_BREACH', metric: 'rsi14', threshold: 80, _triggered: true },
+      ],
+    });
+    const result = calculateExitScore(pos, tech, thesis, []);
+    expect(result.triggerTypes).toContain('THESIS_INVALIDATED');
+    expect(['WATCH', 'REDUCE', 'EXIT', 'BLOCK_REBUY']).toContain(result.exitAction);
+  });
+
+  it('thesis with _triggered=true + stop loss → EXIT or BLOCK_REBUY', () => {
+    const pos = makePosition({
+      entryPrice: 70000,
+      currentPrice: 63000, // -10%, stop loss
+      stopLossPct: 8,
+    });
+    const tech = makeTech({ closePrice: 63000, openPrice: 63500 });
+    const thesis = makeThesis({
+      invalidConditions: [
+        { type: 'PRICE_BELOW', value: 50000, _triggered: true },
+      ],
+    });
+    const result = calculateExitScore(pos, tech, thesis, []);
+    expect(result.triggerTypes).toContain('STOP_LOSS');
+    expect(result.triggerTypes).toContain('THESIS_INVALIDATED');
+    expect(['EXIT', 'BLOCK_REBUY']).toContain(result.exitAction);
+  });
+});
+
+// ─── 10. ExitEngineService ────────────────────────────────────────────
+
+describe('ExitEngineService', () => {
+  function makeProvider(
+    positions: PositionSnapshot[] = [],
+    tech: TechnicalSnapshot = makeTech(),
+    thesis: ThesisSnapshot | null = null,
+    events: DisclosureEvent[] = [],
+  ): IPositionProvider {
+    return {
+      getOpenPositions: async () => positions,
+      getTechnicalSnapshot: async () => tech,
+      getThesisSnapshot: async () => thesis,
+      getDisclosureEvents: async () => events,
+    };
+  }
+
+  it('checkPosition saves to repository and returns result', async () => {
+    const repo = new InMemoryExitSignalRepository();
+    const pos = makePosition();
+    const provider = makeProvider();
+    const service = new ExitEngineService(provider, repo);
+
+    const result = await service.checkPosition(pos, 'POST_MARKET');
+    expect(result).toBeDefined();
+    expect(result.exitScore).toBeGreaterThanOrEqual(0);
+    expect(result.exitAction).toBe('HOLD');
+
+    const saved = await repo.findLatestByPositionId(pos.id);
+    expect(saved).not.toBeNull();
+    expect(saved!.exitScore).toBe(result.exitScore);
+    expect(saved!.exitAction).toBe(result.exitAction);
+
+    repo.clear();
+  });
+
+  it('checkAllPositions processes all open positions', async () => {
+    const repo = new InMemoryExitSignalRepository();
+    const positions = [
+      makePosition({ id: 'pos-A', stockCode: '005930' }),
+      makePosition({ id: 'pos-B', stockCode: '035720' }),
+    ];
+    const provider = makeProvider(positions);
+    const service = new ExitEngineService(provider, repo);
+
+    const results = await service.checkAllPositions('PRE_MARKET');
+    expect(results).toHaveLength(2);
+
+    const savedA = await repo.findLatestByPositionId('pos-A');
+    const savedB = await repo.findLatestByPositionId('pos-B');
+    expect(savedA).not.toBeNull();
+    expect(savedB).not.toBeNull();
+
+    repo.clear();
+  });
+
+  it('findLatestByPositionId returns null for unknown position', async () => {
+    const repo = new InMemoryExitSignalRepository();
+    const result = await repo.findLatestByPositionId('nonexistent');
+    expect(result).toBeNull();
+  });
+
+  it('stop loss position → EXIT saved to repo', async () => {
+    const repo = new InMemoryExitSignalRepository();
+    const pos = makePosition({
+      entryPrice: 70000,
+      currentPrice: 63000,
+      stopLossPct: 8,
+    });
+    const tech = makeTech({ closePrice: 63000, openPrice: 63500 });
+    const provider = makeProvider([pos], tech);
+    const service = new ExitEngineService(provider, repo);
+
+    await service.checkAllPositions('POST_MARKET');
+    const saved = await repo.findLatestByPositionId(pos.id);
+    expect(saved).not.toBeNull();
+    expect(['EXIT', 'BLOCK_REBUY']).toContain(saved!.exitAction);
+
+    repo.clear();
+  });
+});

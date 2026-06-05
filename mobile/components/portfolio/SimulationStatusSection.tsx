@@ -1,0 +1,240 @@
+import React, { useCallback } from 'react';
+import { View, Text, FlatList, StyleSheet } from 'react-native';
+import { Surface, Banner } from 'react-native-paper';
+import { useTheme } from '@theme';
+import { spacing, radius } from '@theme/spacing';
+import { PriceChangeChip } from '@components/common/PriceChangeChip';
+import { EmptyState, ErrorState } from '@components/common/StateView';
+import { SkeletonList } from '@components/common/SkeletonCard';
+import { AppRefreshControl } from '@components/common/AppRefreshControl';
+import { useSimulationStatus } from '@hooks/useSimulationStatus';
+
+import type { SimPosition, SimulationMetrics } from '@app-types/simulation.types';
+
+// 모의운용(서버 시뮬) 현황 섹션 — DAR-42.
+// 서버가 일일 사이클로 처리한 모의운용 결과(평가금액·보유 포지션·졸업지표)를 준실시간(45s 폴링) 표시.
+// 테마 토큰만 사용·하드코딩 색상 0·접근성 라벨. AI 지표는 참고정보(면책 유지).
+
+/** 적중률/정확도(0~1) 표시 — 표본 없으면 '표본 부족'(정직 표기) */
+function formatRate(value: number | null): string {
+  return value === null ? '표본 부족' : `${Math.round(value * 100)}%`;
+}
+
+/** AI비용/순익 비율 — 순익 ≤ 0이면 측정 불가 */
+function formatRatio(value: number | null): string {
+  return value === null ? '측정 불가' : value.toFixed(2);
+}
+
+interface MetricRowProps {
+  label: string;
+  value: string;
+  sub?: string;
+}
+
+function MetricRow({ label, value, sub }: MetricRowProps) {
+  const { colors, typography: typo } = useTheme();
+  return (
+    <View
+      style={styles.metricRow}
+      accessibilityRole="text"
+      accessibilityLabel={`${label} ${value}${sub ? ` ${sub}` : ''}`}
+    >
+      <Text style={[typo.small, { color: colors.textSecondary }]}>{label}</Text>
+      <Text style={[typo.captionMedium, { color: colors.text }]}>
+        {value}
+        {sub ? <Text style={[typo.small, { color: colors.textTertiary }]}>{`  ${sub}`}</Text> : null}
+      </Text>
+    </View>
+  );
+}
+
+function PositionRow({ item }: { item: SimPosition }) {
+  const { colors, typography: typo } = useTheme();
+  const name = item.corpName ?? item.stockCode;
+  return (
+    <Surface
+      elevation={1}
+      style={[styles.positionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+    >
+      <View style={styles.positionTop}>
+        <View style={styles.positionNameBox}>
+          <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
+            {name}
+          </Text>
+          <Text style={[typo.small, { color: colors.textSecondary }]}>
+            {item.quantity.toLocaleString('ko-KR')}주
+          </Text>
+        </View>
+        <PriceChangeChip value={item.unrealizedPnlPct} amount={item.unrealizedPnl} />
+      </View>
+      <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+        평가금액 {Math.round(item.currentValue).toLocaleString('ko-KR')}원
+      </Text>
+    </Surface>
+  );
+}
+
+function SummaryHeader({
+  equity,
+  initialCapital,
+  metrics,
+  latestSnapshotDate,
+}: {
+  equity: number;
+  initialCapital: number;
+  metrics: SimulationMetrics;
+  latestSnapshotDate: string | null;
+}) {
+  const { colors, typography: typo } = useTheme();
+  return (
+    <View style={styles.headerBox}>
+      <Banner
+        visible
+        actions={[]}
+        icon="flask"
+        style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}
+      >
+        <Text style={[typo.small, { color: colors.info }]}>
+          모의운용 — 실제 주문이 아닙니다. 졸업지표·AI 분석은 참고용입니다.
+        </Text>
+      </Banner>
+
+      <Surface
+        elevation={1}
+        style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}
+      >
+        <Text style={[typo.small, { color: colors.textSecondary }]}>모의 평가금액</Text>
+        <Text style={[typo.h2, { color: colors.text, marginTop: spacing.xs }]}>
+          {Math.round(equity).toLocaleString('ko-KR')}원
+        </Text>
+        <View style={styles.summaryChipRow}>
+          <PriceChangeChip value={metrics.cumulativeReturnPct} amount={metrics.netPnl} />
+        </View>
+        <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
+          초기 가상원금 {initialCapital.toLocaleString('ko-KR')}원
+          {latestSnapshotDate ? `  ·  기준일 ${latestSnapshotDate}` : ''}
+        </Text>
+      </Surface>
+
+      <Surface
+        elevation={1}
+        style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}
+      >
+        <Text style={[typo.captionMedium, { color: colors.text, marginBottom: spacing.xs }]}>
+          졸업지표 요약
+        </Text>
+        <MetricRow
+          label="신호 적중률(D+5)"
+          value={formatRate(metrics.hitRateD5)}
+          sub={`n=${metrics.hitRateSampleSize}`}
+        />
+        <MetricRow
+          label="누적 수익률"
+          value={`${metrics.cumulativeReturnPct >= 0 ? '+' : ''}${metrics.cumulativeReturnPct.toFixed(2)}%`}
+        />
+        <MetricRow
+          label="Exit 정확도(D+3)"
+          value={formatRate(metrics.exitAccuracyD3)}
+          sub={`n=${metrics.exitAccuracySampleSize}`}
+        />
+        <MetricRow label="AI비용/순익" value={formatRatio(metrics.aiCostToNetPnlRatio)} />
+      </Surface>
+
+      <Text style={[typo.captionMedium, { color: colors.text, marginTop: spacing.sm }]}>
+        보유 포지션
+      </Text>
+    </View>
+  );
+}
+
+export function SimulationStatusSection() {
+  const { colors } = useTheme();
+  const query = useSimulationStatus();
+
+  const renderPosition = useCallback(
+    ({ item }: { item: SimPosition }) => <PositionRow item={item} />,
+    [],
+  );
+
+  if (query.isLoading) return <SkeletonList variant="buyScore" />;
+  if (query.isError) {
+    return <ErrorState title="모의운용 현황을 불러오지 못했습니다." onRetry={query.refetch} />;
+  }
+
+  const status = query.data;
+
+  return (
+    <FlatList
+      data={status?.positions ?? []}
+      renderItem={renderPosition}
+      keyExtractor={(item) => `${item.corpCode}-${item.stockCode}`}
+      contentContainerStyle={styles.listContent}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <AppRefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} />
+      }
+      ListHeaderComponent={
+        status ? (
+          <SummaryHeader
+            equity={status.equity}
+            initialCapital={status.initialCapital}
+            metrics={status.metrics}
+            latestSnapshotDate={status.latestSnapshotDate}
+          />
+        ) : null
+      }
+      ListEmptyComponent={
+        <EmptyState
+          icon="inbox"
+          title="아직 BUY 신호 없음"
+          description="매수 후보가 생기면 모의운용에 자동 반영됩니다."
+        />
+      }
+      style={{ backgroundColor: colors.background }}
+    />
+  );
+}
+
+const styles = StyleSheet.create({
+  listContent: {
+    padding: spacing.lg,
+    gap: spacing.md,
+    flexGrow: 1,
+  },
+  headerBox: {
+    gap: spacing.md,
+  },
+  banner: {
+    borderRadius: radius.md,
+  },
+  summary: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.base,
+  },
+  summaryChipRow: {
+    flexDirection: 'row',
+    marginTop: spacing.sm,
+  },
+  metricRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+  },
+  positionCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.base,
+  },
+  positionTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  positionNameBox: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+});

@@ -100,7 +100,9 @@ describe('PaperSimulationService.runDailyCycle (실 Postgres 통합)', () => {
       const exitSignals = positions.length
         ? await tx.exitSignal.findMany({ where: { positionId: positions[0].id } })
         : [];
-      return { result, positions, paperTrades, snapshots, exitSignals };
+      // DAR-42: 모바일 표시용 status 응답(보유 포지션 상세 포함)도 같은 tx 로 검증
+      const status = await svc.getSimulationStatus();
+      return { result, positions, paperTrades, snapshots, exitSignals, status };
     });
 
     // 매수: Position 1 + BUY PaperTrade 1 (슬리피지 반영)
@@ -125,6 +127,16 @@ describe('PaperSimulationService.runDailyCycle (실 Postgres 통합)', () => {
     expect(out.result.metrics.exitAccuracyD3).toBeNull();
     expect(out.result.openPositions).toBe(1);
     expect(typeof out.result.equity).toBe('number');
+
+    // DAR-42 status: 보유 포지션 상세(종목·수량·평가손익)·청산수·초기원금 반영
+    expect(out.status.openPositionCount).toBe(1);
+    expect(out.status.positions).toHaveLength(1);
+    expect(out.status.positions[0].corpName).toBe('DAR40모의운용사');
+    expect(out.status.positions[0].stockCode).toBe('404040');
+    expect(out.status.positions[0].quantity).toBeGreaterThan(0);
+    expect(out.status.positions[0].currentValue).toBeGreaterThan(0);
+    expect(out.status.closedPositions).toBe(0);
+    expect(out.status.initialCapital).toBe(10_000_000);
   });
 
   it('BUY 후보 없으면 매수 0 — 빈 사이클도 안전', async () => {

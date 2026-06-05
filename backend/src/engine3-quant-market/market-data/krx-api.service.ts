@@ -122,7 +122,7 @@ export class KrxApiService {
         headers: this.buildHeaders(),
       });
 
-      const rows = data?.OutBlock1 ?? data?.output1 ?? [];
+      const rows = data?.['OutBlock_1'] ?? data?.OutBlock1 ?? data?.output1 ?? [];
       return rows.map((r: Record<string, string>) => ({
         stockCode: r['ISU_CD'] ?? r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '',
         isuAbbrv: r['ISU_NM'] ?? r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '',
@@ -155,7 +155,7 @@ export class KrxApiService {
         headers: this.buildHeaders(),
       });
 
-      const rows = data?.OutBlock1 ?? data?.output1 ?? [];
+      const rows = data?.['OutBlock_1'] ?? data?.OutBlock1 ?? data?.output1 ?? [];
       return rows.map((r: Record<string, string>) => ({
         stockCode: r['ISU_CD'] ?? r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '',
         isuAbbrv: r['ISU_NM'] ?? r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '',
@@ -193,7 +193,7 @@ export class KrxApiService {
         headers: this.buildHeaders(),
       });
 
-      const rows = data?.OutBlock1 ?? data?.output1 ?? [];
+      const rows = data?.['OutBlock_1'] ?? data?.OutBlock1 ?? data?.output1 ?? [];
       return rows.map((r: Record<string, string>) => ({
         indexCode,
         indexName,
@@ -201,8 +201,8 @@ export class KrxApiService {
         highIndex: this.parseFloat(r['HGPRC_IDX'] ?? r['hgprcIdx'] ?? '0'),
         lowIndex: this.parseFloat(r['LWPRC_IDX'] ?? r['lwprcIdx'] ?? '0'),
         closeIndex: this.parseFloat(r['CLSPRC_IDX'] ?? r['clsprcIdx'] ?? '0'),
-        volume: this.parseNum(r['ACML_VOL'] ?? r['acmlVol'] ?? '0'),
-        tradingValue: this.parseNum(r['ACML_TRAD_PBMN'] ?? r['acmlTradPbmn'] ?? '0'),
+        volume: this.parseNum(r['ACC_TRDVOL'] ?? r['ACML_VOL'] ?? r['acmlVol'] ?? '0'),
+        tradingValue: this.parseNum(r['ACC_TRDVAL'] ?? r['ACML_TRAD_PBMN'] ?? r['acmlTradPbmn'] ?? '0'),
       }));
     } catch (e) {
       if (e instanceof KrxApiUnavailableError) throw e;
@@ -223,10 +223,10 @@ export class KrxApiService {
         headers: this.buildHeaders(),
       });
 
-      const rows = data?.OutBlock1 ?? data?.output1 ?? [];
+      const rows = data?.['OutBlock_1'] ?? data?.OutBlock1 ?? data?.output1 ?? [];
       return rows.map((r: Record<string, string>) => ({
-        stockCode: r['ISU_CD'] ?? r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '',
-        stockName: r['ISU_NM'] ?? r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '',
+        stockCode: r['ISU_SRT_CD'] ?? r['ISU_CD'] ?? r['MKSC_SHRN_ISCD'] ?? '',
+        stockName: r['ISU_ABBRV'] ?? r['ISU_NM'] ?? r['isuAbbrv'] ?? '',
         marketType: 'KOSPI' as const,
         // TODO: isManagement, isHalted — 실응답 필드명 확인 후 매핑 (KRX 승인 후)
       }));
@@ -249,10 +249,10 @@ export class KrxApiService {
         headers: this.buildHeaders(),
       });
 
-      const rows = data?.OutBlock1 ?? data?.output1 ?? [];
+      const rows = data?.['OutBlock_1'] ?? data?.OutBlock1 ?? data?.output1 ?? [];
       return rows.map((r: Record<string, string>) => ({
-        stockCode: r['ISU_CD'] ?? r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '',
-        stockName: r['ISU_NM'] ?? r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '',
+        stockCode: r['ISU_SRT_CD'] ?? r['ISU_CD'] ?? r['MKSC_SHRN_ISCD'] ?? '',
+        stockName: r['ISU_ABBRV'] ?? r['ISU_NM'] ?? r['isuAbbrv'] ?? '',
         marketType: 'KOSDAQ' as const,
         // TODO: isManagement, isHalted — 실응답 필드명 확인 후 매핑 (KRX 승인 후)
       }));

@@ -274,7 +274,7 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
   }
 
   function mockOutBlock1(rows: Record<string, string>[]) {
-    return jest.fn().mockResolvedValue({ data: { OutBlock1: rows } });
+    return jest.fn().mockResolvedValue({ data: { 'OutBlock_1': rows } });
   }
 
   it('fetchStockDaily — sto/stk_bydd_trd 호출·파싱 (실제 필드명 ISU_CD/ISU_NM/ACC_TRDVOL/ACC_TRDVAL)', async () => {
@@ -327,7 +327,7 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
 
   it('fetchIndexDaily KOSPI — idx/kospi_dd_trd 호출', async () => {
     const axiosGet = mockOutBlock1([
-      { CLSPRC_IDX: '2,720.50', OPNPRC_IDX: '2,700.00', HGPRC_IDX: '2,750.00', LWPRC_IDX: '2,680.00', ACML_VOL: '500,000,000', ACML_TRAD_PBMN: '10,000,000,000,000' },
+      { CLSPRC_IDX: '2,720.50', OPNPRC_IDX: '2,700.00', HGPRC_IDX: '2,750.00', LWPRC_IDX: '2,680.00', ACC_TRDVOL: '500,000,000', ACC_TRDVAL: '10,000,000,000,000' },
     ]);
     const krx = makeRealKrxWithAxiosMock(axiosGet);
 
@@ -338,11 +338,12 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
       expect.any(Object),
     );
     expect(rows[0].closeIndex).toBeCloseTo(2720.5, 1);
+    expect(rows[0].volume).toBe(500_000_000);
   });
 
   it('fetchIndexDaily KOSDAQ — idx/kosdaq_dd_trd 호출', async () => {
     const axiosGet = mockOutBlock1([
-      { CLSPRC_IDX: '850.25', OPNPRC_IDX: '840.00', HGPRC_IDX: '855.00', LWPRC_IDX: '838.00', ACML_VOL: '1,000,000,000', ACML_TRAD_PBMN: '5,000,000,000,000' },
+      { CLSPRC_IDX: '850.25', OPNPRC_IDX: '840.00', HGPRC_IDX: '855.00', LWPRC_IDX: '838.00', ACC_TRDVOL: '1,000,000,000', ACC_TRDVAL: '5,000,000,000,000' },
     ]);
     const krx = makeRealKrxWithAxiosMock(axiosGet);
 
@@ -355,10 +356,10 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
     expect(rows[0].closeIndex).toBeCloseTo(850.25, 2);
   });
 
-  it('fetchStkIsuBaseInfo — sto/stk_isu_base_info 호출·파싱 (실제 필드명 ISU_CD/ISU_NM)', async () => {
+  it('fetchStkIsuBaseInfo — sto/stk_isu_base_info 호출·파싱 (실제 필드명 ISU_SRT_CD/ISU_ABBRV)', async () => {
     const axiosGet = mockOutBlock1([
-      { ISU_CD: '005930', ISU_NM: '삼성전자' },
-      { ISU_CD: '000660', ISU_NM: 'SK하이닉스' },
+      { ISU_CD: 'KR7005930003', ISU_SRT_CD: '005930', ISU_NM: '삼성전자보통주', ISU_ABBRV: '삼성전자' },
+      { ISU_CD: 'KR7000660001', ISU_SRT_CD: '000660', ISU_NM: 'SK하이닉스보통주', ISU_ABBRV: 'SK하이닉스' },
     ]);
     const krx = makeRealKrxWithAxiosMock(axiosGet);
 
@@ -370,13 +371,14 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
     );
     expect(result).toHaveLength(2);
     expect(result[0].stockCode).toBe('005930');
+    expect(result[0].stockName).toBe('삼성전자');
     expect(result[0].marketType).toBe('KOSPI');
     expect(result[1].stockCode).toBe('000660');
   });
 
   it('fetchKsqIsuBaseInfo — sto/ksq_isu_base_info 호출·파싱 (실제 필드명)', async () => {
     const axiosGet = mockOutBlock1([
-      { ISU_CD: '035720', ISU_NM: '카카오' },
+      { ISU_CD: 'KR7035720002', ISU_SRT_CD: '035720', ISU_NM: '카카오보통주', ISU_ABBRV: '카카오' },
     ]);
     const krx = makeRealKrxWithAxiosMock(axiosGet);
 
@@ -393,8 +395,8 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
 
   it('fetchStockStatus — isu_mrktact_info 사용 안 함, stk/ksq_isu_base_info 사용', async () => {
     const axiosGet = jest.fn()
-      .mockResolvedValueOnce({ data: { OutBlock1: [{ ISU_CD: '005930', ISU_NM: '삼성전자' }] } })
-      .mockResolvedValueOnce({ data: { OutBlock1: [{ ISU_CD: '035720', ISU_NM: '카카오' }] } });
+      .mockResolvedValueOnce({ data: { 'OutBlock_1': [{ ISU_CD: 'KR7005930003', ISU_SRT_CD: '005930', ISU_NM: '삼성전자보통주', ISU_ABBRV: '삼성전자' }] } })
+      .mockResolvedValueOnce({ data: { 'OutBlock_1': [{ ISU_CD: 'KR7035720002', ISU_SRT_CD: '035720', ISU_NM: '카카오보통주', ISU_ABBRV: '카카오' }] } });
     const krx = makeRealKrxWithAxiosMock(axiosGet);
 
     const statuses = await krx.fetchStockStatus('20260604');

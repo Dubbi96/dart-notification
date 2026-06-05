@@ -97,7 +97,7 @@ async function main(): Promise<void> {
 
     printInfo(`응답 최상위 키: ${Object.keys(data).join(', ')}`);
 
-    const rows: RawRow[] = data?.OutBlock1 ?? data?.output1 ?? [];
+    const rows: RawRow[] = data?.['OutBlock_1'] ?? data?.OutBlock1 ?? data?.output1 ?? [];
     printInfo(`레코드 수: ${rows.length}개`);
 
     if (rows.length > 0) {
@@ -141,20 +141,20 @@ async function main(): Promise<void> {
     });
 
     printInfo(`응답 최상위 키: ${Object.keys(data).join(', ')}`);
-    const rows: RawRow[] = data?.OutBlock1 ?? data?.output1 ?? [];
+    const rows: RawRow[] = data?.['OutBlock_1'] ?? data?.OutBlock1 ?? data?.output1 ?? [];
     printInfo(`레코드 수: ${rows.length}개`);
 
     if (rows.length > 0) {
-      const r = rows[0];
-      const closeIdx = parseFloat2(r['CLSPRC_IDX'] ?? r['clsprcIdx'] ?? '0');
-      printInfo(`KOSPI 종가지수: ${closeIdx.toLocaleString()}`);
-
-      if (closeIdx > 0) {
-        printPass(`KOSPI 지수 API 구조 정상`);
+      printInfo(`전체 키: ${Object.keys(rows[0]).join(', ')}`);
+      const validRow = rows.find((r) => parseFloat2(r['CLSPRC_IDX'] ?? '') > 0);
+      if (validRow) {
+        const closeIdx = parseFloat2(validRow['CLSPRC_IDX']);
+        printInfo(`KOSPI 종가지수: ${closeIdx.toLocaleString()} (IDX_NM: ${validRow['IDX_NM'] ?? '-'})`);
+        printPass(`KOSPI 지수 API 구조 정상 (${rows.length}개 중 유효행 존재)`);
         passed++;
       } else {
-        printFail(`KOSPI closeIndex 매핑 실패 (closeIdx=${closeIdx})`);
-        printInfo(`실제 키 샘플: ${JSON.stringify(r).slice(0, 200)}`);
+        printFail(`KOSPI closeIndex 유효행 없음 — 모든 CLSPRC_IDX 비어있음`);
+        printInfo(`첫 행 샘플: ${JSON.stringify(rows[0]).slice(0, 200)}`);
         failed++;
       }
     } else {
@@ -178,18 +178,18 @@ async function main(): Promise<void> {
     });
 
     printInfo(`응답 최상위 키: ${Object.keys(data).join(', ')}`);
-    const rows: RawRow[] = data?.OutBlock1 ?? data?.output1 ?? [];
+    const rows: RawRow[] = data?.['OutBlock_1'] ?? data?.OutBlock1 ?? data?.output1 ?? [];
     printInfo(`레코드 수: ${rows.length}개`);
 
     if (rows.length > 0) {
-      const r = rows[0];
-      const closeIdx = parseFloat2(r['CLSPRC_IDX'] ?? r['clsprcIdx'] ?? '0');
-      if (closeIdx > 0) {
-        printPass(`KOSDAQ 지수 API 구조 정상 (closeIdx=${closeIdx.toLocaleString()})`);
+      const validRow = rows.find((r) => parseFloat2(r['CLSPRC_IDX'] ?? '') > 0);
+      if (validRow) {
+        const closeIdx = parseFloat2(validRow['CLSPRC_IDX']);
+        printPass(`KOSDAQ 지수 API 구조 정상 (closeIdx=${closeIdx.toLocaleString()}, IDX_NM: ${validRow['IDX_NM'] ?? '-'})`);
         passed++;
       } else {
-        printFail(`KOSDAQ closeIndex 매핑 실패`);
-        printInfo(`실제 키 샘플: ${JSON.stringify(r).slice(0, 200)}`);
+        printFail(`KOSDAQ closeIndex 유효행 없음`);
+        printInfo(`첫 행 샘플: ${JSON.stringify(rows[0]).slice(0, 200)}`);
         failed++;
       }
     } else {
@@ -213,7 +213,7 @@ async function main(): Promise<void> {
     });
 
     printInfo(`응답 최상위 키: ${Object.keys(data).join(', ')}`);
-    const rows: RawRow[] = data?.OutBlock1 ?? data?.output1 ?? [];
+    const rows: RawRow[] = data?.['OutBlock_1'] ?? data?.OutBlock1 ?? data?.output1 ?? [];
     printInfo(`레코드 수: ${rows.length}개`);
 
     if (rows.length > 0) {
@@ -251,14 +251,14 @@ async function main(): Promise<void> {
     });
 
     printInfo(`응답 최상위 키: ${Object.keys(data).join(', ')}`);
-    const rows: RawRow[] = data?.OutBlock1 ?? data?.output1 ?? [];
+    const rows: RawRow[] = data?.['OutBlock_1'] ?? data?.OutBlock1 ?? data?.output1 ?? [];
     printInfo(`레코드 수: ${rows.length}개`);
 
     if (rows.length > 0) {
       const r = rows[0];
-      const stockCode = r['ISU_CD'] ?? r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '';
-      const stockName = r['ISU_NM'] ?? r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '';
-      printInfo(`샘플: stockCode=${stockCode}, stockName=${stockName}`);
+      const stockCode = r['ISU_SRT_CD'] ?? r['ISU_CD'] ?? r['MKSC_SHRN_ISCD'] ?? '';
+      const stockName = r['ISU_ABBRV'] ?? r['ISU_NM'] ?? r['isuAbbrv'] ?? '';
+      printInfo(`샘플: stockCode(ISU_SRT_CD)=${stockCode}, stockName(ISU_ABBRV)=${stockName}`);
       printInfo(`전체 키: ${Object.keys(r).slice(0, 15).join(', ')}`);
 
       if (stockCode) {
@@ -290,14 +290,14 @@ async function main(): Promise<void> {
     });
 
     printInfo(`응답 최상위 키: ${Object.keys(data).join(', ')}`);
-    const rows: RawRow[] = data?.OutBlock1 ?? data?.output1 ?? [];
+    const rows: RawRow[] = data?.['OutBlock_1'] ?? data?.OutBlock1 ?? data?.output1 ?? [];
     printInfo(`레코드 수: ${rows.length}개`);
 
     if (rows.length > 0) {
       const r = rows[0];
-      const stockCode = r['ISU_CD'] ?? r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '';
-      const stockName = r['ISU_NM'] ?? r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '';
-      printInfo(`샘플: stockCode=${stockCode}, stockName=${stockName}`);
+      const stockCode = r['ISU_SRT_CD'] ?? r['ISU_CD'] ?? r['MKSC_SHRN_ISCD'] ?? '';
+      const stockName = r['ISU_ABBRV'] ?? r['ISU_NM'] ?? r['isuAbbrv'] ?? '';
+      printInfo(`샘플: stockCode(ISU_SRT_CD)=${stockCode}, stockName(ISU_ABBRV)=${stockName}`);
       printInfo(`전체 키: ${Object.keys(r).slice(0, 15).join(', ')}`);
 
       if (stockCode) {
@@ -336,7 +336,7 @@ async function main(): Promise<void> {
       timeout: 30_000,
     });
 
-    const rows: RawRow[] = data?.OutBlock1 ?? data?.output1 ?? [];
+    const rows: RawRow[] = data?.['OutBlock_1'] ?? data?.OutBlock1 ?? data?.output1 ?? [];
     let savedCount = 0;
 
     // 회사 확인 — 삼성전자가 DB에 없으면 upsert 불가 (FK 제약)

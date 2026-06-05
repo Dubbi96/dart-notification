@@ -70,11 +70,12 @@ export function getEventTypeLabel(eventType: string): string {
 }
 
 // AI 극성 평문 매핑(DAR-31 §3-2). '(참고)' 꼬리표 강제 — 단정 표현 금지.
+// 표기 규칙: copy.ts와 동일하게 꼬리표 앞 공백 ' (참고)'로 통일(DAR-33 폴리시 정리).
 export const POLARITY_LABEL: Record<string, string> = {
-  POSITIVE: '호재 성격(참고)',
-  NEGATIVE: '악재 성격(참고)',
-  MIXED: '복합 성격(참고)',
-  NEUTRAL: '중립 성격(참고)',
+  POSITIVE: '호재 성격 (참고)',
+  NEGATIVE: '악재 성격 (참고)',
+  MIXED: '복합 성격 (참고)',
+  NEUTRAL: '중립 성격 (참고)',
 };
 
 export function getPolarityLabel(polarity: string): string {

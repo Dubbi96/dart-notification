@@ -24,6 +24,13 @@ const SCORE_BREAKDOWN_LABEL: Record<string, string> = {
   marketSector: '시장/섹터',
 };
 
+/**
+ * EventStudyResult.sampleCount(표본수)에서 신뢰도를 파생하는 통계 근거 항목.
+ * 현재 `historicalEvent`(과거 유사 공시 성과)만 EventStudy 집계 기반.
+ * 차트·페르소나 등 비통계 항목은 여기에 없으므로 sampleN 미부여(undefined 유지).
+ */
+const STAT_DERIVED_KEYS = ['historicalEvent'] as const;
+
 function mapGrade(grade: SignalGrade): MobileGrade {
   switch (grade) {
     case SignalGrade.STRONG_BUY_CANDIDATE:
@@ -42,17 +49,49 @@ function mapGrade(grade: SignalGrade): MobileGrade {
 
 function mapScoreBreakdown(
   breakdown: Prisma.JsonValue,
-): { key: string; label: string; score: number; max: number }[] {
+  sampleNByKey: Partial<Record<string, number>> = {},
+): {
+  key: string;
+  label: string;
+  score: number;
+  max: number;
+  sampleN?: number;
+}[] {
   if (!breakdown || typeof breakdown !== 'object' || Array.isArray(breakdown)) {
     return [];
   }
   const obj = breakdown as Record<string, unknown>;
-  return Object.keys(SCORE_BREAKDOWN_MAX).map((key) => ({
-    key,
-    label: SCORE_BREAKDOWN_LABEL[key] ?? key,
-    score: typeof obj[key] === 'number' ? (obj[key] as number) : 0,
-    max: SCORE_BREAKDOWN_MAX[key],
-  }));
+  return Object.keys(SCORE_BREAKDOWN_MAX).map((key) => {
+    const sampleN = sampleNByKey[key];
+    return {
+      key,
+      label: SCORE_BREAKDOWN_LABEL[key] ?? key,
+      score: typeof obj[key] === 'number' ? (obj[key] as number) : 0,
+      max: SCORE_BREAKDOWN_MAX[key],
+      // 표본수가 있는 통계 항목에만 sampleN 부여, 그 외는 키 자체를 생략(undefined 유지)
+      ...(typeof sampleN === 'number' ? { sampleN } : {}),
+    };
+  });
+}
+
+/**
+ * eventType별 통계 항목 sampleN(EventStudyResult.sampleCount) 매핑을 만든다.
+ * 해당 eventType의 최신(calculatedAt desc) READY 집계 표본수를 통계 파생 항목에 부여.
+ * 집계가 없으면 키를 비워 두어 sampleN이 undefined(미표시)로 남는다.
+ */
+function buildSampleNByKey(
+  eventType: string | null | undefined,
+  sampleCountByEventType: Map<string, number>,
+): Partial<Record<string, number>> {
+  const sampleN = eventType
+    ? sampleCountByEventType.get(eventType)
+    : undefined;
+  if (typeof sampleN !== 'number') return {};
+  const out: Partial<Record<string, number>> = {};
+  for (const key of STAT_DERIVED_KEYS) {
+    out[key] = sampleN;
+  }
+  return out;
 }
 
 function mapExitReasons(exitSignal: {
@@ -81,6 +120,30 @@ function mapExitReasons(exitSignal: {
 @Injectable()
 export class SignalsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * 주어진 eventType들의 통계 표본수(EventStudyResult.sampleCount)를 일괄 조회한다.
+   * marketType='ALL'·status='READY' 기준 최신(calculatedAt desc) 1건의 sampleCount를
+   * eventType별로 매핑(N+1 회피용 단일 쿼리). 집계가 없으면 맵에서 누락.
+   */
+  private async sampleCountByEventType(
+    eventTypes: (string | null | undefined)[],
+  ): Promise<Map<string, number>> {
+    const unique = [...new Set(eventTypes.filter((e): e is string => !!e))];
+    const map = new Map<string, number>();
+    if (unique.length === 0) return map;
+
+    const results = await this.prisma.eventStudyResult.findMany({
+      where: { eventType: { in: unique }, marketType: 'ALL', status: 'READY' },
+      orderBy: { calculatedAt: 'desc' },
+      select: { eventType: true, sampleCount: true },
+    });
+    for (const r of results) {
+      // calculatedAt desc 정렬이므로 eventType별 첫 항목(최신)만 채택
+      if (!map.has(r.eventType)) map.set(r.eventType, r.sampleCount);
+    }
+    return map;
+  }
 
   async findAll(filters: {
     grade?: string;
@@ -112,6 +175,10 @@ export class SignalsService {
       this.prisma.tradingSignal.count({ where }),
     ]);
 
+    const sampleCountByEventType = await this.sampleCountByEventType(
+      signals.map((s) => s.eventType),
+    );
+
     const items = signals.map((s) => ({
       id: s.id,
       corpCode: s.corpCode,
@@ -141,7 +208,10 @@ export class SignalsService {
         severity: 'medium' as const,
       })),
       blockedReason: s.blockedReason ?? undefined,
-      scoreBreakdown: mapScoreBreakdown(s.scoreBreakdown),
+      scoreBreakdown: mapScoreBreakdown(
+        s.scoreBreakdown,
+        buildSampleNByKey(s.eventType, sampleCountByEventType),
+      ),
       relatedDisclosureRcpNo: s.rcpNo,
       expiresAt: s.validUntil?.toISOString() ?? undefined,
       createdAt: s.createdAt.toISOString(),
@@ -172,6 +242,10 @@ export class SignalsService {
       throw new NotFoundException('Signal not found');
     }
 
+    const sampleCountByEventType = await this.sampleCountByEventType([
+      s.eventType,
+    ]);
+
     return {
       id: s.id,
       corpCode: s.corpCode,
@@ -201,7 +275,10 @@ export class SignalsService {
         severity: 'medium' as const,
       })),
       blockedReason: s.blockedReason ?? undefined,
-      scoreBreakdown: mapScoreBreakdown(s.scoreBreakdown),
+      scoreBreakdown: mapScoreBreakdown(
+        s.scoreBreakdown,
+        buildSampleNByKey(s.eventType, sampleCountByEventType),
+      ),
       relatedDisclosureRcpNo: s.rcpNo,
       expiresAt: s.validUntil?.toISOString() ?? undefined,
       createdAt: s.createdAt.toISOString(),

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,7 @@ import { formatDistanceToNow, parse } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { useWatchlist, useRemoveFromWatchlist } from '@hooks/useWatchlist';
 import { useDialog } from '@components/common/DialogProvider';
-import { CompanySearchModal } from '@components/common/CompanySearchModal';
+import { SearchOverlay } from '@components/common/SearchOverlay';
 
 export default function WatchlistScreen() {
   const { colors, typography: typo } = useTheme();
@@ -30,11 +30,6 @@ export default function WatchlistScreen() {
   const watchlistItems = data?.data ?? [];
   const total = data?.meta?.total ?? 0;
   const limit = data?.meta?.limit ?? 30;
-
-  const existingCorpCodes = useMemo(
-    () => watchlistItems.map((item) => item.corpCode),
-    [watchlistItems],
-  );
 
   if (isLoading) {
     return (
@@ -135,11 +130,9 @@ export default function WatchlistScreen() {
         )}
       />
 
-      <CompanySearchModal
+      <SearchOverlay
         visible={searchVisible}
         onClose={() => setSearchVisible(false)}
-        existingCorpCodes={existingCorpCodes}
-        currentCount={total}
       />
     </SafeAreaView>
   );

@@ -7,6 +7,7 @@ import { spacing, radius } from '@theme/spacing';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { gradeColor, gradeLabel } from '@utils/signalDisplay';
+import { getEventTypeLabel } from '@utils/disclosureType';
 
 import type { TradingSignal, EntryCondition } from '@app-types/signal.types';
 
@@ -20,11 +21,12 @@ interface BuyScoreCardProps {
 
 function EntryConditionRow({ condition }: { condition: EntryCondition }) {
   const { colors, typography: typo } = useTheme();
+  // 미충족·비필수 조건도 '읽어야 하는' 진입 정보 → textSecondary(다크 AA 6.1:1, P0-A §2)
   const metColor = condition.met
     ? colors.success
     : condition.required
       ? colors.error
-      : colors.textTertiary;
+      : colors.textSecondary;
   const iconName = condition.met ? 'check-circle' : 'circle';
   return (
     <View style={styles.conditionRow}>
@@ -66,7 +68,7 @@ export function BuyScoreCard({ signal, onPress }: BuyScoreCardProps) {
             {signal.eventType ? (
               <Chip compact mode="flat" style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
                 textStyle={[typo.small, { color: colors.textSecondary }]}>
-                {signal.eventType}
+                {getEventTypeLabel(signal.eventType)}
               </Chip>
             ) : null}
             <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
@@ -84,9 +86,10 @@ export function BuyScoreCard({ signal, onPress }: BuyScoreCardProps) {
         </View>
 
         {signal.ticker ? (
-          <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
+          // ticker는 읽어야 할 종목 식별자 → textSecondary(다크 AA, P0-A §2). 이벤트는 평문 변환(P0-B)
+          <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
             {signal.ticker}
-            {signal.eventType ? ` · ${signal.eventType}` : ''}
+            {signal.eventType ? ` · ${getEventTypeLabel(signal.eventType)}` : ''}
           </Text>
         ) : null}
 

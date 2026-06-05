@@ -16,9 +16,11 @@ interface ScoreGaugeProps {
   label?: string;
   /** 접근성 라벨 보조 텍스트 (예: "강한매수") */
   statusText?: string;
+  /** 점수 아래 1줄 평문 (항상 '(참고)' 포함, utils/copy.ts 기준) */
+  oneLiner?: string;
 }
 
-export function ScoreGauge({ score, kind = 'buy', label, statusText }: ScoreGaugeProps) {
+export function ScoreGauge({ score, kind = 'buy', label, statusText, oneLiner }: ScoreGaugeProps) {
   const { colors, typography: typo } = useTheme();
   const clamped = Math.max(0, Math.min(100, score));
   const color = kind === 'exit' ? exitScoreColor(clamped, colors) : buyScoreColor(clamped, colors);
@@ -27,7 +29,9 @@ export function ScoreGauge({ score, kind = 'buy', label, statusText }: ScoreGaug
   return (
     <View
       accessibilityRole="progressbar"
-      accessibilityLabel={`${label ?? title} ${clamped}${statusText ? `, ${statusText}` : ''}`}
+      accessibilityLabel={`${label ?? title} ${clamped}${statusText ? `, ${statusText}` : ''}${
+        oneLiner ? `, ${oneLiner}` : ''
+      }`}
     >
       <View style={styles.row}>
         <Text style={[typo.small, { color: colors.textSecondary }]}>{label ?? title}</Text>
@@ -38,6 +42,11 @@ export function ScoreGauge({ score, kind = 'buy', label, statusText }: ScoreGaug
         color={color}
         style={[styles.bar, { backgroundColor: colors.surfaceSecondary }]}
       />
+      {oneLiner ? (
+        <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+          {oneLiner}
+        </Text>
+      ) : null}
     </View>
   );
 }

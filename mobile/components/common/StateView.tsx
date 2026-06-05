@@ -37,7 +37,8 @@ interface EmptyStateProps {
 export function EmptyState({ icon = 'inbox', title, description, actionLabel, onAction }: EmptyStateProps) {
   const { colors, typography: typo } = useTheme();
   // 기획 §2-2 빈 상태 구성 표준: 아이콘 48dp(textTertiary) · 메인(bodyMedium, text) ·
-  // 보조(caption, textTertiary) · 액션(outlined, primary).
+  // 보조(caption) · 액션(outlined, primary).
+  // 보조 문구는 '읽어야 하는 텍스트' → textSecondary(다크 AA 6.1:1, DAR-31 P0-A §2).
   return (
     <View style={styles.centered}>
       <Feather name={icon} size={48} color={colors.textTertiary} />
@@ -46,7 +47,7 @@ export function EmptyState({ icon = 'inbox', title, description, actionLabel, on
       </Text>
       {description ? (
         <Text
-          style={[typo.caption, { color: colors.textTertiary, marginTop: spacing.xs, textAlign: 'center' }]}
+          style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs, textAlign: 'center' }]}
         >
           {description}
         </Text>

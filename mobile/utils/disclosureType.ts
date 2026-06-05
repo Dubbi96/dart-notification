@@ -52,3 +52,31 @@ export function getTypeStyle(type: string, isDark = false): BadgeStyle {
   const fallback = isDark ? TYPE_COLORS_DARK['OTHER'] : TYPE_COLORS_LIGHT['OTHER'];
   return colors[type] ?? fallback;
 }
+
+// 신호 이벤트 타입 평문 매핑(DAR-31 §3-1). 공시 분류용 TYPE_LABELS와 별개.
+// raw enum(SUPPLY_CONTRACT 등)이 화면에 직접 노출되지 않도록 항상 이 헬퍼를 통한다.
+export const EVENT_TYPE_LABEL: Record<string, string> = {
+  SUPPLY_CONTRACT: '대규모 공급계약',
+  SHARE_BUYBACK: '자기주식 취득',
+  SHARE_CANCELLATION: '자기주식 소각',
+  DIVIDEND_INCREASE: '배당 확대',
+  EARNINGS_SURPRISE: '어닝 서프라이즈',
+  AUDIT_RISK_RESOLVED: '감사 리스크 해소',
+  // 추가 이벤트 타입은 백엔드 enum 확정 후 동일 패턴으로 추가
+};
+
+export function getEventTypeLabel(eventType: string): string {
+  return EVENT_TYPE_LABEL[eventType] ?? eventType;
+}
+
+// AI 극성 평문 매핑(DAR-31 §3-2). '(참고)' 꼬리표 강제 — 단정 표현 금지.
+export const POLARITY_LABEL: Record<string, string> = {
+  POSITIVE: '호재 성격(참고)',
+  NEGATIVE: '악재 성격(참고)',
+  MIXED: '복합 성격(참고)',
+  NEUTRAL: '중립 성격(참고)',
+};
+
+export function getPolarityLabel(polarity: string): string {
+  return POLARITY_LABEL[polarity] ?? polarity;
+}

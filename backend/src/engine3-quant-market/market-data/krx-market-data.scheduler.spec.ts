@@ -53,16 +53,20 @@ describe('KrxMarketDataScheduler.collectDailyPricesForDate', () => {
     tradingValue: 1_057_500_000_000,
   };
 
-  it('정상 수집 — 회사 수만큼 upsert 호출', async () => {
+  it('정상 수집 — API 2회(KOSPI+KOSDAQ) 호출, 매칭 종목 upsert', async () => {
+    const sampleRow2: KrxStockDailyRow = { ...sampleRow, stockCode: '000660', isuAbbrv: 'SK하이닉스' };
     const krx = makeKrxApi({
       fetchStockDaily: jest.fn().mockResolvedValue([sampleRow]),
+      fetchKosqdaqDaily: jest.fn().mockResolvedValue([sampleRow2]),
     });
     const prisma = makePrisma();
     const scheduler = new KrxMarketDataScheduler(prisma, krx);
 
     const result = await scheduler.collectDailyPricesForDate('20260604', 'MANUAL');
 
-    expect(result.saved).toBe(2); // 2개 회사 각각 1건
+    expect(result.saved).toBe(2);
+    expect(krx.fetchStockDaily).toHaveBeenCalledTimes(1); // 전종목 1회
+    expect(krx.fetchKosqdaqDaily).toHaveBeenCalledTimes(1);
     expect(prisma.stockDailyPrice.upsert).toHaveBeenCalledTimes(2);
   });
 
@@ -97,10 +101,10 @@ describe('KrxMarketDataScheduler.collectDailyPricesForDate', () => {
   });
 
   it('KRX API 키 미설정 — KrxApiUnavailableError graceful 처리', async () => {
+    const unavailErr = new KrxApiUnavailableError('KRX_API_KEY 미설정');
     const krx = makeKrxApi({
-      fetchStockDaily: jest.fn().mockRejectedValue(
-        new KrxApiUnavailableError('KRX_API_KEY 미설정'),
-      ),
+      fetchStockDaily: jest.fn().mockRejectedValue(unavailErr),
+      fetchKosqdaqDaily: jest.fn().mockRejectedValue(unavailErr),
     });
     const prisma = makePrisma();
     const scheduler = new KrxMarketDataScheduler(prisma, krx);
@@ -113,14 +117,17 @@ describe('KrxMarketDataScheduler.collectDailyPricesForDate', () => {
 
   it('closePrice=0 행은 스킵', async () => {
     const zeroRow: KrxStockDailyRow = { ...sampleRow, closePrice: 0 };
-    const krx = makeKrxApi({ fetchStockDaily: jest.fn().mockResolvedValue([zeroRow]) });
+    const krx = makeKrxApi({
+      fetchStockDaily: jest.fn().mockResolvedValue([zeroRow]),
+      fetchKosqdaqDaily: jest.fn().mockResolvedValue([]),
+    });
     const prisma = makePrisma();
     const scheduler = new KrxMarketDataScheduler(prisma, krx);
 
     const result = await scheduler.collectDailyPricesForDate('20260604', 'MANUAL');
 
     expect(result.saved).toBe(0);
-    expect(result.skipped).toBe(2);
+    expect(result.skipped).toBe(1);
   });
 });
 
@@ -270,9 +277,9 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
     return jest.fn().mockResolvedValue({ data: { OutBlock1: rows } });
   }
 
-  it('fetchStockDaily — sto/stk_bydd_trd 호출·파싱', async () => {
+  it('fetchStockDaily — sto/stk_bydd_trd 호출·파싱 (실제 필드명 ISU_CD/ISU_NM/ACC_TRDVOL/ACC_TRDVAL)', async () => {
     const axiosGet = mockOutBlock1([
-      { MKSC_SHRN_ISCD: '005930', ISU_ABBRV: '삼성전자', TDD_OPNPRC: '70,000', TDD_HGPRC: '71,000', TDD_LWPRC: '69,500', TDD_CLSPRC: '70,500', ACML_VOL: '15,000,000', ACML_TRAD_PBMN: '1,057,500,000,000' },
+      { ISU_CD: '005930', ISU_NM: '삼성전자', TDD_OPNPRC: '70,000', TDD_HGPRC: '71,000', TDD_LWPRC: '69,500', TDD_CLSPRC: '70,500', ACC_TRDVOL: '15,000,000', ACC_TRDVAL: '1,057,500,000,000' },
     ]);
     const krx = makeRealKrxWithAxiosMock(axiosGet);
 
@@ -285,11 +292,13 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].stockCode).toBe('005930');
     expect(rows[0].closePrice).toBe(70500);
+    expect(rows[0].volume).toBe(15_000_000);
+    expect(rows[0].tradingValue).toBe(1_057_500_000_000);
   });
 
-  it('fetchKosqdaqDaily — sto/ksq_bydd_trd 호출·파싱', async () => {
+  it('fetchKosqdaqDaily — sto/ksq_bydd_trd 호출·파싱 (실제 필드명)', async () => {
     const axiosGet = mockOutBlock1([
-      { MKSC_SHRN_ISCD: '035720', ISU_ABBRV: '카카오', TDD_OPNPRC: '45,000', TDD_HGPRC: '46,000', TDD_LWPRC: '44,500', TDD_CLSPRC: '45,500', ACML_VOL: '5,000,000', ACML_TRAD_PBMN: '227,500,000,000' },
+      { ISU_CD: '035720', ISU_NM: '카카오', TDD_OPNPRC: '45,000', TDD_HGPRC: '46,000', TDD_LWPRC: '44,500', TDD_CLSPRC: '45,500', ACC_TRDVOL: '5,000,000', ACC_TRDVAL: '227,500,000,000' },
     ]);
     const krx = makeRealKrxWithAxiosMock(axiosGet);
 
@@ -302,6 +311,7 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].stockCode).toBe('035720');
     expect(rows[0].closePrice).toBe(45500);
+    expect(rows[0].volume).toBe(5_000_000);
   });
 
   it('fetchKosqdaqDaily — ksq/ 경로 사용 안 함 (404 방지)', async () => {
@@ -345,10 +355,10 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
     expect(rows[0].closeIndex).toBeCloseTo(850.25, 2);
   });
 
-  it('fetchStkIsuBaseInfo — sto/stk_isu_base_info 호출·파싱', async () => {
+  it('fetchStkIsuBaseInfo — sto/stk_isu_base_info 호출·파싱 (실제 필드명 ISU_CD/ISU_NM)', async () => {
     const axiosGet = mockOutBlock1([
-      { MKSC_SHRN_ISCD: '005930', ISU_ABBRV: '삼성전자' },
-      { MKSC_SHRN_ISCD: '000660', ISU_ABBRV: 'SK하이닉스' },
+      { ISU_CD: '005930', ISU_NM: '삼성전자' },
+      { ISU_CD: '000660', ISU_NM: 'SK하이닉스' },
     ]);
     const krx = makeRealKrxWithAxiosMock(axiosGet);
 
@@ -364,9 +374,9 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
     expect(result[1].stockCode).toBe('000660');
   });
 
-  it('fetchKsqIsuBaseInfo — sto/ksq_isu_base_info 호출·파싱', async () => {
+  it('fetchKsqIsuBaseInfo — sto/ksq_isu_base_info 호출·파싱 (실제 필드명)', async () => {
     const axiosGet = mockOutBlock1([
-      { MKSC_SHRN_ISCD: '035720', ISU_ABBRV: '카카오' },
+      { ISU_CD: '035720', ISU_NM: '카카오' },
     ]);
     const krx = makeRealKrxWithAxiosMock(axiosGet);
 
@@ -383,8 +393,8 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
 
   it('fetchStockStatus — isu_mrktact_info 사용 안 함, stk/ksq_isu_base_info 사용', async () => {
     const axiosGet = jest.fn()
-      .mockResolvedValueOnce({ data: { OutBlock1: [{ MKSC_SHRN_ISCD: '005930', ISU_ABBRV: '삼성전자' }] } })
-      .mockResolvedValueOnce({ data: { OutBlock1: [{ MKSC_SHRN_ISCD: '035720', ISU_ABBRV: '카카오' }] } });
+      .mockResolvedValueOnce({ data: { OutBlock1: [{ ISU_CD: '005930', ISU_NM: '삼성전자' }] } })
+      .mockResolvedValueOnce({ data: { OutBlock1: [{ ISU_CD: '035720', ISU_NM: '카카오' }] } });
     const krx = makeRealKrxWithAxiosMock(axiosGet);
 
     const statuses = await krx.fetchStockStatus('20260604');

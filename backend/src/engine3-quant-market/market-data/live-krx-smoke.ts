@@ -26,7 +26,20 @@ const rawBaseUrl = process.env.KRX_BASE_URL ?? 'https://data-dbg.krx.co.kr/svc/a
 const KRX_BASE_URL = rawBaseUrl.replace(/^http:\/\//, 'https://');
 
 const SAMPLE_STOCK_CODE = '005930'; // 삼성전자 — 유동성 최대, 표본 검증에 적합
-const SAMPLE_DATE = '20260604'; // 최근 거래일 (2026-06-04 목요일)
+
+function lastWeekday(): string {
+  const d = new Date();
+  // Roll back to last weekday (Mon-Fri)
+  while (d.getDay() === 0 || d.getDay() === 6) {
+    d.setDate(d.getDate() - 1);
+  }
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}${m}${dd}`;
+}
+
+const SAMPLE_DATE = process.env.SMOKE_DATE ?? lastWeekday();
 
 interface RawRow {
   [key: string]: string;
@@ -91,9 +104,9 @@ async function main(): Promise<void> {
       const r = rows[0];
       printInfo(`첫 행 키: ${Object.keys(r).slice(0, 10).join(', ')}…`);
 
-      const stockCode = r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '';
+      const stockCode = r['ISU_CD'] ?? r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '';
       const closePrice = parseNum(r['TDD_CLSPRC'] ?? r['tddClsprc'] ?? '0');
-      const volume = parseNum(r['ACML_VOL'] ?? r['acmlVol'] ?? '0');
+      const volume = parseNum(r['ACC_TRDVOL'] ?? r['ACML_VOL'] ?? r['acmlVol'] ?? '0');
 
       printInfo(`종목코드: ${stockCode}, 종가: ${closePrice.toLocaleString()}, 거래량: ${volume.toLocaleString()}`);
 
@@ -205,7 +218,7 @@ async function main(): Promise<void> {
 
     if (rows.length > 0) {
       const r = rows[0];
-      const stockCode = r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '';
+      const stockCode = r['ISU_CD'] ?? r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '';
       const closePrice = parseNum(r['TDD_CLSPRC'] ?? r['tddClsprc'] ?? '0');
       printInfo(`종목코드: ${stockCode}, 종가: ${closePrice.toLocaleString()}`);
 
@@ -243,8 +256,8 @@ async function main(): Promise<void> {
 
     if (rows.length > 0) {
       const r = rows[0];
-      const stockCode = r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '';
-      const stockName = r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '';
+      const stockCode = r['ISU_CD'] ?? r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '';
+      const stockName = r['ISU_NM'] ?? r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '';
       printInfo(`샘플: stockCode=${stockCode}, stockName=${stockName}`);
       printInfo(`전체 키: ${Object.keys(r).slice(0, 15).join(', ')}`);
 
@@ -282,8 +295,8 @@ async function main(): Promise<void> {
 
     if (rows.length > 0) {
       const r = rows[0];
-      const stockCode = r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '';
-      const stockName = r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '';
+      const stockCode = r['ISU_CD'] ?? r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '';
+      const stockName = r['ISU_NM'] ?? r['ISU_ABBRV'] ?? r['isuAbbrv'] ?? '';
       printInfo(`샘플: stockCode=${stockCode}, stockName=${stockName}`);
       printInfo(`전체 키: ${Object.keys(r).slice(0, 15).join(', ')}`);
 
@@ -348,7 +361,7 @@ async function main(): Promise<void> {
     const targetCorpCode = company?.corpCode ?? 'SMOKE-005930';
 
     for (const r of rows) {
-      const stockCode = r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '';
+      const stockCode = r['ISU_CD'] ?? r['MKSC_SHRN_ISCD'] ?? r['isuSrtCd'] ?? '';
       const closePrice = parseNum(r['TDD_CLSPRC'] ?? r['tddClsprc'] ?? '0');
       if (!stockCode || closePrice === 0) continue;
 
@@ -362,16 +375,16 @@ async function main(): Promise<void> {
           highPrice: parseNum(r['TDD_HGPRC'] ?? r['tddHgprc'] ?? '0'),
           lowPrice: parseNum(r['TDD_LWPRC'] ?? r['tddLwprc'] ?? '0'),
           closePrice,
-          volume: BigInt(parseNum(r['ACML_VOL'] ?? r['acmlVol'] ?? '0')),
-          tradingValue: BigInt(parseNum(r['ACML_TRAD_PBMN'] ?? r['acmlTradPbmn'] ?? '0')),
+          volume: BigInt(parseNum(r['ACC_TRDVOL'] ?? r['ACML_VOL'] ?? r['acmlVol'] ?? '0')),
+          tradingValue: BigInt(parseNum(r['ACC_TRDVAL'] ?? r['ACML_TRAD_PBMN'] ?? r['acmlTradPbmn'] ?? '0')),
         },
         update: {
           openPrice: parseNum(r['TDD_OPNPRC'] ?? r['tddOpnprc'] ?? '0'),
           highPrice: parseNum(r['TDD_HGPRC'] ?? r['tddHgprc'] ?? '0'),
           lowPrice: parseNum(r['TDD_LWPRC'] ?? r['tddLwprc'] ?? '0'),
           closePrice,
-          volume: BigInt(parseNum(r['ACML_VOL'] ?? r['acmlVol'] ?? '0')),
-          tradingValue: BigInt(parseNum(r['ACML_TRAD_PBMN'] ?? r['acmlTradPbmn'] ?? '0')),
+          volume: BigInt(parseNum(r['ACC_TRDVOL'] ?? r['ACML_VOL'] ?? r['acmlVol'] ?? '0')),
+          tradingValue: BigInt(parseNum(r['ACC_TRDVAL'] ?? r['ACML_TRAD_PBMN'] ?? r['acmlTradPbmn'] ?? '0')),
         },
       });
       savedCount++;

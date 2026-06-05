@@ -58,55 +58,60 @@ export class KrxMarketDataScheduler {
     try {
       this.logger.log(`[KRX] 일봉 수집 시작 basDd=${basDd} [${triggeredBy}]`);
 
-      // 수집 대상: stockCode가 있는 회사
+      // stockCode → corpCode 매핑 (DB 1회 조회)
       const companies = await this.prisma.company.findMany({
         where: { stockCode: { not: null } },
         select: { corpCode: true, stockCode: true },
       });
+      const corpCodeByStockCode = new Map<string, string>(
+        companies
+          .filter((c): c is { corpCode: string; stockCode: string } => c.stockCode !== null)
+          .map((c) => [c.stockCode, c.corpCode]),
+      );
 
-      for (const company of companies) {
-        if (!company.stockCode) continue;
+      // KOSPI + KOSDAQ 전종목 일봉 2회 호출 (종목당 N회 → 시장당 1회)
+      const [kospiRows, kosdaqRows] = await Promise.all([
+        this.krx.fetchStockDaily(basDd),
+        this.krx.fetchKosqdaqDaily(basDd),
+      ]);
+      const allRows = [...kospiRows, ...kosdaqRows];
 
-        try {
-          const rows = await this.krx.fetchStockDaily(basDd, company.stockCode);
-
-          for (const row of rows) {
-            if (!row.stockCode || row.closePrice === 0) {
-              skipped++;
-              continue;
-            }
-
-            await this.prisma.stockDailyPrice.upsert({
-              where: {
-                stockCode_tradeDate: { stockCode: row.stockCode, tradeDate: basDd },
-              },
-              create: {
-                corpCode: company.corpCode,
-                stockCode: row.stockCode,
-                tradeDate: basDd,
-                openPrice: row.openPrice,
-                highPrice: row.highPrice,
-                lowPrice: row.lowPrice,
-                closePrice: row.closePrice,
-                volume: BigInt(row.volume),
-                tradingValue: BigInt(row.tradingValue),
-              },
-              update: {
-                openPrice: row.openPrice,
-                highPrice: row.highPrice,
-                lowPrice: row.lowPrice,
-                closePrice: row.closePrice,
-                volume: BigInt(row.volume),
-                tradingValue: BigInt(row.tradingValue),
-              },
-            });
-            saved++;
-          }
-        } catch (e) {
-          if (e instanceof KrxApiUnavailableError) throw e;
-          this.logger.warn(`[KRX] 종목 ${company.stockCode} 일봉 실패: ${(e as Error).message}`);
+      for (const row of allRows) {
+        if (!row.stockCode || row.closePrice === 0) {
           skipped++;
+          continue;
         }
+        const corpCode = corpCodeByStockCode.get(row.stockCode);
+        if (!corpCode) {
+          skipped++;
+          continue;
+        }
+
+        await this.prisma.stockDailyPrice.upsert({
+          where: {
+            stockCode_tradeDate: { stockCode: row.stockCode, tradeDate: basDd },
+          },
+          create: {
+            corpCode,
+            stockCode: row.stockCode,
+            tradeDate: basDd,
+            openPrice: row.openPrice,
+            highPrice: row.highPrice,
+            lowPrice: row.lowPrice,
+            closePrice: row.closePrice,
+            volume: BigInt(row.volume),
+            tradingValue: BigInt(row.tradingValue),
+          },
+          update: {
+            openPrice: row.openPrice,
+            highPrice: row.highPrice,
+            lowPrice: row.lowPrice,
+            closePrice: row.closePrice,
+            volume: BigInt(row.volume),
+            tradingValue: BigInt(row.tradingValue),
+          },
+        });
+        saved++;
       }
 
       this.logger.log(`[KRX] 일봉 수집 완료 saved=${saved} skipped=${skipped}`);

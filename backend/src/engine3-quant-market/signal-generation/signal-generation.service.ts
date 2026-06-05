@@ -303,6 +303,7 @@ export class SignalGenerationService {
   private buildParams(
     ev: {
       rcpNo: string;
+      corpCode: string;
       eventType: string;
       polarity: string;
       isAmendment: boolean;
@@ -329,7 +330,7 @@ export class SignalGenerationService {
 
     return {
       rcpNo: ev.rcpNo,
-      corpCode: '', // company 역정규화 — toCreateData 에서 별도 주입
+      corpCode: ev.corpCode,
       stockCode: ev.company?.stockCode ?? '',
       persona,
       disclosureEvent: { eventType: ev.eventType, polarity: ev.polarity },

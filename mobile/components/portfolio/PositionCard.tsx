@@ -4,10 +4,10 @@ import { Surface, Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
+import { PriceChangeChip } from '@components/common/PriceChangeChip';
 import {
   thesisStatusColor,
   thesisStatusLabel,
-  pnlColor,
   formatPnlPercent,
 } from '@utils/signalDisplay';
 
@@ -51,9 +51,8 @@ export function PositionCard({ position, onPress }: PositionCardProps) {
             </Chip>
           </View>
           <View style={styles.right}>
-            <Text style={[typo.bodyMedium, { color: pnlColor(position.pnlPercent, colors) }]}>
-              {formatPnlPercent(position.pnlPercent)}
-            </Text>
+            {/* 등락률 칩(§12) — 색+부호+화살표 병행. 부모 카드가 손익을 합성 읽기 */}
+            <PriceChangeChip value={position.pnlPercent} />
             <Feather name="chevron-right" size={18} color={colors.textTertiary} />
           </View>
         </View>

@@ -29,6 +29,10 @@ import {
   SignalOutcome,
   ExitOutcome,
 } from './simulation-metrics';
+import {
+  toSimPositionDetail,
+  SimPositionDetail,
+} from './simulation-positions';
 
 export interface DailyCycleResult {
   tradeDate: string;
@@ -121,18 +125,27 @@ export class PaperSimulationService {
     }
   }
 
-  /** 진척 조회 — 최신 누적지표 + 포트폴리오 현황 (실주문 없음) */
+  /**
+   * 진척 조회 — 최신 누적지표 + 포트폴리오 현황 + 보유 포지션 상세 (실주문 없음)
+   *
+   * 모바일 포트폴리오 화면용(DAR-42): 평가금액·초기원금·보유 포지션[종목·수량·평가손익]·
+   * 청산 건수·누적 졸업지표·최신 스냅샷일을 한 번에 반환한다.
+   */
   async getSimulationStatus(): Promise<{
     portfolioId: string;
     initialCapital: number;
     equity: number;
-    openPositions: number;
+    /** 보유 포지션 수 */
+    openPositionCount: number;
+    /** 보유 포지션 상세(종목·수량·평가손익) */
+    positions: SimPositionDetail[];
     closedPositions: number;
     latestSnapshotDate: string | null;
     metrics: SimulationMetrics;
   }> {
     const pf = await this.getOrCreateSimPortfolio();
     const { metrics, equity, openPositions } = await this.computeMetrics(pf.id);
+    const positions = await this.getOpenPositionDetails(pf.id);
     const closedPositions = await this.prisma.position.count({
       where: { portfolioId: pf.id, status: 'CLOSED' },
     });
@@ -145,11 +158,41 @@ export class PaperSimulationService {
       portfolioId: pf.id,
       initialCapital: PaperSimulationService.INITIAL_CAPITAL,
       equity,
-      openPositions,
+      openPositionCount: openPositions,
+      positions,
       closedPositions,
       latestSnapshotDate: latest?.snapshotDate ?? null,
       metrics,
     };
+  }
+
+  /** 보유(OPEN) 포지션을 모바일 표시용으로 매핑 — 회사명 보강, 평가손익 큰 순 정렬 */
+  private async getOpenPositionDetails(portfolioId: string): Promise<SimPositionDetail[]> {
+    const rows = await this.prisma.position.findMany({
+      where: { portfolioId, status: 'OPEN' },
+      select: {
+        corpCode: true,
+        stockCode: true,
+        quantity: true,
+        entryPrice: true,
+        currentPrice: true,
+        currentValue: true,
+        unrealizedPnl: true,
+        unrealizedPnlPct: true,
+      },
+      orderBy: { currentValue: 'desc' },
+    });
+    if (rows.length === 0) return [];
+
+    const corpCodes = Array.from(new Set(rows.map((r) => r.corpCode)));
+    const companies = await this.prisma.company.findMany({
+      where: { corpCode: { in: corpCodes } },
+      select: { corpCode: true, corpName: true },
+    });
+    const corpNameByCode: Record<string, string> = {};
+    for (const c of companies) corpNameByCode[c.corpCode] = c.corpName;
+
+    return rows.map((r) => toSimPositionDetail(r, corpNameByCode));
   }
 
   // ─── 1) 신규 매수 ─────────────────────────────────────────────────────

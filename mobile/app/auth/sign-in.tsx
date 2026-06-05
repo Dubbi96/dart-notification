@@ -21,11 +21,11 @@ import { spacing, radius } from '@theme/spacing';
 import { useDialog } from '@components/common/DialogProvider';
 import LogoCards from '@/assets/logo/logo-cards.svg';
 import { useAuthStore } from '@stores/authStore';
-import { api } from '@services/api';
+import { api, API_BASE_URL } from '@services/api';
 
 // 카카오 REST API 키 — mobile/.env 의 EXPO_PUBLIC_KAKAO_REST_API_KEY 로 주입 (백엔드 KAKAO_REST_API_KEY 와 동일 앱)
 const KAKAO_REST_API_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY || '';
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
+// redirect_uri 는 api.ts의 단일 API_BASE_URL 기준. 카카오 콘솔에도 이 값이 등록돼 있어야 한다(README 참조).
 const REDIRECT_URI = `${API_BASE_URL}/auth/kakao/callback`;
 
 export default function SignInScreen() {
@@ -45,14 +45,36 @@ export default function SignInScreen() {
     };
   }, []);
 
+  // 게스트(둘러보기) 진입 — 로그인 실패/미진입 시 공시 둘러보기 동선(DAR-43 §2).
+  const goGuest = () => {
+    useAuthStore.getState().enterGuest();
+    router.replace('/(tabs)/home');
+  };
+
+  // 카카오 로그인 실패 사유를 표면화하고 둘러보기 대안을 함께 제시(DAR-43 §3).
+  const showKakaoFailure = (message: string) => {
+    showDialog({
+      title: '카카오 로그인 실패',
+      message,
+      icon: { name: 'alert-circle', color: palette.red500 },
+      buttons: [
+        { text: '닫기', style: 'cancel' },
+        { text: '둘러보기', onPress: goGuest },
+      ],
+    });
+  };
+
   const pollForResult = (state: string) => {
     let attempts = 0;
     pollingRef.current = setInterval(async () => {
       attempts++;
       if (attempts > 60) {
-        // 60초 타임아웃
+        // 60초 타임아웃 — 서버 연결/카카오 redirect_uri 등록을 점검하도록 안내.
         if (pollingRef.current) clearInterval(pollingRef.current);
         setIsLoading(false);
+        showKakaoFailure(
+          '로그인 응답을 받지 못했습니다(60초 초과). 서버 연결 상태와 카카오 redirect_uri 등록을 확인해 주세요.',
+        );
         return;
       }
 
@@ -105,6 +127,16 @@ export default function SignInScreen() {
       const result = await WebBrowser.openAuthSessionAsync(authUrl, returnUrl);
 
       if (result.type === 'success') {
+        // 백엔드 콜백이 redirect_uri mismatch 등 카카오 에러를 returnUrl?error= 로 실어 복귀시킨다 → 사유 표면화(DAR-43 §3).
+        const parsed = Linking.parse(result.url);
+        const rawErr = parsed.queryParams?.error;
+        const kakaoErr = Array.isArray(rawErr) ? rawErr[0] : rawErr;
+        if (kakaoErr) {
+          if (pollingRef.current) clearInterval(pollingRef.current);
+          setIsLoading(false);
+          showKakaoFailure(decodeURIComponent(kakaoErr));
+          return;
+        }
         try {
           const { data } = await api.get(
             `/auth/kakao/result?state=${encodeURIComponent(state)}`,
@@ -134,7 +166,7 @@ export default function SignInScreen() {
     } catch (e) {
       if (pollingRef.current) clearInterval(pollingRef.current);
       setIsLoading(false);
-      showDialog({ title: '오류', message: '카카오 로그인 중 문제가 발생했습니다.', icon: { name: 'alert-circle', color: palette.red500 } });
+      showKakaoFailure('카카오 로그인 중 문제가 발생했습니다. 네트워크 연결을 확인해 주세요.');
     }
   };
 
@@ -217,10 +249,7 @@ export default function SignInScreen() {
           {/* Guest Browse */}
           <TouchableOpacity
             style={styles.guestButton}
-            onPress={() => {
-              useAuthStore.getState().enterGuest();
-              router.replace('/(tabs)/home');
-            }}
+            onPress={goGuest}
             activeOpacity={0.7}
           >
             <Text style={[typo.caption, { color: colors.textSecondary }]}>

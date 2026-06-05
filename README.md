@@ -127,6 +127,8 @@ npm install
 npx expo start
 ```
 
+> 실기기 테스트 시: `mobile/.env`의 `EXPO_PUBLIC_API_URL`(예: `http://192.168.0.10:3000/api`)에 맞춰 **카카오 콘솔에 `${EXPO_PUBLIC_API_URL}/auth/kakao/callback` redirect_uri를 등록**하고, PC 방화벽이 3000 포트를 허용하는지 확인한다(미등록 시 카카오 로그인 화면에 사유가 표면화됨).
+
 ## 문서
 
 - [시스템 아키텍처](./docs/architecture.md)

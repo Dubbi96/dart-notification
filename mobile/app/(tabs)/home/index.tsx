@@ -17,7 +17,7 @@ import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { GlassCard } from '@components/common/GlassCard';
-import { EmptyState } from '@components/common/StateView';
+import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { AppRefreshControl } from '@components/common/AppRefreshControl';
@@ -66,6 +66,8 @@ export default function HomeScreen() {
     hasNextPage,
     isFetchingNextPage,
     isLoading,
+    isError,
+    error,
     isRefetching,
     refetch,
   } = useDisclosures(undefined, isWatchlistFeed);
@@ -318,11 +320,20 @@ export default function HomeScreen() {
             ) : null
           }
           ListEmptyComponent={
-            <EmptyState
-              {...emptyStateCopy.homeDisclosureEmpty}
-              actionLabel="기업 검색"
-              onAction={handleSearchOpen}
-            />
+            // 연결 실패 시 빈 상태("기업 검색") 대신 사유+재시도를 노출(DAR-43 §1).
+            isError ? (
+              <ApiErrorState
+                error={error}
+                onRetry={refetch}
+                title="공시를 불러오지 못했습니다"
+              />
+            ) : (
+              <EmptyState
+                {...emptyStateCopy.homeDisclosureEmpty}
+                actionLabel="기업 검색"
+                onAction={handleSearchOpen}
+              />
+            )
           }
         />
       </View>

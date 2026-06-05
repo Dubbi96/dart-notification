@@ -17,13 +17,13 @@ import { ko } from 'date-fns/locale';
 import { useWatchlist, useRemoveFromWatchlist } from '@hooks/useWatchlist';
 import { useDialog } from '@components/common/DialogProvider';
 import { SearchOverlay } from '@components/common/SearchOverlay';
-import { EmptyState } from '@components/common/StateView';
+import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 
 export default function WatchlistScreen() {
   const { colors, typography: typo } = useTheme();
   const { showDialog } = useDialog();
-  const { data, isLoading, refetch } = useWatchlist();
+  const { data, isLoading, isError, error, refetch } = useWatchlist();
   const removeFromWatchlist = useRemoveFromWatchlist();
 
   const [searchVisible, setSearchVisible] = useState(false);
@@ -80,10 +80,19 @@ export default function WatchlistScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
-          <EmptyState
-            {...emptyStateCopy.watchlistEmpty}
-            onAction={() => setSearchVisible(true)}
-          />
+          isError ? (
+            // 연결 실패 시 빈 화면 대신 사유+재시도(DAR-43 §1).
+            <ApiErrorState
+              error={error}
+              onRetry={refetch}
+              title="관심기업을 불러오지 못했습니다"
+            />
+          ) : (
+            <EmptyState
+              {...emptyStateCopy.watchlistEmpty}
+              onAction={() => setSearchVisible(true)}
+            />
+          )
         }
         renderItem={({ item }) => (
           <TouchableOpacity

@@ -15,7 +15,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
-import { EmptyState } from '@components/common/StateView';
+import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { AppRefreshControl } from '@components/common/AppRefreshControl';
@@ -276,7 +276,14 @@ export default function DisclosuresScreen() {
             ) : null
           }
           ListEmptyComponent={
-            isSearching ? (
+            activeQuery.isError ? (
+              // 연결 실패 시 빈 화면 대신 사유+재시도(DAR-43 §1).
+              <ApiErrorState
+                error={activeQuery.error}
+                onRetry={activeQuery.refetch}
+                title="공시를 불러오지 못했습니다"
+              />
+            ) : isSearching ? (
               // 공시 검색 빈 결과(§1-2)
               <EmptyState icon="search" title={`'${debouncedQuery}' 검색 결과가 없어요`} />
             ) : isFilterActive ? (

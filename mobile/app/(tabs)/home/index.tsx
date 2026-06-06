@@ -21,6 +21,7 @@ import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { HomeSignalPreview } from '@components/home/HomeSignalPreview';
+import { FirstWatchCoachmark } from '@components/home/FirstWatchCoachmark';
 import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { SearchOverlay } from '@components/common/SearchOverlay';
 import { useDisclosures } from '@hooks/useDisclosures';
@@ -31,6 +32,8 @@ import { useRequireAuth } from '@hooks/useRequireAuth';
 import { useAuthStore } from '@stores/authStore';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { parse, format } from 'date-fns';
+
+import type { Disclosure } from '@app-types/disclosure.types';
 
 function getGreeting(): { text: string; Icon: typeof Sun } {
   const hour = new Date().getHours();
@@ -91,7 +94,7 @@ export default function HomeScreen() {
   const { data: notifData } = useNotifications({ enabled: isAuthenticated });
   const unreadCount = notifData?.pages[0]?.meta.unreadCount ?? 0;
 
-  const renderDisclosureItem = ({ item }: { item: any }) => (
+  const renderDisclosureItem = ({ item }: { item: Disclosure }) => (
     <TouchableOpacity
       activeOpacity={0.7}
       onPress={() => router.push(`/disclosure/${item.rcpNo}`)}
@@ -288,19 +291,9 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* 관심기업 등록 유도 배너 */}
+        {/* 첫 관심기업 코치마크(DAR-65) — 관심목록 비었을 때 1회성·dismiss 가능. 수집 시드 등록 유도. */}
         {isAuthenticated && watchlistCount === 0 && (
-          <TouchableOpacity
-            style={[styles.guideBanner, { backgroundColor: colors.primaryLight }]}
-            onPress={handleSearchOpen}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="star-outline" size={16} color={colors.primary} />
-            <Text style={[typo.caption, { color: colors.primary, flex: 1, marginLeft: spacing.sm }]}>
-              {emptyStateCopy.homeWatchlistEmpty.title}
-            </Text>
-            <Ionicons name="chevron-forward" size={14} color={colors.primary} />
-          </TouchableOpacity>
+          <FirstWatchCoachmark onAdd={handleSearchOpen} />
         )}
 
         <FlatList
@@ -421,15 +414,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.sm,
     borderRadius: radius.full,
-  },
-  guideBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.sm + 2,
-    borderRadius: radius.md,
   },
   listContent: {
     paddingTop: spacing.md,

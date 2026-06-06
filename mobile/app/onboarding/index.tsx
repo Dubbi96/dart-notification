@@ -40,7 +40,13 @@ export default function OnboardingScreen() {
     );
   };
 
+  // 마찰제거(DAR-65): 관심기업 선택은 선택 사항 — 0개여도 다음 단계로 진행한다.
+  // (선택 안 하면 홈 첫 종목 코치마크가 이어서 등록을 유도)
   const handleStep1Continue = async () => {
+    if (selected.length === 0) {
+      setStep(2);
+      return;
+    }
     setIsSubmitting(true);
     try {
       const selectedCompanies = popularCompanies.filter((c) => selected.includes(c.corpCode));
@@ -53,10 +59,6 @@ export default function OnboardingScreen() {
       setIsSubmitting(false);
       setStep(2);
     }
-  };
-
-  const handleStep1Skip = () => {
-    setStep(2);
   };
 
   const handleEnableNotifications = async () => {
@@ -172,7 +174,7 @@ export default function OnboardingScreen() {
           관심 기업을{'\n'}등록하세요
         </Text>
         <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.sm }]}>
-          공시 알림을 받으려면 최소 1개 기업을 선택하세요
+          관심 기업을 추가하면 맞춤 공시·신호를 받아요. 나중에 추가해도 괜찮아요.
         </Text>
 
         {isLoading ? (
@@ -218,37 +220,31 @@ export default function OnboardingScreen() {
 
       <View style={styles.footer}>
         <Text style={[typo.caption, { color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.md }]}>
-          {selected.length}개 선택됨
+          {selected.length > 0 ? `${selected.length}개 선택됨` : '지금 선택하지 않아도 나중에 추가할 수 있어요'}
         </Text>
+        {/* 마찰제거(DAR-65): 0개여도 진행 가능. 0개면 건너뛰기 라벨로 의도를 명확히. */}
         <Button
-          title="계속하기"
+          title={selected.length > 0 ? '계속하기' : '건너뛰고 시작하기'}
           onPress={handleStep1Continue}
           fullWidth
           size="lg"
-          disabled={selected.length === 0}
           loading={isSubmitting}
         />
-        <TouchableOpacity
-          style={styles.skipButton}
-          onPress={handleStep1Skip}
-        >
-          <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>나중에 하기</Text>
-        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
 }
 
 function FeatureItem({ icon, text, colors, typo }: {
-  icon: string;
+  icon: keyof typeof Ionicons.glyphMap;
   text: string;
-  colors: any;
-  typo: any;
+  colors: ReturnType<typeof useTheme>['colors'];
+  typo: ReturnType<typeof useTheme>['typography'];
 }) {
   return (
     <View style={styles.featureItem}>
       <View style={[styles.featureIcon, { backgroundColor: colors.primaryLight }]}>
-        <Ionicons name={icon as any} size={18} color={colors.primary} />
+        <Ionicons name={icon} size={18} color={colors.primary} />
       </View>
       <Text style={[typo.body, { color: colors.text, marginLeft: spacing.md }]}>{text}</Text>
     </View>

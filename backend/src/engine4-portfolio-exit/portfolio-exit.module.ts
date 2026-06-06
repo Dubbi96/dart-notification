@@ -24,9 +24,10 @@ import { PortfolioController } from './portfolio/portfolio.controller';
 import { PortfolioService } from './portfolio/portfolio.service';
 import { PositionThesisController } from './portfolio/position-thesis.controller';
 import { PositionThesisService as PortfolioPositionThesisService } from './portfolio/position-thesis.service';
+import { NotificationProducerModule } from '../notifications/notification-producer.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, NotificationProducerModule],
   controllers: [PortfolioController, PositionThesisController],
   providers: [
     PositionThesisService,

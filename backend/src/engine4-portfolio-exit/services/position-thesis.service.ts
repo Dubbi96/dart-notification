@@ -7,8 +7,9 @@
  *   - 최종 주문 승인·손절가 결정: 이 서비스 범위 외.
  */
 
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { NotificationProducerService } from '../../notifications/notification-producer.service';
 import {
   PositionThesisRecord,
   CreatePositionThesisParams,
@@ -42,6 +43,10 @@ export class PositionThesisService {
   constructor(
     @Inject(POSITION_THESIS_REPOSITORY)
     private readonly repository: IPositionThesisRepository,
+    // DAR-85: 논리훼손(INVALIDATED) 시점에 NOTIFY 큐로 enqueue(엔진 직접 발송 금지).
+    // @Optional — 큐/모듈 미주입 환경(단위 테스트)에서도 안전.
+    @Optional()
+    private readonly notifyProducer?: NotificationProducerService,
   ) {}
 
   /**
@@ -124,7 +129,13 @@ export class PositionThesisService {
         `Cannot transition from ${thesis.status} to INVALIDATED`,
       );
     }
-    return this.repository.updateStatus(id, 'INVALIDATED');
+    const updated = await this.repository.updateStatus(id, 'INVALIDATED');
+    // DAR-85: 논리훼손 통지 enqueue(graceful — 상태 전이를 깨지 않음).
+    await this.notifyProducer?.enqueueThesisViolated({
+      positionThesisId: updated.id,
+      corpCode: updated.corpCode,
+    });
+    return updated;
   }
 
   /**

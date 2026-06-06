@@ -9,9 +9,10 @@
  * (signalSummary 는 기존 캐시된 DisclosureAnalysis 요약을 참조만 — 새 AI 호출 없음)
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma, SignalGrade } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationProducerService } from '../../notifications/notification-producer.service';
 import {
   BuySignalService,
   BuyScoreParams,
@@ -139,9 +140,19 @@ export class SignalGenerationService {
   private readonly logger = new Logger(SignalGenerationService.name);
   private isRunning = false;
 
+  /** DAR-85: 푸시 통지 대상 등급(고확신 매수만). */
+  private static readonly NOTIFY_GRADES: ReadonlySet<string> = new Set([
+    'STRONG_BUY',
+    'BUY',
+  ]);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly buySignal: BuySignalService,
+    // DAR-85: 신호 생성 시점에 NOTIFY 큐로 enqueue(엔진 직접 발송 금지).
+    // @Optional — 큐/모듈 미주입 환경(일부 단위 테스트)에서도 안전.
+    @Optional()
+    private readonly notifyProducer?: NotificationProducerService,
   ) {}
 
   /**
@@ -264,11 +275,14 @@ export class SignalGenerationService {
               });
               updated++;
             } else {
-              await this.prisma.tradingSignal.create({
+              const createdSig = await this.prisma.tradingSignal.create({
                 data: this.toCreateData(result),
+                select: { id: true },
               });
               created++;
               existingSet.add(key);
+              // DAR-85: 신규 매수신호(STRONG_BUY/BUY)만 큐로 통지 enqueue.
+              await this.maybeEnqueueSignal(createdSig.id, result, ev.company?.stockCode);
             }
             gradeDist[result.signal] = (gradeDist[result.signal] ?? 0) + 1;
           } catch (err) {
@@ -646,6 +660,27 @@ export class SignalGenerationService {
   }
 
   /** BuySignalResult → TradingSignal create payload */
+  /**
+   * DAR-85: 신규 매수신호 통지 enqueue. STRONG_BUY/BUY 만 대상.
+   * producer 미주입/큐 미설정/실패는 graceful — 신호 생성 트랜잭션을 깨지 않는다.
+   */
+  private async maybeEnqueueSignal(
+    signalId: string,
+    r: BuySignalResult,
+    stockCode?: string | null,
+  ): Promise<void> {
+    if (!this.notifyProducer) return;
+    if (!SignalGenerationService.NOTIFY_GRADES.has(r.signal)) return;
+    await this.notifyProducer.enqueueSignal({
+      signalId,
+      corpCode: r.corpCode,
+      stockCode: stockCode ?? r.stockCode,
+      eventType: r.eventType,
+      buyScore: r.buyScore,
+      grade: r.signal,
+    });
+  }
+
   private toCreateData(
     r: BuySignalResult,
   ): Prisma.TradingSignalUncheckedCreateInput {

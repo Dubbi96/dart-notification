@@ -27,6 +27,7 @@ describe('SignalGenerationService (DAR-41)', () => {
     esrRows?: any[];
     financials?: any[];
     insiderChanges?: any[];
+    filedFacts?: any[];
   }) {
     const created: any[] = [];
     const create =
@@ -76,6 +77,10 @@ describe('SignalGenerationService (DAR-41)', () => {
       // DAR-88: 내부자 동향 맵 로드용. 기본 빈 배열 → insider 결측(회귀 0).
       insiderHoldingChange: {
         findMany: jest.fn(async () => opts.insiderChanges ?? []),
+      },
+      // DAR-100: 본문 정량값 맵 로드용. 기본 빈 배열 → fundamental 정량값 결측(회귀 0).
+      dartFiledFact: {
+        findMany: jest.fn(async () => opts.filedFacts ?? []),
       },
     };
     return { prisma, created, create };
@@ -136,7 +141,8 @@ describe('SignalGenerationService (DAR-41)', () => {
     await makeService(low.prisma).generateMissingSignals('MANUAL');
 
     // CompanyFinancial 을 후보 corpCode 로 실제 조회했는지 (연결 증거)
-    expect(high.prisma.companyFinancial.findMany).toHaveBeenCalledTimes(1);
+    // DAR-100: loadRevenueMap(매출) + loadGrowthMap(성장률) 두 조회 → 2회.
+    expect(high.prisma.companyFinancial.findMany).toHaveBeenCalledTimes(2);
     const whereArg = (high.prisma.companyFinancial.findMany as jest.Mock).mock.calls[0][0].where;
     expect(whereArg.corpCode.in).toContain('00100000');
 
@@ -144,6 +150,64 @@ describe('SignalGenerationService (DAR-41)', () => {
       rows.find((r) => r.persona === 'VALUE')?.buyScore as number;
     // 규모가 유의한 쪽(high)의 VALUE persona-fit 이 더 우호적 → buyScore 가 더 높다
     expect(valueScore(high.created)).toBeGreaterThan(valueScore(low.created));
+  });
+
+  // DAR-100: 재무 성장률(DAR-93)·본문 정량값(DAR-95) → fundamental 버킷 활성화
+  it('재무 성장률·본문 정량값을 fundamental 버킷 입력으로 종단 연결한다 (사장 자산 활성화)', async () => {
+    const evt = makeEvent({
+      rcpNo: 'F1',
+      eventType: 'SUPPLY_CONTRACT',
+      polarity: 'POSITIVE',
+      extractedData: { salesRatio: 25 },
+      company: { stockCode: '000100', market: 'KOSPI' },
+    });
+    const { prisma, created } = buildPrisma({
+      events: [evt],
+      pricedStockCodes: ['000100'],
+      financials: [
+        {
+          corpCode: '00100000',
+          revenue: 500_000_000,
+          revenueGrowthYoY: 40,
+          operatingProfitGrowthYoY: 35,
+          epsGrowthYoY: 20,
+        },
+      ],
+      filedFacts: [
+        { rcpNo: 'F1', factKey: 'CONTRACT_TO_SALES_RATIO', numericValue: 40 },
+      ],
+    });
+    await makeService(prisma).generateMissingSignals('MANUAL');
+
+    // 성장률 맵(loadGrowthMap)·본문 정량값 맵(loadFiledFactMap)을 실제 조회 (연결 증거)
+    expect(prisma.dartFiledFact.findMany).toHaveBeenCalledTimes(1);
+    const factWhere = (prisma.dartFiledFact.findMany as jest.Mock).mock.calls[0][0]
+      .where;
+    expect(factWhere.rcpNo.in).toContain('F1');
+    expect(factWhere.factKey.in).toEqual(
+      expect.arrayContaining(['CONTRACT_TO_SALES_RATIO', 'DILUTION_RATE']),
+    );
+
+    // fundamental 버킷이 양(+)으로 채점되어 활성화됨 (성장률·계약규모 → 신호 반영)
+    expect(created.length).toBe(4);
+    for (const row of created) {
+      expect(row.scoreBreakdown.fundamental).toBeGreaterThan(0);
+    }
+  });
+
+  // DAR-100 회귀 0: 성장률·정량값 결측 종목은 fundamental 결측 → 재정규화 제외(점수 불변)
+  it('재무 성장률·본문 정량값 결측 시 fundamental 결측 처리(scoreBreakdown.fundamental=0)', async () => {
+    const { prisma, created } = buildPrisma({
+      events: [makeEvent({ rcpNo: 'NF1' })],
+      pricedStockCodes: ['000100'],
+      // financials·filedFacts 미주입 → fundamental 결측
+    });
+    await makeService(prisma).generateMissingSignals('MANUAL');
+
+    expect(created.length).toBe(4);
+    for (const row of created) {
+      expect(row.scoreBreakdown.fundamental).toBe(0);
+    }
   });
 
   it('시세 없는 종목·종목코드 없는 공시는 대상에서 제외', async () => {

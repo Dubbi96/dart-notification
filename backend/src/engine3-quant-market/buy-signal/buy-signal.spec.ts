@@ -328,6 +328,7 @@ describe('BuySignalService', () => {
 
   it('전버킷 가용 시 omittedBuckets 비어있고 dataAvailability 전부 true', () => {
     // DAR-88: insider 도 가용해야 진정한 "전버킷 가용" → 내부자 보고 1건 주입.
+    // DAR-100: fundamental 도 가용해야 → 성장률/본문 정량값 주입.
     const result = service.computeBuyScore(
       makeParams({
         insider: {
@@ -339,6 +340,14 @@ describe('BuySignalService', () => {
               isMajorShareholder: true,
             },
           ],
+        },
+        fundamental: {
+          growth: {
+            revenueGrowthYoY: 20,
+            operatingProfitGrowthYoY: 15,
+            epsGrowthYoY: 10,
+          },
+          filedFacts: { contractToSalesRatio: 30, dilutionRate: null },
         },
       }),
     );
@@ -370,21 +379,28 @@ describe('BuySignalService', () => {
       }),
     );
     // DAR-88: makeParams 는 insider 미주입 → insider 도 결측으로 함께 제외.
-    expect(result.omittedBuckets.sort()).toEqual(['chart', 'historicalEvent', 'insider']);
+    // DAR-100: makeParams 는 fundamental 미주입 → fundamental 도 결측으로 함께 제외.
+    expect(result.omittedBuckets.sort()).toEqual([
+      'chart',
+      'fundamental',
+      'historicalEvent',
+      'insider',
+    ]);
     expect(result.dataAvailability.chart).toBe(false);
     expect(result.dataAvailability.historicalEvent).toBe(false);
     expect(result.dataAvailability.insider).toBe(false);
+    expect(result.dataAvailability.fundamental).toBe(false);
     // 임계값 불변(60) 인데도 정당한 신호가 자연히 올라옴.
     expect(result.buyScore).toBeGreaterThanOrEqual(60);
     expect(['BUY_CANDIDATE', 'STRONG_BUY_CANDIDATE']).toContain(result.signal);
   });
 
-  it('insider 결측(레거시 7버킷) 점수 == 레거시 가중합 — 산식 의미 보존(DAR-88 회귀 0)', () => {
-    // makeParams()는 insider 미주입 → insider 결측 → 재정규화가 기존 7버킷 가중치를
-    // 정확히 복원하므로, 레거시(0.25/0.20/…) 고정 가중합과 점수가 일치해야 한다(회귀 0).
+  it('insider+fundamental 결측(레거시 7버킷) 점수 == 레거시 가중합 — 산식 의미 보존(DAR-88/100 회귀 0)', () => {
+    // makeParams()는 insider·fundamental 미주입 → 둘 다 결측 → 재정규화가 기존 7버킷
+    // 가중치를 정확히 복원하므로, 레거시(0.25/0.20/…) 고정 가중합과 점수가 일치해야 한다(회귀 0).
     const params = makeParams();
     const result = service.computeBuyScore(params);
-    expect(result.omittedBuckets).toEqual(['insider']);
+    expect(result.omittedBuckets).toEqual(['insider', 'fundamental']);
 
     // 레거시 공식(고정 7버킷 가중치, 결측 강제 0)을 직접 재현
     const b = result.scoreBreakdown;

@@ -35,6 +35,7 @@ const SCORE_BREAKDOWN_MAX: Record<string, number> = {
   volumeLiquidity: 5,
   marketSector: 5,
   insider: 5,
+  fundamental: 5,
 };
 
 const SCORE_BREAKDOWN_LABEL: Record<string, string> = {
@@ -46,6 +47,7 @@ const SCORE_BREAKDOWN_LABEL: Record<string, string> = {
   volumeLiquidity: '거래량/유동성',
   marketSector: '시장/섹터',
   insider: '내부자/대량보유',
+  fundamental: '펀더멘털(성장률/본문수치)',
 };
 
 /**

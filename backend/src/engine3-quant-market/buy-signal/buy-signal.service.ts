@@ -38,6 +38,7 @@ import {
   scoreRiskPenalty,
 } from './scoring/risk-penalty.scorer';
 import { InsiderInput, scoreInsider } from './scoring/insider.scorer';
+import { FundamentalInput, scoreFundamental } from './scoring/fundamental.scorer';
 import {
   EntryConditionInput,
   evaluateEntryConditions,
@@ -66,6 +67,7 @@ export interface ScoreBreakdown {
   volumeLiquidity: number;
   marketSector: number;
   insider: number;
+  fundamental: number;
 }
 
 export interface BuyScoreParams {
@@ -82,6 +84,8 @@ export interface BuyScoreParams {
   marketSector: MarketSectorInput;
   /** DAR-88: 내부자·대량보유 동향. 미주입 시 결측 처리(재정규화 제외 → 회귀 0). */
   insider?: InsiderInput;
+  /** DAR-100: 재무 성장률·본문 정량값. 미주입 시 결측 처리(재정규화 제외 → 회귀 0). */
+  fundamental?: FundamentalInput;
   riskPenalty: RiskPenaltyInput;
   entryCondition: EntryConditionInput;
   subCategory?: string;
@@ -134,6 +138,9 @@ export class BuySignalService {
 
     // DAR-88: insider 미주입은 결측(빈 trades)으로 정규화.
     const insider: InsiderInput = params.insider ?? { trades: [] };
+    // DAR-100: fundamental 미주입은 결측(성장률·정량값 전무)으로 정규화.
+    const fundamental: FundamentalInput =
+      params.fundamental ?? { growth: null, filedFacts: null };
 
     // 결측 버킷 판별 (DAR-49) — BLOCKED 경로에서도 결과에 표기
     const availability = detectBucketAvailability({
@@ -143,6 +150,7 @@ export class BuySignalService {
       marketSector: params.marketSector,
       personaFit: params.personaFitInput,
       insider,
+      fundamental,
     });
 
     // 하드 차단 → BLOCKED 즉시 반환
@@ -166,6 +174,7 @@ export class BuySignalService {
           volumeLiquidity: 0,
           marketSector: 0,
           insider: 0,
+          fundamental: 0,
         },
         riskPenalty: 100,
         entryConditionMet: entry.met,
@@ -193,6 +202,7 @@ export class BuySignalService {
       volumeLiquidity: scoreVolumeLiquidity(params.volumeLiquidity),
       marketSector:    scoreMarketSector(params.marketSector),
       insider:         scoreInsider(insider),
+      fundamental:     scoreFundamental(fundamental),
     };
 
     // 결측 버킷 제외 후 가용 버킷 가중치를 합=1.0 으로 재정규화 (DAR-49).
@@ -210,7 +220,8 @@ export class BuySignalService {
       effectiveWeights.chart           * breakdown.chart +
       effectiveWeights.volumeLiquidity * breakdown.volumeLiquidity +
       effectiveWeights.marketSector    * breakdown.marketSector +
-      effectiveWeights.insider         * breakdown.insider;
+      effectiveWeights.insider         * breakdown.insider +
+      effectiveWeights.fundamental     * breakdown.fundamental;
 
     const buyScore = Math.round(clamp(weightedSum - penalty, -100, 100));
     const signal = mapScoreToGrade(buyScore);

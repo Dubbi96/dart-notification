@@ -20,6 +20,11 @@ import {
 } from '../buy-signal/buy-signal.service';
 import { PERSONA_TYPES, PersonaType } from '../buy-signal/config/buy-signal.config';
 import { InsiderInput } from '../buy-signal/scoring/insider.scorer';
+import {
+  FundamentalInput,
+  FundamentalGrowthInput,
+  FundamentalFiledFactInput,
+} from '../buy-signal/scoring/fundamental.scorer';
 import { derivePersonaViews, ImpactMagnitude } from './persona-view.rule';
 import {
   classifyBucket,
@@ -248,6 +253,14 @@ export class SignalGenerationService {
       const insiderMap = await this.loadInsiderMap(
         candidates.map((c) => c.corpCode),
       );
+      // DAR-100: corpCode→재무 성장률 맵 (DAR-93 산출분), rcpNo→본문 정량값 맵 (DAR-95 적재분).
+      //   사장되던 두 자산을 신호 입력 피처로 활성화. 신규 수집·AI 개입 0(기존 적재 read-only).
+      const growthMap = await this.loadGrowthMap(
+        candidates.map((c) => c.corpCode),
+      );
+      const filedFactMap = await this.loadFiledFactMap(
+        candidates.map((c) => c.rcpNo),
+      );
       // DAR-91: calibration 등급별 confidence 보정계수 맵 (백테스트 실현 적중률 환류).
       // 1회 로드해 배치 전체에 재사용. 미주입/실패/표본부족 시 빈 맵 → 무보정(계수 1.0).
       const gradeCoeff = await this.loadGradeCoefficients();
@@ -283,6 +296,10 @@ export class SignalGenerationService {
             summaryMap.get(ev.rcpNo),
             revenueMap.get(ev.corpCode) ?? null,
             insiderMap.get(ev.corpCode) ?? { trades: [] },
+            {
+              growth: growthMap.get(ev.corpCode) ?? null,
+              filedFacts: filedFactMap.get(ev.rcpNo) ?? null,
+            },
           );
           const result = this.buySignal.computeBuyScore(params);
 
@@ -634,6 +651,100 @@ export class SignalGenerationService {
     return map;
   }
 
+  /**
+   * DAR-100: corpCode → 최신 재무 성장률(FundamentalGrowthInput) 맵.
+   * DAR-93 이 산출·영속한 CompanyFinancial YoY 성장률을 신호 입력 피처로 종단 연결한다.
+   * 성장률 필드가 하나라도 있는 가장 최근 보고서를 corpCode 단위로 채택.
+   * 조회 실패/부재·전필드 null → 맵 미수록 → fundamental 버킷 결측(재정규화 제외, 회귀 0). 신규 수집 없음.
+   */
+  private async loadGrowthMap(
+    corpCodes: string[],
+  ): Promise<Map<string, FundamentalGrowthInput>> {
+    const map = new Map<string, FundamentalGrowthInput>();
+    const uniq = Array.from(new Set(corpCodes));
+    if (uniq.length === 0) return map;
+    try {
+      const rows = await this.prisma.companyFinancial.findMany({
+        where: { corpCode: { in: uniq } },
+        select: {
+          corpCode: true,
+          revenueGrowthYoY: true,
+          operatingProfitGrowthYoY: true,
+          epsGrowthYoY: true,
+        },
+        // 연간(11011) → 최신 사업연도 우선. corpCode당 성장률 보유 첫 행 채택.
+        orderBy: [{ bsnsYear: 'desc' }, { reprtCode: 'asc' }],
+      });
+      const numOrNull = (v: number | null): number | null =>
+        v != null && isFinite(v) ? v : null;
+      for (const r of rows) {
+        if (map.has(r.corpCode)) continue; // corpCode당 최신·우선 보고서만
+        const growth: FundamentalGrowthInput = {
+          revenueGrowthYoY: numOrNull(r.revenueGrowthYoY),
+          operatingProfitGrowthYoY: numOrNull(r.operatingProfitGrowthYoY),
+          epsGrowthYoY: numOrNull(r.epsGrowthYoY),
+        };
+        // 성장률이 전부 결측인 행은 건너뛰어, 더 과거라도 성장률 보유 행을 채택.
+        if (
+          growth.revenueGrowthYoY == null &&
+          growth.operatingProfitGrowthYoY == null &&
+          growth.epsGrowthYoY == null
+        ) {
+          continue;
+        }
+        map.set(r.corpCode, growth);
+      }
+    } catch (err) {
+      // 재무 테이블 부재/성장률 컬럼 부재/조회 실패 → fundamental 결측 graceful.
+      this.logger.warn(
+        `[SignalGen] 재무 성장률 맵 로드 실패 — fundamental 성장률 결측 처리: ${(err as Error).message}`,
+      );
+    }
+    return map;
+  }
+
+  /**
+   * DAR-100: rcpNo → 공시 본문 정량값(FundamentalFiledFactInput) 맵.
+   * DAR-95 가 적재한 DartFiledFact(본문 정량표 추출값)를 신호 입력 피처로 종단 연결한다.
+   * 매수판단에 의미 있는 표준 factKey 만 선별: 계약금액/매출 비율(가점), 희석률(감점).
+   * 조회 실패/부재 → 맵 미수록 → fundamental 버킷 결측(재정규화 제외, 회귀 0). 신규 수집 없음.
+   */
+  private async loadFiledFactMap(
+    rcpNos: string[],
+  ): Promise<Map<string, FundamentalFiledFactInput>> {
+    const map = new Map<string, FundamentalFiledFactInput>();
+    const uniq = Array.from(new Set(rcpNos));
+    if (uniq.length === 0) return map;
+    try {
+      const rows = await this.prisma.dartFiledFact.findMany({
+        where: {
+          rcpNo: { in: uniq },
+          factKey: { in: ['CONTRACT_TO_SALES_RATIO', 'DILUTION_RATE'] },
+          numericValue: { not: null },
+        },
+        select: { rcpNo: true, factKey: true, numericValue: true },
+      });
+      for (const r of rows) {
+        const v = r.numericValue;
+        if (v == null || !isFinite(v)) continue;
+        const entry =
+          map.get(r.rcpNo) ?? { contractToSalesRatio: null, dilutionRate: null };
+        if (r.factKey === 'CONTRACT_TO_SALES_RATIO') {
+          entry.contractToSalesRatio = v;
+        } else if (r.factKey === 'DILUTION_RATE') {
+          entry.dilutionRate = v;
+        }
+        map.set(r.rcpNo, entry);
+      }
+    } catch (err) {
+      // 테이블 부재/조회 실패 → fundamental 본문 정량값 결측 graceful.
+      this.logger.warn(
+        `[SignalGen] 본문 정량값 맵 로드 실패 — fundamental 정량값 결측 처리: ${(err as Error).message}`,
+      );
+    }
+    return map;
+  }
+
   /** DB 컨텍스트 → BuyScoreParams 조립 */
   private buildParams(
     ev: {
@@ -652,6 +763,7 @@ export class SignalGenerationService {
     signalSummary: string | undefined,
     revenue: number | null,
     insider: InsiderInput,
+    fundamental: FundamentalInput,
   ): BuyScoreParams {
     const extractedData =
       ev.extractedData && typeof ev.extractedData === 'object' && !Array.isArray(ev.extractedData)
@@ -713,6 +825,7 @@ export class SignalGenerationService {
         vixEquivalent: null,
       },
       insider,
+      fundamental,
       riskPenalty: {
         eventType: ev.eventType,
         isAmendment: ev.isAmendment,

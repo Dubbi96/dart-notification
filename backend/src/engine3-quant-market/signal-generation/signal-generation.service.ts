@@ -25,6 +25,12 @@ import {
   classifyBucket,
   EventExtractedData,
 } from '../event-study/utils/bucket-classifier';
+import { SignalAccuracyService } from '../backtest/signal-accuracy.service';
+import {
+  gradeCoefficientMap,
+  applyConfidenceCoefficient,
+  NO_DISCOUNT_COEFFICIENT,
+} from '../backtest/calibration';
 
 /**
  * 이벤트 임팩트 규모(상대비율 우선·절대금액 폴백) 산출 (DAR-79).
@@ -154,6 +160,10 @@ export class SignalGenerationService {
     // @Optional — 큐/모듈 미주입 환경(일부 단위 테스트)에서도 안전.
     @Optional()
     private readonly notifyProducer?: NotificationProducerService,
+    // DAR-91: calibration(getCalibration) 결과를 읽어 등급별 confidence 보정계수 환류.
+    // @Optional — 미주입 환경(일부 단위 테스트)에서는 무보정(계수 1.0)으로 graceful.
+    @Optional()
+    private readonly accuracy?: SignalAccuracyService,
   ) {}
 
   /**
@@ -238,6 +248,9 @@ export class SignalGenerationService {
       const insiderMap = await this.loadInsiderMap(
         candidates.map((c) => c.corpCode),
       );
+      // DAR-91: calibration 등급별 confidence 보정계수 맵 (백테스트 실현 적중률 환류).
+      // 1회 로드해 배치 전체에 재사용. 미주입/실패/표본부족 시 빈 맵 → 무보정(계수 1.0).
+      const gradeCoeff = await this.loadGradeCoefficients();
       const stockCtxCache = new Map<string, StockContext>();
 
       for (const ev of candidates) {
@@ -273,16 +286,24 @@ export class SignalGenerationService {
           );
           const result = this.buySignal.computeBuyScore(params);
 
+          // DAR-91: 등급 보정계수 적용 → calibratedConfidence (원본 buyScore 보존).
+          //   계수 결측(미보정/표본부족/비매수 등급)은 1.0 → calibratedConfidence = buyScore.
+          const coefficient = gradeCoeff.get(result.signal) ?? NO_DISCOUNT_COEFFICIENT;
+          const calibratedConfidence = applyConfidenceCoefficient(
+            result.buyScore,
+            coefficient,
+          );
+
           try {
             if (exists) {
               await this.prisma.tradingSignal.update({
                 where: { rcpNo_persona: { rcpNo: ev.rcpNo, persona } },
-                data: this.toUpdateData(result),
+                data: this.toUpdateData(result, calibratedConfidence),
               });
               updated++;
             } else {
               const createdSig = await this.prisma.tradingSignal.create({
-                data: this.toCreateData(result),
+                data: this.toCreateData(result, calibratedConfidence),
                 select: { id: true },
               });
               created++;
@@ -714,6 +735,26 @@ export class SignalGenerationService {
     };
   }
 
+  /**
+   * DAR-91: calibration(getCalibration) → 등급별 confidence 보정계수 맵.
+   *
+   * 백테스트 실현 적중률이 등급 기대 미만(과대평가 등급)이면 디스카운트 계수(<1)를 반영한다.
+   * ★ read-only — getCalibration 은 과거 TradingSignal 실현수익 집계만 한다(상수·임계값 불변).
+   *   accuracy 미주입/조회 실패는 빈 맵 → 무보정(계수 1.0) graceful. 신규 수집·AI 개입 0.
+   */
+  private async loadGradeCoefficients(): Promise<Map<string, number>> {
+    if (!this.accuracy) return new Map();
+    try {
+      const calibration = await this.accuracy.getCalibration();
+      return gradeCoefficientMap(calibration.gradeConfidenceCalibrationsD20);
+    } catch (err) {
+      this.logger.warn(
+        `[SignalGen] calibration 로드 실패 — confidence 무보정(계수 1.0): ${(err as Error).message}`,
+      );
+      return new Map();
+    }
+  }
+
   /** BuySignalResult → TradingSignal create payload */
   /**
    * DAR-85: 신규 매수신호 통지 enqueue. STRONG_BUY/BUY 만 대상.
@@ -738,6 +779,7 @@ export class SignalGenerationService {
 
   private toCreateData(
     r: BuySignalResult,
+    calibratedConfidence: number,
   ): Prisma.TradingSignalUncheckedCreateInput {
     return {
       rcpNo: r.rcpNo,
@@ -748,6 +790,8 @@ export class SignalGenerationService {
       persona: r.persona,
       buyScore: r.buyScore,
       signal: r.signal as SignalGrade,
+      // DAR-91: 등급 보정계수 환류 confidence (원본 buyScore 보존, 점수 한정)
+      calibratedConfidence,
       scoreBreakdown: r.scoreBreakdown as unknown as Prisma.InputJsonValue,
       riskPenalty: Math.round(r.riskPenalty),
       entryConditionMet: r.entryConditionMet,
@@ -763,12 +807,15 @@ export class SignalGenerationService {
   /** BuySignalResult → TradingSignal update payload (재채점, 자연키 불변) */
   private toUpdateData(
     r: BuySignalResult,
+    calibratedConfidence: number,
   ): Prisma.TradingSignalUncheckedUpdateInput {
     return {
       eventType: r.eventType,
       subCategory: r.subCategory ?? null,
       buyScore: r.buyScore,
       signal: r.signal as SignalGrade,
+      // DAR-91: 재채점 시에도 보정계수 재반영(원본 buyScore 보존, 점수 한정)
+      calibratedConfidence,
       scoreBreakdown: r.scoreBreakdown as unknown as Prisma.InputJsonValue,
       riskPenalty: Math.round(r.riskPenalty),
       entryConditionMet: r.entryConditionMet,

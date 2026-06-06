@@ -323,4 +323,90 @@ describe('SignalGenerationService (DAR-41)', () => {
       expect(created[0].scoreBreakdown.historicalEvent).toBe(0);
     });
   });
+
+  // ── DAR-91: calibration 등급 보정계수 → calibratedConfidence 환류 ──────
+  describe('calibration 등급 보정계수 환류 (DAR-91)', () => {
+    /** 모든 등급에 동일 계수를 부여한 가짜 calibration(서비스는 result.signal 로 조회) */
+    function fakeAccuracy(coefficient: number, throws = false) {
+      const grades = [
+        'STRONG_BUY_CANDIDATE',
+        'BUY_CANDIDATE',
+        'WATCH',
+        'NEUTRAL',
+        'AVOID',
+        'BLOCKED',
+      ];
+      const getCalibration = jest.fn(async () => {
+        if (throws) throw new Error('calibration boom');
+        return {
+          gradeConfidenceCalibrationsD20: grades.map((grade) => ({
+            grade,
+            coefficient,
+          })),
+        };
+      });
+      return { getCalibration } as any;
+    }
+
+    function makeServiceWithAccuracy(prisma: any, accuracy: any) {
+      // 3번째 인자(notifyProducer)는 undefined, 4번째에 accuracy 주입
+      return new SignalGenerationService(prisma, new BuySignalService(), undefined, accuracy);
+    }
+
+    it('보정계수<1 적용: calibratedConfidence = round(buyScore × 계수), 원본 buyScore 보존', async () => {
+      const { prisma, created } = buildPrisma({
+        events: [makeEvent()],
+        pricedStockCodes: ['000100'],
+      });
+      const accuracy = fakeAccuracy(0.5);
+      const result = await makeServiceWithAccuracy(prisma, accuracy).generateMissingSignals('MANUAL');
+
+      expect(result.created).toBe(4);
+      // getCalibration 이 실제로 1회 호출되어 환류 배선됨(연결 증거)
+      expect(accuracy.getCalibration).toHaveBeenCalledTimes(1);
+      for (const row of created) {
+        // 원본 buyScore 는 그대로, calibratedConfidence 는 디스카운트된 별도 값
+        expect(row.calibratedConfidence).toBe(Math.round(row.buyScore * 0.5));
+        expect(typeof row.buyScore).toBe('number');
+      }
+    });
+
+    it('보정계수 1.0(무보정·정렬): calibratedConfidence = buyScore', async () => {
+      const { prisma, created } = buildPrisma({
+        events: [makeEvent()],
+        pricedStockCodes: ['000100'],
+      });
+      await makeServiceWithAccuracy(prisma, fakeAccuracy(1.0)).generateMissingSignals('MANUAL');
+      for (const row of created) {
+        expect(row.calibratedConfidence).toBe(row.buyScore);
+      }
+    });
+
+    it('accuracy 미주입 → 무보정(계수 1.0): calibratedConfidence = buyScore', async () => {
+      const { prisma, created } = buildPrisma({
+        events: [makeEvent()],
+        pricedStockCodes: ['000100'],
+      });
+      // makeService 는 accuracy 미주입
+      await makeService(prisma).generateMissingSignals('MANUAL');
+      for (const row of created) {
+        expect(row.calibratedConfidence).toBe(row.buyScore);
+      }
+    });
+
+    it('calibration 조회 실패 → graceful 무보정(계수 1.0), 신호 생성은 지속', async () => {
+      const { prisma, created } = buildPrisma({
+        events: [makeEvent()],
+        pricedStockCodes: ['000100'],
+      });
+      const result = await makeServiceWithAccuracy(
+        prisma,
+        fakeAccuracy(0.5, true),
+      ).generateMissingSignals('MANUAL');
+      expect(result.created).toBe(4);
+      for (const row of created) {
+        expect(row.calibratedConfidence).toBe(row.buyScore);
+      }
+    });
+  });
 });

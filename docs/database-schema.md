@@ -703,6 +703,7 @@ pg_restore -d dart_notification backup.sql
 | subCategory | String? | 이벤트 세분류 |
 | persona | String | 'GROWTH' \| 'VALUE' \| 'MOMENTUM' \| 'EVENT_DRIVEN' |
 | buyScore | Int | -100 ~ 100 (정수) |
+| calibratedConfidence | Int? | -100 ~ 100 (정수). DAR-91: calibration 등급 보정계수 환류 confidence. 백테스트 실현 적중률이 등급 기대 미만(과대평가)이면 디스카운트. ★점수/confidence 한정 — 원본 buyScore·임계값 불변, 실주문 무관. null = 보정 정보 없음 |
 | signal | SignalGrade | 신호 등급 enum |
 | scoreBreakdown | Json | 7컴포넌트별 점수 JSON |
 | riskPenalty | Int | 차감된 패널티 합계 |

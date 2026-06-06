@@ -7,7 +7,17 @@ import { calcAllIndicators, Candle } from './indicators';
 describe('IndicatorBackfillService (DAR-50)', () => {
   /** 결정론적 일봉 시리즈 생성 (오름차순 거래일). */
   function makePrices(stockCode: string, corpCode: string, n: number) {
-    const rows = [];
+    const rows: Array<{
+      corpCode: string;
+      stockCode: string;
+      tradeDate: string;
+      openPrice: number;
+      highPrice: number;
+      lowPrice: number;
+      closePrice: number;
+      volume: bigint;
+      tradingValue: bigint;
+    }> = [];
     for (let i = 0; i < n; i++) {
       const close = 10000 + i * 50; // 단조 상승 — ma20 < close 보장
       const day = String(i + 1).padStart(2, '0');

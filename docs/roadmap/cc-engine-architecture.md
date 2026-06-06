@@ -87,8 +87,14 @@ src/
 │   ├── tasks/
 │   │   ├── summary.task.ts
 │   │   ├── event-classification.task.ts
-│   │   ├── persona-interpretation.task.ts
-│   │   └── position-thesis.task.ts
+│   │   ├── persona-interpretation.task.ts   (기존 → Persona P-C에서 확장)
+│   │   ├── position-thesis.task.ts
+│   │   └── philosophy-commentary.task.ts    (Persona P-C 신규: AI 철학 해설)
+│   ├── philosophy/                          (Persona P-A~P-B 신규)
+│   │   ├── philosophy.seed.ts               (4종 철학 시드 데이터)
+│   │   ├── philosophy.service.ts            (철학 CRUD)
+│   │   ├── philosophy-scorer.service.ts     (Rule 기반 철학 점수화, AI 미사용)
+│   │   └── magic-formula-rank.service.ts   (그린블라트 유니버스 순위 배치)
 │   ├── cost-gate/
 │   │   └── ai-cost-gate.service.ts
 │   ├── usage-log/
@@ -97,7 +103,7 @@ src/
 │
 ├── engine3-quant-market/        ← Quant & Market Engine
 │   ├── market-data/
-│   │   ├── market-data.service.ts   (KIS OpenAPI 연동)
+│   │   ├── market-data.service.ts   (KIS OpenAPI 연동 / 다자산 확장 시 IPriceDataPort 구현체로 분리)
 │   │   └── market-data.scheduler.ts
 │   ├── indicators/
 │   │   └── technical-indicator.service.ts
@@ -358,6 +364,15 @@ rejectOrder(orderRequestId: string, userId: string): Promise<void>
 | `PaperTrade` | Engine 5 | 신규 (Phase 12) |
 | `OrderRequest` / `OrderExecution` | Engine 5 | 신규 (Phase 13) |
 | `TradingAuditLog` | Engine 5 | 신규 (Phase 13) |
+| `InvestorPhilosophy` | Engine 2 | 신규 (Persona P-A, M3 후) |
+| `PhilosophyMetric` | Engine 2 | 신규 (Persona P-A) |
+| `PhilosophySource` | Engine 2 | 신규 (Persona P-A) |
+| `PhilosophyScore` | Engine 2 | 신규 (Persona P-B, M5~M6 후) |
+| `MagicFormulaRank` | Engine 2 | 신규 (Persona P-B) |
+| `PhilosophyPaperPortfolio` | Engine 4/5 공유 | 신규 (Persona P-D, M12 후) |
+| `Asset` (추상) | 공통 | 신규 (다자산 M13A 착수 시 — 현재는 `Company`가 KR_STOCK 담당) |
+
+> **다자산 확장 노트:** M13A(미국주식) 착수 시 `Company` 모델을 `Asset` 도메인으로 추상화하거나 병행 운용한다. `engine3-quant-market`의 시세 서비스는 `IPriceDataPort` / `IMarketCalendarPort` 인터페이스로 분리하여 자산별 어댑터를 교체 가능하게 설계한다. 상세: [cc-multi-asset-expansion.md §6](./cc-multi-asset-expansion.md)
 
 **신규 모델 FK 정합 스케치 (기존 자연키와 연결):**
 

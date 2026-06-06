@@ -97,6 +97,15 @@ DART 공시 수집
 
 > 각 Phase의 **상세 준비 문서**는 `docs/roadmap/phase-NN-*.md`에 별도 작성된다.
 
+### 후속 확장 축 (M10 MVP 졸업 이후)
+
+국내주식(KR_STOCK) 기반 시스템이 M10 MVP 졸업 게이트를 통과한 후, 아래 두 축으로 확장한다.
+
+| 축 | 마일스톤 | 한 줄 목표 | 상세 문서 |
+|---|---|---|---|
+| **다자산 확장** | M13A (미국주식) → M13B (코인) → M14 (통합) | 검증된 5엔진을 자산 추상화 후 US_STOCK·CRYPTO로 단계 확장 | [cc-multi-asset-expansion.md](./cc-multi-asset-expansion.md) |
+| **Persona 철학 엔진** | P-A (M3 후) → P-B (M5~M6 병행) → P-C → P-D (M12 후) | 유명 투자자 철학(버핏·린치·그린블라트·드러켄밀러) 구조화 + 철학별 스코어러 + 모의 자동투자 | [cc-persona-philosophy-engine.md](./cc-persona-philosophy-engine.md) |
+
 ---
 
 ## 6. Phase 상세 (요약 스펙)

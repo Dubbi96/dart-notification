@@ -28,6 +28,12 @@
 | **M10** | 모의투자 + 비용 거버넌스 완성 | P12, P11(완성) | 실데이터 모의운용 + 실비용 측정 — **MVP 졸업 게이트** | M8, M9 |
 | **M11** | 반자동매매 | P13 | 사용자 승인 주문 + 증권사 API·Risk 사전체크 | M10 졸업 |
 | **M12** | 제한적 자동매매 | P14 | 검증 전략 한정 자동화 + Risk veto·Kill Switch | M11 |
+| **M13A** | 미국주식 확장 | — | US_STOCK 어댑터·SEC EDGAR 파이프라인·미국 모의투자 | M10 졸업 + KR 3개월 안정 |
+| **M13B** | 코인 확장 | — | CRYPTO 24/7 수집·업비트/Binance 어댑터·코인 모의투자 | M13A 90일 검증 |
+| **M14** | 통합 멀티에셋 포트폴리오 | — | 자산군 통합 대시보드·비중 리밸런싱 | M13A + M13B |
+
+> **다자산 확장 상세:** [cc-multi-asset-expansion.md](./cc-multi-asset-expansion.md) 참조.
+> **Persona 철학 엔진 편입:** M3 완성 후 P-A(철학 데이터 모델) 착수 → M5~M6 병행 P-B(Rule 스코어러) → M12 이후 P-D(철학별 모의투자). 상세: [cc-persona-philosophy-engine.md](./cc-persona-philosophy-engine.md)
 
 > **순서 판단 근거:**
 > - **M4(시세)는 M2와 병행** 가능하다. 공시 파이프라인(M1→M2)과 시세 파이프라인(M4)은 독립적이라 자원이 되면 동시에 진행한다. 단 M5 진입 전 둘 다 완료돼야 한다.
@@ -65,6 +71,7 @@
 ### M3 — AI Analyst + 비용 계측 토대 (P4, P11 부분)
 - **산출물:** 4개 AI Task(Summary/EventClass/Persona/Thesis), `DisclosureAnalysis`·`PersonaAnalysis`, `AIUsageLog`, L0~L2 비용 게이트
 - **핵심 작업:** 최소입력 프롬프트, JSON 스키마 강제·검증, rcpNo+task 멱등 캐시, 호출 래퍼에서 비용 자동 기록
+- **Persona 철학 엔진 P-A 편입 (M3 완성 직후):** `InvestorPhilosophy` 모델 + 4종 철학 시드 구축. AI Task와 독립적으로 착수 가능. 상세: [cc-persona-philosophy-engine.md §4 P-A](./cc-persona-philosophy-engine.md)
 - **↩︎ 이전 단계 재확인:**
   - (M2) AI의 이벤트 타입 **보정 결과 vs Rule 분류 불일치율** 추적 → 불일치 급증 시 M2 룰 재점검
   - (M1) **AI 입력 최소화 원칙 준수** — 원문 전문이 통째로 들어가지 않는지(토큰량 모니터), 들어가면 M1 추출 강화

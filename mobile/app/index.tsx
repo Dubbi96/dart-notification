@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Redirect } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 import { useAuthStore } from '@stores/authStore';
 
 export default function Index() {
@@ -8,6 +9,7 @@ export default function Index() {
   const isGuest = useAuthStore((s) => s.isGuest);
   const onboardingCompleted = useAuthStore((s) => s.onboardingCompleted);
   const [hydrated, setHydrated] = useState(false);
+  const [hasSeenIntro, setHasSeenIntro] = useState<boolean | null>(null);
 
   useEffect(() => {
     const unsub = useAuthStore.persist.onFinishHydration(() => {
@@ -19,7 +21,13 @@ export default function Index() {
     return unsub;
   }, []);
 
-  if (!hydrated) {
+  useEffect(() => {
+    SecureStore.getItemAsync('hasSeenIntro').then((val) => {
+      setHasSeenIntro(val === 'true');
+    });
+  }, []);
+
+  if (!hydrated || hasSeenIntro === null) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" />
@@ -28,6 +36,9 @@ export default function Index() {
   }
 
   if (!isAuthenticated && !isGuest) {
+    if (!hasSeenIntro) {
+      return <Redirect href="/intro" />;
+    }
     return <Redirect href="/auth/sign-in" />;
   }
 

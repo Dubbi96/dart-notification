@@ -83,7 +83,7 @@ export class NotifyConsumer extends WorkerHost {
       data.eventType,
     ].filter(Boolean);
     const body = parts.join(' · ') || '신규 매수 신호가 도착했습니다.';
-    const deepLink = `signals/${signalId}`;
+    const deepLink = `/signals/${signalId}`;
 
     for (const w of watchers) {
       await this.dispatch(w.userId, NotificationType.SIGNAL, signalId, title, body, deepLink);
@@ -107,7 +107,7 @@ export class NotifyConsumer extends WorkerHost {
       select: {
         corpCode: true,
         stockCode: true,
-        portfolio: { select: { userId: true } },
+        portfolio: { select: { id: true, userId: true } },
       },
     });
     const userId = position?.portfolio?.userId;
@@ -121,7 +121,7 @@ export class NotifyConsumer extends WorkerHost {
     const triggers = (data.triggerTypes ?? []).join(', ');
     const body = [data.exitAction, triggers].filter(Boolean).join(' · ')
       || '청산 조건이 충족되었습니다. (권고 — 자동 주문 아님)';
-    const deepLink = `portfolio/positions/${positionId}`;
+    const deepLink = `/portfolio/${position.portfolio!.id}/position/${positionId}`;
 
     // 멱등: refId=positionId 단위 NotificationHistory unique(userId,EXIT,refId).
     await this.dispatch(userId, NotificationType.EXIT, positionId, title, body, deepLink);
@@ -136,11 +136,16 @@ export class NotifyConsumer extends WorkerHost {
       select: {
         corpCode: true,
         position: {
-          select: { stockCode: true, portfolio: { select: { userId: true } } },
+          select: {
+            id: true,
+            stockCode: true,
+            portfolio: { select: { id: true, userId: true } },
+          },
         },
       },
     });
-    const userId = thesis?.position?.portfolio?.userId;
+    const pos = thesis?.position;
+    const userId = pos?.portfolio?.userId;
     if (!userId) {
       this.logger.warn(
         `[NOTIFY:THESIS] thesis/포지션/소유자 결측: ${positionThesisId} — 스킵`,
@@ -148,11 +153,11 @@ export class NotifyConsumer extends WorkerHost {
       return;
     }
 
-    const label =
-      data.corpName ?? data.stockCode ?? thesis.position?.stockCode ?? data.corpCode;
+    const label = data.corpName ?? data.stockCode ?? pos?.stockCode ?? data.corpCode;
     const title = `투자논리 훼손 · ${label}`;
     const body = data.reason || '매수 논리의 무효 조건이 충족되었습니다.';
-    const deepLink = `theses/${positionThesisId}`;
+    // 청산 권고와 동일하게 포지션 상세로 딥링크(논리훼손→포지션 점검 동선).
+    const deepLink = `/portfolio/${pos!.portfolio!.id}/position/${pos!.id}`;
 
     await this.dispatch(
       userId,

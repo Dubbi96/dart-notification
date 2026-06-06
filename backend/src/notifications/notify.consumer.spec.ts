@@ -168,7 +168,7 @@ describe('NotifyConsumer (DAR-85)', () => {
       prisma.position.findUnique.mockResolvedValue({
         corpCode: 'c1',
         stockCode: '005930',
-        portfolio: { userId: 'owner-1' },
+        portfolio: { id: 'pf-1', userId: 'owner-1' },
       });
 
       await consumer.process(
@@ -195,7 +195,7 @@ describe('NotifyConsumer (DAR-85)', () => {
       const { consumer, prisma, notifications } = makeDeps();
       prisma.positionThesis.findUnique.mockResolvedValue({
         corpCode: 'c1',
-        position: { stockCode: '005930', portfolio: { userId: 'owner-2' } },
+        position: { id: 'pos-9', stockCode: '005930', portfolio: { id: 'pf-2', userId: 'owner-2' } },
       });
 
       await consumer.process(

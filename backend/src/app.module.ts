@@ -32,6 +32,7 @@ import { GraduationModule } from './engine5-trading-risk/simulation/graduation.m
 import { PhilosophyStyleSimulationModule } from './engine5-trading-risk/paper-simulation/philosophy-style-simulation.module';
 import { CollectionStatusModule } from './collection-status/collection-status.module';
 import { CronHealthModule } from './cron-health/cron-health.module';
+import { OpsModule } from './ops/ops.module';
 
 @Module({
   imports: [
@@ -116,6 +117,9 @@ import { CronHealthModule } from './cron-health/cron-health.module';
 
     // 횡단 — 데이터 신선도 모니터 + 크론 헬스 기록(@Global recorder) (DAR-110)
     CronHealthModule,
+
+    // 횡단 — 운영 헬스(/health)/메트릭(/ops/metrics) 엔드포인트 (DAR-111)
+    OpsModule,
 
   ],
   providers: [

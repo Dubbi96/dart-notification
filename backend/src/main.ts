@@ -7,8 +7,8 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Global prefix
-  app.setGlobalPrefix('api');
+  // Global prefix — 운영 헬스 프로브(/health·/health/live)는 prefix 제외(probe 는 /api 미사용, DAR-111).
+  app.setGlobalPrefix('api', { exclude: ['health', 'health/live'] });
 
   // Security
   // 개발 환경(http)에서는 Helmet의 https 강제 헤더를 끈다.

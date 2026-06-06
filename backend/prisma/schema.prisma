@@ -70,6 +70,7 @@ model Company {
   disclosures         Disclosure[]
   disclosureDocuments DisclosureDocument[]
   disclosureEvents    DisclosureEvent[]
+  insiderHoldingChanges InsiderHoldingChange[]
   stockDailyPrices    StockDailyPrice[]
   technicalIndicators TechnicalIndicator[]
   tradingSignals      TradingSignal[]
@@ -331,6 +332,11 @@ enum EventType {
   TRADING_SUSPENSION // 거래정지
   DELISTING_RISK // 상장폐지 위험·관리종목
 
+  // ── 지분변동 3종 (DAR-87, 내부자·대량보유 수집) ──────────────
+  INSIDER_BUY // 임원·주요주주 순매수 (특정증권등 소유 증가)
+  INSIDER_SELL // 임원·주요주주 순매도 (특정증권등 소유 감소)
+  MAJOR_HOLDER_5PCT // 5%(대량보유) 상황보고 — 지분율 변동
+
   OTHER // 분류 불가 (NEEDS_REVIEW 대상)
 }
 
@@ -394,6 +400,59 @@ model DisclosureEvent {
   @@index([extractedAt])
   @@index([isAmendment])
   @@map("disclosure_events")
+}
+
+// ====================================
+// 내부자·대량보유 지분변동 (DAR-87, engine1 수집)
+// ====================================
+// DART 정형 엔드포인트 2종을 수집·정규화한 행:
+//   - majorstock.json  : 주식등의 대량보유상황보고(5%룰)         → source = MAJOR_STOCK
+//   - elestock.json    : 임원·주요주주 특정증권등 소유상황보고   → source = EXECUTIVE
+// 미공개 펀더멘털 주체(내부자·5%보유자)의 매매는 강한 행동신호.
+// 자연키: corpCode(FK → Company). 멱등키: (source, rcptNo, reporter).
+// AI 미개입(순수 Rule). tradeType/source/polarity는 문자열(가산 안전).
+model InsiderHoldingChange {
+  id String @id @default(cuid())
+
+  // ── 출처 & 자연키 ────────────────────────────────────────────
+  source   String // "MAJOR_STOCK" | "EXECUTIVE"
+  rcptNo   String // DART 접수번호 (보고서 단위)
+  corpCode String // FK → Company
+
+  // ── 보고자 ───────────────────────────────────────────────────
+  reporter String // 보고자명 (repror)
+  relation String? // 관계/직위 (등기임원·주요주주·5%보유자 등)
+
+  // 임원·주요주주 보고서 부가 플래그 (elestock 전용, majorstock은 null)
+  isExecutive       Boolean? // 임원 여부
+  isRegistered      Boolean? // 등기임원 여부
+  isMajorShareholder Boolean? // 주요주주 여부
+
+  // ── 보유수량/비율 (전·후·증감) ──────────────────────────────
+  sharesAfter  BigInt? // 보유(소유) 주식등의 수 — 보고 후
+  sharesChange BigInt? // 증감 수 (+취득 / -처분)
+  ratioAfter   Float? // 보유(소유) 비율 % — 보고 후
+  ratioChange  Float? // 비율 증감 %p
+
+  // ── 매매 방향 & 단가 ─────────────────────────────────────────
+  tradeType String // "BUY" | "SELL" | "MIXED" | "UNKNOWN"
+  unitPrice Float? // 취득·처분 단가 (KRW, 결측 가능)
+
+  // ── 사유 & 보고일 ────────────────────────────────────────────
+  reportReason String? // 보고사유 (대량보유 report_resn 등)
+  reportedAt   DateTime? // 접수일(rcept_dt) 파싱
+
+  fetchedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  company Company @relation(fields: [corpCode], references: [corpCode])
+
+  @@unique([source, rcptNo, reporter])
+  @@index([corpCode])
+  @@index([tradeType])
+  @@index([reportedAt])
+  @@map("insider_holding_changes")
 }
 
 // ====================================

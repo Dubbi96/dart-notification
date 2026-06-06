@@ -1220,6 +1220,23 @@ Prisma 스키마 변경 없이 기존 모델(§12~§16)을 그대로 사용하�
 
 ---
 
+## 19. Engine1 — InsiderHoldingChange (DAR-87, 내부자·대량보유 지분변동)
+
+DART 정형 엔드포인트 2종을 수집·정규화한 행. 미공개 펀더멘털 주체(내부자·5%보유자)의
+매매는 강한 행동신호 → Main Thesis A 데이터원. 순수 Rule(AI 미개입).
+
+- 출처: `majorstock.json`(주식등의 대량보유상황보고, 5%룰) → `source='MAJOR_STOCK'`,
+  `elestock.json`(임원·주요주주 특정증권등 소유상황보고) → `source='EXECUTIVE'`.
+- 자연키: `corpCode` FK → `companies`. 멱등키: `@@unique([source, rcptNo, reporter])`.
+- 주요 컬럼: `reporter`·`relation`·`isExecutive/isRegistered/isMajorShareholder`(elestock 전용)·
+  `sharesAfter`·`sharesChange`·`ratioAfter`·`ratioChange`·`tradeType`(BUY/SELL/MIXED/UNKNOWN)·
+  `unitPrice`·`reportReason`·`reportedAt`.
+- 인덱스: `corpCode`·`tradeType`·`reportedAt`.
+- EventType 가산 3종: `INSIDER_BUY`(POSITIVE)·`INSIDER_SELL`(NEGATIVE)·`MAJOR_HOLDER_5PCT`.
+- 마이그레이션: `20260607100000_dar87_insider_holding_change` (★파일만 생성 — 휴먼 적용).
+
+---
+
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-06-05
-**버전**: 2.2 (DAR-35/36: Engine4·5 헥사고날 Prisma 어댑터 영속화 계층 추가)
+**최종 수정일**: 2026-06-07
+**버전**: 2.3 (DAR-87: Engine1 InsiderHoldingChange + EventType 지분변동 3종 추가)

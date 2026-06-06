@@ -61,3 +61,30 @@ export interface SimulationStatus {
   latestSnapshotDate: string | null;
   metrics: SimulationMetrics;
 }
+
+/** 자산곡선 1점 — 일별 평가금액 + 초기원금 대비 누적 수익률(%) — DAR-60 */
+export interface EquityCurvePoint {
+  /** 스냅샷일(YYYYMMDD) */
+  snapshotDate: string;
+  /** 일별 평가금액(원) */
+  totalValue: number;
+  /** 초기 가상원금 대비 누적 수익률(%) */
+  returnPct: number;
+}
+
+/**
+ * 모의 자산곡선 + 졸업 진척 응답 — DAR-60.
+ * GET /api/paper-trading/simulation/equity-curve 와 1:1.
+ * points 가 0개면 빈 상태, 1개면 점 1개만(가짜 추세선 금지).
+ */
+export interface EquityCurve {
+  portfolioId: string;
+  /** 초기 가상원금(원) — 차트 기준 점선 */
+  initialCapital: number;
+  /** 일별 자산곡선 점(오름차순) */
+  points: EquityCurvePoint[];
+  /** 최신 스냅샷일(YYYYMMDD) — 점 0개면 null */
+  latestSnapshotDate: string | null;
+  /** 누적 졸업지표(gates 포함) — 스코어보드용 */
+  metrics: SimulationMetrics;
+}

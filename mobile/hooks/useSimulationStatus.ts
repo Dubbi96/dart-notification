@@ -16,3 +16,16 @@ export function useSimulationStatus() {
     retry: 1,
   });
 }
+
+// 모의 자산곡선 + 졸업 진척 준실시간 폴링 훅 — DAR-60.
+// status 와 동일 주기로 폴링해 자산곡선·스코어보드를 자동 갱신.
+export function useSimulationEquityCurve() {
+  return useQuery({
+    queryKey: ['simulation', 'equity-curve'],
+    queryFn: () => simulationService.getEquityCurve(),
+    refetchInterval: REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+    staleTime: 30 * 1000,
+    retry: 1,
+  });
+}

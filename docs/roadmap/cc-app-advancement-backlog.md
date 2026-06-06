@@ -80,3 +80,34 @@
 | 12 | AssetClass 도메인 추상화 선행(가격/캘린더 포트, 스키마 비파괴) | medium/large | backend | A 중기토대(다자산) |
 
 **구동 순서(테제)**: #1 AI입력충실화(최고 ROI·천장해소) → #2 졸업게이트 배선 → #3 위험조정지표 → #4 L0 안전필터 → #5 EventStudy 정밀화 → #6 고위험 추출기 → #7 P-C → #8 백테스트 → #9 L3 → #10 라이브 모니터링 → #11 P-D → #12 다자산 토대. (#12 다자산 실데이터/실주문은 M10 졸업 후 전제 유지.)
+
+> ✅ **패널 v2 #1~#12 전부 완료**(DAR-66~77, origin 반영). 후속은 아래 패널 v3 백로그.
+
+---
+
+## 상용 패널 v3 백로그 (2026-06-06, 5관점·30제안·★코드검증 종합)
+
+> 패널 v2 소진 후 재가동. ★MAIN THESIS 정렬. **핵심 발견: AI 분석 폐루프가 절반만 가동**(공시→aiQueue→consumer 배선은 있으나 consumer가 `runSummary`만 호출, Persona·PositionThesis Task 라이브 미실행 → personaViews/invalidConditions 미충전 → P-C·L3 입력 공백·AIUsageLog 빈약). + 미수집 고가치 데이터원(내부자·수급)과 백엔드 완비-미노출 자산 다수.
+
+**코드검증된 핵심**:
+- `event-extracted.consumer.ts:84`가 `runSummary`만 호출 — 4 AI Task 중 Persona/PositionThesis 미실행(producer disclosure-events.service.ts:194 aiQueue.add는 존재).
+- `dart-api.service.ts`에 majorstock/elestock(내부자·5%보유) 호출 0 — 미수집.
+- `useEventStudyResults`·persona-philosophy-fusion 모바일 소비처 0 — 백엔드 완비, 화면 미노출.
+- krx-api isManagement/isHalted 하드코딩 false(DAR-69 DART폴백은 했으나 KRX 실응답 매핑 TODO 잔존).
+
+| # | 항목 | impact/effort | layer | 테제 |
+|---|---|---|---|---|
+| 1 | **AI 분석 파이프라인 전체 Task 오케스트레이션**(consumer가 Persona·PositionThesis도 게이트 경유 실행, AIUsageLog 기록) | high/medium | backend | ★A+B·폐루프 완성·G3전제 |
+| 2 | 내부자·대량보유 지분변동 수집(DART majorstock/elestock + EventType 3종) | high/large | backend | ★A 최고가치 미수집 |
+| 3 | 공급계약·자사주 금액의 시총·매출 대비 정규화 피처(extractedData) | high/small | backend | B(신규수집0·적중률↑) |
+| 4 | 등급 정밀도 매트릭스(예측등급 vs 실현 confusion·단조성) | high/small | backend | B+안전(G1 정량토대) |
+| 5 | 신호 보정 루프(eventType 실현수익→BASE_SCORE 보정 제안서, 휴먼승인형) | high/medium | backend | B(측정→개선 폐루프) |
+| 6 | 통합 알림 이력 모델 일반화(NotificationHistory: SIGNAL/EXIT/THESIS) | high/medium | both | A+B 알림 선행인프라 |
+| 7 | 신호·청산·논리훼손 푸시 파이프라인(발송 기본 OFF·토대) | high/medium | both | B(정보→행동 1마일) |
+| 8 | 이벤트 유형별 시장 통계 화면(useEventStudyResults 노출) | high/small | mobile | A+B 미소비자산 노출 |
+| 9 | 종목×거장철학×AI관점 결합(P-C Fusion) 화면 노출 | high/small | both | A+B 설명가능성 |
+| 10 | 외국인·기관 일별 순매수 수급 수집(KRX 투자자별) | high/medium | backend | A+B 스마트머니 |
+| 11 | KRX 관리종목·거래정지 실응답 매핑 마감 + L0 실데이터 | medium/small | backend | B+안전(KRX 승인 전제) |
+| 12 | 라이브 30일 모의운용 진행률·G1/G2/G3 자동 측정 리포팅 | medium/small | backend | B·M10 졸업 직결 |
+
+**구동 순서(테제)**: #1 AI전체Task오케스트레이션(폐루프 완성·후속 데이터원) → #3 정규화피처(small·즉효) → #4 등급정밀도 → #8 이벤트통계화면 → #9 P-C화면 → #5 보정루프 → #6·#7 알림파이프라인 → #12 졸업측정 → #2·#10 신규수집(large) → #11 KRX매핑(승인 전제). (#2·#10·#11 KRX/DART 신규수집은 rate limit·승인 고려, 미국/코인 실데이터는 M10 졸업 후.)

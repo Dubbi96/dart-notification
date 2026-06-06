@@ -13,7 +13,7 @@ import { router, type Href } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
 import { useAuthStore } from '@stores/authStore';
-import { EmptyState } from '@components/common/StateView';
+import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { useSnackbar } from '@components/common/SnackbarProvider';
@@ -50,7 +50,10 @@ export default function NotificationsScreen() {
     data,
     fetchNextPage,
     hasNextPage,
+    isFetchingNextPage,
     isLoading,
+    isError,
+    error,
     isRefetching,
     refetch,
   } = useNotifications({ enabled: isAuthenticated });
@@ -162,6 +165,24 @@ export default function NotificationsScreen() {
     );
   }
 
+  // 장애를 '알림 없음' 빈 상태로 위장하지 않도록 에러는 명시 분기 + 재시도 동선 제공.
+  if (isError) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <Text style={[typo.h2, { color: colors.text }]}>알림</Text>
+          <View />
+        </View>
+        <ApiErrorState
+          error={error}
+          onRetry={refetch}
+          title="알림을 불러오지 못했습니다"
+          description="잠시 후 다시 시도해 주세요."
+        />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
@@ -189,7 +210,7 @@ export default function NotificationsScreen() {
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
         onEndReached={() => {
-          if (hasNextPage) {
+          if (hasNextPage && !isFetchingNextPage) {
             fetchNextPage();
           }
         }}
@@ -198,6 +219,13 @@ export default function NotificationsScreen() {
           <AppRefreshControl refreshing={isRefetching} onRefresh={refetch} />
         }
         ListEmptyComponent={<EmptyState {...emptyStateCopy.notificationsEmpty} />}
+        ListFooterComponent={
+          isFetchingNextPage ? (
+            <View style={styles.footerLoading}>
+              <ActivityIndicator size="small" color={colors.primary} />
+            </View>
+          ) : null
+        }
       />
     </SafeAreaView>
   );
@@ -210,6 +238,10 @@ const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
+    alignItems: 'center',
+  },
+  footerLoading: {
+    paddingVertical: spacing.lg,
     alignItems: 'center',
   },
   header: {

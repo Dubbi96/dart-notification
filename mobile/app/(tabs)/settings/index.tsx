@@ -232,6 +232,13 @@ export default function SettingsScreen() {
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
               <MenuItem
+                icon="analytics-outline"
+                title="AI 비용/거버넌스"
+                subtitle="AI 분석 비용·한도 소진율"
+                onPress={() => router.push('/settings-detail/ai-cost')}
+              />
+              <Divider style={{ backgroundColor: colors.borderLight }} />
+              <MenuItem
                 icon="document-text-outline"
                 title="이용약관"
                 onPress={() => router.push('/legal/terms')}

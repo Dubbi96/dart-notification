@@ -18,6 +18,7 @@ import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { Button } from '@components/common/Button';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
+import { ApiErrorState, EmptyState } from '@components/common/StateView';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
@@ -48,7 +49,7 @@ export default function DisclosureDetailScreen() {
   const { colors, typography: typo, isDark } = useTheme();
   const { isAuthenticated, requireAuth } = useRequireAuth();
   const { showSnackbar } = useSnackbar();
-  const { data: disclosure, isLoading } = useDisclosureDetail(id!);
+  const { data: disclosure, isLoading, isError, error, refetch } = useDisclosureDetail(id!);
   const { data: disclosureEvent } = useDisclosureEvent(id!);
   const { data: isSaved, refetch: refetchSaved } = useCheckSaved(id!, { enabled: isAuthenticated });
   const saveMutation = useSaveDisclosure();
@@ -76,7 +77,8 @@ export default function DisclosureDetailScreen() {
     }
   };
 
-  if (isLoading || !disclosure) {
+  // 로딩/에러/빈 상태는 헤더를 유지한 채 분기 — 에러 시 무한 스피너·강제 이탈 대신 재시도 동선 제공.
+  if (isLoading || isError || !disclosure) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
@@ -88,9 +90,24 @@ export default function DisclosureDetailScreen() {
           </Text>
           <View style={styles.headerButton} />
         </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : isError ? (
+          <ApiErrorState
+            error={error}
+            onRetry={refetch}
+            title="공시를 불러오지 못했습니다"
+            description="잠시 후 다시 시도해 주세요."
+          />
+        ) : (
+          <EmptyState
+            icon="file-text"
+            title="공시를 찾을 수 없습니다"
+            description="삭제되었거나 존재하지 않는 공시입니다."
+          />
+        )}
       </SafeAreaView>
     );
   }

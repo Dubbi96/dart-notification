@@ -21,6 +21,7 @@ import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { HomeSignalPreview } from '@components/home/HomeSignalPreview';
+import { GraduationTracker } from '@components/home/GraduationTracker';
 import { FirstWatchCoachmark } from '@components/home/FirstWatchCoachmark';
 import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { SearchOverlay } from '@components/common/SearchOverlay';
@@ -231,6 +232,9 @@ export default function HomeScreen() {
       <View style={[styles.contentArea, { backgroundColor: colors.background }]}>
         {/* 오늘의 투자판단 프리뷰(DAR-61) — summaryCard 아래 최상단. 공시→투자판단 1순위 동선. */}
         <HomeSignalPreview isAuthenticated={isAuthenticated} />
+
+        {/* 졸업 트래커(DAR-67) — Main Thesis B 결승선(M10) 게이트 진척. 단일 시스템 모의 포트폴리오라 게스트 데모 가능. */}
+        <GraduationTracker />
 
         {/* Disclosures */}
         <View style={styles.sectionHeader}>

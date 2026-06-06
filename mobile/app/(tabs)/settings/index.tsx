@@ -225,6 +225,13 @@ export default function SettingsScreen() {
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
               <MenuItem
+                icon="pulse-outline"
+                title="수집 현황"
+                subtitle="공시·재무·지표·모의 커버리지"
+                onPress={() => router.push('/settings-detail/collection-status')}
+              />
+              <Divider style={{ backgroundColor: colors.borderLight }} />
+              <MenuItem
                 icon="document-text-outline"
                 title="이용약관"
                 onPress={() => router.push('/legal/terms')}

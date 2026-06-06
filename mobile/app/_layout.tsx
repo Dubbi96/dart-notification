@@ -56,6 +56,7 @@ function AppContent() {
             <Stack.Screen name="settings-detail/notification-settings" />
             <Stack.Screen name="settings-detail/profile" />
             <Stack.Screen name="settings-detail/saved-disclosures" />
+            <Stack.Screen name="settings-detail/collection-status" />
             <Stack.Screen name="company/[corpCode]" />
             <Stack.Screen name="philosophy/index" />
             <Stack.Screen name="philosophy/[id]" />

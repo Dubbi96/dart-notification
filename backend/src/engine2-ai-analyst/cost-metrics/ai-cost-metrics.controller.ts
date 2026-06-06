@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { AiCostAggregationService } from '../cost-aggregation/ai-cost-aggregation.service';
 import { AiCostLimitGuardService } from '../cost-gate/ai-cost-limit-guard.service';
 import { AiUsageLogService } from '../usage-log/ai-usage-log.service';
+import { AiCostHealthService } from './ai-cost-health.service';
 
 @ApiTags('AI Cost Governance')
 @Controller('ai-cost')
@@ -11,6 +12,7 @@ export class AiCostMetricsController {
     private readonly aggregation: AiCostAggregationService,
     private readonly limitGuard: AiCostLimitGuardService,
     private readonly usageLog: AiUsageLogService,
+    private readonly health: AiCostHealthService,
   ) {}
 
   @Get('metrics')
@@ -51,6 +53,15 @@ export class AiCostMetricsController {
   async getLimitStatus() {
     const status = await this.limitGuard.getLimitStatus();
     return { success: true, data: status };
+  }
+
+  @Get('health')
+  @ApiOperation({
+    summary: '라이브 AI 비용게이트 상시 모니터링 헬스 (수용기준·한도 충족 플래그)',
+  })
+  async getHealth() {
+    const data = await this.health.getHealth();
+    return { success: true, data };
   }
 
   @Get('cross-engine')

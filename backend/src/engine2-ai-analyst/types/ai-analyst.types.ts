@@ -80,6 +80,49 @@ export interface AiCostLimitStatus {
   forcedLevel: AiCostLevel | null; // null = not forced
 }
 
+/**
+ * 수용 기준(Acceptance Criteria) 기계 평가 — live-llm-smoke.ts 기준의 상시화.
+ * 공시당 평균 비용 < $0.005 · L0(미사용) 비율 ≥ 70%.
+ */
+export interface AiCostAcceptance {
+  costPerDisclosureUsd: number;
+  costThresholdUsd: number; // 0.005
+  costOk: boolean;
+  l0Ratio: number;
+  l0ThresholdRatio: number; // 0.7
+  l0Ok: boolean;
+  allOk: boolean;
+}
+
+/** 한도 대비 사용률 (일 $1 / 월 $20). 0~1+ (초과 시 1 이상). */
+export interface AiCostLimitUsage {
+  dailyUsedRatio: number;
+  monthlyUsedRatio: number;
+}
+
+/**
+ * 운영 알림 플래그 — 모니터링 전용.
+ * ★실주문·Kill Switch에 직접 연결 금지(휴먼 승인 경계). 로그/응답에만 노출한다.
+ */
+export interface AiCostHealthAlert {
+  violated: boolean;
+  reasons: string[];
+}
+
+/** 라이브 AI 비용게이트 상시 모니터링 스냅샷 (G3 수익 대비 AI비용 실시간 방어). */
+export interface AiCostHealthSnapshot {
+  evaluatedAt: string; // ISO8601
+  llmKeyConfigured: boolean; // false여도 과거 AIUsageLog 집계로 동작 (graceful)
+  acceptance: AiCostAcceptance;
+  daily: AiCostPeriodSummary;
+  weekly: AiCostPeriodSummary;
+  weekFrom: string;
+  weekTo: string;
+  limit: AiCostLimitStatus;
+  limitUsage: AiCostLimitUsage;
+  alert: AiCostHealthAlert;
+}
+
 /** LLM 호출 1회의 토큰·모델 정보 (비용 기록용) */
 export interface TaskUsage {
   model: string;

@@ -53,12 +53,21 @@ export class EventExtractedConsumer extends WorkerHost {
     // 관리종목이면 AiCostGate가 L0(AI 미사용)로 차단 → 유료 AI 호출 방지.
     const isManagementStock = await this.loadManagementFlag(corpCode);
 
+    // DAR-74: 보유종목 여부를 DB(OPEN 포지션)에서 실조회한다. 보유 중 종목에
+    // 악재(polarity NEGATIVE)가 발생하면 AiCostGate가 L3(Thesis 재평가)로 올린다.
+    const isHolding = await this.loadHoldingFlag(corpCode);
+
+    // polarity 는 Engine1 분류기가 Rule로 도출해 잡 데이터로 전달한다.
+    // 결측/비정상 값이면 eventType 기반 Rule 폴백으로 보정한다(AI 미개입).
+    const resolvedPolarity = this.resolvePolarity(polarity, eventType);
+
     const gate: AiGateInput = {
       isManagementStock,
       isTargetEventType: true,
       tradingValue: enriched.tradingValue, // DB 실조회값(결측 시 0 → L0 스킵)
       confidence,
-      polarity: polarity as AiGateInput['polarity'],
+      polarity: resolvedPolarity,
+      isHolding, // DAR-74: 보유종목 실조회값(결측/실패 시 false → L3 미발동, 비용 안전)
     };
 
     const req: SummaryRequest = {
@@ -92,6 +101,68 @@ export class EventExtractedConsumer extends WorkerHost {
       this.logger.error(`[Engine2] 관리종목 조회 실패: corpCode=${corpCode}`, err);
       return false;
     }
+  }
+
+  /**
+   * 보유종목 여부 실조회 (DAR-74). engine4 포지션(OPEN/PARTIAL)을 DB로 조회한다
+   * (엔진 간 직접 호출 없이 DB 경유). 조회 실패/결측은 graceful 하게 false 로
+   * 처리한다 — false 면 L3가 발동하지 않으므로 비용 안전(과다 LLM 호출 방지).
+   */
+  private async loadHoldingFlag(corpCode: string): Promise<boolean> {
+    try {
+      const openCount = await this.prisma.position.count({
+        where: { corpCode, status: { in: ['OPEN', 'PARTIAL'] } },
+      });
+      return openCount > 0;
+    } catch (err) {
+      this.logger.error(`[Engine2] 보유종목 조회 실패: corpCode=${corpCode}`, err);
+      return false;
+    }
+  }
+
+  /** 유효한 Polarity 값 집합 (Rule 폴백 검증용). */
+  private static readonly VALID_POLARITIES: ReadonlySet<string> = new Set([
+    'POSITIVE',
+    'NEGATIVE',
+    'MIXED',
+    'NEUTRAL',
+  ]);
+
+  /**
+   * eventType → polarity Rule 폴백 (DAR-74). Engine1 분류기 polarity가
+   * 결측/비정상일 때만 사용한다. 보유종목 L3 활성을 위한 악재 판정 보정용 —
+   * 알 수 없는 이벤트는 NEUTRAL(L3 미발동)로 보수 처리한다. AI 미개입.
+   */
+  private static readonly NEGATIVE_EVENT_TYPES: ReadonlySet<string> = new Set([
+    'PAID_IN_CAPITAL_INCREASE',
+    'CB_ISSUANCE',
+    'BW_ISSUANCE',
+    'CONTRACT_CANCELLATION',
+    'LAWSUIT',
+    'AUDIT_OPINION_ADVERSE',
+    'TRADING_HALT',
+    'DELISTING_RISK',
+    'AMENDMENT_NEGATIVE',
+  ]);
+
+  private resolvePolarity(
+    rawPolarity: string | undefined | null,
+    eventType: string,
+  ): AiGateInput['polarity'] {
+    if (
+      typeof rawPolarity === 'string' &&
+      EventExtractedConsumer.VALID_POLARITIES.has(rawPolarity)
+    ) {
+      return rawPolarity as AiGateInput['polarity'];
+    }
+    // Rule 폴백: 악재 이벤트 화이트리스트만 NEGATIVE, 그 외 NEUTRAL.
+    const fallback = EventExtractedConsumer.NEGATIVE_EVENT_TYPES.has(eventType)
+      ? 'NEGATIVE'
+      : 'NEUTRAL';
+    this.logger.warn(
+      `[Engine2] polarity 결측/비정상(raw=${String(rawPolarity)}) → eventType=${eventType} Rule 폴백=${fallback}`,
+    );
+    return fallback;
   }
 
   /**

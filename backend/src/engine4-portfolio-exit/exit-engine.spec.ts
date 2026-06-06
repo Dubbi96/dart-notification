@@ -14,6 +14,7 @@ import {
   calcOverweightScore,
   calcPositiveMomentumBonus,
   calculateExitScore,
+  evaluateInvalidCondition,
 } from './domain/exit-score.calculator';
 import { ExitEngineService, IPositionProvider } from './services/exit-engine.service';
 import { InMemoryExitSignalRepository } from './repositories/in-memory-exit-signal.repository';
@@ -660,5 +661,197 @@ describe('ExitEngineService', () => {
     expect(['EXIT', 'BLOCK_REBUY']).toContain(saved!.exitAction);
 
     repo.clear();
+  });
+});
+
+// ─── 11. DAR-74: invalidConditions 기계평가 (시세 실데이터 연결) ──────────
+
+describe('evaluateInvalidCondition — 기계평가 (DAR-74)', () => {
+  const noEvents = new Set<string>();
+
+  it('_triggered 플래그는 타입과 무관하게 충족으로 인정한다(픽스처 호환)', () => {
+    expect(
+      evaluateInvalidCondition(
+        { type: 'PRICE_BELOW', value: 50000, _triggered: true },
+        noEvents,
+        makePosition(),
+        makeTech({ closePrice: 70000 }), // 실데이터로는 미충족이지만 플래그 우선
+      ),
+    ).toBe(true);
+  });
+
+  it('PRICE_BELOW: 종가 < 기준가면 실데이터로 충족', () => {
+    expect(
+      evaluateInvalidCondition(
+        { type: 'PRICE_BELOW', value: 65000 },
+        noEvents,
+        makePosition(),
+        makeTech({ closePrice: 60000 }),
+      ),
+    ).toBe(true);
+  });
+
+  it('PRICE_BELOW: 종가 >= 기준가면 미충족', () => {
+    expect(
+      evaluateInvalidCondition(
+        { type: 'PRICE_BELOW', value: 65000 },
+        noEvents,
+        makePosition(),
+        makeTech({ closePrice: 70000 }),
+      ),
+    ).toBe(false);
+  });
+
+  it('PRICE_ABOVE: 종가 > 기준가면 충족', () => {
+    expect(
+      evaluateInvalidCondition(
+        { type: 'PRICE_ABOVE', value: 65000 },
+        noEvents,
+        makePosition(),
+        makeTech({ closePrice: 70000 }),
+      ),
+    ).toBe(true);
+  });
+
+  it('VOLUME_COLLAPSE: 거래량비율 < 임계면 충족', () => {
+    expect(
+      evaluateInvalidCondition(
+        { type: 'VOLUME_COLLAPSE', threshold: 0.5 },
+        noEvents,
+        makePosition(),
+        makeTech({ volumeRatio3d: 0.3 }),
+      ),
+    ).toBe(true);
+  });
+
+  it('EVENT_STUDY_UNDERPERFORM D5: 초과수익 < 임계면 충족', () => {
+    expect(
+      evaluateInvalidCondition(
+        { type: 'EVENT_STUDY_UNDERPERFORM', horizon: 'D5', threshold: 0 },
+        noEvents,
+        makePosition(),
+        makeTech({ excessReturn5d: -2 }),
+      ),
+    ).toBe(true);
+  });
+
+  it('AMENDMENT_NEGATIVE: 매칭 공시 이벤트면 충족', () => {
+    expect(
+      evaluateInvalidCondition(
+        { type: 'AMENDMENT_NEGATIVE' },
+        new Set(['CONTRACT_CANCELLATION']),
+        makePosition(),
+        makeTech(),
+      ),
+    ).toBe(true);
+  });
+
+  it('STOP_LOSS_PCT/MAX_HOLD_DAYS는 여기서 미평가(이중계상 방지)', () => {
+    expect(
+      evaluateInvalidCondition(
+        { type: 'STOP_LOSS_PCT', value: 8 },
+        noEvents,
+        makePosition(),
+        makeTech({ closePrice: 1 }),
+      ),
+    ).toBe(false);
+    expect(
+      evaluateInvalidCondition(
+        { type: 'MAX_HOLD_DAYS', value: 20 },
+        noEvents,
+        makePosition(),
+        makeTech(),
+      ),
+    ).toBe(false);
+  });
+
+  // 결측 폴백: 평가에 필요한 시세 필드가 null/없으면 미충족(보수) — 오탐 방지
+  describe('결측 폴백 (graceful)', () => {
+    it('VOLUME_COLLAPSE: 거래량비율 결측(null)이면 미충족', () => {
+      expect(
+        evaluateInvalidCondition(
+          { type: 'VOLUME_COLLAPSE', threshold: 0.5 },
+          noEvents,
+          makePosition(),
+          makeTech({ volumeRatio3d: null }),
+        ),
+      ).toBe(false);
+    });
+
+    it('EVENT_STUDY_UNDERPERFORM: 초과수익 결측(null)이면 미충족', () => {
+      expect(
+        evaluateInvalidCondition(
+          { type: 'EVENT_STUDY_UNDERPERFORM', horizon: 'D5', threshold: 0 },
+          noEvents,
+          makePosition(),
+          makeTech({ excessReturn5d: null }),
+        ),
+      ).toBe(false);
+    });
+
+    it('지원하지 않는 지평(D20)이면 미충족', () => {
+      expect(
+        evaluateInvalidCondition(
+          { type: 'EVENT_STUDY_UNDERPERFORM', horizon: 'D20', threshold: 0 },
+          noEvents,
+          makePosition(),
+          makeTech({ excessReturn5d: -10 }),
+        ),
+      ).toBe(false);
+    });
+
+    it('tech 미제공(null)이면 시세 기반 조건은 미평가(직접 단위 호출 호환)', () => {
+      expect(
+        evaluateInvalidCondition(
+          { type: 'PRICE_BELOW', value: 65000 },
+          noEvents,
+          null,
+          null,
+        ),
+      ).toBe(false);
+    });
+  });
+});
+
+describe('calcThesisBreakScore — 시세 기반 기계평가 연결 (DAR-74)', () => {
+  it('실데이터(pos·tech)로 구조화 조건이 충족되면 _triggered 없이도 점수 발생', () => {
+    const thesis = makeThesis({
+      invalidConditions: [
+        { type: 'PRICE_BELOW', value: 65000 }, // 종가 60000 < 65000 → 충족
+        { type: 'VOLUME_COLLAPSE', threshold: 0.5 }, // 0.3 < 0.5 → 충족
+      ],
+    });
+    const result = calcThesisBreakScore(
+      thesis,
+      [],
+      makePosition(),
+      makeTech({ closePrice: 60000, volumeRatio3d: 0.3 }),
+    );
+    expect(result.triggered).toBe(true);
+    expect(result.score).toBeGreaterThan(0);
+  });
+
+  it('pos·tech 미제공이면 시세 조건은 평가하지 않는다(기존 단위호출 동작 보존)', () => {
+    const thesis = makeThesis({
+      invalidConditions: [{ type: 'PRICE_BELOW', value: 65000 }],
+    });
+    // 인자 2개만 → pos·tech 기본 null → 시세 조건 미평가 → 미충족
+    const result = calcThesisBreakScore(thesis, []);
+    expect(result.triggered).toBe(false);
+    expect(result.score).toBe(0);
+  });
+
+  it('calculateExitScore: 보유 시세 악화로 테제 훼손 → THESIS_INVALIDATED 트리거', () => {
+    const pos = makePosition({ entryPrice: 70000, currentPrice: 60000, stopLossPct: null });
+    const tech = makeTech({ closePrice: 60000, volumeRatio3d: 0.2 });
+    const thesis = makeThesis({
+      invalidConditions: [
+        { type: 'PRICE_BELOW', value: 65000 },
+        { type: 'VOLUME_COLLAPSE', threshold: 0.5 },
+      ],
+    });
+    const result = calculateExitScore(pos, tech, thesis, []);
+    expect(result.triggerTypes).toContain('THESIS_INVALIDATED');
+    expect(result.components.thesisBreakScore).toBeGreaterThan(0);
   });
 });

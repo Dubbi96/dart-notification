@@ -72,6 +72,10 @@ describe('SignalGenerationService (DAR-41)', () => {
       companyFinancial: {
         findMany: jest.fn(async () => opts.financials ?? []),
       },
+      // DAR-88: 내부자 동향 맵 로드용. 기본 빈 배열 → insider 결측(회귀 0).
+      insiderHoldingChange: {
+        findMany: jest.fn(async () => opts.insiderChanges ?? []),
+      },
     };
     return { prisma, created, create };
   }

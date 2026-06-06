@@ -19,6 +19,7 @@ import {
   BuySignalResult,
 } from '../buy-signal/buy-signal.service';
 import { PERSONA_TYPES, PersonaType } from '../buy-signal/config/buy-signal.config';
+import { InsiderInput } from '../buy-signal/scoring/insider.scorer';
 import { derivePersonaViews, ImpactMagnitude } from './persona-view.rule';
 import {
   classifyBucket,
@@ -233,6 +234,10 @@ export class SignalGenerationService {
       const revenueMap = await this.loadRevenueMap(
         candidates.map((c) => c.corpCode),
       );
+      // DAR-88: corpCode→내부자/대량보유 동향 맵 (DAR-87 적재분 종단 연결, 신규 수집 0)
+      const insiderMap = await this.loadInsiderMap(
+        candidates.map((c) => c.corpCode),
+      );
       const stockCtxCache = new Map<string, StockContext>();
 
       for (const ev of candidates) {
@@ -264,6 +269,7 @@ export class SignalGenerationService {
             esrStats,
             summaryMap.get(ev.rcpNo),
             revenueMap.get(ev.corpCode) ?? null,
+            insiderMap.get(ev.corpCode) ?? { trades: [] },
           );
           const result = this.buySignal.computeBuyScore(params);
 
@@ -560,6 +566,53 @@ export class SignalGenerationService {
     return map;
   }
 
+  /**
+   * DAR-88: corpCode → 최근 내부자/대량보유 동향(InsiderInput) 맵.
+   * DAR-87 이 적재한 InsiderHoldingChange 를 최근 윈도우(기본 90일)로 묶어 insider scorer 입력으로 연결.
+   * 조회 실패/부재 시 빈 맵 → insider 버킷 결측(재정규화 제외, 회귀 0). 신규 수집 없음.
+   */
+  private async loadInsiderMap(
+    corpCodes: string[],
+  ): Promise<Map<string, InsiderInput>> {
+    const map = new Map<string, InsiderInput>();
+    const uniq = Array.from(new Set(corpCodes));
+    if (uniq.length === 0) return map;
+    // 최근 90일 보고만 신호 반영 — 오래된 지분변동은 현재 매수판단에 약함.
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    try {
+      const rows = await this.prisma.insiderHoldingChange.findMany({
+        where: { corpCode: { in: uniq }, reportedAt: { gte: since } },
+        select: {
+          corpCode: true,
+          source: true,
+          tradeType: true,
+          ratioChange: true,
+          isMajorShareholder: true,
+        },
+        orderBy: { reportedAt: 'desc' },
+      });
+      for (const r of rows) {
+        const entry = map.get(r.corpCode) ?? { trades: [] };
+        entry.trades.push({
+          source: r.source === 'EXECUTIVE' ? 'EXECUTIVE' : 'MAJOR_STOCK',
+          tradeType:
+            r.tradeType === 'BUY' || r.tradeType === 'SELL' || r.tradeType === 'MIXED'
+              ? r.tradeType
+              : 'UNKNOWN',
+          ratioChange: r.ratioChange,
+          isMajorShareholder: r.isMajorShareholder,
+        });
+        map.set(r.corpCode, entry);
+      }
+    } catch (err) {
+      // 테이블 부재/조회 실패 → insider 버킷 결측(재정규화 제외) graceful.
+      this.logger.warn(
+        `[SignalGen] 내부자 동향 맵 로드 실패 — insider 결측 처리: ${(err as Error).message}`,
+      );
+    }
+    return map;
+  }
+
   /** DB 컨텍스트 → BuyScoreParams 조립 */
   private buildParams(
     ev: {
@@ -577,6 +630,7 @@ export class SignalGenerationService {
     esrStats: EventStudyStats | null,
     signalSummary: string | undefined,
     revenue: number | null,
+    insider: InsiderInput,
   ): BuyScoreParams {
     const extractedData =
       ev.extractedData && typeof ev.extractedData === 'object' && !Array.isArray(ev.extractedData)
@@ -637,6 +691,7 @@ export class SignalGenerationService {
         sectorChange1d: null,
         vixEquivalent: null,
       },
+      insider,
       riskPenalty: {
         eventType: ev.eventType,
         isAmendment: ev.isAmendment,

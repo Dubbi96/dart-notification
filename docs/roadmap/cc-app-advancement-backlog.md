@@ -171,3 +171,30 @@
 | 11 | [보류·KRX승인전제] KRX 종목상태 DART폴백+unknown/false 구분 | low/small | both | 안전(승인 비의존분만) |
 
 **구동 순서(테제)**: #1 사장자산 신호연결 → #2 A/B 백테스트(증거) → #7 Exit 단위테스트(small·안전) → #5 신선도 모니터 → #3 모의진입 영속화(졸업표본) → #4 스코어링 단일화 → #6 헬스 → #8 정량근거카드 → #10 주문화면 정직표기 → #9 e2e → #11 보류분. (KRX 정밀 실데이터 승인 후, 미국/코인 M10 졸업 후.)
+
+---
+
+## 화면반영·인터렉션 감사 백로그 (2026-06-07, 3관점·16발견→10건 종합)
+
+> ★사용자 지시(backend 기능→화면 기획·반영 점검+인터렉션 매끄러움)로 멀티에이전트 감사. **핵심: 만든 기능이 화면에 안 닿거나 진입 불가, 에러상태 누락으로 장애가 위장됨.**
+
+**코드검증된 핵심 결함**:
+- `useDisclosureAnalysis` 훅 완비인데 **화면 소비 0** → AI Analyst(Engine2 핵심 차별점) 사용자 미노출·AI비용 ROI 0.
+- `ai-cost.tsx`(DAR-98 완성) **_layout 라우터 미등록·진입점 없음** → 도달 불가.
+- 공시 상세·알림 탭 **에러 상태 누락** → 무한 스피너/장애가 "없음"으로 위장.
+- 검색→기업상세 네비 단절, 포트폴리오 모의운용 드릴다운 끊김, 홈 FlatList 성능, orders 고아 화면.
+
+| # | 항목 | severity/effort | layer |
+|---|---|---|---|
+| 1 | 공시 상세 AI 분석(useDisclosureAnalysis) 실연동 | high/medium | mobile |
+| 2 | 공시 상세 에러 상태(ApiErrorState·refetch) | high/small | mobile |
+| 3 | 알림 탭 에러 상태 + isFetchingNextPage 가드 | high/small | mobile |
+| 4 | ai-cost 화면 라우터 등록 + 설정 메뉴 진입점 | high/small | mobile |
+| 5 | 검색 결과→기업 상세 네비게이션(별표 분리) | high/medium | mobile |
+| 6 | 공시 탭 라벨 정정 + 공시목록 발견성 승격 | medium/medium | mobile |
+| 7 | 포트폴리오 모의운용 드릴다운(자산곡선·거래내역·체크리스트) | medium/medium | mobile |
+| 8 | 홈 공시 피드 FlatList 성능 규칙 준수 | medium/small | mobile |
+| 9 | orders 미완 화면 노출 차단 + 거래내역 동선 | low/small | both |
+| 10 | 홈 초기 로딩 헤더 셸 유지 + 수치 대시 처리 | low/small | mobile |
+
+**구동 순서**: #1 AI분석노출(차별점) → #4 ai-cost 진입(완성화면 출시·small) → #2·#3 에러상태(신뢰·small) → #5 검색동선 → #7 포트폴리오 드릴다운 → #6 탭라벨/발견성 → #8 성능 → #9·#10 정리. (이후 신규 사용자가치 기능은 화면반영 DAR 동반·DoD에 진입점/상태/인터렉션 포함.)

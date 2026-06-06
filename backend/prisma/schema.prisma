@@ -198,19 +198,34 @@ model SavedDisclosure {
 // 알림 히스토리
 // ====================================
 
+// 통합 알림 유형 (DAR-84) — 공시 외 신호·청산·논리훼손 통지를 한 인박스에 수용
+enum NotificationType {
+  DISCLOSURE // 공시 (기존)
+  SIGNAL // 매매 신호 (engine3/6)
+  EXIT // 청산 신호 (engine4)
+  THESIS_VIOLATED // 투자논리 훼손 (engine4)
+}
+
 model NotificationHistory {
-  id              String    @id @default(cuid())
-  userId          String
-  disclosureRcpNo String // DART 접수번호 (FK → Disclosure.rcpNo)
+  id     String           @id @default(cuid())
+  userId String
+  type   NotificationType @default(DISCLOSURE) // DAR-84 통합 인박스 타입
+  refId  String? // 다형 참조키 (rcpNo/signalId/positionId) — 앱레벨 무결성, DB FK 미강결합
+  title  String? // 통지 제목 (공시 외 타입용; 공시는 disclosure 조인 폴백 가능)
+  body   String? // 통지 본문
+  deepLink String? // 인앱 딥링크 (예: /disclosure/:rcpNo, /signal/:id)
+
+  // 기존 공시 전용 필드 — disclosureRcpNo는 nullable로 완화(공시 외 타입 수용)
+  disclosureRcpNo String? // DART 접수번호 (FK → Disclosure.rcpNo, nullable)
   sentAt          DateTime  @default(now())
   isRead          Boolean   @default(false)
   readAt          DateTime?
 
   // Relations
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  disclosure Disclosure @relation(fields: [disclosureRcpNo], references: [rcpNo], onDelete: Cascade)
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  disclosure Disclosure? @relation(fields: [disclosureRcpNo], references: [rcpNo], onDelete: Cascade)
 
-  @@unique([userId, disclosureRcpNo]) // 중복 알림 방지
+  @@unique([userId, type, refId]) // DAR-84: type+refId 단위 멱등(공시 중복방지 재설계). 공시는 refId=rcpNo
   @@index([userId, isRead]) // 읽지 않은 알림 조회용
   @@index([userId, sentAt]) // 알림 목록 조회용
   @@map("notification_history")

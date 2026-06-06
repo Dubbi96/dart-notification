@@ -1,5 +1,10 @@
 import { DailyPrice } from './backtest.types';
 import { PriceDataPort } from './price-data.port';
+import {
+  AssetClass,
+  DEFAULT_ASSET_CLASS,
+  assertSupportedAssetClass,
+} from '../../../common/asset/asset-class';
 
 /**
  * 테스트용 인메모리 가격 데이터 어댑터
@@ -42,7 +47,9 @@ export class InMemoryPriceDataAdapter extends PriceDataPort {
     stockCode: string,
     startDate: string,
     endDate: string,
+    assetClass: AssetClass = DEFAULT_ASSET_CLASS,
   ): Promise<DailyPrice[]> {
+    assertSupportedAssetClass(assetClass, 'InMemoryPriceDataAdapter.getDailyPrices');
     if (this.lookaheadAuditEnabled && this.currentSimulationDate) {
       if (endDate > this.currentSimulationDate) {
         throw new Error(
@@ -55,13 +62,23 @@ export class InMemoryPriceDataAdapter extends PriceDataPort {
     return prices.filter((p) => p.date >= startDate && p.date <= endDate);
   }
 
-  async getOpenPrice(stockCode: string, date: string): Promise<number | null> {
+  async getOpenPrice(
+    stockCode: string,
+    date: string,
+    assetClass: AssetClass = DEFAULT_ASSET_CLASS,
+  ): Promise<number | null> {
+    assertSupportedAssetClass(assetClass, 'InMemoryPriceDataAdapter.getOpenPrice');
     const prices = this.priceMap.get(stockCode) ?? [];
     const p = prices.find((p) => p.date === date);
     return p?.open ?? null;
   }
 
-  async getTradingDays(startDate: string, endDate: string): Promise<string[]> {
+  async getTradingDays(
+    startDate: string,
+    endDate: string,
+    assetClass: AssetClass = DEFAULT_ASSET_CLASS,
+  ): Promise<string[]> {
+    assertSupportedAssetClass(assetClass, 'InMemoryPriceDataAdapter.getTradingDays');
     return this.tradingDayList.filter((d) => d >= startDate && d <= endDate);
   }
 }

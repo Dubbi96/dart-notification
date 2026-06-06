@@ -35,8 +35,18 @@ export interface DisclosureType {
   sortOrder: number;
 }
 
+/**
+ * AI Task 식별자 — 백엔드 Prisma `AiTaskName` enum identifier(snake_case).
+ * (DB 매핑은 kebab-case지만 클라이언트에 노출되는 값은 enum 식별자다.)
+ */
+export type AiAnalysisTask =
+  | 'summary'
+  | 'event_classification'
+  | 'persona_interpretation'
+  | 'position_thesis';
+
 export interface DisclosureAnalysisItem {
-  task: string;
+  task: AiAnalysisTask | string;
   level: number;
   result: Record<string, unknown>;
   createdAt: string;
@@ -51,4 +61,27 @@ export interface DisclosureAnalysis {
   rcpNo: string;
   analyses: DisclosureAnalysisItem[];
   personaAnalysis: PersonaAnalysis | null;
+}
+
+/** 요약 Task 산출물 (Engine2 summary, L2). */
+export interface SummaryResult {
+  summary: string;
+  positiveFactors: string[];
+  negativeFactors: string[];
+  polarity: 'POSITIVE' | 'NEGATIVE' | 'MIXED' | 'NEUTRAL' | string;
+}
+
+/** Persona 해석 Task 산출물 1건 (Engine2 persona-interpretation, L2). */
+export interface PersonaViewResult {
+  persona: 'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE' | 'EVENT_DRIVEN' | string;
+  interpretation: string;
+  /** 0~100 — Persona 적합도(신뢰도 아님, 과신 방지 표기 필수). */
+  fitScore: number;
+}
+
+/** Position Thesis Task 산출물 (Engine2 position-thesis, L3 — 매수 후보 한정). */
+export interface PositionThesisResult {
+  initialThesis: string;
+  invalidConditions: string[];
+  riskNotes: string;
 }

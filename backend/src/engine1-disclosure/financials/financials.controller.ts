@@ -9,10 +9,12 @@ import { FinancialCollectionService } from './financial-collection.service';
 import { FinancialQueryService } from './financial-query.service';
 import { DartReportCode, DartFsDiv } from '../dart-api/dart-api.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../../auth/guards/optional-jwt-auth.guard';
 
+// 인증(DAR-96): 쓰기(collect/backfill)는 JwtAuthGuard 로 보호, 읽기 전용 GET /latest 는
+// DAR-54 패턴을 따라 OptionalJwtAuthGuard 로 게스트 열람 허용(종목 상세 펀더멘털 카드 정합).
 @ApiTags('Financials')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('financials')
 export class FinancialsController {
   constructor(
@@ -21,6 +23,7 @@ export class FinancialsController {
   ) {}
 
   @Post('collect')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: '재무지표 수동 수집 (DART 재무제표 → CompanyFinancial, 멱등)',
   })
@@ -60,6 +63,7 @@ export class FinancialsController {
   }
 
   @Post('backfill')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: '재무지표 분기 시계열 백필 (reprtCode 11011~11014 × 연도, 멱등)',
   })
@@ -100,7 +104,10 @@ export class FinancialsController {
   }
 
   @Get('latest')
-  @ApiOperation({ summary: '기업 최신 재무지표 조회' })
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary: '기업 최신 재무지표 조회 (읽기 전용·게스트 열람 가능, DAR-96)',
+  })
   @ApiQuery({ name: 'corpCode', required: true, description: 'DART 고유번호 8자리' })
   @ApiQuery({ name: 'fsDiv', required: false, description: 'CFS(기본) | OFS' })
   async latest(@Query('corpCode') corpCode: string, @Query('fsDiv') fsDiv?: string) {

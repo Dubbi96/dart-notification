@@ -1,8 +1,19 @@
 import { KrxMarketDataScheduler } from './krx-market-data.scheduler';
 import { KrxApiService, KrxApiUnavailableError, KrxStockDailyRow, KrxIndexDailyRow, KrxStockBaseInfo } from './krx-api.service';
+import { DartStockStatusService, DerivedStockStatus } from './dart-stock-status.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
 // ─── Mock helpers ─────────────────────────────────────────────────────────────
+
+function makeDart(
+  statuses: Map<string, DerivedStockStatus> = new Map(),
+): jest.Mocked<DartStockStatusService> {
+  return {
+    deriveStatus: jest.fn(),
+    isManagementStock: jest.fn().mockResolvedValue(false),
+    deriveAllStatuses: jest.fn().mockResolvedValue(statuses),
+  } as unknown as jest.Mocked<DartStockStatusService>;
+}
 
 function makeKrxApi(overrides: Partial<KrxApiService> = {}): jest.Mocked<KrxApiService> {
   return {
@@ -60,7 +71,7 @@ describe('KrxMarketDataScheduler.collectDailyPricesForDate', () => {
       fetchKosqdaqDaily: jest.fn().mockResolvedValue([sampleRow2]),
     });
     const prisma = makePrisma();
-    const scheduler = new KrxMarketDataScheduler(prisma, krx);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
 
     const result = await scheduler.collectDailyPricesForDate('20260604', 'MANUAL');
 
@@ -73,7 +84,7 @@ describe('KrxMarketDataScheduler.collectDailyPricesForDate', () => {
   it('주말이면 수집 스킵하고 0 반환', async () => {
     const krx = makeKrxApi({ isWeekend: jest.fn().mockReturnValue(true) });
     const prisma = makePrisma();
-    const scheduler = new KrxMarketDataScheduler(prisma, krx);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
 
     const result = await scheduler.collectDailyPricesForDate('20260606', 'CRON');
 
@@ -91,7 +102,7 @@ describe('KrxMarketDataScheduler.collectDailyPricesForDate', () => {
     const firstPromise = new Promise<void>((r) => (resolveFirst = r));
     (prisma.stockDailyPrice.upsert as jest.Mock).mockImplementation(() => firstPromise);
 
-    const scheduler = new KrxMarketDataScheduler(prisma, krx);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
     const first = scheduler.collectDailyPricesForDate('20260604', 'CRON');
     const second = await scheduler.collectDailyPricesForDate('20260604', 'CRON');
 
@@ -107,7 +118,7 @@ describe('KrxMarketDataScheduler.collectDailyPricesForDate', () => {
       fetchKosqdaqDaily: jest.fn().mockRejectedValue(unavailErr),
     });
     const prisma = makePrisma();
-    const scheduler = new KrxMarketDataScheduler(prisma, krx);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
 
     const result = await scheduler.collectDailyPricesForDate('20260604', 'CRON');
 
@@ -122,7 +133,7 @@ describe('KrxMarketDataScheduler.collectDailyPricesForDate', () => {
       fetchKosqdaqDaily: jest.fn().mockResolvedValue([]),
     });
     const prisma = makePrisma();
-    const scheduler = new KrxMarketDataScheduler(prisma, krx);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
 
     const result = await scheduler.collectDailyPricesForDate('20260604', 'MANUAL');
 
@@ -150,7 +161,7 @@ describe('KrxMarketDataScheduler.collectMarketIndicesForDate', () => {
       fetchIndexDaily: jest.fn().mockResolvedValue([sampleKospi]),
     });
     const prisma = makePrisma();
-    const scheduler = new KrxMarketDataScheduler(prisma, krx);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
 
     const result = await scheduler.collectMarketIndicesForDate('20260604', 'MANUAL');
 
@@ -162,7 +173,7 @@ describe('KrxMarketDataScheduler.collectMarketIndicesForDate', () => {
     const zeroRow: KrxIndexDailyRow = { ...sampleKospi, closeIndex: 0 };
     const krx = makeKrxApi({ fetchIndexDaily: jest.fn().mockResolvedValue([zeroRow]) });
     const prisma = makePrisma();
-    const scheduler = new KrxMarketDataScheduler(prisma, krx);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
 
     const result = await scheduler.collectMarketIndicesForDate('20260604', 'MANUAL');
 
@@ -174,7 +185,7 @@ describe('KrxMarketDataScheduler.collectMarketIndicesForDate', () => {
       fetchIndexDaily: jest.fn().mockRejectedValue(new KrxApiUnavailableError('미설정')),
     });
     const prisma = makePrisma();
-    const scheduler = new KrxMarketDataScheduler(prisma, krx);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
 
     const result = await scheduler.collectMarketIndicesForDate('20260604', 'CRON');
 
@@ -193,7 +204,7 @@ describe('KrxMarketDataScheduler.collectStockStatusesForDate', () => {
       ]),
     });
     const prisma = makePrisma();
-    const scheduler = new KrxMarketDataScheduler(prisma, krx);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
 
     const result = await scheduler.collectStockStatusesForDate('20260604', 'CRON');
 
@@ -210,23 +221,100 @@ describe('KrxMarketDataScheduler.collectStockStatusesForDate', () => {
   it('주말 스킵', async () => {
     const krx = makeKrxApi({ isWeekend: jest.fn().mockReturnValue(true) });
     const prisma = makePrisma();
-    const scheduler = new KrxMarketDataScheduler(prisma, krx);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
 
     const result = await scheduler.collectStockStatusesForDate('20260606', 'CRON');
 
     expect(result.message).toBe('주말 스킵');
   });
 
-  it('KRX API 미설정 — graceful 처리', async () => {
+  it('KRX 미설정 — DART 공시 폴백으로 관리종목·거래정지 상태 적재 (DAR-69)', async () => {
     const krx = makeKrxApi({
       fetchStockStatus: jest.fn().mockRejectedValue(new KrxApiUnavailableError('미설정')),
     });
     const prisma = makePrisma();
-    const scheduler = new KrxMarketDataScheduler(prisma, krx);
+    // company.findMany는 corpCode→stockCode 매핑용
+    (prisma.company.findMany as jest.Mock).mockResolvedValue([
+      { corpCode: 'A005930', stockCode: '005930' },
+      { corpCode: 'A000040', stockCode: '000040' },
+    ]);
+    const dart = makeDart(
+      new Map<string, DerivedStockStatus>([
+        [
+          'A000040',
+          {
+            isManagement: true,
+            isHalted: false,
+            statusNote: '관리종목 지정 (DART 공시 폴백)',
+            sourceRcpNo: '20260601000001',
+            sourceRcpDt: '20260601',
+          },
+        ],
+      ]),
+    );
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, dart);
 
     const result = await scheduler.collectStockStatusesForDate('20260604', 'CRON');
 
-    expect(result.message).toBe('KRX API 미설정');
+    expect(result.processed).toBe(1);
+    expect(prisma.stockStatus.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { stockCode: '000040' },
+        update: expect.objectContaining({ isManagement: true, isTradingSuspended: false }),
+      }),
+    );
+  });
+
+  it('KRX 미설정 + DART 상태 공시 없음 — 0건 처리', async () => {
+    const krx = makeKrxApi({
+      fetchStockStatus: jest.fn().mockRejectedValue(new KrxApiUnavailableError('미설정')),
+    });
+    const prisma = makePrisma();
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.collectStockStatusesForDate('20260604', 'CRON');
+
+    expect(result.processed).toBe(0);
+    expect(result.message).toBe('DART 상태 공시 없음');
+    expect(prisma.stockStatus.upsert).not.toHaveBeenCalled();
+  });
+
+  it('KRX 성공 시 DART 관리종목 플래그를 OR 병합한다 (DAR-69)', async () => {
+    // KRX는 isManagement=false(미매핑 하드코딩)지만 DART 폴백이 관리종목으로 판정
+    const krx = makeKrxApi({
+      fetchStockStatus: jest.fn().mockResolvedValue([
+        { stockCode: '000040', corpName: '관리기업', isHalted: false, isManagement: false, isWarning: false, isSurge: false },
+      ]),
+    });
+    const prisma = makePrisma();
+    (prisma.company.findMany as jest.Mock).mockResolvedValue([
+      { corpCode: 'A000040', stockCode: '000040' },
+    ]);
+    const dart = makeDart(
+      new Map<string, DerivedStockStatus>([
+        [
+          'A000040',
+          {
+            isManagement: true,
+            isHalted: true,
+            statusNote: '관리종목 지정·거래정지 (DART 공시 폴백)',
+            sourceRcpNo: '20260601000002',
+            sourceRcpDt: '20260601',
+          },
+        ],
+      ]),
+    );
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, dart);
+
+    const result = await scheduler.collectStockStatusesForDate('20260604', 'CRON');
+
+    expect(result.processed).toBe(1);
+    expect(prisma.stockStatus.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { stockCode: '000040' },
+        update: expect.objectContaining({ isManagement: true, isTradingSuspended: true }),
+      }),
+    );
   });
 });
 

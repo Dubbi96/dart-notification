@@ -959,12 +959,17 @@ model PositionDailySnapshot {
   exitScore  Int?
   exitAction String?
 
+  // DAR-76: 철학 스타일별 모의운용 분기 — 스타일 태그(가산형, nullable).
+  // 단일 시뮬(스타일 없음)은 null 유지 → 기존 데이터·집계 무손상. styleTags 패턴(investor_philosophies) 계승.
+  styleTag String?
+
   createdAt DateTime @default(now())
 
   position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
 
   @@unique([positionId, snapshotDate])
   @@index([positionId, snapshotDate])
+  @@index([styleTag])
   @@map("position_daily_snapshots")
 }
 
@@ -1222,6 +1227,10 @@ model PaperTrade {
   tradingSignalId  String?
   positionThesisId String?
 
+  // DAR-76: 철학 스타일별 모의운용 분기 — 스타일 태그(가산형, nullable).
+  // 단일 시뮬(스타일 없음)은 null 유지 → 기존 데이터·집계 무손상. styleTags 패턴(investor_philosophies) 계승.
+  styleTag String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1235,6 +1244,7 @@ model PaperTrade {
   @@index([entryDate])
   @@index([tradingSignalId])
   @@index([positionThesisId])
+  @@index([styleTag])
   @@map("paper_trades")
 }
 

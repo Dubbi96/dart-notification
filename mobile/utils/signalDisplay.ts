@@ -21,6 +21,10 @@ export function scoreOneLiner(score: number, grade?: SignalGrade): string {
       return SCORE_ONE_LINER.BUY;
     case 'WATCH':
       return SCORE_ONE_LINER.WATCH;
+    case 'NEUTRAL':
+      return SCORE_ONE_LINER.NEUTRAL;
+    case 'AVOID':
+      return SCORE_ONE_LINER.AVOID;
     case 'BLOCKED':
       return SCORE_ONE_LINER.BLOCKED;
     default:
@@ -84,6 +88,11 @@ export function gradeColor(grade: SignalGrade, colors: ThemeColors): string {
       return colors.primary;
     case 'WATCH':
       return colors.warning;
+    case 'NEUTRAL':
+      // 방향성 없음 → 중립 톤(WATCH 경고색과 변별). 색 단독 금지 규칙상 라벨 병행.
+      return colors.textSecondary;
+    case 'AVOID':
+      return colors.error;
     case 'BLOCKED':
       return colors.textTertiary;
   }
@@ -97,6 +106,10 @@ export function gradeLabel(grade: SignalGrade): string {
       return '매수';
     case 'WATCH':
       return '관망';
+    case 'NEUTRAL':
+      return '중립';
+    case 'AVOID':
+      return '회피';
     case 'BLOCKED':
       return '차단';
   }

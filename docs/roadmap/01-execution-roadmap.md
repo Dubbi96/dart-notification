@@ -148,6 +148,39 @@
 
 ---
 
+### M13A — 미국 주식(US_STOCK) 확장 (예정, M12 안정 운영 3개월 후)
+
+> 상세 설계: [cc-multi-asset-expansion.md §7-1](./cc-multi-asset-expansion.md)
+
+- **산출물:** Polygon.io/SEC EDGAR 기반 미국 주식 분석 파이프라인, US_STOCK 자산 어댑터, 환율 변환 레이어
+- **핵심 작업:**
+  - Engine1: SEC EDGAR 8-K/10-Q 이벤트 파싱 어댑터 추가
+  - Engine3: Polygon.io 일봉·현재가 어댑터 + NYSE 캘린더 어댑터
+  - Engine4: `Portfolio.currency` 다통화 지원 (USD/KRW 혼용)
+  - 공통: `assetClass: AssetClass` 도메인 필드 추가 (기존 모델 확장)
+- **진입 조건:**
+  - M10 MVP 졸업 + M12 안정 운영 3개월 이상
+  - Polygon.io API 키 확보 및 데이터 품질 PoC 완료
+  - SEC EDGAR 실적 이벤트 파이프라인 PoC 완료
+- **초기 대상:** S&P 500 편입 유동성 대형주 30개, 분기 실적/M&A/FDA 이벤트 중심
+
+### M13B — 암호화폐(CRYPTO) 확장 (예정, M13A 모의투자 90일 검증 후)
+
+> 상세 설계: [cc-multi-asset-expansion.md §7-2](./cc-multi-asset-expansion.md)
+
+- **산출물:** Binance API 기반 암호화폐 24/7 분석 파이프라인, CRYPTO 자산 어댑터
+- **핵심 작업:**
+  - Engine3: Binance REST/WebSocket 어댑터, 24/7 수집 Scheduler(Cron → 이벤트 구독)
+  - Engine5: 변동성 대응 리스크 파라미터 분리 (KR/US 대비 포지션 한도 1/3)
+  - 온체인 이벤트 분류 룰 (반감기·업그레이드·락업해제 등)
+- **진입 조건:**
+  - M13A 모의투자 90일 실비용 검증 완료
+  - Binance API 24/7 수집 안정성 PoC
+  - 가상자산 세금 계산 로직 검토 완료
+- **초기 대상:** BTC·ETH·BNB (시가총액 상위 3개, KRW 마켓)
+
+---
+
 ## 3. 전역 회귀 매트릭스 (매 마일스톤 공통 점검)
 
 마일스톤 종료 시 아래 횡단 항목을 **항상** 함께 확인한다. (단계별 ↩︎ 항목과 별개)
@@ -179,10 +212,26 @@
 
 ```
 M0 수집안정화 ─┬─ M1 원문파싱 ─ M2 이벤트추출 ─ M3 AI분석+비용계측 ─┐
-               │                                                      ├─ M6 매수Signal ─ M7 Thesis ─ M8 Exit엔진 ─ M9 백테스트 ─ M10 모의투자+비용검증 ★MVP졸업
-               └─ M4 시세데이터(KRX) ────────────── M5 EventStudy ───┘                                                              │
-                                                                                                                          M11 반자동 ─ M12 제한적자동
+               │                                    └─ [P-A Persona철학 데이터 + P-C AI해석 결합]  ├─ M6 매수Signal ─ M7 Thesis ─ M8 Exit엔진 ─ M9 백테스트 ─ M10 모의투자+비용검증 ★MVP졸업
+               └─ M4 시세데이터(KRX) ────────────── M5 EventStudy ───┘   [P-B 철학별 스코어러 결합]                                              │
+                                                                                                                                          M11 반자동 ─ M12 제한적자동
+                                                                                                                                                              │
+                                                         [P-D 스타일별 모의 자동투자] ─ M13A 미국주식 확장 ─ M13B 코인 확장
         (병행 트랙: 테스트·CI / HTTPS·보안 / 관측성 / 비용 모니터링)
 ```
 
-> **요약:** 분석 토대(M0~M5)를 먼저 **검증 가능한 품질**로 쌓고 → 판단 엔진(M6~M8)을 올린 뒤 → 백테스트(M9)로 전략을 거르고 → 모의투자(M10)로 **실비용까지 측정**해 MVP를 졸업한다. 이 게이트를 통과하기 전에는 실주문(M11)·자동매매(M12)로 넘어가지 않는다.
+> **요약:** 분석 토대(M0~M5)를 먼저 **검증 가능한 품질**로 쌓고 → 판단 엔진(M6~M8)을 올린 뒤 → 백테스트(M9)로 전략을 거르고 → 모의투자(M10)로 **실비용까지 측정**해 MVP를 졸업한다. 이 게이트를 통과하기 전에는 실주문(M11)·자동매매(M12)로 넘어가지 않는다. M12 안정 운영 후 다자산 확장(M13A US_STOCK → M13B CRYPTO)으로 이행한다.
+
+---
+
+## 6. 확장 축 (M12 이후)
+
+### 6-1. 다자산 확장 (M13A/M13B)
+
+국내 주식 파이프라인이 M12까지 검증되면 미국 주식(US_STOCK) → 암호화폐(CRYPTO) 순으로 확장한다.
+상세 설계: [cc-multi-asset-expansion.md](./cc-multi-asset-expansion.md)
+
+### 6-2. Persona 철학 엔진 (P-A ~ P-D)
+
+M3과 병행하여 투자 철학 데이터 모델(P-A)을 도입하고, M6 이후 철학별 스코어러(P-B), AI 해석 결합(P-C), M10 이후 스타일별 모의 자동투자(P-D)로 단계적으로 확장한다.
+상세 설계: [cc-persona-philosophy-engine.md](./cc-persona-philosophy-engine.md)

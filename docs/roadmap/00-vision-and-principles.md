@@ -236,6 +236,38 @@ AI를 모든 공시에 쓰지 말고 **돈 쓸 가치 있는 공시에만**.
 
 ---
 
+## 6-2. 이후 확장 축 (Phase 14 이후, 예정)
+
+> 아래 두 축은 국내 MVP(M10) 졸업 이후 착수한다. 상세 설계 문서를 참조할 것.
+
+### 다자산 확장 (M13A/B, 예정)
+
+국내 주식 파이프라인이 M12까지 검증되면 미국 주식 → 암호화폐 순으로 확장한다.
+
+| 단계 | 자산군 | 착수 조건 |
+|------|--------|---------|
+| M13A | US_STOCK (미국 주식) | M12 안정 운영 3개월 + Polygon.io PoC |
+| M13B | CRYPTO (암호화폐) | M13A 모의투자 90일 검증 완료 |
+
+설계 원칙: 5엔진 재사용 + 자산별 어댑터 교체(헥사고날 포트 확장). 환율 변환, 24/7 캘린더, 자산군별 세금·리스크 파라미터를 별도 구현.
+
+> 상세: [cc-multi-asset-expansion.md](./cc-multi-asset-expansion.md)
+
+### Persona 철학 엔진 (P-A~P-D, M3 이후 점진, 예정)
+
+현행 4개 Persona(가치·성장·모멘텀·이벤트드리븐) 해석을 **유명 투자자 철학 데이터 모델**로 구조화하고, 철학별 정량 스코어러(Rule) + AI 해석 결합 + 스타일별 모의 자동투자로 확장한다.
+
+| 단계 | 내용 | 착수 시점 |
+|------|------|---------|
+| P-A | 철학 데이터 모델·시드 (버핏·린치·그린블랫·드러켄밀러·사이먼스) | M3 완료 후 |
+| P-B | 철학별 정량 스코어러 (ROE·PEG·마법공식 등, Rule 기반) | M6 완료 후 |
+| P-C | AI 해석과 철학 결합 (공시별 스타일 관점 해석문) | P-A + M3 완료 후 |
+| P-D | 스타일별 모의 자동투자 | M10 완료 후 |
+
+> 상세: [cc-persona-philosophy-engine.md](./cc-persona-philosophy-engine.md)
+
+---
+
 ## 7. DB 확장 방향
 
 **기존:** Disclosure, Company, WatchList, NotificationHistory (+ User, Device, NotificationSettings, SavedDisclosure, CompanyOverview)

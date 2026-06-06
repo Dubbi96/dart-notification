@@ -30,6 +30,17 @@ export interface TradeRationale {
   exitAction: string | null;
   /** 청산 트리거 enum 배열 */
   exitTriggers: string[];
+  /** 진입 신호 eventType (없으면 null) — DAR-73 차원 */
+  eventType: string | null;
+  /** 진입 신호 등급 SignalGrade (없으면 null) — DAR-73 차원 */
+  signalGrade: string | null;
+}
+
+/** 차원별(eventType / signalGrade) 성적표 한 행 — DAR-73 */
+export interface DimensionScorecard {
+  /** 그룹 키 (eventType 값·등급명·또는 'UNKNOWN') */
+  key: string;
+  scorecard: TradeScorecard;
 }
 
 /** 매매 성적표 — CLOSED 누적 집계 */
@@ -60,6 +71,10 @@ export interface TradeHistory {
   portfolioId: string;
   initialCapital: number;
   scorecard: TradeScorecard;
+  /** eventType 별 성적표(CLOSED, 표본 많은 순) — DAR-73 */
+  byEventType: DimensionScorecard[];
+  /** signalGrade 별 성적표(CLOSED, 표본 많은 순) — DAR-73 */
+  bySignalGrade: DimensionScorecard[];
   /** 진입일 최신순 */
   trades: TradeRationale[];
 }

@@ -8,6 +8,7 @@ import {
   DartFsDiv,
   CompanyFinancialMetrics,
 } from '../dart-api/dart-api.service';
+import { computeGrowthSeries, PeriodFinancials } from './financial-growth';
 
 export interface CollectFinancialsOptions {
   bsnsYear: string; // 사업연도 (예: '2025')
@@ -43,6 +44,11 @@ export interface BackfillTimeSeriesOptions {
   limit?: number;
   rateLimitMs?: number;
   triggeredBy?: 'MANUAL' | 'CRON' | 'EVENT';
+  /**
+   * 백필 완료 후 YoY/QoQ 성장률 산출·영속 여부 — DAR-93. 기본 true.
+   * (다년 적재가 끝난 뒤 직전 기간을 찾을 수 있어 백필 직후 1회 재계산한다.)
+   */
+  computeGrowth?: boolean;
 }
 
 export interface BackfillTimeSeriesResult {
@@ -50,6 +56,8 @@ export interface BackfillTimeSeriesResult {
   totalSaved: number;
   totalSkipped: number;
   totalFailed: number;
+  /** 성장률(YoY/QoQ)을 산출·영속한 재무 행 수 — DAR-93. */
+  growthUpdated: number;
   results: CollectFinancialsResult[];
 }
 
@@ -411,23 +419,36 @@ export class FinancialCollectionService {
         ? opts.reprtCodes
         : ALL_QUARTERLY_REPORT_CODES;
     const triggeredBy = opts.triggeredBy ?? 'MANUAL';
+    const fsDiv: DartFsDiv = opts.fsDiv ?? 'CFS';
+    const computeGrowth = opts.computeGrowth ?? true;
+
+    // DAR-93: 대상 corpCode 를 1회 확정한다. 성장률 재계산 대상을 고정하고,
+    // 기간 간 동일 종목 집합을 보장(스코프 자동선별이 기간마다 흔들리지 않도록)한다.
+    let corpCodes: string[];
+    if (opts.corpCodes && opts.corpCodes.length > 0) {
+      corpCodes =
+        opts.limit != null ? opts.corpCodes.slice(0, opts.limit) : opts.corpCodes;
+    } else if (opts.scope === 'ALL') {
+      corpCodes = await this.selectAllMarketTargets(opts.limit);
+    } else {
+      corpCodes = await this.selectPriorityCorpCodes(opts.limit);
+    }
 
     const results: CollectFinancialsResult[] = [];
     let totalSaved = 0;
     let totalSkipped = 0;
     let totalFailed = 0;
+    let apiUnavailable = false;
 
     outer: for (const bsnsYear of opts.bsnsYears) {
       for (const reprtCode of reprtCodes) {
         const r = await this.collectBatch({
           bsnsYear,
           reprtCode,
-          fsDiv: opts.fsDiv,
-          corpCodes: opts.corpCodes,
-          scope: opts.scope,
-          limit: opts.limit,
-          rateLimitMs: opts.rateLimitMs,
+          fsDiv,
+          corpCodes,
           triggeredBy,
+          rateLimitMs: opts.rateLimitMs,
         });
         results.push(r);
         totalSaved += r.saved;
@@ -437,9 +458,17 @@ export class FinancialCollectionService {
         // DART 키 미설정 — 이후 조합 호출 무의미. 안전 중단.
         if (r.status === 'FAILED' && r.message === 'DART API 미설정') {
           this.logger.warn('DART API 미설정 — 분기 백필 중단(graceful)');
+          apiUnavailable = true;
           break outer;
         }
       }
+    }
+
+    // DAR-93: 다년 적재 완료 후 YoY/QoQ 성장률 산출·영속(직전 기간 확보 시점).
+    // API 미설정으로 중단된 경우엔 새 데이터가 없어 재계산 생략.
+    let growthUpdated = 0;
+    if (computeGrowth && !apiUnavailable && corpCodes.length > 0) {
+      growthUpdated = await this.recomputeGrowthForCorpCodes(corpCodes, fsDiv);
     }
 
     return {
@@ -447,8 +476,80 @@ export class FinancialCollectionService {
       totalSaved,
       totalSkipped,
       totalFailed,
+      growthUpdated,
       results,
     };
+  }
+
+  /**
+   * DAR-93: 종목별 다년 재무 시계열 → YoY/QoQ 성장률 산출·영속.
+   *
+   * CompanyFinancial 의 다년/분기 행을 읽어 매출·영업이익·EPS 의 전년동기·전기 성장률을
+   * 순수 함수(computeGrowthSeries)로 계산하고, 변동이 있는 행만 update 한다.
+   * 직전 기간이 없으면 성장률은 null(결측 폴백). 읽기→파생→영속만, AI 미개입.
+   *
+   * @returns 성장률을 갱신한 행 수.
+   */
+  async recomputeGrowthForCorpCodes(
+    corpCodes: string[],
+    fsDiv: DartFsDiv = 'CFS',
+  ): Promise<number> {
+    let updated = 0;
+    for (const corpCode of corpCodes) {
+      const rows = await this.prisma.companyFinancial.findMany({
+        where: { corpCode, fsDiv },
+        select: {
+          id: true,
+          bsnsYear: true,
+          reprtCode: true,
+          revenue: true,
+          operatingProfit: true,
+          eps: true,
+          revenueGrowthYoY: true,
+          operatingProfitGrowthYoY: true,
+          epsGrowthYoY: true,
+          revenueGrowthQoQ: true,
+          operatingProfitGrowthQoQ: true,
+          epsGrowthQoQ: true,
+        },
+      });
+      if (rows.length === 0) continue;
+
+      const series = computeGrowthSeries(
+        rows.map(
+          (r): PeriodFinancials => ({
+            bsnsYear: r.bsnsYear,
+            reprtCode: r.reprtCode,
+            revenue: r.revenue == null ? null : Number(r.revenue),
+            operatingProfit:
+              r.operatingProfit == null ? null : Number(r.operatingProfit),
+            eps: r.eps,
+          }),
+        ),
+      );
+
+      for (const row of rows) {
+        const g = series.get(`${row.bsnsYear}:${row.reprtCode}`);
+        if (!g) continue;
+        // 변동 없는 행은 쓰기 생략(멱등 재실행 시 불필요한 update 방지).
+        if (
+          row.revenueGrowthYoY === g.revenueGrowthYoY &&
+          row.operatingProfitGrowthYoY === g.operatingProfitGrowthYoY &&
+          row.epsGrowthYoY === g.epsGrowthYoY &&
+          row.revenueGrowthQoQ === g.revenueGrowthQoQ &&
+          row.operatingProfitGrowthQoQ === g.operatingProfitGrowthQoQ &&
+          row.epsGrowthQoQ === g.epsGrowthQoQ
+        ) {
+          continue;
+        }
+        await this.prisma.companyFinancial.update({
+          where: { id: row.id },
+          data: g,
+        });
+        updated++;
+      }
+    }
+    return updated;
   }
 
   private async lookupStockCode(corpCode: string): Promise<string | null> {

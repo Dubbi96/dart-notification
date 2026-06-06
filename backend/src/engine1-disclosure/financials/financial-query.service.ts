@@ -24,6 +24,13 @@ export interface FinancialSnapshot {
   debtRatio: number | null;
   per: number | null;
   pbr: number | null;
+  // ── 다년 시계열 성장률(%) — DAR-93. 직전 기간 결측 시 null(폴백 유지) ──
+  revenueGrowthYoY: number | null;
+  operatingProfitGrowthYoY: number | null;
+  epsGrowthYoY: number | null;
+  revenueGrowthQoQ: number | null;
+  operatingProfitGrowthQoQ: number | null;
+  epsGrowthQoQ: number | null;
 }
 
 /**
@@ -93,6 +100,12 @@ export class FinancialQueryService {
     debtRatio: number | null;
     per: number | null;
     pbr: number | null;
+    revenueGrowthYoY: number | null;
+    operatingProfitGrowthYoY: number | null;
+    epsGrowthYoY: number | null;
+    revenueGrowthQoQ: number | null;
+    operatingProfitGrowthQoQ: number | null;
+    epsGrowthQoQ: number | null;
   }): FinancialSnapshot {
     const big = (v: bigint | null): number | null => (v == null ? null : Number(v));
     return {
@@ -114,6 +127,12 @@ export class FinancialQueryService {
       debtRatio: row.debtRatio,
       per: row.per,
       pbr: row.pbr,
+      revenueGrowthYoY: row.revenueGrowthYoY,
+      operatingProfitGrowthYoY: row.operatingProfitGrowthYoY,
+      epsGrowthYoY: row.epsGrowthYoY,
+      revenueGrowthQoQ: row.revenueGrowthQoQ,
+      operatingProfitGrowthQoQ: row.operatingProfitGrowthQoQ,
+      epsGrowthQoQ: row.epsGrowthQoQ,
     };
   }
 }

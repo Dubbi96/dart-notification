@@ -51,7 +51,11 @@ function makePrisma(overrides: Record<string, any> = {}): jest.Mocked<PrismaServ
       findMany: jest.fn().mockResolvedValue([]),
     },
     disclosure: { findMany: jest.fn().mockResolvedValue([]) },
-    companyFinancial: { upsert: jest.fn().mockResolvedValue({}) },
+    companyFinancial: {
+      upsert: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockResolvedValue({}),
+    },
     financialCollectionLog: {
       create: jest.fn().mockResolvedValue({ id: 'log-1' }),
       update: jest.fn().mockResolvedValue({}),
@@ -210,6 +214,112 @@ describe('DAR-55 backfillTimeSeries — 분기 시계열', () => {
     // 첫 조합에서 graceful 중단 → periods 1
     expect(r.periods).toBe(1);
     expect(dart.fetchSingleCompanyFinancials).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('DAR-93 성장률 산출·영속 (recomputeGrowthForCorpCodes)', () => {
+  function finRow(o: Record<string, any>): Record<string, any> {
+    return {
+      id: o.id,
+      bsnsYear: o.bsnsYear,
+      reprtCode: o.reprtCode ?? '11011',
+      revenue: o.revenue ?? null,
+      operatingProfit: o.operatingProfit ?? null,
+      eps: o.eps ?? null,
+      revenueGrowthYoY: null,
+      operatingProfitGrowthYoY: null,
+      epsGrowthYoY: null,
+      revenueGrowthQoQ: null,
+      operatingProfitGrowthQoQ: null,
+      epsGrowthQoQ: null,
+      ...o,
+    };
+  }
+
+  it('전년 행이 있으면 YoY 성장률을 산출해 update', async () => {
+    const update = jest.fn().mockResolvedValue({});
+    const prisma = makePrisma({
+      companyFinancial: {
+        upsert: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([
+          finRow({ id: 'a', bsnsYear: '2023', revenue: 1000n, operatingProfit: 100n, eps: 500 }),
+          finRow({ id: 'b', bsnsYear: '2024', revenue: 1200n, operatingProfit: 150n, eps: 600 }),
+        ]),
+        update,
+      },
+    });
+    const svc = new FinancialCollectionService(prisma, makeDartApi());
+
+    const updated = await svc.recomputeGrowthForCorpCodes(['A']);
+    // 2024 행만 YoY 산출(2023 은 직전·전년 없음 → 전부 null = 변동 없음 → 스킵)
+    expect(updated).toBe(1);
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'b' },
+        data: expect.objectContaining({
+          revenueGrowthYoY: 20,
+          operatingProfitGrowthYoY: 50,
+          epsGrowthYoY: 20,
+        }),
+      }),
+    );
+  });
+
+  it('재무 행 없으면 update 호출 없음(graceful)', async () => {
+    const update = jest.fn();
+    const prisma = makePrisma({
+      companyFinancial: { upsert: jest.fn(), findMany: jest.fn().mockResolvedValue([]), update },
+    });
+    const svc = new FinancialCollectionService(prisma, makeDartApi());
+    expect(await svc.recomputeGrowthForCorpCodes(['A'])).toBe(0);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('backfillTimeSeries 가 적재 후 성장률 재계산을 호출한다', async () => {
+    const prisma = makePrisma();
+    const svc = new FinancialCollectionService(prisma, makeDartApi());
+    const spy = jest.spyOn(svc, 'recomputeGrowthForCorpCodes');
+
+    const r = await svc.backfillTimeSeries({
+      bsnsYears: ['2024'],
+      corpCodes: ['A'],
+      rateLimitMs: 0,
+    });
+    expect(spy).toHaveBeenCalledWith(['A'], 'CFS');
+    expect(r.growthUpdated).toBe(0); // findMany 기본 [] → 갱신 0
+  });
+
+  it('computeGrowth:false 면 재계산 생략', async () => {
+    const prisma = makePrisma();
+    const svc = new FinancialCollectionService(prisma, makeDartApi());
+    const spy = jest.spyOn(svc, 'recomputeGrowthForCorpCodes');
+
+    await svc.backfillTimeSeries({
+      bsnsYears: ['2024'],
+      corpCodes: ['A'],
+      rateLimitMs: 0,
+      computeGrowth: false,
+    });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('DART 키 미설정으로 중단되면 성장률 재계산 생략', async () => {
+    const dart = makeDartApi({
+      fetchSingleCompanyFinancials: jest
+        .fn()
+        .mockRejectedValue(new DartApiUnavailableError('DART_API_KEY 미설정')),
+    });
+    const prisma = makePrisma();
+    const svc = new FinancialCollectionService(prisma, dart);
+    const spy = jest.spyOn(svc, 'recomputeGrowthForCorpCodes');
+
+    const r = await svc.backfillTimeSeries({
+      bsnsYears: ['2024'],
+      corpCodes: ['A'],
+      rateLimitMs: 0,
+    });
+    expect(spy).not.toHaveBeenCalled();
+    expect(r.growthUpdated).toBe(0);
   });
 });
 

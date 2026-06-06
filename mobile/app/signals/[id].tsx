@@ -17,6 +17,7 @@ import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { ScoreBreakdownSection } from '@components/signals/ScoreBreakdownSection';
+import { EvidenceMeta } from '@components/common/EvidenceMeta';
 import { LoadingState, ErrorState } from '@components/common/StateView';
 import { useSignalDetail } from '@hooks/useSignals';
 import {
@@ -125,6 +126,11 @@ export default function SignalDetailScreen() {
   const isExpired =
     signal.expiresAt ? new Date(signal.expiresAt) < new Date() : false;
   const scoreColor = buyScoreColor(signal.buyScore, colors);
+  // 게이지 옆 표본 동반(DAR-56) — 통계 근거 항목 중 최대 표본수를 대표값으로 노출(과신 방지).
+  const evidenceSampleN = (signal.scoreBreakdown ?? [])
+    .map((c) => c.sampleN)
+    .filter((n): n is number => typeof n === 'number' && n > 0)
+    .reduce<number | undefined>((max, n) => (max === undefined ? n : Math.max(max, n)), undefined);
 
   // 위험 맥락 고지(§6) — riskFlags의 매핑 키 + 만료 임박을 면책 contextNotes로 승격(약화 아님, 추가만)
   const expiresSoon =
@@ -203,6 +209,12 @@ export default function SignalDetailScreen() {
             statusText={gradeLabel(signal.grade)}
             oneLiner={scoreOneLiner(signal.buyScore, signal.grade)}
           />
+          {evidenceSampleN !== undefined ? (
+            <EvidenceMeta
+              sample={{ n: evidenceSampleN, unit: '건' }}
+              style={styles.gaugeEvidence}
+            />
+          ) : null}
         </View>
 
         {/* Score 근거 분해(P0-C) — HeaderSection 직후. scoreBreakdown 미연동 시 graceful null */}
@@ -326,6 +338,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  gaugeEvidence: {
+    marginTop: spacing.sm,
   },
   card: {
     borderRadius: radius.lg,

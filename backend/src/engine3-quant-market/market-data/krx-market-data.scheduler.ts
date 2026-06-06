@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KrxApiService, KrxApiUnavailableError } from './krx-api.service';
+import { DartStockStatusService, DerivedStockStatus } from './dart-stock-status.service';
 import type { Prisma } from '@prisma/client';
 
 /**
@@ -24,6 +25,7 @@ export class KrxMarketDataScheduler {
   constructor(
     private readonly prisma: PrismaService,
     private readonly krx: KrxApiService,
+    private readonly dartStockStatus: DartStockStatusService,
   ) {}
 
   /** 평일 18:30 — 일봉 수집 */
@@ -226,27 +228,39 @@ export class KrxMarketDataScheduler {
     try {
       this.logger.log(`[KRX] 종목상태 수집 basDd=${basDd} [${triggeredBy}]`);
 
+      // DAR-69: KRX 승인 전까지 관리종목·거래정지는 DART 공시 폴백으로 도출.
+      // KRX 실응답(stk/ksq_isu_base_info)은 거래정지/관리종목 필드가 아직 미매핑
+      // (krx-api.service TODO) 이므로 폴백 플래그를 OR 병합한다.
+      const dartByStockCode = await this.buildDartStatusByStockCode();
+
       const statuses = await this.krx.fetchStockStatus(basDd);
 
       for (const s of statuses) {
         if (!s.stockCode) continue;
+
+        const dart = dartByStockCode.get(s.stockCode);
+        const isTradingSuspended = s.isHalted || (dart?.isHalted ?? false);
+        const isManagement = s.isManagement || (dart?.isManagement ?? false);
+        const statusNote = dart?.statusNote ?? null;
 
         await this.prisma.stockStatus.upsert({
           where: { stockCode: s.stockCode },
           create: {
             stockCode: s.stockCode,
             tradeDate: basDd,
-            isTradingSuspended: s.isHalted,
-            isManagement: s.isManagement,
+            isTradingSuspended,
+            isManagement,
             isInvestmentCaution: s.isWarning,
             isAbnormalSurge: s.isSurge,
+            statusNote,
           },
           update: {
             tradeDate: basDd,
-            isTradingSuspended: s.isHalted,
-            isManagement: s.isManagement,
+            isTradingSuspended,
+            isManagement,
             isInvestmentCaution: s.isWarning,
             isAbnormalSurge: s.isSurge,
+            statusNote,
           },
         });
         processed++;
@@ -256,14 +270,82 @@ export class KrxMarketDataScheduler {
       return { processed };
     } catch (e) {
       if (e instanceof KrxApiUnavailableError) {
-        this.logger.warn(`[KRX] API 키 미설정 — 종목상태 수집 스킵`);
-        return { processed: 0, message: 'KRX API 미설정' };
+        // KRX 미설정 — DART 공시 폴백만으로 상태 적재 (DAR-69).
+        this.logger.warn(`[KRX] API 키 미설정 — DART 공시 폴백으로 종목상태 도출`);
+        return this.collectStockStatusesFromDart(basDd);
       }
       this.logger.error(`[KRX] 종목상태 수집 오류: ${(e as Error).message}`);
       return { processed, message: (e as Error).message };
     } finally {
       this.isStatusCollecting = false;
     }
+  }
+
+  /**
+   * DART 공시 폴백만으로 종목상태(StockStatus)를 적재한다 (DAR-69).
+   * KRX 미설정 시 사용. 상태 이벤트가 있는 기업만 갱신 — 정상 종목은 기본 false.
+   */
+  private async collectStockStatusesFromDart(
+    basDd: string,
+  ): Promise<{ processed: number; message?: string }> {
+    const dartMap = await this.dartStockStatus.deriveAllStatuses();
+    if (dartMap.size === 0) {
+      this.logger.log(`[DART폴백] 관리종목·거래정지 상태 공시 없음`);
+      return { processed: 0, message: 'DART 상태 공시 없음' };
+    }
+
+    const companies = await this.prisma.company.findMany({
+      where: { corpCode: { in: [...dartMap.keys()] }, stockCode: { not: null } },
+      select: { corpCode: true, stockCode: true },
+    });
+
+    let processed = 0;
+    for (const c of companies) {
+      if (!c.stockCode) continue;
+      const d = dartMap.get(c.corpCode);
+      if (!d || (!d.isManagement && !d.isHalted)) continue;
+
+      await this.prisma.stockStatus.upsert({
+        where: { stockCode: c.stockCode },
+        create: {
+          stockCode: c.stockCode,
+          tradeDate: basDd,
+          isTradingSuspended: d.isHalted,
+          isManagement: d.isManagement,
+          statusNote: d.statusNote,
+        },
+        update: {
+          tradeDate: basDd,
+          isTradingSuspended: d.isHalted,
+          isManagement: d.isManagement,
+          statusNote: d.statusNote,
+        },
+      });
+      processed++;
+    }
+
+    this.logger.log(`[DART폴백] 종목상태 적재 완료 processed=${processed}`);
+    return { processed };
+  }
+
+  /**
+   * DART 공시 폴백 상태를 stockCode 키로 매핑한다 (KRX 병합용).
+   */
+  private async buildDartStatusByStockCode(): Promise<Map<string, DerivedStockStatus>> {
+    const dartMap = await this.dartStockStatus.deriveAllStatuses();
+    const byStockCode = new Map<string, DerivedStockStatus>();
+    if (dartMap.size === 0) return byStockCode;
+
+    const companies = await this.prisma.company.findMany({
+      where: { corpCode: { in: [...dartMap.keys()] }, stockCode: { not: null } },
+      select: { corpCode: true, stockCode: true },
+    });
+    for (const c of companies) {
+      if (!c.stockCode) continue;
+      const d = dartMap.get(c.corpCode);
+      if (d) byStockCode.set(c.stockCode, d);
+    }
+    return byStockCode;
   }
 
   /**

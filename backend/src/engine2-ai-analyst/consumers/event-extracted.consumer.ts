@@ -5,6 +5,7 @@ import { AiAnalystService, SummaryRequest } from '../ai-analyst.service';
 import { AiGateInput } from '../types/ai-analyst.types';
 import { QUEUE, JOB, AiAnalyzeJobData } from '../../common/queues/queue.constants';
 import { PrismaService } from '../../prisma/prisma.service';
+import { DartStockStatusService } from '../../engine3-quant-market/market-data/dart-stock-status.service';
 import { buildExcerpt } from '../input/build-minimal-input';
 
 /** AI Task 입력으로 전달할, DB에서 조회한 실데이터 묶음. */
@@ -35,6 +36,7 @@ export class EventExtractedConsumer extends WorkerHost {
   constructor(
     private readonly aiAnalyst: AiAnalystService,
     private readonly prisma: PrismaService,
+    private readonly dartStockStatus: DartStockStatusService,
   ) {
     super();
   }
@@ -47,8 +49,12 @@ export class EventExtractedConsumer extends WorkerHost {
 
     const enriched = await this.loadEnrichedInput(rcpNo, corpCode);
 
+    // DAR-69: 관리종목 여부를 DART 공시 폴백에서 실조회한다(하드코딩 false 제거).
+    // 관리종목이면 AiCostGate가 L0(AI 미사용)로 차단 → 유료 AI 호출 방지.
+    const isManagementStock = await this.loadManagementFlag(corpCode);
+
     const gate: AiGateInput = {
-      isManagementStock: false,
+      isManagementStock,
       isTargetEventType: true,
       tradingValue: enriched.tradingValue, // DB 실조회값(결측 시 0 → L0 스킵)
       confidence,
@@ -72,6 +78,19 @@ export class EventExtractedConsumer extends WorkerHost {
       // BullMQ가 자동 재시도하도록 예외를 전파한다
       this.logger.error(`[Engine2] runSummary 실패: rcpNo=${rcpNo}`, err);
       throw err;
+    }
+  }
+
+  /**
+   * 관리종목 여부 실조회 (DAR-69). DART 공시 폴백에서 도출하며, 조회 실패 시
+   * graceful 하게 false(게이트 미차단)로 처리하되 사실은 로깅한다.
+   */
+  private async loadManagementFlag(corpCode: string): Promise<boolean> {
+    try {
+      return await this.dartStockStatus.isManagementStock(corpCode);
+    } catch (err) {
+      this.logger.error(`[Engine2] 관리종목 조회 실패: corpCode=${corpCode}`, err);
+      return false;
     }
   }
 

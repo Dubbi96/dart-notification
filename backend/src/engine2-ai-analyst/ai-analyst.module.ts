@@ -15,6 +15,7 @@ import { HttpLlmClient } from './llm/http-llm-client';
 import { AiAnalysisRepository } from './ports/ai-analysis.repository';
 import { PrismaAiAnalysisRepository } from './adapters/prisma-ai-analysis.repository';
 import { EventExtractedConsumer } from './consumers/event-extracted.consumer';
+import { MarketDataModule } from '../engine3-quant-market/market-data/market-data.module';
 import { QUEUE } from '../common/queues/queue.constants';
 
 /**
@@ -30,6 +31,7 @@ import { QUEUE } from '../common/queues/queue.constants';
 @Module({
   imports: [
     BullModule.registerQueue({ name: QUEUE.AI_ANALYZE }),
+    MarketDataModule, // DAR-69: DartStockStatusService (관리종목 실데이터 폴백)
   ],
   controllers: [AiCostMetricsController],
   providers: [

@@ -3,6 +3,7 @@ import { Job } from 'bullmq';
 import { EventExtractedConsumer } from './event-extracted.consumer';
 import { AiAnalystService } from '../ai-analyst.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { DartStockStatusService } from '../../engine3-quant-market/market-data/dart-stock-status.service';
 import { JOB, AiAnalyzeJobData } from '../../common/queues/queue.constants';
 
 const mockAiAnalystService = {
@@ -13,6 +14,10 @@ const mockPrisma = {
   disclosureDocument: { findUnique: jest.fn() },
   disclosureEvent: { findUnique: jest.fn() },
   stockDailyPrice: { findFirst: jest.fn() },
+};
+
+const mockDartStockStatus = {
+  isManagementStock: jest.fn(),
 };
 
 function makeJob(name: string, data: AiAnalyzeJobData): Job<AiAnalyzeJobData> {
@@ -33,12 +38,14 @@ describe('EventExtractedConsumer', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockDartStockStatus.isManagementStock.mockResolvedValue(false); // 기본: 정상 종목
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EventExtractedConsumer,
         { provide: AiAnalystService, useValue: mockAiAnalystService },
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: DartStockStatusService, useValue: mockDartStockStatus },
       ],
     }).compile();
 
@@ -144,6 +151,55 @@ describe('EventExtractedConsumer', () => {
         input: expect.objectContaining({ rcpNo: '20240601000001' }),
       }),
     );
+  });
+
+  it('관리종목 실데이터를 게이트 입력으로 전달한다(하드코딩 false 제거, DAR-69)', async () => {
+    mockPrisma.disclosureDocument.findUnique.mockResolvedValue({ rawText: '본문' });
+    mockPrisma.disclosureEvent.findUnique.mockResolvedValue({ extractedData: {} });
+    mockPrisma.stockDailyPrice.findFirst.mockResolvedValue({
+      tradingValue: BigInt(5_000_000_000),
+      tradeDate: '20240531',
+    });
+    mockDartStockStatus.isManagementStock.mockResolvedValue(true); // 관리종목
+    mockAiAnalystService.runSummary.mockResolvedValue(null);
+
+    await consumer.process(makeJob(JOB.EVENT_EXTRACTED, baseData));
+
+    expect(mockDartStockStatus.isManagementStock).toHaveBeenCalledWith('00126380');
+    const req = mockAiAnalystService.runSummary.mock.calls[0][0];
+    // 관리종목 실값이 게이트 입력으로 전달 → AiCostGate L0 차단(AI 미호출) 경로 활성
+    expect(req.gate.isManagementStock).toBe(true);
+  });
+
+  it('정상 종목은 isManagementStock=false 로 전달된다', async () => {
+    mockPrisma.disclosureDocument.findUnique.mockResolvedValue({ rawText: '본문' });
+    mockPrisma.disclosureEvent.findUnique.mockResolvedValue({ extractedData: {} });
+    mockPrisma.stockDailyPrice.findFirst.mockResolvedValue({
+      tradingValue: BigInt(5_000_000_000),
+      tradeDate: '20240531',
+    });
+    mockDartStockStatus.isManagementStock.mockResolvedValue(false);
+    mockAiAnalystService.runSummary.mockResolvedValue(null);
+
+    await consumer.process(makeJob(JOB.EVENT_EXTRACTED, baseData));
+
+    const req = mockAiAnalystService.runSummary.mock.calls[0][0];
+    expect(req.gate.isManagementStock).toBe(false);
+  });
+
+  it('관리종목 조회가 예외를 던져도 false 로 graceful 처리한다', async () => {
+    mockPrisma.disclosureDocument.findUnique.mockResolvedValue(null);
+    mockPrisma.disclosureEvent.findUnique.mockResolvedValue(null);
+    mockPrisma.stockDailyPrice.findFirst.mockResolvedValue(null);
+    mockDartStockStatus.isManagementStock.mockRejectedValue(new Error('db down'));
+    mockAiAnalystService.runSummary.mockResolvedValue(null);
+
+    await expect(
+      consumer.process(makeJob(JOB.EVENT_EXTRACTED, baseData)),
+    ).resolves.toBeUndefined();
+
+    const req = mockAiAnalystService.runSummary.mock.calls[0][0];
+    expect(req.gate.isManagementStock).toBe(false);
   });
 
   it('알 수 없는 잡 이름은 runSummary를 호출하지 않고 DB도 조회하지 않는다', async () => {

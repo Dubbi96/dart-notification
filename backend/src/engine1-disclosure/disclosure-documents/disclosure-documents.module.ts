@@ -6,6 +6,7 @@ import { DisclosureDocumentsService } from './disclosure-documents.service';
 import { DisclosureDocumentsController } from './disclosure-documents.controller';
 import { ParseRetryScheduler } from './parse-retry.scheduler';
 import { LocalStorageService } from './storage/storage.service';
+import { DartFiledFactService } from './facts/dart-filed-fact.service';
 import { DisclosureEventsModule } from '../disclosure-events/disclosure-events.module';
 
 @Module({
@@ -21,7 +22,8 @@ import { DisclosureEventsModule } from '../disclosure-events/disclosure-events.m
     DisclosureDocumentsService,
     ParseRetryScheduler,
     LocalStorageService,
+    DartFiledFactService,
   ],
-  exports: [DisclosureDocumentsService],
+  exports: [DisclosureDocumentsService, DartFiledFactService],
 })
 export class DisclosureDocumentsModule {}

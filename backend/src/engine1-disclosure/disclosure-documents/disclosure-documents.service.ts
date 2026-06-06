@@ -20,6 +20,7 @@ import {
 import { computeAmendmentDiff } from './mappers/amendment.differ';
 import { classifyInvestmentEventType } from '../disclosures/constants/disclosure-types.constant';
 import { ParsedJson } from './types/parsed-json.type';
+import { DartFiledFactService } from './facts/dart-filed-fact.service';
 import { Table } from './types/table.type';
 import { AmendmentDiff } from './types/amendment-diff.type';
 // M2 체이닝: @Optional() 주입 — DisclosureEventsService가 미배포 상태에서도 M1 파이프라인 무중단 동작
@@ -48,6 +49,9 @@ export class DisclosureDocumentsService {
     // M2 체이닝: DisclosureEventsService가 없어도(미배포 시) 정상 동작하도록 @Optional() 사용
     @Optional()
     private readonly disclosureEventsService?: DisclosureEventsService,
+    // DAR-95: 파싱 완료 후 표준 fact 영구 적재(@Optional — 미배포 시 무중단)
+    @Optional()
+    private readonly dartFiledFactService?: DartFiledFactService,
   ) {}
 
   /**
@@ -269,6 +273,18 @@ export class DisclosureDocumentsService {
       this.logger.log(
         `파싱 완료: rcpNo=${rcpNo}, eventType=${eventType}, tables=${tables.length}`,
       );
+
+      // DAR-95: 파싱 완료 직후 표준 정량 fact 영구 적재(이미 받은 XML 재활용, 신규 호출 0)
+      // await 없음 — fact 적재 실패가 M1 결과에 영향을 주지 않도록(graceful)
+      if (this.dartFiledFactService) {
+        this.dartFiledFactService
+          .persistFromParsedJson(rcpNo, disclosure.corpCode, parsedJson)
+          .catch((err: Error) =>
+            this.logger.warn(
+              `DartFiledFact 적재 실패 rcpNo=${rcpNo}: ${err.message}`,
+            ),
+          );
+      }
 
       // M2 체이닝: 파싱 완료(parseStatus = DONE) 직후 비동기 이벤트 추출 시작
       // await 없음 — M2 실패가 M1 결과에 영향을 주지 않도록

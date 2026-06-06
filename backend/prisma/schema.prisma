@@ -69,6 +69,7 @@ model Company {
   watchLists          WatchList[]
   disclosures         Disclosure[]
   disclosureDocuments DisclosureDocument[]
+  dartFiledFacts      DartFiledFact[]
   disclosureEvents    DisclosureEvent[]
   insiderHoldingChanges InsiderHoldingChange[]
   stockDailyPrices    StockDailyPrice[]
@@ -169,6 +170,7 @@ model Disclosure {
   savedDisclosures    SavedDisclosure[]
   notificationHistory NotificationHistory[]
   document            DisclosureDocument?
+  dartFiledFacts      DartFiledFact[]
   disclosureEvent     DisclosureEvent?
   disclosureAnalyses  DisclosureAnalysis[]
   personaAnalysis     PersonaAnalysis?
@@ -304,6 +306,53 @@ model DisclosureDocument {
   @@index([originalRcpNo])
   @@index([fetchedAt])
   @@map("disclosure_documents")
+}
+
+// ====================================
+// 공시 본문 정량표 구조화 추출 (DAR-95 신규)
+// ====================================
+//
+// ★Main Thesis A: 가장 풍부한 1차 정보원(document.xml 본문)의 자산화.
+// 기존 파이프라인은 표 파싱 결과(parsedJson)를 이벤트당 1회성으로만 휘발 소비했다.
+// DartFiledFact는 그 정량값을 표준 factKey로 정규화해 영구 적재하는 분석 자산이다.
+// AI 미개입(순수 Rule 정규화). 신규 외부 호출 0(이미 받은 XML 재활용).
+// 자연키 rcpNo 정합 — DisclosureDocument.rawText/tables 원본 보존 → 언제든 재처리 가능.
+model DartFiledFact {
+  id String @id @default(cuid())
+
+  // 자연키 — Disclosure.rcpNo (DisclosureDocument와 동일 rcpNo)
+  rcpNo String
+  // 역정규화: 종목 단위 조회 성능
+  corpCode String
+
+  // 표준 키 (예: CONTRACT_AMOUNT, CB_CONVERSION_PRICE, DIVIDEND_PAYOUT_RATIO)
+  factKey String
+  // 원시값의 정규화 문자열 표현 (숫자·날짜·텍스트 공통 보존)
+  value String
+  // 숫자형 값 (금액·수량·비율 등) — 텍스트형 fact는 null
+  numericValue Float?
+  // 단위 (원, 주, %, ratio 등) — 결측 시 null
+  unit String?
+  // 기간/일자 정보 (YYYY-MM-DD 또는 원문 기간 표현) — 결측 시 null
+  period String?
+  // 추출 출처 경로 (예: parsedJson.contractAmount, table_0/contractAmount)
+  sectionPath String?
+
+  // 정규화 소스 docType(이벤트 유형) — 추적·재처리용
+  docType String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations — rcpNo 정합 + corpCode 종목 결합 (DisclosureDocument 패턴 미러)
+  disclosure Disclosure @relation(fields: [rcpNo], references: [rcpNo], onDelete: Cascade)
+  company    Company    @relation(fields: [corpCode], references: [corpCode])
+
+  // 멱등키: 한 공시(rcpNo) 안에서 factKey는 유일 — 재적재 시 upsert/replace로 중복 방지
+  @@unique([rcpNo, factKey])
+  @@index([corpCode])
+  @@index([factKey])
+  @@map("dart_filed_facts")
 }
 
 // ====================================

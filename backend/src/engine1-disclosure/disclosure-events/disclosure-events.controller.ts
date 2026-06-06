@@ -103,4 +103,24 @@ export class DisclosureEventsController {
       Number(limit),
     ) as unknown as BatchExtractResultDto;
   }
+
+  /**
+   * POST /disclosure-events/reprocess
+   * DAR-58: 신규 extractor 재추출 트리거 (보유 공시 재분류, DART 호출 0, 멱등)
+   */
+  @Post('reprocess')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '신규 extractor 재추출',
+    description: 'OTHER·FAILED 이벤트를 신규 4종 extractor로 재분류 (멱등, DART 호출 0)',
+  })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 100 })
+  @ApiResponse({ status: 200, description: '재추출 결과 { scanned, reclassified, durationMs }' })
+  async reprocess(
+    @Query('limit') limit = 100,
+  ): Promise<{ scanned: number; reclassified: number; durationMs: number }> {
+    return this.disclosureEventsService.reprocessForNewExtractors(Number(limit));
+  }
 }

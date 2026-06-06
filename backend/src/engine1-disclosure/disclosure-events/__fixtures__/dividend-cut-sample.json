@@ -1,0 +1,9 @@
+{
+  "docType": "DIVIDEND",
+  "rawTableCount": 1,
+  "keyValueSource": "table_0",
+  "dividendPerShare": 200,
+  "dividendTotal": 10000000000,
+  "dividendYield": 0.012,
+  "dividendRecordDate": "2024.12.31"
+}

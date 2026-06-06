@@ -13,13 +13,44 @@ export interface CollectFinancialsOptions {
   bsnsYear: string; // 사업연도 (예: '2025')
   reprtCode?: DartReportCode; // 보고서코드 (기본: 사업보고서 11011)
   fsDiv?: DartFsDiv; // CFS(기본) | OFS
-  /** 명시 corpCode 목록. 미지정 시 신호·이벤트 보유 우선 종목을 자동 선별. */
+  /** 명시 corpCode 목록. 미지정 시 우선순위 큐로 자동 선별. */
   corpCodes?: string[];
-  triggeredBy?: 'MANUAL' | 'CRON';
+  triggeredBy?: 'MANUAL' | 'CRON' | 'EVENT';
   /** 호출 간 지연(ms) — DART 레이트리밋 graceful. 기본 300ms. */
   rateLimitMs?: number;
-  /** 자동 선별 시 상한 (기본 50). 전체 2700사 확대는 후속 스코프. */
+  /**
+   * 자동 선별 상한. 미지정(undefined) 시 **무제한**(캡 해제 — DAR-55) — 우선순위 큐 전체 순회.
+   * 명시 corpCodes 에도 적용(slice).
+   */
   limit?: number;
+  /**
+   * 자동 선별 범위 (corpCodes 미지정 시) — DAR-55:
+   * - 'PRIORITY'(기본): 신호·이벤트·관심목록 보유 종목만 (DAR-52 호환).
+   * - 'ALL': 전종목 우선순위 큐 — 신호 → 이벤트 → 관심 → 시총상위(거래대금) → 나머지 전체.
+   */
+  scope?: 'PRIORITY' | 'ALL';
+}
+
+export interface BackfillTimeSeriesOptions {
+  /** 백필 대상 사업연도 목록 (예: ['2024','2023']). */
+  bsnsYears: string[];
+  /** 백필할 보고서코드. 미지정 시 11011·11012·11013·11014 전체(분기 시계열). */
+  reprtCodes?: DartReportCode[];
+  fsDiv?: DartFsDiv;
+  /** 명시 corpCodes. 미지정 시 scope 에 따라 자동 선별. */
+  corpCodes?: string[];
+  scope?: 'PRIORITY' | 'ALL';
+  limit?: number;
+  rateLimitMs?: number;
+  triggeredBy?: 'MANUAL' | 'CRON' | 'EVENT';
+}
+
+export interface BackfillTimeSeriesResult {
+  periods: number; // 처리한 (연도×보고서) 조합 수
+  totalSaved: number;
+  totalSkipped: number;
+  totalFailed: number;
+  results: CollectFinancialsResult[];
 }
 
 export interface CollectFinancialsResult {
@@ -35,12 +66,22 @@ export interface CollectFinancialsResult {
   message?: string;
 }
 
+/** 분기 시계열 백필용 전체 보고서코드 (사업·반기·1Q·3Q) — DAR-55. */
+export const ALL_QUARTERLY_REPORT_CODES: DartReportCode[] = [
+  DART_REPORT_CODE.ANNUAL,
+  DART_REPORT_CODE.HALF,
+  DART_REPORT_CODE.Q1,
+  DART_REPORT_CODE.Q3,
+];
+
 /**
- * 재무지표 수집 서비스 (DAR-52).
+ * 재무지표 수집 서비스 (DAR-52 기반, DAR-55 전종목 확대).
  *
  * DART 단일회사 전체 재무제표(fnlttSinglAcntAll) → CompanyFinancial 멱등 upsert.
- * - 우선 신호/이벤트 보유 종목부터 배치 수집 (전체 2700사는 후속 확대).
+ * - 우선순위 큐: 신호 → 이벤트 → 관심 → 시총상위(거래대금) → 나머지 전체.
+ * - scope:'ALL' + limit 미지정 시 **캡 해제** — 전종목 순회(DAR-55).
  * - 자연키(corpCode+연도+보고서+구분) 기반 멱등 — 재실행해도 중복 row 0.
+ * - 분기 시계열 백필(reprtCode 11011~11014) — 추세 분석 토대(스키마 변경 0).
  * - DART 레이트리밋 graceful: 호출 간 지연 + 키 미설정 시 안전 종료.
  * - AI 미개입(순수 데이터/Rule).
  */
@@ -48,7 +89,6 @@ export interface CollectFinancialsResult {
 export class FinancialCollectionService {
   private readonly logger = new Logger(FinancialCollectionService.name);
   private readonly DEFAULT_RATE_LIMIT_MS = 300;
-  private readonly DEFAULT_LIMIT = 50;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -58,8 +98,11 @@ export class FinancialCollectionService {
   /**
    * 우선 수집 대상 corpCode 선별 — 신호(TradingSignal)·이벤트(DisclosureEvent) 보유 종목 우선,
    * 없으면 관심목록(WatchList) 보유 종목. 모두 비면 빈 배열.
+   *
+   * @param limit 상한. 미지정(undefined) 시 **무제한**(DAR-55 캡 해제) — 세 티어 전부 순회.
    */
-  async selectPriorityCorpCodes(limit: number): Promise<string[]> {
+  async selectPriorityCorpCodes(limit?: number): Promise<string[]> {
+    const cap = limit ?? Number.POSITIVE_INFINITY;
     const seen = new Set<string>();
     const add = (codes: { corpCode: string }[]) => {
       for (const c of codes) {
@@ -73,7 +116,7 @@ export class FinancialCollectionService {
         select: { corpCode: true },
       }),
     );
-    if (seen.size < limit) {
+    if (seen.size < cap) {
       add(
         await this.prisma.disclosureEvent.findMany({
           distinct: ['corpCode'],
@@ -81,7 +124,7 @@ export class FinancialCollectionService {
         }),
       );
     }
-    if (seen.size < limit) {
+    if (seen.size < cap) {
       add(
         await this.prisma.watchList.findMany({
           distinct: ['corpCode'],
@@ -90,7 +133,91 @@ export class FinancialCollectionService {
       );
     }
 
-    return Array.from(seen).slice(0, limit);
+    const all = Array.from(seen);
+    return Number.isFinite(cap) ? all.slice(0, cap) : all;
+  }
+
+  /**
+   * 전종목 우선순위 큐 (DAR-55) — 신호 → 이벤트 → 관심 → 시총상위(거래대금) → 나머지 전체.
+   * 동일 corpCode 는 상위 티어 우선 1회만. limit 미지정 시 전 종목(상장사) 반환.
+   *
+   * "시총상위" 는 별도 시총 컬럼이 없어 최신 거래일 tradingValue(거래대금) 내림차순을 프록시로 사용
+   * (유동성·규모 비례 — Persona/BuyScore 적용 가치가 높은 순). 정확한 시총 컬럼 도입은 후속 스코프.
+   */
+  async selectAllMarketTargets(limit?: number): Promise<string[]> {
+    const cap = limit ?? Number.POSITIVE_INFINITY;
+    const ordered: string[] = [];
+    const seen = new Set<string>();
+    const push = (codes: { corpCode: string | null }[]) => {
+      for (const c of codes) {
+        if (ordered.length >= cap) return;
+        if (c.corpCode && !seen.has(c.corpCode)) {
+          seen.add(c.corpCode);
+          ordered.push(c.corpCode);
+        }
+      }
+    };
+
+    // 티어 1: 신호 보유
+    push(
+      await this.prisma.tradingSignal.findMany({
+        distinct: ['corpCode'],
+        select: { corpCode: true },
+      }),
+    );
+    // 티어 2: 공시 이벤트 보유
+    if (ordered.length < cap) {
+      push(
+        await this.prisma.disclosureEvent.findMany({
+          distinct: ['corpCode'],
+          select: { corpCode: true },
+        }),
+      );
+    }
+    // 티어 3: 관심목록
+    if (ordered.length < cap) {
+      push(
+        await this.prisma.watchList.findMany({
+          distinct: ['corpCode'],
+          select: { corpCode: true },
+        }),
+      );
+    }
+    // 티어 4: 시총상위(거래대금 프록시) — 최신 거래일 기준 내림차순
+    if (ordered.length < cap) {
+      push(await this.selectByTradingValue());
+    }
+    // 티어 5: 나머지 전체 상장 종목 (corpName 정렬 — 결정론적)
+    if (ordered.length < cap) {
+      push(
+        await this.prisma.company.findMany({
+          where: { stockCode: { not: null } },
+          select: { corpCode: true },
+          orderBy: { corpName: 'asc' },
+        }),
+      );
+    }
+
+    return ordered;
+  }
+
+  /**
+   * 최신 거래일의 거래대금(tradingValue) 내림차순 corpCode — 시총상위 프록시.
+   * StockDailyPrice 가 비면 빈 배열.
+   */
+  private async selectByTradingValue(): Promise<{ corpCode: string }[]> {
+    const latest = await this.prisma.stockDailyPrice.findFirst({
+      orderBy: { tradeDate: 'desc' },
+      select: { tradeDate: true },
+    });
+    if (!latest) return [];
+
+    const rows = await this.prisma.stockDailyPrice.findMany({
+      where: { tradeDate: latest.tradeDate, tradingValue: { not: null } },
+      orderBy: { tradingValue: 'desc' },
+      select: { corpCode: true },
+    });
+    return rows;
   }
 
   /**
@@ -165,13 +292,19 @@ export class FinancialCollectionService {
     const reprtCode = opts.reprtCode ?? DART_REPORT_CODE.ANNUAL;
     const fsDiv: DartFsDiv = opts.fsDiv ?? 'CFS';
     const triggeredBy = opts.triggeredBy ?? 'MANUAL';
-    const limit = opts.limit ?? this.DEFAULT_LIMIT;
+    // DAR-55: limit 미지정 시 캡 해제(무제한). slice(0, undefined) 는 전체 반환.
+    const limit = opts.limit;
+    const scope = opts.scope ?? 'PRIORITY';
     const rateLimitMs = opts.rateLimitMs ?? this.DEFAULT_RATE_LIMIT_MS;
 
-    const corpCodes =
-      opts.corpCodes && opts.corpCodes.length > 0
-        ? opts.corpCodes.slice(0, limit)
-        : await this.selectPriorityCorpCodes(limit);
+    let corpCodes: string[];
+    if (opts.corpCodes && opts.corpCodes.length > 0) {
+      corpCodes = opts.corpCodes.slice(0, limit);
+    } else if (scope === 'ALL') {
+      corpCodes = await this.selectAllMarketTargets(limit);
+    } else {
+      corpCodes = await this.selectPriorityCorpCodes(limit);
+    }
 
     const log = await this.prisma.financialCollectionLog.create({
       data: {
@@ -260,6 +393,61 @@ export class FinancialCollectionService {
       skipped,
       failed,
       status,
+    };
+  }
+
+  /**
+   * 분기 시계열 백필 (DAR-55) — bsnsYears × reprtCodes(기본 11011~11014) 조합을
+   * 순차 collectBatch 로 수집한다. 자연키(corpCode+기간+보고서) 멱등이라 재실행 무손상.
+   *
+   * DART 호출량이 크므로(연도×보고서×종목) 레이트리밋 graceful 을 그대로 따른다.
+   * 키 미설정(FAILED)으로 한 조합이 중단되면 이후 조합 호출은 무의미 → 즉시 중단한다.
+   */
+  async backfillTimeSeries(
+    opts: BackfillTimeSeriesOptions,
+  ): Promise<BackfillTimeSeriesResult> {
+    const reprtCodes =
+      opts.reprtCodes && opts.reprtCodes.length > 0
+        ? opts.reprtCodes
+        : ALL_QUARTERLY_REPORT_CODES;
+    const triggeredBy = opts.triggeredBy ?? 'MANUAL';
+
+    const results: CollectFinancialsResult[] = [];
+    let totalSaved = 0;
+    let totalSkipped = 0;
+    let totalFailed = 0;
+
+    outer: for (const bsnsYear of opts.bsnsYears) {
+      for (const reprtCode of reprtCodes) {
+        const r = await this.collectBatch({
+          bsnsYear,
+          reprtCode,
+          fsDiv: opts.fsDiv,
+          corpCodes: opts.corpCodes,
+          scope: opts.scope,
+          limit: opts.limit,
+          rateLimitMs: opts.rateLimitMs,
+          triggeredBy,
+        });
+        results.push(r);
+        totalSaved += r.saved;
+        totalSkipped += r.skipped;
+        totalFailed += r.failed;
+
+        // DART 키 미설정 — 이후 조합 호출 무의미. 안전 중단.
+        if (r.status === 'FAILED' && r.message === 'DART API 미설정') {
+          this.logger.warn('DART API 미설정 — 분기 백필 중단(graceful)');
+          break outer;
+        }
+      }
+    }
+
+    return {
+      periods: results.length,
+      totalSaved,
+      totalSkipped,
+      totalFailed,
+      results,
     };
   }
 

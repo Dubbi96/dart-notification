@@ -22,9 +22,12 @@ import { useCompanyEventStudy } from '@hooks/useEventStudy';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { parse, format } from 'date-fns';
 import { LoadingState, EmptyState, ErrorState } from '@components/common/StateView';
+import { DisclaimerSection } from '@components/common/DisclaimerSection';
+import { PhilosophyFitBreakdown } from '@components/philosophy/PhilosophyFitBreakdown';
+import { useCompanyPhilosophyFit } from '@hooks/usePhilosophies';
 import type { EventStudyResult } from '@app-types/signal.types';
 
-type CompanyTab = 'disclosures' | 'stats';
+type CompanyTab = 'disclosures' | 'stats' | 'philosophy';
 
 function formatEstDate(estDate: string | null): string {
   if (!estDate || estDate.length !== 8) return '-';
@@ -53,7 +56,11 @@ function formatPct(value: number): string {
   return `${sign}${value.toFixed(1)}%`;
 }
 
-function PctText({ value, typo, colors }: { value: number; typo: any; colors: any }) {
+function PctText({ value, typo, colors }: {
+  value: number;
+  typo: ReturnType<typeof useTheme>['typography'];
+  colors: ReturnType<typeof useTheme>['colors'];
+}) {
   const color = value > 0 ? colors.success : value < 0 ? colors.error : colors.textSecondary;
   return (
     <Text style={[typo.bodyMedium, { color, fontWeight: '600' }]}>
@@ -228,8 +235,8 @@ function StatRow({
 }: {
   label: string;
   value: string;
-  colors: any;
-  typo: any;
+  colors: ReturnType<typeof useTheme>['colors'];
+  typo: ReturnType<typeof useTheme>['typography'];
   valueColor?: string;
   accessibilityLabel?: string;
 }) {
@@ -387,6 +394,7 @@ export default function CompanyDetailScreen() {
           buttons={[
             { value: 'disclosures', label: '공시', accessibilityLabel: '최근 공시 탭' },
             { value: 'stats', label: '통계', accessibilityLabel: 'Event Study 통계 탭' },
+            { value: 'philosophy', label: '거장 적합도', accessibilityLabel: '거장별 철학 적합도 탭' },
           ]}
           style={styles.segmented}
         />
@@ -483,10 +491,68 @@ export default function CompanyDetailScreen() {
 
           <View style={{ height: spacing['2xl'] }} />
         </ScrollView>
-      ) : (
+      ) : activeTab === 'stats' ? (
         <EventStudyTab corpCode={corpCode!} />
+      ) : (
+        <CompanyPhilosophyTab corpCode={corpCode!} corpName={company.corpName} />
       )}
     </SafeAreaView>
+  );
+}
+
+// 종목 × 거장별 적합도(DAR-54) — /companies/:corpCode/philosophy-fit.
+// 어느 거장 철학에 맞는지(점수 내림차순) + 통과/미달 근거지표. 게스트 열람 가능. 참고용(면책).
+interface CompanyPhilosophyTabProps {
+  corpCode: string;
+  corpName: string;
+}
+
+function CompanyPhilosophyTab({ corpCode, corpName }: CompanyPhilosophyTabProps) {
+  const { colors, typography: typo } = useTheme();
+  const { data, isLoading, isError, refetch } = useCompanyPhilosophyFit(corpCode);
+
+  if (isLoading) return <LoadingState message="거장별 적합도를 계산하는 중…" />;
+  if (isError)
+    return (
+      <ErrorState
+        title="적합도를 불러오지 못했습니다"
+        description="잠시 후 다시 시도해 주세요."
+        onRetry={refetch}
+      />
+    );
+  if (!data || data.noFinancials || data.fits.length === 0)
+    return (
+      <EmptyState
+        icon="bar-chart-2"
+        title="재무 데이터가 아직 없습니다."
+        description={`${corpName}의 재무제표가 수집되면 거장별 적합도를 표시합니다.`}
+      />
+    );
+
+  const basis = data.financialBasis;
+
+  return (
+    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.statsScroll}>
+      {basis ? (
+        <Text style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.base }]}>
+          {basis.bsnsYear}년 {basis.fsDiv} 재무 기준 · 점수 높은 순
+        </Text>
+      ) : null}
+
+      {data.fits.map((fit) => (
+        <Card key={fit.philosophyId} variant="elevated" style={styles.tableCard}>
+          <View style={styles.philosophyFitHeader}>
+            <Text style={[typo.bodyMedium, { color: colors.text }]}>{fit.investorName}</Text>
+          </View>
+          <View style={{ marginTop: spacing.sm }}>
+            <PhilosophyFitBreakdown fit={fit} />
+          </View>
+        </Card>
+      ))}
+
+      <DisclaimerSection style={styles.philosophyDisclaimer} />
+      <View style={{ height: spacing['2xl'] }} />
+    </ScrollView>
   );
 }
 
@@ -494,14 +560,14 @@ function InfoRow({ icon, label, value, colors, typo, isLink }: {
   icon: string;
   label: string;
   value: string;
-  colors: any;
-  typo: any;
+  colors: ReturnType<typeof useTheme>['colors'];
+  typo: ReturnType<typeof useTheme>['typography'];
   isLink?: boolean;
 }) {
   return (
     <View style={styles.infoRow}>
       <View style={styles.infoLabel}>
-        <Feather name={icon as any} size={14} color={colors.textTertiary} />
+        <Feather name={icon as keyof typeof Feather.glyphMap} size={14} color={colors.textTertiary} />
         <Text style={[typo.caption, { color: colors.textSecondary, marginLeft: spacing.sm }]}>{label}</Text>
       </View>
       <Text
@@ -647,5 +713,13 @@ const styles = StyleSheet.create({
   },
   chip: {
     marginRight: spacing.xs,
+  },
+  philosophyFitHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  philosophyDisclaimer: {
+    marginTop: spacing.base,
   },
 });

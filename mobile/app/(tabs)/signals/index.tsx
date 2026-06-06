@@ -1,10 +1,11 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SegmentedButtons } from 'react-native-paper';
+import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
-import { spacing } from '@theme/spacing';
+import { spacing, radius } from '@theme/spacing';
 import { BuyScoreCard } from '@components/signals/BuyScoreCard';
 import { ExitScoreCard } from '@components/signals/ExitScoreCard';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
@@ -115,6 +116,24 @@ export default function SignalsScreen() {
         <Text style={[typo.h2, { color: colors.text }]}>신호</Text>
       </View>
 
+      {/* 투자거장 진입점(DAR-54) — 4종 철학·종목 적합도. 게스트 열람 가능. */}
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={() => router.push('/philosophy')}
+        accessibilityRole="button"
+        accessibilityLabel="투자거장 철학 보기 — 버핏·린치·그린블라트·드러켄밀러"
+        style={[styles.masterBanner, { backgroundColor: colors.primaryLight, borderColor: colors.border }]}
+      >
+        <Feather name="award" size={20} color={colors.primary} />
+        <View style={styles.masterBannerText}>
+          <Text style={[typo.bodyMedium, { color: colors.text }]}>투자거장</Text>
+          <Text style={[typo.small, { color: colors.textSecondary }]}>
+            4종 철학으로 종목 적합도 보기
+          </Text>
+        </View>
+        <Feather name="chevron-right" size={18} color={colors.textTertiary} />
+      </TouchableOpacity>
+
       <View style={styles.tabs}>
         <SegmentedButtons
           value={subTab}
@@ -154,5 +173,18 @@ const styles = StyleSheet.create({
   },
   disclaimer: {
     marginTop: spacing.lg,
+  },
+  masterBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+  },
+  masterBannerText: {
+    flex: 1,
   },
 });

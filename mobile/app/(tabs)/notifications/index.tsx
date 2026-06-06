@@ -20,6 +20,7 @@ import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { useNotifications, useMarkAsRead, useMarkAllAsRead } from '@hooks/useNotifications';
 import { getTypeLabel } from '@utils/disclosureType';
+import { resolveDeepLink } from '@utils/deeplink';
 import { formatDistanceToNow } from 'date-fns';
 import { ko } from 'date-fns/locale';
 
@@ -84,11 +85,10 @@ export default function NotificationsScreen() {
     if (!item.isRead) {
       markAsRead.mutate(item.id);
     }
-    // DAR-84: deepLink 우선, 없으면 공시 라우트로 폴백
-    if (item.deepLink) {
-      router.push(item.deepLink as Href);
-    } else if (item.disclosureRcpNo) {
-      router.push(`/disclosure/${item.disclosureRcpNo}`);
+    // DAR-90: deepLink 화이트리스트 검증 우선, 없으면 공시 rcpNo 폴백(미허용은 무시)
+    const target = resolveDeepLink(item);
+    if (target) {
+      router.push(target as Href);
     }
   };
 

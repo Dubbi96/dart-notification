@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { useAuthStore } from '@stores/authStore';
 import { deviceService } from '@services/device.service';
+import { resolveDeepLink } from '@utils/deeplink';
 
 const PROJECT_ID = 'dbdd30ba-72aa-4f90-ae45-54aa8fd43aa7';
 
@@ -69,14 +70,16 @@ export function useNotificationSetup() {
     registerTokenIfPermitted();
   }, [isAuthenticated]);
 
-  // 알림 탭 → 공시 상세 이동 (앱 실행 중)
+  // 알림 탭 → 범용 딥링크 라우팅 (앱 포그라운드/백그라운드 진입)
+  // data.deepLink(화이트리스트 검증) 우선, 없으면 data.disclosureRcpNo 공시 폴백
   useEffect(() => {
     if (!Notifications) return;
     const subscription = Notifications.addNotificationResponseReceivedListener(
       (response) => {
         const data = response.notification.request.content.data;
-        if (data?.disclosureRcpNo) {
-          router.push(`/disclosure/${data.disclosureRcpNo}`);
+        const target = resolveDeepLink(data);
+        if (target) {
+          router.push(target as Href);
         }
       },
     );
@@ -94,8 +97,9 @@ export function useNotificationSetup() {
       if (response) {
         coldStartHandled.current = true;
         const data = response.notification.request.content.data;
-        if (data?.disclosureRcpNo) {
-          setTimeout(() => router.push(`/disclosure/${data.disclosureRcpNo}`), 500);
+        const target = resolveDeepLink(data);
+        if (target) {
+          setTimeout(() => router.push(target as Href), 500);
         }
       }
     }

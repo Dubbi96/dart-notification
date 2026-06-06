@@ -78,6 +78,7 @@ model Company {
   paperTrades         PaperTrade[]
   orderRequests       OrderRequest[]
   orderExecutions     OrderExecution[]
+  companyFinancials   CompanyFinancial[]
 
   @@index([corpName]) // 자동완성 검색용
   @@index([stockCode])
@@ -1448,4 +1449,77 @@ model PhilosophySource {
   @@unique([philosophyId, title]) // 철학 내 출처 제목 유일 — 시드 멱등성 보장
   @@index([philosophyId])
   @@map("philosophy_sources")
+}
+
+// ====================================
+// 재무지표 (DAR-52 신규) — DART 정기공시 재무제표 수집
+// ====================================
+
+// 기업 재무지표 — DART 단일회사 전체 재무제표(fnlttSinglAcntAll) 기반.
+// 자연키: corpCode + 기준연도(bsnsYear) + 보고서코드(reprtCode) + 재무제표구분(fsDiv).
+// AI 미개입(순수 데이터/Rule 파생비율). Persona P-B 스코어러·BuyScore keyMetric이 읽는다.
+model CompanyFinancial {
+  id String @id @default(cuid())
+
+  // ── 자연키 ──────────────────────────────────────────────────
+  corpCode   String // DART 고유번호 (FK → Company.corpCode)
+  stockCode  String? // 종목코드 6자리 (조회 성능용 역정규화)
+  bsnsYear   String // 사업연도 (예: '2025')
+  reprtCode  String // 보고서코드 11011(연간)/11012(반기)/11013(1Q)/11014(3Q)
+  fsDiv      String  @default("CFS") // CFS(연결) | OFS(별도)
+
+  // ── 핵심 지표 (원, BigInt — 조 단위 금액 안전 저장) ───────────
+  revenue          BigInt? // 매출액
+  operatingProfit  BigInt? // 영업이익
+  netIncome        BigInt? // 당기순이익
+  totalAssets      BigInt? // 자산총계
+  totalLiabilities BigInt? // 부채총계
+  totalEquity      BigInt? // 자본총계
+
+  // ── 주당 지표 ────────────────────────────────────────────────
+  eps Float? // 기본주당이익 (원)
+  bps Float? // 주당순자산 (원) — 발행주식수 확보 시 보강
+
+  // ── 파생 비율 (%) — 재무제표만으로 산출 ──────────────────────
+  roe       Float? // 자기자본이익률 = 순이익/자본 × 100
+  roa       Float? // 총자산이익률 = 순이익/자산 × 100
+  debtRatio Float? // 부채비율 = 부채/자본 × 100
+
+  // ── 시세 결합 파생 (가능 시 보강, 기본 null) ─────────────────
+  per Float? // 주가수익비율 — 시세 결합 필요
+  pbr Float? // 주가순자산비율 — 시세 결합 필요
+
+  // ── 메타 ────────────────────────────────────────────────────
+  rceptNo   String? // 원천 공시 접수번호 (추적용)
+  currency  String  @default("KRW")
+  fetchedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [corpCode], references: [corpCode])
+
+  @@unique([corpCode, bsnsYear, reprtCode, fsDiv]) // 멱등 upsert 자연키
+  @@index([corpCode])
+  @@index([bsnsYear])
+  @@map("company_financials")
+}
+
+// 재무지표 수집 실행 로그 — 수집 서비스 멱등성·관측성 (MarketDataCollectionLog 패턴).
+model FinancialCollectionLog {
+  id           String    @id @default(cuid())
+  bsnsYear     String // 수집 대상 사업연도
+  reprtCode    String // 보고서코드
+  fsDiv        String    @default("CFS")
+  triggeredBy  String    @default("MANUAL") // "MANUAL" | "CRON"
+  status       String    @default("RUNNING") // "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED"
+  targetCount  Int       @default(0) // 수집 대상 기업 수
+  savedCount   Int       @default(0) // upsert 성공 기업 수
+  skippedCount Int       @default(0) // 데이터 없음/스킵 수
+  failedCount  Int       @default(0) // 실패 수
+  errorMessage String?
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+
+  @@index([bsnsYear])
+  @@index([status])
+  @@map("financial_collection_logs")
 }

@@ -13,6 +13,12 @@ import { GraduationMetrics } from '../graduation-metrics.service';
 /** 표본 기반 게이트(G1·G5)의 최소 표본수 — 미만이면 LOW_SAMPLE(과신 방지) */
 export const GRADUATION_MIN_SAMPLE = 5;
 
+/**
+ * 벤치마크 지수코드 — 0001=KOSPI(대표 시장지수). 졸업 alpha 게이트 기준 벤치마크.
+ * (상승장 위장통과 방지: 누적수익>0 만으로는 buy-and-hold KOSPI 열위를 못 거른다.)
+ */
+export const GRADUATION_BENCHMARK_INDEX_CODE = '0001';
+
 /** 게이트 기준치 */
 export const GRADUATION_THRESHOLDS = {
   /** G1 적중률(D+5) 기준 — % */
@@ -23,9 +29,13 @@ export const GRADUATION_THRESHOLDS = {
   aiCostRatio: 0.2,
   /** G5 Exit 정확도(D+3) 기준 — % */
   exitAccuracyPct: 50,
+  /** G6 최대낙폭(MDD) 한도 — % (이상, 음수). cc-mvp-definition §9 백테스트 게이트(-15%)와 정합 */
+  mddLimitPct: -15,
+  /** G7 벤치마크 대비 초과수익(alpha) 기준 — % (초과) */
+  benchmarkAlphaPct: 0,
 } as const;
 
-export type GateId = 'G1' | 'G2' | 'G3' | 'G5';
+export type GateId = 'G1' | 'G2' | 'G3' | 'G5' | 'G6' | 'G7';
 export type GateComparator = 'gte' | 'gt' | 'lte';
 export type GateUnit = 'percent' | 'ratio';
 
@@ -65,6 +75,11 @@ export interface GraduationReport {
   progress: number;
   /** 표본 부족 게이트가 하나라도 있으면 true(전체 과신 경고) */
   lowSample: boolean;
+  /**
+   * Sharpe 비율(연환산, 무위험수익률 0) — DAR-68 참고지표(통과/미달 게이트 아님).
+   * 측정 불가(평가액 표본 부족)면 null.
+   */
+  sharpe: number | null;
 }
 
 function compare(value: number, threshold: number, comparator: GateComparator): boolean {
@@ -155,7 +170,43 @@ export function buildGraduationReport(metrics: GraduationMetrics): GraduationRep
     GRADUATION_THRESHOLDS.exitAccuracyPct,
   );
 
-  const gates = [g1, g2, g3, g5];
+  // G6 최대낙폭(MDD) — 평가액 시계열 기반(점 부족이면 측정 불가 = lowSample 정직 표기)
+  const ra = metrics.riskAdjusted;
+  const g6: GraduationGate = {
+    id: 'G6',
+    label: '최대낙폭(MDD)',
+    currentValue: ra.measurable ? ra.mddPct : null,
+    threshold: GRADUATION_THRESHOLDS.mddLimitPct,
+    comparator: 'gte',
+    unit: 'percent',
+    pass:
+      ra.measurable && ra.mddPct !== null
+        ? compare(ra.mddPct, GRADUATION_THRESHOLDS.mddLimitPct, 'gte')
+        : null,
+    sampleSize: ra.observations,
+    lowSample: !ra.measurable,
+    measurable: ra.measurable,
+  };
+
+  // G7 벤치마크(KOSPI) 대비 초과수익(alpha) — 시장지수 데이터 없으면 측정 불가
+  const ba = metrics.benchmarkAlpha;
+  const g7: GraduationGate = {
+    id: 'G7',
+    label: 'KOSPI 대비 초과수익',
+    currentValue: ba.measurable ? ba.alphaPct : null,
+    threshold: GRADUATION_THRESHOLDS.benchmarkAlphaPct,
+    comparator: 'gt',
+    unit: 'percent',
+    pass:
+      ba.measurable && ba.alphaPct !== null
+        ? compare(ba.alphaPct, GRADUATION_THRESHOLDS.benchmarkAlphaPct, 'gt')
+        : null,
+    sampleSize: null,
+    lowSample: false,
+    measurable: ba.measurable,
+  };
+
+  const gates = [g1, g2, g3, g5, g6, g7];
   const passedCount = gates.filter((g) => g.pass === true).length;
   const totalGates = gates.length;
   const lowSample = gates.some((g) => g.lowSample);
@@ -169,5 +220,6 @@ export function buildGraduationReport(metrics: GraduationMetrics): GraduationRep
     allPassed: gates.every((g) => g.pass === true),
     progress: totalGates > 0 ? passedCount / totalGates : 0,
     lowSample,
+    sharpe: ra.measurable ? ra.sharpe : null,
   };
 }

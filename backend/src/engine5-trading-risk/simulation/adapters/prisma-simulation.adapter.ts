@@ -12,6 +12,8 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PaperSimulationService } from '../../paper-simulation/paper-simulation.service';
 import {
+  BenchmarkPoint,
+  EquityPoint,
   ExitAccuracySample,
   HitRateSample,
 } from '../domain/graduation-metrics.calculator';
@@ -136,6 +138,34 @@ export class PrismaSimulationAdapter implements ISimulationPort {
   async getAiCostKrw(usdKrwRate: number): Promise<number> {
     const agg = await this.prisma.aIUsageLog.aggregate({ _sum: { costUsd: true } });
     return (agg._sum.costUsd ?? 0) * usdKrwRate;
+  }
+
+  /** G6 위험조정 — 일별 포트폴리오 평가액 시계열(PortfolioRiskSnapshot.totalValue) */
+  async getEquityCurve(portfolioId: string): Promise<EquityPoint[]> {
+    if (portfolioId === NO_PORTFOLIO) return [];
+    const snaps = await this.prisma.portfolioRiskSnapshot.findMany({
+      where: { portfolioId },
+      orderBy: { snapshotDate: 'asc' },
+      select: { snapshotDate: true, totalValue: true },
+    });
+    return snaps.map((s) => ({
+      snapshotDate: s.snapshotDate,
+      totalValue: s.totalValue,
+    }));
+  }
+
+  /** G7 벤치마크 — 운용 기간 시장지수(KOSPI/KOSDAQ) 종가지수 표본(MarketIndex) */
+  async getBenchmarkSeries(
+    indexCode: string,
+    fromDate: string,
+    toDate: string,
+  ): Promise<BenchmarkPoint[]> {
+    const rows = await this.prisma.marketIndex.findMany({
+      where: { indexCode, tradeDate: { gte: fromDate, lte: toDate } },
+      orderBy: { tradeDate: 'asc' },
+      select: { tradeDate: true, closeIndex: true },
+    });
+    return rows.map((r) => ({ tradeDate: r.tradeDate, closeIndex: r.closeIndex }));
   }
 
   // ── 쓰기/오케스트레이션 경로: 졸업지표 조회 어댑터는 지원하지 않음(read-only 계약) ──

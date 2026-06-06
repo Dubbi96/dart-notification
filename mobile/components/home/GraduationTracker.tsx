@@ -141,6 +141,23 @@ function TrackerBody({ report }: { report: GraduationReport }) {
         ))}
       </View>
 
+      {/* Sharpe 참고지표(통과/미달 게이트 아님) — DAR-68. 측정 불가면 '—'. */}
+      <View
+        style={[styles.sharpeRow, { borderTopColor: colors.border }]}
+        accessibilityRole="text"
+        accessibilityLabel={`위험조정 수익(Sharpe 비율) ${
+          report.sharpe !== null ? report.sharpe.toFixed(2) : '측정 불가'
+        }, 참고지표`}
+      >
+        <Text style={[typo.small, { color: colors.textSecondary }]}>
+          위험조정 수익(Sharpe)
+        </Text>
+        <Text style={[typo.captionMedium, { color: colors.text }]}>
+          {report.sharpe !== null ? report.sharpe.toFixed(2) : '—'}
+          <Text style={[typo.small, { color: colors.textTertiary }]}>{'  참고'}</Text>
+        </Text>
+      </View>
+
       <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.sm }]}>
         모의운용 누적 측정값 · 실제 주문이 아닙니다(참고용).
       </Text>
@@ -240,6 +257,14 @@ const styles = StyleSheet.create({
   gateList: {
     marginTop: spacing.md,
     gap: spacing.sm,
+  },
+  sharpeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   gateRow: {
     flexDirection: 'row',

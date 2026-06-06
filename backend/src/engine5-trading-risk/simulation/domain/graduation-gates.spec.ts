@@ -1,5 +1,6 @@
-// 졸업 게이트 평가기 단위 스펙 (DAR-67)
+// 졸업 게이트 평가기 단위 스펙 (DAR-67 / DAR-68)
 // 핵심 가드: 표본 부족 게이트는 통과로 위장하지 않고 pass=null + LOW_SAMPLE 표기(과신 방지).
+// DAR-68: 위험조정(MDD)·벤치마크(KOSPI alpha) 게이트 — 상승장 위장통과 방지.
 
 import {
   buildGraduationReport,
@@ -26,25 +27,36 @@ function metrics(overrides: Partial<GraduationMetrics> = {}): GraduationMetrics 
       aiCostToNetPnlRatio: 0.1,
     },
     exitAccuracy: { evaluated: 8, correct: 5, accuracyPct: 62.5 },
+    riskAdjusted: { sharpe: 1.4, mddPct: -8, observations: 20, measurable: true },
+    benchmarkAlpha: {
+      indexCode: '0001',
+      portfolioReturnPct: 5,
+      benchmarkReturnPct: 2,
+      alphaPct: 3,
+      fromDate: '20260101',
+      toDate: '20260601',
+      measurable: true,
+    },
     config: { hitRateHorizonDays: 5, exitAccuracyHorizonDays: 3, usdKrwRate: 1350 },
     ...overrides,
   };
 }
 
 describe('buildGraduationReport', () => {
-  it('4개 게이트(G1·G2·G3·G5)를 산출한다', () => {
+  it('6개 게이트(G1·G2·G3·G5·G6·G7)를 산출한다', () => {
     const r = buildGraduationReport(metrics());
-    expect(r.gates.map((g) => g.id)).toEqual(['G1', 'G2', 'G3', 'G5']);
-    expect(r.totalGates).toBe(4);
+    expect(r.gates.map((g) => g.id)).toEqual(['G1', 'G2', 'G3', 'G5', 'G6', 'G7']);
+    expect(r.totalGates).toBe(6);
   });
 
   it('표본 충분 + 기준 달성 시 전 게이트 통과(allPassed)', () => {
     const r = buildGraduationReport(metrics());
     expect(r.gates.every((g) => g.pass === true)).toBe(true);
-    expect(r.passedCount).toBe(4);
+    expect(r.passedCount).toBe(6);
     expect(r.allPassed).toBe(true);
     expect(r.progress).toBe(1);
     expect(r.lowSample).toBe(false);
+    expect(r.sharpe).toBe(1.4);
   });
 
   it('G1/G5 표본 부족이면 pass=null + lowSample=true (통과 위장 금지)', () => {
@@ -127,6 +139,84 @@ describe('buildGraduationReport', () => {
     const g3 = r.gates.find((g) => g.id === 'G3')!;
     expect(g3.threshold).toBe(GRADUATION_THRESHOLDS.aiCostRatio);
     expect(g3.pass).toBe(false);
+  });
+
+  it('G6 MDD 한도(-15%) 초과 낙폭이면 미달 — 상승장에서도 낙폭은 걸러야 함', () => {
+    const r = buildGraduationReport(
+      metrics({
+        riskAdjusted: { sharpe: 0.3, mddPct: -22, observations: 30, measurable: true },
+      }),
+    );
+    const g6 = r.gates.find((g) => g.id === 'G6')!;
+    expect(g6.threshold).toBe(GRADUATION_THRESHOLDS.mddLimitPct);
+    expect(g6.currentValue).toBe(-22);
+    expect(g6.pass).toBe(false);
+    expect(r.allPassed).toBe(false);
+  });
+
+  it('G6 평가액 표본 부족(measurable=false)이면 pass=null + lowSample=true (위장 금지)', () => {
+    const r = buildGraduationReport(
+      metrics({
+        riskAdjusted: { sharpe: null, mddPct: null, observations: 2, measurable: false },
+      }),
+    );
+    const g6 = r.gates.find((g) => g.id === 'G6')!;
+    expect(g6.pass).toBeNull();
+    expect(g6.currentValue).toBeNull();
+    expect(g6.lowSample).toBe(true);
+    expect(g6.sampleSize).toBe(2);
+    expect(r.lowSample).toBe(true);
+    expect(r.allPassed).toBe(false);
+    expect(r.sharpe).toBeNull();
+  });
+
+  it('G7 벤치마크 열위(alpha ≤ 0)면 미달 — 누적수익>0 라도 상승장 위장통과 차단', () => {
+    const r = buildGraduationReport(
+      metrics({
+        cumulativeReturn: {
+          initialCapital: 10_000_000,
+          currentValue: 10_300_000,
+          absolutePnl: 300_000,
+          returnPct: 3,
+        },
+        benchmarkAlpha: {
+          indexCode: '0001',
+          portfolioReturnPct: 3,
+          benchmarkReturnPct: 8, // 시장은 +8% 인데 전략은 +3% → 열위
+          alphaPct: -5,
+          fromDate: '20260101',
+          toDate: '20260601',
+          measurable: true,
+        },
+      }),
+    );
+    const g2 = r.gates.find((g) => g.id === 'G2')!;
+    const g7 = r.gates.find((g) => g.id === 'G7')!;
+    expect(g2.pass).toBe(true); // 누적수익 +3% > 0 → G2 는 통과(위장통과 가능 지점)
+    expect(g7.currentValue).toBe(-5);
+    expect(g7.pass).toBe(false); // 그러나 벤치마크 열위로 G7 차단
+    expect(r.allPassed).toBe(false);
+  });
+
+  it('G7 벤치마크 데이터 없음(measurable=false)이면 pass=null, measurable=false', () => {
+    const r = buildGraduationReport(
+      metrics({
+        benchmarkAlpha: {
+          indexCode: '0001',
+          portfolioReturnPct: 5,
+          benchmarkReturnPct: null,
+          alphaPct: null,
+          fromDate: null,
+          toDate: null,
+          measurable: false,
+        },
+      }),
+    );
+    const g7 = r.gates.find((g) => g.id === 'G7')!;
+    expect(g7.pass).toBeNull();
+    expect(g7.measurable).toBe(false);
+    expect(g7.currentValue).toBeNull();
+    expect(r.allPassed).toBe(false);
   });
 
   it('portfolioId·asOf 를 그대로 전달한다', () => {

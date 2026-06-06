@@ -10,6 +10,8 @@ import {
   RiskSnapshotInput,
 } from '../domain/simulation.types';
 import {
+  BenchmarkPoint,
+  EquityPoint,
   ExitAccuracySample,
   HitRateSample,
 } from '../domain/graduation-metrics.calculator';
@@ -54,4 +56,14 @@ export interface ISimulationPort {
   getExitAccuracySamples(portfolioId: string, horizonDays: number): Promise<ExitAccuracySample[]>;
   /** 누적 AI 비용(KRW 환산) */
   getAiCostKrw(usdKrwRate: number): Promise<number>;
+
+  // ── DAR-68: 위험조정·벤치마크 산출용 ──
+  /** 일별 포트폴리오 평가액 시계열(PortfolioRiskSnapshot.totalValue) — Sharpe·MDD 산출용 */
+  getEquityCurve(portfolioId: string): Promise<EquityPoint[]>;
+  /** 동일 기간 시장지수(KOSPI/KOSDAQ) 종가지수 표본 — 벤치마크 alpha 산출용 */
+  getBenchmarkSeries(
+    indexCode: string,
+    fromDate: string,
+    toDate: string,
+  ): Promise<BenchmarkPoint[]>;
 }

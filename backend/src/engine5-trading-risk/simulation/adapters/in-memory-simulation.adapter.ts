@@ -11,6 +11,8 @@ import {
   RiskSnapshotInput,
 } from '../domain/simulation.types';
 import {
+  BenchmarkPoint,
+  EquityPoint,
   ExitAccuracySample,
   HitRateSample,
 } from '../domain/graduation-metrics.calculator';
@@ -48,6 +50,8 @@ export class InMemorySimulationAdapter implements ISimulationPort {
   readonly closes: ClosePositionInput[] = [];
   private hitSamples: HitRateSample[] = [];
   private exitSamples: ExitAccuracySample[] = [];
+  private equityCurve: EquityPoint[] = [];
+  private benchmarkByCode: Record<string, BenchmarkPoint[]> = {};
 
   constructor(seed: InMemorySeed) {
     this.portfolioId = seed.portfolioId ?? 'sim-portfolio';
@@ -69,6 +73,14 @@ export class InMemorySimulationAdapter implements ISimulationPort {
 
   setExitAccuracySamples(samples: ExitAccuracySample[]): void {
     this.exitSamples = samples;
+  }
+
+  setEquityCurve(points: EquityPoint[]): void {
+    this.equityCurve = points;
+  }
+
+  setBenchmarkSeries(indexCode: string, points: BenchmarkPoint[]): void {
+    this.benchmarkByCode[indexCode] = points;
   }
 
   async resolveSimPortfolioId(): Promise<string> {
@@ -183,5 +195,21 @@ export class InMemorySimulationAdapter implements ISimulationPort {
 
   async getAiCostKrw(_usdKrwRate: number): Promise<number> {
     return this.aiCostKrw;
+  }
+
+  async getEquityCurve(_portfolioId: string): Promise<EquityPoint[]> {
+    return this.equityCurve;
+  }
+
+  async getBenchmarkSeries(
+    indexCode: string,
+    fromDate: string,
+    toDate: string,
+  ): Promise<BenchmarkPoint[]> {
+    return (this.benchmarkByCode[indexCode] ?? [])
+      .filter((p) => p.tradeDate >= fromDate && p.tradeDate <= toDate)
+      .sort((a, b) =>
+        a.tradeDate < b.tradeDate ? -1 : a.tradeDate > b.tradeDate ? 1 : 0,
+      );
   }
 }

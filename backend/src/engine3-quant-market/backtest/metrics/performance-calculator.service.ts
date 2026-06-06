@@ -7,6 +7,10 @@ import {
   RealWorldGate,
 } from '../ports/backtest.types';
 import { MarketCalendarService } from '../constraint/market-calendar.service';
+import {
+  calcMaxDrawdownPct,
+  calcSharpeRatio,
+} from '../../../common/metrics/risk-metrics';
 
 @Injectable()
 export class PerformanceCalculatorService {
@@ -93,42 +97,33 @@ export class PerformanceCalculatorService {
     };
   }
 
-  /** 최대낙폭(MDD) 계산 */
+  /** 최대낙폭(MDD) 계산 — 공통 산식(risk-metrics) 위임(중복구현 금지, DAR-68) */
   private calcMdd(trades: SimulatedTrade[], initialCapital: number): number {
-    let capital = initialCapital;
-    let peak = initialCapital;
-    let mdd = 0;
-
-    // 진입일 기준 정렬
+    // 청산일 기준 정렬 후 누적 평가액 시계열(초기자본 시작)을 구성한다.
     const sorted = [...trades].sort(
       (a, b) => (a.exitDate?.getTime() ?? 0) - (b.exitDate?.getTime() ?? 0),
     );
-
+    const equityCurve = [initialCapital];
+    let capital = initialCapital;
     for (const t of sorted) {
       capital += t.netPnl ?? 0;
-      if (capital > peak) peak = capital;
-      const drawdown = peak > 0 ? ((capital - peak) / peak) * 100 : 0;
-      if (drawdown < mdd) mdd = drawdown;
+      equityCurve.push(capital);
     }
-    return mdd;
+    return calcMaxDrawdownPct(equityCurve);
   }
 
-  /** Sharpe Ratio (연환산, 무위험수익률 0 가정) */
+  /** Sharpe Ratio (연환산, 무위험수익률 0 가정) — 공통 산식 위임(DAR-68) */
   private calcSharpe(trades: SimulatedTrade[], initialCapital: number): number {
-    if (trades.length < 2 || initialCapital <= 0) return 0;
+    if (initialCapital <= 0) return 0;
 
     const returns = trades.map((t) => (t.returnPct ?? 0) / 100);
-    const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
-    const variance = returns.reduce((s, r) => s + Math.pow(r - mean, 2), 0) / returns.length;
-    const stdDev = Math.sqrt(variance);
-
-    if (stdDev === 0) return 0;
-
     // 연환산 (거래당 평균 hold일 기준)
-    const avgHold = trades.reduce((s, t) => s + (t.holdDays ?? 5), 0) / trades.length;
+    const avgHold =
+      trades.length > 0
+        ? trades.reduce((s, t) => s + (t.holdDays ?? 5), 0) / trades.length
+        : 1;
     const annualFactor = Math.sqrt(252 / Math.max(avgHold, 1));
-
-    return (mean / stdDev) * annualFactor;
+    return calcSharpeRatio(returns, annualFactor);
   }
 
   /** 월별 수익 집계 */

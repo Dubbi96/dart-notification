@@ -111,3 +111,34 @@
 | 12 | 라이브 30일 모의운용 진행률·G1/G2/G3 자동 측정 리포팅 | medium/small | backend | B·M10 졸업 직결 |
 
 **구동 순서(테제)**: #1 AI전체Task오케스트레이션(폐루프 완성·후속 데이터원) → #3 정규화피처(small·즉효) → #4 등급정밀도 → #8 이벤트통계화면 → #9 P-C화면 → #5 보정루프 → #6·#7 알림파이프라인 → #12 졸업측정 → #2·#10 신규수집(large) → #11 KRX매핑(승인 전제). (#2·#10·#11 KRX/DART 신규수집은 rate limit·승인 고려, 미국/코인 실데이터는 M10 졸업 후.)
+
+> ✅ **패널 v3 #1~9·12·#2 완료**(DAR-66~87). #10·#11은 KRX API 승인 전제로 **보류**(승인 시 재개). 후속은 아래 패널 v4 백로그.
+
+---
+
+## 상용 패널 v4 백로그 (2026-06-07, 5관점·30제안·★코드검증 종합)
+
+> 패널 v3 대부분 소진(KRX 의존 2건 보류) 후 재가동. ★MAIN THESIS 정렬·KRX 비의존 우선. **핵심 발견: 방금 만든 자산이 또 소비처 0** — DAR-87 InsiderHoldingChange는 매일 적재되나 조회 API·스코어러·화면 전무. + 라이브 AI 큐 재시도정책 부재(잡 유실 위험), calibration 리포트 라이브 미적용, 펀더멘털/비용 거버넌스 미노출.
+
+**코드검증된 핵심**:
+- insider-holdings 컨트롤러 0·buy-signal 9개 scorer 중 insider 0·mobile insider 0 (적재만, 소비 0).
+- `ai-analyst.module.ts:35` AI_ANALYZE 큐 defaultJobOptions 없음(notification-producer는 attempts:3) → LLM 오류 시 분석 잡 영구 소멸.
+- calibration.ts 산출값을 signal-generation이 미참조(라이브 신호 자기보정 루프 없음).
+- /financials/latest·AI 비용 4개 엔드포인트·calibration 리포트 mobile 미소비.
+
+| # | 항목 | impact/effort | layer | 테제 |
+|---|---|---|---|---|
+| 1 | **InsiderHoldingChange 조회API + Buy Score insider.scorer + 모바일 섹션**(종단 연결) | high/medium | both | ★A+B·적재자산 회수 |
+| 2 | AI_ANALYZE 큐 재시도·DLQ 정책(라이브 AI 잡 유실 방지) | high/small | backend | A·라이브 신뢰성 |
+| 3 | calibration 리포트→라이브 신호 confidence 자기보정 피드백 루프 | high/medium | backend | B(신호 자기교정) |
+| 4 | 다년 재무 시계열 수집→YoY 성장률·어닝 방향성(DART 무료) | high/medium | backend | B(철학 결측 복원) |
+| 5 | 푸시 범용 딥링크 라우팅(signal/exit 알림 연결 복구) | high/small | mobile | B(정보→행동 종착) |
+| 6 | Exit Score 이벤트타입별 가중 + 내부자 매도 무효화 정밀화 | high/medium | backend | B(청산 정확도) |
+| 7 | calibration 리포트 모바일 화면화(읽기전용 권고) | high/small | mobile | B(휴먼 승인 게이트) |
+| 8 | 공시 본문 정량표 구조화 추출(DartFiledFact 모델) | high/medium | backend | A 본문 정량자산화 |
+| 9 | 재무지표(CompanyFinancial) 모바일 펀더멘털 카드 | medium/small | both | A 적재자산 노출 |
+| 10 | AI 비용 거버넌스 4 엔드포인트 모바일 연동 | medium/small | mobile | 안전·단위경제 |
+| 11 | 관리종목·거래정지 위험 배지(DART 폴백·근사 라벨) | medium/medium | both | 안전(KRX 비의존분만) |
+| 12 | 공시 목록 이벤트유형 필터 + 무한스크롤 FlatList | high/medium | mobile | A 수집정보 활용 |
+
+**구동 순서(테제)**: #1 내부자 종단연결(적재자산 회수) → #2 AI큐 재시도(라이브 신뢰성) → #5 딥링크(행동 종착·small) → #3 보정 피드백 → #7 보정 화면 → #4 재무 시계열 → #6 Exit 정밀화 → #8 공시본문 정량 → #9 펀더멘털카드 → #12 공시필터 → #10 비용거버넌스 → #11 위험배지. (KRX 정밀 실데이터는 승인 후, 미국/코인은 M10 졸업 후.)

@@ -47,6 +47,23 @@ export class MarketDataController {
     return { success: true, data: result };
   }
 
+  @Post('backfill/daily')
+  @ApiOperation({
+    summary: 'KRX 히스토리컬 일봉 백필 (과거 N거래일, 멱등)',
+  })
+  @ApiQuery({ name: 'days', required: false, description: '수집할 과거 거래일 수 (기본 60)' })
+  @ApiQuery({ name: 'endDate', required: false, description: '백필 종료일 YYYYMMDD (기본 오늘)' })
+  async backfillDaily(
+    @Query('days') days?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    const result = await this.scheduler.backfillDailyPrices({
+      days: days ? parseInt(days, 10) : undefined,
+      endDate: endDate || undefined,
+    });
+    return { success: true, data: result };
+  }
+
   @Get('collection-logs')
   @ApiOperation({ summary: '시세 수집 이력 조회 (최근 20건)' })
   @ApiQuery({ name: 'tradeDate', required: false, description: '날짜 필터 YYYYMMDD' })

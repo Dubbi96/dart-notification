@@ -37,6 +37,63 @@ export interface DartListResponse {
   list: DartDisclosureItem[];
 }
 
+/**
+ * DART 재무제표 보고서 코드 (정기공시)
+ * - 11011: 사업보고서(연간) / 11012: 반기보고서 / 11013: 1분기 / 11014: 3분기
+ */
+export const DART_REPORT_CODE = {
+  ANNUAL: '11011',
+  HALF: '11012',
+  Q1: '11013',
+  Q3: '11014',
+} as const;
+export type DartReportCode = (typeof DART_REPORT_CODE)[keyof typeof DART_REPORT_CODE];
+
+/** 재무제표 구분: CFS(연결) / OFS(별도) */
+export type DartFsDiv = 'CFS' | 'OFS';
+
+/** DART 단일회사 전체 재무제표(fnlttSinglAcntAll) 개별 계정 행 */
+export interface DartFinancialStatementItem {
+  rcept_no: string;
+  reprt_code: string;
+  bsns_year: string;
+  corp_code: string;
+  sj_div: string; // BS(재무상태표) | IS(손익) | CIS(포괄손익) | CF | SCE
+  sj_nm: string;
+  account_id: string; // 표준 XBRL 태그 (예: ifrs-full_Revenue). 비표준은 '-dart_...' 또는 '-'
+  account_nm: string; // 계정명 (예: 매출액)
+  account_detail?: string;
+  thstrm_nm?: string; // 당기명
+  thstrm_amount: string; // 당기금액 (콤마 포함 문자열)
+  frmtrm_amount?: string; // 전기금액
+  bfefrmtrm_amount?: string; // 전전기금액
+  fs_div?: string;
+  fs_nm?: string;
+}
+
+export interface DartFinancialResponse {
+  status: string; // "000" 정상 / "013" 데이터 없음
+  message: string;
+  list?: DartFinancialStatementItem[];
+}
+
+/**
+ * 재무제표에서 추출한 핵심 지표 + 파생비율.
+ * 금액 단위는 원(KRW). 시세 결합이 필요한 PER·PBR은 여기서 산출하지 않는다(수집 서비스에서 보강).
+ */
+export interface CompanyFinancialMetrics {
+  revenue: number | null; // 매출액
+  operatingProfit: number | null; // 영업이익
+  netIncome: number | null; // 당기순이익
+  totalAssets: number | null; // 자산총계
+  totalLiabilities: number | null; // 부채총계
+  totalEquity: number | null; // 자본총계
+  eps: number | null; // 기본주당이익 (원)
+  roe: number | null; // 자기자본이익률 (%) = 순이익/자본 × 100
+  roa: number | null; // 총자산이익률 (%) = 순이익/자산 × 100
+  debtRatio: number | null; // 부채비율 (%) = 부채/자본 × 100
+}
+
 export interface DartCompanyOverview {
   status: string;
   message: string;
@@ -172,6 +229,156 @@ export class DartApiService {
       this.logger.error(`기업개황 조회 오류 (${corpCode})`, error);
       return null;
     }
+  }
+
+  /**
+   * DART 단일회사 전체 재무제표 조회 (fnlttSinglAcntAll.json).
+   * 정기공시(사업/반기/분기) 제출 재무제표의 표준 XBRL 계정을 전부 반환한다.
+   *
+   * API 키 미설정 시 DartApiUnavailableError를 throw(다른 수집 경로와 동일 graceful 계약).
+   * DART 응답 status가 "013"(데이터 없음)이면 빈 list로 정상 반환한다.
+   *
+   * @param params.corpCode  DART 고유번호(8자리)
+   * @param params.bsnsYear  사업연도 (예: '2025')
+   * @param params.reprtCode 보고서코드 (DART_REPORT_CODE)
+   * @param params.fsDiv     CFS(연결, 기본) | OFS(별도)
+   */
+  async fetchSingleCompanyFinancials(params: {
+    corpCode: string;
+    bsnsYear: string;
+    reprtCode: DartReportCode;
+    fsDiv?: DartFsDiv;
+  }): Promise<DartFinancialResponse> {
+    if (!this.apiKey) {
+      throw new DartApiUnavailableError('DART_API_KEY가 설정되지 않았습니다');
+    }
+
+    const fsDiv = params.fsDiv ?? 'CFS';
+    try {
+      const response = await this.httpClient.get('/fnlttSinglAcntAll.json', {
+        params: {
+          crtfc_key: this.apiKey,
+          corp_code: params.corpCode,
+          bsns_year: params.bsnsYear,
+          reprt_code: params.reprtCode,
+          fs_div: fsDiv,
+        },
+      });
+
+      const data = response.data as DartFinancialResponse;
+
+      // "013" = 조회된 데이터 없음(미제출 등) → 정상 흐름. 그 외 비정상 status만 경고.
+      if (data.status !== '000' && data.status !== '013') {
+        this.logger.warn(
+          `재무제표 조회 비정상 응답: ${data.status} - ${data.message} (${params.corpCode}/${params.bsnsYear}/${params.reprtCode}/${fsDiv})`,
+        );
+      }
+
+      return { ...data, list: data.list ?? [] };
+    } catch (error) {
+      if (error instanceof DartApiUnavailableError) throw error;
+      this.logger.error(
+        `재무제표 조회 오류 (${params.corpCode}/${params.bsnsYear}/${params.reprtCode})`,
+        error as Error,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * 재무제표 계정 행 배열에서 핵심 지표(매출·영업이익·순이익·자산·부채·자본·EPS)를 추출하고
+   * 파생비율(ROE·ROA·부채비율)을 산출한다. 순수 함수(Rule) — AI 미개입.
+   *
+   * 표준 XBRL account_id 우선 매칭, 비표준 제출분은 account_nm(한글 계정명) 폴백.
+   */
+  extractFinancialMetrics(
+    items: DartFinancialStatementItem[],
+  ): CompanyFinancialMetrics {
+    const revenue = this.pickAmount(
+      items,
+      ['ifrs-full_Revenue', 'ifrs_Revenue', 'dart_OperatingRevenue'],
+      ['매출액', '수익(매출액)', '영업수익'],
+    );
+    const operatingProfit = this.pickAmount(
+      items,
+      ['dart_OperatingIncomeLoss', 'ifrs-full_ProfitLossFromOperatingActivities'],
+      ['영업이익', '영업이익(손실)'],
+    );
+    const netIncome = this.pickAmount(
+      items,
+      ['ifrs-full_ProfitLoss'],
+      ['당기순이익', '당기순이익(손실)', '분기순이익', '반기순이익'],
+    );
+    const totalAssets = this.pickAmount(
+      items,
+      ['ifrs-full_Assets'],
+      ['자산총계'],
+    );
+    const totalLiabilities = this.pickAmount(
+      items,
+      ['ifrs-full_Liabilities'],
+      ['부채총계'],
+    );
+    const totalEquity = this.pickAmount(
+      items,
+      ['ifrs-full_Equity'],
+      ['자본총계'],
+    );
+    const eps = this.pickAmount(
+      items,
+      ['ifrs-full_BasicEarningsLossPerShare', 'dart_BasicEarningsLossPerShare'],
+      ['기본주당이익', '주당순이익', '기본주당순이익'],
+    );
+
+    const ratio = (numer: number | null, denom: number | null): number | null =>
+      numer != null && denom != null && denom !== 0
+        ? Math.round((numer / denom) * 10000) / 100 // 소수 2자리 % 반올림
+        : null;
+
+    return {
+      revenue,
+      operatingProfit,
+      netIncome,
+      totalAssets,
+      totalLiabilities,
+      totalEquity,
+      eps,
+      roe: ratio(netIncome, totalEquity),
+      roa: ratio(netIncome, totalAssets),
+      debtRatio: ratio(totalLiabilities, totalEquity),
+    };
+  }
+
+  /**
+   * account_id(표준 우선) 또는 account_nm(폴백)으로 당기금액을 찾아 숫자로 파싱.
+   * 콤마 제거, 괄호 표기 음수 처리. 일치 행이 없으면 null.
+   */
+  private pickAmount(
+    items: DartFinancialStatementItem[],
+    accountIds: string[],
+    accountNames: string[],
+  ): number | null {
+    const idSet = new Set(accountIds);
+    let row = items.find((it) => idSet.has(it.account_id));
+    if (!row) {
+      row = items.find((it) =>
+        accountNames.some((nm) => (it.account_nm ?? '').replace(/\s/g, '') === nm),
+      );
+    }
+    if (!row) return null;
+    return this.parseAmount(row.thstrm_amount);
+  }
+
+  /** DART 금액 문자열("1,234" / "(1,234)" / "-1,234")을 숫자로 파싱. 빈 값/비수치 → null */
+  private parseAmount(raw: string | undefined | null): number | null {
+    if (raw == null) return null;
+    const trimmed = String(raw).trim();
+    if (trimmed === '' || trimmed === '-') return null;
+    const negative = /^\(.*\)$/.test(trimmed);
+    const cleaned = trimmed.replace(/[(),\s]/g, '');
+    const n = Number(cleaned);
+    if (isNaN(n)) return null;
+    return negative ? -n : n;
   }
 
   /**

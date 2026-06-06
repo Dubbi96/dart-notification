@@ -19,6 +19,7 @@ import { DartApiModule } from './engine1-disclosure/dart-api/dart-api.module';
 import { ExpoPushModule } from './expo-push/expo-push.module';
 import { DisclosureDocumentsModule } from './engine1-disclosure/disclosure-documents/disclosure-documents.module';
 import { DisclosureEventsModule } from './engine1-disclosure/disclosure-events/disclosure-events.module';
+import { FinancialsModule } from './engine1-disclosure/financials/financials.module';
 import { AiAnalystModule } from './engine2-ai-analyst/ai-analyst.module';
 import { QuantMarketModule } from './engine3-quant-market/quant-market.module';
 import { PortfolioExitModule } from './engine4-portfolio-exit/portfolio-exit.module';
@@ -74,6 +75,7 @@ import { PaperSimulationModule } from './engine5-trading-risk/paper-simulation/p
     ExpoPushModule,
     DisclosureDocumentsModule,
     DisclosureEventsModule,
+    FinancialsModule,
 
     // Engine 2 — AI Analyst (M3)
     AiAnalystModule,

@@ -32,6 +32,50 @@ export interface CollectInsiderResult {
   message?: string;
 }
 
+/** 지분변동 조회 필터 (DAR-88, read-only). */
+export interface FindInsiderChangesQuery {
+  corpCode?: string;
+  tradeType?: 'BUY' | 'SELL' | 'MIXED' | 'UNKNOWN';
+  source?: 'MAJOR_STOCK' | 'EXECUTIVE';
+  /** 보고일(reportedAt) 시작 YYYYMMDD */
+  from?: string;
+  /** 보고일(reportedAt) 종료 YYYYMMDD */
+  to?: string;
+  page?: number;
+  limit?: number;
+}
+
+/** BigInt → number 직렬화 안전 변환(JSON 직렬화 불가 회피). 결측 null. */
+function bigIntToNumber(v: bigint | null): number | null {
+  return v == null ? null : Number(v);
+}
+
+/** 조회 응답 행 (BigInt 직렬화 회피용 DTO). */
+export interface InsiderHoldingChangeView {
+  id: string;
+  source: string;
+  rcptNo: string;
+  corpCode: string;
+  reporter: string;
+  relation: string | null;
+  isExecutive: boolean | null;
+  isRegistered: boolean | null;
+  isMajorShareholder: boolean | null;
+  sharesAfter: number | null;
+  sharesChange: number | null;
+  ratioAfter: number | null;
+  ratioChange: number | null;
+  tradeType: string;
+  unitPrice: number | null;
+  reportReason: string | null;
+  reportedAt: Date | null;
+}
+
+export interface FindInsiderChangesResult {
+  items: InsiderHoldingChangeView[];
+  meta: { page: number; limit: number; total: number };
+}
+
 @Injectable()
 export class InsiderHoldingsService {
   private readonly logger = new Logger(InsiderHoldingsService.name);
@@ -182,7 +226,84 @@ export class InsiderHoldingsService {
     return Number.isFinite(cap) ? all.slice(0, cap) : all;
   }
 
+  /**
+   * 지분변동 조회 (DAR-88, read-only).
+   * corpCode·tradeType·source·보고일 기간 필터 + 페이지네이션, 보고일(없으면 적재일) 내림차순.
+   * BigInt 필드는 number 로 변환해 JSON 직렬화 안전성을 보장.
+   */
+  async findChanges(
+    query: FindInsiderChangesQuery = {},
+  ): Promise<FindInsiderChangesResult> {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+
+    const where: {
+      corpCode?: string;
+      tradeType?: string;
+      source?: string;
+      reportedAt?: { gte?: Date; lt?: Date };
+    } = {};
+    if (query.corpCode) where.corpCode = query.corpCode;
+    if (query.tradeType) where.tradeType = query.tradeType;
+    if (query.source) where.source = query.source;
+
+    const gte = parseYmdToUtc(query.from);
+    const toDate = parseYmdToUtc(query.to);
+    // 종료일은 해당 일자 전체 포함 → 다음날 0시 미만(lt).
+    const lt = toDate ? new Date(toDate.getTime() + 24 * 60 * 60 * 1000) : undefined;
+    if (gte || lt) {
+      where.reportedAt = {
+        ...(gte ? { gte } : {}),
+        ...(lt ? { lt } : {}),
+      };
+    }
+
+    const [rows, total] = await Promise.all([
+      this.prisma.insiderHoldingChange.findMany({
+        where,
+        // 최신 보고 우선. reportedAt 결측 행은 적재시각(fetchedAt) 보조 정렬.
+        orderBy: [{ reportedAt: 'desc' }, { fetchedAt: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.insiderHoldingChange.count({ where }),
+    ]);
+
+    return {
+      items: rows.map((r) => ({
+        id: r.id,
+        source: r.source,
+        rcptNo: r.rcptNo,
+        corpCode: r.corpCode,
+        reporter: r.reporter,
+        relation: r.relation,
+        isExecutive: r.isExecutive,
+        isRegistered: r.isRegistered,
+        isMajorShareholder: r.isMajorShareholder,
+        sharesAfter: bigIntToNumber(r.sharesAfter),
+        sharesChange: bigIntToNumber(r.sharesChange),
+        ratioAfter: r.ratioAfter,
+        ratioChange: r.ratioChange,
+        tradeType: r.tradeType,
+        unitPrice: r.unitPrice,
+        reportReason: r.reportReason,
+        reportedAt: r.reportedAt,
+      })),
+      meta: { page, limit, total },
+    };
+  }
+
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
+}
+
+/** YYYYMMDD → UTC 자정 Date. 형식 불일치/결측 → undefined. */
+function parseYmdToUtc(raw?: string): Date | undefined {
+  if (!raw || !/^\d{8}$/.test(raw)) return undefined;
+  const year = Number(raw.slice(0, 4));
+  const month = Number(raw.slice(4, 6));
+  const day = Number(raw.slice(6, 8));
+  if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
+  return new Date(Date.UTC(year, month - 1, day));
 }

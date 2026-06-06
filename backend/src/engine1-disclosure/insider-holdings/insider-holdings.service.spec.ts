@@ -167,4 +167,80 @@ describe('InsiderHoldingsService', () => {
       expect(new Set(codes)).toEqual(new Set(['A', 'B', 'C']));
     });
   });
+
+  // ─── DAR-88: read 전용 조회 ────────────────────────────────────────
+  describe('findChanges (read-only)', () => {
+    function makeReadService(rows: any[], total: number) {
+      const findMany = jest.fn().mockResolvedValue(rows);
+      const count = jest.fn().mockResolvedValue(total);
+      const prisma = { insiderHoldingChange: { findMany, count } };
+      const service = new InsiderHoldingsService(prisma as any, {} as any);
+      return { service, findMany, count };
+    }
+
+    const sampleRow = {
+      id: 'i1',
+      source: 'EXECUTIVE',
+      rcptNo: 'R1',
+      corpCode: 'C1',
+      reporter: '대표이사',
+      relation: '대표이사',
+      isExecutive: true,
+      isRegistered: true,
+      isMajorShareholder: true,
+      sharesAfter: 1000n,
+      sharesChange: -50n,
+      ratioAfter: 6.0,
+      ratioChange: -0.3,
+      tradeType: 'SELL',
+      unitPrice: null,
+      reportReason: null,
+      reportedAt: new Date('2026-06-01T00:00:00.000Z'),
+    };
+
+    it('corpCode·방향·출처·기간 필터를 where 절로 전달하고 페이지네이션', async () => {
+      const { service, findMany, count } = makeReadService([sampleRow], 1);
+      const res = await service.findChanges({
+        corpCode: 'C1',
+        tradeType: 'SELL',
+        source: 'EXECUTIVE',
+        from: '20260101',
+        to: '20260601',
+        page: 2,
+        limit: 10,
+      });
+      const arg = findMany.mock.calls[0][0];
+      expect(arg.where.corpCode).toBe('C1');
+      expect(arg.where.tradeType).toBe('SELL');
+      expect(arg.where.source).toBe('EXECUTIVE');
+      expect(arg.where.reportedAt.gte).toEqual(new Date(Date.UTC(2026, 0, 1)));
+      // 종료일은 해당 일자 전체 포함(다음날 0시 미만)
+      expect(arg.where.reportedAt.lt).toEqual(
+        new Date(Date.UTC(2026, 5, 2)),
+      );
+      expect(arg.skip).toBe(10); // (page2-1)*limit10
+      expect(arg.take).toBe(10);
+      expect(count).toHaveBeenCalledWith({ where: arg.where });
+      expect(res.meta).toEqual({ page: 2, limit: 10, total: 1 });
+    });
+
+    it('BigInt(sharesAfter/sharesChange) → number 직렬화 안전 변환', async () => {
+      const { service } = makeReadService([sampleRow], 1);
+      const res = await service.findChanges({ corpCode: 'C1' });
+      expect(res.items[0].sharesAfter).toBe(1000);
+      expect(res.items[0].sharesChange).toBe(-50);
+      expect(typeof res.items[0].sharesAfter).toBe('number');
+    });
+
+    it('필터·기간 없으면 where 비우고 기본 페이지/limit 적용', async () => {
+      const { service, findMany } = makeReadService([], 0);
+      const res = await service.findChanges();
+      const arg = findMany.mock.calls[0][0];
+      expect(arg.where).toEqual({});
+      expect(arg.skip).toBe(0);
+      expect(arg.take).toBe(20);
+      expect(res.items).toEqual([]);
+      expect(res.meta).toEqual({ page: 1, limit: 20, total: 0 });
+    });
+  });
 });

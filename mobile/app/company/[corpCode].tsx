@@ -540,14 +540,29 @@ function CompanyPhilosophyTab({ corpCode, corpName }: CompanyPhilosophyTabProps)
       ) : null}
 
       {data.fits.map((fit) => (
-        <Card key={fit.philosophyId} variant="elevated" style={styles.tableCard}>
-          <View style={styles.philosophyFitHeader}>
-            <Text style={[typo.bodyMedium, { color: colors.text }]}>{fit.investorName}</Text>
-          </View>
-          <View style={{ marginTop: spacing.sm }}>
-            <PhilosophyFitBreakdown fit={fit} />
-          </View>
-        </Card>
+        <TouchableOpacity
+          key={fit.philosophyId}
+          activeOpacity={0.8}
+          onPress={() =>
+            // DAR-57: 거장별 적합도 카드 탭 → 항목별 통과/미달 체크리스트 분해.
+            router.push({
+              pathname: '/philosophy/checklist',
+              params: { id: fit.philosophyId, corpCode, corpName },
+            })
+          }
+          accessibilityRole="button"
+          accessibilityLabel={`${fit.investorName} 항목별 체크리스트 분해 보기`}
+        >
+          <Card variant="elevated" style={styles.tableCard}>
+            <View style={styles.philosophyFitHeader}>
+              <Text style={[typo.bodyMedium, { color: colors.text }]}>{fit.investorName}</Text>
+              <Feather name="chevron-right" size={16} color={colors.textTertiary} />
+            </View>
+            <View style={{ marginTop: spacing.sm }}>
+              <PhilosophyFitBreakdown fit={fit} showBreakdown={false} />
+            </View>
+          </Card>
+        </TouchableOpacity>
       ))}
 
       <DisclaimerSection style={styles.philosophyDisclaimer} />

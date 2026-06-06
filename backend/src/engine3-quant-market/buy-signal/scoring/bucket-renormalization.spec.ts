@@ -1,10 +1,11 @@
 /**
- * bucket-renormalization.spec.ts — DAR-49
+ * bucket-renormalization.spec.ts — DAR-49 + DAR-88(insider 버킷 편입)
  *
  * 결측 버킷 제외 가중치 재정규화 검증:
  *  1) 전버킷 가용 → 기존 가중치 그대로(산식 의미 비트단위 보존)
- *  2) 일부 결측 → 가용 가중치 합=1.0 으로 재정규화
+ *  2) 일부 결측 → 가용 가중치 합=1.0 으로 재정규화(상대 비율 보존)
  *  3) 전부 결측 → 방어(모든 가중치 0, 크래시 없음)
+ *  4) DAR-88: insider 결측(데이터 미적재 종목) → 기존 7버킷 가중치를 정확히 복원(회귀 0)
  *
  * AI 금지영역: 순수 Rule 검증.
  */
@@ -25,6 +26,7 @@ const ALL_KEYS: BucketKey[] = [
   'chart',
   'volumeLiquidity',
   'marketSector',
+  'insider',
 ];
 
 function availabilityOf(overrides: Partial<BucketAvailability>): BucketAvailability {
@@ -54,7 +56,7 @@ describe('renormalizeWeights()', () => {
     }
   });
 
-  it('chart + historicalEvent 결측(근본원인 25%) → 가용 가중치 합 1.0 재정규화', () => {
+  it('chart + historicalEvent 결측(근본원인) → 가용 가중치 합 1.0 재정규화', () => {
     const { effectiveWeights, omittedBuckets } = renormalizeWeights(
       W,
       availabilityOf({ chart: false, historicalEvent: false }),
@@ -65,13 +67,43 @@ describe('renormalizeWeights()', () => {
     expect(effectiveWeights.historicalEvent).toBe(0);
     // 가용 버킷 가중치 합 = 1.0
     expect(sum(effectiveWeights)).toBeCloseTo(1.0, 10);
-    // 가용 버킷 간 상대 비율은 보존 (disclosureEvent : keyMetric = 0.25 : 0.20)
-    expect(effectiveWeights.disclosureEvent / effectiveWeights.keyMetric).toBeCloseTo(
-      W.disclosureEvent / W.keyMetric,
+    // 가용 버킷 간 상대 비율은 보존
+    expect(
+      effectiveWeights.disclosureEvent / effectiveWeights.keyMetric,
+    ).toBeCloseTo(W.disclosureEvent / W.keyMetric, 10);
+    // 가용 가중치 합으로 나뉜 값과 일치
+    const availableSum = ALL_KEYS.filter(
+      (k) => k !== 'chart' && k !== 'historicalEvent',
+    ).reduce((s, k) => s + W[k], 0);
+    expect(effectiveWeights.disclosureEvent).toBeCloseTo(
+      W.disclosureEvent / availableSum,
       10,
     );
-    // 가용 가중치 합 0.75 로 나뉘므로 disclosureEvent = 0.25/0.75
-    expect(effectiveWeights.disclosureEvent).toBeCloseTo(0.25 / 0.75, 10);
+  });
+
+  it('★DAR-88 회귀 0: insider 결측 → 기존 7버킷 가중치를 정확히 복원', () => {
+    // insider 데이터 미적재 종목(대부분의 과거 백테스트/스냅샷) 재현.
+    const { effectiveWeights, omittedBuckets } = renormalizeWeights(
+      W,
+      availabilityOf({ insider: false }),
+    );
+    expect(omittedBuckets).toEqual(['insider']);
+    expect(effectiveWeights.insider).toBe(0);
+    // 가용 7버킷 가중치 합 = 1.0
+    expect(sum(effectiveWeights)).toBeCloseTo(1.0, 10);
+    // 기존 7버킷의 레거시 가중치(0.25/0.20/0.15/0.10/0.15/0.10/0.05)를 정확히 복원
+    const LEGACY: Record<string, number> = {
+      disclosureEvent: 0.25,
+      keyMetric: 0.2,
+      personaFit: 0.15,
+      historicalEvent: 0.1,
+      chart: 0.15,
+      volumeLiquidity: 0.1,
+      marketSector: 0.05,
+    };
+    for (const k of Object.keys(LEGACY)) {
+      expect(effectiveWeights[k as BucketKey]).toBeCloseTo(LEGACY[k], 10);
+    }
   });
 
   it('단일 버킷만 가용 → 그 버킷 가중치 1.0', () => {
@@ -84,9 +116,10 @@ describe('renormalizeWeights()', () => {
         chart: false,
         volumeLiquidity: false,
         marketSector: false,
+        insider: false,
       }),
     );
-    expect(omittedBuckets.length).toBe(6);
+    expect(omittedBuckets.length).toBe(7);
     expect(effectiveWeights.disclosureEvent).toBeCloseTo(1.0, 10);
     expect(sum(effectiveWeights)).toBeCloseTo(1.0, 10);
   });
@@ -97,7 +130,7 @@ describe('renormalizeWeights()', () => {
       {} as BucketAvailability,
     );
     const { effectiveWeights, omittedBuckets } = renormalizeWeights(W, allFalse);
-    expect(omittedBuckets.length).toBe(7);
+    expect(omittedBuckets.length).toBe(ALL_KEYS.length);
     for (const k of ALL_KEYS) {
       expect(effectiveWeights[k]).toBe(0);
       expect(Number.isNaN(effectiveWeights[k])).toBe(false);
@@ -136,6 +169,16 @@ describe('detectBucketAvailability()', () => {
       personaViews: [{ persona: 'GROWTH', view: 'POSITIVE' }],
       userPersona: 'GROWTH',
     },
+    insider: {
+      trades: [
+        {
+          source: 'EXECUTIVE' as const,
+          tradeType: 'BUY' as const,
+          ratioChange: 1.2,
+          isMajorShareholder: true,
+        },
+      ],
+    },
   };
 
   it('전버킷 데이터 완비 → 모두 available', () => {
@@ -148,6 +191,7 @@ describe('detectBucketAvailability()', () => {
       chart: true,
       volumeLiquidity: true,
       marketSector: true,
+      insider: true,
     });
   });
 
@@ -245,5 +289,30 @@ describe('detectBucketAvailability()', () => {
       personaFit: { personaViews: [], userPersona: 'GROWTH' },
     });
     expect(a.personaFit).toBe(false);
+  });
+
+  it('DAR-88: 내부자 보고 0건 → insider 결측', () => {
+    const a = detectBucketAvailability({
+      ...fullInput,
+      insider: { trades: [] },
+    });
+    expect(a.insider).toBe(false);
+  });
+
+  it('DAR-88: 내부자 보고 1건이라도 존재 → insider 가용', () => {
+    const a = detectBucketAvailability({
+      ...fullInput,
+      insider: {
+        trades: [
+          {
+            source: 'MAJOR_STOCK' as const,
+            tradeType: 'SELL' as const,
+            ratioChange: -0.5,
+            isMajorShareholder: false,
+          },
+        ],
+      },
+    });
+    expect(a.insider).toBe(true);
   });
 });

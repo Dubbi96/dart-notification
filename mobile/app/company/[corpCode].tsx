@@ -25,10 +25,11 @@ import { LoadingState, EmptyState, ErrorState } from '@components/common/StateVi
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { PhilosophyFitBreakdown } from '@components/philosophy/PhilosophyFitBreakdown';
 import { DecisionHubTab } from '@components/company/DecisionHubTab';
+import { InsiderHoldingsTab } from '@components/company/InsiderHoldingsTab';
 import { useCompanyPhilosophyFit } from '@hooks/usePhilosophies';
 import type { EventStudyResult } from '@app-types/signal.types';
 
-type CompanyTab = 'decision' | 'disclosures' | 'stats' | 'philosophy';
+type CompanyTab = 'decision' | 'disclosures' | 'insider' | 'stats' | 'philosophy';
 
 function formatEstDate(estDate: string | null): string {
   if (!estDate || estDate.length !== 8) return '-';
@@ -395,6 +396,7 @@ export default function CompanyDetailScreen() {
           buttons={[
             { value: 'decision', label: '판단', accessibilityLabel: '종목 의사결정 허브 탭' },
             { value: 'disclosures', label: '공시', accessibilityLabel: '최근 공시 탭' },
+            { value: 'insider', label: '내부자', accessibilityLabel: '내부자·대량보유 동향 탭' },
             { value: 'stats', label: '통계', accessibilityLabel: 'Event Study 통계 탭' },
             { value: 'philosophy', label: '적합도', accessibilityLabel: '거장별 철학 적합도 탭' },
           ]}
@@ -495,6 +497,8 @@ export default function CompanyDetailScreen() {
 
           <View style={{ height: spacing['2xl'] }} />
         </ScrollView>
+      ) : activeTab === 'insider' ? (
+        <InsiderHoldingsTab corpCode={corpCode!} />
       ) : activeTab === 'stats' ? (
         <EventStudyTab corpCode={corpCode!} />
       ) : (

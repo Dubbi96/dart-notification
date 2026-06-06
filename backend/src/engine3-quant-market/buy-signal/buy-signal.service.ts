@@ -37,6 +37,7 @@ import {
   RiskPenaltyInput,
   scoreRiskPenalty,
 } from './scoring/risk-penalty.scorer';
+import { InsiderInput, scoreInsider } from './scoring/insider.scorer';
 import {
   EntryConditionInput,
   evaluateEntryConditions,
@@ -64,6 +65,7 @@ export interface ScoreBreakdown {
   chart: number;
   volumeLiquidity: number;
   marketSector: number;
+  insider: number;
 }
 
 export interface BuyScoreParams {
@@ -78,6 +80,8 @@ export interface BuyScoreParams {
   chart: ChartInput;
   volumeLiquidity: VolumeLiquidityInput;
   marketSector: MarketSectorInput;
+  /** DAR-88: 내부자·대량보유 동향. 미주입 시 결측 처리(재정규화 제외 → 회귀 0). */
+  insider?: InsiderInput;
   riskPenalty: RiskPenaltyInput;
   entryCondition: EntryConditionInput;
   subCategory?: string;
@@ -128,6 +132,9 @@ export class BuySignalService {
   computeBuyScore(params: BuyScoreParams): BuySignalResult {
     const penalty = scoreRiskPenalty(params.riskPenalty);
 
+    // DAR-88: insider 미주입은 결측(빈 trades)으로 정규화.
+    const insider: InsiderInput = params.insider ?? { trades: [] };
+
     // 결측 버킷 판별 (DAR-49) — BLOCKED 경로에서도 결과에 표기
     const availability = detectBucketAvailability({
       chart: params.chart,
@@ -135,6 +142,7 @@ export class BuySignalService {
       volumeLiquidity: params.volumeLiquidity,
       marketSector: params.marketSector,
       personaFit: params.personaFitInput,
+      insider,
     });
 
     // 하드 차단 → BLOCKED 즉시 반환
@@ -157,6 +165,7 @@ export class BuySignalService {
           chart: 0,
           volumeLiquidity: 0,
           marketSector: 0,
+          insider: 0,
         },
         riskPenalty: 100,
         entryConditionMet: entry.met,
@@ -183,6 +192,7 @@ export class BuySignalService {
       chart:           scoreChart(params.chart),
       volumeLiquidity: scoreVolumeLiquidity(params.volumeLiquidity),
       marketSector:    scoreMarketSector(params.marketSector),
+      insider:         scoreInsider(insider),
     };
 
     // 결측 버킷 제외 후 가용 버킷 가중치를 합=1.0 으로 재정규화 (DAR-49).
@@ -199,7 +209,8 @@ export class BuySignalService {
       effectiveWeights.historicalEvent * breakdown.historicalEvent +
       effectiveWeights.chart           * breakdown.chart +
       effectiveWeights.volumeLiquidity * breakdown.volumeLiquidity +
-      effectiveWeights.marketSector    * breakdown.marketSector;
+      effectiveWeights.marketSector    * breakdown.marketSector +
+      effectiveWeights.insider         * breakdown.insider;
 
     const buyScore = Math.round(clamp(weightedSum - penalty, -100, 100));
     const signal = mapScoreToGrade(buyScore);

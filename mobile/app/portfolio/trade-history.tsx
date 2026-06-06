@@ -10,6 +10,7 @@ import { LoadingState, ApiErrorState, EmptyState } from '@components/common/Stat
 import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
 import { SignalAccuracySection } from '@components/portfolio/SignalAccuracySection';
+import { CalibrationSection } from '@components/portfolio/CalibrationSection';
 import { useTradeHistory } from '@hooks/useTradeHistory';
 
 import type { TradeRationale, TradeScorecard } from '@app-types/trade-rationale.types';
@@ -254,6 +255,7 @@ export default function TradeHistoryScreen() {
               </Banner>
               {data ? <Scorecard scorecard={data.scorecard} /> : null}
               <SignalAccuracySection />
+              <CalibrationSection />
               <Text style={[typo.captionMedium, { color: colors.text, marginTop: spacing.sm }]}>
                 매매 내역
               </Text>

@@ -3,6 +3,10 @@
  * 설계 정본: docs/roadmap/cc-engine-architecture.md §4-4, §4-6, §6
  */
 
+import { AiQueueHealth } from '../../common/queues/queue.constants';
+
+export { AiQueueHealth };
+
 /** AI 비용 등급 — L0(미사용) ~ L3(최고비용). cc-engine-architecture §4-6 */
 export enum AiCostLevel {
   /** AI 미사용 (Rule 기반) */
@@ -121,6 +125,11 @@ export interface AiCostHealthSnapshot {
   limit: AiCostLimitStatus;
   limitUsage: AiCostLimitUsage;
   alert: AiCostHealthAlert;
+  /**
+   * DAR-89: AI_ANALYZE 큐 상태(실패 잡 수 등) — 라이브 AI 잡 유실 관측.
+   * Redis 미가용/큐 미주입 시 null(graceful, health 자체는 DB 집계로 동작).
+   */
+  queue: AiQueueHealth | null;
 }
 
 /** LLM 호출 1회의 토큰·모델 정보 (비용 기록용) */

@@ -63,6 +63,7 @@ describe('AiCostMonitorScheduler', () => {
       },
       limitUsage: { dailyUsedRatio: 0.01, monthlyUsedRatio: 0.0025 },
       alert: { violated: false, reasons: [] },
+      queue: null, // DAR-89: 큐 스냅샷(테스트 기본 null)
       ...over,
     };
   }

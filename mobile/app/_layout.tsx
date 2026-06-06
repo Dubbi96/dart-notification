@@ -50,6 +50,7 @@ function AppContent() {
               name="disclosure/viewer"
               options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
             />
+            <Stack.Screen name="intro/index" options={{ animation: 'fade' }} />
             <Stack.Screen name="onboarding/index" />
             <Stack.Screen name="settings-detail/watchlist" />
             <Stack.Screen name="settings-detail/notification-settings" />

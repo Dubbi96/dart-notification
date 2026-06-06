@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { SignalMiniGauge } from '@components/signals/SignalMiniGauge';
+import { EvidenceMeta } from '@components/common/EvidenceMeta';
 import type { PhilosophyFitScore } from '@app-types/philosophy.types';
 import { metricLabel, formatMetricValue, formatThreshold } from './metricFormat';
 
@@ -60,13 +61,19 @@ function PhilosophyFitBreakdownBase({ fit, showBreakdown = true }: PhilosophyFit
             color={colors.error}
             typo={typo}
           />
-          <SummaryChip
-            icon="bar-chart-2"
-            label={`평가 ${fit.evaluatedCount}/${fit.totalMetrics}`}
-            color={colors.textSecondary}
-            typo={typo}
-          />
         </View>
+      ) : null}
+
+      {/* 근거·커버리지 통일 표기(DAR-56) — 'N개 지표 중 M개 평가' + 결측 명시 */}
+      {fit.computable ? (
+        <EvidenceMeta
+          coverage={{
+            evaluated: fit.evaluatedCount,
+            total: fit.totalMetrics,
+            omittedLabels: showBreakdown ? fit.omittedMetricKeys.map(metricLabel) : undefined,
+          }}
+          style={styles.evidence}
+        />
       ) : null}
 
       {/* 항목별 근거 */}
@@ -109,13 +116,6 @@ function PhilosophyFitBreakdownBase({ fit, showBreakdown = true }: PhilosophyFit
         </View>
       ) : null}
 
-      {/* 결측 지표 고지(분모 제외) */}
-      {showBreakdown && fit.omittedMetricKeys.length > 0 ? (
-        <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.sm }]}>
-          ※ 단일 재무 스냅샷으로 산출 불가해 제외된 지표:{' '}
-          {fit.omittedMetricKeys.map(metricLabel).join(', ')}
-        </Text>
-      ) : null}
     </View>
   );
 }
@@ -159,6 +159,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.md,
+    marginTop: spacing.sm,
+  },
+  evidence: {
     marginTop: spacing.sm,
   },
   summaryChip: {

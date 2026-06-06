@@ -20,6 +20,7 @@ import { Button } from '@components/common/Button';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
+import { EvidenceMeta } from '@components/common/EvidenceMeta';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { useDisclosureDetail, useDisclosureEvent } from '@hooks/useDisclosures';
@@ -224,15 +225,17 @@ export default function DisclosureDetailScreen() {
               </View>
             </View>
 
-            {/* AI 신뢰도 */}
-            {disclosureEvent.isAiAssisted ? (
-              <View style={styles.aiRow}>
-                <Text style={[typo.small, { color: colors.textSecondary }]}>AI 신뢰도</Text>
-                <Text style={[typo.captionMedium, { color: colors.text }]}>
-                  {Math.round(disclosureEvent.confidence * 100)}%
-                </Text>
-              </View>
-            ) : null}
+            {/* 신뢰도(DAR-56) — 맨퍼센트 금지: 3단계 평문 + 'AI 자기보고 한계' 주석.
+                isAiAssisted=false면 '규칙 분류'로 표기(과신 차단). */}
+            <View style={styles.aiRowTop}>
+              <Text style={[typo.small, { color: colors.textSecondary }]}>신뢰도</Text>
+              <EvidenceMeta
+                ai={{
+                  confidence: disclosureEvent.confidence,
+                  isAiAssisted: disclosureEvent.isAiAssisted,
+                }}
+              />
+            </View>
 
             {/* 핵심 수치(DAR-46 §3) — 추출된 이벤트 수치를 평문 라벨·단위로 통합 표시 */}
             {keyFigures.length > 0 ? (
@@ -353,6 +356,11 @@ const styles = StyleSheet.create({
   aiRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  aiRowTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
   },
   aiChip: {

@@ -23,4 +23,14 @@ export class SignalGenerationController {
     const result = await this.signalGen.generateMissingSignals('MANUAL');
     return { success: true, data: result };
   }
+
+  @Post('regenerate')
+  @ApiOperation({
+    summary:
+      '매수 신호 재생성·재채점 (기존 신호 upsert 갱신 — TI 백필 후 chart/entryReady 반영, DAR-50)',
+  })
+  async regenerate() {
+    const result = await this.signalGen.regenerateSignals('MANUAL');
+    return { success: true, data: result };
+  }
 }

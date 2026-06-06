@@ -33,6 +33,12 @@ import {
   toSimPositionDetail,
   SimPositionDetail,
 } from './simulation-positions';
+import {
+  SIM_MIN_ENTRY_GRADE,
+  entryEligibleGrades,
+  entryBudget,
+  buildEntryMeta,
+} from './simulation-entry';
 
 export interface DailyCycleResult {
   tradeDate: string;
@@ -45,7 +51,6 @@ export interface DailyCycleResult {
   message?: string;
 }
 
-const BUY_GRADES = new Set(['STRONG_BUY_CANDIDATE', 'BUY_CANDIDATE']);
 const EXIT_ACTIONS = new Set(['EXIT', 'BLOCK_REBUY']);
 
 @Injectable()
@@ -214,9 +219,11 @@ export class PaperSimulationService {
       })
     ).map((p) => p.corpCode);
 
+    // DAR-51: 진입 기준 확장 — grade≥BUY → 설정 최소등급(기본 WATCH) AND entryReady.
+    // BUY 0·WATCH만 쌓이는 현 데이터에서 P/L 검증 데이터를 모으기 위해 가용 최선 후보를 모의매수.
     const candidates = await this.prisma.tradingSignal.findMany({
       where: {
-        signal: { in: Array.from(BUY_GRADES) as never },
+        signal: { in: entryEligibleGrades(SIM_MIN_ENTRY_GRADE) as never },
         entryReady: true,
         corpCode: { notIn: openCorpCodes.length ? openCorpCodes : ['__none__'] },
       },
@@ -224,13 +231,16 @@ export class PaperSimulationService {
       take: available,
     });
 
-    const budget =
+    // 종목별 기본 배분 예산(가상원금 × 단일종목 최대비중). 등급별 차등 사이징은 entryBudget 적용.
+    const baseBudget =
       PaperSimulationService.INITIAL_CAPITAL * (pf.maxSinglePositionPct / 100);
 
     let opened = 0;
     for (const sig of candidates) {
       const price = await this.latestClose(sig.corpCode, tradeDate);
       if (price === null || price <= 0) continue;
+      // DAR-51: 등급별 차등 사이징(WATCH는 작게)
+      const budget = entryBudget(baseBudget, sig.signal as string);
       const shares = Math.floor(budget / price);
       if (shares <= 0) continue;
 

@@ -1,6 +1,7 @@
 import type { ApiResponse } from '@app-types/api.types';
 import type { EquityCurve, SimulationStatus } from '@app-types/simulation.types';
 import type { TradeHistory } from '@app-types/trade-rationale.types';
+import type { StyleComparison } from '@app-types/style-comparison.types';
 
 import { api } from './api';
 
@@ -22,5 +23,11 @@ export const simulationService = {
   getTradeHistory: () =>
     api
       .get<ApiResponse<TradeHistory>>('/paper-trading/simulation/trade-history')
+      .then((r) => r.data.data),
+
+  // 철학 스타일별 성과 비교 — OptionalJwt(게스트 데모 가능). DAR-76.
+  getStyleComparison: () =>
+    api
+      .get<ApiResponse<StyleComparison>>('/paper-trading/simulation/styles/comparison')
       .then((r) => r.data.data),
 };

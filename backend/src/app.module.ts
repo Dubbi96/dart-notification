@@ -28,6 +28,7 @@ import { PortfolioExitModule } from './engine4-portfolio-exit/portfolio-exit.mod
 import { TradingRiskModule } from './engine5-trading-risk/trading-risk.module';
 import { PaperSimulationModule } from './engine5-trading-risk/paper-simulation/paper-simulation.module';
 import { GraduationModule } from './engine5-trading-risk/simulation/graduation.module';
+import { PhilosophyStyleSimulationModule } from './engine5-trading-risk/paper-simulation/philosophy-style-simulation.module';
 import { CollectionStatusModule } from './collection-status/collection-status.module';
 
 @Module({
@@ -102,6 +103,9 @@ import { CollectionStatusModule } from './collection-status/collection-status.mo
 
     // Engine 5 — 졸업 게이트 G1~G5 측정 REST 노출 (M10 졸업 측정, DAR-67)
     GraduationModule,
+
+    // Engine 5 — 철학 스타일별(BUFFETT/LYNCH/GREENBLATT/DRUCKENMILLER) 모의운용 분기·비교 (DAR-76, P-D)
+    PhilosophyStyleSimulationModule,
 
     // 횡단 — 수집 상태 대시보드 read-only 집계 (DAR-63)
     CollectionStatusModule,

@@ -32,6 +32,7 @@ import { useDisclosureTypes } from '@hooks/useDisclosureTypes';
 import { useRequireAuth } from '@hooks/useRequireAuth';
 import { useAuthStore } from '@stores/authStore';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
+import { getHighRiskInfo } from '@utils/disclosureRisk';
 import { parse, format } from 'date-fns';
 
 export default function DisclosuresScreen() {
@@ -94,22 +95,50 @@ export default function DisclosuresScreen() {
 
   const renderItem = ({ item }: { item: Disclosure }) => {
     const typeStyle = getTypeStyle(item.disclosureType, isDark);
+    // 고위험 5종(거래정지·상폐위험·감사의견·소송·계약해지)은 보고서명으로 1차 식별해 강조.
+    const risk = getHighRiskInfo(item.reportName);
     return (
       <TouchableOpacity
         activeOpacity={0.7}
         onPress={() => router.push(`/disclosure/${item.rcpNo}`)}
+        accessibilityRole="button"
+        accessibilityLabel={
+          risk
+            ? `고위험 공시 ${risk.label}. ${item.corpName} ${item.reportName}`
+            : `${item.corpName} ${item.reportName}`
+        }
       >
-        <Card style={styles.card} variant="elevated">
+        <Card
+          style={
+            risk
+              ? { ...styles.card, borderLeftWidth: 3, borderLeftColor: colors.error }
+              : styles.card
+          }
+          variant="elevated"
+        >
           <View style={styles.cardHeader}>
-            <View style={[styles.typeBadge, { backgroundColor: typeStyle.bg }]}>
-              <Text style={[typo.small, { color: typeStyle.text, fontWeight: '600' }]}>
-                {getTypeLabel(item.disclosureType)}
-              </Text>
+            <View style={styles.badgeRow}>
+              <View style={[styles.typeBadge, { backgroundColor: typeStyle.bg }]}>
+                <Text style={[typo.small, { color: typeStyle.text, fontWeight: '600' }]}>
+                  {getTypeLabel(item.disclosureType)}
+                </Text>
+              </View>
+              {risk && (
+                <View style={[styles.riskBadge, { backgroundColor: colors.errorSurface }]}>
+                  <Ionicons name="warning" size={11} color={colors.error} />
+                  <Text style={[typo.small, { color: colors.error, fontWeight: '700' }]}>
+                    {risk.label}
+                  </Text>
+                </View>
+              )}
             </View>
             <Text style={[typo.small, { color: colors.textTertiary }]}>{format(parse(item.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd')}</Text>
           </View>
           <Text
-            style={[typo.bodyMedium, { color: colors.text, marginTop: spacing.sm }]}
+            style={[
+              typo.bodyMedium,
+              { color: risk ? colors.error : colors.text, marginTop: spacing.sm },
+            ]}
             numberOfLines={2}
           >
             {item.reportName}
@@ -487,7 +516,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flexShrink: 1,
+  },
   typeBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+  },
+  riskBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     borderRadius: radius.sm,

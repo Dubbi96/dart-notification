@@ -56,6 +56,8 @@ function AppContent() {
             <Stack.Screen name="settings-detail/profile" />
             <Stack.Screen name="settings-detail/saved-disclosures" />
             <Stack.Screen name="company/[corpCode]" />
+            <Stack.Screen name="philosophy/index" />
+            <Stack.Screen name="philosophy/[id]" />
             <Stack.Screen name="legal/terms" />
             <Stack.Screen name="legal/privacy" />
           </Stack>

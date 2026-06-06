@@ -7,6 +7,8 @@ import { QUEUE, JOB, AiAnalyzeJobData } from '../../common/queues/queue.constant
 import { PrismaService } from '../../prisma/prisma.service';
 import { DartStockStatusService } from '../../engine3-quant-market/market-data/dart-stock-status.service';
 import { buildExcerpt } from '../input/build-minimal-input';
+import { DisclosureSummaryDraft } from '../tasks/summary.task';
+import { PersonaAnalysisDraft, PersonaType } from '../tasks/persona-interpretation.task';
 
 /** AI Task 입력으로 전달할, DB에서 조회한 실데이터 묶음. */
 interface EnrichedInput {
@@ -19,19 +21,34 @@ interface EnrichedInput {
 }
 
 /**
- * Engine2 — event.extracted 컨슈머.
- * Engine1이 이벤트 추출 완료 후 큐에 발행한 잡을 소비해
- * AiAnalystService.runSummary를 비동기로 호출한다.
+ * Engine2 — event.extracted 컨슈머 (DAR-78: AI 파이프라인 전체 Task 오케스트레이션).
+ * Engine1이 이벤트 추출 완료 후 큐에 발행한 잡을 소비해, 비용게이트 레벨에 따라
+ * 적용 가능한 AI Task를 **모두** 순차 실행한다:
+ *   1) Summary           — L1+ (게이트 통과 시)
+ *   2) PersonaInterpret. — L2+ (Summary 산출물을 입력으로) → PersonaAnalysis/personaViews 영속
+ *   3) PositionThesis    — L3  (보유종목 악재 등) → invalidConditions 등 영속
+ * EventClassification은 Engine1 Rule(event-classifier)이 담당하므로 여기서 실행하지 않는다(중복 금지).
+ *
+ * 각 Task는 AiAnalystService 내부에서 게이트+한도가드로 자체 분기(L0=스킵)하고
+ * AIUsageLog를 기록하며 rcpNo+task 멱등 캐시로 중복 job 재실행에 안전하다.
  *
  * AI Task 호출 전에 DB에서 실데이터(excerpt·keyMetrics·tradingValue)를 조회해
  * 전달한다(DAR-66). 빈 스텁을 넣지 않아 SummaryTask·하위 신호 품질 천장을 해소한다.
  *
- * 비용 게이트(AiCostGateService)는 runSummary 내부에서 적용되므로(Rule 유지),
+ * 비용 게이트(AiCostGateService)는 AiAnalystService 내부에서 적용되므로(Rule 유지),
  * 컨슈머는 조회한 거래대금 실값을 게이트 입력으로 넘기기만 한다(AI 미개입).
  */
 @Processor(QUEUE.AI_ANALYZE)
 export class EventExtractedConsumer extends WorkerHost {
   private readonly logger = new Logger(EventExtractedConsumer.name);
+
+  /** Persona 해석 대상 4종(전 성향). */
+  private static readonly DEFAULT_PERSONAS: PersonaType[] = [
+    'CONSERVATIVE',
+    'BALANCED',
+    'AGGRESSIVE',
+    'EVENT_DRIVEN',
+  ];
 
   constructor(
     private readonly aiAnalyst: AiAnalystService,
@@ -80,14 +97,108 @@ export class EventExtractedConsumer extends WorkerHost {
       },
     };
 
+    // ── 1) Summary — 게이트 통과(L1+) 시 실행. 실패는 BullMQ 재시도로 전파한다. ──
+    let summary: DisclosureSummaryDraft | null;
     try {
-      await this.aiAnalyst.runSummary(req);
+      summary = await this.aiAnalyst.runSummary(req);
       this.logger.log(`[Engine2] runSummary 완료: rcpNo=${rcpNo}`);
     } catch (err) {
-      // BullMQ가 자동 재시도하도록 예외를 전파한다
+      // BullMQ가 자동 재시도하도록 예외를 전파한다(Summary는 파이프라인 임계 경로)
       this.logger.error(`[Engine2] runSummary 실패: rcpNo=${rcpNo}`, err);
       throw err;
     }
+
+    // 게이트 L0(또는 한도 초과 강등) → Summary 스킵 = 하위 Task도 전부 스킵(비용 안전).
+    if (!summary) {
+      this.logger.debug(`[Engine2] rcpNo=${rcpNo} Summary 스킵(L0) → Persona/Thesis 미실행`);
+      return;
+    }
+
+    // ── 2) PersonaInterpretation — L2+ 시 실행. Summary 산출물을 입력으로 재투입 최소화. ──
+    //     personaViews/PersonaAnalysis 영속은 AiAnalystService가 담당(DAR-72 융합 입력 충전).
+    const personaViews = await this.runPersona(gate, rcpNo, summary);
+
+    // ── 3) PositionThesis — L3(보유종목 악재 등) 시 실행. invalidConditions 등 영속. ──
+    //     L3에서는 Persona도 실행되므로 personaViews가 충전돼 있다(없으면 빈 배열로 진행).
+    await this.runThesis(gate, rcpNo, corpCode, summary, personaViews ?? []);
+  }
+
+  /**
+   * Persona 해석 실행(L2+). 게이트 미달이면 AiAnalystService가 null 반환(스킵).
+   * 보조 Task 실패는 파이프라인을 깨지 않도록 graceful 처리(Summary는 이미 영속됨).
+   */
+  private async runPersona(
+    gate: AiGateInput,
+    rcpNo: string,
+    summary: DisclosureSummaryDraft,
+  ): Promise<PersonaAnalysisDraft[] | null> {
+    try {
+      const views = await this.aiAnalyst.runPersonaInterpretation({
+        gate,
+        input: { rcpNo, summary, personas: EventExtractedConsumer.DEFAULT_PERSONAS },
+      });
+      if (views) this.logger.log(`[Engine2] runPersonaInterpretation 완료: rcpNo=${rcpNo}`);
+      return views;
+    } catch (err) {
+      this.logger.error(`[Engine2] runPersonaInterpretation 실패(graceful): rcpNo=${rcpNo}`, err);
+      return null;
+    }
+  }
+
+  /**
+   * Position Thesis 초안 실행(L3 전용). 게이트 미달이면 AiAnalystService가 null 반환(스킵).
+   * signalId/buyScore는 TradingSignal 실조회(결측 시 graceful 폴백). 보조 Task 실패는
+   * 파이프라인을 깨지 않는다.
+   */
+  private async runThesis(
+    gate: AiGateInput,
+    rcpNo: string,
+    corpCode: string,
+    summary: DisclosureSummaryDraft,
+    personaViews: PersonaAnalysisDraft[],
+  ): Promise<void> {
+    try {
+      const signal = await this.loadSignalForThesis(rcpNo);
+      const draft = await this.aiAnalyst.runPositionThesis({
+        gate,
+        input: {
+          rcpNo,
+          signalId: signal.signalId,
+          summary,
+          personaViews,
+          buyScore: signal.buyScore,
+        },
+      });
+      if (draft) this.logger.log(`[Engine2] runPositionThesis 완료: rcpNo=${rcpNo}`);
+    } catch (err) {
+      this.logger.error(`[Engine2] runPositionThesis 실패(graceful): rcpNo=${rcpNo}`, err);
+    }
+  }
+
+  /**
+   * Position Thesis 입력용 signalId·buyScore 실조회 (DAR-78).
+   * rcpNo에 매핑된 TradingSignal(최고 buyScore)을 조회한다. L3는 보유종목 악재로도
+   * 발동하므로 매칭 신호가 없을 수 있다 — 그 경우 graceful 폴백(합성 signalId·buyScore 0).
+   */
+  private async loadSignalForThesis(
+    rcpNo: string,
+  ): Promise<{ signalId: string; buyScore: number }> {
+    try {
+      const signal = await this.prisma.tradingSignal.findFirst({
+        where: { rcpNo },
+        orderBy: { buyScore: 'desc' },
+        select: { id: true, buyScore: true },
+      });
+      if (signal) {
+        return { signalId: signal.id, buyScore: signal.buyScore };
+      }
+      this.logger.warn(
+        `[Engine2] Thesis용 TradingSignal 결측: rcpNo=${rcpNo} → 합성 signalId·buyScore=0 폴백`,
+      );
+    } catch (err) {
+      this.logger.error(`[Engine2] TradingSignal 조회 실패: rcpNo=${rcpNo}`, err);
+    }
+    return { signalId: `rcp:${rcpNo}`, buyScore: 0 };
   }
 
   /**

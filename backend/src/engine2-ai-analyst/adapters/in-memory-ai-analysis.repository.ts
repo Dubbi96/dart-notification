@@ -11,6 +11,8 @@ import { AiTaskName, AiUsageLogParams } from '../types/ai-analyst.types';
 export class InMemoryAiAnalysisRepository extends AiAnalysisRepository {
   private readonly analyses = new Map<string, StoredAnalysis>();
   private readonly usages: Array<AiUsageLogParams & { createdAt: Date }> = [];
+  /** PersonaAnalysis 영속 모사 (rcpNo → resultJson). DAR-78 융합 입력 검증용. */
+  private readonly personaViews = new Map<string, unknown>();
 
   private key(rcpNo: string, task: AiTaskName): string {
     return `${rcpNo}::${task}`;
@@ -22,6 +24,15 @@ export class InMemoryAiAnalysisRepository extends AiAnalysisRepository {
 
   async saveAnalysis(analysis: StoredAnalysis): Promise<void> {
     this.analyses.set(this.key(analysis.rcpNo, analysis.task), analysis);
+  }
+
+  async savePersonaViews(rcpNo: string, resultJson: unknown): Promise<void> {
+    this.personaViews.set(rcpNo, resultJson);
+  }
+
+  /** 테스트 전용 — 영속된 PersonaAnalysis 조회. */
+  async findPersonaViews(rcpNo: string): Promise<unknown | null> {
+    return this.personaViews.has(rcpNo) ? this.personaViews.get(rcpNo) : null;
   }
 
   async saveUsage(usage: AiUsageLogParams & { createdAt: Date }): Promise<void> {

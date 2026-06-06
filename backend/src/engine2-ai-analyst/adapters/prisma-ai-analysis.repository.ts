@@ -61,6 +61,15 @@ export class PrismaAiAnalysisRepository extends AiAnalysisRepository {
     });
   }
 
+  async savePersonaViews(rcpNo: string, resultJson: unknown): Promise<void> {
+    // PersonaAnalysis.rcpNo 는 @unique → rcpNo 단일키 upsert(멱등). DAR-72 융합 입력 소스.
+    await this.prisma.personaAnalysis.upsert({
+      where: { rcpNo },
+      create: { rcpNo, resultJson: resultJson as any },
+      update: { resultJson: resultJson as any },
+    });
+  }
+
   async saveUsage(usage: AiUsageLogParams & { createdAt: Date }): Promise<void> {
     await this.prisma.aIUsageLog.create({
       data: {

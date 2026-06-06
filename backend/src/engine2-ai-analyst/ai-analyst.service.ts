@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AiCostGateService } from './cost-gate/ai-cost-gate.service';
+import { AiCostLimitGuardService } from './cost-gate/ai-cost-limit-guard.service';
 import { AiUsageLogService } from './usage-log/ai-usage-log.service';
 import { AiAnalysisRepository } from './ports/ai-analysis.repository';
 import { SummaryTask, SummaryTaskInput, DisclosureSummaryDraft } from './tasks/summary.task';
@@ -43,8 +44,11 @@ export interface PositionThesisRequest {
 
 /**
  * Engine2 오케스트레이터.
- * 흐름: 멱등 캐시 조회 → 비용 게이트 → Task 실행 → 결과 영속 → 사용량(비용) 기록.
+ * 흐름: 멱등 캐시 조회 → 비용 게이트 → **한도 가드(일/월)** → Task 실행 → 결과 영속 → 사용량(비용) 기록.
  * AI 금지영역: 산출물은 참고 정보일 뿐, 어떤 주문/리스크 결정도 내리지 않는다.
+ *
+ * DAR-78: 비용 폭주 방지를 위해 게이트 레벨에 AiCostLimitGuard(일 $1·월 $20) 한도를
+ * 강제 적용한다 — 한도 초과 시 모든 Task가 L0(미호출)로 강등된다.
  */
 @Injectable()
 export class AiAnalystService {
@@ -52,6 +56,7 @@ export class AiAnalystService {
 
   constructor(
     private readonly gate: AiCostGateService,
+    private readonly limitGuard: AiCostLimitGuardService,
     private readonly repo: AiAnalysisRepository,
     private readonly usageLog: AiUsageLogService,
     private readonly summaryTask: SummaryTask,
@@ -59,6 +64,15 @@ export class AiAnalystService {
     private readonly personaInterpretationTask: PersonaInterpretationTask,
     private readonly positionThesisTask: PositionThesisTask,
   ) {}
+
+  /**
+   * 게이트 레벨을 산출하고 일/월 비용 한도를 강제 적용한다(DAR-78).
+   * 한도 초과 시 AiCostLimitGuard가 L0으로 강등 → 유료 호출 차단.
+   */
+  private async resolveLevel(gate: AiGateInput): Promise<AiCostLevel> {
+    const proposed = this.gate.evaluateGate(gate);
+    return this.limitGuard.enforceLimit(proposed);
+  }
 
   /**
    * 공시 요약(L2). 게이트가 L0면 분석을 건너뛰고 null 반환(AI 미호출).
@@ -72,7 +86,7 @@ export class AiAnalystService {
       return cached.resultJson as DisclosureSummaryDraft;
     }
 
-    const level = this.gate.evaluateGate(req.gate);
+    const level = await this.resolveLevel(req.gate);
     if (level === AiCostLevel.L0) {
       this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} L0 — 분석 스킵`);
       return null;
@@ -115,7 +129,7 @@ export class AiAnalystService {
       return cached.resultJson as EventClassificationDraft;
     }
 
-    const level = this.gate.evaluateGate(req.gate);
+    const level = await this.resolveLevel(req.gate);
     if (level === AiCostLevel.L0) {
       this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} L0 — event-classification 스킵`);
       return null;
@@ -158,7 +172,7 @@ export class AiAnalystService {
       return cached.resultJson as PersonaAnalysisDraft[];
     }
 
-    const level = this.gate.evaluateGate(req.gate);
+    const level = await this.resolveLevel(req.gate);
     if (level === AiCostLevel.L0 || level === AiCostLevel.L1) {
       this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} ${level} — persona-interpretation 스킵`);
       return null;
@@ -173,6 +187,9 @@ export class AiAnalystService {
       resultJson: result,
       createdAt: new Date(),
     });
+
+    // DAR-78: PersonaAnalysis 테이블에도 영속 — DAR-72 P-C 융합 엔진의 personaViews 입력 소스.
+    await this.repo.savePersonaViews(rcpNo, result);
 
     await this.usageLog.logUsage({
       rcpNo,
@@ -199,7 +216,7 @@ export class AiAnalystService {
       return cached.resultJson as PositionThesisDraft;
     }
 
-    const level = this.gate.evaluateGate(req.gate);
+    const level = await this.resolveLevel(req.gate);
     if (level !== AiCostLevel.L3) {
       this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} ${level} — position-thesis 스킵(L3 전용)`);
       return null;

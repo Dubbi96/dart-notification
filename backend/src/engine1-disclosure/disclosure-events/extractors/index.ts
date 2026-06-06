@@ -11,6 +11,8 @@ import {
 import { extract as extractDividend } from './dividend';
 import { extract as extractCapitalIncrease } from './capital-increase';
 import { extract as extractCbBw } from './cb-bw';
+import { extract as extractMajorShareholderChange } from './major-shareholder-change';
+import { extract as extractEarnings } from './earnings';
 
 // ─── 이벤트 타입별 필수 필드 목록 ────────────────────────────────────────────
 // confidence 산출 기준: 필수 필드가 모두 존재하면 0.90, 일부 누락 시 0.60~0.89
@@ -20,17 +22,25 @@ const REQUIRED_FIELDS: Partial<Record<EventType, string[]>> = {
   [EventType.SHARE_BUYBACK]:            ['buybackShares', 'buybackAmount'],
   [EventType.SHARE_CANCELLATION]:       ['cancellationShares'],
   [EventType.DIVIDEND_INCREASE]:        ['dividendPerShare'],
+  [EventType.DIVIDEND_CUT]:             ['dividendPerShare'],
   [EventType.PAID_IN_CAPITAL_INCREASE]: ['newShares', 'fundingAmount'],
+  [EventType.THIRD_PARTY_ALLOTMENT]:    ['newShares', 'fundingAmount'],
   [EventType.CB_ISSUANCE]:              ['totalAmount', 'conversionPrice'],
   [EventType.BW_ISSUANCE]:              ['totalAmount'],
+  // DAR-58: 신규 4종 — 구조화 필드 1종 충족 시 SUCCESS, 부재 시 0.0 → 상위에서 NEEDS_REVIEW(AI L1)
+  [EventType.MAJOR_SHAREHOLDER_CHANGE]: ['ownershipRatio'],
+  [EventType.EARNINGS_SURPRISE]:        ['operatingProfitYoY'],
+  [EventType.EARNINGS_SHOCK]:           ['operatingProfitYoY'],
 };
 
 /**
  * eventType에 맞는 파서를 선택해 parsedJson에서 수치를 추출한다.
  *
- * - 우선 7종만 파서 구현:
+ * - 파서 구현 타입:
  *   SUPPLY_CONTRACT, SHARE_BUYBACK, SHARE_CANCELLATION,
- *   DIVIDEND_INCREASE, PAID_IN_CAPITAL_INCREASE, CB_ISSUANCE, BW_ISSUANCE
+ *   DIVIDEND_INCREASE/CUT, PAID_IN_CAPITAL_INCREASE/THIRD_PARTY_ALLOTMENT,
+ *   CB_ISSUANCE, BW_ISSUANCE,
+ *   MAJOR_SHAREHOLDER_CHANGE, EARNINGS_SURPRISE/SHOCK (DAR-58)
  * - 나머지 EventType: data = {}, confidence = 0.0
  *
  * @returns { data: Record<string, unknown>; confidence: number }
@@ -68,6 +78,13 @@ export function extractEventData(
       case EventType.CB_ISSUANCE:
       case EventType.BW_ISSUANCE:
         data = extractCbBw(parsedJson, reportName) as unknown as Record<string, unknown>;
+        break;
+      case EventType.MAJOR_SHAREHOLDER_CHANGE:
+        data = extractMajorShareholderChange(parsedJson, reportName) as unknown as Record<string, unknown>;
+        break;
+      case EventType.EARNINGS_SURPRISE:
+      case EventType.EARNINGS_SHOCK:
+        data = extractEarnings(parsedJson, reportName) as unknown as Record<string, unknown>;
         break;
       default:
         // 미지원 이벤트 타입 — extractionStatus = NEEDS_REVIEW

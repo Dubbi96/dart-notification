@@ -110,10 +110,33 @@ export const REPORT_NAME_RULES: ReportNameRule[] = [
 
   // ── 최대주주 변경 ─────────────────────────────────────────────────────────
   {
-    pattern: /최대주주.*(변경|교체)/,
+    pattern: /최대주주.*(변경|교체)|경영권\s*(변경|양수도)/,
     eventType: EventType.MAJOR_SHAREHOLDER_CHANGE,
     polarity: 'MIXED',
     confidence: 0.90,
+  },
+
+  // ── 실적 (서프라이즈·쇼크) ─────────────────────────────────────────────────
+  // DAR-58: 방향성 명시(흑자/적자 전환·개선·악화) 우선, 그 외 일반 실적공시는
+  //         방향 미상 → EARNINGS_SURPRISE(MIXED) 하향 confidence로 AI L1 보정 경로 진입.
+  {
+    pattern: /적자\s*전환|영업\s*손실|순\s*손실|실적\s*(쇼크|악화)|손익구조.*(악화|감소)/,
+    eventType: EventType.EARNINGS_SHOCK,
+    polarity: 'NEGATIVE',
+    confidence: 0.88,
+  },
+  {
+    pattern: /흑자\s*전환|실적\s*(개선|호조|서프라이즈)|영업이익.*(증가|확대|급증)/,
+    eventType: EventType.EARNINGS_SURPRISE,
+    polarity: 'POSITIVE',
+    confidence: 0.88,
+  },
+  {
+    // 방향 미상 일반 실적공시 — 0.72(<0.85) → NEEDS_REVIEW→AI L1이 방향 확정
+    pattern: /영업[\s(]*잠정[\s)]*실적|연결[\s(]*잠정[\s)]*실적|잠정\s*실적|매출액.*손익구조.*변동|손익구조\s*변동/,
+    eventType: EventType.EARNINGS_SURPRISE,
+    polarity: 'MIXED',
+    confidence: 0.72,
   },
 
   // ── 소송·횡령·배임 ────────────────────────────────────────────────────────

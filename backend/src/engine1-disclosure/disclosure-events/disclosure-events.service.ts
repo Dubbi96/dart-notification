@@ -28,10 +28,24 @@ const REQUIRED_FIELDS_MAP: Partial<Record<EventType, string[]>> = {
   [EventType.SHARE_BUYBACK]:            ['buybackShares', 'buybackAmount'],
   [EventType.SHARE_CANCELLATION]:       ['cancellationShares'],
   [EventType.DIVIDEND_INCREASE]:        ['dividendPerShare'],
+  [EventType.DIVIDEND_CUT]:             ['dividendPerShare'],
   [EventType.PAID_IN_CAPITAL_INCREASE]: ['newShares', 'fundingAmount'],
+  [EventType.THIRD_PARTY_ALLOTMENT]:    ['newShares', 'fundingAmount'],
   [EventType.CB_ISSUANCE]:              ['totalAmount', 'conversionPrice'],
   [EventType.BW_ISSUANCE]:              ['totalAmount'],
+  // DAR-58 신규 4종
+  [EventType.MAJOR_SHAREHOLDER_CHANGE]: ['ownershipRatio'],
+  [EventType.EARNINGS_SURPRISE]:        ['operatingProfitYoY'],
+  [EventType.EARNINGS_SHOCK]:           ['operatingProfitYoY'],
 };
+
+// DAR-58: 구조화 수치가 보유 parsedJson에 자주 부재하는 "소프트" 이벤트 타입.
+// 분류는 확실하나 수치 추출 0.0인 경우 FAILED 대신 NEEDS_REVIEW(AI L1 보정 대기)로 라우팅한다.
+const AI_RESOLVABLE_TYPES: ReadonlySet<EventType> = new Set([
+  EventType.MAJOR_SHAREHOLDER_CHANGE,
+  EventType.EARNINGS_SURPRISE,
+  EventType.EARNINGS_SHOCK,
+]);
 
 @Injectable()
 export class DisclosureEventsService {
@@ -101,16 +115,22 @@ export class DisclosureEventsService {
 
       // 필수 필드 전부 누락 (confidence = 0.0)
       if (extractConfidence === 0.0 && eventType !== EventType.OTHER) {
+        // DAR-58: 분류는 확실하나 수치 부재인 소프트 타입 → FAILED 대신 NEEDS_REVIEW(AI L1 대기)
+        const aiResolvable =
+          AI_RESOLVABLE_TYPES.has(eventType) &&
+          classifyConfidence >= CONFIDENCE_NEEDS_REVIEW_THRESHOLD;
         return this.upsertEvent({
           rcpNo,
           corpCode: disclosure.corpCode,
           eventType,
           polarity,
           extractedData: data,
-          confidence: 0.0,
-          isAiAssisted: false,
-          extractionStatus: ExtractionStatus.FAILED,
-          failReason: 'NO_PARSED_FIELD',
+          confidence: aiResolvable ? classifyConfidence : 0.0,
+          isAiAssisted: aiResolvable,
+          extractionStatus: aiResolvable
+            ? ExtractionStatus.NEEDS_REVIEW
+            : ExtractionStatus.FAILED,
+          failReason: aiResolvable ? 'AWAITING_AI_L1' : 'NO_PARSED_FIELD',
           isAmendment: doc.isAmendment,
           originalRcpNo: doc.originalRcpNo,
         });
@@ -268,6 +288,60 @@ export class DisclosureEventsService {
   }
 
   /**
+   * DAR-58: 신규 extractor 적용 재추출 경로 (DART 호출 0, 보유 parsedJson 재사용).
+   *
+   * 기존 분류 불가(OTHER) 또는 추출 실패(FAILED) 이벤트를 재처리해
+   * 신규 4종(THIRD_PARTY_ALLOTMENT·MAJOR_SHAREHOLDER_CHANGE·DIVIDEND_CUT·EARNINGS_*)
+   * 으로 재분류한다. upsert(rcpNo) 기반이라 멱등 — 반복 실행해도 중복 행 생성 없음.
+   *
+   * 수동 트리거(컨트롤러) 또는 파싱 큐 후속 단계에서 호출.
+   *
+   * @returns scanned: 검사 건수, reclassified: 신규 타입으로 재분류된 건수
+   */
+  async reprocessForNewExtractors(
+    limit = DEFAULT_BATCH_LIMIT,
+  ): Promise<{ scanned: number; reclassified: number; durationMs: number }> {
+    const safeLimit = Math.min(limit, MAX_BATCH_LIMIT);
+    const startTime = Date.now();
+
+    // 재추출 후보: 미분류(OTHER) 또는 추출 실패(FAILED) 이벤트만.
+    // 이미 성공(SUCCESS)·검토대기(NEEDS_REVIEW)로 확정된 행은 건드리지 않아 정보 무손실.
+    const candidates = await this.prisma.disclosureEvent.findMany({
+      where: {
+        OR: [
+          { eventType: EventType.OTHER },
+          { extractionStatus: ExtractionStatus.FAILED },
+        ],
+      },
+      take: safeLimit,
+      orderBy: { extractedAt: 'asc' },
+      select: { rcpNo: true, eventType: true },
+    });
+
+    if (candidates.length === 0) {
+      return { scanned: 0, reclassified: 0, durationMs: Date.now() - startTime };
+    }
+
+    this.logger.log(`재추출(신규 extractor) 시작: ${candidates.length}건`);
+
+    let reclassified = 0;
+    for (const candidate of candidates) {
+      const before = candidate.eventType;
+      const result = await this.processDisclosure(candidate.rcpNo);
+      if (result.eventType !== before && result.eventType !== EventType.OTHER) {
+        reclassified++;
+      }
+    }
+
+    const durationMs = Date.now() - startTime;
+    this.logger.log(
+      `재추출 완료: 검사=${candidates.length}, 재분류=${reclassified}, 소요=${durationMs}ms`,
+    );
+
+    return { scanned: candidates.length, reclassified, durationMs };
+  }
+
+  /**
    * M1 DisclosureDocument 파싱 완료 후 자동 체이닝 진입점
    * disclosure-documents.service.ts에서 @Optional() 주입 후 호출
    */
@@ -377,6 +451,21 @@ export class DisclosureEventsService {
           const previous = raw['previousDividendPerShare'] as number | null;
           if (current !== null && previous !== null && previous !== 0) {
             result['changeRate'] = round2(((current - previous) / previous) * 100);
+          }
+          break;
+        }
+        case EventType.EARNINGS_SURPRISE:
+        case EventType.EARNINGS_SHOCK: {
+          // DAR-58: 추출기가 채우지 못한 YoY를 영업이익 전년·당기로 후처리 보정
+          const op = raw['operatingProfit'] as number | null;
+          const prevOp = raw['previousOperatingProfit'] as number | null;
+          if (
+            (result['operatingProfitYoY'] === null || result['operatingProfitYoY'] === undefined) &&
+            op !== null &&
+            prevOp !== null &&
+            prevOp !== 0
+          ) {
+            result['operatingProfitYoY'] = round2(((op - prevOp) / Math.abs(prevOp)) * 100);
           }
           break;
         }

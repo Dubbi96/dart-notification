@@ -1,3 +1,4 @@
+import { Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
 import { AiCostHealthService } from './ai-cost-health.service';
 import { AiCostAggregationService } from '../cost-aggregation/ai-cost-aggregation.service';
@@ -67,6 +68,8 @@ describe('AiCostHealthService', () => {
     metrics?: AiCostMetrics;
     limit?: AiCostLimitStatus;
     apiKey?: string;
+    // DAR-89: AI_ANALYZE 큐 mock. undefined=미주입(graceful null), 'throws'=조회 실패.
+    queue?: { failed: number; delayed?: number; active?: number; waiting?: number } | 'throws';
   }) {
     const aggregation = {
       getDailySummary: jest.fn().mockResolvedValue(opts.daily ?? makeSummary()),
@@ -85,7 +88,23 @@ describe('AiCostHealthService', () => {
       get: jest.fn().mockReturnValue(opts.apiKey),
     } as unknown as ConfigService;
 
-    return new AiCostHealthService(aggregation, limitGuard, usageLog, config);
+    let queue: Queue | null = null;
+    if (opts.queue === 'throws') {
+      queue = {
+        getJobCounts: jest.fn().mockRejectedValue(new Error('Redis 연결 실패')),
+      } as unknown as Queue;
+    } else if (opts.queue) {
+      queue = {
+        getJobCounts: jest.fn().mockResolvedValue({
+          failed: opts.queue.failed,
+          delayed: opts.queue.delayed ?? 0,
+          active: opts.queue.active ?? 0,
+          waiting: opts.queue.waiting ?? 0,
+        }),
+      } as unknown as Queue;
+    }
+
+    return new AiCostHealthService(aggregation, limitGuard, usageLog, config, queue);
   }
 
   it('표본 0건이면 graceful 기본값으로 수용기준 모두 충족(비용0·L0=100%)', async () => {
@@ -158,5 +177,50 @@ describe('AiCostHealthService', () => {
     expect(health.acceptance.costThresholdUsd).toBe(0.005);
     expect(health.acceptance.costOk).toBe(false);
     expect(health.acceptance.l0ThresholdRatio).toBe(0.7);
+  });
+
+  // ── DAR-89: AI_ANALYZE 큐 상태(실패 잡 수) 노출 ──────────────────────────────
+  describe('queue 스냅샷(DAR-89)', () => {
+    it('큐 미주입이면 queue=null(graceful) — health 본체는 정상 동작', async () => {
+      const svc = makeService({ apiKey: 'sk-test' }); // queue 미지정
+      const health = await svc.getHealth(NOW);
+
+      expect(health.queue).toBeNull();
+      expect(health.acceptance.allOk).toBe(true); // 본체 영향 없음(회귀 0)
+    });
+
+    it('removeOnFail 보존분(실패 잡 수)을 queue 스냅샷에 노출', async () => {
+      const svc = makeService({
+        apiKey: 'sk-test',
+        queue: { failed: 3, delayed: 2, active: 1, waiting: 5 },
+      });
+      const health = await svc.getHealth(NOW);
+
+      expect(health.queue).toEqual({
+        name: 'ai-analyze',
+        failed: 3,
+        delayed: 2,
+        active: 1,
+        waiting: 5,
+      });
+    });
+
+    it('실패 잡 0건이면 failed=0으로 정상 노출', async () => {
+      const svc = makeService({ apiKey: 'sk-test', queue: { failed: 0 } });
+      const health = await svc.getHealth(NOW);
+
+      expect(health.queue?.failed).toBe(0);
+      expect(health.queue?.name).toBe('ai-analyze');
+    });
+
+    it('큐 조회 실패(Redis 미가용)면 throw 없이 queue=null(graceful)', async () => {
+      const svc = makeService({ apiKey: 'sk-test', queue: 'throws' });
+      const health = await svc.getHealth(NOW);
+
+      expect(health.queue).toBeNull();
+      // 큐 실패가 비용 health 산출을 깨지 않는다.
+      expect(health.acceptance.allOk).toBe(true);
+      expect(health.alert.violated).toBe(false);
+    });
   });
 });

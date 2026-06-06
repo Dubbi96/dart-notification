@@ -9,7 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ParsedJson } from '../disclosure-documents/types/parsed-json.type';
 import { classifyEventType } from './extractors/event-classifier';
 import { extractEventData } from './extractors/index';
-import { QUEUE, JOB, AiAnalyzeJobData } from '../../common/queues/queue.constants';
+import { QUEUE, JOB, AiAnalyzeJobData, AI_ANALYZE_JOB_OPTIONS } from '../../common/queues/queue.constants';
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 
@@ -191,7 +191,11 @@ export class DisclosureEventsService {
           confidence: combinedConfidence,
           isAiAssisted,
         };
-        await this.aiQueue.add(JOB.EVENT_EXTRACTED, payload);
+        // DAR-89: 재시도·DLQ 정책 적용. consumer가 LLM 429/5xx/타임아웃에 throw 하면
+        // BullMQ가 attempts·exponential backoff로 재시도하고, 소진된 잡은
+        // removeOnFail 보존분으로 남아 ai-cost health에 관측된다(잡 영구 소멸 방지).
+        // consumer 측 rcpNo+task 멱등 캐시로 재시도 시 중복 LLM 비용 위험은 낮다.
+        await this.aiQueue.add(JOB.EVENT_EXTRACTED, payload, AI_ANALYZE_JOB_OPTIONS);
         this.logger.debug(`[Engine1→Engine2] ${JOB.EVENT_EXTRACTED} 큐 발행: rcpNo=${rcpNo}`);
       }
 

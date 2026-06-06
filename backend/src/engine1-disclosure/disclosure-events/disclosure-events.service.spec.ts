@@ -7,7 +7,7 @@ import { EventType, ExtractionStatus } from '@prisma/client';
 import { DisclosureEventsService } from './disclosure-events.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getQueueToken } from '@nestjs/bullmq';
-import { QUEUE } from '../../common/queues/queue.constants';
+import { QUEUE, JOB, AI_ANALYZE_JOB_OPTIONS } from '../../common/queues/queue.constants';
 
 // ─── DB mock ────────────────────────────────────────────────────────────────
 
@@ -141,6 +141,24 @@ describe('DisclosureEventsService', () => {
       expect(data['contractAmount']).toBe(120_000_000_000);
       expect(data['recentSales']).toBe(500_000_000_000);
       expect(data['salesRatio']).toBe(24.0);
+    });
+
+    // DAR-89: AI_ANALYZE 큐 발행 시 재시도·DLQ 정책 옵션이 적용돼야 LLM 일시
+    // 장애(429/5xx/타임아웃)에 잡이 영구 소멸되지 않는다.
+    it('AI_ANALYZE 큐 발행에 재시도·DLQ 정책 옵션 적용(attempts·backoff·removeOnFail 보존)', async () => {
+      await service.processDisclosure('20240601000001');
+
+      expect(mockAiQueue.add).toHaveBeenCalledWith(
+        JOB.EVENT_EXTRACTED,
+        expect.objectContaining({ rcpNo: '20240601000001' }),
+        AI_ANALYZE_JOB_OPTIONS,
+      );
+      // 정책 값 명세: 3회 재시도·exponential backoff·실패 잡 보존(영구 소멸 방지).
+      expect(AI_ANALYZE_JOB_OPTIONS.attempts).toBe(3);
+      expect(AI_ANALYZE_JOB_OPTIONS.backoff).toEqual({ type: 'exponential', delay: 5000 });
+      expect(AI_ANALYZE_JOB_OPTIONS.removeOnFail).toBe(100);
+      // removeOnFail 보존(>0)이어야 ai-cost health가 실패 잡 수를 관측할 수 있다.
+      expect(AI_ANALYZE_JOB_OPTIONS.removeOnFail).toBeGreaterThan(0);
     });
   });
 

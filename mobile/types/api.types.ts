@@ -20,6 +20,48 @@ export interface AiCostMetrics {
   period: { from: string; to: string };
 }
 
+/**
+ * AI 비용 기간 집계 (GET /ai-cost/daily·monthly, DAR-98).
+ * 백엔드 AiCostPeriodSummary 1:1. 읽기전용.
+ */
+export interface AiCostPeriodSummary {
+  totalCostUsd: number;
+  callCount: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  l0Count: number;
+  l1Count: number;
+  l2Count: number;
+  l3Count: number;
+  l0Ratio: number;
+  byTask: Record<string, { costUsd: number; callCount: number }>;
+}
+
+/**
+ * AI 비용 한도 현황 (GET /ai-cost/limit-status, DAR-98).
+ * 일 $1 / 월 $20 한도 대비 소진. forcedLevel='L0'이면 한도초과로 AI 강등됨. 읽기전용.
+ */
+export interface AiCostLimitStatus {
+  dailyCostUsd: number;
+  dailyLimitUsd: number;
+  dailyExceeded: boolean;
+  monthlyCostUsd: number;
+  monthlyLimitUsd: number;
+  monthlyExceeded: boolean;
+  forcedLevel: string | null; // null = 강등 없음
+}
+
+/**
+ * Cross-engine 단위비용 (GET /ai-cost/cross-engine, DAR-98).
+ * 백엔드 CostMetrics 1:1. KRW 기준. 0 = 표본 없음, ratio -1 = 순익 없음. 읽기전용.
+ */
+export interface AiCrossEngineMetrics {
+  costPerDisclosure: number;
+  costPerSignal: number;
+  costPerTrade: number;
+  aiCostToNetPnlRatio: number;
+}
+
 /** 라이브 AI 비용게이트 상시 모니터링 헬스 (GET /ai-cost/health, DAR-75) */
 export interface AiCostHealth {
   evaluatedAt: string;

@@ -13,9 +13,21 @@ import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { LoadingState, ErrorState, EmptyState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
-import { useAiCostMetrics, useAiCostHealth } from '@hooks/useAiCost';
+import {
+  useAiCostMetrics,
+  useAiCostHealth,
+  useAiCostDaily,
+  useAiCostMonthly,
+  useAiCostLimitStatus,
+  useAiCostCrossEngine,
+} from '@hooks/useAiCost';
 
-import type { AiCostHealth } from '@app-types/api.types';
+import type {
+  AiCostHealth,
+  AiCostPeriodSummary,
+  AiCostLimitStatus,
+  AiCrossEngineMetrics,
+} from '@app-types/api.types';
 
 const USD_TO_KRW = 1300;
 
@@ -30,6 +42,11 @@ function formatPct(ratio: number): string {
 function formatKrw(usd: number): string {
   const krw = Math.round(usd * USD_TO_KRW);
   return `₩${krw.toLocaleString('ko-KR')}`;
+}
+
+/** 이미 KRW 단위인 값 포맷 (cross-engine 단위비용). */
+function formatKrwValue(krw: number): string {
+  return `₩${Math.round(krw).toLocaleString('ko-KR')}`;
 }
 
 function formatTokens(tokens: number): string {
@@ -145,10 +162,200 @@ function MonitoringCard({ health }: { health: AiCostHealth }) {
   );
 }
 
+/** 섹션 내 인라인 상태 (로딩/에러/빈상태) — 읽기전용 보조 섹션용. */
+function SectionStatus({ status }: { status: 'loading' | 'error' | 'empty' }) {
+  const { colors, typography: typo } = useTheme();
+  const text =
+    status === 'loading'
+      ? '불러오는 중...'
+      : status === 'error'
+        ? '데이터를 불러오지 못했습니다'
+        : '데이터 없음';
+  return (
+    <Text
+      style={[typo.caption, { color: colors.textTertiary, paddingVertical: spacing.sm }]}
+      accessibilityLabel={text}
+    >
+      {text}
+    </Text>
+  );
+}
+
+/** L0~L3 레벨 분포 칩 — 한도 강등(L0) 비율 가시화. 테마 토큰만 사용. */
+function LevelDistribution({ summary }: { summary: AiCostPeriodSummary }) {
+  const { colors, typography: typo } = useTheme();
+  const levels: { label: string; count: number }[] = [
+    { label: 'L0', count: summary.l0Count },
+    { label: 'L1', count: summary.l1Count },
+    { label: 'L2', count: summary.l2Count },
+    { label: 'L3', count: summary.l3Count },
+  ];
+  return (
+    <View style={styles.levelRow}>
+      {levels.map((lv) => (
+        <View
+          key={lv.label}
+          style={[styles.levelChip, { backgroundColor: colors.borderLight }]}
+          accessibilityLabel={`${lv.label} ${lv.count}건`}
+        >
+          <Text style={[typo.small, { color: colors.textSecondary }]}>{lv.label}</Text>
+          <Text style={[typo.caption, { color: colors.text }]}>{lv.count}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** 일/월 비용 추이 카드 (GET /ai-cost/daily·monthly). */
+function PeriodCostCard({
+  title,
+  summary,
+  status,
+}: {
+  title: string;
+  summary?: AiCostPeriodSummary;
+  status: 'loading' | 'error' | 'empty' | 'ok';
+}) {
+  const { colors, typography: typo } = useTheme();
+  return (
+    <View style={[styles.subCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <Text style={[typo.caption, { color: colors.textSecondary, marginBottom: spacing.xs }]}>
+        {title}
+      </Text>
+      {status !== 'ok' || !summary ? (
+        <SectionStatus status={status === 'ok' ? 'empty' : status} />
+      ) : (
+        <>
+          <View style={styles.subCardHeader}>
+            <Text style={[typo.h3, { color: colors.primary }]}>{formatUsd(summary.totalCostUsd)}</Text>
+            <Text style={[typo.caption, { color: colors.textSecondary }]}>
+              {summary.callCount}건 · {formatKrw(summary.totalCostUsd)} 추정
+            </Text>
+          </View>
+          <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+            L0(미사용) 비율 {formatPct(summary.l0Ratio)}
+          </Text>
+          <LevelDistribution summary={summary} />
+        </>
+      )}
+    </View>
+  );
+}
+
+/** 한도 소진율 카드 (GET /ai-cost/limit-status). */
+function LimitStatusCard({
+  status,
+  state,
+}: {
+  status?: AiCostLimitStatus;
+  state: 'loading' | 'error' | 'empty' | 'ok';
+}) {
+  const { colors, typography: typo } = useTheme();
+  return (
+    <View style={[styles.monitorCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <View style={styles.monitorHeader}>
+        <Feather name="shield" size={16} color={colors.primary} />
+        <Text style={[typo.bodyMedium, { color: colors.text, marginLeft: spacing.xs }]}>
+          한도 소진율
+        </Text>
+      </View>
+      {state !== 'ok' || !status ? (
+        <SectionStatus status={state === 'ok' ? 'empty' : state} />
+      ) : (
+        <>
+          <LimitUsageBar
+            label="일 한도"
+            usedUsd={status.dailyCostUsd}
+            limitUsd={status.dailyLimitUsd}
+            ratio={status.dailyLimitUsd > 0 ? status.dailyCostUsd / status.dailyLimitUsd : 0}
+          />
+          <LimitUsageBar
+            label="월 한도"
+            usedUsd={status.monthlyCostUsd}
+            limitUsd={status.monthlyLimitUsd}
+            ratio={status.monthlyLimitUsd > 0 ? status.monthlyCostUsd / status.monthlyLimitUsd : 0}
+          />
+          {status.forcedLevel ? (
+            <Text
+              style={[typo.small, { color: colors.error, marginTop: spacing.sm }]}
+              accessibilityLabel={`한도 초과로 AI 레벨 ${status.forcedLevel} 강등됨`}
+            >
+              ⚠ 한도 초과 — AI {status.forcedLevel} 강등 (신규 분석 차단)
+            </Text>
+          ) : (
+            <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.sm }]}>
+              한도 내 정상 운영 중
+            </Text>
+          )}
+        </>
+      )}
+    </View>
+  );
+}
+
+/** 단위비용 카드 (GET /ai-cost/cross-engine) — 공시/신호/거래당 KRW 비용. */
+function CrossEngineCard({
+  metrics,
+  state,
+}: {
+  metrics?: AiCrossEngineMetrics;
+  state: 'loading' | 'error' | 'empty' | 'ok';
+}) {
+  const { colors, typography: typo } = useTheme();
+  const rows: { label: string; value: number }[] = metrics
+    ? [
+        { label: '공시당 비용', value: metrics.costPerDisclosure },
+        { label: '신호당 비용', value: metrics.costPerSignal },
+        { label: '거래당 비용', value: metrics.costPerTrade },
+      ]
+    : [];
+  return (
+    <View style={[styles.subCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <Text style={[typo.caption, { color: colors.textSecondary, marginBottom: spacing.sm }]}>
+        단위비용 (AI 비용 / 산출물)
+      </Text>
+      {state !== 'ok' || !metrics ? (
+        <SectionStatus status={state === 'ok' ? 'empty' : state} />
+      ) : (
+        rows.map((row, idx) => (
+          <View
+            key={row.label}
+            style={[
+              styles.unitRow,
+              idx > 0 && styles.unitRowDivider,
+              idx > 0 && { borderTopColor: colors.borderLight },
+            ]}
+            accessibilityLabel={`${row.label} ${row.value > 0 ? formatKrwValue(row.value) : '표본 없음'}`}
+          >
+            <Text style={[typo.bodyMedium, { color: colors.text }]}>{row.label}</Text>
+            <Text style={[typo.bodyMedium, { color: row.value > 0 ? colors.primary : colors.textTertiary }]}>
+              {row.value > 0 ? formatKrwValue(row.value) : '표본 없음'}
+            </Text>
+          </View>
+        ))
+      )}
+    </View>
+  );
+}
+
+function toState(
+  isLoading: boolean,
+  isError: boolean,
+  hasData: boolean,
+): 'loading' | 'error' | 'empty' | 'ok' {
+  if (isLoading) return 'loading';
+  if (isError) return 'error';
+  return hasData ? 'ok' : 'empty';
+}
+
 export default function AiCostScreen() {
   const { colors, typography: typo } = useTheme();
   const { data, isLoading, isError, refetch } = useAiCostMetrics();
   const { data: health } = useAiCostHealth();
+  const daily = useAiCostDaily();
+  const monthly = useAiCostMonthly();
+  const limitStatus = useAiCostLimitStatus();
+  const crossEngine = useAiCostCrossEngine();
 
   const taskEntries = data
     ? Object.entries(data.byTask).sort((a, b) => b[1].costUsd - a[1].costUsd)
@@ -251,6 +458,39 @@ export default function AiCostScreen() {
               </View>
             ))
           )}
+
+          {/* 한도 소진율 (DAR-98) */}
+          <Text style={[typo.h3, { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.md }]}>
+            한도 현황
+          </Text>
+          <LimitStatusCard
+            status={limitStatus.data}
+            state={toState(limitStatus.isLoading, limitStatus.isError, !!limitStatus.data)}
+          />
+
+          {/* 일/월 비용 추이 (DAR-98) */}
+          <Text style={[typo.h3, { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.md }]}>
+            비용 추이
+          </Text>
+          <PeriodCostCard
+            title="오늘"
+            summary={daily.data}
+            status={toState(daily.isLoading, daily.isError, !!daily.data)}
+          />
+          <PeriodCostCard
+            title="이번 달"
+            summary={monthly.data}
+            status={toState(monthly.isLoading, monthly.isError, !!monthly.data)}
+          />
+
+          {/* 단위비용 (DAR-98) */}
+          <Text style={[typo.h3, { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.md }]}>
+            단위경제
+          </Text>
+          <CrossEngineCard
+            metrics={crossEngine.data}
+            state={toState(crossEngine.isLoading, crossEngine.isError, !!crossEngine.data)}
+          />
 
           {/* Disclaimer */}
           <Text
@@ -359,5 +599,41 @@ const styles = StyleSheet.create({
   },
   taskCost: {
     alignItems: 'flex-end',
+  },
+  subCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  subCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+  },
+  levelRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: spacing.md,
+  },
+  levelChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    marginRight: spacing.sm,
+    marginBottom: spacing.xs,
+    gap: spacing.xs,
+  },
+  unitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+  },
+  unitRowDivider: {
+    borderTopWidth: 1,
   },
 });

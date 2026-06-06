@@ -323,6 +323,95 @@ describe('BuySignalService', () => {
     expect(result.entryConditionMet).toContain('거래대금 10억 이상(최소 유동성)');
     expect(result.entryReady).toBe(true);
   });
+
+  // ─── DAR-49: 결측 버킷 제외 가중치 재정규화 (BUY 신호 0 근본 해소) ───────
+
+  it('전버킷 가용 시 omittedBuckets 비어있고 dataAvailability 전부 true', () => {
+    const result = service.computeBuyScore(makeParams());
+    expect(result.omittedBuckets).toEqual([]);
+    expect(Object.values(result.dataAvailability).every((v) => v === true)).toBe(
+      true,
+    );
+  });
+
+  it('★근본해소: chart+historicalEvent 결측이어도 강한 공시는 BUY 임계 도달', () => {
+    // technical_indicators / event_study 미산출 상황을 재현:
+    //   chart 전필드 null, historicalEvent.avgArD5 null.
+    // 기존 산식: 0.25*70+0.20*80+0.15*100+0.10*70+0.05*20 = 56.5 → 57 → WATCH(<60).
+    // 재정규화: 결측 0.25 제외, 가용 0.75 로 스케일 → 75 → BUY_CANDIDATE(>=60).
+    const result = service.computeBuyScore(
+      makeParams({
+        chart: {
+          closePrice: null,
+          ma5: null,
+          ma20: null,
+          ma60: null,
+          rsi14: null,
+          macdLine: null,
+          macdSignal: null,
+          bollingerMid: null,
+          preDsclReturn: null,
+        },
+        historicalEvent: { avgArD5: null },
+      }),
+    );
+    expect(result.omittedBuckets.sort()).toEqual(['chart', 'historicalEvent']);
+    expect(result.dataAvailability.chart).toBe(false);
+    expect(result.dataAvailability.historicalEvent).toBe(false);
+    // 임계값 불변(60) 인데도 정당한 신호가 자연히 올라옴.
+    expect(result.buyScore).toBeGreaterThanOrEqual(60);
+    expect(['BUY_CANDIDATE', 'STRONG_BUY_CANDIDATE']).toContain(result.signal);
+  });
+
+  it('전버킷 가용 점수 == 재정규화 미적용(레거시) 가중합 — 산식 의미 보존(회귀 0)', () => {
+    const params = makeParams();
+    const result = service.computeBuyScore(params);
+
+    // 레거시 공식(고정 가중치, 결측 강제 0)을 직접 재현
+    const b = result.scoreBreakdown;
+    const legacy =
+      0.25 * b.disclosureEvent +
+      0.2 * b.keyMetric +
+      0.15 * b.personaFit +
+      0.1 * b.historicalEvent +
+      0.15 * b.chart +
+      0.1 * b.volumeLiquidity +
+      0.05 * b.marketSector;
+    // riskPenalty=0(clean) 이므로 buyScore == round(clamp(legacy)).
+    expect(result.buyScore).toBe(Math.round(legacy));
+  });
+
+  it('BLOCKED 경로도 dataAvailability/omittedBuckets 를 표기', () => {
+    const result = service.computeBuyScore(
+      makeParams({
+        chart: {
+          closePrice: null,
+          ma5: null,
+          ma20: null,
+          ma60: null,
+          rsi14: null,
+          macdLine: null,
+          macdSignal: null,
+          bollingerMid: null,
+          preDsclReturn: null,
+        },
+        riskPenalty: {
+          eventType: 'SUPPLY_CONTRACT',
+          isAmendment: false,
+          preDsclReturn: null,
+          isTradingSuspended: true,
+          isManagement: false,
+          isInvestmentCaution: false,
+          isAbnormalSurge: false,
+          dilutionRate: null,
+          avgDailyVolume: null,
+        },
+      }),
+    );
+    expect(result.signal).toBe('BLOCKED');
+    expect(result.dataAvailability.chart).toBe(false);
+    expect(result.omittedBuckets).toContain('chart');
+  });
 });
 
 // ─── mapScoreToGrade 테스트 ────────────────────────────────────────

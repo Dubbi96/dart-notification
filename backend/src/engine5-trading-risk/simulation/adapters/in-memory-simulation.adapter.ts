@@ -30,6 +30,8 @@ export interface InMemorySeed {
   /** stockCode → 평가 종가 (getLatestClose 응답) */
   closeByStock?: Record<string, number>;
   aiCostKrw?: number;
+  /** 모의운용 시작일(ISO) — 미지정이면 null(운용 시작 전) (DAR-86) */
+  startDate?: string | null;
 }
 
 let SEQ = 0;
@@ -52,6 +54,7 @@ export class InMemorySimulationAdapter implements ISimulationPort {
   private exitSamples: ExitAccuracySample[] = [];
   private equityCurve: EquityPoint[] = [];
   private benchmarkByCode: Record<string, BenchmarkPoint[]> = {};
+  private startDate: string | null;
 
   constructor(seed: InMemorySeed) {
     this.portfolioId = seed.portfolioId ?? 'sim-portfolio';
@@ -60,6 +63,11 @@ export class InMemorySimulationAdapter implements ISimulationPort {
     this.candidatesByDate = seed.candidatesByDate ?? {};
     this.closeByStock = seed.closeByStock ?? {};
     this.aiCostKrw = seed.aiCostKrw ?? 0;
+    this.startDate = seed.startDate ?? null;
+  }
+
+  setStartDate(startDate: string | null): void {
+    this.startDate = startDate;
   }
 
   /** 종목 평가가 설정(테스트에서 가격 변동 주입) */
@@ -163,6 +171,10 @@ export class InMemorySimulationAdapter implements ISimulationPort {
 
   async saveRiskSnapshot(input: RiskSnapshotInput): Promise<void> {
     this.riskSnapshots.push(input);
+  }
+
+  async getSimulationStartDate(_portfolioId: string): Promise<string | null> {
+    return this.startDate;
   }
 
   async getCumulativeState(_portfolioId: string): Promise<CumulativeState> {

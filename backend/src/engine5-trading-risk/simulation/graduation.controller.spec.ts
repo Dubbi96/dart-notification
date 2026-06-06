@@ -42,6 +42,16 @@ function sampleMetrics(): GraduationMetrics {
       toDate: '20260601',
       measurable: true,
     },
+    simulationProgress: {
+      windowDays: 30,
+      startDate: '2026-05-22T00:00:00.000Z',
+      asOf: '2026-06-06T00:00:00.000Z',
+      elapsedDays: 15,
+      remainingDays: 15,
+      progressRatio: 0.5,
+      awaitingMeasurement: false,
+      windowComplete: false,
+    },
     config: { hitRateHorizonDays: 5, exitAccuracyHorizonDays: 3, usdKrwRate: 1350 },
   };
 }

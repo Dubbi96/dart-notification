@@ -15,12 +15,14 @@ import {
   ExitAccuracyResult,
   HitRateResult,
   RiskAdjustedResult,
+  SimulationProgress,
   calcAiCostEfficiency,
   calcBenchmarkAlpha,
   calcCumulativeReturn,
   calcExitAccuracy,
   calcHitRate,
   calcRiskAdjusted,
+  calcSimulationProgress,
 } from './domain/graduation-metrics.calculator';
 import { GRADUATION_BENCHMARK_INDEX_CODE } from './domain/graduation-gates';
 import { ISimulationPort, SIMULATION_PORT } from './ports/simulation.port';
@@ -40,6 +42,8 @@ export interface GraduationMetrics {
   riskAdjusted: RiskAdjustedResult;
   /** 벤치마크(KOSPI) 대비 초과수익(alpha) — DAR-68 */
   benchmarkAlpha: BenchmarkAlphaResult;
+  /** 30일 모의운용 진행률(경과/잔여 일수·측정대기) — DAR-86 */
+  simulationProgress: SimulationProgress;
   config: {
     hitRateHorizonDays: number;
     exitAccuracyHorizonDays: number;
@@ -58,7 +62,7 @@ export class GraduationMetricsService {
     const portfolioId =
       portfolioIdArg ?? (await this.port.resolveSimPortfolioId());
 
-    const [state, hitSamples, exitSamples, aiCostKrw, equityCurve] =
+    const [state, hitSamples, exitSamples, aiCostKrw, equityCurve, startDate] =
       await Promise.all([
         this.port.getCumulativeState(portfolioId),
         this.port.getHitRateSamples(portfolioId, config.hitRateHorizonDays),
@@ -68,7 +72,11 @@ export class GraduationMetricsService {
         ),
         this.port.getAiCostKrw(config.usdKrwRate),
         this.port.getEquityCurve(portfolioId),
+        this.port.getSimulationStartDate(portfolioId),
       ]);
+
+    // 모든 산출이 동일한 기준 시각을 쓰도록 asOf 를 한 번만 캡처(진행률 경과일 일관성).
+    const asOf = new Date().toISOString();
 
     const cumulativeReturn = calcCumulativeReturn(
       state.initialCapital,
@@ -91,7 +99,7 @@ export class GraduationMetricsService {
 
     return {
       portfolioId,
-      asOf: new Date().toISOString(),
+      asOf,
       hitRate: calcHitRate(hitSamples),
       cumulativeReturn,
       aiCostEfficiency: calcAiCostEfficiency(aiCostKrw, state.netPnlKrw),
@@ -102,6 +110,7 @@ export class GraduationMetricsService {
         cumulativeReturn.returnPct,
         benchmarkSeries,
       ),
+      simulationProgress: calcSimulationProgress(startDate, asOf),
       config: {
         hitRateHorizonDays: config.hitRateHorizonDays,
         exitAccuracyHorizonDays: config.exitAccuracyHorizonDays,

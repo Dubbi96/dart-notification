@@ -51,6 +51,8 @@ export interface ISimulationPort {
   saveRiskSnapshot(input: RiskSnapshotInput): Promise<void>;
 
   // ── 졸업지표 산출용 누적 데이터 ──
+  /** 모의운용 시작일(가장 이른 포지션 진입일, ISO) — 운용 시작 전이면 null (DAR-86) */
+  getSimulationStartDate(portfolioId: string): Promise<string | null>;
   getCumulativeState(portfolioId: string): Promise<CumulativeState>;
   getHitRateSamples(portfolioId: string, horizonDays: number): Promise<HitRateSample[]>;
   getExitAccuracySamples(portfolioId: string, horizonDays: number): Promise<ExitAccuracySample[]>;

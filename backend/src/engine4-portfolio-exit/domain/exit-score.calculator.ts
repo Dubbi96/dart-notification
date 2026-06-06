@@ -11,7 +11,30 @@ import {
   TechnicalSnapshot,
   ThesisSnapshot,
   DisclosureEvent,
+  InsiderFlowSnapshot,
 } from './exit-engine.types';
+
+// ─── DAR-94: 이벤트 타입별 청산 무효화 가중 ──────────────────────────────
+// engine1 고위험 5종(DAR-71 추출기) — 단건으로도 강한 청산 신호.
+// 거래정지·상폐위험·감사의견 거절/한정·소송(횡령·배임)·공급계약 해제.
+export const HIGH_RISK_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'TRADING_SUSPENSION',
+  'DELISTING_RISK',
+  'AUDIT_OPINION_RISK',
+  'LAWSUIT',
+  'CONTRACT_CANCELLATION',
+]);
+
+// disclosureRisk 컴포넌트(0~20) 타입별 가중치
+const HIGH_RISK_EVENT_WEIGHT = 16; // 고위험 5종: 단건 강한 가중
+const GENERAL_EVENT_WEIGHT = 5; // 일반 악재: 약한 가중(다건 누적)
+const INSIDER_NET_SELL_WEIGHT = 12; // 내부자/대량보유 대량 순매도
+const DISCLOSURE_RISK_CAP = 20;
+
+// 내부자 '대량 순매도' 판정 임계(지분율 %p 환산 가중합)
+const INSIDER_NET_SELL_THRESHOLD = 1.0;
+// 규모 결측(ratioChange null) 시 보고 1건당 보수적 기본 규모(%p)
+const INSIDER_MISSING_RATIO_SIZE = 0.5;
 
 export function scoreToAction(score: number): ExitAction {
   if (score >= 90) return 'BLOCK_REBUY';
@@ -258,6 +281,80 @@ export function calcPositiveMomentumBonus(tech: TechnicalSnapshot): number {
   return Math.min(bonus, 20);
 }
 
+/**
+ * 내부자/대량보유 '대량 순매도' 판정 (DAR-94, 순수 Rule).
+ *
+ * engine1 InsiderHoldingChange(DAR-87/88)를 최근 윈도우로 묶은 흐름에서
+ * 매도 우위 + 유의 규모면 true. 보유종목 청산 무효화 신호로 사용.
+ *  - 매도 규모 = SELL 보고의 |Δratio|(%p), 임원·주요주주 처분에 가중.
+ *  - 매수는 순매도에서 차감(같은 윈도우 내 매수가 상쇄).
+ *  - MIXED/UNKNOWN·결측 → 보수 처리(오탐 방지). 빈 목록 → false.
+ *
+ * AI 금지영역: 순수 Rule. AI/LLM 개입 0.
+ */
+export function isLargeInsiderNetSell(
+  insider: InsiderFlowSnapshot | null,
+): boolean {
+  if (!insider || insider.trades.length === 0) return false;
+
+  let netSellWeight = 0;
+  for (const t of insider.trades) {
+    const mag =
+      t.ratioChange != null && Math.abs(t.ratioChange) > 0
+        ? Math.abs(t.ratioChange)
+        : INSIDER_MISSING_RATIO_SIZE;
+
+    if (t.tradeType === 'SELL') {
+      let w = mag;
+      if (t.source === 'EXECUTIVE') w *= 1.5; // 임원 처분 가중
+      if (t.isMajorShareholder) w *= 1.5; // 주요주주 처분 가중
+      netSellWeight += w;
+    } else if (t.tradeType === 'BUY') {
+      netSellWeight -= mag; // 같은 윈도우 매수는 순매도 상쇄
+    }
+    // MIXED/UNKNOWN → 무시(보수)
+  }
+
+  return netSellWeight >= INSIDER_NET_SELL_THRESHOLD;
+}
+
+/**
+ * 공시 악재 점수 (disclosureRiskScore 0~20) — DAR-94 타입별 가중.
+ *
+ * 기존 `events.length*10` 일괄 처리(타입 미구분)를 이벤트 타입별 가중으로
+ * 정밀화한다. 고위험 5종은 강한 가중, 일반 악재는 약한 가중, 내부자/대량보유
+ * 대량 순매도를 명시 invalid condition으로 결합.
+ *
+ * @returns severe — 고위험 5종 또는 대량 순매도 존재 여부(하드 플로어 판단용).
+ */
+export function calcDisclosureRiskScore(
+  events: DisclosureEvent[],
+  insider: InsiderFlowSnapshot | null = null,
+): { score: number; triggered: boolean; severe: boolean } {
+  let score = 0;
+  let severe = false;
+
+  for (const e of events) {
+    if (HIGH_RISK_EVENT_TYPES.has(e.type)) {
+      score += HIGH_RISK_EVENT_WEIGHT;
+      severe = true;
+    } else {
+      score += GENERAL_EVENT_WEIGHT;
+    }
+  }
+
+  if (isLargeInsiderNetSell(insider)) {
+    score += INSIDER_NET_SELL_WEIGHT;
+    severe = true;
+  }
+
+  return {
+    score: Math.min(score, DISCLOSURE_RISK_CAP),
+    triggered: score > 0,
+    severe,
+  };
+}
+
 // 거래일 계산 (주말 제외 — 단순 근사)
 export function tradingDaysSince(entryDate: Date): number {
   const now = new Date();
@@ -275,6 +372,7 @@ export function calculateExitScore(
   tech: TechnicalSnapshot,
   thesis: ThesisSnapshot | null,
   disclosureEvents: DisclosureEvent[],
+  insider: InsiderFlowSnapshot | null = null,
 ): ExitScoreResult {
   const lossResult = calcLossRiskScore(pos, tech);
   // DAR-74: 보유 포지션의 시세 실데이터(pos·tech)를 넘겨 구조화 invalidConditions를
@@ -285,17 +383,15 @@ export function calculateExitScore(
   const overweightResult = calcOverweightScore(pos);
   const momentumBonus = calcPositiveMomentumBonus(tech);
 
-  // disclosure risk: if any negative disclosure triggered thesis — reuse proportionally
-  const disclosureRiskScore =
-    disclosureEvents.length > 0
-      ? Math.min(disclosureEvents.length * 10, 20)
-      : 0;
+  // DAR-94: 공시 악재를 이벤트 타입별로 가중(고위험 5종 강 / 일반 악재 약)하고,
+  // 내부자/대량보유 대량 순매도를 invalid condition으로 결합한다.
+  const disclosureResult = calcDisclosureRiskScore(disclosureEvents, insider);
 
   const components: ExitScoreComponents = {
     lossRiskScore: lossResult.score,
     thesisBreakScore: thesisResult.score,
     chartBreakScore: chartResult.score,
-    disclosureRiskScore,
+    disclosureRiskScore: disclosureResult.score,
     overweightScore: overweightResult.score,
     timeExceededScore: timeResult.score,
     positiveMomentumBonus: momentumBonus,
@@ -323,6 +419,13 @@ export function calculateExitScore(
     exitScore = Math.max(exitScore, 30);
   }
 
+  // DAR-94: 고위험 공시(거래정지·상폐위험·감사의견·소송·계약해지) 또는
+  // 내부자/대량보유 대량 순매도 — 강한 무효화 신호. 긍정 모멘텀에 가려지지
+  // 않도록 최소 WATCH(30점) 보장(권고 노출 보장 — 자동 실주문 아님, 안전3원칙).
+  if (disclosureResult.severe) {
+    exitScore = Math.max(exitScore, 30);
+  }
+
   const exitAction = scoreToAction(exitScore);
 
   const triggerTypes: ExitTriggerType[] = [];
@@ -331,7 +434,8 @@ export function calculateExitScore(
   if (chartResult.triggered) triggerTypes.push('CHART_BREAKDOWN');
   if (timeResult.triggered) triggerTypes.push('TIME_LIMIT');
   if (overweightResult.triggered) triggerTypes.push('REBALANCING');
-  if (disclosureEvents.length > 0) triggerTypes.push('THESIS_INVALIDATED');
+  // DAR-94: 타입별 가중 결과 triggered(악재 또는 대량 순매도)일 때만 무효화 트리거.
+  if (disclosureResult.triggered) triggerTypes.push('THESIS_INVALIDATED');
 
   // deduplicate
   const uniqueTriggers = [...new Set(triggerTypes)];

@@ -75,3 +75,19 @@ export interface DisclosureEvent {
   type: string;
   rcpNo: string;
 }
+
+// 내부자/대량보유 지분변동 요약 (DAR-94)
+// engine1 InsiderHoldingChange(DAR-87/88)를 최근 윈도우로 묶은 순매수/매도 흐름.
+// engine4 격리 컨텍스트 유지를 위해 buy-signal insider.scorer 입력과 별개로 재정의한다.
+// 적재/조회는 DB·큐 경유(provider)로 위임 — engine 직접호출 최소.
+export interface InsiderTradeSnapshot {
+  source: 'EXECUTIVE' | 'MAJOR_STOCK';
+  tradeType: 'BUY' | 'SELL' | 'MIXED' | 'UNKNOWN';
+  ratioChange: number | null; // 지분율 증감 %p (부호 포함, 결측 가능)
+  isMajorShareholder?: boolean | null;
+}
+
+export interface InsiderFlowSnapshot {
+  // 최근 윈도우(예: 90일) 내 지분변동 보고 목록. 빈 배열이면 결측(무가점).
+  trades: InsiderTradeSnapshot[];
+}

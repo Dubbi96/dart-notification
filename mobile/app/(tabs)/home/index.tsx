@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -15,7 +15,6 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
-import { Card } from '@components/common/Card';
 import { GlassCard } from '@components/common/GlassCard';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
@@ -23,6 +22,7 @@ import { SkeletonList } from '@components/common/SkeletonCard';
 import { HomeSignalPreview } from '@components/home/HomeSignalPreview';
 import { GraduationTracker } from '@components/home/GraduationTracker';
 import { FirstWatchCoachmark } from '@components/home/FirstWatchCoachmark';
+import { DisclosureFeedCard } from '@components/home/DisclosureFeedCard';
 import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { SearchOverlay } from '@components/common/SearchOverlay';
 import { useDisclosures } from '@hooks/useDisclosures';
@@ -31,8 +31,6 @@ import { useSavedDisclosures } from '@hooks/useSavedDisclosures';
 import { useNotifications } from '@hooks/useNotifications';
 import { useRequireAuth } from '@hooks/useRequireAuth';
 import { useAuthStore } from '@stores/authStore';
-import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
-import { parse, format } from 'date-fns';
 
 import type { Disclosure } from '@app-types/disclosure.types';
 
@@ -47,7 +45,7 @@ function getGreeting(): { text: string; Icon: typeof Sun } {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { colors, typography: typo, isDark } = useTheme();
+  const { colors, typography: typo } = useTheme();
   const { isAuthenticated, requireAuth } = useRequireAuth();
   const userName = useAuthStore((s) => s.user?.name);
 
@@ -95,41 +93,17 @@ export default function HomeScreen() {
   const { data: notifData } = useNotifications({ enabled: isAuthenticated });
   const unreadCount = notifData?.pages[0]?.meta.unreadCount ?? 0;
 
-  const renderDisclosureItem = ({ item }: { item: Disclosure }) => (
-    <TouchableOpacity
-      activeOpacity={0.7}
-      onPress={() => router.push(`/disclosure/${item.rcpNo}`)}
-    >
-      <Card style={styles.disclosureCard} variant="elevated">
-        <View style={styles.disclosureHeader}>
-          <View
-            style={[
-              styles.typeBadge,
-              { backgroundColor: getTypeStyle(item.disclosureType, isDark).bg },
-            ]}
-          >
-            <Text
-              style={[
-                typo.small,
-                { color: getTypeStyle(item.disclosureType, isDark).text, fontWeight: '600' },
-              ]}
-            >
-              {getTypeLabel(item.disclosureType)}
-            </Text>
-          </View>
-          <Text style={[typo.small, { color: colors.textTertiary }]}>
-            {format(parse(item.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd')}
-          </Text>
-        </View>
-        <Text style={[typo.bodyMedium, { color: colors.text, marginTop: spacing.sm }]} numberOfLines={2}>
-          {item.reportName}
-        </Text>
-        <Text style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
-          {item.corpName}
-        </Text>
-      </Card>
-    </TouchableOpacity>
+  // DAR-107: 가상화 콜백 안정화(인라인 함수 제거). 카드는 React.memo(DisclosureFeedCard).
+  const renderDisclosureItem = useCallback(
+    ({ item }: { item: Disclosure }) => <DisclosureFeedCard item={item} />,
+    [],
   );
+  const keyExtractor = useCallback((item: Disclosure) => item.rcpNo, []);
+  const handleEndReached = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   if (isLoading) {
     // 공시 피드 스켈레톤(§2-1)
@@ -317,14 +291,14 @@ export default function HomeScreen() {
         <FlatList
           data={disclosures}
           renderItem={renderDisclosureItem}
-          keyExtractor={(item) => item.rcpNo}
+          keyExtractor={keyExtractor}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          onEndReached={() => {
-            if (hasNextPage && !isFetchingNextPage) {
-              fetchNextPage();
-            }
-          }}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={7}
+          removeClippedSubviews
+          onEndReached={handleEndReached}
           onEndReachedThreshold={0.5}
           refreshControl={
             <AppRefreshControl refreshing={isRefetching && !isFetchingNextPage} onRefresh={refetch} />
@@ -447,9 +421,6 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
     gap: spacing.md,
   },
-  disclosureCard: {
-    marginBottom: 0,
-  },
   notifBadge: {
     position: 'absolute',
     top: -4,
@@ -467,15 +438,5 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     lineHeight: 14,
-  },
-  disclosureHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  typeBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.sm,
   },
 });

@@ -50,3 +50,33 @@
 | 12 | 온보딩 마찰제거 + 첫종목 코치마크 | medium/small | 관심기업=수집시드 |
 
 **구동 순서(테제)**: DAR-54(거장화면,#1 진행중) → #3 재무확대(정보수집 최대레버) → #2 신뢰규약 → #5 이벤트추출 → #6 판단허브 → #7 자산곡선 …
+
+> ✅ **위 상용 패널 #1~#12 전부 완료**(DAR-54~65, origin 반영). 후속은 아래 패널 v2 백로그로 이어감.
+
+---
+
+## 상용 패널 v2 백로그 (2026-06-06, 7에이전트·29제안·★코드검증 종합)
+
+> 백로그 #1~12 소진 후 재가동. 스카우트가 실제 코드를 읽고, 5관점이 코드근거(evidence)로 제안 → 종합. ★MAIN THESIS 정렬. **핵심 발견: 이미 만들어둔 자산이 "배선 안 됨/빈 입력/계산값 폐기"로 테제(수익) 천장을 막고 있다 — 신규 구축보다 연결이 최고 ROI.**
+
+**코드검증된 핵심 병목**:
+- AI 컨슈머가 빈 입력으로 작동: `event-extracted.consumer.ts:33` `tradingValue:200_000_000`(하드코딩)·`:43` `keyMetrics:{}`·`:44` `excerpt:''` → 요약·Persona가 사실상 무내용 → 하위 모든 신호 품질 천장.
+- `GraduationMetricsService`(졸업지표 G1~G5) 구현됐으나 **어떤 module/controller에도 미배선** → M10 졸업 진척 측정 불가.
+- Event Study가 계산한 `isSignificant`·`upProbD5`·`crashProbD5`·`bucketKey`를 신호가 **버리고 avgArD5 한 값만** 사용.
+
+| # | 항목 | impact/effort | layer | 테제 |
+|---|---|---|---|---|
+| 1 | **AI Task 입력 충실화**(컨슈머 빈 excerpt/keyMetrics/거래대금 스텁 제거, DB·시세 실조회) | high/medium | backend | ★A 직결·신호 품질 천장 해소 |
+| 2 | **졸업게이트 G1~G5 REST 노출 + engine5 모듈 배선 + 홈 졸업 트래커 카드** | high/medium | both | ★B 결승선(M10 측정) |
+| 3 | 졸업게이트 위험조정·벤치마크 지표(Sharpe·MDD·vs KOSPI alpha) | high/medium | both | B+안전(상승장 위장통과 방지) |
+| 4 | 관리종목·거래정지 플래그 실데이터 매핑(cost-gate L0 정상화, DART 폴백) | high/medium | backend | 안전+B(비용폭주·위험종목 차단) |
+| 5 | Event Study bucketKey 신호 정밀화(계약규모·서프라이즈·유의성→BuyScore) | high/medium | backend | B(계산값 폐기 회수) |
+| 6 | 고위험 공시 5종 구조화 추출기(소송·감사의견·거래정지·상폐위험·계약해제) | high/medium | backend | A 직결(손실회피 원천) |
+| 7 | P-C: AI Persona 해석 × 철학 스코어러 결합(Rule 합성, AI 점수직결 금지) | high/medium | backend | B(기존 자산 결합·저비용) |
+| 8 | 신호 사후검증 백테스트(등급·스코어러·이벤트타입별 실현수익 정밀도) | high/large | both | B(가중치 타당성 증거) |
+| 9 | 위치테제 invalidConditions 기계평가 연결→보유악재 L3 활성 | medium/medium | backend | A·B+안전 |
+| 10 | 라이브 AI 비용게이트 상시 모니터링(스모크→자동 가드+health 엔드포인트) | high/medium | both | A·B 라이브화 안전판 |
+| 11 | P-D: 철학 스타일별 모의 포트폴리오 분기 운용·성과 비교 | medium/large | both | B(거장별 실수익 변별) |
+| 12 | AssetClass 도메인 추상화 선행(가격/캘린더 포트, 스키마 비파괴) | medium/large | backend | A 중기토대(다자산) |
+
+**구동 순서(테제)**: #1 AI입력충실화(최고 ROI·천장해소) → #2 졸업게이트 배선 → #3 위험조정지표 → #4 L0 안전필터 → #5 EventStudy 정밀화 → #6 고위험 추출기 → #7 P-C → #8 백테스트 → #9 L3 → #10 라이브 모니터링 → #11 P-D → #12 다자산 토대. (#12 다자산 실데이터/실주문은 M10 졸업 후 전제 유지.)

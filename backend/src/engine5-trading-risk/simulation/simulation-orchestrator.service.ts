@@ -138,6 +138,18 @@ export class SimulationOrchestratorService {
       this.logger.log(`[Sim] 매수 ${c.stockCode} ${shares}주 @${c.entryPrice}`);
     }
 
+    // DAR-109: 신호→진입 퍼널 계측(졸업 표본 누적 모니터링).
+    // 당일 생성 신호 수 → 진입 후보 통과 수(selected) → 실제 체결 수(bought).
+    // 멱등 저장(portfolioId,tradeDate) — 같은 거래일 재실행은 최신 값으로 갱신.
+    const signalsGenerated = await this.port.getDailySignalCount(tradeDate);
+    await this.port.saveFunnelSnapshot({
+      portfolioId,
+      tradeDate,
+      signalsGenerated,
+      candidatesPassed: selected.length,
+      filled: bought,
+    });
+
     // (d) 포트폴리오 리스크 스냅샷
     const finalState = await this.port.getCumulativeState(portfolioId);
     const finalOpen = await this.port.getOpenPositions(portfolioId);
@@ -172,9 +184,11 @@ export class SimulationOrchestratorService {
       skipped,
       openPositionCountAfter: finalOpen.length,
       totalValueAfter: totalValue,
+      signalsGenerated,
+      candidatesPassed: selected.length,
     };
     this.logger.log(
-      `[Sim] ${tradeDate} 완료 매수=${bought} 청산=${exited} 스냅샷=${snapshotted} 보유=${finalOpen.length} 평가액=${Math.round(totalValue)}`,
+      `[Sim] ${tradeDate} 완료 매수=${bought} 청산=${exited} 스냅샷=${snapshotted} 보유=${finalOpen.length} 평가액=${Math.round(totalValue)} 퍼널(신호=${signalsGenerated}→후보=${selected.length}→체결=${bought})`,
     );
     return result;
   }

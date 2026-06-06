@@ -84,4 +84,27 @@ export interface DailySimulationResult {
   skipped: number; // 후보 중 사이징/슬롯/가격 미충족으로 스킵
   openPositionCountAfter: number;
   totalValueAfter: number;
+  // DAR-109: 신호→진입 퍼널 계측(졸업 표본 누적 모니터링).
+  signalsGenerated: number; // 당일 생성된 매수 신호 수(퍼널 최상단)
+  candidatesPassed: number; // 진입 후보 선정(보유중복·슬롯 필터) 통과 수
+}
+
+/**
+ * 신호→진입 퍼널 일별 입력 (SignalEntryFunnelDaily) — DAR-109.
+ * '당일 생성 신호 수 → 진입 후보 통과 수 → 실제 체결 수'. 멱등 upsert(portfolioId,tradeDate).
+ */
+export interface FunnelSnapshotInput {
+  portfolioId: string;
+  tradeDate: string; // YYYYMMDD
+  signalsGenerated: number;
+  candidatesPassed: number;
+  filled: number;
+}
+
+/** 신호→진입 퍼널 일별 레코드(조회) — DAR-109. fill/adoption rate는 read 시 파생. */
+export interface FunnelDaily {
+  tradeDate: string; // YYYYMMDD
+  signalsGenerated: number;
+  candidatesPassed: number;
+  filled: number;
 }

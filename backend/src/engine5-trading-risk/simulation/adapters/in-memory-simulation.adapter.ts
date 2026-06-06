@@ -6,6 +6,8 @@ import {
   BuyCandidate,
   ClosePositionInput,
   DailySnapshotInput,
+  FunnelDaily,
+  FunnelSnapshotInput,
   OpenPositionInput,
   OpenPositionView,
   RiskSnapshotInput,
@@ -32,6 +34,8 @@ export interface InMemorySeed {
   aiCostKrw?: number;
   /** 모의운용 시작일(ISO) — 미지정이면 null(운용 시작 전) (DAR-86) */
   startDate?: string | null;
+  /** tradeDate → 당일 생성 신호 수 (DAR-109 퍼널 최상단). 미지정 시 후보 수로 폴백 */
+  signalCountByDate?: Record<string, number>;
 }
 
 let SEQ = 0;
@@ -55,6 +59,9 @@ export class InMemorySimulationAdapter implements ISimulationPort {
   private equityCurve: EquityPoint[] = [];
   private benchmarkByCode: Record<string, BenchmarkPoint[]> = {};
   private startDate: string | null;
+  private signalCountByDate: Record<string, number>;
+  // DAR-109: 퍼널 일별 스냅샷(멱등 — tradeDate 키 upsert, 검증용 노출)
+  private readonly funnelByDate = new Map<string, FunnelSnapshotInput>();
 
   constructor(seed: InMemorySeed) {
     this.portfolioId = seed.portfolioId ?? 'sim-portfolio';
@@ -64,6 +71,7 @@ export class InMemorySimulationAdapter implements ISimulationPort {
     this.closeByStock = seed.closeByStock ?? {};
     this.aiCostKrw = seed.aiCostKrw ?? 0;
     this.startDate = seed.startDate ?? null;
+    this.signalCountByDate = seed.signalCountByDate ?? {};
   }
 
   setStartDate(startDate: string | null): void {
@@ -171,6 +179,33 @@ export class InMemorySimulationAdapter implements ISimulationPort {
 
   async saveRiskSnapshot(input: RiskSnapshotInput): Promise<void> {
     this.riskSnapshots.push(input);
+  }
+
+  // ── DAR-109: 신호→진입 퍼널 ──
+  async getDailySignalCount(tradeDate: string): Promise<number> {
+    // 명시 시드 우선, 없으면 당일 후보 수로 폴백(테스트 결정론 유지).
+    return (
+      this.signalCountByDate[tradeDate] ??
+      (this.candidatesByDate[tradeDate]?.length ?? 0)
+    );
+  }
+
+  async saveFunnelSnapshot(input: FunnelSnapshotInput): Promise<void> {
+    // 멱등: 동일 거래일 재실행은 덮어쓴다(중복 없음).
+    this.funnelByDate.set(input.tradeDate, { ...input });
+  }
+
+  async getFunnelHistory(_portfolioId: string): Promise<FunnelDaily[]> {
+    return [...this.funnelByDate.values()]
+      .map((f) => ({
+        tradeDate: f.tradeDate,
+        signalsGenerated: f.signalsGenerated,
+        candidatesPassed: f.candidatesPassed,
+        filled: f.filled,
+      }))
+      .sort((a, b) =>
+        a.tradeDate < b.tradeDate ? -1 : a.tradeDate > b.tradeDate ? 1 : 0,
+      );
   }
 
   async getSimulationStartDate(_portfolioId: string): Promise<string | null> {

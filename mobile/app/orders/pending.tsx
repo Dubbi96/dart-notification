@@ -8,6 +8,7 @@ import { spacing } from '@theme/spacing';
 import { EmptyState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
+import { PaperTradingNotice } from '@components/orders/PaperTradingNotice';
 
 export default function OrderPendingScreen() {
   const { colors, typography: typo } = useTheme();
@@ -34,6 +35,14 @@ export default function OrderPendingScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
+        {/* DAR-108(#9): 실주문 미도입 정직 표기 + 모의운용 동선 안내(가드). */}
+        <PaperTradingNotice
+          description="Risk 체크를 통과한 실주문 승인 기능은 모의운용 검증 이후(M11·M12) 도입됩니다. 지금은 모의운용에서 신호를 확인하세요."
+          actions={[
+            { label: '모의운용 보기', onPress: () => router.replace('/(tabs)/portfolio') },
+            { label: '모의 거래내역', onPress: () => router.replace('/portfolio/trade-history') },
+          ]}
+        />
         <EmptyState
           {...emptyStateCopy.ordersPendingEmpty}
           description="Risk 체크를 통과한 주문 안건이 생기면 여기서 확인하고 직접 승인하세요."
@@ -68,6 +77,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.xl,
+    gap: spacing.lg,
   },
   disclaimer: {
     margin: spacing.base,

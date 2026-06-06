@@ -19,6 +19,32 @@ import {
 } from '../buy-signal/buy-signal.service';
 import { PERSONA_TYPES, PersonaType } from '../buy-signal/config/buy-signal.config';
 import { derivePersonaViews } from './persona-view.rule';
+import {
+  classifyBucket,
+  EventExtractedData,
+} from '../event-study/utils/bucket-classifier';
+
+/**
+ * EventStudyResult 에서 historical-event 채점에 쓰는 통계 신호 묶음 (DAR-70).
+ * 기존엔 avgArD5 한 값만 전달했으나, 버려지던 유의성·확률·표본수까지 함께 전달한다.
+ */
+interface EventStudyStats {
+  avgArD5: number;
+  isSignificant: boolean;
+  upProbD5: number;
+  crashProbD5: number;
+  sampleCount: number;
+}
+
+/**
+ * EventStudyResult 조회 맵 (DAR-70).
+ * - bucket: `${eventType}::${marketType}::${bucketKey}` → 버킷 단위 통계
+ * - agg: `${eventType}::${marketType}` → 버킷 표본가중 평균 (버킷 미스 시 폴백)
+ */
+interface EventStudyMaps {
+  bucket: Map<string, EventStudyStats>;
+  agg: Map<string, EventStudyStats>;
+}
 
 export interface SignalGenerationSummary {
   candidates: number;
@@ -145,7 +171,7 @@ export class SignalGenerationService {
 
       // 4. 시장·이벤트스터디·요약 컨텍스트 (배치 로드)
       const marketCtx = await this.loadMarketContext();
-      const esrMap = await this.loadEventStudyMap();
+      const esrMaps = await this.loadEventStudyMap();
       const summaryMap = await this.loadSummaryMap(
         candidates.map((c) => c.rcpNo),
       );
@@ -160,10 +186,7 @@ export class SignalGenerationService {
         }
 
         const marketType = ev.company?.market ?? 'ALL';
-        const avgArD5 =
-          esrMap.get(`${ev.eventType}::${marketType}`) ??
-          esrMap.get(`${ev.eventType}::ALL`) ??
-          null;
+        const esrStats = this.resolveEventStudy(esrMaps, ev, marketType);
 
         for (const persona of personas) {
           const key = `${ev.rcpNo}::${persona}`;
@@ -180,7 +203,7 @@ export class SignalGenerationService {
             persona,
             stockCtx,
             marketCtx,
-            avgArD5,
+            esrStats,
             summaryMap.get(ev.rcpNo),
           );
           const result = this.buySignal.computeBuyScore(params);
@@ -300,17 +323,125 @@ export class SignalGenerationService {
     return { kospiChange1d, kosdaqChange1d };
   }
 
-  /** EventStudyResult → `${eventType}::${marketType}` → avgArD5 */
-  private async loadEventStudyMap(): Promise<Map<string, number>> {
+  /**
+   * EventStudyResult 조회 맵 적재 (DAR-70).
+   *
+   * - bucket 맵: `${eventType}::${marketType}::${bucketKey}` → 버킷 단위 통계.
+   *   같은 이벤트타입이라도 규모/강도(bucketKey)별 D+5 초과수익이 크게 달라
+   *   평균 하나로 뭉개지 않도록 버킷 단위로 보존한다.
+   * - agg 맵: `${eventType}::${marketType}` → 버킷 표본가중 평균. 버킷 미스 시 폴백.
+   *
+   * avgArD5 외에 isSignificant·upProbD5·crashProbD5·sampleCount 도 함께 적재해
+   * historical-event.scorer 가 버려지던 통계 신호를 반영할 수 있게 한다.
+   */
+  private async loadEventStudyMap(): Promise<EventStudyMaps> {
     const rows = await this.prisma.eventStudyResult.findMany({
       where: { status: 'READY' },
-      select: { eventType: true, marketType: true, avgArD5: true },
+      select: {
+        eventType: true,
+        marketType: true,
+        bucketKey: true,
+        avgArD5: true,
+        isSignificant: true,
+        upProbD5: true,
+        crashProbD5: true,
+        sampleCount: true,
+      },
     });
-    const map = new Map<string, number>();
+
+    const bucket = new Map<string, EventStudyStats>();
+    // (eventType::marketType) 별 버킷 통계 누적 → 표본가중 평균 산출용
+    const groups = new Map<string, EventStudyStats[]>();
+
     for (const r of rows) {
-      map.set(`${r.eventType}::${r.marketType}`, r.avgArD5);
+      const stats: EventStudyStats = {
+        avgArD5: r.avgArD5,
+        isSignificant: r.isSignificant,
+        upProbD5: r.upProbD5,
+        crashProbD5: r.crashProbD5,
+        sampleCount: r.sampleCount,
+      };
+      bucket.set(`${r.eventType}::${r.marketType}::${r.bucketKey}`, stats);
+      const gk = `${r.eventType}::${r.marketType}`;
+      const arr = groups.get(gk);
+      if (arr) arr.push(stats);
+      else groups.set(gk, [stats]);
     }
-    return map;
+
+    const agg = new Map<string, EventStudyStats>();
+    for (const [gk, statsList] of groups) {
+      agg.set(gk, this.aggregateStats(statsList));
+    }
+
+    return { bucket, agg };
+  }
+
+  /** 버킷 통계 목록을 표본가중 평균으로 합친다 (eventType::marketType 폴백용) */
+  private aggregateStats(list: EventStudyStats[]): EventStudyStats {
+    const totalN = list.reduce((s, x) => s + x.sampleCount, 0);
+    // 표본수 합이 0이면 단순평균으로 폴백 (0 나눗셈 방지)
+    const w = (pick: (x: EventStudyStats) => number): number => {
+      if (totalN <= 0) {
+        return list.reduce((s, x) => s + pick(x), 0) / (list.length || 1);
+      }
+      return list.reduce((s, x) => s + pick(x) * x.sampleCount, 0) / totalN;
+    };
+    return {
+      avgArD5: w((x) => x.avgArD5),
+      upProbD5: w((x) => x.upProbD5),
+      crashProbD5: w((x) => x.crashProbD5),
+      sampleCount: totalN,
+      // 버킷 중 하나라도 유의하면 종합 표본은 유의한 것으로 간주
+      isSignificant: list.some((x) => x.isSignificant),
+    };
+  }
+
+  /**
+   * 이벤트의 bucketKey 를 도출해 EventStudy 통계를 해석한다 (DAR-70).
+   *
+   * 우선순위:
+   *   1. `${eventType}::${marketType}::${bucketKey}` — 정밀 버킷 매칭
+   *   2. `${eventType}::${marketType}` — 시장 내 버킷 표본가중 평균 폴백
+   *   3. `${eventType}::ALL::${bucketKey}` — 전시장 동일 버킷
+   *   4. `${eventType}::ALL` — 전시장 평균
+   *   5. null — 미산출(historical-event 결측 처리)
+   */
+  private resolveEventStudy(
+    maps: EventStudyMaps,
+    ev: { eventType: string; isAmendment: boolean; extractedData: Prisma.JsonValue },
+    marketType: string,
+  ): EventStudyStats | null {
+    const bucketKey = this.deriveBucketKey(ev);
+    return (
+      maps.bucket.get(`${ev.eventType}::${marketType}::${bucketKey}`) ??
+      maps.agg.get(`${ev.eventType}::${marketType}`) ??
+      maps.bucket.get(`${ev.eventType}::ALL::${bucketKey}`) ??
+      maps.agg.get(`${ev.eventType}::ALL`) ??
+      null
+    );
+  }
+
+  /**
+   * DisclosureEvent → bucketKey. 집계 시 쓰인 canonical classifyBucket 을 그대로 사용해
+   * 조회키 일관성을 보장한다(같은 함수·같은 extractedData → 같은 키). isAmendment 는
+   * 별도 컬럼이므로 extractedData 에 병합해 분류기에 전달한다.
+   */
+  private deriveBucketKey(ev: {
+    eventType: string;
+    isAmendment: boolean;
+    extractedData: Prisma.JsonValue;
+  }): string {
+    const ed =
+      ev.extractedData &&
+      typeof ev.extractedData === 'object' &&
+      !Array.isArray(ev.extractedData)
+        ? (ev.extractedData as Record<string, unknown>)
+        : {};
+    const data: EventExtractedData = {
+      ...(ed as EventExtractedData),
+      isAmendment: ev.isAmendment,
+    };
+    return classifyBucket(ev.eventType, data);
   }
 
   /** 기존 캐시된 AI 요약(task=summary) → rcpNo → summary 텍스트 (새 AI 호출 없음) */
@@ -345,7 +476,7 @@ export class SignalGenerationService {
     persona: PersonaType,
     s: StockContext,
     m: MarketContext,
-    avgArD5: number | null,
+    esrStats: EventStudyStats | null,
     signalSummary: string | undefined,
   ): BuyScoreParams {
     const extractedData =
@@ -371,7 +502,15 @@ export class SignalGenerationService {
         personaViews: derivePersonaViews(ev.eventType, ev.polarity),
         userPersona: persona,
       },
-      historicalEvent: { avgArD5 },
+      historicalEvent: esrStats
+        ? {
+            avgArD5: esrStats.avgArD5,
+            isSignificant: esrStats.isSignificant,
+            upProbD5: esrStats.upProbD5,
+            crashProbD5: esrStats.crashProbD5,
+            sampleCount: esrStats.sampleCount,
+          }
+        : { avgArD5: null },
       chart: {
         closePrice: s.closePrice,
         ma5: s.ma5,

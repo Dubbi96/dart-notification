@@ -812,6 +812,11 @@ model TradingSignal {
   buyScore Int // -100 ~ 100 (정수)
   signal   SignalGrade
 
+  // DAR-91: calibration 등급 보정계수 환류 confidence (점수/confidence 한정, 실주문 무관).
+  // 원본 buyScore 보존 — 백테스트 실현 적중률이 등급 기대 미만(과대평가)일 때만 디스카운트.
+  // 가산형 nullable: 보정 미적용(계수 1.0 폴백)·기존 행은 null/원값. 임계값 불변.
+  calibratedConfidence Int? // -100 ~ 100 (정수). null = 보정 정보 없음
+
   // 컴포넌트별 점수 (추적·디버깅용)
   scoreBreakdown Json // { disclosureEvent, keyMetric, personaFit, historicalEvent, chart, volumeLiquidity, marketSector }
   riskPenalty    Int // 차감된 패널티 합계

@@ -114,6 +114,13 @@ export interface CalibrationReport {
   eventScoreCalibrationsD20: EventScoreCalibration[];
   /** byScoreBand 방향 일관성 진단(진단 전용) — D+20 */
   scoreBandConsistencyD20: ScoreBandConsistency[];
+  /**
+   * 등급별 confidence 보정계수 진단 (DAR-91) — D+20.
+   * 백테스트 실현 승률이 등급 기대 미만(과대평가 등급)이면 디스카운트 계수(<1)를 산출해
+   * signal-generation 이 라이브 신호의 calibratedConfidence 로 환류한다.
+   * ★ 점수/confidence 한정 — 실주문·임계값과 무관. 계수 1.0 = 무보정.
+   */
+  gradeConfidenceCalibrationsD20: GradeConfidenceCalibration[];
   /** 사용한 환산 가정(투명성) */
   assumptions: {
     scoreFullScaleArPct: number;
@@ -303,6 +310,7 @@ export function buildCalibrationReport(report: SignalAccuracyReport): Calibratio
     eventScoreCalibrationsD5: report.byEventType.map((b) => calibrateEventScore(b, 'd5')),
     eventScoreCalibrationsD20: report.byEventType.map((b) => calibrateEventScore(b, 'd20')),
     scoreBandConsistencyD20: report.byScoreBand.map((b) => checkScoreBandConsistency(b, 'd20')),
+    gradeConfidenceCalibrationsD20: report.byGrade.map((b) => calibrateGradeConfidence(b, 'd20')),
     assumptions: {
       scoreFullScaleArPct: SCORE_FULL_SCALE_AR_PCT,
       scorePerArPct: SCORE_PER_AR_PCT,
@@ -312,4 +320,178 @@ export function buildCalibrationReport(report: SignalAccuracyReport): Calibratio
     },
     disclaimer: NO_AUTO_APPLY_DISCLAIMER,
   };
+}
+
+// =====================================================================
+// DAR-91 — 등급별 confidence 자기보정 계수 (calibration → 라이브 신호 환류)
+//
+// ★Main Thesis B(신호품질 직결). 위 EVENT_BASE_SCORES 진단은 "사람 PR 검토용 diff"에
+//   머물렀다. 여기서는 백테스트가 드러낸 **등급별 실현 적중률 괴리**를 곧바로 라이브 신호의
+//   confidence 디스카운트로 환류한다(폐루프의 "환류 절반").
+//
+// ★★ 안전3원칙 불가침:
+//   - 보정은 **점수/confidence(calibratedConfidence)에 한정** — 실주문·자동승인과 무연결.
+//   - 원본 buyScore·signal 등급·임계값(80/60/30)은 **불변**. 계수는 별도 필드로만 환류.
+//   - 표본 부족/미유의/비매수 등급은 계수 1.0(무보정) — 단일 백테스트 창 과교정 방지.
+// =====================================================================
+
+/**
+ * 등급별 기대 적중률(승률) prior — ★사람 검토 대상 투명 가정.
+ * 매수 추천 등급일수록 더 높은 적중을 기대한다(상위등급 단조). 여기 없는 등급
+ * (NEUTRAL/AVOID/BLOCKED 등 비매수 등급)은 confidence 디스카운트 대상이 아니다(계수 1.0).
+ * 백테스트 실현 승률이 이 기대 미만이면 "과대평가 등급"으로 보고 confidence 를 디스카운트한다.
+ */
+export const EXPECTED_WIN_RATE_BY_GRADE: Readonly<Record<string, number>> = {
+  STRONG_BUY_CANDIDATE: 0.55,
+  BUY_CANDIDATE: 0.5,
+  WATCH: 0.45,
+};
+
+/**
+ * 보정계수 하한(과교정 방지). 단일 백테스트 창의 부진을 이유로 confidence 를 0 으로
+ * 만들지 않는다. 최종 계수는 [CONFIDENCE_COEFFICIENT_FLOOR, 1.0] 으로 clamp 한다.
+ */
+export const CONFIDENCE_COEFFICIENT_FLOOR = 0.5;
+
+/** 무보정 계수(폴백·정렬·비매수 등급). 명시 상수로 의미 고정. */
+export const NO_DISCOUNT_COEFFICIENT = 1.0;
+
+/**
+ * 단일 등급의 confidence 보정 진단(승률 기반 디스카운트, 점수/confidence 한정).
+ * ★ buyScore 원값은 건드리지 않는다 — coefficient 는 calibratedConfidence 산출 입력일 뿐.
+ */
+export interface GradeConfidenceCalibration {
+  /** SignalGrade 값(STRONG_BUY_CANDIDATE 등) */
+  grade: string;
+  horizon: CalibrationHorizon;
+  /** 해당 지평 실현표본 수 */
+  sampleCount: number;
+  lowSample: boolean;
+  /** t-검정 유의(p<0.05) 여부 */
+  significant: boolean;
+  /** 실현 승률(초과수익>0 비율, 0~1). 표본 0이면 null */
+  winRate: number | null;
+  /** 등급별 기대 승률 prior. 비매수/미등재 등급이면 null */
+  expectedWinRate: number | null;
+  /** confidence 보정계수(1.0=무보정, <1=디스카운트). [FLOOR,1] */
+  coefficient: number;
+  status: CalibrationStatus;
+  /** 사람용 근거(HOLD/ALIGNED/CALIBRATE 사유) */
+  reason: string;
+}
+
+/** 계수 소수 3자리 반올림(결정론·표시 안정성). */
+function round3(v: number): number {
+  return Math.round(v * 1000) / 1000;
+}
+
+/**
+ * 단일 등급 버킷 × 지평 → confidence 보정 진단.
+ * - 비매수/미등재 등급, 실현표본 0, lowSample, 통계 미유의 → 계수 1.0(무보정·과신 방지).
+ * - 표본 충분·유의 & 실현 승률 ≥ 기대 → 계수 1.0(디스카운트 없음, 증폭하지 않음).
+ * - 표본 충분·유의 & 실현 승률 < 기대(과대평가) → 비율 기반 감쇠 계수(<1) 디스카운트.
+ */
+export function calibrateGradeConfidence(
+  bucket: AccuracyBucket,
+  horizon: CalibrationHorizon,
+): GradeConfidenceCalibration {
+  const grade = bucket.key;
+  const h = pickHorizon(bucket, horizon);
+  const expectedWinRate = Object.prototype.hasOwnProperty.call(
+    EXPECTED_WIN_RATE_BY_GRADE,
+    grade,
+  )
+    ? EXPECTED_WIN_RATE_BY_GRADE[grade]
+    : null;
+  const lowSample = h.sampleCount < LOW_SAMPLE_THRESHOLD;
+
+  const base: Omit<GradeConfidenceCalibration, 'status' | 'reason' | 'coefficient'> = {
+    grade,
+    horizon,
+    sampleCount: h.sampleCount,
+    lowSample,
+    significant: h.isSignificant,
+    winRate: h.winRate,
+    expectedWinRate,
+  };
+
+  // 비매수/미등재 등급 → confidence 디스카운트 대상 아님(계수 1.0)
+  if (expectedWinRate === null) {
+    return {
+      ...base,
+      coefficient: NO_DISCOUNT_COEFFICIENT,
+      status: 'HOLD',
+      reason: '비매수 등급(또는 미등재) — confidence 보정 대상 아님(계수 1.0)',
+    };
+  }
+  // 과신 방지 폴백: 데이터 없음 → lowSample → 미유의
+  if (h.sampleCount === 0 || h.winRate === null) {
+    return {
+      ...base,
+      coefficient: NO_DISCOUNT_COEFFICIENT,
+      status: 'HOLD',
+      reason: '실현표본 없음 — 무보정(계수 1.0)',
+    };
+  }
+  if (lowSample) {
+    return {
+      ...base,
+      coefficient: NO_DISCOUNT_COEFFICIENT,
+      status: 'HOLD',
+      reason: `표본 부족(n=${h.sampleCount}<${LOW_SAMPLE_THRESHOLD}) — 무보정(과신 방지)`,
+    };
+  }
+  if (!h.isSignificant) {
+    return {
+      ...base,
+      coefficient: NO_DISCOUNT_COEFFICIENT,
+      status: 'HOLD',
+      reason: `통계 미유의(p≥0.05, n=${h.sampleCount}) — 무보정(과신 방지)`,
+    };
+  }
+
+  const w = h.winRate;
+  // 기대 충족/초과 → 디스카운트 없음(증폭 금지, 보수적)
+  if (w >= expectedWinRate) {
+    return {
+      ...base,
+      coefficient: NO_DISCOUNT_COEFFICIENT,
+      status: 'ALIGNED',
+      reason: `실현 승률(${w}) ≥ 기대(${expectedWinRate}) — 디스카운트 없음(계수 1.0)`,
+    };
+  }
+
+  // 과대평가 등급 → 비율 기반 감쇠 디스카운트 + 하한 clamp
+  const ratio = w / expectedWinRate; // <1
+  const damped = 1 - CALIBRATION_DAMPENING * (1 - ratio);
+  const coefficient = round3(clamp(damped, CONFIDENCE_COEFFICIENT_FLOOR, NO_DISCOUNT_COEFFICIENT));
+  return {
+    ...base,
+    coefficient,
+    status: 'CALIBRATE',
+    reason:
+      `과대평가 등급(실현 승률 ${w} < 기대 ${expectedWinRate}) — ` +
+      `감쇠(${CALIBRATION_DAMPENING}) 후 confidence 계수 ${coefficient} 디스카운트 [점수 한정·실주문 무관]`,
+  };
+}
+
+/**
+ * 등급별 보정계수 맵(grade → coefficient). HOLD/ALIGNED(계수 1.0) 도 포함한다.
+ * signal-generation 이 result.signal 로 조회해 calibratedConfidence 를 산출한다.
+ */
+export function gradeCoefficientMap(
+  calibrations: GradeConfidenceCalibration[],
+): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const c of calibrations) m.set(c.grade, c.coefficient);
+  return m;
+}
+
+/**
+ * buyScore × 등급 보정계수 → calibratedConfidence(정수, clamp -100..100).
+ * ★ 원본 buyScore 는 호출측에서 보존한다 — 이 함수는 별도 필드값만 만든다.
+ * 계수 결측/미보정은 호출측에서 NO_DISCOUNT_COEFFICIENT(1.0)로 전달(무보정).
+ */
+export function applyConfidenceCoefficient(buyScore: number, coefficient: number): number {
+  return clamp(Math.round(buyScore * coefficient), -100, 100);
 }

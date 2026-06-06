@@ -13,6 +13,12 @@ import {
   SCORE_PER_AR_PCT,
   CALIBRATION_DAMPENING,
   CALIBRATION_GAP_EPSILON,
+  calibrateGradeConfidence,
+  gradeCoefficientMap,
+  applyConfidenceCoefficient,
+  EXPECTED_WIN_RATE_BY_GRADE,
+  CONFIDENCE_COEFFICIENT_FLOOR,
+  NO_DISCOUNT_COEFFICIENT,
 } from './calibration';
 import {
   AccuracyBucket,
@@ -271,5 +277,142 @@ describe('★ 자동적용 금지 — EVENT_BASE_SCORES 상수 불변 증거', (
     // 권고값은 리포트 안에만 존재
     const sc = report.eventScoreCalibrationsD20.find((c) => c.eventType === 'SUPPLY_CONTRACT');
     expect(sc?.suggestedNewScore).not.toBe(EVENT_BASE_SCORES.SUPPLY_CONTRACT);
+  });
+});
+
+// ── DAR-91: 등급별 confidence 자기보정 계수 ────────────────────────────
+describe('calibrateGradeConfidence (등급 confidence 보정계수)', () => {
+  it('과대평가 등급(실현 승률 < 기대) → 감쇠 디스카운트 계수(<1)', () => {
+    // STRONG_BUY_CANDIDATE 기대 0.55, 실현 0.33 → ratio=0.6 → damped=1-0.5*(1-0.6)=0.8
+    const c = calibrateGradeConfidence(
+      bucket('STRONG_BUY_CANDIDATE', { winRate: 0.33, sampleCount: 20, isSignificant: true }),
+      'd20',
+    );
+    expect(c.expectedWinRate).toBe(0.55);
+    expect(c.status).toBe('CALIBRATE');
+    expect(c.coefficient).toBeCloseTo(0.8, 5);
+    expect(c.coefficient).toBeLessThan(NO_DISCOUNT_COEFFICIENT);
+  });
+
+  it('기대 충족/초과 → 디스카운트 없음(계수 1.0, 증폭 금지)', () => {
+    const meets = calibrateGradeConfidence(
+      bucket('BUY_CANDIDATE', { winRate: 0.5, sampleCount: 20, isSignificant: true }),
+      'd20',
+    );
+    expect(meets.status).toBe('ALIGNED');
+    expect(meets.coefficient).toBe(1.0);
+    // 기대 초과여도 1.0 상한(증폭하지 않음)
+    const exceeds = calibrateGradeConfidence(
+      bucket('BUY_CANDIDATE', { winRate: 0.9, sampleCount: 20, isSignificant: true }),
+      'd20',
+    );
+    expect(exceeds.coefficient).toBe(1.0);
+  });
+
+  it('표본 부족(lowSample) → 무보정(계수 1.0, 과신 방지)', () => {
+    const c = calibrateGradeConfidence(
+      bucket('STRONG_BUY_CANDIDATE', {
+        winRate: 0.0,
+        sampleCount: LOW_SAMPLE_THRESHOLD - 1,
+        isSignificant: true,
+      }),
+      'd20',
+    );
+    expect(c.lowSample).toBe(true);
+    expect(c.status).toBe('HOLD');
+    expect(c.coefficient).toBe(1.0);
+  });
+
+  it('통계 미유의 → 무보정(계수 1.0, 과신 방지)', () => {
+    const c = calibrateGradeConfidence(
+      bucket('STRONG_BUY_CANDIDATE', { winRate: 0.0, sampleCount: 30, isSignificant: false }),
+      'd20',
+    );
+    expect(c.status).toBe('HOLD');
+    expect(c.coefficient).toBe(1.0);
+  });
+
+  it('실현표본 0 → 무보정(계수 1.0)', () => {
+    const c = calibrateGradeConfidence(
+      bucket('BUY_CANDIDATE', { winRate: null, sampleCount: 0, isSignificant: false }),
+      'd20',
+    );
+    expect(c.status).toBe('HOLD');
+    expect(c.coefficient).toBe(1.0);
+  });
+
+  it('비매수/미등재 등급(NEUTRAL/AVOID 등) → 보정 대상 아님(계수 1.0)', () => {
+    for (const g of ['NEUTRAL', 'AVOID', 'BLOCKED']) {
+      const c = calibrateGradeConfidence(
+        bucket(g, { winRate: 0.0, sampleCount: 50, isSignificant: true }),
+        'd20',
+      );
+      expect(c.expectedWinRate).toBeNull();
+      expect(c.coefficient).toBe(1.0);
+    }
+  });
+
+  it('계수 하한 clamp: 극단적 부진도 FLOOR 미만으로 내려가지 않는다', () => {
+    // winRate 0 → ratio 0 → damped=1-0.5=0.5 == FLOOR. 더 큰 감쇠여도 FLOOR 보장.
+    const c = calibrateGradeConfidence(
+      bucket('STRONG_BUY_CANDIDATE', { winRate: 0.0, sampleCount: 40, isSignificant: true }),
+      'd20',
+    );
+    expect(c.coefficient).toBeGreaterThanOrEqual(CONFIDENCE_COEFFICIENT_FLOOR);
+  });
+});
+
+describe('gradeCoefficientMap / applyConfidenceCoefficient (환류 적용)', () => {
+  it('gradeCoefficientMap: grade→coefficient 맵 구성(1.0 포함)', () => {
+    const calibrations = [
+      calibrateGradeConfidence(
+        bucket('STRONG_BUY_CANDIDATE', { winRate: 0.33, sampleCount: 20, isSignificant: true }),
+        'd20',
+      ),
+      calibrateGradeConfidence(
+        bucket('BUY_CANDIDATE', { winRate: 0.9, sampleCount: 20, isSignificant: true }),
+        'd20',
+      ),
+    ];
+    const m = gradeCoefficientMap(calibrations);
+    expect(m.get('STRONG_BUY_CANDIDATE')).toBeCloseTo(0.8, 5);
+    expect(m.get('BUY_CANDIDATE')).toBe(1.0);
+  });
+
+  it('applyConfidenceCoefficient: buyScore×계수(정수·clamp), 계수 1.0=원값 보존', () => {
+    expect(applyConfidenceCoefficient(85, 0.8)).toBe(68);
+    expect(applyConfidenceCoefficient(85, 1.0)).toBe(85);
+    expect(applyConfidenceCoefficient(85, NO_DISCOUNT_COEFFICIENT)).toBe(85);
+    // clamp ±100
+    expect(applyConfidenceCoefficient(100, 1.0)).toBe(100);
+  });
+
+  it('EXPECTED_WIN_RATE_BY_GRADE: 매수 상위등급일수록 기대 승률 단조(우월성 보존)', () => {
+    expect(EXPECTED_WIN_RATE_BY_GRADE.STRONG_BUY_CANDIDATE).toBeGreaterThan(
+      EXPECTED_WIN_RATE_BY_GRADE.BUY_CANDIDATE,
+    );
+    expect(EXPECTED_WIN_RATE_BY_GRADE.BUY_CANDIDATE).toBeGreaterThan(
+      EXPECTED_WIN_RATE_BY_GRADE.WATCH,
+    );
+  });
+
+  it('buildCalibrationReport: gradeConfidenceCalibrationsD20 동봉(byGrade 기반)', () => {
+    const accuracy = buildSignalAccuracyReport(
+      Array.from({ length: 20 }, () => ({
+        signalGrade: 'STRONG_BUY_CANDIDATE',
+        buyScore: 85,
+        eventType: 'SUPPLY_CONTRACT',
+        // 전부 음수익 → 승률 0 → 과대평가 → 디스카운트
+        arD5: -1,
+        arD20: -1,
+      })),
+    );
+    const report = buildCalibrationReport(accuracy);
+    const g = report.gradeConfidenceCalibrationsD20.find(
+      (x) => x.grade === 'STRONG_BUY_CANDIDATE',
+    );
+    expect(g).toBeDefined();
+    expect(g?.status).toBe('CALIBRATE');
+    expect(g?.coefficient).toBeLessThan(1.0);
   });
 });

@@ -45,6 +45,17 @@ export class PaperSimulationController {
     return { success: true, data };
   }
 
+  @Get('trade-history')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      '모의 매매 사유 추적 + 성적표 — 진입/청산 근거 + 승률·평균손익·누적수익률(게스트 데모 가능)',
+  })
+  async tradeHistory() {
+    const data = await this.sim.getTradeHistory();
+    return { success: true, data };
+  }
+
   @Post('run-once')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: '모의운용 1일치 사이클 수동 실행(매수→스냅샷→Exit→지표)' })

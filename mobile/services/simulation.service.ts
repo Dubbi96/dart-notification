@@ -1,5 +1,6 @@
 import type { ApiResponse } from '@app-types/api.types';
 import type { EquityCurve, SimulationStatus } from '@app-types/simulation.types';
+import type { TradeHistory } from '@app-types/trade-rationale.types';
 
 import { api } from './api';
 
@@ -15,5 +16,11 @@ export const simulationService = {
   getEquityCurve: () =>
     api
       .get<ApiResponse<EquityCurve>>('/paper-trading/simulation/equity-curve')
+      .then((r) => r.data.data),
+
+  // 매매 사유 추적 + 성적표 — OptionalJwt(게스트 데모 가능). DAR-64.
+  getTradeHistory: () =>
+    api
+      .get<ApiResponse<TradeHistory>>('/paper-trading/simulation/trade-history')
       .then((r) => r.data.data),
 };

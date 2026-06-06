@@ -40,6 +40,13 @@ import {
   buildEntryMeta,
 } from './simulation-entry';
 import { buildEquityCurve, EquityCurvePoint } from './equity-curve';
+import {
+  buildTradeRationale,
+  calculateTradeScorecard,
+  TradeRationale,
+  TradeRationaleInput,
+  TradeScorecard,
+} from './trade-scorecard';
 
 export interface DailyCycleResult {
   tradeDate: string;
@@ -202,6 +209,117 @@ export class PaperSimulationService {
       latestSnapshotDate: points.length > 0 ? points[points.length - 1].snapshotDate : null,
       metrics,
     };
+  }
+
+  /**
+   * 매매 사유 추적 + 성적표(DAR-64).
+   * 모의 포지션(OPEN+CLOSED)의 진입 사유(PositionThesis)·청산 사유(ExitSignal)를 기존 저장값에서
+   * 추출하고, CLOSED 포지션을 매매 성적표(승률·평균손익·평균보유기간·누적수익률)로 집계한다.
+   * ★ read-only — 신규 수집·외부호출·AI 개입 0. 기존 모델 조합만(스키마 변경 0).
+   */
+  async getTradeHistory(): Promise<{
+    portfolioId: string;
+    initialCapital: number;
+    scorecard: TradeScorecard;
+    /** 진입일 최신순 매매 사유 목록(OPEN+CLOSED) */
+    trades: TradeRationale[];
+  }> {
+    const pf = await this.getOrCreateSimPortfolio();
+    const rows = await this.prisma.position.findMany({
+      where: { portfolioId: pf.id },
+      orderBy: { entryDate: 'desc' },
+      select: {
+        id: true,
+        corpCode: true,
+        stockCode: true,
+        status: true,
+        entryDate: true,
+        entryPrice: true,
+        quantity: true,
+        closedAt: true,
+        unrealizedPnl: true,
+        unrealizedPnlPct: true,
+        stopLossPct: true,
+        takeProfitPct: true,
+        maxHoldDays: true,
+        positionThesis: { select: { entryReason: true, initialThesis: true } },
+      },
+    });
+
+    if (rows.length === 0) {
+      return {
+        portfolioId: pf.id,
+        initialCapital: PaperSimulationService.INITIAL_CAPITAL,
+        scorecard: calculateTradeScorecard([], PaperSimulationService.INITIAL_CAPITAL),
+        trades: [],
+      };
+    }
+
+    // 회사명 보강
+    const corpCodes = Array.from(new Set(rows.map((r) => r.corpCode)));
+    const companies = await this.prisma.company.findMany({
+      where: { corpCode: { in: corpCodes } },
+      select: { corpCode: true, corpName: true },
+    });
+    const corpNameByCode: Record<string, string> = {};
+    for (const c of companies) corpNameByCode[c.corpCode] = c.corpName;
+
+    // CLOSED 포지션의 청산 트리거(ExitSignal) — 포지션별 최신 1건 매핑
+    const closedIds = rows.filter((r) => r.status === 'CLOSED').map((r) => r.id);
+    const exitByPosition = await this.loadExitSignals(closedIds);
+
+    const trades = rows.map((r) => {
+      const exit = exitByPosition[r.id];
+      const input: TradeRationaleInput = {
+        positionId: r.id,
+        corpCode: r.corpCode,
+        stockCode: r.stockCode,
+        corpName: corpNameByCode[r.corpCode] ?? null,
+        status: r.status,
+        entryDate: r.entryDate,
+        entryPrice: r.entryPrice,
+        quantity: r.quantity,
+        closedAt: r.closedAt,
+        pnl: r.unrealizedPnl,
+        pnlPct: r.unrealizedPnlPct,
+        stopLossPct: r.stopLossPct,
+        takeProfitPct: r.takeProfitPct,
+        maxHoldDays: r.maxHoldDays,
+        entryReason: r.positionThesis?.entryReason ?? null,
+        initialThesis: r.positionThesis?.initialThesis ?? null,
+        exitAction: exit?.exitAction ?? null,
+        exitTriggers: exit?.triggerTypes ?? [],
+      };
+      return buildTradeRationale(input);
+    });
+
+    const closed = trades.filter((t) => t.status === 'CLOSED');
+    return {
+      portfolioId: pf.id,
+      initialCapital: PaperSimulationService.INITIAL_CAPITAL,
+      scorecard: calculateTradeScorecard(closed, PaperSimulationService.INITIAL_CAPITAL),
+      trades,
+    };
+  }
+
+  /** 청산 포지션별 최신 ExitSignal(청산 액션·트리거) 매핑 — read-only */
+  private async loadExitSignals(
+    positionIds: string[],
+  ): Promise<Record<string, { exitAction: string; triggerTypes: string[] }>> {
+    if (positionIds.length === 0) return {};
+    const signals = await this.prisma.exitSignal.findMany({
+      where: { positionId: { in: positionIds } },
+      orderBy: { checkedAt: 'desc' },
+      select: { positionId: true, exitAction: true, triggerTypes: true },
+    });
+    const map: Record<string, { exitAction: string; triggerTypes: string[] }> = {};
+    for (const s of signals) {
+      // findMany 가 checkedAt desc 이므로 최초 등장이 최신 — 이미 있으면 건너뜀.
+      if (!map[s.positionId]) {
+        map[s.positionId] = { exitAction: s.exitAction, triggerTypes: s.triggerTypes };
+      }
+    }
+    return map;
   }
 
   /** 보유(OPEN) 포지션을 모바일 표시용으로 매핑 — 회사명 보강, 평가손익 큰 순 정렬 */

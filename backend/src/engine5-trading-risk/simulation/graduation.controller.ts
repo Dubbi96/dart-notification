@@ -14,6 +14,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OptionalJwtAuthGuard } from '../../auth/guards/optional-jwt-auth.guard';
 import { GraduationMetricsService } from './graduation-metrics.service';
 import { buildGraduationReport, GraduationReport } from './domain/graduation-gates';
+import { FunnelReport } from './domain/signal-funnel';
 
 @ApiTags('Graduation')
 @Controller('graduation')
@@ -29,5 +30,16 @@ export class GraduationController {
   async metrics(): Promise<{ success: true; data: GraduationReport }> {
     const metrics = await this.metricsService.getMetrics();
     return { success: true, data: buildGraduationReport(metrics) };
+  }
+
+  @Get('funnel')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      '신호→진입 퍼널(DAR-109): 당일 생성 신호 → 후보 통과 → 체결의 일별·누적 전환율(채택률·체결률·신호→체결). 졸업 표본 누적 모니터링 — 게스트 데모 조회 가능',
+  })
+  async funnel(): Promise<{ success: true; data: FunnelReport }> {
+    const data = await this.metricsService.getFunnel();
+    return { success: true, data };
   }
 }

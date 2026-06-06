@@ -25,6 +25,7 @@ import {
   calcSimulationProgress,
 } from './domain/graduation-metrics.calculator';
 import { GRADUATION_BENCHMARK_INDEX_CODE } from './domain/graduation-gates';
+import { buildFunnelReport, FunnelReport } from './domain/signal-funnel';
 import { ISimulationPort, SIMULATION_PORT } from './ports/simulation.port';
 
 export interface GraduationMetrics {
@@ -117,5 +118,17 @@ export class GraduationMetricsService {
         usdKrwRate: config.usdKrwRate,
       },
     };
+  }
+
+  /**
+   * 신호→진입 퍼널 리포트(DAR-109) — '당일 생성 신호 → 후보 통과 → 체결'의 일별·누적
+   * 전환율(채택률·체결률·신호→체결). 졸업 표본이 실제로 누적되는지 모니터링용.
+   * ★ read-only 집계. 빈 이력이면 daily=[], totals 0(가짜 비율 금지 — rate=null).
+   */
+  async getFunnel(portfolioIdArg?: string): Promise<FunnelReport> {
+    const portfolioId =
+      portfolioIdArg ?? (await this.port.resolveSimPortfolioId());
+    const history = await this.port.getFunnelHistory(portfolioId);
+    return buildFunnelReport(history);
   }
 }

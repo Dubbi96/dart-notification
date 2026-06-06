@@ -1021,6 +1021,7 @@ model Portfolio {
   user          User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   positions     Position[]
   riskSnapshots PortfolioRiskSnapshot[]
+  funnelDaily   SignalEntryFunnelDaily[]
 
   @@index([userId])
   @@map("portfolios")
@@ -1180,6 +1181,33 @@ model PortfolioRiskSnapshot {
   @@unique([portfolioId, snapshotDate])
   @@index([portfolioId, snapshotDate])
   @@map("portfolio_risk_snapshots")
+}
+
+// ====================================
+// DAR-109: 신호→진입 퍼널 일별 계측 (engine5 모의운용)
+//
+// 졸업 표본(G1/G2/G5)을 막던 PrismaSimulationAdapter write 실구현과 함께,
+// '당일 생성 신호 수 → 진입 후보 통과 수 → 실제 체결 수'를 일별로 누적 기록한다.
+// fill/adoption rate(체결률·채택률)는 read 시 파생 산출(저장하지 않음 — 단일 출처).
+// ★ 모의 전용 — 실주문 무관. AI 미개입(순수 카운트). 멱등키 (portfolioId, tradeDate).
+// ====================================
+model SignalEntryFunnelDaily {
+  id          String @id @default(cuid())
+  portfolioId String
+  tradeDate   String // 거래일 (YYYYMMDD)
+
+  signalsGenerated Int // 당일 생성된 매수 신호 수 (퍼널 최상단)
+  candidatesPassed Int // 진입 후보 선정(보유중복·슬롯 필터) 통과 수
+  filled           Int // 실제 모의 체결(신규 매수) 수
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@unique([portfolioId, tradeDate])
+  @@index([portfolioId, tradeDate])
+  @@map("signal_entry_funnel_daily")
 }
 
 // ====================================

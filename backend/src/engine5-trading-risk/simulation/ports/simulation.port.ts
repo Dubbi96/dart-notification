@@ -5,6 +5,8 @@ import {
   BuyCandidate,
   ClosePositionInput,
   DailySnapshotInput,
+  FunnelDaily,
+  FunnelSnapshotInput,
   OpenPositionInput,
   OpenPositionView,
   RiskSnapshotInput,
@@ -49,6 +51,14 @@ export interface ISimulationPort {
 
   /** 포트폴리오 리스크 스냅샷 적재 */
   saveRiskSnapshot(input: RiskSnapshotInput): Promise<void>;
+
+  // ── DAR-109: 신호→진입 퍼널 계측(졸업 표본 누적 모니터링) ──
+  /** 당일(tradeDate, YYYYMMDD) 생성된 매수 신호 수 — 퍼널 최상단 */
+  getDailySignalCount(tradeDate: string): Promise<number>;
+  /** 신호→진입 퍼널 일별 스냅샷 적재(멱등 upsert: portfolioId,tradeDate) */
+  saveFunnelSnapshot(input: FunnelSnapshotInput): Promise<void>;
+  /** 신호→진입 퍼널 일별 이력(거래일 오름차순) — graduation/health 노출 */
+  getFunnelHistory(portfolioId: string): Promise<FunnelDaily[]>;
 
   // ── 졸업지표 산출용 누적 데이터 ──
   /** 모의운용 시작일(가장 이른 포지션 진입일, ISO) — 운용 시작 전이면 null (DAR-86) */

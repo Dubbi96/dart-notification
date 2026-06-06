@@ -1,9 +1,11 @@
 // backend/src/disclosure-documents/parse-retry.scheduler.ts
 // 파싱 실패 건 재처리 스케줄러 (매 30분)
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { DisclosureDocumentsService } from './disclosure-documents.service';
+import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
+import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
 
 /** 1회 재처리 최대 건수 */
 const MAX_RETRY_BATCH = 20;
@@ -14,6 +16,8 @@ export class ParseRetryScheduler {
 
   constructor(
     private readonly disclosureDocumentsService: DisclosureDocumentsService,
+    // @Optional: CronHealthModule 미등록 환경(일부 테스트)에서도 동작. 미주입 시 기록만 생략.
+    @Optional() private readonly recorder?: CronRunRecorderService,
   ) {}
 
   /**
@@ -24,12 +28,24 @@ export class ParseRetryScheduler {
   async retryFailedDocuments(): Promise<void> {
     this.logger.log('파싱 실패 건 재처리 스케줄러 실행');
 
-    try {
+    const run = async () => {
       const result =
         await this.disclosureDocumentsService.runRetryQueue(MAX_RETRY_BATCH);
       this.logger.log(`재처리 큐 실행 완료: ${result.queued}건 시작`);
+      return result;
+    };
+
+    try {
+      if (!this.recorder) {
+        await run();
+        return;
+      }
+      // DAR-110: 마지막 성공시각/재처리건수 기록(신선도 판정 입력).
+      await this.recorder.record(CRON_JOB_KEYS.PARSE_RETRY, run, {
+        countOf: (r) => r.queued,
+      });
     } catch (error) {
-      // Cron 스케줄 유지를 위해 throw하지 않음
+      // Cron 스케줄 유지를 위해 throw하지 않음 (recorder는 FAILED 기록 후 예외 재던짐 → 여기서 흡수)
       this.logger.error('재처리 스케줄러 오류', error);
     }
   }

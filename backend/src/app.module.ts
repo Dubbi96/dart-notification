@@ -31,6 +31,7 @@ import { PaperSimulationModule } from './engine5-trading-risk/paper-simulation/p
 import { GraduationModule } from './engine5-trading-risk/simulation/graduation.module';
 import { PhilosophyStyleSimulationModule } from './engine5-trading-risk/paper-simulation/philosophy-style-simulation.module';
 import { CollectionStatusModule } from './collection-status/collection-status.module';
+import { CronHealthModule } from './cron-health/cron-health.module';
 
 @Module({
   imports: [
@@ -112,6 +113,9 @@ import { CollectionStatusModule } from './collection-status/collection-status.mo
 
     // 횡단 — 수집 상태 대시보드 read-only 집계 (DAR-63)
     CollectionStatusModule,
+
+    // 횡단 — 데이터 신선도 모니터 + 크론 헬스 기록(@Global recorder) (DAR-110)
+    CronHealthModule,
 
   ],
   providers: [

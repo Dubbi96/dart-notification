@@ -21,6 +21,7 @@ import { DisclosureDocumentsModule } from './engine1-disclosure/disclosure-docum
 import { DisclosureEventsModule } from './engine1-disclosure/disclosure-events/disclosure-events.module';
 import { FinancialsModule } from './engine1-disclosure/financials/financials.module';
 import { AiAnalystModule } from './engine2-ai-analyst/ai-analyst.module';
+import { PhilosophyModule } from './engine2-ai-analyst/philosophy/philosophy.module';
 import { QuantMarketModule } from './engine3-quant-market/quant-market.module';
 import { PortfolioExitModule } from './engine4-portfolio-exit/portfolio-exit.module';
 import { TradingRiskModule } from './engine5-trading-risk/trading-risk.module';
@@ -79,6 +80,8 @@ import { PaperSimulationModule } from './engine5-trading-risk/paper-simulation/p
 
     // Engine 2 — AI Analyst (M3)
     AiAnalystModule,
+    // Persona 철학 엔진 P-B — 철학 적합도 스코어러 (DAR-53)
+    PhilosophyModule,
 
     // Engine 3 — Quant Market (M4 스캐폴딩)
     QuantMarketModule,

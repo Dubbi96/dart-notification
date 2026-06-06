@@ -24,10 +24,11 @@ import { parse, format } from 'date-fns';
 import { LoadingState, EmptyState, ErrorState } from '@components/common/StateView';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { PhilosophyFitBreakdown } from '@components/philosophy/PhilosophyFitBreakdown';
+import { DecisionHubTab } from '@components/company/DecisionHubTab';
 import { useCompanyPhilosophyFit } from '@hooks/usePhilosophies';
 import type { EventStudyResult } from '@app-types/signal.types';
 
-type CompanyTab = 'disclosures' | 'stats' | 'philosophy';
+type CompanyTab = 'decision' | 'disclosures' | 'stats' | 'philosophy';
 
 function formatEstDate(estDate: string | null): string {
   if (!estDate || estDate.length !== 8) return '-';
@@ -262,7 +263,7 @@ export default function CompanyDetailScreen() {
   const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
   const addToWatchlist = useAddToWatchlist();
   const removeFromWatchlist = useRemoveFromWatchlist();
-  const [activeTab, setActiveTab] = useState<CompanyTab>('disclosures');
+  const [activeTab, setActiveTab] = useState<CompanyTab>('decision');
 
   const watchlistItem = useMemo(
     () => watchlistData?.data?.find((item) => item.corpCode === corpCode),
@@ -392,16 +393,19 @@ export default function CompanyDetailScreen() {
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as CompanyTab)}
           buttons={[
+            { value: 'decision', label: '판단', accessibilityLabel: '종목 의사결정 허브 탭' },
             { value: 'disclosures', label: '공시', accessibilityLabel: '최근 공시 탭' },
             { value: 'stats', label: '통계', accessibilityLabel: 'Event Study 통계 탭' },
-            { value: 'philosophy', label: '거장 적합도', accessibilityLabel: '거장별 철학 적합도 탭' },
+            { value: 'philosophy', label: '적합도', accessibilityLabel: '거장별 철학 적합도 탭' },
           ]}
           style={styles.segmented}
         />
       </View>
 
       {/* Tab content */}
-      {activeTab === 'disclosures' ? (
+      {activeTab === 'decision' ? (
+        <DecisionHubTab corpCode={corpCode!} />
+      ) : activeTab === 'disclosures' ? (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
           {overview && (
             <View style={styles.section}>

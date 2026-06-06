@@ -13,6 +13,24 @@ export function useBuySignals(filters?: SignalFilters) {
 }
 
 /**
+ * 종목 의사결정 허브(DAR-59) — 특정 corpCode의 최신 매수 신호 1건.
+ * 기존 /signals 피드(전체 매수 신호)를 조립해 해당 종목 신호를 client-side로 선별한다.
+ * 별도 종목별 신호 엔드포인트가 없으므로 피드에 미노출이면 null(결측 graceful 부분노출).
+ */
+export function useCompanyBuySignal(corpCode: string | undefined) {
+  return useQuery({
+    queryKey: ['signals', 'company', corpCode],
+    queryFn: async () => {
+      const signals = await signalService.getBuySignals();
+      return signals.find((s) => s.corpCode === corpCode) ?? null;
+    },
+    enabled: !!corpCode,
+    retry: 1,
+    staleTime: 60 * 1000,
+  });
+}
+
+/**
  * 등급무관 전체 시그널 탐색(DAR-46) — 무한스크롤(DAR-45 패턴 재사용).
  * grade 미지정 시 전체 등급을 조회하며, 필터/정렬 변경은 queryKey로 새 조회를 트리거한다.
  */

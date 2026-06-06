@@ -4,9 +4,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing } from '@theme/spacing';
 import { EmptyState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
+import { PaperTradingNotice } from '@components/orders/PaperTradingNotice';
 
 export default function OrderHistoryScreen() {
   const { colors, typography: typo } = useTheme();
@@ -33,6 +34,14 @@ export default function OrderHistoryScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
+        {/* DAR-108(#9): 실주문 미도입 정직 표기 + 거래내역은 모의 매매 성적표로 동선 연결(가드). */}
+        <PaperTradingNotice
+          description="실주문 이력은 모의운용 검증 이후(M11·M12) 제공됩니다. 지금까지의 매매 기록은 모의운용 거래내역에서 확인하세요."
+          actions={[
+            { label: '모의 거래내역 보기', onPress: () => router.replace('/portfolio/trade-history') },
+            { label: '모의운용', onPress: () => router.replace('/(tabs)/portfolio') },
+          ]}
+        />
         <EmptyState
           {...emptyStateCopy.ordersHistoryEmpty}
           description="주문이 승인되거나 거절되면 여기에 이력이 쌓입니다."
@@ -64,5 +73,6 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.xl,
+    gap: spacing.lg,
   },
 });

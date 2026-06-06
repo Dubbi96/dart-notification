@@ -49,7 +49,11 @@ export default function HomeScreen() {
   const { isAuthenticated, requireAuth } = useRequireAuth();
   const userName = useAuthStore((s) => s.user?.name);
 
-  const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
+  const {
+    data: watchlistData,
+    isLoading: watchlistLoading,
+    isError: watchlistError,
+  } = useWatchlist({ enabled: isAuthenticated });
   const watchlistCount = watchlistData?.meta?.total ?? 0;
 
   const hasWatchlist = isAuthenticated && watchlistCount > 0;
@@ -87,8 +91,27 @@ export default function HomeScreen() {
 
   const totalCount = data?.pages[0]?.meta.total ?? 0;
 
-  const { data: savedData } = useSavedDisclosures({ enabled: isAuthenticated });
+  const {
+    data: savedData,
+    isLoading: savedLoading,
+    isError: savedError,
+  } = useSavedDisclosures({ enabled: isAuthenticated });
   const savedCount = savedData?.data?.length ?? 0;
+
+  // DAR-108(#10): 로딩/에러 시 수치를 '—'로 표기해 '0건' 오인을 방지한다.
+  // 비로그인은 로딩이 아니라 인증 게이트이므로 기존 '-' 표기를 유지한다.
+  const EM_DASH = '—';
+  const disclosuresCountDisplay = isLoading || isError ? EM_DASH : String(totalCount);
+  const watchlistCountDisplay = !isAuthenticated
+    ? '-'
+    : watchlistLoading || watchlistError
+      ? EM_DASH
+      : String(watchlistCount);
+  const savedCountDisplay = !isAuthenticated
+    ? '-'
+    : savedLoading || savedError
+      ? EM_DASH
+      : String(savedCount);
 
   const { data: notifData } = useNotifications({ enabled: isAuthenticated });
   const unreadCount = notifData?.pages[0]?.meta.unreadCount ?? 0;
@@ -105,17 +128,8 @@ export default function HomeScreen() {
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  if (isLoading) {
-    // 공시 피드 스켈레톤(§2-1)
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={{ paddingTop: insets.top }}>
-          <SkeletonList variant="disclosure" />
-        </View>
-      </View>
-    );
-  }
-
+  // DAR-108(#10): 초기 로딩 시에도 헤더 셸을 유지하고 콘텐츠(피드)만 스켈레톤으로
+  // 대체해 레이아웃 점프를 방지한다. (기존: 화면 전체를 스켈레톤으로 대체 → 헤더가 뒤늦게 등장)
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header - Paychain style gradient header */}
@@ -184,23 +198,27 @@ export default function HomeScreen() {
               style={styles.summaryItem}
               onPress={() => router.push('/disclosures')}
               accessibilityRole="button"
-              accessibilityLabel={`오늘의 공시 ${totalCount}건, 공시 목록 열기`}
+              accessibilityLabel={
+                isLoading || isError
+                  ? '오늘의 공시 집계 불러오는 중, 공시 목록 열기'
+                  : `오늘의 공시 ${totalCount}건, 공시 목록 열기`
+              }
             >
-              <Text style={[typo.h2, { color: '#FFFFFF' }]}>{totalCount}</Text>
+              <Text style={[typo.h2, { color: '#FFFFFF' }]}>{disclosuresCountDisplay}</Text>
               <Text style={[typo.small, { color: 'rgba(255,255,255,0.8)' }]}>오늘의 공시</Text>
             </TouchableOpacity>
             <View style={[styles.summaryDivider, { backgroundColor: 'rgba(255,255,255,0.25)' }]} />
             <TouchableOpacity style={styles.summaryItem} onPress={() => {
               if (requireAuth()) router.push('/settings-detail/watchlist');
             }}>
-              <Text style={[typo.h2, { color: '#FFFFFF' }]}>{isAuthenticated ? watchlistCount : '-'}</Text>
+              <Text style={[typo.h2, { color: '#FFFFFF' }]}>{watchlistCountDisplay}</Text>
               <Text style={[typo.small, { color: 'rgba(255,255,255,0.8)' }]}>관심 기업</Text>
             </TouchableOpacity>
             <View style={[styles.summaryDivider, { backgroundColor: 'rgba(255,255,255,0.25)' }]} />
             <TouchableOpacity style={styles.summaryItem} onPress={() => {
               if (requireAuth()) router.push('/settings-detail/saved-disclosures');
             }}>
-              <Text style={[typo.h2, { color: '#FFFFFF' }]}>{isAuthenticated ? savedCount : '-'}</Text>
+              <Text style={[typo.h2, { color: '#FFFFFF' }]}>{savedCountDisplay}</Text>
               <Text style={[typo.small, { color: 'rgba(255,255,255,0.8)' }]}>저장된 공시</Text>
             </TouchableOpacity>
           </View>
@@ -288,6 +306,10 @@ export default function HomeScreen() {
           <FirstWatchCoachmark onAdd={handleSearchOpen} />
         )}
 
+        {isLoading ? (
+          // DAR-108(#10): 헤더·세그먼트 셸은 유지한 채 피드 영역만 스켈레톤으로 채운다.
+          <SkeletonList variant="disclosure" />
+        ) : (
         <FlatList
           data={disclosures}
           renderItem={renderDisclosureItem}
@@ -325,6 +347,7 @@ export default function HomeScreen() {
             )
           }
         />
+        )}
       </View>
 
       {/* 검색 오버레이(§10) — 1탭 진입 */}

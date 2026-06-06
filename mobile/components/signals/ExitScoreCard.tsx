@@ -5,7 +5,9 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme, type ThemeColors } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
+import { RiskStatusBadges, summarizeRiskStatus } from '@components/common/RiskStatusBadges';
 import { ScoreGauge } from '@components/common/ScoreGauge';
+import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
 import {
   exitActionColor,
   exitActionLabel,
@@ -52,16 +54,19 @@ function reasonKindLabel(kind: ExitReason['kind']): string {
 export function ExitScoreCard({ signal, onPress }: ExitScoreCardProps) {
   const { colors, typography: typo } = useTheme();
   const handlePress = useCallback(() => onPress?.(signal), [onPress, signal]);
+  // DAR-99: 관리종목·거래정지·상폐위험 배지(DART 폴백·근사값). 손실 회피 1차 방어선.
+  const { data: riskStatus } = useStockRiskStatus({ corpCode: signal.corpCode });
+  const riskSummary = summarizeRiskStatus(riskStatus);
 
   return (
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={handlePress}
       accessibilityRole="button"
-      // 카드 그룹핑(§8-1/§8-4): 카드를 단일 단위로 읽기
+      // 카드 그룹핑(§8-1/§8-4): 카드를 단일 단위로 읽기. 위험상태는 카드 라벨에 합성한다.
       accessibilityLabel={`${signal.corpName} 매도 신호, Exit Score ${signal.exitScore}, ${exitActionLabel(
         signal.action,
-      )}`}
+      )}${riskSummary ? `, ${riskSummary}` : ''}`}
       accessibilityActions={[{ name: 'activate', label: '신호 상세 보기' }]}
       onAccessibilityAction={(event) => {
         if (event.nativeEvent.actionName === 'activate') handlePress();
@@ -85,6 +90,9 @@ export function ExitScoreCard({ signal, onPress }: ExitScoreCardProps) {
             {exitActionLabel(signal.action)}
           </Chip>
         </View>
+
+        {/* DAR-99: 위험 배지(위험 없으면 미표시) — 근사값(DART) 라벨 병기 */}
+        <RiskStatusBadges status={riskStatus} compact style={styles.riskBadges} />
 
         <View style={styles.gaugeWrap}>
           <ScoreGauge
@@ -162,6 +170,9 @@ const styles = StyleSheet.create({
   },
   actionChip: {
     height: 26,
+  },
+  riskBadges: {
+    marginTop: spacing.sm,
   },
   gaugeWrap: {
     marginTop: spacing.md,

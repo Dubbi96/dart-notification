@@ -245,6 +245,7 @@ describe('KrxMarketDataScheduler.collectStockStatusesForDate', () => {
           {
             isManagement: true,
             isHalted: false,
+            isDelistingRisk: true,
             statusNote: '관리종목 지정 (DART 공시 폴백)',
             sourceRcpNo: '20260601000001',
             sourceRcpDt: '20260601',
@@ -297,6 +298,7 @@ describe('KrxMarketDataScheduler.collectStockStatusesForDate', () => {
           {
             isManagement: true,
             isHalted: true,
+            isDelistingRisk: false,
             statusNote: '관리종목 지정·거래정지 (DART 공시 폴백)',
             sourceRcpNo: '20260601000002',
             sourceRcpDt: '20260601',

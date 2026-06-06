@@ -1,6 +1,6 @@
 import { api } from './api';
 import type { ApiResponse, PaginationMeta } from '@app-types/api.types';
-import type { Disclosure, DisclosureAnalysis, DisclosureEvent, DisclosureType } from '@app-types/disclosure.types';
+import type { Disclosure, DisclosureAnalysis, DisclosureEvent, DisclosureType, FiledFact } from '@app-types/disclosure.types';
 
 export const disclosureService = {
   getTypes: () =>
@@ -68,4 +68,13 @@ export const disclosureService = {
     api
       .get<ApiResponse<DisclosureAnalysis>>(`/disclosures/${rcpNo}/analysis`)
       .then((r) => r.data.data),
+
+  /**
+   * 공시 본문 정량 fact (GET /disclosure-facts/:rcpNo, DAR-112).
+   * read-only 게스트 엔드포인트. 컨트롤러가 배열을 그대로 반환(래핑 없음).
+   * 추출 fact가 없으면 빈 배열 → 화면에서 빈 상태로 분기.
+   * 네트워크/서버 오류는 에러 상태로 정직하게 분기하기 위해 삼키지 않는다.
+   */
+  getFiledFacts: (rcpNo: string): Promise<FiledFact[]> =>
+    api.get<FiledFact[]>(`/disclosure-facts/${rcpNo}`).then((r) => r.data),
 };

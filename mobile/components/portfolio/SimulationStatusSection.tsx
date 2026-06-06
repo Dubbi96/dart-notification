@@ -1,6 +1,8 @@
 import React, { useCallback } from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface, Banner } from 'react-native-paper';
+import { Feather } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
@@ -140,6 +142,28 @@ function SummaryHeader({
         <MetricRow label="AI비용/순익" value={formatRatio(metrics.aiCostToNetPnlRatio)} />
       </Surface>
 
+      {/* 매매 사유 추적 + 성적표 진입 (DAR-64) */}
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => router.push('/portfolio/trade-history')}
+        accessibilityRole="button"
+        accessibilityLabel="매매 성적표 — 진입·청산 사유 추적"
+      >
+        <Surface
+          elevation={1}
+          style={[styles.tradeLink, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        >
+          <Feather name="clipboard" size={18} color={colors.primary} />
+          <View style={styles.tradeLinkText}>
+            <Text style={[typo.captionMedium, { color: colors.text }]}>매매 성적표</Text>
+            <Text style={[typo.small, { color: colors.textSecondary }]}>
+              진입·청산 사유 추적 · 승률·평균손익
+            </Text>
+          </View>
+          <Feather name="chevron-right" size={18} color={colors.textTertiary} />
+        </Surface>
+      </TouchableOpacity>
+
       <Text style={[typo.captionMedium, { color: colors.text, marginTop: spacing.sm }]}>
         보유 포지션
       </Text>
@@ -234,6 +258,18 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   positionNameBox: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  tradeLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.base,
+  },
+  tradeLinkText: {
     flex: 1,
     gap: spacing.xs,
   },

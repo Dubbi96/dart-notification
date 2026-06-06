@@ -20,6 +20,7 @@ import { GlassCard } from '@components/common/GlassCard';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
+import { HomeSignalPreview } from '@components/home/HomeSignalPreview';
 import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { SearchOverlay } from '@components/common/SearchOverlay';
 import { useDisclosures } from '@hooks/useDisclosures';
@@ -225,6 +226,9 @@ export default function HomeScreen() {
 
       {/* Content area with top border radius */}
       <View style={[styles.contentArea, { backgroundColor: colors.background }]}>
+        {/* 오늘의 투자판단 프리뷰(DAR-61) — summaryCard 아래 최상단. 공시→투자판단 1순위 동선. */}
+        <HomeSignalPreview isAuthenticated={isAuthenticated} />
+
         {/* Disclosures */}
         <View style={styles.sectionHeader}>
           <View style={styles.segmentControl}>

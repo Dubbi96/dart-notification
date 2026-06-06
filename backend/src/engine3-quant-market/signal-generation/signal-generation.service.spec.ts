@@ -25,6 +25,7 @@ describe('SignalGenerationService (DAR-41)', () => {
     existingSignals?: { rcpNo: string; persona: string }[];
     createImpl?: jest.Mock;
     esrRows?: any[];
+    financials?: any[];
   }) {
     const created: any[] = [];
     const create =
@@ -68,6 +69,9 @@ describe('SignalGenerationService (DAR-41)', () => {
       disclosureAnalysis: {
         findMany: jest.fn(async () => []),
       },
+      companyFinancial: {
+        findMany: jest.fn(async () => opts.financials ?? []),
+      },
     };
     return { prisma, created, create };
   }
@@ -98,6 +102,43 @@ describe('SignalGenerationService (DAR-41)', () => {
     expect(created.map((r) => r.persona).sort()).toEqual(
       ['EVENT_DRIVEN', 'GROWTH', 'MOMENTUM', 'VALUE'],
     );
+  });
+
+  // DAR-79: 취득금액 매출 대비 정규화 → persona-view 연결
+  it('CompanyFinancial.revenue 로 buyback 정규화 비율을 반영한다 (상대비율 우선)', async () => {
+    const evt = {
+      rcpNo: 'BB',
+      eventType: 'SHARE_BUYBACK',
+      polarity: 'POSITIVE',
+      extractedData: { buybackAmount: 1_000_000_000 }, // 10억
+      company: { stockCode: '000100', market: 'KOSPI' },
+    };
+
+    // 시총 대비 비율 HIGH: 매출 5억 → 10억/5억 = 200% (유의) → VALUE POSITIVE 유지
+    const high = buildPrisma({
+      events: [makeEvent(evt)],
+      pricedStockCodes: ['000100'],
+      financials: [{ corpCode: '00100000', revenue: 500_000_000 }],
+    });
+    await makeService(high.prisma).generateMissingSignals('MANUAL');
+
+    // 비율 LOW: 매출 1조 → 10억/1조 = 0.1% (미미) → VALUE WATCH 보정
+    const low = buildPrisma({
+      events: [makeEvent(evt)],
+      pricedStockCodes: ['000100'],
+      financials: [{ corpCode: '00100000', revenue: 1_000_000_000_000 }],
+    });
+    await makeService(low.prisma).generateMissingSignals('MANUAL');
+
+    // CompanyFinancial 을 후보 corpCode 로 실제 조회했는지 (연결 증거)
+    expect(high.prisma.companyFinancial.findMany).toHaveBeenCalledTimes(1);
+    const whereArg = (high.prisma.companyFinancial.findMany as jest.Mock).mock.calls[0][0].where;
+    expect(whereArg.corpCode.in).toContain('00100000');
+
+    const valueScore = (rows: any[]) =>
+      rows.find((r) => r.persona === 'VALUE')?.buyScore as number;
+    // 규모가 유의한 쪽(high)의 VALUE persona-fit 이 더 우호적 → buyScore 가 더 높다
+    expect(valueScore(high.created)).toBeGreaterThan(valueScore(low.created));
   });
 
   it('시세 없는 종목·종목코드 없는 공시는 대상에서 제외', async () => {

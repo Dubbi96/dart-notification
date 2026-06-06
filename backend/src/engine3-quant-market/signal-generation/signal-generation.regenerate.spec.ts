@@ -63,6 +63,7 @@ describe('SignalGenerationService.regenerate (DAR-50)', () => {
       marketIndex: { findMany: jest.fn(async () => []) },
       eventStudyResult: { findMany: jest.fn(async () => []) },
       disclosureAnalysis: { findMany: jest.fn(async () => []) },
+      companyFinancial: { findMany: jest.fn(async () => []) },
     };
     return { prisma, updates, creates };
   }

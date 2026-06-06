@@ -39,6 +39,7 @@ import {
   entryBudget,
   buildEntryMeta,
 } from './simulation-entry';
+import { buildEquityCurve, EquityCurvePoint } from './equity-curve';
 
 export interface DailyCycleResult {
   tradeDate: string;
@@ -167,6 +168,38 @@ export class PaperSimulationService {
       positions,
       closedPositions,
       latestSnapshotDate: latest?.snapshotDate ?? null,
+      metrics,
+    };
+  }
+
+  /**
+   * 모의 자산곡선 + 졸업 진척(DAR-60).
+   * PortfolioRiskSnapshot 의 일별 totalValue 시계열을 초기원금 기준 수익률과 함께 반환하고,
+   * getSimulationStatus 와 동일한 누적 졸업지표(gates 포함)를 재사용해 스코어보드 데이터로 제공한다.
+   * 스냅샷이 없으면 points=[](점 0개), 1개면 점 1개 — 추세를 가공하지 않는다(가짜 추세선 금지).
+   */
+  async getEquityCurve(): Promise<{
+    portfolioId: string;
+    initialCapital: number;
+    /** 일별 자산곡선 점(오름차순). 0개·1개도 정직하게 그대로 반환 */
+    points: EquityCurvePoint[];
+    latestSnapshotDate: string | null;
+    /** 누적 졸업지표(gates 포함) — getSimulationStatus 재사용 */
+    metrics: SimulationMetrics;
+  }> {
+    const pf = await this.getOrCreateSimPortfolio();
+    const snapshots = await this.prisma.portfolioRiskSnapshot.findMany({
+      where: { portfolioId: pf.id },
+      orderBy: { snapshotDate: 'asc' },
+      select: { snapshotDate: true, totalValue: true },
+    });
+    const { metrics } = await this.computeMetrics(pf.id);
+    const points = buildEquityCurve(snapshots, PaperSimulationService.INITIAL_CAPITAL);
+    return {
+      portfolioId: pf.id,
+      initialCapital: PaperSimulationService.INITIAL_CAPITAL,
+      points,
+      latestSnapshotDate: points.length > 0 ? points[points.length - 1].snapshotDate : null,
       metrics,
     };
   }

@@ -24,6 +24,7 @@ describe('SignalGenerationService (DAR-41)', () => {
     pricedStockCodes: string[];
     existingSignals?: { rcpNo: string; persona: string }[];
     createImpl?: jest.Mock;
+    esrRows?: any[];
   }) {
     const created: any[] = [];
     const create =
@@ -62,7 +63,7 @@ describe('SignalGenerationService (DAR-41)', () => {
         findMany: jest.fn(async () => []),
       },
       eventStudyResult: {
-        findMany: jest.fn(async () => []),
+        findMany: jest.fn(async () => opts.esrRows ?? []),
       },
       disclosureAnalysis: {
         findMany: jest.fn(async () => []),
@@ -191,5 +192,89 @@ describe('SignalGenerationService (DAR-41)', () => {
     const result = await service.generateMissingSignals('MANUAL');
     expect(result.created).toBe(0);
     expect(result.message).toBeDefined();
+  });
+
+  // ── DAR-70: EventStudy bucketKey 신호 정밀화 ───────────────────────
+  describe('EventStudy bucketKey 조회·폴백·통계신호 반영 (DAR-70)', () => {
+    // SHARE_BUYBACK + extractedData {} → classifyBucket → 'SHARE_BUYBACK__ratio_lt1'
+    const DERIVED_BUCKET = 'SHARE_BUYBACK__ratio_lt1';
+
+    function esr(over: Partial<any> = {}) {
+      return {
+        eventType: over.eventType ?? 'SHARE_BUYBACK',
+        marketType: over.marketType ?? 'KOSPI',
+        bucketKey: over.bucketKey ?? DERIVED_BUCKET,
+        avgArD5: over.avgArD5 ?? 5,
+        isSignificant: over.isSignificant ?? true,
+        upProbD5: over.upProbD5 ?? 0.5,
+        crashProbD5: over.crashProbD5 ?? 0.0,
+        sampleCount: over.sampleCount ?? 100,
+      };
+    }
+
+    it('정밀 버킷 매칭: bucketKey 통계가 historicalEvent 점수에 반영된다', async () => {
+      // base(avgArD5=5)=70, upProbD5=0.7→+15 = 85, 유의·표본충분 → trust 1
+      const { prisma, created } = buildPrisma({
+        events: [makeEvent()],
+        pricedStockCodes: ['000100'],
+        esrRows: [esr({ avgArD5: 5, upProbD5: 0.7 })],
+      });
+      const result = await makeService(prisma).generateMissingSignals('MANUAL');
+
+      expect(result.created).toBe(4);
+      for (const row of created) {
+        expect(row.scoreBreakdown.historicalEvent).toBe(85);
+      }
+    });
+
+    it('급락확률·무의미 버킷은 감점/감쇠된다 (같은 avgArD5라도 갈림)', async () => {
+      // base=70, crash 0.35→-30 =40, isSignificant false → trust 0.2 → 8
+      const { prisma, created } = buildPrisma({
+        events: [makeEvent()],
+        pricedStockCodes: ['000100'],
+        esrRows: [
+          esr({ avgArD5: 5, crashProbD5: 0.35, isSignificant: false, sampleCount: 100 }),
+        ],
+      });
+      await makeService(prisma).generateMissingSignals('MANUAL');
+      expect(created[0].scoreBreakdown.historicalEvent).toBe(8);
+    });
+
+    it('버킷 미스 → eventType::marketType 표본가중 평균으로 graceful 폴백', async () => {
+      // 도출 버킷(__ratio_lt1)은 없고 다른 버킷 2개만 존재 → 가중평균 폴백
+      // wAvgArD5=(10*90+0*10)/100=9→base70, up=(0.6*90+0.4*10)/100=0.58→+7=77,
+      // crash=(0.1*90+0.5*10)/100=0.14→-5=72, isSignificant(some true)=true → 72
+      const { prisma, created } = buildPrisma({
+        events: [makeEvent()],
+        pricedStockCodes: ['000100'],
+        esrRows: [
+          esr({ bucketKey: 'SHARE_BUYBACK__ratio_gte3', avgArD5: 10, upProbD5: 0.6, crashProbD5: 0.1, sampleCount: 90, isSignificant: true }),
+          esr({ bucketKey: 'SHARE_BUYBACK__ratio_1to3', avgArD5: 0, upProbD5: 0.4, crashProbD5: 0.5, sampleCount: 10, isSignificant: false }),
+        ],
+      });
+      await makeService(prisma).generateMissingSignals('MANUAL');
+      expect(created[0].scoreBreakdown.historicalEvent).toBe(72);
+    });
+
+    it('ALL 시장 버킷 폴백: 종목 시장 미스 시 marketType=ALL 버킷을 쓴다', async () => {
+      // KOSPI 행 없음, ALL::도출버킷 존재 → base(avgArD5=2)=40
+      const { prisma, created } = buildPrisma({
+        events: [makeEvent()],
+        pricedStockCodes: ['000100'],
+        esrRows: [esr({ marketType: 'ALL', avgArD5: 2, upProbD5: 0.5 })],
+      });
+      await makeService(prisma).generateMissingSignals('MANUAL');
+      expect(created[0].scoreBreakdown.historicalEvent).toBe(40);
+    });
+
+    it('완전 미스(해당 eventType ESR 없음) → historicalEvent 0 (결측 처리)', async () => {
+      const { prisma, created } = buildPrisma({
+        events: [makeEvent()],
+        pricedStockCodes: ['000100'],
+        esrRows: [esr({ eventType: 'CB_ISSUANCE' })], // 다른 이벤트타입만 존재
+      });
+      await makeService(prisma).generateMissingSignals('MANUAL');
+      expect(created[0].scoreBreakdown.historicalEvent).toBe(0);
+    });
   });
 });

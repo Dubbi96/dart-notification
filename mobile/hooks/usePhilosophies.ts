@@ -39,3 +39,19 @@ export function useCompanyPhilosophyFit(corpCode: string | undefined, fsDiv?: st
     retry: 1,
   });
 }
+
+/**
+ * 종목 × 거장 철학 × AI 관점 결합(P-C, DAR-72/82).
+ * 신규 AI 호출 0 — 저장된 산출물만 조회. corpCode 가 있어야 활성화.
+ */
+export function useCompanyPersonaPhilosophyFusion(
+  corpCode: string | undefined,
+  fsDiv?: string,
+) {
+  return useQuery({
+    queryKey: ['persona-philosophy-fusion', corpCode, fsDiv ?? 'CFS'],
+    queryFn: () => philosophyService.getCompanyFusion(corpCode!, fsDiv),
+    enabled: !!corpCode,
+    retry: 1,
+  });
+}

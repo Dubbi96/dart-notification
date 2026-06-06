@@ -134,6 +134,24 @@ export default function SignalsScreen() {
         <Feather name="chevron-right" size={18} color={colors.textTertiary} />
       </TouchableOpacity>
 
+      {/* 이벤트 통계 진입점(DAR-81) — 공시 유형별 시장 평균 초과수익·표본·승률. 자동신호 1차 근거. */}
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={() => router.push('/event-stats')}
+        accessibilityRole="button"
+        accessibilityLabel="이벤트 통계 보기 — 공시 유형별 시장 평균 초과수익·표본·승률"
+        style={[styles.eventStatsBanner, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+      >
+        <Feather name="bar-chart-2" size={20} color={colors.primary} />
+        <View style={styles.masterBannerText}>
+          <Text style={[typo.bodyMedium, { color: colors.text }]}>이벤트 통계</Text>
+          <Text style={[typo.small, { color: colors.textSecondary }]}>
+            공시 유형별 시장 평균 초과수익·표본·승률
+          </Text>
+        </View>
+        <Feather name="chevron-right" size={18} color={colors.textTertiary} />
+      </TouchableOpacity>
+
       <View style={styles.tabs}>
         <SegmentedButtons
           value={subTab}
@@ -186,5 +204,15 @@ const styles = StyleSheet.create({
   },
   masterBannerText: {
     flex: 1,
+  },
+  eventStatsBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
   },
 });

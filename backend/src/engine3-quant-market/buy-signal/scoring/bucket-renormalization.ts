@@ -19,6 +19,7 @@ import { VolumeLiquidityInput } from './volume-liquidity.scorer';
 import { MarketSectorInput } from './market-sector.scorer';
 import { PersonaFitInput } from './persona-fit.scorer';
 import { InsiderInput } from './insider.scorer';
+import { FundamentalInput, hasFundamentalData } from './fundamental.scorer';
 
 export type BucketKey =
   | 'disclosureEvent'
@@ -28,7 +29,8 @@ export type BucketKey =
   | 'chart'
   | 'volumeLiquidity'
   | 'marketSector'
-  | 'insider';
+  | 'insider'
+  | 'fundamental';
 
 export type BucketAvailability = Record<BucketKey, boolean>;
 
@@ -40,6 +42,7 @@ export interface BucketAvailabilityInput {
   marketSector: MarketSectorInput;
   personaFit: PersonaFitInput;
   insider: InsiderInput;
+  fundamental: FundamentalInput;
 }
 
 /**
@@ -96,6 +99,9 @@ export function detectBucketAvailability(
     // 내부자/대량보유: 최근 윈도우에 지분변동 보고가 1건이라도 있어야 가용(DAR-88).
     // 보고가 0건이면 scorer 의 0점은 "데이터 없음" 기본값 → 분모에서 제외.
     insider: (input.insider?.trades?.length ?? 0) > 0,
+    // 펀더멘털: 재무 성장률·본문 정량값 중 하나라도 유효 수치가 있어야 가용(DAR-100).
+    // 전무하면 scorer 의 0점은 "데이터 없음" 기본값 → 분모에서 제외(기존 8버킷 가중치 복원).
+    fundamental: hasFundamentalData(input.fundamental),
   };
 }
 

@@ -27,6 +27,7 @@ const ALL_KEYS: BucketKey[] = [
   'volumeLiquidity',
   'marketSector',
   'insider',
+  'fundamental',
 ];
 
 function availabilityOf(overrides: Partial<BucketAvailability>): BucketAvailability {
@@ -81,14 +82,15 @@ describe('renormalizeWeights()', () => {
     );
   });
 
-  it('★DAR-88 회귀 0: insider 결측 → 기존 7버킷 가중치를 정확히 복원', () => {
-    // insider 데이터 미적재 종목(대부분의 과거 백테스트/스냅샷) 재현.
+  it('★DAR-88/100 회귀 0: insider+fundamental 결측 → 기존 7버킷 가중치를 정확히 복원', () => {
+    // insider·fundamental 데이터 미적재 종목(대부분의 과거 백테스트/스냅샷) 재현.
     const { effectiveWeights, omittedBuckets } = renormalizeWeights(
       W,
-      availabilityOf({ insider: false }),
+      availabilityOf({ insider: false, fundamental: false }),
     );
-    expect(omittedBuckets).toEqual(['insider']);
+    expect(omittedBuckets).toEqual(['insider', 'fundamental']);
     expect(effectiveWeights.insider).toBe(0);
+    expect(effectiveWeights.fundamental).toBe(0);
     // 가용 7버킷 가중치 합 = 1.0
     expect(sum(effectiveWeights)).toBeCloseTo(1.0, 10);
     // 기존 7버킷의 레거시 가중치(0.25/0.20/0.15/0.10/0.15/0.10/0.05)를 정확히 복원
@@ -106,6 +108,32 @@ describe('renormalizeWeights()', () => {
     }
   });
 
+  it('★DAR-100 회귀 0: fundamental 결측(only) → 기존 8버킷(DAR-88) 가중치를 정확히 복원', () => {
+    // fundamental 데이터만 미적재(insider 는 가용) 종목 재현.
+    const { effectiveWeights, omittedBuckets } = renormalizeWeights(
+      W,
+      availabilityOf({ fundamental: false }),
+    );
+    expect(omittedBuckets).toEqual(['fundamental']);
+    expect(effectiveWeights.fundamental).toBe(0);
+    // 가용 8버킷 가중치 합 = 1.0
+    expect(sum(effectiveWeights)).toBeCloseTo(1.0, 10);
+    // DAR-88 8버킷 가중치(레거시×0.95, insider=0.05)를 정확히 복원
+    const DAR88: Record<string, number> = {
+      disclosureEvent: 0.25 * 0.95,
+      keyMetric: 0.2 * 0.95,
+      personaFit: 0.15 * 0.95,
+      historicalEvent: 0.1 * 0.95,
+      chart: 0.15 * 0.95,
+      volumeLiquidity: 0.1 * 0.95,
+      marketSector: 0.05 * 0.95,
+      insider: 0.05,
+    };
+    for (const k of Object.keys(DAR88)) {
+      expect(effectiveWeights[k as BucketKey]).toBeCloseTo(DAR88[k], 10);
+    }
+  });
+
   it('단일 버킷만 가용 → 그 버킷 가중치 1.0', () => {
     const { effectiveWeights, omittedBuckets } = renormalizeWeights(
       W,
@@ -117,9 +145,10 @@ describe('renormalizeWeights()', () => {
         volumeLiquidity: false,
         marketSector: false,
         insider: false,
+        fundamental: false,
       }),
     );
-    expect(omittedBuckets.length).toBe(7);
+    expect(omittedBuckets.length).toBe(8);
     expect(effectiveWeights.disclosureEvent).toBeCloseTo(1.0, 10);
     expect(sum(effectiveWeights)).toBeCloseTo(1.0, 10);
   });
@@ -179,6 +208,14 @@ describe('detectBucketAvailability()', () => {
         },
       ],
     },
+    fundamental: {
+      growth: {
+        revenueGrowthYoY: 20,
+        operatingProfitGrowthYoY: 15,
+        epsGrowthYoY: 10,
+      },
+      filedFacts: { contractToSalesRatio: 30, dilutionRate: null },
+    },
   };
 
   it('전버킷 데이터 완비 → 모두 available', () => {
@@ -192,6 +229,7 @@ describe('detectBucketAvailability()', () => {
       volumeLiquidity: true,
       marketSector: true,
       insider: true,
+      fundamental: true,
     });
   });
 
@@ -314,5 +352,54 @@ describe('detectBucketAvailability()', () => {
       },
     });
     expect(a.insider).toBe(true);
+  });
+
+  it('DAR-100: 성장률·본문 정량값 전무 → fundamental 결측', () => {
+    const a = detectBucketAvailability({
+      ...fullInput,
+      fundamental: { growth: null, filedFacts: null },
+    });
+    expect(a.fundamental).toBe(false);
+  });
+
+  it('DAR-100: 성장률 전필드 null + 정량값 전필드 null → fundamental 결측', () => {
+    const a = detectBucketAvailability({
+      ...fullInput,
+      fundamental: {
+        growth: {
+          revenueGrowthYoY: null,
+          operatingProfitGrowthYoY: null,
+          epsGrowthYoY: null,
+        },
+        filedFacts: { contractToSalesRatio: null, dilutionRate: null },
+      },
+    });
+    expect(a.fundamental).toBe(false);
+  });
+
+  it('DAR-100: 성장률 1필드라도 존재 → fundamental 가용', () => {
+    const a = detectBucketAvailability({
+      ...fullInput,
+      fundamental: {
+        growth: {
+          revenueGrowthYoY: 12,
+          operatingProfitGrowthYoY: null,
+          epsGrowthYoY: null,
+        },
+        filedFacts: null,
+      },
+    });
+    expect(a.fundamental).toBe(true);
+  });
+
+  it('DAR-100: 본문 정량값 1필드라도 존재 → fundamental 가용', () => {
+    const a = detectBucketAvailability({
+      ...fullInput,
+      fundamental: {
+        growth: null,
+        filedFacts: { contractToSalesRatio: null, dilutionRate: 8 },
+      },
+    });
+    expect(a.fundamental).toBe(true);
   });
 });

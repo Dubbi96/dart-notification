@@ -142,3 +142,32 @@
 | 12 | 공시 목록 이벤트유형 필터 + 무한스크롤 FlatList | high/medium | mobile | A 수집정보 활용 |
 
 **구동 순서(테제)**: #1 내부자 종단연결(적재자산 회수) → #2 AI큐 재시도(라이브 신뢰성) → #5 딥링크(행동 종착·small) → #3 보정 피드백 → #7 보정 화면 → #4 재무 시계열 → #6 Exit 정밀화 → #8 공시본문 정량 → #9 펀더멘털카드 → #12 공시필터 → #10 비용거버넌스 → #11 위험배지. (KRX 정밀 실데이터는 승인 후, 미국/코인은 M10 졸업 후.)
+
+> ✅ **패널 v4 #1~12 완료**(DAR-88~99). 후속은 아래 패널 v5 백로그.
+
+---
+
+## 상용 패널 v5 백로그 (2026-06-07, 5관점·29제안·★코드검증 종합)
+
+> 패널 v4 소진 후 재가동. ★MAIN THESIS 정렬. **핵심: 신호→모의→수익검증 폐루프의 약한 고리 닫기 + 사장 자산 신호 연결.**
+
+**코드검증된 핵심**:
+- signal-generation은 loadInsiderMap(DAR-88)만 있고 **financial-growth(DAR-93)·DartFiledFact(DAR-95) 로더·scorer 없음** → 수집·정규화된 자산이 신호 0건 반영(사장).
+- `prisma-simulation.adapter.ts:184~205` write 메서드(getBuyCandidates·openPosition·closePosition·saveDailySnapshot 등) **전부 unsupported throw** → 실 DB 모의진입 누적 불가(졸업 표본 차단).
+- 백테스트 진입판정 vs 라이브 selectBuyCandidates 경로 분기(일관성 골든 테스트 없음). e2e/freshness 모니터·terminus health 0.
+
+| # | 항목 | impact/effort | layer | 테제 |
+|---|---|---|---|---|
+| 1 | **재무성장률+DartFiledFact를 매수신호 scorer에 연결**(사장 자산 활성화) | high/medium | backend | ★A+B 폐루프 약한고리 |
+| 2 | 피처 A/B 백테스트 리포트(피처 포함 vs 미포함 적중률) | high/medium | backend | B(가중치 증거) |
+| 3 | PrismaSimulationAdapter write 실구현 + 신호→진입 퍼널 계측 | high/large | backend | ★B 졸업표본 누적 |
+| 4 | 백테스트↔라이브 스코어링 단일화 골든 테스트 | high/medium | backend | B(졸업 신뢰성) |
+| 5 | 데이터 신선도 모니터 + 크론 헬스(CronRunLog) | high/medium | backend | A 수집 안전망 |
+| 6 | 운영 헬스/메트릭 엔드포인트(terminus + 졸업지표 카운터) | medium/medium | backend | 안전·운영 |
+| 7 | engine4 Exit/논리훼손 단위테스트 보강 + 회귀 게이트 | medium/small | backend | B+안전(청산 신뢰) |
+| 8 | DartFiledFact 본문 정량값 모바일 공시 상세 '정량 근거 카드' | medium/medium | both | A 자산 노출 |
+| 9 | 폐루프 핵심경로 e2e(supertest) 신설 | medium/large | backend | B+안전(증거) |
+| 10 | 주문 화면 '준비중' 정직 표기 + 네비 가드 | medium/small | mobile | 안전·신뢰(과대약속 차단) |
+| 11 | [보류·KRX승인전제] KRX 종목상태 DART폴백+unknown/false 구분 | low/small | both | 안전(승인 비의존분만) |
+
+**구동 순서(테제)**: #1 사장자산 신호연결 → #2 A/B 백테스트(증거) → #7 Exit 단위테스트(small·안전) → #5 신선도 모니터 → #3 모의진입 영속화(졸업표본) → #4 스코어링 단일화 → #6 헬스 → #8 정량근거카드 → #10 주문화면 정직표기 → #9 e2e → #11 보류분. (KRX 정밀 실데이터 승인 후, 미국/코인 M10 졸업 후.)

@@ -5,7 +5,7 @@ import { SegmentedButtons } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
-import { spacing } from '@theme/spacing';
+import { spacing, radius } from '@theme/spacing';
 import { BuyScoreCard } from '@components/signals/BuyScoreCard';
 import { ExitScoreCard } from '@components/signals/ExitScoreCard';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
@@ -173,5 +173,18 @@ const styles = StyleSheet.create({
   },
   disclaimer: {
     marginTop: spacing.lg,
+  },
+  masterBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+  },
+  masterBannerText: {
+    flex: 1,
   },
 });

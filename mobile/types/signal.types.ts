@@ -2,7 +2,17 @@
 // ⚠️ 매수/매도 신호 엔드포인트는 아직 미존재(DAR-22). 이 계약은 화면/서비스가
 // 의존하는 형태를 고정하고, 실제 응답이 생기면 그대로 연동된다.
 
-export type SignalGrade = 'STRONG_BUY' | 'BUY' | 'WATCH' | 'BLOCKED';
+// 백엔드 SignalGrade enum 6단계와 1:1 대응(DAR-46). NEUTRAL/AVOID를 WATCH로 합치지 않는다.
+export type SignalGrade =
+  | 'STRONG_BUY'
+  | 'BUY'
+  | 'WATCH'
+  | 'NEUTRAL'
+  | 'AVOID'
+  | 'BLOCKED';
+
+/** 신호 정렬(DAR-46): 점수 내림차순 / 최신순 */
+export type SignalSort = 'score' | 'latest';
 
 export type ExitAction = 'HOLD' | 'WATCH' | 'REDUCE' | 'EXIT' | 'BLOCK_REBUY';
 
@@ -92,6 +102,14 @@ export interface SignalFilters {
   personaType?: string;
   grade?: SignalGrade;
   entryReady?: boolean;
+}
+
+/** 등급무관 탐색 필터(DAR-46) — 등급/페르소나/이벤트유형 미지정 시 전체. */
+export interface SignalExploreFilters {
+  grade?: SignalGrade;
+  personaType?: string;
+  eventType?: string;
+  sort?: SignalSort;
 }
 
 /** 이벤트 스터디 결과 — Prisma EventStudyResult 모델과 1:1 대응 */

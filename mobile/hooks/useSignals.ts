@@ -1,13 +1,37 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { signalService } from '@services/signal.service';
 import { eventStudyService } from '@services/event-study.service';
 
-import type { SignalFilters } from '@app-types/signal.types';
+import type { SignalFilters, SignalExploreFilters } from '@app-types/signal.types';
 
 export function useBuySignals(filters?: SignalFilters) {
   return useQuery({
     queryKey: ['signals', 'buy', filters?.personaType, filters?.grade, filters?.entryReady],
     queryFn: () => signalService.getBuySignals(filters),
+    retry: 1,
+  });
+}
+
+/**
+ * 등급무관 전체 시그널 탐색(DAR-46) — 무한스크롤(DAR-45 패턴 재사용).
+ * grade 미지정 시 전체 등급을 조회하며, 필터/정렬 변경은 queryKey로 새 조회를 트리거한다.
+ */
+export function useExploreSignals(filters: SignalExploreFilters) {
+  return useInfiniteQuery({
+    queryKey: [
+      'signals',
+      'explore',
+      filters.grade,
+      filters.personaType,
+      filters.eventType,
+      filters.sort,
+    ],
+    queryFn: ({ pageParam = 1 }) => signalService.getSignals(filters, pageParam, 20),
+    getNextPageParam: (lastPage) => {
+      if (lastPage.meta.page < (lastPage.meta.totalPages ?? 1)) return lastPage.meta.page + 1;
+      return undefined;
+    },
+    initialPageParam: 1,
     retry: 1,
   });
 }

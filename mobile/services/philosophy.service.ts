@@ -5,6 +5,7 @@ import type {
   Philosophy,
   PhilosophyFitResult,
   CompanyPhilosophyFit,
+  CompanyPersonaPhilosophyFusion,
 } from '@app-types/philosophy.types';
 
 import { api } from './api';
@@ -32,5 +33,17 @@ export const philosophyService = {
       .get<ApiResponse<CompanyPhilosophyFit>>(`/companies/${corpCode}/philosophy-fit`, {
         params: { ...(fsDiv && { fsDiv }) },
       })
+      .then((r) => r.data.data),
+
+  /**
+   * 종목 × 거장 철학 × AI 관점 결합(P-C, DAR-72/82).
+   * 신규 AI 호출 0 — 저장된 personaViews + 철학 적합도(Rule)만 결합한다.
+   */
+  getCompanyFusion: (corpCode: string, fsDiv?: string) =>
+    api
+      .get<ApiResponse<CompanyPersonaPhilosophyFusion>>(
+        `/companies/${corpCode}/persona-philosophy-fusion`,
+        { params: { ...(fsDiv && { fsDiv }) } },
+      )
       .then((r) => r.data.data),
 };

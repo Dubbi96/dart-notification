@@ -13,10 +13,11 @@ import { EvidenceMeta } from '@components/common/EvidenceMeta';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { PhilosophyFitBreakdown } from '@components/philosophy/PhilosophyFitBreakdown';
+import { PersonaPhilosophyFusionList } from '@components/company/PersonaPhilosophyFusionList';
 import { useCompanyDetail } from '@hooks/useCompanyDetail';
 import { useDisclosureEvent } from '@hooks/useDisclosures';
 import { useCompanyBuySignal } from '@hooks/useSignals';
-import { useCompanyPhilosophyFit } from '@hooks/usePhilosophies';
+import { useCompanyPhilosophyFit, useCompanyPersonaPhilosophyFusion } from '@hooks/usePhilosophies';
 import { getEventTypeLabel, getPolarityLabel, getTypeLabel } from '@utils/disclosureType';
 import { gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
 import { extractKeyFigures } from '@utils/keyFigures';
@@ -128,6 +129,7 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
   const { data: disclosureEvent } = useDisclosureEvent(latestRcpNo);
   const { data: buySignal } = useCompanyBuySignal(corpCode);
   const { data: philosophyFit } = useCompanyPhilosophyFit(corpCode);
+  const { data: fusion } = useCompanyPersonaPhilosophyFusion(corpCode);
 
   const keyFigures = useMemo(
     () => extractKeyFigures(disclosureEvent?.extractedData),
@@ -160,6 +162,10 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
   const fits = philosophyFit?.fits ?? [];
   const philosophyBasis = philosophyFit?.financialBasis;
   const buySampleN = topBreakdown.find((c) => c.sampleN != null)?.sampleN;
+
+  const fusions = fusion?.fusions ?? [];
+  const computableFusions = fusions.filter((f) => f.computable);
+  const topFusion = computableFusions[0];
 
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
@@ -374,7 +380,41 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
         )}
       </CollapsibleSection>
 
-      {/* ⑤ CTA "모의 매수 검토" — 현 모의운용 연계(실주문 아님) */}
+      {/* ⑤ P-C 결합 — 거장 철학(Rule) × AI 관점 결합점수·근거·표본·신뢰도(DAR-72/82) */}
+      <CollapsibleSection
+        icon="git-merge"
+        title="거장철학 × AI 결합"
+        summary={
+          topFusion
+            ? `${topFusion.investorName} ${Math.round(topFusion.fusionScore ?? 0)}점 등 ${computableFusions.length}건`
+            : '결합 결과 없음'
+        }
+        defaultExpanded={computableFusions.length > 0}
+      >
+        {computableFusions.length > 0 ? (
+          <>
+            {fusion?.aiBasis || fusion?.financialBasis ? (
+              <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.xs }]}>
+                거장 철학(Rule) × 저장된 AI 관점 결합 · 결합점수 높은 순
+              </Text>
+            ) : null}
+            <PersonaPhilosophyFusionList fusions={computableFusions} />
+            <View style={styles.aiFooter}>
+              <AiReferenceLabel />
+            </View>
+          </>
+        ) : (
+          <MissingNote
+            text={
+              fusion?.noFinancials
+                ? '재무 데이터가 아직 없어 거장철학×AI 결합을 산출할 수 없습니다.'
+                : 'AI 관점 또는 철학 적합도가 아직 없어 결합 결과가 없습니다.'
+            }
+          />
+        )}
+      </CollapsibleSection>
+
+      {/* ⑥ CTA "모의 매수 검토" — 현 모의운용 연계(실주문 아님) */}
       <TouchableOpacity
         activeOpacity={0.85}
         onPress={() => router.push('/(tabs)/portfolio')}

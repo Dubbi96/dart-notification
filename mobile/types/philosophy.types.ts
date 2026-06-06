@@ -99,3 +99,59 @@ export interface PhilosophyFitResult {
   noFinancials: boolean;
   fit: PhilosophyFitScore | null;
 }
+
+// ─── P-C 결합(거장 철학 × AI 관점) — DAR-72 백엔드 계약 1:1 반영 (DAR-82) ───
+// 신규 AI 호출 0: 저장된 personaViews + 철학 적합도(Rule)만 결합한다.
+
+/** AI persona-interpretation(L2) 성향 키 */
+export type AiPersonaKey = 'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE' | 'EVENT_DRIVEN';
+
+/** AI 뷰 레이블(이산화 결과) */
+export type PersonaViewLabel = 'POSITIVE' | 'WATCH' | 'NEUTRAL' | 'NEGATIVE';
+
+/** 결합 신뢰도(DAR-56 신뢰규약: 근거·표본·신뢰도 동반) */
+export interface FusionConfidence {
+  level: 'HIGH' | 'MEDIUM' | 'LOW';
+  /** 0~1 — 두 축의 커버리지 가중 */
+  value: number;
+  /** 표본 수 = AI 뷰 가용(0|1) + 평가된 철학 지표 수 */
+  sampleCount: number;
+}
+
+/** 거장 철학 × AI 관점 결합 결과 1건 */
+export interface PersonaPhilosophyFusion {
+  philosophyId: string;
+  investorName: string;
+  /** 철학 스타일 → 대응시킨 AI persona */
+  mappedPersona: AiPersonaKey;
+  /** persona-fit 입력으로 쓴 AI 뷰 레이블·텍스트(설명용) */
+  personaView: {
+    view: PersonaViewLabel | null;
+    available: boolean;
+    interpretation: string | null;
+  };
+  /** persona-fit Rule 점수 0~100. 미가용 시 null */
+  personaFitScore: number | null;
+  /** philosophy-fit Rule 점수 0~100. 미가용 시 null */
+  philosophyScore: number | null;
+  /** 결합점수 0~100(Rule 가중·재정규화). 두 축 모두 결측이면 null */
+  fusionScore: number | null;
+  /** 결합점수 산출 가능 여부 */
+  computable: boolean;
+  confidence: FusionConfidence;
+  /** 근거(설명) */
+  basis: string[];
+}
+
+/** 종목 × 거장 철학 × AI 관점 결합(전체 거장) */
+export interface CompanyPersonaPhilosophyFusion {
+  corpCode: string;
+  /** 철학 적합도 산정에 쓴 재무 스냅샷 메타(없으면 null) */
+  financialBasis: FinancialBasis | null;
+  /** 재무 결측(철학 축 전부 미가용) */
+  noFinancials: boolean;
+  /** AI 관점 산출물 출처(없으면 null) */
+  aiBasis: { rcpNo: string; createdAt: string } | null;
+  /** 거장별 결합 결과(결합점수 내림차순; computable=false 후순위) */
+  fusions: PersonaPhilosophyFusion[];
+}

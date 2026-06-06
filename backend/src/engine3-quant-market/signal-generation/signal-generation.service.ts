@@ -18,11 +18,54 @@ import {
   BuySignalResult,
 } from '../buy-signal/buy-signal.service';
 import { PERSONA_TYPES, PersonaType } from '../buy-signal/config/buy-signal.config';
-import { derivePersonaViews } from './persona-view.rule';
+import { derivePersonaViews, ImpactMagnitude } from './persona-view.rule';
 import {
   classifyBucket,
   EventExtractedData,
 } from '../event-study/utils/bucket-classifier';
+
+/**
+ * 이벤트 임팩트 규모(상대비율 우선·절대금액 폴백) 산출 (DAR-79).
+ *
+ * - SHARE_BUYBACK: buybackRatioToSales(취득금액/매출) 우선. 추출값 결측 시 CompanyFinancial.revenue로
+ *   재계산(buybackAmount/revenue*100). 둘 다 없으면 절대 취득금액 폴백.
+ * - SUPPLY_CONTRACT: salesRatio(계약금액/매출) 우선, 결측 시 절대 계약금액 폴백.
+ * - 그 외 이벤트: 규모 미반영(undefined) → persona-view 기존 동작 유지(회귀 0).
+ *
+ * 신규 외부 수집 없음 — 기존 추출값(extractedData)·CompanyFinancial.revenue만 활용.
+ */
+function deriveImpactMagnitude(
+  eventType: string,
+  extractedData: Record<string, number | string | null>,
+  revenue: number | null,
+): ImpactMagnitude | undefined {
+  const numOf = (v: number | string | null | undefined): number | null => {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    return isFinite(n) ? n : null;
+  };
+
+  switch (eventType) {
+    case 'SHARE_BUYBACK': {
+      const amount = numOf(extractedData['buybackAmount']);
+      let ratio = numOf(extractedData['buybackRatioToSales']);
+      // 추출값 결측 시 CompanyFinancial.revenue로 정규화 비율 보강
+      if (ratio === null && amount !== null && revenue !== null && revenue > 0) {
+        ratio = Math.round((amount / revenue) * 100 * 100) / 100;
+      }
+      if (ratio === null && amount === null) return undefined;
+      return { relativeRatio: ratio, absoluteAmount: amount };
+    }
+    case 'SUPPLY_CONTRACT': {
+      const amount = numOf(extractedData['contractAmount']);
+      const ratio = numOf(extractedData['salesRatio']);
+      if (ratio === null && amount === null) return undefined;
+      return { relativeRatio: ratio, absoluteAmount: amount };
+    }
+    default:
+      return undefined;
+  }
+}
 
 /**
  * EventStudyResult 에서 historical-event 채점에 쓰는 통계 신호 묶음 (DAR-70).
@@ -175,6 +218,10 @@ export class SignalGenerationService {
       const summaryMap = await this.loadSummaryMap(
         candidates.map((c) => c.rcpNo),
       );
+      // DAR-79: 취득금액 매출 대비 정규화용 corpCode→매출 맵 (기존 CompanyFinancial 활용, 신규 수집 0)
+      const revenueMap = await this.loadRevenueMap(
+        candidates.map((c) => c.corpCode),
+      );
       const stockCtxCache = new Map<string, StockContext>();
 
       for (const ev of candidates) {
@@ -205,6 +252,7 @@ export class SignalGenerationService {
             marketCtx,
             esrStats,
             summaryMap.get(ev.rcpNo),
+            revenueMap.get(ev.corpCode) ?? null,
           );
           const result = this.buySignal.computeBuyScore(params);
 
@@ -462,6 +510,42 @@ export class SignalGenerationService {
     return map;
   }
 
+  /**
+   * corpCode → 최신 매출(CompanyFinancial.revenue) 맵 (DAR-79).
+   *
+   * 취득금액 매출 대비 정규화에 사용. 신규 외부 수집 없이 기존 적재 재무만 활용한다.
+   * 연간 보고서(reprtCode=11011)·연결(CFS) 우선, 가장 최근 사업연도(bsnsYear) 값을 채택.
+   * 재무 미적재·revenue null·조회 오류는 graceful 폴백(맵 미수록 → 절대금액 폴백).
+   */
+  private async loadRevenueMap(
+    corpCodes: string[],
+  ): Promise<Map<string, number>> {
+    const map = new Map<string, number>();
+    const uniq = Array.from(new Set(corpCodes));
+    if (uniq.length === 0) return map;
+    try {
+      const rows = await this.prisma.companyFinancial.findMany({
+        where: { corpCode: { in: uniq }, revenue: { not: null } },
+        select: { corpCode: true, bsnsYear: true, reprtCode: true, revenue: true },
+        // 연간(11011) → 최신 사업연도 우선. 동일 corpCode는 첫 행 채택.
+        orderBy: [{ bsnsYear: 'desc' }, { reprtCode: 'asc' }],
+      });
+      for (const r of rows) {
+        if (map.has(r.corpCode)) continue; // 가장 최신·우선 보고서만 채택
+        const rev = r.revenue == null ? null : Number(r.revenue);
+        if (rev !== null && isFinite(rev) && rev > 0) {
+          map.set(r.corpCode, rev);
+        }
+      }
+    } catch (err) {
+      // 재무 테이블 부재/조회 실패 시 정규화 비율 없이 절대금액 폴백 (회귀 없이 graceful)
+      this.logger.warn(
+        `[SignalGen] 매출 맵 로드 실패 — 절대금액 폴백: ${(err as Error).message}`,
+      );
+    }
+    return map;
+  }
+
   /** DB 컨텍스트 → BuyScoreParams 조립 */
   private buildParams(
     ev: {
@@ -478,6 +562,7 @@ export class SignalGenerationService {
     m: MarketContext,
     esrStats: EventStudyStats | null,
     signalSummary: string | undefined,
+    revenue: number | null,
   ): BuyScoreParams {
     const extractedData =
       ev.extractedData && typeof ev.extractedData === 'object' && !Array.isArray(ev.extractedData)
@@ -491,6 +576,10 @@ export class SignalGenerationService {
           ? Number(dilutionRaw)
           : null;
 
+    // DAR-79: 매수/임팩트 판단에 절대 금액이 아닌 규모 정규화 비율을 우선 반영.
+    //   결측 시 절대 금액 폴백 → persona-view 강도 보정에 사용.
+    const impact = deriveImpactMagnitude(ev.eventType, extractedData, revenue);
+
     return {
       rcpNo: ev.rcpNo,
       corpCode: ev.corpCode,
@@ -499,7 +588,7 @@ export class SignalGenerationService {
       disclosureEvent: { eventType: ev.eventType, polarity: ev.polarity },
       keyMetric: { eventType: ev.eventType, extractedData },
       personaFitInput: {
-        personaViews: derivePersonaViews(ev.eventType, ev.polarity),
+        personaViews: derivePersonaViews(ev.eventType, ev.polarity, impact),
         userPersona: persona,
       },
       historicalEvent: esrStats

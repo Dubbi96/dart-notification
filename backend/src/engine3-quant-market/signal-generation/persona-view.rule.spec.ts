@@ -49,4 +49,72 @@ describe('derivePersonaViews (DAR-41)', () => {
       }
     }
   });
+
+  // DAR-79: 매수/임팩트 판단에 절대 금액이 아닌 규모 정규화 비율을 우선 반영
+  describe('임팩트 규모 보정 (DAR-79)', () => {
+    const valueOf = (vs: ReturnType<typeof derivePersonaViews>, p: string) =>
+      vs.find((v) => v.persona === p)?.view;
+
+    it('impact 미지정 → 기존 동작 그대로(회귀 0): VALUE 가 자기주식취득에 POSITIVE', () => {
+      const withImpact = derivePersonaViews('SHARE_BUYBACK', 'POSITIVE');
+      const noImpact = derivePersonaViews('SHARE_BUYBACK', 'POSITIVE', undefined);
+      expect(valueOf(withImpact, 'VALUE')).toBe('POSITIVE');
+      expect(noImpact).toEqual(withImpact);
+    });
+
+    it('상대비율이 미미(<1%)하면 우호 긍정 view 를 POSITIVE→WATCH 로 보정', () => {
+      const views = derivePersonaViews('SHARE_BUYBACK', 'POSITIVE', {
+        relativeRatio: 0.3, // 0.3% — 규모 미미
+        absoluteAmount: 50_000_000_000, // 절대 금액은 크지만 비율 우선
+      });
+      expect(valueOf(views, 'VALUE')).toBe('WATCH');
+    });
+
+    it('상대비율이 유의(≥1%)하면 POSITIVE 유지', () => {
+      const views = derivePersonaViews('SHARE_BUYBACK', 'POSITIVE', {
+        relativeRatio: 5,
+        absoluteAmount: 1_000_000,
+      });
+      expect(valueOf(views, 'VALUE')).toBe('POSITIVE');
+    });
+
+    it('비율 결측 시 절대 금액으로 폴백: 큰 금액 → POSITIVE 유지', () => {
+      const views = derivePersonaViews('SHARE_BUYBACK', 'POSITIVE', {
+        relativeRatio: null,
+        absoluteAmount: 10_000_000_000, // 100억 ≥ 임계치
+      });
+      expect(valueOf(views, 'VALUE')).toBe('POSITIVE');
+    });
+
+    it('비율 결측 + 절대 금액도 미미 → WATCH 로 보정', () => {
+      const views = derivePersonaViews('SHARE_BUYBACK', 'POSITIVE', {
+        relativeRatio: null,
+        absoluteAmount: 100_000_000, // 1억 < 임계치(10억)
+      });
+      expect(valueOf(views, 'VALUE')).toBe('WATCH');
+    });
+
+    it('비율·절대 금액 모두 결측 → 규모 미반영(기존 POSITIVE 유지)', () => {
+      const views = derivePersonaViews('SHARE_BUYBACK', 'POSITIVE', {
+        relativeRatio: null,
+        absoluteAmount: null,
+      });
+      expect(valueOf(views, 'VALUE')).toBe('POSITIVE');
+    });
+
+    it('비우호 persona(GROWTH의 SHARE_BUYBACK)는 규모와 무관하게 WATCH 그대로', () => {
+      const low = derivePersonaViews('SHARE_BUYBACK', 'POSITIVE', { relativeRatio: 0.1 });
+      const high = derivePersonaViews('SHARE_BUYBACK', 'POSITIVE', { relativeRatio: 50 });
+      expect(valueOf(low, 'GROWTH')).toBe('WATCH');
+      expect(valueOf(high, 'GROWTH')).toBe('WATCH');
+    });
+
+    it('NEGATIVE polarity 에는 임팩트 보정이 영향을 주지 않는다', () => {
+      const base = derivePersonaViews('PAID_IN_CAPITAL_INCREASE', 'NEGATIVE');
+      const withImpact = derivePersonaViews('PAID_IN_CAPITAL_INCREASE', 'NEGATIVE', {
+        relativeRatio: 0.1,
+      });
+      expect(withImpact).toEqual(base);
+    });
+  });
 });

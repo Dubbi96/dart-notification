@@ -18,6 +18,7 @@ import {
   SignalAccuracyReport,
   SignalRealizedReturn,
 } from './signal-accuracy';
+import { buildCalibrationReport, CalibrationReport } from './calibration';
 
 const KOSPI_CODE = '0001';
 const KOSDAQ_CODE = '1001';
@@ -85,6 +86,16 @@ export class SignalAccuracyService {
     }
 
     return buildSignalAccuracyReport(returns);
+  }
+
+  /**
+   * 신호 보정 루프 리포트(DAR-83): 실현 초과수익 vs EVENT_BASE_SCORES 괴리·권장 delta.
+   * ★ read-only — getSignalAccuracy 의 집계를 buildCalibrationReport 로 권고값(diff)으로 변환만 한다.
+   *   상수를 자동 변경하지 않는다(사람 PR 전용).
+   */
+  async getCalibration(params: SignalAccuracyParams = {}): Promise<CalibrationReport> {
+    const accuracy = await this.getSignalAccuracy(params);
+    return buildCalibrationReport(accuracy);
   }
 
   /**

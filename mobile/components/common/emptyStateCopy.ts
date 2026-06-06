@@ -58,6 +58,12 @@ export const emptyStateCopy = {
     title: '선택한 조건에 맞는 신호가 없어요',
     actionLabel: '필터 초기화',
   },
+  // 분석 탐색 (전체 신호 없음 — 표본/분석 대기)
+  signalsExploreEmpty: {
+    icon: 'compass',
+    title: '아직 분석할 신호가 없어요',
+    description: '새 공시가 분석되면 등급과 점수가 여기에 쌓여요',
+  },
   // 포트폴리오 (포지션 없음)
   portfolioEmpty: {
     icon: 'briefcase',

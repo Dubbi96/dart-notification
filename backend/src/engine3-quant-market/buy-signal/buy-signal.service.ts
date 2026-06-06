@@ -41,6 +41,12 @@ import {
   EntryConditionInput,
   evaluateEntryConditions,
 } from './entry/entry-condition.evaluator';
+import {
+  BucketAvailability,
+  BucketKey,
+  detectBucketAvailability,
+  renormalizeWeights,
+} from './scoring/bucket-renormalization';
 
 export type SignalGrade =
   | 'STRONG_BUY_CANDIDATE'
@@ -94,6 +100,10 @@ export interface BuySignalResult {
   entryConditionUnmet: string[];
   entryReady: boolean;
   riskFactors: string[];
+  /** 버킷별 데이터 가용 여부 (DAR-49) — 후속 "미생성 사유 배지"(백로그#7)에서 활용 */
+  dataAvailability: BucketAvailability;
+  /** 결측으로 가중치 재정규화에서 제외된 버킷 목록 (DAR-49) */
+  omittedBuckets: BucketKey[];
   signalSummary?: string;
   blockedReason?: string;
   validUntil?: Date;
@@ -117,6 +127,15 @@ function clamp(value: number, min: number, max: number): number {
 export class BuySignalService {
   computeBuyScore(params: BuyScoreParams): BuySignalResult {
     const penalty = scoreRiskPenalty(params.riskPenalty);
+
+    // 결측 버킷 판별 (DAR-49) — BLOCKED 경로에서도 결과에 표기
+    const availability = detectBucketAvailability({
+      chart: params.chart,
+      historicalEvent: params.historicalEvent,
+      volumeLiquidity: params.volumeLiquidity,
+      marketSector: params.marketSector,
+      personaFit: params.personaFitInput,
+    });
 
     // 하드 차단 → BLOCKED 즉시 반환
     if (!isFinite(penalty)) {
@@ -144,6 +163,10 @@ export class BuySignalService {
         entryConditionUnmet: entry.unmet,
         entryReady: false,
         riskFactors: ['매매 불가 종목 조건'],
+        dataAvailability: availability,
+        omittedBuckets: (Object.keys(availability) as BucketKey[]).filter(
+          (k) => !availability[k],
+        ),
         blockedReason: '거래정지·관리종목·투자주의·이상급등·차단 이벤트 타입',
         signalSummary: params.signalSummary,
         validUntil: params.validUntil,
@@ -162,14 +185,21 @@ export class BuySignalService {
       marketSector:    scoreMarketSector(params.marketSector),
     };
 
+    // 결측 버킷 제외 후 가용 버킷 가중치를 합=1.0 으로 재정규화 (DAR-49).
+    // 전버킷 가용 시 기존 가중치 그대로 → 산식 의미 비트단위 보존(회귀 0).
+    const { effectiveWeights, omittedBuckets } = renormalizeWeights(
+      { ...W },
+      availability,
+    );
+
     const weightedSum =
-      W.disclosureEvent * breakdown.disclosureEvent +
-      W.keyMetric       * breakdown.keyMetric +
-      W.personaFit      * breakdown.personaFit +
-      W.historicalEvent * breakdown.historicalEvent +
-      W.chart           * breakdown.chart +
-      W.volumeLiquidity * breakdown.volumeLiquidity +
-      W.marketSector    * breakdown.marketSector;
+      effectiveWeights.disclosureEvent * breakdown.disclosureEvent +
+      effectiveWeights.keyMetric       * breakdown.keyMetric +
+      effectiveWeights.personaFit      * breakdown.personaFit +
+      effectiveWeights.historicalEvent * breakdown.historicalEvent +
+      effectiveWeights.chart           * breakdown.chart +
+      effectiveWeights.volumeLiquidity * breakdown.volumeLiquidity +
+      effectiveWeights.marketSector    * breakdown.marketSector;
 
     const buyScore = Math.round(clamp(weightedSum - penalty, -100, 100));
     const signal = mapScoreToGrade(buyScore);
@@ -198,6 +228,8 @@ export class BuySignalService {
       entryConditionUnmet: entry.unmet,
       entryReady: entry.entryReady,
       riskFactors,
+      dataAvailability: availability,
+      omittedBuckets,
       signalSummary: params.signalSummary,
       validUntil: params.validUntil,
       computedAt: new Date(),

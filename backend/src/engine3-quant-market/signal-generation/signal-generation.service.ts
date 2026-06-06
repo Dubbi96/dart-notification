@@ -23,6 +23,8 @@ import { derivePersonaViews } from './persona-view.rule';
 export interface SignalGenerationSummary {
   candidates: number;
   created: number;
+  /** 재채점으로 갱신된 기존 신호 수 (regenerate 모드, DAR-50) */
+  updated: number;
   skipped: number;
   gradeDist: Record<string, number>;
   triggeredBy: string;
@@ -80,12 +82,14 @@ export class SignalGenerationService {
   async generateMissingSignals(
     triggeredBy: 'CRON' | 'MANUAL' = 'MANUAL',
     personas: readonly PersonaType[] = PERSONA_TYPES,
+    overwrite = false,
   ): Promise<SignalGenerationSummary> {
     if (this.isRunning) {
       this.logger.warn('[SignalGen] 신호 생성이 이미 진행 중입니다.');
       return {
         candidates: 0,
         created: 0,
+        updated: 0,
         skipped: 0,
         gradeDist: {},
         triggeredBy,
@@ -95,10 +99,13 @@ export class SignalGenerationService {
     this.isRunning = true;
     const gradeDist: Record<string, number> = {};
     let created = 0;
+    let updated = 0;
     let skipped = 0;
 
     try {
-      this.logger.log(`[SignalGen] 신호 생성 시작 [${triggeredBy}]`);
+      this.logger.log(
+        `[SignalGen] 신호 ${overwrite ? '재생성(재채점)' : '생성'} 시작 [${triggeredBy}]`,
+      );
 
       // 1. 시세(StockDailyPrice) 보유 종목 집합
       const pricedStocks = await this.prisma.stockDailyPrice.findMany({
@@ -125,7 +132,7 @@ export class SignalGenerationService {
 
       if (candidates.length === 0) {
         this.logger.log('[SignalGen] 대상 공시 없음 (이벤트+시세 교집합 0)');
-        return { candidates: 0, created: 0, skipped: 0, gradeDist, triggeredBy };
+        return { candidates: 0, created: 0, updated: 0, skipped: 0, gradeDist, triggeredBy };
       }
 
       // 3. 멱등: 기존 (rcpNo, persona) 집합
@@ -160,7 +167,10 @@ export class SignalGenerationService {
 
         for (const persona of personas) {
           const key = `${ev.rcpNo}::${persona}`;
-          if (existingSet.has(key)) {
+          const exists = existingSet.has(key);
+          // 신규생성 모드(overwrite=false)에서는 기존 신호 스킵(멱등).
+          // 재생성 모드(overwrite=true)에서는 기존 신호를 재채점하여 갱신.
+          if (exists && !overwrite) {
             skipped++;
             continue;
           }
@@ -176,11 +186,19 @@ export class SignalGenerationService {
           const result = this.buySignal.computeBuyScore(params);
 
           try {
-            await this.prisma.tradingSignal.create({
-              data: this.toCreateData(result),
-            });
-            created++;
-            existingSet.add(key);
+            if (exists) {
+              await this.prisma.tradingSignal.update({
+                where: { rcpNo_persona: { rcpNo: ev.rcpNo, persona } },
+                data: this.toUpdateData(result),
+              });
+              updated++;
+            } else {
+              await this.prisma.tradingSignal.create({
+                data: this.toCreateData(result),
+              });
+              created++;
+              existingSet.add(key);
+            }
             gradeDist[result.signal] = (gradeDist[result.signal] ?? 0) + 1;
           } catch (err) {
             // 동시 생성 등으로 (rcpNo, persona) 유니크 충돌 → 멱등 스킵
@@ -197,11 +215,12 @@ export class SignalGenerationService {
       }
 
       this.logger.log(
-        `[SignalGen] 완료 candidates=${candidates.length} created=${created} skipped=${skipped} dist=${JSON.stringify(gradeDist)}`,
+        `[SignalGen] 완료 candidates=${candidates.length} created=${created} updated=${updated} skipped=${skipped} dist=${JSON.stringify(gradeDist)}`,
       );
       return {
         candidates: candidates.length,
         created,
+        updated,
         skipped,
         gradeDist,
         triggeredBy,
@@ -209,6 +228,19 @@ export class SignalGenerationService {
     } finally {
       this.isRunning = false;
     }
+  }
+
+  /**
+   * 신호 재생성·재채점 (DAR-50).
+   * 기존 (rcpNo, persona) 신호를 재계산하여 upsert(갱신)한다. 누락 신호는 신규 생성.
+   * TI 백필 후 chart·entryReady 반영이 파생 trading_signals 에 반영되도록 한다.
+   * 사용자 데이터(주가·공시) 무변경 — 파생 신호만 갱신.
+   */
+  async regenerateSignals(
+    triggeredBy: 'CRON' | 'MANUAL' = 'MANUAL',
+    personas: readonly PersonaType[] = PERSONA_TYPES,
+  ): Promise<SignalGenerationSummary> {
+    return this.generateMissingSignals(triggeredBy, personas, true);
   }
 
   /** 종목별 최신 시세·지표·상태 컨텍스트 */
@@ -396,6 +428,27 @@ export class SignalGenerationService {
       eventType: r.eventType,
       subCategory: r.subCategory ?? null,
       persona: r.persona,
+      buyScore: r.buyScore,
+      signal: r.signal as SignalGrade,
+      scoreBreakdown: r.scoreBreakdown as unknown as Prisma.InputJsonValue,
+      riskPenalty: Math.round(r.riskPenalty),
+      entryConditionMet: r.entryConditionMet,
+      entryConditionUnmet: r.entryConditionUnmet,
+      entryReady: r.entryReady,
+      riskFactors: r.riskFactors,
+      signalSummary: r.signalSummary ?? null,
+      blockedReason: r.blockedReason ?? null,
+      validUntil: r.validUntil ?? null,
+    };
+  }
+
+  /** BuySignalResult → TradingSignal update payload (재채점, 자연키 불변) */
+  private toUpdateData(
+    r: BuySignalResult,
+  ): Prisma.TradingSignalUncheckedUpdateInput {
+    return {
+      eventType: r.eventType,
+      subCategory: r.subCategory ?? null,
       buyScore: r.buyScore,
       signal: r.signal as SignalGrade,
       scoreBreakdown: r.scoreBreakdown as unknown as Prisma.InputJsonValue,

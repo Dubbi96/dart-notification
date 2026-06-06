@@ -2,7 +2,29 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SignalGrade, ExitAction, Prisma } from '@prisma/client';
 
-type MobileGrade = 'STRONG_BUY' | 'BUY' | 'WATCH' | 'BLOCKED';
+// 등급무관 탐색(DAR-46): 백엔드 6단계 enum을 모바일에 1:1로 노출한다.
+// 기존엔 NEUTRAL/AVOID/WATCH를 'WATCH'로 합쳐 등급 칩·필터가 무의미해졌으므로,
+// 전 등급을 보존해 탐색 화면이 등급별로 변별·필터·표시할 수 있게 한다.
+type MobileGrade =
+  | 'STRONG_BUY'
+  | 'BUY'
+  | 'WATCH'
+  | 'NEUTRAL'
+  | 'AVOID'
+  | 'BLOCKED';
+
+/** 모바일 등급값 → Prisma SignalGrade enum (필터 where 절 역매핑) */
+const MOBILE_GRADE_TO_ENUM: Record<MobileGrade, SignalGrade> = {
+  STRONG_BUY: SignalGrade.STRONG_BUY_CANDIDATE,
+  BUY: SignalGrade.BUY_CANDIDATE,
+  WATCH: SignalGrade.WATCH,
+  NEUTRAL: SignalGrade.NEUTRAL,
+  AVOID: SignalGrade.AVOID,
+  BLOCKED: SignalGrade.BLOCKED,
+};
+
+/** 신호 정렬 옵션(DAR-46): 점수 내림차순 / 최신순 */
+export type SignalSort = 'score' | 'latest';
 
 const SCORE_BREAKDOWN_MAX: Record<string, number> = {
   disclosureEvent: 25,
@@ -37,14 +59,29 @@ function mapGrade(grade: SignalGrade): MobileGrade {
       return 'STRONG_BUY';
     case SignalGrade.BUY_CANDIDATE:
       return 'BUY';
-    case SignalGrade.BLOCKED:
-      return 'BLOCKED';
     case SignalGrade.WATCH:
-    case SignalGrade.NEUTRAL:
-    case SignalGrade.AVOID:
-    default:
       return 'WATCH';
+    case SignalGrade.NEUTRAL:
+      return 'NEUTRAL';
+    case SignalGrade.AVOID:
+      return 'AVOID';
+    case SignalGrade.BLOCKED:
+    default:
+      return 'BLOCKED';
   }
+}
+
+/** 모바일 등급값(또는 raw enum)을 Prisma enum으로 정규화. 미인식 값은 undefined → 필터 미적용. */
+function resolveGradeFilter(grade?: string): SignalGrade | undefined {
+  if (!grade) return undefined;
+  if (grade in MOBILE_GRADE_TO_ENUM) {
+    return MOBILE_GRADE_TO_ENUM[grade as MobileGrade];
+  }
+  // raw enum 값(STRONG_BUY_CANDIDATE 등)도 하위호환으로 허용
+  if ((Object.values(SignalGrade) as string[]).includes(grade)) {
+    return grade as SignalGrade;
+  }
+  return undefined;
 }
 
 function mapScoreBreakdown(
@@ -148,24 +185,43 @@ export class SignalsService {
   async findAll(filters: {
     grade?: string;
     personaType?: string;
+    eventType?: string;
     entryReady?: boolean;
+    sort?: SignalSort;
     page?: number;
     limit?: number;
   }) {
-    const { grade, personaType, entryReady, page = 1, limit = 20 } = filters;
+    const {
+      grade,
+      personaType,
+      eventType,
+      entryReady,
+      sort = 'latest',
+      page = 1,
+      limit = 20,
+    } = filters;
+
+    const gradeEnum = resolveGradeFilter(grade);
 
     const where: Prisma.TradingSignalWhereInput = {
-      ...(grade && { signal: grade as SignalGrade }),
+      ...(gradeEnum && { signal: gradeEnum }),
       ...(personaType && { persona: personaType }),
+      ...(eventType && { eventType }),
       ...(entryReady !== undefined && { entryReady }),
     };
+
+    // 정렬(DAR-46): 점수순은 동점 시 최신순으로 안정화. 기본은 최신순.
+    const orderBy: Prisma.TradingSignalOrderByWithRelationInput[] =
+      sort === 'score'
+        ? [{ buyScore: 'desc' }, { createdAt: 'desc' }]
+        : [{ createdAt: 'desc' }];
 
     const [signals, total] = await Promise.all([
       this.prisma.tradingSignal.findMany({
         where,
         skip: (page - 1) * limit,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         include: {
           company: {
             select: { corpCode: true, corpName: true, stockCode: true },

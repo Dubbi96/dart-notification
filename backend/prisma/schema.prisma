@@ -4,7 +4,6 @@ generator client {
   provider = "prisma-client-js"
 }
 
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -15,12 +14,12 @@ datasource db {
 // ====================================
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password   String?  // bcrypt 해싱
+  id         String   @id @default(cuid())
+  email      String   @unique
+  password   String? // bcrypt 해싱
   name       String?
   provider   String   @default("local") // "local" | "kakao" | "google"
-  providerId String?  // kakao user id
+  providerId String? // kakao user id
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -41,7 +40,7 @@ model UserDevice {
   id          String   @id @default(cuid())
   userId      String
   deviceToken String   @unique // Expo Push Token
-  platform    String   // "ios" | "android"
+  platform    String // "ios" | "android"
   createdAt   DateTime @default(now())
   lastUsedAt  DateTime @updatedAt
 
@@ -58,19 +57,19 @@ model UserDevice {
 // ====================================
 
 model Company {
-  corpCode  String   @id // DART 고유번호 (8자리)
-  corpName  String   // 기업명
-  stockCode String?  // 종목코드 (6자리, 비상장은 null)
-  market    String?  // "KOSPI" | "KOSDAQ" | null
+  corpCode  String  @id // DART 고유번호 (8자리)
+  corpName  String // 기업명
+  stockCode String? // 종목코드 (6자리, 비상장은 null)
+  market    String? // "KOSPI" | "KOSDAQ" | null
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
-  watchLists           WatchList[]
-  disclosures          Disclosure[]
-  disclosureDocuments  DisclosureDocument[]
-  disclosureEvents     DisclosureEvent[]
+  watchLists          WatchList[]
+  disclosures         Disclosure[]
+  disclosureDocuments DisclosureDocument[]
+  disclosureEvents    DisclosureEvent[]
   stockDailyPrices    StockDailyPrice[]
   technicalIndicators TechnicalIndicator[]
   tradingSignals      TradingSignal[]
@@ -79,6 +78,7 @@ model Company {
   paperTrades         PaperTrade[]
   orderRequests       OrderRequest[]
   orderExecutions     OrderExecution[]
+  companyFinancials   CompanyFinancial[]
 
   @@index([corpName]) // 자동완성 검색용
   @@index([stockCode])
@@ -109,8 +109,8 @@ model CompanyOverview {
 model WatchList {
   id        String   @id @default(cuid())
   userId    String
-  corpCode  String   // DART 고유번호
-  corpName  String   // 기업명 (중복 저장, 조회 성능)
+  corpCode  String // DART 고유번호
+  corpName  String // 기업명 (중복 저장, 조회 성능)
   createdAt DateTime @default(now())
 
   // Relations
@@ -145,19 +145,19 @@ model NotificationSettings {
 // ====================================
 
 model Disclosure {
-  rcpNo          String   @id // DART 접수번호 (고유키)
-  corpCode       String   // 기업 고유번호
-  corpName       String   // 기업명
-  reportName     String   // 보고서명
-  rcpDt          String   // 접수일시 (YYYYMMDD 또는 YYYYMMDDHHmmss)
-  flrName        String   // 공시제출인명
-  rmk            String   // 비고
-  disclosureType String   // 공시 유형 (정기공시, 주요사항보고 등)
+  rcpNo          String @id // DART 접수번호 (고유키)
+  corpCode       String // 기업 고유번호
+  corpName       String // 기업명
+  reportName     String // 보고서명
+  rcpDt          String // 접수일시 (YYYYMMDD 또는 YYYYMMDDHHmmss)
+  flrName        String // 공시제출인명
+  rmk            String // 비고
+  disclosureType String // 공시 유형 (정기공시, 주요사항보고 등)
 
   createdAt DateTime @default(now())
 
   // Relations
-  company             Company              @relation(fields: [corpCode], references: [corpCode])
+  company             Company               @relation(fields: [corpCode], references: [corpCode])
   savedDisclosures    SavedDisclosure[]
   notificationHistory NotificationHistory[]
   document            DisclosureDocument?
@@ -182,7 +182,7 @@ model Disclosure {
 model SavedDisclosure {
   id              String   @id @default(cuid())
   userId          String
-  disclosureRcpNo String   // DART 접수번호 (FK → Disclosure.rcpNo)
+  disclosureRcpNo String // DART 접수번호 (FK → Disclosure.rcpNo)
   createdAt       DateTime @default(now())
 
   // Relations
@@ -199,12 +199,12 @@ model SavedDisclosure {
 // ====================================
 
 model NotificationHistory {
-  id               String    @id @default(cuid())
-  userId           String
-  disclosureRcpNo  String    // DART 접수번호 (FK → Disclosure.rcpNo)
-  sentAt           DateTime  @default(now())
-  isRead           Boolean   @default(false)
-  readAt           DateTime?
+  id              String    @id @default(cuid())
+  userId          String
+  disclosureRcpNo String // DART 접수번호 (FK → Disclosure.rcpNo)
+  sentAt          DateTime  @default(now())
+  isRead          Boolean   @default(false)
+  readAt          DateTime?
 
   // Relations
   user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -221,13 +221,13 @@ model NotificationHistory {
 // ====================================
 
 enum ParseStatus {
-  PENDING       // 파싱 미처리 (수집 완료 직후 자동 생성)
-  FETCHING      // DART 원문 다운로드 진행 중
-  FETCH_FAILED  // 다운로드 실패 (retryCount 증가, 재처리 큐 대상)
-  PARSING       // 텍스트·표 파싱 진행 중
-  PARSE_FAILED  // 파싱 실패 (retryCount 증가, 재처리 큐 대상)
-  DONE          // 파싱 완료 (rawText + parsedJson 저장됨)
-  SKIPPED       // MAX_RETRY 초과 또는 단순 공시(파싱 불필요) 판정
+  PENDING // 파싱 미처리 (수집 완료 직후 자동 생성)
+  FETCHING // DART 원문 다운로드 진행 중
+  FETCH_FAILED // 다운로드 실패 (retryCount 증가, 재처리 큐 대상)
+  PARSING // 텍스트·표 파싱 진행 중
+  PARSE_FAILED // 파싱 실패 (retryCount 증가, 재처리 큐 대상)
+  DONE // 파싱 완료 (rawText + parsedJson 저장됨)
+  SKIPPED // MAX_RETRY 초과 또는 단순 공시(파싱 불필요) 판정
 }
 
 // ====================================
@@ -236,43 +236,43 @@ enum ParseStatus {
 
 model DisclosureDocument {
   // 자연키 PK — Disclosure.rcpNo와 1:1 매핑
-  rcpNo        String   @id
+  rcpNo String @id
 
   // 역정규화: 조회 성능을 위해 corpCode 중복 저장
-  corpCode     String
+  corpCode String
 
   // 원문 파일 저장 위치
   // 개발: backend/storage/{rcpNo}/index.html (gitignored)
   // 프로덕션: S3 key = dart-documents/{rcpNo}/index.html (후속 M)
-  rawFilePath  String?
+  rawFilePath String?
 
   // 첨부 ZIP 내 추출 파일 경로 목록 (없으면 빈 배열)
   attachmentPaths String[]
 
   // 파싱 결과
-  rawText      String?  @db.Text  // 태그 제거 후 순수 텍스트 (200KB 상한 truncate)
-  tables       Json?              // 추출된 표 목록: Table[] (하단 JSON 스키마 참고)
-  parsedJson   Json?              // 핵심 key-value 구조화 결과 (하단 parsedJson 스키마 참고)
-  wordCount    Int?               // rawText 글자 수 (AI 입력 비용 예측, M3/M4 비용 게이트용)
+  rawText    String? @db.Text // 태그 제거 후 순수 텍스트 (200KB 상한 truncate)
+  tables     Json? // 추출된 표 목록: Table[] (하단 JSON 스키마 참고)
+  parsedJson Json? // 핵심 key-value 구조화 결과 (하단 parsedJson 스키마 참고)
+  wordCount  Int? // rawText 글자 수 (AI 입력 비용 예측, M3/M4 비용 게이트용)
 
   // 정정공시 관계
-  isAmendment    Boolean  @default(false)  // Disclosure.rmk 기반 정정 여부
-  originalRcpNo  String?                  // 원공시 rcpNo — 자기참조 (정정 시에만)
-  amendmentDiff  Json?                    // 정정 전후 변경 필드 diff (FieldDiff[] 구조)
+  isAmendment   Boolean @default(false) // Disclosure.rmk 기반 정정 여부
+  originalRcpNo String? // 원공시 rcpNo — 자기참조 (정정 시에만)
+  amendmentDiff Json? // 정정 전후 변경 필드 diff (FieldDiff[] 구조)
 
   // 상태 관리
-  parseStatus  ParseStatus  @default(PENDING)
-  fetchedAt    DateTime?    // DART 원문 다운로드 완료 시각
-  parsedAt     DateTime?    // rawText/tables/parsedJson 저장 완료 시각
-  retryCount   Int          @default(0)   // 실패 재처리 누적 횟수 (MAX = 3)
-  lastError    String?      // 마지막 실패 오류 메시지 (500자 상한 truncate)
+  parseStatus ParseStatus @default(PENDING)
+  fetchedAt   DateTime? // DART 원문 다운로드 완료 시각
+  parsedAt    DateTime? // rawText/tables/parsedJson 저장 완료 시각
+  retryCount  Int         @default(0) // 실패 재처리 누적 횟수 (MAX = 3)
+  lastError   String? // 마지막 실패 오류 메시지 (500자 상한 truncate)
 
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  disclosure   Disclosure  @relation(fields: [rcpNo], references: [rcpNo], onDelete: Cascade)
-  company      Company     @relation(fields: [corpCode], references: [corpCode])
+  disclosure Disclosure @relation(fields: [rcpNo], references: [rcpNo], onDelete: Cascade)
+  company    Company    @relation(fields: [corpCode], references: [corpCode])
 
   // 인덱스 — 배치 처리·상태 조회·정정공시 연결 성능
   @@index([corpCode])
@@ -289,27 +289,27 @@ model DisclosureDocument {
 
 enum EventType {
   // ── 우선 추출 7종 ──────────────────────────────
-  SUPPLY_CONTRACT           // 단일판매·공급계약 체결
-  SHARE_BUYBACK             // 자기주식 취득
-  SHARE_CANCELLATION        // 자기주식 소각
-  DIVIDEND_INCREASE         // 배당 확대 (현금·현물)
-  PAID_IN_CAPITAL_INCREASE  // 유상증자 (주주배정·일반공모)
-  CB_ISSUANCE               // 전환사채 발행
-  BW_ISSUANCE               // 신주인수권부사채 발행
+  SUPPLY_CONTRACT // 단일판매·공급계약 체결
+  SHARE_BUYBACK // 자기주식 취득
+  SHARE_CANCELLATION // 자기주식 소각
+  DIVIDEND_INCREASE // 배당 확대 (현금·현물)
+  PAID_IN_CAPITAL_INCREASE // 유상증자 (주주배정·일반공모)
+  CB_ISSUANCE // 전환사채 발행
+  BW_ISSUANCE // 신주인수권부사채 발행
 
   // ── enum 포함 (추출 구현은 후속 이터레이션) ──────
-  CONTRACT_CANCELLATION     // 단일판매·공급계약 해제·취소
-  DIVIDEND_CUT              // 배당 축소·중단
-  THIRD_PARTY_ALLOTMENT     // 제3자배정 유상증자
-  EARNINGS_SURPRISE         // 실적 서프라이즈
-  EARNINGS_SHOCK            // 실적 쇼크
-  MAJOR_SHAREHOLDER_CHANGE  // 최대주주 변경
-  LAWSUIT                   // 소송·횡령·배임
-  AUDIT_OPINION_RISK        // 감사의견 거절·한정
-  TRADING_SUSPENSION        // 거래정지
-  DELISTING_RISK            // 상장폐지 위험·관리종목
+  CONTRACT_CANCELLATION // 단일판매·공급계약 해제·취소
+  DIVIDEND_CUT // 배당 축소·중단
+  THIRD_PARTY_ALLOTMENT // 제3자배정 유상증자
+  EARNINGS_SURPRISE // 실적 서프라이즈
+  EARNINGS_SHOCK // 실적 쇼크
+  MAJOR_SHAREHOLDER_CHANGE // 최대주주 변경
+  LAWSUIT // 소송·횡령·배임
+  AUDIT_OPINION_RISK // 감사의견 거절·한정
+  TRADING_SUSPENSION // 거래정지
+  DELISTING_RISK // 상장폐지 위험·관리종목
 
-  OTHER                     // 분류 불가 (NEEDS_REVIEW 대상)
+  OTHER // 분류 불가 (NEEDS_REVIEW 대상)
 }
 
 // ====================================
@@ -317,10 +317,10 @@ enum EventType {
 // ====================================
 
 enum ExtractionStatus {
-  PENDING       // 추출 미처리
-  SUCCESS       // 추출 완료
-  FAILED        // 추출 실패 (parsedJson 없음 또는 파서 오류)
-  NEEDS_REVIEW  // confidence 낮거나 필수 필드 누락 — 관리자 검토 대기
+  PENDING // 추출 미처리
+  SUCCESS // 추출 완료
+  FAILED // 추출 실패 (parsedJson 없음 또는 파서 오류)
+  NEEDS_REVIEW // confidence 낮거나 필수 필드 누락 — 관리자 검토 대기
 }
 
 // ====================================
@@ -349,10 +349,10 @@ model DisclosureEvent {
   polarity String @default("UNKNOWN") // "POSITIVE" | "NEGATIVE" | "MIXED" | "UNKNOWN"
 
   // ── 신뢰도 및 검증 ────────────────────────────────────────────
-  confidence       Float            @default(0.0)   // 0.0~1.0. Rule ≥ 0.85, AI보조 0.6~0.85
+  confidence       Float            @default(0.0) // 0.0~1.0. Rule ≥ 0.85, AI보조 0.6~0.85
   isAiAssisted     Boolean          @default(false) // confidence < 0.85 시 AI L1 개입 여부
   extractionStatus ExtractionStatus @default(PENDING)
-  failReason       String?                          // 실패 사유 (500자 상한)
+  failReason       String? // 실패 사유 (500자 상한)
 
   // ── 정정공시 연결 ────────────────────────────────────────────
   isAmendment   Boolean @default(false)
@@ -362,8 +362,8 @@ model DisclosureEvent {
   updatedAt   DateTime @updatedAt
 
   // Relations
-  disclosure Disclosure @relation(fields: [rcpNo],      references: [rcpNo])
-  company    Company    @relation(fields: [corpCode],   references: [corpCode])
+  disclosure Disclosure @relation(fields: [rcpNo], references: [rcpNo])
+  company    Company    @relation(fields: [corpCode], references: [corpCode])
 
   @@index([corpCode])
   @@index([eventType])
@@ -379,21 +379,21 @@ model DisclosureEvent {
 // ====================================
 
 model DisclosureCollectionLog {
-  id           Int      @id @default(autoincrement())
-  startedAt    DateTime @default(now())         // 수집 시작 시각
-  endedAt      DateTime?                        // 수집 종료 시각 (RUNNING 중에는 null)
-  bgnDe        String                           // 수집 시작일 (YYYYMMDD)
-  endDe        String                           // 수집 종료일 (YYYYMMDD)
-  fetchedCount Int      @default(0)             // DART API 에서 받아온 총 건수
-  newCount     Int      @default(0)             // 신규 저장된 건수
-  skippedCount Int      @default(0)             // 중복으로 건너뛴 건수 (fetchedCount - newCount)
-  failedCount  Int      @default(0)             // 저장/매칭 오류 건수
-  status       String   @default("RUNNING")     // "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED"
-  errorMessage String?                          // 실패 시 오류 메시지 (SUCCESS/PARTIAL 시 null)
-  triggeredBy  String                           // "CRON" | "MANUAL"
+  id           Int       @id @default(autoincrement())
+  startedAt    DateTime  @default(now()) // 수집 시작 시각
+  endedAt      DateTime? // 수집 종료 시각 (RUNNING 중에는 null)
+  bgnDe        String // 수집 시작일 (YYYYMMDD)
+  endDe        String // 수집 종료일 (YYYYMMDD)
+  fetchedCount Int       @default(0) // DART API 에서 받아온 총 건수
+  newCount     Int       @default(0) // 신규 저장된 건수
+  skippedCount Int       @default(0) // 중복으로 건너뛴 건수 (fetchedCount - newCount)
+  failedCount  Int       @default(0) // 저장/매칭 오류 건수
+  status       String    @default("RUNNING") // "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED"
+  errorMessage String? // 실패 시 오류 메시지 (SUCCESS/PARTIAL 시 null)
+  triggeredBy  String // "CRON" | "MANUAL"
 
-  @@index([startedAt])                          // 최근 N건 조회용
-  @@index([status])                             // 상태 필터 조회용
+  @@index([startedAt]) // 최근 N건 조회용
+  @@index([status]) // 상태 필터 조회용
   @@index([triggeredBy])
   @@map("disclosure_collection_logs")
 }
@@ -404,9 +404,9 @@ model DisclosureCollectionLog {
 
 enum AiTaskName {
   summary
-  event_classification  @map("event-classification")
+  event_classification   @map("event-classification")
   persona_interpretation @map("persona-interpretation")
-  position_thesis       @map("position-thesis")
+  position_thesis        @map("position-thesis")
 }
 
 // ====================================
@@ -426,16 +426,16 @@ enum AiCostLevel {
 
 model DisclosureAnalysis {
   id         String      @id @default(cuid())
-  rcpNo      String                           // 공시 접수번호 (FK → Disclosure.rcpNo)
-  task       AiTaskName                       // AI 태스크 식별자
-  level      AiCostLevel                      // 비용 등급
-  resultJson Json                             // 태스크 실행 결과 JSON
+  rcpNo      String // 공시 접수번호 (FK → Disclosure.rcpNo)
+  task       AiTaskName // AI 태스크 식별자
+  level      AiCostLevel // 비용 등급
+  resultJson Json // 태스크 실행 결과 JSON
   createdAt  DateTime    @default(now())
 
   // Relations
   disclosure Disclosure @relation(fields: [rcpNo], references: [rcpNo], onDelete: Cascade)
 
-  @@unique([rcpNo, task])  // 멱등 캐시 복합 유니크
+  @@unique([rcpNo, task]) // 멱등 캐시 복합 유니크
   @@index([rcpNo])
   @@index([task])
   @@index([createdAt])
@@ -448,16 +448,19 @@ model DisclosureAnalysis {
 // ====================================
 
 model PersonaAnalysis {
-  id         String   @id @default(cuid())
-  rcpNo      String   @unique                 // 공시 접수번호 (1:1, FK → Disclosure.rcpNo)
-  resultJson Json                             // PersonaInterpretation 전체 JSON
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id           String   @id @default(cuid())
+  rcpNo        String   @unique // 공시 접수번호 (1:1, FK → Disclosure.rcpNo)
+  resultJson   Json // PersonaInterpretation 전체 JSON
+  philosophyId String? // (P-A) 연결된 투자자 철학 (nullable, FK → InvestorPhilosophy.philosophyId) — P-C에서 활용
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   // Relations
-  disclosure Disclosure @relation(fields: [rcpNo], references: [rcpNo], onDelete: Cascade)
+  disclosure Disclosure          @relation(fields: [rcpNo], references: [rcpNo], onDelete: Cascade)
+  philosophy InvestorPhilosophy? @relation(fields: [philosophyId], references: [philosophyId], onDelete: SetNull)
 
   @@index([rcpNo])
+  @@index([philosophyId])
   @@map("persona_analyses")
 }
 
@@ -467,13 +470,13 @@ model PersonaAnalysis {
 
 model AIUsageLog {
   id           String      @id @default(cuid())
-  rcpNo        String                           // 공시 접수번호
-  task         AiTaskName                       // AI 태스크 식별자
-  level        AiCostLevel                      // 비용 등급
-  model        String                           // 사용 LLM 모델명
-  inputTokens  Int                              // 입력 토큰 수
-  outputTokens Int                              // 출력 토큰 수
-  costUsd      Float                            // 비용 (USD)
+  rcpNo        String // 공시 접수번호
+  task         AiTaskName // AI 태스크 식별자
+  level        AiCostLevel // 비용 등급
+  model        String // 사용 LLM 모델명
+  inputTokens  Int // 입력 토큰 수
+  outputTokens Int // 출력 토큰 수
+  costUsd      Float // 비용 (USD)
   createdAt    DateTime    @default(now())
 
   @@index([rcpNo])
@@ -489,15 +492,15 @@ model AIUsageLog {
 
 model StockDailyPrice {
   id           String   @id @default(cuid())
-  corpCode     String   // DART 고유번호 (FK → Company.corpCode)
-  stockCode    String   // 종목코드 6자리
-  tradeDate    String   // 거래일 (YYYYMMDD)
-  openPrice    Int      // 시가
-  highPrice    Int      // 고가
-  lowPrice     Int      // 저가
-  closePrice   Int      // 종가
-  volume       BigInt   // 거래량
-  tradingValue BigInt?  // 거래대금 (원)
+  corpCode     String // DART 고유번호 (FK → Company.corpCode)
+  stockCode    String // 종목코드 6자리
+  tradeDate    String // 거래일 (YYYYMMDD)
+  openPrice    Int // 시가
+  highPrice    Int // 고가
+  lowPrice     Int // 저가
+  closePrice   Int // 종가
+  volume       BigInt // 거래량
+  tradingValue BigInt? // 거래대금 (원)
   createdAt    DateTime @default(now())
 
   company Company @relation(fields: [corpCode], references: [corpCode])
@@ -514,26 +517,26 @@ model StockDailyPrice {
 
 model TechnicalIndicator {
   id             String   @id @default(cuid())
-  corpCode       String   // DART 고유번호 (FK → Company.corpCode)
-  stockCode      String   // 종목코드 6자리
-  tradeDate      String   // 기준 거래일 (YYYYMMDD)
-  ma5            Float?   // 5일 이동평균
-  ma20           Float?   // 20일 이동평균
-  ma60           Float?   // 60일 이동평균
-  ma120          Float?   // 120일 이동평균
-  rsi14          Float?   // RSI (14일)
-  macdLine       Float?   // MACD 선 (12,26)
-  macdSignal     Float?   // MACD 신호선 (9)
-  macdHistogram  Float?   // MACD 히스토그램
-  bollingerUpper Float?   // 볼린저 상단 (20,2σ)
-  bollingerMid   Float?   // 볼린저 중단 (20 SMA)
-  bollingerLower Float?   // 볼린저 하단 (20,2σ)
-  atr14          Float?   // ATR (14일)
-  vwap           Float?   // VWAP (당일)
-  volumeRatio20  Float?   // 거래량비율 (20일 평균 대비)
-  high52w        Int?     // 52주 최고가
-  low52w         Int?     // 52주 최저가
-  preDsclReturn  Float?   // 공시 전 선행상승률 D-5~D-1 (%)
+  corpCode       String // DART 고유번호 (FK → Company.corpCode)
+  stockCode      String // 종목코드 6자리
+  tradeDate      String // 기준 거래일 (YYYYMMDD)
+  ma5            Float? // 5일 이동평균
+  ma20           Float? // 20일 이동평균
+  ma60           Float? // 60일 이동평균
+  ma120          Float? // 120일 이동평균
+  rsi14          Float? // RSI (14일)
+  macdLine       Float? // MACD 선 (12,26)
+  macdSignal     Float? // MACD 신호선 (9)
+  macdHistogram  Float? // MACD 히스토그램
+  bollingerUpper Float? // 볼린저 상단 (20,2σ)
+  bollingerMid   Float? // 볼린저 중단 (20 SMA)
+  bollingerLower Float? // 볼린저 하단 (20,2σ)
+  atr14          Float? // ATR (14일)
+  vwap           Float? // VWAP (당일)
+  volumeRatio20  Float? // 거래량비율 (20일 평균 대비)
+  high52w        Int? // 52주 최고가
+  low52w         Int? // 52주 최저가
+  preDsclReturn  Float? // 공시 전 선행상승률 D-5~D-1 (%)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -551,15 +554,15 @@ model TechnicalIndicator {
 
 model MarketIndex {
   id           String   @id @default(cuid())
-  indexCode    String   // 지수코드 (0001=KOSPI, 1001=KOSDAQ)
-  indexName    String   // 지수명
-  tradeDate    String   // 거래일 (YYYYMMDD)
-  openIndex    Float    // 시가지수
-  highIndex    Float    // 고가지수
-  lowIndex     Float    // 저가지수
-  closeIndex   Float    // 종가지수
-  volume       BigInt?  // 거래량
-  tradingValue BigInt?  // 거래대금
+  indexCode    String // 지수코드 (0001=KOSPI, 1001=KOSDAQ)
+  indexName    String // 지수명
+  tradeDate    String // 거래일 (YYYYMMDD)
+  openIndex    Float // 시가지수
+  highIndex    Float // 고가지수
+  lowIndex     Float // 저가지수
+  closeIndex   Float // 종가지수
+  volume       BigInt? // 거래량
+  tradingValue BigInt? // 거래대금
   createdAt    DateTime @default(now())
 
   @@unique([indexCode, tradeDate])
@@ -572,14 +575,14 @@ model MarketIndex {
 // ====================================
 
 model StockStatus {
-  stockCode              String   @id // Company.stockCode (6자리)
-  tradeDate              String   // 마지막 갱신 거래일 YYYYMMDD
-  isTradingSuspended     Boolean  @default(false) // 거래정지
-  isManagement           Boolean  @default(false) // 관리종목
-  isInvestmentCaution    Boolean  @default(false) // 투자주의
-  isAbnormalSurge        Boolean  @default(false) // 이상급등(투자위험/경고)
-  statusNote             String?  // 사유 (예: "불성실공시법인 지정")
-  updatedAt              DateTime @updatedAt
+  stockCode           String   @id // Company.stockCode (6자리)
+  tradeDate           String // 마지막 갱신 거래일 YYYYMMDD
+  isTradingSuspended  Boolean  @default(false) // 거래정지
+  isManagement        Boolean  @default(false) // 관리종목
+  isInvestmentCaution Boolean  @default(false) // 투자주의
+  isAbnormalSurge     Boolean  @default(false) // 이상급등(투자위험/경고)
+  statusNote          String? // 사유 (예: "불성실공시법인 지정")
+  updatedAt           DateTime @updatedAt
 
   @@index([tradeDate])
   @@map("stock_statuses")
@@ -590,17 +593,17 @@ model StockStatus {
 // ====================================
 
 model MarketDataCollectionLog {
-  id           String   @id @default(cuid())
-  tradeDate    String   // 수집 대상 거래일 YYYYMMDD
-  triggeredBy  String   @default("CRON") // "CRON" | "MANUAL"
-  status       String   @default("RUNNING") // "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED"
-  stockCount   Int      @default(0)  // 수집 시도 종목 수
-  savedCount   Int      @default(0)  // 저장 성공 종목 수
-  failedCount  Int      @default(0)  // 실패 종목 수
-  indexSaved   Boolean  @default(false) // 지수 저장 여부
-  statusSaved  Boolean  @default(false) // 종목상태 저장 여부
+  id           String    @id @default(cuid())
+  tradeDate    String // 수집 대상 거래일 YYYYMMDD
+  triggeredBy  String    @default("CRON") // "CRON" | "MANUAL"
+  status       String    @default("RUNNING") // "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED"
+  stockCount   Int       @default(0) // 수집 시도 종목 수
+  savedCount   Int       @default(0) // 저장 성공 종목 수
+  failedCount  Int       @default(0) // 실패 종목 수
+  indexSaved   Boolean   @default(false) // 지수 저장 여부
+  statusSaved  Boolean   @default(false) // 종목상태 저장 여부
   errorMessage String?
-  startedAt    DateTime @default(now())
+  startedAt    DateTime  @default(now())
   endedAt      DateTime?
 
   @@index([tradeDate])
@@ -614,46 +617,46 @@ model MarketDataCollectionLog {
 
 // 버킷 단위 집계 결과
 model EventStudyResult {
-  id              String   @id @default(cuid())
+  id String @id @default(cuid())
 
   // 집계 식별 키 (자연키)
-  eventType       String   // DisclosureEvent.eventType enum 값
-  bucketKey       String   // 버킷 식별자
-  marketType      String   // "KOSPI" | "KOSDAQ" | "ALL"
+  eventType  String // DisclosureEvent.eventType enum 값
+  bucketKey  String // 버킷 식별자
+  marketType String // "KOSPI" | "KOSDAQ" | "ALL"
 
   // 표본 정보
-  sampleCount     Int      // 집계 표본 수
-  isSignificant   Boolean  // p < 0.05 기준
-  tStatistic      Float?   // t-통계량
-  pValue          Float?   // p-값
-  variance        Float?   // D+1 AR 분산 (과신 방지용)
+  sampleCount   Int // 집계 표본 수
+  isSignificant Boolean // p < 0.05 기준
+  tStatistic    Float? // t-통계량
+  pValue        Float? // p-값
+  variance      Float? // D+1 AR 분산 (과신 방지용)
 
   // D+N 평균 수익률 (종목 기준)
-  avgReturnD1     Float    // D0→D+1 단순 수익률 평균 (%)
-  avgReturnD3     Float    // D0→D+3 누적 수익률 평균 (%)
-  avgReturnD5     Float    // D0→D+5 누적 수익률 평균 (%)
-  avgReturnD20    Float    // D0→D+20 누적 수익률 평균 (%)
+  avgReturnD1  Float // D0→D+1 단순 수익률 평균 (%)
+  avgReturnD3  Float // D0→D+3 누적 수익률 평균 (%)
+  avgReturnD5  Float // D0→D+5 누적 수익률 평균 (%)
+  avgReturnD20 Float // D0→D+20 누적 수익률 평균 (%)
 
   // 시장 대비 초과수익 (Abnormal Return)
-  avgArD1         Float    // D+1 평균 AR (종목수익률 - 시장수익률)
-  avgArD3         Float    // D+3 누적 평균 AR
-  avgArD5         Float    // D+5 누적 평균 AR
-  avgArD20        Float    // D+20 누적 평균 AR
+  avgArD1  Float // D+1 평균 AR (종목수익률 - 시장수익률)
+  avgArD3  Float // D+3 누적 평균 AR
+  avgArD5  Float // D+5 누적 평균 AR
+  avgArD20 Float // D+20 누적 평균 AR
 
   // 분포 지표
-  upProbD5        Float    // D+5 기준 상승 확률 (0~1)
-  crashProbD5     Float    // D+5 기준 급락(-5% 이상) 확률 (0~1)
-  avgMaxDrawdown  Float    // D0~D+20 평균 최대낙폭 MDD (%)
+  upProbD5       Float // D+5 기준 상승 확률 (0~1)
+  crashProbD5    Float // D+5 기준 급락(-5% 이상) 확률 (0~1)
+  avgMaxDrawdown Float // D0~D+20 평균 최대낙폭 MDD (%)
 
   // 거래량
-  avgVolumeRatioD1 Float   // D+1 거래량 / D-5 평균거래량 배율
-  avgVolumeRatioD3 Float   // D+3 평균
+  avgVolumeRatioD1 Float // D+1 거래량 / D-5 평균거래량 배율
+  avgVolumeRatioD3 Float // D+3 평균
 
   // 메타
-  calculatedAt    DateTime @default(now())
-  dataFromDate    String   // 집계 기간 시작 (YYYYMMDD)
-  dataToDate      String   // 집계 기간 종료 (YYYYMMDD)
-  status          String   @default("READY")
+  calculatedAt DateTime @default(now())
+  dataFromDate String // 집계 기간 시작 (YYYYMMDD)
+  dataToDate   String // 집계 기간 종료 (YYYYMMDD)
+  status       String   @default("READY")
   // "READY" | "INSUFFICIENT" | "CALCULATING" | "ERROR"
 
   @@unique([eventType, bucketKey, marketType])
@@ -665,25 +668,25 @@ model EventStudyResult {
 
 // 개별 이벤트 관측치 (집계 재현·디버깅용)
 model EventStudyObservation {
-  id              String   @id @default(cuid())
-  eventId         String   // DisclosureEvent.id (논리 FK, Prisma relation 없음)
-  rcpNo           String   // Disclosure.rcpNo
-  corpCode        String   // Company.corpCode
-  eventType       String
-  bucketKey       String
-  d0Date          String   // 실제 D0 날짜 (YYYYMMDD)
+  id        String @id @default(cuid())
+  eventId   String // DisclosureEvent.id (논리 FK, Prisma relation 없음)
+  rcpNo     String // Disclosure.rcpNo
+  corpCode  String // Company.corpCode
+  eventType String
+  bucketKey String
+  d0Date    String // 실제 D0 날짜 (YYYYMMDD)
 
   // D-5~D+20 일별 수익률·AR (JSON)
-  dailyReturns    Json     // {"dm5":0.01, "d0":0.02, "d1":0.03, ...}
-  dailyAR         Json     // 일별 초과수익
-  cumulativeAR    Json     // 누적 초과수익
+  dailyReturns Json // {"dm5":0.01, "d0":0.02, "d1":0.03, ...}
+  dailyAR      Json // 일별 초과수익
+  cumulativeAR Json // 누적 초과수익
 
-  volumeRatios    Json     // {"d1":3.2, "d3":2.1}
-  maxDrawdown     Float    // D0~D+20 최대낙폭 (%)
-  isUpD5          Boolean  // D+5 기준 양수 수익 여부
-  isCrashD5       Boolean  // D+5 기준 -5% 이하 여부
+  volumeRatios Json // {"d1":3.2, "d3":2.1}
+  maxDrawdown  Float // D0~D+20 최대낙폭 (%)
+  isUpD5       Boolean // D+5 기준 양수 수익 여부
+  isCrashD5    Boolean // D+5 기준 -5% 이하 여부
 
-  createdAt       DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([eventType, bucketKey])
   @@index([rcpNo])
@@ -709,58 +712,58 @@ enum SignalGrade {
 // ====================================
 
 model TradingSignal {
-  id              String      @id @default(cuid())
+  id String @id @default(cuid())
 
   // 공시 연결 (자연키 FK: Disclosure.rcpNo)
-  rcpNo           String
+  rcpNo     String
   // 종목 연결 (자연키 FK: Company.corpCode)
-  corpCode        String
-  stockCode       String      // 종목코드 6자리 (조회 성능용 역정규화)
+  corpCode  String
+  stockCode String // 종목코드 6자리 (조회 성능용 역정규화)
 
   // 이벤트
-  eventType       String      // DisclosureEvent.eventType enum 값
-  subCategory     String?     // 이벤트 세분류 (예: 'salesRatio_20pct_above')
+  eventType   String // DisclosureEvent.eventType enum 값
+  subCategory String? // 이벤트 세분류 (예: 'salesRatio_20pct_above')
 
   // Persona
-  persona         String      // 'GROWTH' | 'VALUE' | 'MOMENTUM' | 'EVENT_DRIVEN'
+  persona String // 'GROWTH' | 'VALUE' | 'MOMENTUM' | 'EVENT_DRIVEN'
 
   // Buy Score 결과
-  buyScore        Int         // -100 ~ 100 (정수)
-  signal          SignalGrade
+  buyScore Int // -100 ~ 100 (정수)
+  signal   SignalGrade
 
   // 컴포넌트별 점수 (추적·디버깅용)
-  scoreBreakdown  Json        // { disclosureEvent, keyMetric, personaFit, historicalEvent, chart, volumeLiquidity, marketSector }
-  riskPenalty     Int         // 차감된 패널티 합계
+  scoreBreakdown Json // { disclosureEvent, keyMetric, personaFit, historicalEvent, chart, volumeLiquidity, marketSector }
+  riskPenalty    Int // 차감된 패널티 합계
 
   // 진입 조건
-  entryConditionMet    String[]   // 충족된 조건 label 목록
-  entryConditionUnmet  String[]   // 미충족 조건 label 목록
-  entryReady           Boolean    @default(false)
+  entryConditionMet   String[] // 충족된 조건 label 목록
+  entryConditionUnmet String[] // 미충족 조건 label 목록
+  entryReady          Boolean  @default(false)
 
   // 리스크 요인 (human-readable)
-  riskFactors          String[]
+  riskFactors String[]
 
   // AI Phase 4 DisclosureAnalysis 참조 요약 (새 AI 호출 없음)
-  signalSummary        String?
+  signalSummary String?
 
   // 차단 사유 (signal=BLOCKED 시)
-  blockedReason        String?
+  blockedReason String?
 
   // 유효 시간
-  validUntil           DateTime?
+  validUntil DateTime?
 
   // 상태
-  isNotified           Boolean    @default(false)
-  notifiedAt           DateTime?
+  isNotified Boolean   @default(false)
+  notifiedAt DateTime?
 
-  createdAt            DateTime   @default(now())
-  updatedAt            DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  disclosure      Disclosure     @relation(fields: [rcpNo],   references: [rcpNo])
-  company         Company        @relation(fields: [corpCode], references: [corpCode])
-  positionThesis  PositionThesis?
-  paperTrades     PaperTrade[]
+  disclosure     Disclosure      @relation(fields: [rcpNo], references: [rcpNo])
+  company        Company         @relation(fields: [corpCode], references: [corpCode])
+  positionThesis PositionThesis?
+  paperTrades    PaperTrade[]
 
   @@unique([rcpNo, persona])
   @@index([corpCode])
@@ -778,9 +781,9 @@ model TradingSignal {
 // ====================================
 
 enum ThesisStatus {
-  ACTIVE       // 논리 유효, 추적 중
-  INVALIDATED  // 무효 조건 충족 → Exit Engine 대상
-  CLOSED       // 포지션 청산 완료
+  ACTIVE // 논리 유효, 추적 중
+  INVALIDATED // 무효 조건 충족 → Exit Engine 대상
+  CLOSED // 포지션 청산 완료
 }
 
 // ====================================
@@ -791,20 +794,20 @@ enum ThesisStatus {
 // ====================================
 
 model PositionThesis {
-  id               String        @id @default(cuid())
+  id String @id @default(cuid())
 
   // 매수 신호 연결 (1:1, FK → TradingSignal.id)
-  tradingSignalId  String        @unique
+  tradingSignalId String @unique
 
   // 공시 자연키 연결 (FK → Disclosure.rcpNo)
-  rcpNo            String
+  rcpNo String
 
   // 종목 연결 (FK → Company.corpCode, 조회 성능)
-  corpCode         String
+  corpCode String
 
   // 매수 논리
-  entryReason      String        // 진입 사유 (한 문장 요약)
-  initialThesis    Json          // 근거 항목 배열 (string[])
+  entryReason   String // 진입 사유 (한 문장 요약)
+  initialThesis Json // 근거 항목 배열 (string[])
 
   // 무효 조건 — 기계 평가 가능한 구조화 형태 (추상 자연어 금지)
   // 스키마: InvalidCondition[] — invalid-condition.types.ts 참조
@@ -813,23 +816,23 @@ model PositionThesis {
 
   // 청산 룰 — Rule 기반, AI 변경 불가
   // 예: [{"type":"STOP_LOSS_PCT","value":8}, {"type":"MAX_HOLD_DAYS","value":20}]
-  exitRules        Json
+  exitRules Json
 
   // 최대 비중 (%) — 하드룰, Engine5 Risk가 최종 강제
-  maxWeight        Float         @default(5.0)
+  maxWeight Float @default(5.0)
 
   // 생명주기 상태
-  status           ThesisStatus  @default(ACTIVE)
+  status ThesisStatus @default(ACTIVE)
 
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  tradingSignal    TradingSignal @relation(fields: [tradingSignalId], references: [id])
-  disclosure       Disclosure    @relation(fields: [rcpNo],           references: [rcpNo])
-  company          Company       @relation(fields: [corpCode],        references: [corpCode])
-  position         Position?     // optional 1:1 back-relation from Position
-  paperTrades      PaperTrade[]
+  tradingSignal TradingSignal @relation(fields: [tradingSignalId], references: [id])
+  disclosure    Disclosure    @relation(fields: [rcpNo], references: [rcpNo])
+  company       Company       @relation(fields: [corpCode], references: [corpCode])
+  position      Position? // optional 1:1 back-relation from Position
+  paperTrades   PaperTrade[]
 
   @@index([corpCode])
   @@index([rcpNo])
@@ -867,21 +870,21 @@ enum ExitAction {
 }
 
 model Portfolio {
-  id          String   @id @default(cuid())
-  userId      String
-  name        String   @default("기본 포트폴리오")
-  currency    String   @default("KRW")
-  isActive    Boolean  @default(true)
-  maxSinglePositionPct  Float @default(10.0)
-  maxSectorPct          Float @default(30.0)
-  maxDailyLossPct       Float @default(2.0)
-  maxWeeklyLossPct      Float @default(5.0)
-  stopLossGlobalPct     Float @default(15.0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  userId               String
+  name                 String   @default("기본 포트폴리오")
+  currency             String   @default("KRW")
+  isActive             Boolean  @default(true)
+  maxSinglePositionPct Float    @default(10.0)
+  maxSectorPct         Float    @default(30.0)
+  maxDailyLossPct      Float    @default(2.0)
+  maxWeeklyLossPct     Float    @default(5.0)
+  stopLossGlobalPct    Float    @default(15.0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  positions Position[]
+  user          User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  positions     Position[]
   riskSnapshots PortfolioRiskSnapshot[]
 
   @@index([userId])
@@ -889,38 +892,38 @@ model Portfolio {
 }
 
 model Position {
-  id           String         @id @default(cuid())
-  portfolioId  String
-  corpCode     String
-  stockCode    String
-  positionThesisId String?   @unique
+  id               String  @id @default(cuid())
+  portfolioId      String
+  corpCode         String
+  stockCode        String
+  positionThesisId String? @unique
 
-  entryDate    DateTime
-  entryPrice   Float
-  quantity     Int
-  entryAmount  Float
+  entryDate   DateTime
+  entryPrice  Float
+  quantity    Int
+  entryAmount Float
 
-  currentPrice Float?
-  currentValue Float?
-  unrealizedPnl Float?
+  currentPrice     Float?
+  currentValue     Float?
+  unrealizedPnl    Float?
   unrealizedPnlPct Float?
 
   stopLossPct   Float?
   takeProfitPct Float?
   maxHoldDays   Int?
 
-  highestPrice  Float?
-  highestAt     DateTime?
+  highestPrice Float?
+  highestAt    DateTime?
 
-  status       PositionStatus @default(OPEN)
-  closedAt     DateTime?
+  status   PositionStatus @default(OPEN)
+  closedAt DateTime?
 
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  portfolio      Portfolio              @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
-  company        Company                @relation(fields: [corpCode], references: [corpCode])
-  positionThesis PositionThesis?        @relation(fields: [positionThesisId], references: [id])
+  portfolio      Portfolio               @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  company        Company                 @relation(fields: [corpCode], references: [corpCode])
+  positionThesis PositionThesis?         @relation(fields: [positionThesisId], references: [id])
   dailySnapshots PositionDailySnapshot[]
   exitSignals    ExitSignal[]
 
@@ -931,32 +934,32 @@ model Position {
 }
 
 model PositionDailySnapshot {
-  id            String   @id @default(cuid())
-  positionId    String
-  snapshotDate  String
+  id           String @id @default(cuid())
+  positionId   String
+  snapshotDate String
 
-  openPrice     Float?
-  closePrice    Float?
-  highPrice     Float?
-  lowPrice      Float?
-  volume        BigInt?
+  openPrice  Float?
+  closePrice Float?
+  highPrice  Float?
+  lowPrice   Float?
+  volume     BigInt?
 
-  ma5           Float?
-  ma20          Float?
-  ma60          Float?
-  rsi14         Float?
-  atr14         Float?
-  vwap          Float?
+  ma5   Float?
+  ma20  Float?
+  ma60  Float?
+  rsi14 Float?
+  atr14 Float?
+  vwap  Float?
 
-  quantity      Int
-  positionValue Float
-  unrealizedPnl Float
+  quantity         Int
+  positionValue    Float
+  unrealizedPnl    Float
   unrealizedPnlPct Float
 
-  exitScore     Int?
-  exitAction    String?
+  exitScore  Int?
+  exitAction String?
 
-  createdAt     DateTime @default(now())
+  createdAt DateTime @default(now())
 
   position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
 
@@ -966,36 +969,36 @@ model PositionDailySnapshot {
 }
 
 model ExitSignal {
-  id           String          @id @default(cuid())
-  positionId   String
-  checkTime    String
+  id         String @id @default(cuid())
+  positionId String
+  checkTime  String
 
-  lossRiskScore       Int      @default(0)
-  thesisBreakScore    Int      @default(0)
-  chartBreakScore     Int      @default(0)
-  disclosureRiskScore Int      @default(0)
-  overweightScore     Int      @default(0)
-  timeExceededScore   Int      @default(0)
-  positiveMomentumBonus Int    @default(0)
+  lossRiskScore         Int @default(0)
+  thesisBreakScore      Int @default(0)
+  chartBreakScore       Int @default(0)
+  disclosureRiskScore   Int @default(0)
+  overweightScore       Int @default(0)
+  timeExceededScore     Int @default(0)
+  positiveMomentumBonus Int @default(0)
 
   exitScore    Int
   exitAction   ExitAction
   triggerType  ExitTriggerType?
   triggerTypes String[]
 
-  scoreDetail  Json
+  scoreDetail Json
 
   triggerRcpNo String?
 
   aiExplanation String?
-  aiUsed        Boolean  @default(false)
+  aiUsed        Boolean @default(false)
 
-  isAcknowledged Boolean  @default(false)
+  isAcknowledged Boolean   @default(false)
   acknowledgedAt DateTime?
   userAction     String?
 
-  checkedAt    DateTime        @default(now())
-  createdAt    DateTime        @default(now())
+  checkedAt DateTime @default(now())
+  createdAt DateTime @default(now())
 
   position   Position    @relation(fields: [positionId], references: [id], onDelete: Cascade)
   disclosure Disclosure? @relation(fields: [triggerRcpNo], references: [rcpNo])
@@ -1008,13 +1011,13 @@ model ExitSignal {
 }
 
 model PortfolioRiskSnapshot {
-  id            String   @id @default(cuid())
-  portfolioId   String
-  snapshotDate  String
+  id           String @id @default(cuid())
+  portfolioId  String
+  snapshotDate String
 
-  totalValue    Float
-  cashAmount    Float?
-  unrealizedPnl Float
+  totalValue       Float
+  cashAmount       Float?
+  unrealizedPnl    Float
   unrealizedPnlPct Float
 
   topPositionPct    Float
@@ -1026,11 +1029,11 @@ model PortfolioRiskSnapshot {
   weeklyPnl    Float?
   weeklyPnlPct Float?
 
-  riskLevel    String   @default("NORMAL")
+  riskLevel        String  @default("NORMAL")
   hardRuleBreached Boolean @default(false)
   hardRuleDetail   String?
 
-  createdAt    DateTime @default(now())
+  createdAt DateTime @default(now())
 
   portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
 
@@ -1063,36 +1066,36 @@ enum ExitReason {
 }
 
 model BacktestRun {
-  id              String         @id @default(cuid())
-  name            String
-  description     String?
+  id          String  @id @default(cuid())
+  name        String
+  description String?
 
   // 전략 파라미터 JSON
-  strategyParams  Json
+  strategyParams Json
 
   // 테스트 기간
-  startDate       DateTime
-  endDate         DateTime
-  universe        String         // "WATCHLIST" | "KOSPI200" | "ALL_LISTED"
+  startDate DateTime
+  endDate   DateTime
+  universe  String // "WATCHLIST" | "KOSPI200" | "ALL_LISTED"
 
   // 비용 파라미터
-  commissionRate  Decimal        @db.Decimal(6, 5)
-  taxRate         Decimal        @db.Decimal(6, 5)
-  slippagePct     Decimal        @db.Decimal(6, 5)
+  commissionRate Decimal @db.Decimal(6, 5)
+  taxRate        Decimal @db.Decimal(6, 5)
+  slippagePct    Decimal @db.Decimal(6, 5)
 
   // 실행 상태
-  status          BacktestStatus @default(PENDING)
-  startedAt       DateTime?
-  completedAt     DateTime?
-  errorMessage    String?
+  status       BacktestStatus @default(PENDING)
+  startedAt    DateTime?
+  completedAt  DateTime?
+  errorMessage String?
 
   // 성과 요약 (완료 후 저장)
-  summary         Json?
+  summary Json?
 
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  trades          BacktestTrade[]
+  trades BacktestTrade[]
 
   @@index([status])
   @@index([startDate, endDate])
@@ -1100,57 +1103,57 @@ model BacktestRun {
 }
 
 model BacktestTrade {
-  id                  String      @id @default(cuid())
-  backtestRunId       String
+  id            String @id @default(cuid())
+  backtestRunId String
 
   // 공시 연결 (lookahead bias 방지: rcpDt 기준 진입만 허용)
-  disclosureRcpNo     String      // FK → Disclosure.rcpNo
-  corpCode            String      // FK → Company.corpCode
-  stockCode           String
+  disclosureRcpNo String // FK → Disclosure.rcpNo
+  corpCode        String // FK → Company.corpCode
+  stockCode       String
 
-  eventType           String
-  persona             String
+  eventType String
+  persona   String
 
   // 진입 (다음 거래일 시가 진입 — lookahead bias 방지 핵심)
-  disclosureAt        DateTime    // 공시 실제 접수 시각
-  isAfterMarket       Boolean     // 장마감(15:30) 후 공시 여부
-  entryDate           DateTime    // 실제 진입 거래일
-  entryPrice          Decimal     @db.Decimal(12, 2)
-  entryShares         Int
-  entryValue          Decimal     @db.Decimal(16, 2)
+  disclosureAt  DateTime // 공시 실제 접수 시각
+  isAfterMarket Boolean // 장마감(15:30) 후 공시 여부
+  entryDate     DateTime // 실제 진입 거래일
+  entryPrice    Decimal  @db.Decimal(12, 2)
+  entryShares   Int
+  entryValue    Decimal  @db.Decimal(16, 2)
 
   // 매도
-  exitDate            DateTime?
-  exitPrice           Decimal?    @db.Decimal(12, 2)
-  exitShares          Int?
-  exitValue           Decimal?    @db.Decimal(16, 2)
-  exitReason          ExitReason?
+  exitDate   DateTime?
+  exitPrice  Decimal?    @db.Decimal(12, 2)
+  exitShares Int?
+  exitValue  Decimal?    @db.Decimal(16, 2)
+  exitReason ExitReason?
 
   // 비용
-  commission          Decimal     @db.Decimal(12, 2) @default(0)
-  tax                 Decimal     @db.Decimal(12, 2) @default(0)
-  slippage            Decimal     @db.Decimal(12, 2) @default(0)
+  commission Decimal @default(0) @db.Decimal(12, 2)
+  tax        Decimal @default(0) @db.Decimal(12, 2)
+  slippage   Decimal @default(0) @db.Decimal(12, 2)
 
   // 성과
-  grossPnl            Decimal?    @db.Decimal(12, 2)
-  netPnl              Decimal?    @db.Decimal(12, 2)
-  returnPct           Decimal?    @db.Decimal(8, 4)
-  holdDays            Int?
+  grossPnl  Decimal? @db.Decimal(12, 2)
+  netPnl    Decimal? @db.Decimal(12, 2)
+  returnPct Decimal? @db.Decimal(8, 4)
+  holdDays  Int?
 
   // 현실 제약 플래그
-  wasLimitUp          Boolean     @default(false)
-  wasLimitDown        Boolean     @default(false)
-  wasTradingSuspended Boolean     @default(false)
-  wasAdminStock       Boolean     @default(false)
-  isPartialFill       Boolean     @default(false)
-  fillRate            Decimal?    @db.Decimal(5, 4)
-  lowLiquidityFlag    Boolean     @default(false)
+  wasLimitUp          Boolean  @default(false)
+  wasLimitDown        Boolean  @default(false)
+  wasTradingSuspended Boolean  @default(false)
+  wasAdminStock       Boolean  @default(false)
+  isPartialFill       Boolean  @default(false)
+  fillRate            Decimal? @db.Decimal(5, 4)
+  lowLiquidityFlag    Boolean  @default(false)
 
   // 진입 시점 점수 스냅샷
-  buyScoreSnapshot    Int?
-  exitScoreSnapshot   Int?
+  buyScoreSnapshot  Int?
+  exitScoreSnapshot Int?
 
-  createdAt           DateTime    @default(now())
+  createdAt DateTime @default(now())
 
   backtestRun BacktestRun @relation(fields: [backtestRunId], references: [id], onDelete: Cascade)
 
@@ -1169,11 +1172,11 @@ model BacktestTrade {
 // ====================================
 
 enum PaperTradeStatus {
-  PENDING       // 주문 대기
-  FILLED        // 완전 체결
-  PARTIAL       // 부분 체결
-  CANCELLED     // 취소
-  REJECTED      // 거부 (Risk 한도 초과)
+  PENDING // 주문 대기
+  FILLED // 완전 체결
+  PARTIAL // 부분 체결
+  CANCELLED // 취소
+  REJECTED // 거부 (Risk 한도 초과)
 }
 
 enum PaperTradeDirection {
@@ -1182,49 +1185,49 @@ enum PaperTradeDirection {
 }
 
 model PaperTrade {
-  id                String              @id @default(cuid())
+  id String @id @default(cuid())
 
   // 종목 (FK → Company.corpCode)
-  corpCode          String
-  stockCode         String
+  corpCode  String
+  stockCode String
 
   // 방향·수량
-  direction         PaperTradeDirection
-  orderedShares     Int                 // 주문 수량
-  filledShares      Int                 @default(0)   // 체결 수량
-  fillRate          Decimal             @db.Decimal(5, 4) @default(0) // 체결률 0~1
+  direction     PaperTradeDirection
+  orderedShares Int // 주문 수량
+  filledShares  Int                 @default(0) // 체결 수량
+  fillRate      Decimal             @default(0) @db.Decimal(5, 4) // 체결률 0~1
 
   // 가격
-  entryPrice        Decimal             @db.Decimal(12, 2)  // 진입 기준가 (다음거래일 시가)
-  filledPrice       Decimal?            @db.Decimal(12, 2)  // 실제 체결가 (슬리피지 반영)
+  entryPrice  Decimal  @db.Decimal(12, 2) // 진입 기준가 (다음거래일 시가)
+  filledPrice Decimal? @db.Decimal(12, 2) // 실제 체결가 (슬리피지 반영)
 
   // 비용 (KRW 절대값)
-  commission        Decimal             @db.Decimal(12, 2) @default(0)  // 수수료
-  tax               Decimal             @db.Decimal(12, 2) @default(0)  // 세금 (매도 시 증권거래세)
-  slippage          Decimal             @db.Decimal(12, 2) @default(0)  // 슬리피지 비용
+  commission Decimal @default(0) @db.Decimal(12, 2) // 수수료
+  tax        Decimal @default(0) @db.Decimal(12, 2) // 세금 (매도 시 증권거래세)
+  slippage   Decimal @default(0) @db.Decimal(12, 2) // 슬리피지 비용
 
   // 손익 (체결 완료 후)
-  grossPnl          Decimal?            @db.Decimal(12, 2)
-  netPnl            Decimal?            @db.Decimal(12, 2)
-  returnPct         Decimal?            @db.Decimal(8, 4)
+  grossPnl  Decimal? @db.Decimal(12, 2)
+  netPnl    Decimal? @db.Decimal(12, 2)
+  returnPct Decimal? @db.Decimal(8, 4)
 
   // 상태
-  status            PaperTradeStatus    @default(PENDING)
+  status PaperTradeStatus @default(PENDING)
 
   // 메타
-  entryDate         DateTime            // 체결 예정 거래일 (다음거래일 시가 진입)
-  filledAt          DateTime?           // 실제 체결 시각
+  entryDate DateTime // 체결 예정 거래일 (다음거래일 시가 진입)
+  filledAt  DateTime? // 실제 체결 시각
 
   // 신호·논리 연결 (optional — fixture 테스트에서는 null 허용)
-  tradingSignalId   String?
-  positionThesisId  String?
+  tradingSignalId  String?
+  positionThesisId String?
 
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  company           Company             @relation(fields: [corpCode], references: [corpCode])
-  tradingSignal     TradingSignal?      @relation(fields: [tradingSignalId], references: [id])
-  positionThesis    PositionThesis?     @relation(fields: [positionThesisId], references: [id])
+  company        Company         @relation(fields: [corpCode], references: [corpCode])
+  tradingSignal  TradingSignal?  @relation(fields: [tradingSignalId], references: [id])
+  positionThesis PositionThesis? @relation(fields: [positionThesisId], references: [id])
 
   @@index([corpCode])
   @@index([stockCode])
@@ -1241,12 +1244,12 @@ model PaperTrade {
 // ====================================
 
 enum OrderRequestStatus {
-  PENDING       // 위험성 검사 전
-  APPROVED      // 위험성 검사 통과
-  REJECTED      // 위험성 검사 거부 (하드룰 위반)
-  KILLED        // Kill Switch에 의해 차단
-  EXECUTED      // 체결 완료
-  CANCELLED     // 취소
+  PENDING // 위험성 검사 전
+  APPROVED // 위험성 검사 통과
+  REJECTED // 위험성 검사 거부 (하드룰 위반)
+  KILLED // Kill Switch에 의해 차단
+  EXECUTED // 체결 완료
+  CANCELLED // 취소
 }
 
 enum OrderSide {
@@ -1255,49 +1258,49 @@ enum OrderSide {
 }
 
 enum AuditAction {
-  ORDER_REQUESTED   // 주문 요청
-  RISK_PASSED       // 위험성 검사 통과
-  RISK_REJECTED     // 위험성 검사 거부
+  ORDER_REQUESTED // 주문 요청
+  RISK_PASSED // 위험성 검사 통과
+  RISK_REJECTED // 위험성 검사 거부
   KILL_SWITCH_FIRED // Kill Switch 발동
-  ORDER_EXECUTED    // 체결 완료
-  ORDER_CANCELLED   // 취소
-  KILL_SWITCH_SET   // Kill Switch 수동 설정
+  ORDER_EXECUTED // 체결 완료
+  ORDER_CANCELLED // 취소
+  KILL_SWITCH_SET // Kill Switch 수동 설정
   KILL_SWITCH_RESET // Kill Switch 수동 해제
 }
 
 model OrderRequest {
-  id              String             @id @default(cuid())
-  idempotencyKey  String             @unique // 멱등 주문키 (중복 방지)
+  id             String @id @default(cuid())
+  idempotencyKey String @unique // 멱등 주문키 (중복 방지)
 
   corpCode        String
   stockCode       String
   side            OrderSide
   requestedShares Int
-  limitPrice      Decimal?           @db.Decimal(12, 2) // null = 시장가
+  limitPrice      Decimal?  @db.Decimal(12, 2) // null = 시장가
 
   // Risk 판정 결과
   status          OrderRequestStatus @default(PENDING)
-  rejectionReason String?            // 거부 사유 (하드룰 위반 내용)
+  rejectionReason String? // 거부 사유 (하드룰 위반 내용)
 
   // 스냅샷 (판정 시점 포트폴리오 상태)
-  capitalSnapshot     Decimal        @db.Decimal(14, 2)  // 판정 시점 총자산
-  dailyLossSnapshot   Decimal        @db.Decimal(12, 2)  // 판정 시점 당일 손실
-  weeklyLossSnapshot  Decimal        @db.Decimal(12, 2)  // 판정 시점 주간 손실
-  positionWeightSnap  Decimal        @db.Decimal(5, 4)   // 판정 시점 종목 비중
+  capitalSnapshot    Decimal @db.Decimal(14, 2) // 판정 시점 총자산
+  dailyLossSnapshot  Decimal @db.Decimal(12, 2) // 판정 시점 당일 손실
+  weeklyLossSnapshot Decimal @db.Decimal(12, 2) // 판정 시점 주간 손실
+  positionWeightSnap Decimal @db.Decimal(5, 4) // 판정 시점 종목 비중
 
   // Buy Score 스냅샷 (Risk veto 증적 — AI가 긍정이어도 Risk가 거부하면 거부 기록)
-  buyScoreSnapshot    Int?
+  buyScoreSnapshot Int?
 
   // 실행 연결
-  paperTradeId    String?
-  executionId     String?            // OrderExecution FK
+  paperTradeId String?
+  executionId  String? // OrderExecution FK
 
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  company         Company            @relation(fields: [corpCode], references: [corpCode])
-  execution       OrderExecution?    @relation(fields: [executionId], references: [id])
-  auditLogs       TradingAuditLog[]
+  company   Company           @relation(fields: [corpCode], references: [corpCode])
+  execution OrderExecution?   @relation(fields: [executionId], references: [id])
+  auditLogs TradingAuditLog[]
 
   @@index([corpCode])
   @@index([stockCode])
@@ -1307,24 +1310,24 @@ model OrderRequest {
 }
 
 model OrderExecution {
-  id              String        @id @default(cuid())
+  id String @id @default(cuid())
 
-  corpCode        String
-  stockCode       String
-  side            OrderSide
-  executedShares  Int
-  executedPrice   Decimal       @db.Decimal(12, 2)
-  commission      Decimal       @db.Decimal(12, 2) @default(0)
-  tax             Decimal       @db.Decimal(12, 2) @default(0)
-  slippage        Decimal       @db.Decimal(12, 2) @default(0)
-  netAmount       Decimal       @db.Decimal(14, 2) // 체결금액 - 비용
+  corpCode       String
+  stockCode      String
+  side           OrderSide
+  executedShares Int
+  executedPrice  Decimal   @db.Decimal(12, 2)
+  commission     Decimal   @default(0) @db.Decimal(12, 2)
+  tax            Decimal   @default(0) @db.Decimal(12, 2)
+  slippage       Decimal   @default(0) @db.Decimal(12, 2)
+  netAmount      Decimal   @db.Decimal(14, 2) // 체결금액 - 비용
 
-  executedAt      DateTime
-  createdAt       DateTime      @default(now())
+  executedAt DateTime
+  createdAt  DateTime @default(now())
 
-  company         Company       @relation(fields: [corpCode], references: [corpCode])
-  orderRequests   OrderRequest[]
-  auditLogs       TradingAuditLog[]
+  company       Company           @relation(fields: [corpCode], references: [corpCode])
+  orderRequests OrderRequest[]
+  auditLogs     TradingAuditLog[]
 
   @@index([corpCode])
   @@index([executedAt])
@@ -1332,22 +1335,22 @@ model OrderExecution {
 }
 
 model TradingAuditLog {
-  id              String        @id @default(cuid())
-  action          AuditAction
-  actorKind       String        // "SYSTEM" | "RISK_ENGINE" | "KILL_SWITCH" | "USER"
-  summary         String        // 한줄 요약
+  id        String      @id @default(cuid())
+  action    AuditAction
+  actorKind String // "SYSTEM" | "RISK_ENGINE" | "KILL_SWITCH" | "USER"
+  summary   String // 한줄 요약
 
   // 연결 (nullable — Kill Switch 수동 조작 등 주문 없이도 기록)
-  orderRequestId  String?
-  executionId     String?
+  orderRequestId String?
+  executionId    String?
 
   // 상세 메타 (JSON)
-  meta            Json?
+  meta Json?
 
-  createdAt       DateTime      @default(now())
+  createdAt DateTime @default(now())
 
-  orderRequest    OrderRequest? @relation(fields: [orderRequestId], references: [id])
-  execution       OrderExecution? @relation(fields: [executionId], references: [id])
+  orderRequest OrderRequest?   @relation(fields: [orderRequestId], references: [id])
+  execution    OrderExecution? @relation(fields: [executionId], references: [id])
 
   @@index([action])
   @@index([orderRequestId])
@@ -1357,14 +1360,166 @@ model TradingAuditLog {
 }
 
 model KillSwitchState {
-  id              String        @id @default(cuid())
-  isActive        Boolean       @default(false)
-  reason          String?       // 발동 사유
-  triggeredBy     String        @default("SYSTEM") // "SYSTEM" | "USER"
-  activatedAt     DateTime?
-  deactivatedAt   DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id            String    @id @default(cuid())
+  isActive      Boolean   @default(false)
+  reason        String? // 발동 사유
+  triggeredBy   String    @default("SYSTEM") // "SYSTEM" | "USER"
+  activatedAt   DateTime?
+  deactivatedAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@map("kill_switch_states")
+}
+
+// ====================================
+// Persona 철학 엔진 P-A (DAR-48)
+// 유명 투자자 철학을 구조화·정량화하여 저장. AI 미개입(순수 데이터/구조).
+// 로드맵: docs/roadmap/cc-persona-philosophy-engine.md §2·§4 P-A
+// ====================================
+
+// 정량 지표 비교 연산자
+enum PhilosophyMetricOperator {
+  GT // ≥ (이상)
+  LT // ≤ (이하)
+  EQ // = (같음/충족)
+  RANGE // 범위 [min, max]
+}
+
+// 철학 출처 유형
+enum PhilosophySourceType {
+  BOOK
+  SHAREHOLDER_LETTER
+  INTERVIEW
+  PUBLIC_STATEMENT
+}
+
+// 유명 투자자 철학 (마스터)
+// philosophyId 자연키(예: 'BUFFETT', 'LYNCH')로 식별 — P-B 스코어러가 참조.
+model InvestorPhilosophy {
+  philosophyId     String   @id // 고유 식별자 자연키 (예: 'BUFFETT', 'LYNCH', 'GREENBLATT', 'DRUCKENMILLER')
+  investorName     String // 유명 투자자 이름
+  styleTags        String[] // 스타일 태그 (예: ['VALUE','MOAT','LONG_TERM']) — 기존 4 persona(VALUE/GROWTH/MOMENTUM/EVENT_DRIVEN)와 연계 가능
+  corePrinciples   String[] // 핵심 원칙 요약 (3~7개)
+  applicableAssets String[] // 적용 자산군 (예: ['KR_STOCK','US_STOCK','CRYPTO'])
+  checklistItems   String[] // 투자 전 체크리스트
+  riskProfile      String // 리스크 성향 (예: '보수적', '공격적·집중투자')
+  scoreFormula     String? // 스코어 산식 설명 (0~100 환산식, 참고용)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  metrics         PhilosophyMetric[]
+  sources         PhilosophySource[]
+  personaAnalyses PersonaAnalysis[]
+
+  @@index([investorName])
+  @@map("investor_philosophies")
+}
+
+// 철학별 정량 지표 매핑 (ROE·부채비율·PER·해자 등)
+model PhilosophyMetric {
+  id           String                   @id @default(cuid())
+  philosophyId String // FK → InvestorPhilosophy
+  metricKey    String // 지표 키 (예: 'ROE', 'DEBT_RATIO', 'PER', 'MOAT_SCORE')
+  operator     PhilosophyMetricOperator // 비교 연산자
+  threshold    Float // 기준값 (RANGE의 경우 하한)
+  thresholdMax Float? // RANGE 상한 (operator=RANGE일 때만 사용)
+  weight       Float // 가중치 0~1 (해당 철학 내 합산 = 1)
+  description  String // 지표 설명
+
+  philosophy InvestorPhilosophy @relation(fields: [philosophyId], references: [philosophyId], onDelete: Cascade)
+
+  @@unique([philosophyId, metricKey]) // 철학 내 지표 키 유일 — 시드 멱등성 보장
+  @@index([philosophyId])
+  @@map("philosophy_metrics")
+}
+
+// 철학 출처 (공개 자료 기반)
+model PhilosophySource {
+  id           String               @id @default(cuid())
+  philosophyId String // FK → InvestorPhilosophy
+  type         PhilosophySourceType // 출처 유형
+  title        String // 자료 제목
+  year         Int // 발간/공개 연도
+  url          String? // 공개 URL (주주서한 등)
+
+  philosophy InvestorPhilosophy @relation(fields: [philosophyId], references: [philosophyId], onDelete: Cascade)
+
+  @@unique([philosophyId, title]) // 철학 내 출처 제목 유일 — 시드 멱등성 보장
+  @@index([philosophyId])
+  @@map("philosophy_sources")
+}
+
+// ====================================
+// 재무지표 (DAR-52 신규) — DART 정기공시 재무제표 수집
+// ====================================
+
+// 기업 재무지표 — DART 단일회사 전체 재무제표(fnlttSinglAcntAll) 기반.
+// 자연키: corpCode + 기준연도(bsnsYear) + 보고서코드(reprtCode) + 재무제표구분(fsDiv).
+// AI 미개입(순수 데이터/Rule 파생비율). Persona P-B 스코어러·BuyScore keyMetric이 읽는다.
+model CompanyFinancial {
+  id String @id @default(cuid())
+
+  // ── 자연키 ──────────────────────────────────────────────────
+  corpCode   String // DART 고유번호 (FK → Company.corpCode)
+  stockCode  String? // 종목코드 6자리 (조회 성능용 역정규화)
+  bsnsYear   String // 사업연도 (예: '2025')
+  reprtCode  String // 보고서코드 11011(연간)/11012(반기)/11013(1Q)/11014(3Q)
+  fsDiv      String  @default("CFS") // CFS(연결) | OFS(별도)
+
+  // ── 핵심 지표 (원, BigInt — 조 단위 금액 안전 저장) ───────────
+  revenue          BigInt? // 매출액
+  operatingProfit  BigInt? // 영업이익
+  netIncome        BigInt? // 당기순이익
+  totalAssets      BigInt? // 자산총계
+  totalLiabilities BigInt? // 부채총계
+  totalEquity      BigInt? // 자본총계
+
+  // ── 주당 지표 ────────────────────────────────────────────────
+  eps Float? // 기본주당이익 (원)
+  bps Float? // 주당순자산 (원) — 발행주식수 확보 시 보강
+
+  // ── 파생 비율 (%) — 재무제표만으로 산출 ──────────────────────
+  roe       Float? // 자기자본이익률 = 순이익/자본 × 100
+  roa       Float? // 총자산이익률 = 순이익/자산 × 100
+  debtRatio Float? // 부채비율 = 부채/자본 × 100
+
+  // ── 시세 결합 파생 (가능 시 보강, 기본 null) ─────────────────
+  per Float? // 주가수익비율 — 시세 결합 필요
+  pbr Float? // 주가순자산비율 — 시세 결합 필요
+
+  // ── 메타 ────────────────────────────────────────────────────
+  rceptNo   String? // 원천 공시 접수번호 (추적용)
+  currency  String  @default("KRW")
+  fetchedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [corpCode], references: [corpCode])
+
+  @@unique([corpCode, bsnsYear, reprtCode, fsDiv]) // 멱등 upsert 자연키
+  @@index([corpCode])
+  @@index([bsnsYear])
+  @@map("company_financials")
+}
+
+// 재무지표 수집 실행 로그 — 수집 서비스 멱등성·관측성 (MarketDataCollectionLog 패턴).
+model FinancialCollectionLog {
+  id           String    @id @default(cuid())
+  bsnsYear     String // 수집 대상 사업연도
+  reprtCode    String // 보고서코드
+  fsDiv        String    @default("CFS")
+  triggeredBy  String    @default("MANUAL") // "MANUAL" | "CRON"
+  status       String    @default("RUNNING") // "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED"
+  targetCount  Int       @default(0) // 수집 대상 기업 수
+  savedCount   Int       @default(0) // upsert 성공 기업 수
+  skippedCount Int       @default(0) // 데이터 없음/스킵 수
+  failedCount  Int       @default(0) // 실패 수
+  errorMessage String?
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+
+  @@index([bsnsYear])
+  @@index([status])
+  @@map("financial_collection_logs")
 }

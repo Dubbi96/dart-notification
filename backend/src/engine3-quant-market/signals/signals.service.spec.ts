@@ -210,4 +210,107 @@ describe('SignalsService — scoreBreakdown sampleN (DAR-34)', () => {
       ).not.toHaveProperty('sampleN');
     });
   });
+
+  /**
+   * DAR-46: 등급무관 탐색을 위한 findAll 계약 — 전 등급 노출 + sort + eventType 필터.
+   */
+  describe('findAll — 등급무관 탐색 (DAR-46)', () => {
+    beforeEach(() => {
+      prisma.eventStudyResult.findMany.mockResolvedValue([]);
+      prisma.tradingSignal.count.mockResolvedValue(0);
+    });
+
+    it('NEUTRAL/AVOID 등급을 WATCH로 합치지 않고 1:1로 노출한다', async () => {
+      const neutral = { ...baseSignal, id: 'n1', signal: SignalGrade.NEUTRAL };
+      const avoid = { ...baseSignal, id: 'a1', signal: SignalGrade.AVOID };
+      prisma.tradingSignal.findMany.mockResolvedValue([neutral, avoid]);
+      prisma.tradingSignal.count.mockResolvedValue(2);
+
+      const { items } = await service.findAll({});
+
+      expect(items[0].grade).toBe('NEUTRAL');
+      expect(items[1].grade).toBe('AVOID');
+    });
+
+    it('모바일 등급값(AVOID)을 Prisma enum으로 역매핑해 where에 적용한다', async () => {
+      prisma.tradingSignal.findMany.mockResolvedValue([]);
+
+      await service.findAll({ grade: 'AVOID' });
+
+      expect(prisma.tradingSignal.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ signal: SignalGrade.AVOID }),
+        }),
+      );
+    });
+
+    it('raw enum 등급값(STRONG_BUY_CANDIDATE)도 하위호환으로 허용한다', async () => {
+      prisma.tradingSignal.findMany.mockResolvedValue([]);
+
+      await service.findAll({ grade: 'STRONG_BUY_CANDIDATE' });
+
+      expect(prisma.tradingSignal.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            signal: SignalGrade.STRONG_BUY_CANDIDATE,
+          }),
+        }),
+      );
+    });
+
+    it('미인식 등급값은 필터에서 무시한다(signal 조건 미생성)', async () => {
+      prisma.tradingSignal.findMany.mockResolvedValue([]);
+
+      await service.findAll({ grade: 'NONSENSE' });
+
+      const call = prisma.tradingSignal.findMany.mock.calls[0][0];
+      expect(call.where).not.toHaveProperty('signal');
+    });
+
+    it('sort=score 시 점수 내림차순 + 최신순 tiebreak로 정렬한다', async () => {
+      prisma.tradingSignal.findMany.mockResolvedValue([]);
+
+      await service.findAll({ sort: 'score' });
+
+      expect(prisma.tradingSignal.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: [{ buyScore: 'desc' }, { createdAt: 'desc' }],
+        }),
+      );
+    });
+
+    it('sort 미지정 시 최신순(createdAt desc)을 기본으로 한다', async () => {
+      prisma.tradingSignal.findMany.mockResolvedValue([]);
+
+      await service.findAll({});
+
+      expect(prisma.tradingSignal.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: [{ createdAt: 'desc' }] }),
+      );
+    });
+
+    it('eventType 필터를 where에 적용한다', async () => {
+      prisma.tradingSignal.findMany.mockResolvedValue([]);
+
+      await service.findAll({ eventType: 'SUPPLY_CONTRACT' });
+
+      expect(prisma.tradingSignal.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ eventType: 'SUPPLY_CONTRACT' }),
+        }),
+      );
+    });
+
+    it('persona 필터를 where에 적용한다', async () => {
+      prisma.tradingSignal.findMany.mockResolvedValue([]);
+
+      await service.findAll({ personaType: 'GROWTH' });
+
+      expect(prisma.tradingSignal.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ persona: 'GROWTH' }),
+        }),
+      );
+    });
+  });
 });

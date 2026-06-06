@@ -337,4 +337,184 @@ export class KrxMarketDataScheduler {
       throw e;
     }
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // DAR-50: 히스토리컬 일봉 백필
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** stockCode → corpCode 매핑 (DB 1회 로드) */
+  private async loadCorpCodeMap(): Promise<Map<string, string>> {
+    const companies = await this.prisma.company.findMany({
+      where: { stockCode: { not: null } },
+      select: { corpCode: true, stockCode: true },
+    });
+    return new Map(
+      companies
+        .filter((c): c is { corpCode: string; stockCode: string } => c.stockCode !== null)
+        .map((c) => [c.stockCode, c.corpCode]),
+    );
+  }
+
+  private dateRange(dates: string[]): { from: string | null; to: string | null } {
+    if (dates.length === 0) return { from: null, to: null };
+    const sorted = [...dates].sort();
+    return { from: sorted[0], to: sorted[sorted.length - 1] };
+  }
+
+  /**
+   * 단일 날짜 일봉 bulk 수집 (히스토리컬·멱등). createMany skipDuplicates 사용.
+   * 히스토리컬 EOD 가격은 불변이므로 upsert 대신 bulk insert(중복 무시)로 처리 — 빠름.
+   * @returns saved(신규 삽입행수)·skipped(매핑/0가 제외)·rowsFetched(KRX 원행수, 0이면 휴장)
+   */
+  async collectDailyPricesBulkForDate(
+    basDd: string,
+    corpCodeByStockCode?: Map<string, string>,
+  ): Promise<{ saved: number; skipped: number; rowsFetched: number }> {
+    const map = corpCodeByStockCode ?? (await this.loadCorpCodeMap());
+
+    const [kospiRows, kosdaqRows] = await Promise.all([
+      this.krx.fetchStockDaily(basDd),
+      this.krx.fetchKosqdaqDaily(basDd),
+    ]);
+    const allRows = [...kospiRows, ...kosdaqRows];
+    const rowsFetched = allRows.length;
+
+    const data: Prisma.StockDailyPriceCreateManyInput[] = [];
+    let skipped = 0;
+    for (const row of allRows) {
+      if (!row.stockCode || row.closePrice === 0) {
+        skipped++;
+        continue;
+      }
+      const corpCode = map.get(row.stockCode);
+      if (!corpCode) {
+        skipped++;
+        continue;
+      }
+      data.push({
+        corpCode,
+        stockCode: row.stockCode,
+        tradeDate: basDd,
+        openPrice: row.openPrice,
+        highPrice: row.highPrice,
+        lowPrice: row.lowPrice,
+        closePrice: row.closePrice,
+        volume: BigInt(row.volume),
+        tradingValue: BigInt(row.tradingValue),
+      });
+    }
+
+    if (data.length === 0) return { saved: 0, skipped, rowsFetched };
+    const result = await this.prisma.stockDailyPrice.createMany({
+      data,
+      skipDuplicates: true,
+    });
+    return { saved: result.count, skipped, rowsFetched };
+  }
+
+  /**
+   * 히스토리컬 일봉 백필 (DAR-50).
+   * endDate(기본 오늘)부터 거래일 기준 과거로 days개 거래일의 일봉을 수집한다.
+   * - 주말 스킵 / 휴장일은 KRX 0행 반환 → 거래일로 카운트하지 않고 스킵(emptyDates 기록).
+   * - 멱등: createMany skipDuplicates (이미 적재된 (stockCode, tradeDate) 는 무시).
+   * - 레이트리밋 대응: 날짜 호출 간 delayMs 지연.
+   * - graceful: KRX 미설정 시 즉시 리턴, 개별 날짜 오류는 emptyDates 처리 후 계속.
+   */
+  async backfillDailyPrices(
+    opts: {
+      days?: number;
+      endDate?: string;
+      delayMs?: number;
+      maxLookbackDays?: number;
+    } = {},
+  ): Promise<{
+    requestedDays: number;
+    collectedDays: number;
+    totalSaved: number;
+    totalSkipped: number;
+    emptyDates: string[];
+    dateRange: { from: string | null; to: string | null };
+    message?: string;
+  }> {
+    const days = opts.days ?? 60;
+    const delayMs = opts.delayMs ?? 300;
+    const maxLookback = opts.maxLookbackDays ?? days * 3 + 15;
+    const endDate = opts.endDate ?? this.krx.formatDate(new Date());
+
+    const corpCodeByStockCode = await this.loadCorpCodeMap();
+    if (corpCodeByStockCode.size === 0) {
+      return {
+        requestedDays: days,
+        collectedDays: 0,
+        totalSaved: 0,
+        totalSkipped: 0,
+        emptyDates: [],
+        dateRange: { from: null, to: null },
+        message: '종목코드 보유 Company 없음',
+      };
+    }
+
+    let collectedDays = 0;
+    let totalSaved = 0;
+    let totalSkipped = 0;
+    const emptyDates: string[] = [];
+    const collectedDates: string[] = [];
+
+    const cursor = this.krx.parseDate(endDate);
+    let lookback = 0;
+
+    this.logger.log(`[KRX][백필] 시작 endDate=${endDate} days=${days} (maxLookback=${maxLookback})`);
+
+    while (collectedDays < days && lookback < maxLookback) {
+      const basDd = this.krx.formatDate(cursor);
+      cursor.setDate(cursor.getDate() - 1);
+      lookback++;
+
+      if (this.krx.isWeekend(this.krx.parseDate(basDd))) continue;
+
+      try {
+        const res = await this.collectDailyPricesBulkForDate(basDd, corpCodeByStockCode);
+        if (res.rowsFetched === 0) {
+          emptyDates.push(basDd); // 휴장일 — 거래일 카운트 제외
+          continue;
+        }
+        collectedDays++;
+        collectedDates.push(basDd);
+        totalSaved += res.saved;
+        totalSkipped += res.skipped;
+        this.logger.log(
+          `[KRX][백필] ${basDd} saved=${res.saved} skipped=${res.skipped} (${collectedDays}/${days})`,
+        );
+      } catch (e) {
+        if (e instanceof KrxApiUnavailableError) {
+          this.logger.warn('[KRX][백필] API 키 미설정 — 백필 중단');
+          return {
+            requestedDays: days,
+            collectedDays,
+            totalSaved,
+            totalSkipped,
+            emptyDates,
+            dateRange: this.dateRange(collectedDates),
+            message: 'KRX API 미설정',
+          };
+        }
+        this.logger.error(`[KRX][백필] ${basDd} 오류: ${(e as Error).message}`);
+        emptyDates.push(basDd);
+      }
+
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+    }
+
+    this.logger.log(
+      `[KRX][백필] 완료 collectedDays=${collectedDays}/${days} totalSaved=${totalSaved} range=${JSON.stringify(this.dateRange(collectedDates))}`,
+    );
+    return {
+      requestedDays: days,
+      collectedDays,
+      totalSaved,
+      totalSkipped,
+      emptyDates,
+      dateRange: this.dateRange(collectedDates),
+    };
+  }
 }

@@ -87,8 +87,14 @@ src/
 │   ├── tasks/
 │   │   ├── summary.task.ts
 │   │   ├── event-classification.task.ts
-│   │   ├── persona-interpretation.task.ts
-│   │   └── position-thesis.task.ts
+│   │   ├── persona-interpretation.task.ts   (기존 → Persona P-C에서 확장)
+│   │   ├── position-thesis.task.ts
+│   │   └── philosophy-commentary.task.ts    (Persona P-C 신규: AI 철학 해설)
+│   ├── philosophy/                          (Persona P-A~P-B 신규)
+│   │   ├── philosophy.seed.ts               (4종 철학 시드 데이터)
+│   │   ├── philosophy.service.ts            (철학 CRUD)
+│   │   ├── philosophy-scorer.service.ts     (Rule 기반 철학 점수화, AI 미사용)
+│   │   └── magic-formula-rank.service.ts   (그린블라트 유니버스 순위 배치)
 │   ├── cost-gate/
 │   │   └── ai-cost-gate.service.ts
 │   ├── usage-log/
@@ -97,7 +103,7 @@ src/
 │
 ├── engine3-quant-market/        ← Quant & Market Engine
 │   ├── market-data/
-│   │   ├── market-data.service.ts   (KIS OpenAPI 연동)
+│   │   ├── market-data.service.ts   (KIS OpenAPI 연동 / 다자산 확장 시 IPriceDataPort 구현체로 분리)
 │   │   └── market-data.scheduler.ts
 │   ├── indicators/
 │   │   └── technical-indicator.service.ts
@@ -358,6 +364,15 @@ rejectOrder(orderRequestId: string, userId: string): Promise<void>
 | `PaperTrade` | Engine 5 | 신규 (Phase 12) |
 | `OrderRequest` / `OrderExecution` | Engine 5 | 신규 (Phase 13) |
 | `TradingAuditLog` | Engine 5 | 신규 (Phase 13) |
+| `InvestorPhilosophy` | Engine 2 | 신규 (Persona P-A, M3 후) |
+| `PhilosophyMetric` | Engine 2 | 신규 (Persona P-A) |
+| `PhilosophySource` | Engine 2 | 신규 (Persona P-A) |
+| `PhilosophyScore` | Engine 2 | 신규 (Persona P-B, M5~M6 후) |
+| `MagicFormulaRank` | Engine 2 | 신규 (Persona P-B) |
+| `PhilosophyPaperPortfolio` | Engine 4/5 공유 | 신규 (Persona P-D, M12 후) |
+| `Asset` (추상) | 공통 | 신규 (다자산 M13A 착수 시 — 현재는 `Company`가 KR_STOCK 담당) |
+
+> **다자산 확장 노트:** M13A(미국주식) 착수 시 `Company` 모델을 `Asset` 도메인으로 추상화하거나 병행 운용한다. `engine3-quant-market`의 시세 서비스는 `IPriceDataPort` / `IMarketCalendarPort` 인터페이스로 분리하여 자산별 어댑터를 교체 가능하게 설계한다. 상세: [cc-multi-asset-expansion.md §6](./cc-multi-asset-expansion.md)
 
 **신규 모델 FK 정합 스케치 (기존 자연키와 연결):**
 
@@ -601,7 +616,55 @@ function evaluateGate(event: DisclosureEvent): AiCostLevel {
 
 ---
 
-## 9. 완료 기준 (DoD)
+## 9. 미래 확장 설계 (M12 이후, 참고)
+
+### 9-1. 자산 추상화 (다자산 확장 M13A/B 대비)
+
+현행 5엔진은 KR_STOCK 단일 자산군을 전제한다. US_STOCK·CRYPTO 확장 시 아래 추상화를 Engine3·Engine4에 추가한다.
+
+```typescript
+// Engine3 가격/캘린더 포트 분리 (헥사고날 확장)
+interface IPriceDataPort { ... }       // KrxPriceAdapter | PolygonAdapter | BinanceAdapter
+interface IMarketCalendarPort { ... }  // KrxCalendar | NyseCalendar | CryptoCalendar(상시)
+
+// assetClass 도메인 확장
+enum AssetClass { KR_STOCK = 'KR_STOCK', US_STOCK = 'US_STOCK', CRYPTO = 'CRYPTO' }
+```
+
+- Engine1: SEC EDGAR·CoinMarketCal 수집 어댑터 추가 (DART 어댑터와 동일 인터페이스)
+- Engine4: `Portfolio.currency` 다통화(KRW/USD/USDT) 지원, 환율 변환 레이어 추가
+- Engine5: 자산군별 리스크 파라미터 분리 (CRYPTO 포지션 한도 = KR의 1/3)
+
+> 상세: [cc-multi-asset-expansion.md](./cc-multi-asset-expansion.md)
+
+### 9-2. Persona 철학 엔진 위치 (M3 확장)
+
+현행 Engine2의 `PersonaInterpretationTask`(4종 Persona 해석)에 **투자 철학 데이터 모델**을 결합하는 방향으로 확장한다.
+
+```
+Engine2 확장 위치:
+  engine2-ai-analyst/
+  ├── tasks/
+  │   ├── persona-interpretation.task.ts   ← 현행: 4종 Persona 해석
+  │   └── philosophy-scoring.task.ts       ← 신규(P-C): 철학별 AI 해석 결합
+  ├── philosophy/                          ← 신규(P-A~P-B)
+  │   ├── investor-philosophy.types.ts     # InvestorPhilosophy 타입
+  │   ├── philosophy-scorer.service.ts     # Rule 기반 정량 스코어러 (AI 금지)
+  │   └── philosophy.seed.ts              # 5종 철학 시드 데이터
+```
+
+- P-A: `InvestorPhilosophy` 모델 DB 추가, 5종 철학 시드 (`BUFFETT_VALUE` 등)
+- P-B: `PhilosophyScorer` (Rule 기반, AI 미개입). 재무 데이터(ROE·PEG·마법공식) DB 연동 필요
+- P-C: `PersonaInterpretationTask` 프롬프트에 철학 원칙 주입, `philosophyFit` 필드 출력
+- P-D: `PaperPortfolio.activePhilosophyId` + 스타일별 신호 결합 모의 자동투자
+
+**AI 금지**: 철학별 스코어러(P-B)·모의 자동투자 신호(P-D)는 순수 Rule. P-C AI 해석은 L2 등급.
+
+> 상세: [cc-persona-philosophy-engine.md](./cc-persona-philosophy-engine.md)
+
+---
+
+## 10. 완료 기준 (DoD)
 
 - [ ] 5개 엔진의 NestJS 모듈 폴더 구조가 코드베이스에 존재하고 `AppModule`에 등록됨
 - [ ] BullMQ 큐 8개가 `queue.constants.ts`에 정의되고 각 워커가 컨슈머로 등록됨

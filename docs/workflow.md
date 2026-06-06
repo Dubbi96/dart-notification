@@ -608,6 +608,27 @@ GET  /market-data/collection-logs?tradeDate=YYYYMMDD
   → MarketDataCollectionLog 조회 (최근 20건)
 ```
 
+### 5.6 히스토리컬 백필 (DAR-50)
+
+데이터 최대수집 — 과거 N거래일 일봉 + 기술지표 적재로 chart 점수·entryReady 해금 → 모의매수 작동.
+
+```
+POST /market-data/backfill/daily?days=60&endDate=YYYYMMDD
+  → backfillDailyPrices() — endDate부터 과거 N거래일 일봉을 StockDailyPrice에 멱등 적재
+     (주말 스킵·휴장일 0행 자동 스킵·createMany skipDuplicates·날짜간 delay)
+POST /indicators/backfill?mode=latest|all
+  → IndicatorBackfillService.backfill() — DB 일봉 → 순수함수 지표 계산 → technical_indicators 멱등 upsert
+     (latest=종목별 최신 거래일 / all=보유 전 거래일)
+POST /signals/regenerate
+  → 기존 trading_signals 재채점(upsert) — TI 백필 후 chart/entryReady 반영, 파생 신호만 갱신
+```
+
+수동 스크립트(관리자):
+```
+npx ts-node -r dotenv/config src/engine3-quant-market/market-data/backfill-history.manual.ts [days] [endDate]
+npx ts-node -r dotenv/config src/engine3-quant-market/indicators/indicator-backfill.manual.ts [latest|all]
+```
+
 ---
 
 ## 6. Portfolio & Exit 엔진 점검 스케줄 (M8-A DAR-12)

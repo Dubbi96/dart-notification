@@ -22,7 +22,8 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts",
-    "seed:notifications": "ts-node prisma/seed-notifications.ts"
+    "seed:notifications": "ts-node prisma/seed-notifications.ts",
+    "seed:philosophy": "ts-node prisma/seed-philosophy.ts"
   },
   "dependencies": {
     "@nestjs/bullmq": "^11.0.4",

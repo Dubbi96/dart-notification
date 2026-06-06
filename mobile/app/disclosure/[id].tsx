@@ -31,6 +31,7 @@ import {
   getEventTypeLabel,
   getPolarityLabel,
 } from '@utils/disclosureType';
+import { extractKeyFigures } from '@utils/keyFigures';
 
 // 극성/이벤트 평문 매핑은 utils/disclosureType.ts(단일 출처)로 통합 — raw enum 단독 노출 금지(P0-B).
 
@@ -99,6 +100,9 @@ export default function DisclosureDetailScreen() {
     { label: '접수번호', value: disclosure.rcpNo },
     { label: '접수일시', value: format(parse(disclosure.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd') },
   ];
+
+  // 이벤트 추출 핵심 수치(DAR-46 §3) — 화이트리스트 키만 평문 라벨·단위로 노출.
+  const keyFigures = extractKeyFigures(disclosureEvent?.extractedData);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -230,6 +234,21 @@ export default function DisclosureDetailScreen() {
               </View>
             ) : null}
 
+            {/* 핵심 수치(DAR-46 §3) — 추출된 이벤트 수치를 평문 라벨·단위로 통합 표시 */}
+            {keyFigures.length > 0 ? (
+              <View style={styles.keyFigures}>
+                <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.xs }]}>
+                  핵심 수치
+                </Text>
+                {keyFigures.map((fig) => (
+                  <View key={fig.key} style={styles.aiRow}>
+                    <Text style={[typo.small, { color: colors.textSecondary }]}>{fig.label}</Text>
+                    <Text style={[typo.captionMedium, { color: colors.text }]}>{fig.display}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
             {/* 면책 문구 (인라인) — 기획 §5 공시 상세 AI 섹션 위치 */}
             <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.sm }]}>
               AI 분석은 참고 정보이며 투자 결정의 책임은 투자자 본인에게 있습니다.
@@ -338,6 +357,10 @@ const styles = StyleSheet.create({
   },
   aiChip: {
     height: 24,
+  },
+  keyFigures: {
+    marginTop: spacing.sm,
+    gap: spacing.xs,
   },
   polarityRow: {
     flexDirection: 'row',

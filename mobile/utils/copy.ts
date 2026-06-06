@@ -9,6 +9,8 @@ export const SCORE_ONE_LINER: Record<string, string> = {
   STRONG_BUY: '여러 조건이 두루 맞는 구간 (참고)',
   BUY: '관심을 가져볼 만한 수준 (참고)',
   WATCH: '아직 일부 조건이 부족한 구간 (참고)',
+  NEUTRAL: '뚜렷한 방향성이 보이지 않는 구간 (참고)',
+  AVOID: '현재로선 부정적 요인이 우세한 구간 (참고)',
   BLOCKED: '필수 조건 미충족으로 진입 부적합 (참고)',
   // 숫자 범위 기준 (grade 미지정 시 폴백)
   SCORE_80_PLUS: '여러 조건이 두루 맞는 구간 (참고)',

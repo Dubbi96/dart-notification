@@ -26,6 +26,7 @@ describe('SignalGenerationService (DAR-41)', () => {
     createImpl?: jest.Mock;
     esrRows?: any[];
     financials?: any[];
+    insiderChanges?: any[];
   }) {
     const created: any[] = [];
     const create =

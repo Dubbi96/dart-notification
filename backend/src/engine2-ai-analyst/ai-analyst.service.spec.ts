@@ -6,8 +6,10 @@ import {
   PositionThesisRequest,
 } from './ai-analyst.service';
 import { AiCostGateService } from './cost-gate/ai-cost-gate.service';
+import { AiCostLimitGuardService } from './cost-gate/ai-cost-limit-guard.service';
 import { AiUsageLogService } from './usage-log/ai-usage-log.service';
 import { InMemoryAiAnalysisRepository } from './adapters/in-memory-ai-analysis.repository';
+import { AiCostLevel } from './types/ai-analyst.types';
 import { SummaryTask } from './tasks/summary.task';
 import { EventClassificationTask } from './tasks/event-classification.task';
 import { PersonaInterpretationTask } from './tasks/persona-interpretation.task';
@@ -47,6 +49,8 @@ function buildService(
   eventRunMock: jest.Mock = jest.fn(),
   personaRunMock: jest.Mock = jest.fn(),
   thesisRunMock: jest.Mock = jest.fn(),
+  // 기본: 한도 미초과(제안 레벨 그대로 통과). 테스트가 강등을 모사할 때 override.
+  enforceLimitMock: jest.Mock = jest.fn(async (lvl: AiCostLevel) => lvl),
 ) {
   const repo = new InMemoryAiAnalysisRepository();
   const usageLog = new AiUsageLogService(repo);
@@ -55,8 +59,10 @@ function buildService(
   const eventTask = { run: eventRunMock } as unknown as EventClassificationTask;
   const personaTask = { run: personaRunMock } as unknown as PersonaInterpretationTask;
   const thesisTask = { run: thesisRunMock } as unknown as PositionThesisTask;
+  const limitGuard = { enforceLimit: enforceLimitMock } as unknown as AiCostLimitGuardService;
   const service = new AiAnalystService(
     new AiCostGateService(),
+    limitGuard,
     repo,
     usageLog,
     summaryTask,
@@ -64,7 +70,7 @@ function buildService(
     personaTask,
     thesisTask,
   );
-  return { service, repo, logSpy };
+  return { service, repo, logSpy, enforceLimitMock };
 }
 
 // ── runSummary ──────────────────────────────────────────────────────────────
@@ -193,6 +199,14 @@ describe('AiAnalystService.runPersonaInterpretation', () => {
     expect(logSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('DAR-78: PersonaAnalysis 테이블에도 personaViews를 영속한다(DAR-72 융합 입력 충전)', async () => {
+    const run = jest.fn().mockResolvedValue(okResult);
+    const { service, repo } = buildService(jest.fn(), jest.fn(), run);
+    await service.runPersonaInterpretation(makePersonaReq());
+    // PrismaPersonaViewRepository가 읽는 PersonaAnalysis 저장소에 결과가 충전돼야 한다.
+    expect(await repo.findPersonaViews('R003')).toEqual(personaDrafts);
+  });
+
   it('멱등: 동일 rcpNo 재요청은 캐시 반환', async () => {
     const run = jest.fn().mockResolvedValue(okResult);
     const { service } = buildService(jest.fn(), jest.fn(), run);
@@ -200,6 +214,48 @@ describe('AiAnalystService.runPersonaInterpretation', () => {
     const second = await service.runPersonaInterpretation(makePersonaReq());
     expect(second).toEqual(personaDrafts);
     expect(run).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── DAR-78: AiCostLimitGuard 일/월 한도 강제 ─────────────────────────────────
+
+describe('AiAnalystService — AiCostLimitGuard 한도 강제(DAR-78)', () => {
+  const summaryOk: TaskRunResult<DisclosureSummaryDraft> = {
+    result: summaryDraft,
+    usage: { model: 'gpt-4o-mini', inputTokens: 500, outputTokens: 200 },
+  };
+
+  it('한도 초과(forced L0) 시 게이트가 L2여도 Summary를 스킵하고 LLM·사용량 기록 0', async () => {
+    const run = jest.fn().mockResolvedValue(summaryOk);
+    // 한도 초과 → enforceLimit이 어떤 제안 레벨이든 L0으로 강등.
+    const forceL0 = jest.fn(async () => AiCostLevel.L0);
+    const { service, logSpy } = buildService(run, jest.fn(), jest.fn(), jest.fn(), forceL0);
+
+    const res = await service.runSummary(makeReq()); // 게이트로는 L2 조건
+    expect(res).toBeNull();
+    expect(run).not.toHaveBeenCalled(); // 유료 LLM 미호출
+    expect(logSpy).not.toHaveBeenCalled(); // AIUsageLog 미기록
+    expect(forceL0).toHaveBeenCalledWith(AiCostLevel.L2); // 제안 레벨(L2)에 한도 적용
+  });
+
+  it('한도 초과 시 Position Thesis(L3 조건)도 강등되어 스킵된다', async () => {
+    const run = jest.fn();
+    const forceL0 = jest.fn(async () => AiCostLevel.L0);
+    const { service } = buildService(jest.fn(), jest.fn(), jest.fn(), run, forceL0);
+    const req: PositionThesisRequest = {
+      gate: makeGate({ isHolding: true, polarity: 'NEGATIVE' }), // 게이트로는 L3
+      input: {
+        rcpNo: 'R900',
+        signalId: 'S900',
+        summary: summaryDraft,
+        personaViews: [],
+        buyScore: 0,
+      },
+    };
+    const res = await service.runPositionThesis(req);
+    expect(res).toBeNull();
+    expect(run).not.toHaveBeenCalled();
+    expect(forceL0).toHaveBeenCalledWith(AiCostLevel.L3);
   });
 });
 

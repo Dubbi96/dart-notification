@@ -8,6 +8,8 @@ import { JOB, AiAnalyzeJobData } from '../../common/queues/queue.constants';
 
 const mockAiAnalystService = {
   runSummary: jest.fn(),
+  runPersonaInterpretation: jest.fn(),
+  runPositionThesis: jest.fn(),
 };
 
 const mockPrisma = {
@@ -15,6 +17,15 @@ const mockPrisma = {
   disclosureEvent: { findUnique: jest.fn() },
   stockDailyPrice: { findFirst: jest.fn() },
   position: { count: jest.fn() },
+  tradingSignal: { findFirst: jest.fn() },
+};
+
+/** Summary 산출물 — Persona/Thesis 입력으로 전달되는지 검증용. */
+const summaryDraft = {
+  summary: '대규모 공급계약 체결',
+  positiveFactors: ['매출 증대'],
+  negativeFactors: [],
+  polarity: 'POSITIVE' as const,
 };
 
 const mockDartStockStatus = {
@@ -41,6 +52,9 @@ describe('EventExtractedConsumer', () => {
     jest.clearAllMocks();
     mockDartStockStatus.isManagementStock.mockResolvedValue(false); // 기본: 정상 종목
     mockPrisma.position.count.mockResolvedValue(0); // 기본: 미보유
+    mockPrisma.tradingSignal.findFirst.mockResolvedValue(null); // 기본: 매칭 신호 없음
+    mockAiAnalystService.runPersonaInterpretation.mockResolvedValue(null);
+    mockAiAnalystService.runPositionThesis.mockResolvedValue(null);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -336,6 +350,116 @@ describe('EventExtractedConsumer', () => {
       );
       const req = mockAiAnalystService.runSummary.mock.calls[0][0];
       expect(req.gate.polarity).toBe('NEUTRAL');
+    });
+  });
+
+  // ─── DAR-78: 전체 Task 오케스트레이션 (Summary→Persona→Thesis) ────────────
+  describe('DAR-78 — AI 전체 Task 오케스트레이션', () => {
+    function primeEnrichment() {
+      mockPrisma.disclosureDocument.findUnique.mockResolvedValue({ rawText: '본문' });
+      mockPrisma.disclosureEvent.findUnique.mockResolvedValue({ extractedData: {} });
+      mockPrisma.stockDailyPrice.findFirst.mockResolvedValue({
+        tradingValue: BigInt(5_000_000_000),
+        tradeDate: '20240531',
+      });
+    }
+
+    it('Summary 통과 시 Persona·Thesis까지 순차 오케스트레이션한다', async () => {
+      primeEnrichment();
+      mockAiAnalystService.runSummary.mockResolvedValue(summaryDraft);
+      const personaViews = [{ persona: 'AGGRESSIVE', interpretation: '적극', fitScore: 80 }];
+      mockAiAnalystService.runPersonaInterpretation.mockResolvedValue(personaViews);
+      mockAiAnalystService.runPositionThesis.mockResolvedValue({
+        initialThesis: 't',
+        invalidConditions: [],
+        riskNotes: 'r',
+      });
+      mockPrisma.tradingSignal.findFirst.mockResolvedValue({ id: 'SIG1', buyScore: 77 });
+
+      await consumer.process(makeJob(JOB.EVENT_EXTRACTED, baseData));
+
+      // Persona: Summary 산출물 + 4종 Persona 전달
+      expect(mockAiAnalystService.runPersonaInterpretation).toHaveBeenCalledTimes(1);
+      const pReq = mockAiAnalystService.runPersonaInterpretation.mock.calls[0][0];
+      expect(pReq.input.summary).toEqual(summaryDraft);
+      expect(pReq.input.personas).toEqual([
+        'CONSERVATIVE',
+        'BALANCED',
+        'AGGRESSIVE',
+        'EVENT_DRIVEN',
+      ]);
+
+      // Thesis: Persona 산출물 + TradingSignal 실조회값(signalId·buyScore) 전달
+      expect(mockAiAnalystService.runPositionThesis).toHaveBeenCalledTimes(1);
+      const tReq = mockAiAnalystService.runPositionThesis.mock.calls[0][0];
+      expect(tReq.input.personaViews).toEqual(personaViews);
+      expect(tReq.input.signalId).toBe('SIG1');
+      expect(tReq.input.buyScore).toBe(77);
+    });
+
+    it('Summary가 L0로 스킵(null)되면 Persona·Thesis를 호출하지 않는다(비용 안전)', async () => {
+      primeEnrichment();
+      mockAiAnalystService.runSummary.mockResolvedValue(null);
+
+      await consumer.process(makeJob(JOB.EVENT_EXTRACTED, baseData));
+
+      expect(mockAiAnalystService.runPersonaInterpretation).not.toHaveBeenCalled();
+      expect(mockAiAnalystService.runPositionThesis).not.toHaveBeenCalled();
+    });
+
+    it('TradingSignal 결측 시 합성 signalId·buyScore=0 으로 Thesis를 실행한다(graceful)', async () => {
+      primeEnrichment();
+      mockAiAnalystService.runSummary.mockResolvedValue(summaryDraft);
+      mockAiAnalystService.runPersonaInterpretation.mockResolvedValue([]);
+      mockPrisma.tradingSignal.findFirst.mockResolvedValue(null);
+
+      await consumer.process(makeJob(JOB.EVENT_EXTRACTED, baseData));
+
+      expect(mockPrisma.tradingSignal.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { rcpNo: '20240601000001' } }),
+      );
+      const tReq = mockAiAnalystService.runPositionThesis.mock.calls[0][0];
+      expect(tReq.input.signalId).toBe('rcp:20240601000001');
+      expect(tReq.input.buyScore).toBe(0);
+    });
+
+    it('Persona 실패는 graceful 처리하고 Thesis는 빈 personaViews로 진행한다', async () => {
+      primeEnrichment();
+      mockAiAnalystService.runSummary.mockResolvedValue(summaryDraft);
+      mockAiAnalystService.runPersonaInterpretation.mockRejectedValue(new Error('LLM bad json'));
+
+      await expect(
+        consumer.process(makeJob(JOB.EVENT_EXTRACTED, baseData)),
+      ).resolves.toBeUndefined();
+
+      // Persona 실패가 파이프라인을 깨지 않고 Thesis는 계속 진행(빈 personaViews)
+      expect(mockAiAnalystService.runPositionThesis).toHaveBeenCalledTimes(1);
+      const tReq = mockAiAnalystService.runPositionThesis.mock.calls[0][0];
+      expect(tReq.input.personaViews).toEqual([]);
+    });
+
+    it('Thesis 실패는 graceful 처리하고 잡을 정상 완료한다(Summary는 이미 영속)', async () => {
+      primeEnrichment();
+      mockAiAnalystService.runSummary.mockResolvedValue(summaryDraft);
+      mockAiAnalystService.runPersonaInterpretation.mockResolvedValue([]);
+      mockAiAnalystService.runPositionThesis.mockRejectedValue(new Error('LLM timeout'));
+
+      await expect(
+        consumer.process(makeJob(JOB.EVENT_EXTRACTED, baseData)),
+      ).resolves.toBeUndefined();
+    });
+
+    it('동일 잡 재실행은 멱등이다 — runSummary 캐시 반환 경로에서도 오케스트레이션이 안전하다', async () => {
+      primeEnrichment();
+      // runSummary가 캐시된 draft를 반환해도(2회 호출) Persona/Thesis가 동일하게 호출된다.
+      mockAiAnalystService.runSummary.mockResolvedValue(summaryDraft);
+      mockAiAnalystService.runPersonaInterpretation.mockResolvedValue([]);
+
+      await consumer.process(makeJob(JOB.EVENT_EXTRACTED, baseData));
+      await consumer.process(makeJob(JOB.EVENT_EXTRACTED, baseData));
+
+      expect(mockAiAnalystService.runSummary).toHaveBeenCalledTimes(2);
+      expect(mockAiAnalystService.runPersonaInterpretation).toHaveBeenCalledTimes(2);
     });
   });
 });

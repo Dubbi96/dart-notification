@@ -35,13 +35,14 @@ import { EventClassificationTask } from '../engine2-ai-analyst/tasks/event-class
 import { PersonaInterpretationTask } from '../engine2-ai-analyst/tasks/persona-interpretation.task';
 import { PositionThesisTask } from '../engine2-ai-analyst/tasks/position-thesis.task';
 import { AiCostGateService } from '../engine2-ai-analyst/cost-gate/ai-cost-gate.service';
+import { AiCostLimitGuardService } from '../engine2-ai-analyst/cost-gate/ai-cost-limit-guard.service';
 import { AiUsageLogService } from '../engine2-ai-analyst/usage-log/ai-usage-log.service';
 import { InMemoryAiAnalysisRepository } from '../engine2-ai-analyst/adapters/in-memory-ai-analysis.repository';
 import { PrismaAiAnalysisRepository } from '../engine2-ai-analyst/adapters/prisma-ai-analysis.repository';
 import { AiCostAggregationService } from '../engine2-ai-analyst/cost-aggregation/ai-cost-aggregation.service';
 import { AiAnalystService } from '../engine2-ai-analyst/ai-analyst.service';
 import { estimateCostUsd } from '../engine2-ai-analyst/pricing/estimate-cost';
-import { AiGateInput } from '../engine2-ai-analyst/types/ai-analyst.types';
+import { AiGateInput, AiCostLevel } from '../engine2-ai-analyst/types/ai-analyst.types';
 import { ConfigService } from '@nestjs/config';
 
 // Engine3: Buy Score
@@ -266,7 +267,11 @@ async function main(): Promise<void> {
       const gate = new AiCostGateService();
       const repo = new InMemoryAiAnalysisRepository();
       const usageLog = new AiUsageLogService(repo);
-      const service = new AiAnalystService(gate, repo, usageLog, summaryTask, eventClassTask, personaTask, positionTask);
+      // 회귀 스모크는 게이트/Task 흐름 검증이 목적 — 한도 가드는 pass-through 스텁.
+      const limitGuard = {
+        enforceLimit: async (lvl: AiCostLevel) => lvl,
+      } as unknown as AiCostLimitGuardService;
+      const service = new AiAnalystService(gate, limitGuard, repo, usageLog, summaryTask, eventClassTask, personaTask, positionTask);
 
       const gateInput: AiGateInput = {
         isManagementStock: false,

@@ -20,6 +20,7 @@ import { EventClassificationTask, EventClassificationInput } from '../tasks/even
 import { PersonaInterpretationTask, PersonaInterpretationInput } from '../tasks/persona-interpretation.task';
 import { PositionThesisTask, PositionThesisInput } from '../tasks/position-thesis.task';
 import { AiCostGateService } from '../cost-gate/ai-cost-gate.service';
+import { AiCostLimitGuardService } from '../cost-gate/ai-cost-limit-guard.service';
 import { AiUsageLogService } from '../usage-log/ai-usage-log.service';
 import { InMemoryAiAnalysisRepository } from '../adapters/in-memory-ai-analysis.repository';
 import { AiAnalystService } from '../ai-analyst.service';
@@ -162,7 +163,11 @@ async function main(): Promise<void> {
   const gate = new AiCostGateService();
   const repo = new InMemoryAiAnalysisRepository();
   const usageLog = new AiUsageLogService(repo);
-  const service = new AiAnalystService(gate, repo, usageLog, summaryTask, eventTask, personaTask, positionTask);
+  // 스모크는 게이트/Task 실측이 목적 — 한도 가드는 pass-through 스텁(DB 비의존).
+  const limitGuard = {
+    enforceLimit: async (lvl: AiCostLevel) => lvl,
+  } as unknown as AiCostLimitGuardService;
+  const service = new AiAnalystService(gate, limitGuard, repo, usageLog, summaryTask, eventTask, personaTask, positionTask);
 
   const results: SmokeResult[] = [];
   let testsPassed = 0;

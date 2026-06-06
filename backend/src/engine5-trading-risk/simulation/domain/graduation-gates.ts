@@ -9,6 +9,7 @@
 //   pass=null + lowSample=true 로 정직 표기. AI 금지영역: 순수 산술 비교만 — AI 개입 0.
 
 import { GraduationMetrics } from '../graduation-metrics.service';
+import { SimulationProgress } from './graduation-metrics.calculator';
 
 /** 표본 기반 게이트(G1·G5)의 최소 표본수 — 미만이면 LOW_SAMPLE(과신 방지) */
 export const GRADUATION_MIN_SAMPLE = 5;
@@ -80,6 +81,12 @@ export interface GraduationReport {
    * 측정 불가(평가액 표본 부족)면 null.
    */
   sharpe: number | null;
+  /**
+   * 30일 모의운용 진행률(경과/잔여 일수·측정대기) — DAR-86.
+   * awaitingMeasurement=true 면 운용 시작 전/데이터 부족이므로 게이트 현재값을
+   * 졸업 판단 근거로 쓰면 안 된다(과신 방지).
+   */
+  simulationProgress: SimulationProgress;
 }
 
 function compare(value: number, threshold: number, comparator: GateComparator): boolean {
@@ -221,5 +228,6 @@ export function buildGraduationReport(metrics: GraduationMetrics): GraduationRep
     progress: totalGates > 0 ? passedCount / totalGates : 0,
     lowSample,
     sharpe: ra.measurable ? ra.sharpe : null,
+    simulationProgress: metrics.simulationProgress,
   };
 }

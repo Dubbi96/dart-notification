@@ -2,6 +2,7 @@
  * GraduationController — 졸업 게이트 G1~G5 측정 조회 (M10 졸업 측정, DAR-67)
  *
  * GET /api/graduation/metrics — 졸업지표 현재값 vs 기준 · 통과여부 · 표본수 + LOW_SAMPLE 경고.
+ *   DAR-86: 응답에 30일 모의운용 진행률(simulationProgress: 경과/잔여 일수·측정대기)을 동봉.
  *
  * ★ read-only 집계 — 신규 수집·외부호출·체결·AI 개입 0(GraduationMetricsService + 순수 게이트 평가).
  * 가드: OptionalJwtAuthGuard — 단일 시스템 모의 포트폴리오라 사용자별 분기 없음(게스트 데모 조회 허용,
@@ -23,7 +24,7 @@ export class GraduationController {
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({
     summary:
-      '졸업 게이트(G1 적중률·G2 누적수익·G3 AI비용/순익·G5 Exit정확도) 현재값 vs 기준·통과여부·표본수 — 게스트 데모 조회 가능',
+      '졸업 게이트(G1 적중률·G2 누적수익·G3 AI비용/순익·G5 Exit정확도) 현재값 vs 기준·통과여부·표본수 + 30일 모의운용 진행률(경과/잔여일·측정대기) — 게스트 데모 조회 가능',
   })
   async metrics(): Promise<{ success: true; data: GraduationReport }> {
     const metrics = await this.metricsService.getMetrics();

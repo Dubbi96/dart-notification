@@ -48,6 +48,17 @@ export class PrismaSimulationAdapter implements ISimulationPort {
     return pf?.id ?? NO_PORTFOLIO;
   }
 
+  /** 모의운용 시작일 — 가장 이른 포지션 진입일(entryDate). 포지션 없으면 null(운용 시작 전) (DAR-86) */
+  async getSimulationStartDate(portfolioId: string): Promise<string | null> {
+    if (portfolioId === NO_PORTFOLIO) return null;
+    const first = await this.prisma.position.findFirst({
+      where: { portfolioId },
+      orderBy: { entryDate: 'asc' },
+      select: { entryDate: true },
+    });
+    return first?.entryDate ? first.entryDate.toISOString() : null;
+  }
+
   /** G2/G3 누적 상태 — 초기원금 + 실현/미실현 손익으로 평가자산·순익 산출 */
   async getCumulativeState(portfolioId: string): Promise<CumulativeState> {
     const initialCapital = PaperSimulationService.INITIAL_CAPITAL;

@@ -37,6 +37,16 @@ function metrics(overrides: Partial<GraduationMetrics> = {}): GraduationMetrics 
       toDate: '20260601',
       measurable: true,
     },
+    simulationProgress: {
+      windowDays: 30,
+      startDate: '2026-05-22T00:00:00.000Z',
+      asOf: '2026-06-06T00:00:00.000Z',
+      elapsedDays: 15,
+      remainingDays: 15,
+      progressRatio: 0.5,
+      awaitingMeasurement: false,
+      windowComplete: false,
+    },
     config: { hitRateHorizonDays: 5, exitAccuracyHorizonDays: 3, usdKrwRate: 1350 },
     ...overrides,
   };
@@ -223,5 +233,32 @@ describe('buildGraduationReport', () => {
     const r = buildGraduationReport(metrics({ portfolioId: 'pf-x', asOf: '2026-01-01T00:00:00.000Z' }));
     expect(r.portfolioId).toBe('pf-x');
     expect(r.asOf).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it('DAR-86: simulationProgress 를 리포트로 그대로 전달한다', () => {
+    const r = buildGraduationReport(metrics());
+    expect(r.simulationProgress.windowDays).toBe(30);
+    expect(r.simulationProgress.elapsedDays).toBe(15);
+    expect(r.simulationProgress.remainingDays).toBe(15);
+    expect(r.simulationProgress.awaitingMeasurement).toBe(false);
+  });
+
+  it('DAR-86: 측정대기(운용 시작 전)면 awaitingMeasurement=true 가 그대로 전달된다', () => {
+    const r = buildGraduationReport(
+      metrics({
+        simulationProgress: {
+          windowDays: 30,
+          startDate: null,
+          asOf: '2026-06-06T00:00:00.000Z',
+          elapsedDays: null,
+          remainingDays: null,
+          progressRatio: 0,
+          awaitingMeasurement: true,
+          windowComplete: false,
+        },
+      }),
+    );
+    expect(r.simulationProgress.awaitingMeasurement).toBe(true);
+    expect(r.simulationProgress.elapsedDays).toBeNull();
   });
 });

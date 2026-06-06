@@ -93,6 +93,80 @@ export function calcAiCostEfficiency(
   return { aiCostKrw, netPnlKrw, netPnlAfterAiCost, aiCostToNetPnlRatio };
 }
 
+// ── DAR-86: 30일 모의운용 진행률 ──
+
+/** 라이브 모의운용 평가 창(캘린더 일수) — M10 졸업 측정 기준 30일 */
+export const SIMULATION_WINDOW_DAYS = 30;
+
+export interface SimulationProgress {
+  /** 평가 창(캘린더 일수, 기본 30) */
+  windowDays: number;
+  /** 운용 시작일(ISO, 가장 이른 포지션 진입일). 운용 시작 전이면 null */
+  startDate: string | null;
+  /** 산출 기준 시각(ISO) */
+  asOf: string;
+  /** 시작일 대비 캘린더 경과일. 운용 시작 전이면 null */
+  elapsedDays: number | null;
+  /** 30일 창의 남은 일수 = max(0, windowDays - elapsedDays). 운용 시작 전이면 null */
+  remainingDays: number | null;
+  /** 진행률(0~1) = clamp(elapsedDays / windowDays). 운용 시작 전이면 0 */
+  progressRatio: number;
+  /**
+   * 측정 대기 플래그(과신 방지) — 운용 시작 전(시작일 없음/미래)이면 true.
+   * true 면 경과일·잔여일은 null 이고 G1/G2/G3 현재값을 졸업 판단 근거로 쓰면 안 된다.
+   */
+  awaitingMeasurement: boolean;
+  /** 30일 창 완주(졸업 평가 가능 기간 도달) 여부 */
+  windowComplete: boolean;
+}
+
+/**
+ * 30일 모의운용 진행률 — 운용 시작일(가장 이른 진입일) 대비 캘린더 경과일·잔여일 산출.
+ * 순수 함수: startDate/asOf 를 인자로 받아 결정론적(시계 의존 없음).
+ *
+ * 과신 방지: 시작일이 없거나(운용 전) 미래면 awaitingMeasurement=true 로 정직 표기하고
+ * 경과/잔여일을 null 로 둔다.
+ */
+export function calcSimulationProgress(
+  startDateIso: string | null,
+  asOfIso: string,
+  windowDays: number = SIMULATION_WINDOW_DAYS,
+): SimulationProgress {
+  const MS_PER_DAY = 86_400_000;
+  const startMs = startDateIso ? Date.parse(startDateIso) : NaN;
+  const nowMs = Date.parse(asOfIso);
+
+  // 운용 시작 전(시작일 없음·파싱 불가·미래) → 측정 대기
+  if (!startDateIso || Number.isNaN(startMs) || startMs > nowMs) {
+    return {
+      windowDays,
+      startDate: startDateIso ?? null,
+      asOf: asOfIso,
+      elapsedDays: null,
+      remainingDays: null,
+      progressRatio: 0,
+      awaitingMeasurement: true,
+      windowComplete: false,
+    };
+  }
+
+  const elapsedDays = Math.floor((nowMs - startMs) / MS_PER_DAY);
+  const remainingDays = Math.max(0, windowDays - elapsedDays);
+  const progressRatio =
+    windowDays > 0 ? Math.min(1, Math.max(0, elapsedDays / windowDays)) : 0;
+
+  return {
+    windowDays,
+    startDate: startDateIso,
+    asOf: asOfIso,
+    elapsedDays,
+    remainingDays,
+    progressRatio,
+    awaitingMeasurement: false,
+    windowComplete: elapsedDays >= windowDays,
+  };
+}
+
 // ── DAR-68: 위험조정·벤치마크 지표 ──
 
 /** 일별 포트폴리오 평가액 1점 (PortfolioRiskSnapshot 의 totalValue) */

@@ -14,6 +14,10 @@ export interface NotificationSettings {
   disclosureTypes: string[];
   keywords: string[];
   isEnabled: boolean;
+  // DAR-85: 신호·청산·논리훼손 푸시 토글(기본 OFF). master isEnabled ON일 때만 발송.
+  signalPushEnabled: boolean;
+  exitPushEnabled: boolean;
+  thesisPushEnabled: boolean;
   updatedAt: string;
 }
 

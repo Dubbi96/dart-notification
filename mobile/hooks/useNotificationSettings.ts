@@ -13,8 +13,19 @@ export function useNotificationSettings(options?: { enabled?: boolean }) {
 export function useUpdateNotificationSettings() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (settings: Partial<Pick<NotificationSettings, 'disclosureTypes' | 'keywords' | 'isEnabled'>>) =>
-      notificationSettingsService.update(settings),
+    mutationFn: (
+      settings: Partial<
+        Pick<
+          NotificationSettings,
+          | 'disclosureTypes'
+          | 'keywords'
+          | 'isEnabled'
+          | 'signalPushEnabled'
+          | 'exitPushEnabled'
+          | 'thesisPushEnabled'
+        >
+      >,
+    ) => notificationSettingsService.update(settings),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notificationSettings'] }),
   });
 }

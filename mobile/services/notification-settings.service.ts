@@ -8,7 +8,19 @@ export const notificationSettingsService = {
       .get<ApiResponse<NotificationSettings>>('/notification-settings')
       .then((r) => r.data.data),
 
-  update: (settings: Partial<Pick<NotificationSettings, 'disclosureTypes' | 'keywords' | 'isEnabled'>>) =>
+  update: (
+    settings: Partial<
+      Pick<
+        NotificationSettings,
+        | 'disclosureTypes'
+        | 'keywords'
+        | 'isEnabled'
+        | 'signalPushEnabled'
+        | 'exitPushEnabled'
+        | 'thesisPushEnabled'
+      >
+    >,
+  ) =>
     api
       .patch<ApiResponse<NotificationSettings>>('/notification-settings', settings)
       .then((r) => r.data.data),

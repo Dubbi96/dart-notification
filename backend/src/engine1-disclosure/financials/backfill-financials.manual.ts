@@ -48,6 +48,7 @@ async function main(): Promise<void> {
           totalSaved: result.totalSaved,
           totalSkipped: result.totalSkipped,
           totalFailed: result.totalFailed,
+          growthUpdated: result.growthUpdated, // DAR-93 YoY/QoQ 산출 행 수
         },
         null,
         2,

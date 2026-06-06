@@ -56,7 +56,10 @@ function snap(overrides: Partial<FinancialSnapshot>): FinancialSnapshot {
     corpCode: '00126380', stockCode: null, bsnsYear: '2025', reprtCode: '11011', fsDiv: 'CFS',
     revenue: null, operatingProfit: null, netIncome: null, totalAssets: null,
     totalLiabilities: null, totalEquity: null, eps: null, bps: null,
-    roe: null, roa: null, debtRatio: null, per: null, pbr: null, ...overrides,
+    roe: null, roa: null, debtRatio: null, per: null, pbr: null,
+    revenueGrowthYoY: null, operatingProfitGrowthYoY: null, epsGrowthYoY: null,
+    revenueGrowthQoQ: null, operatingProfitGrowthQoQ: null, epsGrowthQoQ: null,
+    ...overrides,
   };
 }
 

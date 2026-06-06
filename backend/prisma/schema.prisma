@@ -1585,6 +1585,14 @@ model CompanyFinancial {
   per Float? // 주가수익비율 — 시세 결합 필요
   pbr Float? // 주가순자산비율 — 시세 결합 필요
 
+  // ── 다년 시계열 성장률 (%) — DAR-93. 직전 기간 적재 후 산출·영속, 결측 시 null ──
+  revenueGrowthYoY         Float? // 매출 YoY 성장률 (전년 동기 대비)
+  operatingProfitGrowthYoY Float? // 영업이익 YoY 성장률
+  epsGrowthYoY             Float? // EPS YoY 성장률
+  revenueGrowthQoQ         Float? // 매출 QoQ 성장률 (직전 기간 대비, 누적기준)
+  operatingProfitGrowthQoQ Float? // 영업이익 QoQ 성장률
+  epsGrowthQoQ             Float? // EPS QoQ 성장률
+
   // ── 메타 ────────────────────────────────────────────────────
   rceptNo   String? // 원천 공시 접수번호 (추적용)
   currency  String  @default("KRW")

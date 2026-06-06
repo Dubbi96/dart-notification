@@ -38,6 +38,7 @@ function toPhilosophy(seed: InvestorPhilosophySeed) {
 }
 
 const BUFFETT = toPhilosophy(PHILOSOPHY_SEEDS.find((p) => p.philosophyId === 'BUFFETT')!);
+const LYNCH = toPhilosophy(PHILOSOPHY_SEEDS.find((p) => p.philosophyId === 'LYNCH')!);
 const DRUCKENMILLER = toPhilosophy(
   PHILOSOPHY_SEEDS.find((p) => p.philosophyId === 'DRUCKENMILLER')!,
 );
@@ -62,6 +63,12 @@ function snap(overrides: Partial<FinancialSnapshot>): FinancialSnapshot {
     debtRatio: null,
     per: null,
     pbr: null,
+    revenueGrowthYoY: null,
+    operatingProfitGrowthYoY: null,
+    epsGrowthYoY: null,
+    revenueGrowthQoQ: null,
+    operatingProfitGrowthQoQ: null,
+    epsGrowthQoQ: null,
     ...overrides,
   };
 }
@@ -77,15 +84,27 @@ describe('resolveFinancialMetric', () => {
     expect(resolveFinancialMetric('OPERATING_MARGIN', snap({ operatingProfit: 10 }))).toBeNull();
   });
 
-  it('단일 스냅샷으로 산출 불가한 지표는 결측(null)', () => {
+  it('산출 불가한 지표는 결측(null)', () => {
     const s = snap({ roe: 20 });
     expect(resolveFinancialMetric('FCF_POSITIVE', s)).toBeNull();
     expect(resolveFinancialMetric('MOAT_SCORE', s)).toBeNull();
     expect(resolveFinancialMetric('PEG', s)).toBeNull();
-    expect(resolveFinancialMetric('EPS_GROWTH_YOY', s)).toBeNull();
     expect(resolveFinancialMetric('MARKET_CAP_TIER', s)).toBeNull();
     expect(resolveFinancialMetric('ROC', s)).toBeNull();
     expect(resolveFinancialMetric('PRICE_NEAR_52W_HIGH', s)).toBeNull();
+  });
+
+  it('DAR-93: 다년 시계열 성장률은 스냅샷에서 실데이터로 해석(결측 복원)', () => {
+    const s = snap({ epsGrowthYoY: 30, revenueGrowthYoY: 18, operatingProfitGrowthYoY: 12 });
+    expect(resolveFinancialMetric('EPS_GROWTH_YOY', s)).toBe(30);
+    expect(resolveFinancialMetric('REVENUE_GROWTH_YOY', s)).toBe(18);
+    expect(resolveFinancialMetric('OPERATING_PROFIT_GROWTH_YOY', s)).toBe(12);
+  });
+
+  it('DAR-93: 직전 기간 결측으로 성장률이 null 이면 지표도 결측(폴백 유지)', () => {
+    const s = snap({ roe: 20 }); // 성장률 미산출(null)
+    expect(resolveFinancialMetric('EPS_GROWTH_YOY', s)).toBeNull();
+    expect(resolveFinancialMetric('REVENUE_GROWTH_YOY', s)).toBeNull();
   });
 });
 
@@ -157,6 +176,42 @@ describe('scorePhilosophyFit — 버핏', () => {
     const failer = scorePhilosophyFit(BUFFETT, snap({ roe: 8, debtRatio: 120, per: 35 }));
     expect(passer.passedMetricKeys.length).toBeGreaterThan(failer.passedMetricKeys.length);
     expect(passer.score!).toBeGreaterThan(failer.score!);
+  });
+});
+
+describe('scorePhilosophyFit — 린치(DAR-93 성장률 결측 복원)', () => {
+  it('성장률 부재 시 PER 만 평가(린치 적합도 빈약)', () => {
+    const r = scorePhilosophyFit(LYNCH, snap({ per: 20 }));
+    expect(r.evaluatedCount).toBe(1); // PER 만
+    expect(r.omittedMetricKeys.sort()).toEqual(
+      ['EPS_GROWTH_YOY', 'MARKET_CAP_TIER', 'PEG', 'REVENUE_GROWTH_YOY'],
+    );
+  });
+
+  it('다년 성장률 공급 시 EPS·매출 성장률까지 평가(결측 복원)', () => {
+    const r = scorePhilosophyFit(
+      LYNCH,
+      snap({ per: 20, epsGrowthYoY: 30, revenueGrowthYoY: 18 }),
+    );
+    expect(r.computable).toBe(true);
+    expect(r.evaluatedCount).toBe(3); // PER·EPS_GROWTH_YOY·REVENUE_GROWTH_YOY
+    expect(r.score).toBe(100); // 셋 다 통과
+    expect(r.passedMetricKeys.sort()).toEqual(
+      ['EPS_GROWTH_YOY', 'PER', 'REVENUE_GROWTH_YOY'],
+    );
+    expect(r.omittedMetricKeys.sort()).toEqual(['MARKET_CAP_TIER', 'PEG']);
+  });
+
+  it('성장률 일부 미달 → 재정규화 가중평균', () => {
+    // PER 20(통과,1.0,w0.15)·EPS 10%(미달 10/20=0.5,w0.25)·매출 18%(통과,1.0,w0.15)
+    // weighted = (1*0.15 + 0.5*0.25 + 1*0.15)/0.55 = 0.425/0.55 = 0.77272…
+    const r = scorePhilosophyFit(
+      LYNCH,
+      snap({ per: 20, epsGrowthYoY: 10, revenueGrowthYoY: 18 }),
+    );
+    expect(r.evaluatedCount).toBe(3);
+    expect(r.score).toBeCloseTo(77.27, 2);
+    expect(r.failedMetricKeys).toEqual(['EPS_GROWTH_YOY']);
   });
 });
 

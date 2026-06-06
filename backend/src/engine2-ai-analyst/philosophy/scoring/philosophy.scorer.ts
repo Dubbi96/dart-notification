@@ -66,10 +66,13 @@ function clamp01(n: number): number {
 /**
  * 철학 지표 키 → 재무 스냅샷 파생값 해석.
  *
- * 단일 CompanyFinancial 스냅샷만으로 순수 산출 가능한 지표만 매핑한다.
- * 여기에 없는 키(FCF_POSITIVE·MOAT_SCORE·PEG·EPS_GROWTH_YOY·REVENUE_GROWTH_YOY·
- * MARKET_CAP_TIER·ROC·EARNINGS_YIELD·모멘텀/수급 지표 등)는 null → 결측 처리되어
- * 분모에서 제외된다(P-C/Engine3 시세·다년 데이터 확보 후 보강 대상).
+ * 단일 CompanyFinancial 스냅샷으로 산출 가능한 지표 + 다년 시계열에서 사전 산출·영속된
+ * 성장률(DAR-93)을 매핑한다.
+ * 여기에 없는 키(FCF_POSITIVE·MOAT_SCORE·PEG·MARKET_CAP_TIER·ROC·EARNINGS_YIELD·
+ * 모멘텀/수급 지표 등)는 null → 결측 처리되어 분모에서 제외된다(시세 확보 후 보강).
+ *
+ * EPS_GROWTH_YOY·REVENUE_GROWTH_YOY 는 DAR-93 으로 다년 재무 시계열에서 성장률을
+ * 산출·영속해 스냅샷에 실린다. 직전 연도 데이터가 없으면 여전히 null(결측 폴백 유지).
  */
 export function resolveFinancialMetric(
   metricKey: string,
@@ -86,6 +89,13 @@ export function resolveFinancialMetric(
       return snap.per;
     case 'PBR':
       return snap.pbr;
+    case 'EPS_GROWTH_YOY':
+      // DAR-93: 다년 시계열 산출 성장률. 직전 연도 결측 시 null.
+      return snap.epsGrowthYoY;
+    case 'REVENUE_GROWTH_YOY':
+      return snap.revenueGrowthYoY;
+    case 'OPERATING_PROFIT_GROWTH_YOY':
+      return snap.operatingProfitGrowthYoY;
     case 'OPERATING_MARGIN': {
       // 영업이익률(%) = 영업이익 / 매출 × 100 (재무제표만으로 파생)
       if (

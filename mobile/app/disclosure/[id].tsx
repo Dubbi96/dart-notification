@@ -21,6 +21,7 @@ import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
+import { DisclosureAiAnalysisSection } from '@components/disclosure/DisclosureAiAnalysisSection';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { useDisclosureDetail, useDisclosureEvent } from '@hooks/useDisclosures';
@@ -258,6 +259,9 @@ export default function DisclosureDetailScreen() {
             </Text>
           </Surface>
         ) : null}
+
+        {/* AI 심층 분석(Engine2) — 요약·Persona 해석·Position Thesis 실연동 (DAR-102) */}
+        <DisclosureAiAnalysisSection rcpNo={disclosure.rcpNo} />
 
         {/* Action Buttons */}
         <Button

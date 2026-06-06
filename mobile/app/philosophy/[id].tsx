@@ -235,15 +235,19 @@ function FitRow({
   const { data, isLoading, isError } = usePhilosophyFit(philosophyId, corpCode);
 
   const handlePress = useCallback(() => {
-    router.push(`/company/${corpCode}`);
-  }, [corpCode]);
+    // DAR-57: 종목 행 탭 → 이 철학 기준 항목별 통과/미달 체크리스트 분해.
+    router.push({
+      pathname: '/philosophy/checklist',
+      params: { id: philosophyId, corpCode, corpName },
+    });
+  }, [philosophyId, corpCode, corpName]);
 
   return (
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={handlePress}
       accessibilityRole="button"
-      accessibilityLabel={`${corpName} 적합도 상세`}
+      accessibilityLabel={`${corpName} 항목별 체크리스트 분해 보기`}
     >
       <Card variant="elevated" style={styles.fitCard}>
         <View style={styles.fitCardHeader}>

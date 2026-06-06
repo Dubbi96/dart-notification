@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, Feather } from '@expo/vector-icons';
 import { MoonStars, Sun, CloudSun, Moon } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
@@ -206,7 +206,12 @@ export default function HomeScreen() {
         {/* Summary card - Glassmorphism + Holographic iridescent */}
         <GlassCard style={styles.summaryCard} intensity={30} variant="iridescent">
           <View style={styles.summaryContent}>
-            <TouchableOpacity style={styles.summaryItem} onPress={() => router.push('/disclosures')}>
+            <TouchableOpacity
+              style={styles.summaryItem}
+              onPress={() => router.push('/disclosures')}
+              accessibilityRole="button"
+              accessibilityLabel={`오늘의 공시 ${totalCount}건, 공시 목록 열기`}
+            >
               <Text style={[typo.h2, { color: '#FFFFFF' }]}>{totalCount}</Text>
               <Text style={[typo.small, { color: 'rgba(255,255,255,0.8)' }]}>오늘의 공시</Text>
             </TouchableOpacity>
@@ -286,11 +291,20 @@ export default function HomeScreen() {
               </TouchableOpacity>
             )}
           </View>
-          <TouchableOpacity onPress={() => router.push(
-            isWatchlistFeed
-              ? { pathname: '/disclosures', params: { watchlistOnly: 'true' } }
-              : '/disclosures'
-          )}>
+          {/* DAR-106: 공시 목록(13종 이벤트 필터) 발견성 승격 — 명확한 라벨·Feather 아이콘 진입 버튼. */}
+          <TouchableOpacity
+            style={[styles.browseButton, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+            onPress={() => router.push(
+              isWatchlistFeed
+                ? { pathname: '/disclosures', params: { watchlistOnly: 'true' } }
+                : '/disclosures'
+            )}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={isWatchlistFeed ? '관심 기업 공시 전체보기 (필터)' : '공시 전체보기 (필터)'}
+          >
+            <Feather name="sliders" size={13} color={colors.primary} style={{ marginRight: 4 }} />
             <Text style={[typo.captionMedium, { color: colors.primary }]}>전체보기</Text>
           </TouchableOpacity>
         </View>
@@ -418,6 +432,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.sm,
     borderRadius: radius.full,
+  },
+  browseButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    borderWidth: 1,
   },
   listContent: {
     paddingTop: spacing.md,

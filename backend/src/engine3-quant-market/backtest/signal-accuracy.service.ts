@@ -19,6 +19,12 @@ import {
   SignalRealizedReturn,
 } from './signal-accuracy';
 import { buildCalibrationReport, CalibrationReport } from './calibration';
+import {
+  buildFeatureAbReport,
+  FeatureAbInput,
+  FeatureAbReport,
+  ScoreBreakdownLike,
+} from './signal-feature-ab';
 
 const KOSPI_CODE = '0001';
 const KOSDAQ_CODE = '1001';
@@ -99,6 +105,56 @@ export class SignalAccuracyService {
   }
 
   /**
+   * 피처 A/B 백테스트 리포트(DAR-101): '성장률/DartFiledFact/내부자 피처 포함 vs 미포함'
+   * 두 가중치 구성으로 동일 과거 신호셋을 재채점 → 매수등급 부분집합의 D+5/D+20 적중률·
+   * median AR·등급별 정밀도를 비교하고 피처별 delta 로 적중률 기여를 증거화한다.
+   * ★ read-only — 저장 scoreBreakdown 을 재정규화 가중치로 재조합할 뿐, 가중치를 변경하지
+   *   않는다(휴먼 PR 전용). getSignalAccuracy 와 동일한 실현수익 산식을 재사용한다.
+   */
+  async getFeatureAbReport(
+    params: SignalAccuracyParams = {},
+  ): Promise<FeatureAbReport> {
+    const limit = Math.min(Math.max(params.limit ?? 1000, 1), 5000);
+
+    const signals = await this.prisma.tradingSignal.findMany({
+      where: {
+        ...(params.eventType ? { eventType: params.eventType } : {}),
+        ...(params.signalGrade ? { signal: params.signalGrade as never } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        stockCode: true,
+        eventType: true,
+        signal: true,
+        riskPenalty: true,
+        scoreBreakdown: true,
+        disclosure: { select: { rcpDt: true } },
+        company: { select: { market: true } },
+      },
+    });
+
+    const inputs: FeatureAbInput[] = [];
+    for (const s of signals) {
+      const realized = await this.computeRealizedReturn(
+        s.stockCode,
+        s.disclosure?.rcpDt ?? null,
+        s.company?.market ?? null,
+      );
+      inputs.push({
+        breakdown: coerceBreakdown(s.scoreBreakdown),
+        riskPenalty: s.riskPenalty ?? 0,
+        originalGrade: s.signal,
+        eventType: s.eventType,
+        arD5: realized.arD5,
+        arD20: realized.arD20,
+      });
+    }
+
+    return buildFeatureAbReport(inputs);
+  }
+
+  /**
    * 단일 신호의 D+5/D+20 실현 초과수익(시장 대비 누적 AR, %) 산출.
    * 가격/시장지수 데이터가 부족하면 해당 지평을 null 로 반환(graceful).
    */
@@ -164,4 +220,28 @@ function addCalendarDays(yyyymmdd: string, days: number): string {
 function round2(v: number | null): number | null {
   if (v === null || v === undefined) return null;
   return Math.round(v * 100) / 100;
+}
+
+/** 단일 숫자 강제(비유한·비숫자 → 0). 저장 JSON 의 결측/이상치 graceful 처리. */
+function num(v: unknown): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+}
+
+/**
+ * 저장된 scoreBreakdown(Json) → 9버킷 ScoreBreakdownLike.
+ * 과거(DAR-88/100 이전) 신호는 insider/fundamental 키가 부재 → 0 으로 안전 처리.
+ */
+function coerceBreakdown(json: unknown): ScoreBreakdownLike {
+  const b = (json ?? {}) as Record<string, unknown>;
+  return {
+    disclosureEvent: num(b.disclosureEvent),
+    keyMetric: num(b.keyMetric),
+    personaFit: num(b.personaFit),
+    historicalEvent: num(b.historicalEvent),
+    chart: num(b.chart),
+    volumeLiquidity: num(b.volumeLiquidity),
+    marketSector: num(b.marketSector),
+    insider: num(b.insider),
+    fundamental: num(b.fundamental),
+  };
 }

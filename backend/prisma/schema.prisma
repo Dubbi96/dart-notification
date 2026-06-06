@@ -1704,3 +1704,28 @@ model FinancialCollectionLog {
   @@index([status])
   @@map("financial_collection_logs")
 }
+
+// ====================================
+// 크론 실행 헬스 로그 — 수집 안전망 (DAR-110, 패널 v5 #5)
+// ====================================
+// 도메인별 *CollectionLog(공시·재무·시세)와 별개로, 자체 로그가 없던 경량 크론
+// (신호생성·모의운용·내부자수집·파싱재처리 등)의 마지막 성공시각/처리건수를 통일 기록한다.
+// 각 @Cron 본문을 try/finally 로 감싸 성공/실패/건수를 남기는 단일 출처.
+// freshness(데이터 신선도) 판정의 입력 — '조용히 멈춘' 수집을 인지하기 위한 메타 전용.
+// AI·실주문·KRX 무관(수집 메타만). 기존 도메인 로그·크론 거동 불변(가산 테이블).
+model CronRunLog {
+  id           String    @id @default(cuid())
+  jobKey       String // 크론 식별 키 (예: "signal.generate" | "paper.simulation" | "insider.daily" | "parse.retry")
+  status       String    @default("RUNNING") // "RUNNING" | "SUCCESS" | "FAILED" | "SKIPPED"
+  itemCount    Int       @default(0) // 처리/신규 건수 (도메인별 의미)
+  durationMs   Int? // 실행 소요(ms). 미완료 시 null
+  errorMessage String? // 실패 시 메시지 (SUCCESS/SKIPPED 시 null)
+  triggeredBy  String    @default("CRON") // "CRON" | "MANUAL"
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime? // 종료 시각 (RUNNING 중에는 null)
+
+  @@index([jobKey, startedAt]) // 잡별 최근 실행 조회용
+  @@index([jobKey, status, finishedAt]) // 잡별 최근 성공 조회용
+  @@index([status])
+  @@map("cron_run_logs")
+}

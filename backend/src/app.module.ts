@@ -26,6 +26,7 @@ import { QuantMarketModule } from './engine3-quant-market/quant-market.module';
 import { PortfolioExitModule } from './engine4-portfolio-exit/portfolio-exit.module';
 import { TradingRiskModule } from './engine5-trading-risk/trading-risk.module';
 import { PaperSimulationModule } from './engine5-trading-risk/paper-simulation/paper-simulation.module';
+import { CollectionStatusModule } from './collection-status/collection-status.module';
 
 @Module({
   imports: [
@@ -94,6 +95,9 @@ import { PaperSimulationModule } from './engine5-trading-risk/paper-simulation/p
 
     // Engine 5 — 일일 모의운용 오케스트레이터 (M10 모의운용, DAR-40)
     PaperSimulationModule,
+
+    // 횡단 — 수집 상태 대시보드 read-only 집계 (DAR-63)
+    CollectionStatusModule,
 
   ],
   providers: [

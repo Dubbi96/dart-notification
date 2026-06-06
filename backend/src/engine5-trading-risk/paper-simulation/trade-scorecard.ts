@@ -39,6 +39,10 @@ export interface TradeRationaleInput {
   exitAction: string | null;
   /** ExitSignal.triggerTypes (청산 트리거 enum 값 배열) */
   exitTriggers: string[];
+  /** 진입 신호의 eventType (PositionThesis→TradingSignal, 없으면 null) — DAR-73 차원 추가 */
+  eventType?: string | null;
+  /** 진입 신호의 등급 SignalGrade (없으면 null) — DAR-73 차원 추가 */
+  signalGrade?: string | null;
 }
 
 /** 모바일 매매 사유 카드 1행 */
@@ -68,6 +72,10 @@ export interface TradeRationale {
   exitAction: string | null;
   /** 청산 트리거 enum 배열 (없으면 빈 배열) */
   exitTriggers: string[];
+  /** 진입 신호 eventType (없으면 null) — DAR-73 필터/집계 차원 */
+  eventType: string | null;
+  /** 진입 신호 등급 (없으면 null) — DAR-73 필터/집계 차원 */
+  signalGrade: string | null;
 }
 
 /** 매매 성적표 — CLOSED 포지션 누적 집계 */
@@ -145,7 +153,44 @@ export function buildTradeRationale(input: TradeRationaleInput): TradeRationale 
     entryBasis,
     exitAction: status === 'CLOSED' ? input.exitAction : null,
     exitTriggers: status === 'CLOSED' ? input.exitTriggers : [],
+    eventType: input.eventType ?? null,
+    signalGrade: input.signalGrade ?? null,
   };
+}
+
+/** 차원별(eventType / signalGrade) 성적표 한 행 */
+export interface DimensionScorecard {
+  /** 그룹 키 (eventType 값·등급명·또는 'UNKNOWN') */
+  key: string;
+  scorecard: TradeScorecard;
+}
+
+/** UNKNOWN 키 표기(신호 연결이 없는 포지션) */
+export const UNKNOWN_DIMENSION_KEY = 'UNKNOWN';
+
+/**
+ * CLOSED 매매를 차원(eventType / signalGrade)별로 묶어 성적표를 집계한다(기존 집계 확장, DAR-73).
+ * 각 그룹은 표본<LOW_SAMPLE_THRESHOLD 면 scorecard.lowSample=true 로 과신 방지.
+ * @param closed CLOSED TradeRationale 목록
+ * @param initialCapital 누적 수익률 분모
+ * @param dimension 그룹 기준 차원
+ * @returns 표본 많은 그룹 우선 정렬된 차원별 성적표
+ */
+export function calculateScorecardByDimension(
+  closed: TradeRationale[],
+  initialCapital: number,
+  dimension: 'eventType' | 'signalGrade',
+): DimensionScorecard[] {
+  const groups = new Map<string, TradeRationale[]>();
+  for (const t of closed) {
+    const key = (dimension === 'eventType' ? t.eventType : t.signalGrade) ?? UNKNOWN_DIMENSION_KEY;
+    const arr = groups.get(key);
+    if (arr) arr.push(t);
+    else groups.set(key, [t]);
+  }
+  return [...groups.entries()]
+    .map(([key, ts]) => ({ key, scorecard: calculateTradeScorecard(ts, initialCapital) }))
+    .sort((a, b) => b.scorecard.closedCount - a.scorecard.closedCount);
 }
 
 /**

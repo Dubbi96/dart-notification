@@ -1,8 +1,10 @@
 import {
   buildTradeRationale,
   calculateTradeScorecard,
+  calculateScorecardByDimension,
   holdDaysBetween,
   LOW_SAMPLE_THRESHOLD,
+  UNKNOWN_DIMENSION_KEY,
   TradeRationaleInput,
 } from './trade-scorecard';
 
@@ -126,6 +128,46 @@ describe('trade-scorecard', () => {
       expect(sc.closedCount).toBe(LOW_SAMPLE_THRESHOLD);
       expect(sc.lowSample).toBe(false);
       expect(sc.winRate).toBe(1);
+    });
+  });
+
+  describe('calculateScorecardByDimension (DAR-73 eventType·signalGrade 차원)', () => {
+    it('buildTradeRationale 가 eventType·signalGrade 를 전달(없으면 null)', () => {
+      const withDim = buildTradeRationale(
+        baseInput({ eventType: 'SUPPLY_CONTRACT', signalGrade: 'STRONG_BUY_CANDIDATE' }),
+      );
+      expect(withDim.eventType).toBe('SUPPLY_CONTRACT');
+      expect(withDim.signalGrade).toBe('STRONG_BUY_CANDIDATE');
+      const noDim = buildTradeRationale(baseInput({}));
+      expect(noDim.eventType).toBeNull();
+      expect(noDim.signalGrade).toBeNull();
+    });
+
+    it('eventType 별로 묶어 표본 많은 순으로 집계', () => {
+      const closed = [
+        buildTradeRationale(baseInput({ positionId: 'a', eventType: 'SUPPLY_CONTRACT', pnl: 100, pnlPct: 1 })),
+        buildTradeRationale(baseInput({ positionId: 'b', eventType: 'SUPPLY_CONTRACT', pnl: -50, pnlPct: -1 })),
+        buildTradeRationale(baseInput({ positionId: 'c', eventType: 'LAWSUIT', pnl: 30, pnlPct: 1 })),
+      ];
+      const byEvent = calculateScorecardByDimension(closed, 10_000_000, 'eventType');
+      expect(byEvent.map((d) => d.key)).toEqual(['SUPPLY_CONTRACT', 'LAWSUIT']);
+      expect(byEvent[0].scorecard.closedCount).toBe(2);
+      expect(byEvent[0].scorecard.winCount).toBe(1);
+      expect(byEvent[0].scorecard.lowSample).toBe(true);
+    });
+
+    it('signalGrade 없는 매매는 UNKNOWN 그룹으로 집계', () => {
+      const closed = [
+        buildTradeRationale(baseInput({ positionId: 'a', signalGrade: 'BUY_CANDIDATE', pnl: 10, pnlPct: 1 })),
+        buildTradeRationale(baseInput({ positionId: 'b', signalGrade: null, pnl: 10, pnlPct: 1 })),
+      ];
+      const byGrade = calculateScorecardByDimension(closed, 10_000_000, 'signalGrade');
+      const keys = byGrade.map((d) => d.key).sort();
+      expect(keys).toEqual(['BUY_CANDIDATE', UNKNOWN_DIMENSION_KEY]);
+    });
+
+    it('빈 입력은 빈 배열', () => {
+      expect(calculateScorecardByDimension([], 10_000_000, 'eventType')).toEqual([]);
     });
   });
 });

@@ -43,6 +43,8 @@ import { buildEquityCurve, EquityCurvePoint } from './equity-curve';
 import {
   buildTradeRationale,
   calculateTradeScorecard,
+  calculateScorecardByDimension,
+  DimensionScorecard,
   TradeRationale,
   TradeRationaleInput,
   TradeScorecard,
@@ -221,6 +223,10 @@ export class PaperSimulationService {
     portfolioId: string;
     initialCapital: number;
     scorecard: TradeScorecard;
+    /** eventType 별 성적표(CLOSED, 표본 많은 순) — DAR-73 */
+    byEventType: DimensionScorecard[];
+    /** signalGrade 별 성적표(CLOSED, 표본 많은 순) — DAR-73 */
+    bySignalGrade: DimensionScorecard[];
     /** 진입일 최신순 매매 사유 목록(OPEN+CLOSED) */
     trades: TradeRationale[];
   }> {
@@ -242,7 +248,14 @@ export class PaperSimulationService {
         stopLossPct: true,
         takeProfitPct: true,
         maxHoldDays: true,
-        positionThesis: { select: { entryReason: true, initialThesis: true } },
+        positionThesis: {
+          select: {
+            entryReason: true,
+            initialThesis: true,
+            // DAR-73: 진입 신호의 eventType·등급을 성적표 차원으로 노출(기존 링크 재사용)
+            tradingSignal: { select: { eventType: true, signal: true } },
+          },
+        },
       },
     });
 
@@ -251,6 +264,8 @@ export class PaperSimulationService {
         portfolioId: pf.id,
         initialCapital: PaperSimulationService.INITIAL_CAPITAL,
         scorecard: calculateTradeScorecard([], PaperSimulationService.INITIAL_CAPITAL),
+        byEventType: [],
+        bySignalGrade: [],
         trades: [],
       };
     }
@@ -289,6 +304,8 @@ export class PaperSimulationService {
         initialThesis: r.positionThesis?.initialThesis ?? null,
         exitAction: exit?.exitAction ?? null,
         exitTriggers: exit?.triggerTypes ?? [],
+        eventType: r.positionThesis?.tradingSignal?.eventType ?? null,
+        signalGrade: r.positionThesis?.tradingSignal?.signal ?? null,
       };
       return buildTradeRationale(input);
     });
@@ -298,6 +315,16 @@ export class PaperSimulationService {
       portfolioId: pf.id,
       initialCapital: PaperSimulationService.INITIAL_CAPITAL,
       scorecard: calculateTradeScorecard(closed, PaperSimulationService.INITIAL_CAPITAL),
+      byEventType: calculateScorecardByDimension(
+        closed,
+        PaperSimulationService.INITIAL_CAPITAL,
+        'eventType',
+      ),
+      bySignalGrade: calculateScorecardByDimension(
+        closed,
+        PaperSimulationService.INITIAL_CAPITAL,
+        'signalGrade',
+      ),
       trades,
     };
   }

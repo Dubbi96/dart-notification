@@ -9,6 +9,7 @@ import { spacing, radius } from '@theme/spacing';
 import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
 import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
+import { SignalAccuracySection } from '@components/portfolio/SignalAccuracySection';
 import { useTradeHistory } from '@hooks/useTradeHistory';
 
 import type { TradeRationale, TradeScorecard } from '@app-types/trade-rationale.types';
@@ -252,6 +253,7 @@ export default function TradeHistoryScreen() {
                 </Text>
               </Banner>
               {data ? <Scorecard scorecard={data.scorecard} /> : null}
+              <SignalAccuracySection />
               <Text style={[typo.captionMedium, { color: colors.text, marginTop: spacing.sm }]}>
                 매매 내역
               </Text>

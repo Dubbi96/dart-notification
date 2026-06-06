@@ -5,7 +5,9 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
+import { RiskStatusBadges, summarizeRiskStatus } from '@components/common/RiskStatusBadges';
 import { ScoreGauge } from '@components/common/ScoreGauge';
+import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
 import { gradeColor, gradeLabel } from '@utils/signalDisplay';
 import { getEventTypeLabel } from '@utils/disclosureType';
 
@@ -57,16 +59,20 @@ export function BuyScoreCard({ signal, onPress }: BuyScoreCardProps) {
   const { colors, typography: typo } = useTheme();
   const isBlocked = signal.grade === 'BLOCKED';
   const handlePress = useCallback(() => onPress?.(signal), [onPress, signal]);
+  // DAR-99: 관리종목·거래정지·상폐위험 배지(DART 폴백·근사값). 손실 회피 1차 방어선.
+  const { data: riskStatus } = useStockRiskStatus({ corpCode: signal.corpCode });
+  const riskSummary = summarizeRiskStatus(riskStatus);
 
   return (
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={handlePress}
       accessibilityRole="button"
-      // 카드 그룹핑(§8-1): 카드를 단일 단위로 읽고, 내부 요소 중복 읽기를 막는다
+      // 카드 그룹핑(§8-1): 카드를 단일 단위로 읽고, 내부 요소 중복 읽기를 막는다.
+      // 위험상태는 카드가 자식 a11y 를 가리므로(§no-hide) 카드 라벨에 합성한다.
       accessibilityLabel={`${signal.corpName} 매수 신호, Buy Score ${signal.buyScore}, ${gradeLabel(
         signal.grade,
-      )}`}
+      )}${riskSummary ? `, ${riskSummary}` : ''}`}
       accessibilityActions={[{ name: 'activate', label: '신호 상세 보기' }]}
       onAccessibilityAction={(event) => {
         if (event.nativeEvent.actionName === 'activate') handlePress();
@@ -112,6 +118,9 @@ export function BuyScoreCard({ signal, onPress }: BuyScoreCardProps) {
             {signal.eventType ? ` · ${getEventTypeLabel(signal.eventType)}` : ''}
           </Text>
         ) : null}
+
+        {/* DAR-99: 위험 배지(위험 없으면 미표시) — 근사값(DART) 라벨 병기 */}
+        <RiskStatusBadges status={riskStatus} compact style={styles.riskBadges} />
 
         {isBlocked ? (
           <View style={[styles.blockedBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -188,6 +197,9 @@ const styles = StyleSheet.create({
   },
   gradeChip: {
     height: 26,
+  },
+  riskBadges: {
+    marginTop: spacing.sm,
   },
   gaugeWrap: {
     marginTop: spacing.md,

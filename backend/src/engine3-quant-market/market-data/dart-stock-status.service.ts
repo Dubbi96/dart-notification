@@ -39,6 +39,9 @@ const MANAGEMENT_EVENT_TYPES: ReadonlySet<EventType> = new Set([
   EventType.AUDIT_OPINION_RISK,
 ]);
 
+/** 상장폐지 위험으로 세분 매핑되는 이벤트 타입 (관리종목의 부분집합, DAR-99 배지 분리용) */
+const DELISTING_EVENT_TYPES: ReadonlySet<EventType> = new Set([EventType.DELISTING_RISK]);
+
 /** 보고서명에 포함되면 "해제(상태 해소)" 로 판정하는 키워드 */
 const RELEASE_PATTERN = /해제|재개/;
 
@@ -48,12 +51,38 @@ export interface DerivedStockStatus {
   isManagement: boolean;
   /** 거래정지 (TRADING_SUSPENSION 지정, 미해제) */
   isHalted: boolean;
+  /** 상장폐지 위험 (DELISTING_RISK 지정, 미해제) — isManagement 의 부분집합 (DAR-99) */
+  isDelistingRisk: boolean;
   /** 사유 (예: "관리종목 지정 (DART 공시 폴백)") — 상태 없으면 null */
   statusNote: string | null;
   /** 근거 공시 접수번호 (가장 최근 상태결정 공시) — 없으면 null */
   sourceRcpNo: string | null;
   /** 근거 공시 접수일 (YYYYMMDD…) — 없으면 null */
   sourceRcpDt: string | null;
+}
+
+/** 출처 식별자 — KRX 승인 전엔 DART 공시 폴백, 승인 후 KRX 실시간으로 교체 (화면 계약 불변) */
+export type StockStatusSource = 'DART_FALLBACK';
+
+/**
+ * 화면(company·signals)용 위험상태 조회 응답 (DAR-99).
+ * DerivedStockStatus 에 식별 정보 + 출처 + 근사값 플래그를 동봉한다.
+ * KRX 승인 후 KRX 실시간으로 교체하더라도 이 계약(필드)은 불변.
+ */
+export interface StockRiskStatus extends DerivedStockStatus {
+  /** DART 고유번호(8자리) — 미상이면 null */
+  corpCode: string | null;
+  /** 종목코드(6자리) — 비상장/미상이면 null */
+  stockCode: string | null;
+  /** 기업명 — 미상이면 null */
+  corpName: string | null;
+  /** 데이터 출처 (현재 DART 공시 폴백) */
+  source: StockStatusSource;
+  /**
+   * 근사값 여부 — DART 공시 기반 도출분은 KRX 정밀 실시간이 아니므로 항상 true.
+   * 화면에 '근사값(DART 공시 기반)' 라벨 노출 근거.
+   */
+  approximate: boolean;
 }
 
 /** 카테고리별 최신 공시 1건 요약 */
@@ -68,6 +97,7 @@ function emptyStatus(): DerivedStockStatus {
   return {
     isManagement: false,
     isHalted: false,
+    isDelistingRisk: false,
     statusNote: null,
     sourceRcpNo: null,
     sourceRcpDt: null,
@@ -157,6 +187,7 @@ export class DartStockStatusService {
   ): DerivedStockStatus {
     let latestHalt: LatestEvent | null = null;
     let latestMgmt: LatestEvent | null = null;
+    let latestDelisting: LatestEvent | null = null;
 
     for (const ev of events) {
       const reportName = ev.disclosure?.reportName ?? '';
@@ -174,15 +205,20 @@ export class DartStockStatusService {
       if (MANAGEMENT_EVENT_TYPES.has(ev.eventType)) {
         latestMgmt = this.pickLatest(latestMgmt, candidate);
       }
+      if (DELISTING_EVENT_TYPES.has(ev.eventType)) {
+        latestDelisting = this.pickLatest(latestDelisting, candidate);
+      }
     }
 
     const isHalted = latestHalt != null && !latestHalt.isRelease;
     const isManagement = latestMgmt != null && !latestMgmt.isRelease;
+    const isDelistingRisk = latestDelisting != null && !latestDelisting.isRelease;
 
     if (!isHalted && !isManagement) return emptyStatus();
 
     // 사유·근거 공시: 활성 상태 중 더 최근 공시를 대표로 채택.
     const notes: string[] = [];
+    if (isDelistingRisk) notes.push('상장폐지 위험');
     if (isManagement) notes.push('관리종목 지정');
     if (isHalted) notes.push('거래정지');
 
@@ -197,10 +233,69 @@ export class DartStockStatusService {
     return {
       isManagement,
       isHalted,
+      isDelistingRisk,
       statusNote: `${notes.join('·')} (DART 공시 폴백)`,
       sourceRcpNo: source?.rcpNo ?? null,
       sourceRcpDt: source?.rcpDt ?? null,
     };
+  }
+
+  /**
+   * 화면(company·signals)용 위험상태 조회 (DAR-99, read-only).
+   * corpCode 직접 또는 stockCode(6자리)로 조회한다. stockCode 만 주어지면
+   * companies 에서 corpCode 로 해소한다. 식별 정보 + 출처 + 근사값 플래그를 동봉한다.
+   *
+   * 안전 우선(손실 회피 1차 방어선): 조회 실패·미상이어도 throw 하지 않고
+   * 위험 없음(모두 false) 으로 graceful 반환한다.
+   */
+  async getRiskStatus(params: {
+    corpCode?: string | null;
+    stockCode?: string | null;
+  }): Promise<StockRiskStatus> {
+    const source: StockStatusSource = 'DART_FALLBACK';
+    try {
+      // 식별자 해소: corpCode 우선, 없으면 stockCode → company 조회.
+      let company: { corpCode: string; corpName: string; stockCode: string | null } | null = null;
+      if (params.corpCode) {
+        company = await this.prisma.company.findUnique({
+          where: { corpCode: params.corpCode },
+          select: { corpCode: true, corpName: true, stockCode: true },
+        });
+      } else if (params.stockCode) {
+        company = await this.prisma.company.findFirst({
+          where: { stockCode: params.stockCode },
+          select: { corpCode: true, corpName: true, stockCode: true },
+        });
+      }
+
+      // company 미발견이어도 corpCode 가 주어졌으면 그대로 도출 시도(공시는 corpCode 키).
+      const resolvedCorpCode = company?.corpCode ?? params.corpCode ?? null;
+      const derived = resolvedCorpCode
+        ? await this.deriveStatus(resolvedCorpCode)
+        : emptyStatus();
+
+      return {
+        ...derived,
+        corpCode: resolvedCorpCode,
+        stockCode: company?.stockCode ?? params.stockCode ?? null,
+        corpName: company?.corpName ?? null,
+        source,
+        approximate: true,
+      };
+    } catch (err) {
+      this.logger.error(
+        `[DART폴백] 위험상태 조회 실패 corpCode=${params.corpCode ?? '-'} stockCode=${params.stockCode ?? '-'}`,
+        err as Error,
+      );
+      return {
+        ...emptyStatus(),
+        corpCode: params.corpCode ?? null,
+        stockCode: params.stockCode ?? null,
+        corpName: null,
+        source,
+        approximate: true,
+      };
+    }
   }
 
   /** rcpDt(문자열 비교, YYYYMMDD…) 가 큰 쪽을 최신으로 채택 */

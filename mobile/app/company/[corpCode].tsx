@@ -27,7 +27,9 @@ import { PhilosophyFitBreakdown } from '@components/philosophy/PhilosophyFitBrea
 import { DecisionHubTab } from '@components/company/DecisionHubTab';
 import { InsiderHoldingsTab } from '@components/company/InsiderHoldingsTab';
 import { FundamentalsTab } from '@components/company/FundamentalsTab';
+import { RiskStatusBadges } from '@components/common/RiskStatusBadges';
 import { useCompanyPhilosophyFit } from '@hooks/usePhilosophies';
+import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
 import type { EventStudyResult } from '@app-types/signal.types';
 
 type CompanyTab = 'decision' | 'disclosures' | 'financials' | 'insider' | 'stats' | 'philosophy';
@@ -262,6 +264,8 @@ export default function CompanyDetailScreen() {
   const { colors, typography: typo, isDark } = useTheme();
   const { isAuthenticated, requireAuth } = useRequireAuth();
   const { data: company, isLoading } = useCompanyDetail(corpCode!);
+  // DAR-99: 관리종목·거래정지·상폐위험 배지(손실 회피 1차 방어선, DART 폴백·근사값).
+  const { data: riskStatus } = useStockRiskStatus({ corpCode: corpCode! });
   const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
   const addToWatchlist = useAddToWatchlist();
   const removeFromWatchlist = useRemoveFromWatchlist();
@@ -362,6 +366,9 @@ export default function CompanyDetailScreen() {
               종목코드 {company.stockCode}
             </Text>
           )}
+
+          {/* DAR-99: 위험 배지 — 위험 없으면 미표시. 근사값(DART 공시 기반) 라벨 병기. */}
+          <RiskStatusBadges status={riskStatus} style={styles.riskBadges} />
 
           <TouchableOpacity
             style={[
@@ -654,6 +661,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderRadius: radius.sm,
     marginLeft: spacing.sm,
+  },
+  riskBadges: {
+    marginTop: spacing.sm,
   },
   watchlistButton: {
     flexDirection: 'row',

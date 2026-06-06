@@ -13,6 +13,12 @@ import { extract as extractCapitalIncrease } from './capital-increase';
 import { extract as extractCbBw } from './cb-bw';
 import { extract as extractMajorShareholderChange } from './major-shareholder-change';
 import { extract as extractEarnings } from './earnings';
+// DAR-71: 고위험 공시 5종
+import { extract as extractLawsuit } from './lawsuit';
+import { extract as extractAuditOpinionRisk } from './audit-opinion-risk';
+import { extract as extractTradingSuspension } from './trading-suspension';
+import { extract as extractDelistingRisk } from './delisting-risk';
+import { extract as extractContractCancellation } from './contract-cancellation';
 
 // ─── 이벤트 타입별 필수 필드 목록 ────────────────────────────────────────────
 // confidence 산출 기준: 필수 필드가 모두 존재하면 0.90, 일부 누락 시 0.60~0.89
@@ -31,6 +37,12 @@ const REQUIRED_FIELDS: Partial<Record<EventType, string[]>> = {
   [EventType.MAJOR_SHAREHOLDER_CHANGE]: ['ownershipRatio'],
   [EventType.EARNINGS_SURPRISE]:        ['operatingProfitYoY'],
   [EventType.EARNINGS_SHOCK]:           ['operatingProfitYoY'],
+  // DAR-71: 고위험 5종 — 핵심 구조화 필드 1종 충족 시 SUCCESS, 부재 시 0.0 → NEEDS_REVIEW(AI L1)
+  [EventType.LAWSUIT]:                  ['lawsuitAmount'],
+  [EventType.AUDIT_OPINION_RISK]:       ['auditOpinion'],
+  [EventType.TRADING_SUSPENSION]:       ['suspensionReason'],
+  [EventType.DELISTING_RISK]:           ['delistingStage'],
+  [EventType.CONTRACT_CANCELLATION]:    ['cancelledAmount'],
 };
 
 /**
@@ -40,7 +52,9 @@ const REQUIRED_FIELDS: Partial<Record<EventType, string[]>> = {
  *   SUPPLY_CONTRACT, SHARE_BUYBACK, SHARE_CANCELLATION,
  *   DIVIDEND_INCREASE/CUT, PAID_IN_CAPITAL_INCREASE/THIRD_PARTY_ALLOTMENT,
  *   CB_ISSUANCE, BW_ISSUANCE,
- *   MAJOR_SHAREHOLDER_CHANGE, EARNINGS_SURPRISE/SHOCK (DAR-58)
+ *   MAJOR_SHAREHOLDER_CHANGE, EARNINGS_SURPRISE/SHOCK (DAR-58),
+ *   LAWSUIT, AUDIT_OPINION_RISK, TRADING_SUSPENSION, DELISTING_RISK,
+ *   CONTRACT_CANCELLATION (DAR-71)
  * - 나머지 EventType: data = {}, confidence = 0.0
  *
  * @returns { data: Record<string, unknown>; confidence: number }
@@ -85,6 +99,22 @@ export function extractEventData(
       case EventType.EARNINGS_SURPRISE:
       case EventType.EARNINGS_SHOCK:
         data = extractEarnings(parsedJson, reportName) as unknown as Record<string, unknown>;
+        break;
+      // DAR-71: 고위험 공시 5종
+      case EventType.LAWSUIT:
+        data = extractLawsuit(parsedJson, reportName) as unknown as Record<string, unknown>;
+        break;
+      case EventType.AUDIT_OPINION_RISK:
+        data = extractAuditOpinionRisk(parsedJson, reportName) as unknown as Record<string, unknown>;
+        break;
+      case EventType.TRADING_SUSPENSION:
+        data = extractTradingSuspension(parsedJson, reportName) as unknown as Record<string, unknown>;
+        break;
+      case EventType.DELISTING_RISK:
+        data = extractDelistingRisk(parsedJson, reportName) as unknown as Record<string, unknown>;
+        break;
+      case EventType.CONTRACT_CANCELLATION:
+        data = extractContractCancellation(parsedJson, reportName) as unknown as Record<string, unknown>;
         break;
       default:
         // 미지원 이벤트 타입 — extractionStatus = NEEDS_REVIEW

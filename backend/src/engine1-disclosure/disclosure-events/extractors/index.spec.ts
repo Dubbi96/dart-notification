@@ -1,0 +1,74 @@
+// backend/src/engine1-disclosure/disclosure-events/extractors/index.spec.ts
+// extractEventData 디스패치 배선 테스트 — DAR-71 고위험 5종 배선 검증 중심
+
+import { EventType } from '@prisma/client';
+import { extractEventData } from './index';
+import { ParsedJson } from '../../disclosure-documents/types/parsed-json.type';
+import * as lawsuitFixture from '../__fixtures__/lawsuit-sample.json';
+import * as auditFixture from '../__fixtures__/audit-opinion-risk-sample.json';
+import * as suspensionFixture from '../__fixtures__/trading-suspension-sample.json';
+import * as delistingFixture from '../__fixtures__/delisting-risk-sample.json';
+import * as cancellationFixture from '../__fixtures__/contract-cancellation-sample.json';
+
+const EMPTY: ParsedJson = { docType: 'OTHER', rawTableCount: 0, keyValueSource: 'none' } as ParsedJson;
+
+describe('extractEventData — DAR-71 고위험 5종 배선', () => {
+  it('LAWSUIT → lawsuit 파서 + confidence 0.90', () => {
+    const { data, confidence } = extractEventData(EventType.LAWSUIT, lawsuitFixture as ParsedJson, '소송 등의 제기');
+    expect(data.lawsuitAmount).toBe(5_000_000_000);
+    expect(data.companyRole).toBe('DEFENDANT');
+    expect(confidence).toBe(0.9);
+  });
+
+  it('AUDIT_OPINION_RISK → audit 파서 + confidence 0.90', () => {
+    const { data, confidence } = extractEventData(EventType.AUDIT_OPINION_RISK, auditFixture as ParsedJson, '감사보고서');
+    expect(data.auditOpinion).toBe('DISCLAIMER');
+    expect(confidence).toBe(0.9);
+  });
+
+  it('TRADING_SUSPENSION → suspension 파서 + confidence 0.90', () => {
+    const { data, confidence } = extractEventData(EventType.TRADING_SUSPENSION, suspensionFixture as ParsedJson, '매매거래 정지');
+    expect(data.suspensionType).toBe('AUDIT');
+    expect(data.suspensionStartDate).toBe('2024-03-21');
+    expect(confidence).toBe(0.9);
+  });
+
+  it('DELISTING_RISK → delisting 파서 + confidence 0.90', () => {
+    const { data, confidence } = extractEventData(EventType.DELISTING_RISK, delistingFixture as ParsedJson, '실질심사');
+    expect(data.delistingStage).toBe('SUBSTANTIVE_REVIEW');
+    expect(confidence).toBe(0.9);
+  });
+
+  it('CONTRACT_CANCELLATION → cancellation 파서 + confidence 0.90', () => {
+    const { data, confidence } = extractEventData(EventType.CONTRACT_CANCELLATION, cancellationFixture as ParsedJson, '공급계약 해제');
+    expect(data.cancelledAmount).toBe(30_000_000_000);
+    expect(data.cancelledRatio).toBe(25.0);
+    expect(confidence).toBe(0.9);
+  });
+
+  describe('필수 필드 결측 → confidence 0.0 (NEEDS_REVIEW 경로)', () => {
+    it.each([
+      EventType.LAWSUIT,
+      EventType.AUDIT_OPINION_RISK,
+      EventType.TRADING_SUSPENSION,
+      EventType.DELISTING_RISK,
+      EventType.CONTRACT_CANCELLATION,
+    ])('%s: 빈 parsedJson → 0.0', (eventType) => {
+      const { confidence } = extractEventData(eventType, EMPTY, '');
+      expect(confidence).toBe(0.0);
+    });
+  });
+
+  it('회귀: 기존 7종(SUPPLY_CONTRACT) 배선 유지', () => {
+    const parsed = { docType: 'SUPPLY_CONTRACT', rawTableCount: 1, keyValueSource: 'table_0', contractAmount: 1_000 } as ParsedJson;
+    const { data, confidence } = extractEventData(EventType.SUPPLY_CONTRACT, parsed, '단일판매·공급계약체결');
+    expect(data.contractAmount).toBe(1_000);
+    expect(confidence).toBe(0.9);
+  });
+
+  it('미지원 EventType(OTHER) → data {} + confidence 0.0', () => {
+    const { data, confidence } = extractEventData(EventType.OTHER, EMPTY, '');
+    expect(data).toEqual({});
+    expect(confidence).toBe(0.0);
+  });
+});

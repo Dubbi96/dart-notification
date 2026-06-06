@@ -104,4 +104,47 @@ export interface ParsedJson {
   previousOperatingProfit?: number;
   /** 영업이익 전년比 증감률 (소수점 4자리, 0.30 = +30%) */
   operatingProfitYoY?: number;
+
+  // ── 소송 (LAWSUIT) ───────────────────────────────────────
+  // DAR-71: 고위험 공시 5종. 보유 parsedJson(JSON 컬럼)에 존재할 때만 사용
+  //         (없으면 null → 부분 추출 허용·상위 NEEDS_REVIEW). 스키마 변경 없음.
+  /** 소송금액/청구금액 (원) */
+  lawsuitAmount?: number;
+  /** 청구원인/소송유형 원문 (손해배상·약정금·특허침해 등) */
+  claimCause?: string;
+  /** 원고 (소송 제기 측) */
+  plaintiff?: string;
+  /** 피고 (소송 피청구 측) */
+  defendant?: string;
+  /** 소송 진행단계 원문 (소제기·1심·항소·상고 등) */
+  litigationStage?: string;
+
+  // ── 감사의견 리스크 (AUDIT_OPINION_RISK) ─────────────────
+  /** 감사의견 종류 원문 (한정·부적정·의견거절 등) */
+  auditOpinionType?: string;
+  /** 감사의견 사유 */
+  auditOpinionReason?: string;
+
+  // ── 거래정지 (TRADING_SUSPENSION) ────────────────────────
+  /** 정지 사유 */
+  suspensionReason?: string;
+  /** 정지 시작일 YYYY-MM-DD */
+  suspensionStartDate?: string;
+  /** 예상 해제일 YYYY-MM-DD */
+  expectedResumeDate?: string;
+
+  // ── 상장폐지 위험 (DELISTING_RISK) ───────────────────────
+  /** 상폐 단계 원문 (관리종목지정·실질심사·상폐결정·투자경고 등) */
+  delistingStage?: string;
+  /** 상폐 사유 */
+  delistingReason?: string;
+
+  // ── 계약 해제 (CONTRACT_CANCELLATION) ────────────────────
+  /** 해제된 계약금액 (원) */
+  cancelledContractAmount?: number;
+  /** 기존(원) 계약금액 (원) — 해제 비율 산출용 */
+  originalContractAmount?: number;
+  /** 계약 해제 사유 */
+  cancellationReason?: string;
+  // counterparty(거래상대방)는 SUPPLY_CONTRACT 필드 재사용
 }

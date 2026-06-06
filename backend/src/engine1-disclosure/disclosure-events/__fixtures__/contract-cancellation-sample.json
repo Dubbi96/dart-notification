@@ -1,0 +1,9 @@
+{
+  "docType": "SUPPLY_CONTRACT",
+  "rawTableCount": 1,
+  "keyValueSource": "table_0",
+  "cancelledContractAmount": 30000000000,
+  "originalContractAmount": 120000000000,
+  "counterparty": "Globex Corp.",
+  "cancellationReason": "발주처 사정에 의한 계약 일부 해제"
+}

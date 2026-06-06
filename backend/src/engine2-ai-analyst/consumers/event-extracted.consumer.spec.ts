@@ -14,6 +14,7 @@ const mockPrisma = {
   disclosureDocument: { findUnique: jest.fn() },
   disclosureEvent: { findUnique: jest.fn() },
   stockDailyPrice: { findFirst: jest.fn() },
+  position: { count: jest.fn() },
 };
 
 const mockDartStockStatus = {
@@ -39,6 +40,7 @@ describe('EventExtractedConsumer', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     mockDartStockStatus.isManagementStock.mockResolvedValue(false); // 기본: 정상 종목
+    mockPrisma.position.count.mockResolvedValue(0); // 기본: 미보유
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -220,5 +222,120 @@ describe('EventExtractedConsumer', () => {
     await expect(
       consumer.process(makeJob(JOB.EVENT_EXTRACTED, { ...baseData, rcpNo: '20240601000003' })),
     ).rejects.toThrow('LLM timeout');
+  });
+
+  // ─── DAR-74: 보유종목 실조회 → 게이트 isHolding 실공급 ───────────────────
+  describe('DAR-74 — isHolding 실데이터 공급', () => {
+    function primeEnrichment() {
+      mockPrisma.disclosureDocument.findUnique.mockResolvedValue({ rawText: '본문' });
+      mockPrisma.disclosureEvent.findUnique.mockResolvedValue({ extractedData: {} });
+      mockPrisma.stockDailyPrice.findFirst.mockResolvedValue({
+        tradingValue: BigInt(5_000_000_000),
+        tradeDate: '20240531',
+      });
+      mockAiAnalystService.runSummary.mockResolvedValue(null);
+    }
+
+    it('OPEN 포지션이 있으면 게이트 isHolding=true 로 전달한다', async () => {
+      primeEnrichment();
+      mockPrisma.position.count.mockResolvedValue(1); // 보유
+
+      await consumer.process(makeJob(JOB.EVENT_EXTRACTED, baseData));
+
+      expect(mockPrisma.position.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { corpCode: '00126380', status: { in: ['OPEN', 'PARTIAL'] } },
+        }),
+      );
+      const req = mockAiAnalystService.runSummary.mock.calls[0][0];
+      expect(req.gate.isHolding).toBe(true);
+    });
+
+    it('OPEN 포지션이 없으면 게이트 isHolding=false 로 전달한다', async () => {
+      primeEnrichment();
+      mockPrisma.position.count.mockResolvedValue(0); // 미보유
+
+      await consumer.process(makeJob(JOB.EVENT_EXTRACTED, baseData));
+
+      const req = mockAiAnalystService.runSummary.mock.calls[0][0];
+      expect(req.gate.isHolding).toBe(false);
+    });
+
+    it('보유종목 조회가 예외를 던져도 false 로 graceful 처리한다(비용 안전)', async () => {
+      primeEnrichment();
+      mockPrisma.position.count.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        consumer.process(makeJob(JOB.EVENT_EXTRACTED, baseData)),
+      ).resolves.toBeUndefined();
+
+      const req = mockAiAnalystService.runSummary.mock.calls[0][0];
+      expect(req.gate.isHolding).toBe(false);
+    });
+
+    it('보유종목 + 악재 polarity 가 게이트 입력으로 함께 전달된다(L3 활성 경로)', async () => {
+      primeEnrichment();
+      mockPrisma.position.count.mockResolvedValue(1);
+
+      await consumer.process(
+        makeJob(JOB.EVENT_EXTRACTED, {
+          ...baseData,
+          eventType: 'LAWSUIT',
+          polarity: 'NEGATIVE',
+        }),
+      );
+
+      const req = mockAiAnalystService.runSummary.mock.calls[0][0];
+      expect(req.gate.isHolding).toBe(true);
+      expect(req.gate.polarity).toBe('NEGATIVE');
+    });
+  });
+
+  // ─── DAR-74: polarity Rule 폴백 (결측/비정상 보정) ──────────────────────
+  describe('DAR-74 — polarity Rule 폴백', () => {
+    function primeEnrichment() {
+      mockPrisma.disclosureDocument.findUnique.mockResolvedValue({ rawText: '본문' });
+      mockPrisma.disclosureEvent.findUnique.mockResolvedValue({ extractedData: {} });
+      mockPrisma.stockDailyPrice.findFirst.mockResolvedValue({
+        tradingValue: BigInt(5_000_000_000),
+        tradeDate: '20240531',
+      });
+      mockAiAnalystService.runSummary.mockResolvedValue(null);
+    }
+
+    it('유효 polarity 는 그대로 통과시킨다', async () => {
+      primeEnrichment();
+      await consumer.process(
+        makeJob(JOB.EVENT_EXTRACTED, { ...baseData, polarity: 'NEGATIVE' }),
+      );
+      const req = mockAiAnalystService.runSummary.mock.calls[0][0];
+      expect(req.gate.polarity).toBe('NEGATIVE');
+    });
+
+    it('polarity 결측 + 악재 이벤트면 NEGATIVE 로 Rule 폴백한다', async () => {
+      primeEnrichment();
+      await consumer.process(
+        makeJob(JOB.EVENT_EXTRACTED, {
+          ...baseData,
+          eventType: 'CONTRACT_CANCELLATION',
+          polarity: undefined as unknown as string,
+        }),
+      );
+      const req = mockAiAnalystService.runSummary.mock.calls[0][0];
+      expect(req.gate.polarity).toBe('NEGATIVE');
+    });
+
+    it('polarity 비정상 값 + 비악재 이벤트면 NEUTRAL 로 보수 폴백한다', async () => {
+      primeEnrichment();
+      await consumer.process(
+        makeJob(JOB.EVENT_EXTRACTED, {
+          ...baseData,
+          eventType: 'SUPPLY_CONTRACT',
+          polarity: 'GARBAGE',
+        }),
+      );
+      const req = mockAiAnalystService.runSummary.mock.calls[0][0];
+      expect(req.gate.polarity).toBe('NEUTRAL');
+    });
   });
 });

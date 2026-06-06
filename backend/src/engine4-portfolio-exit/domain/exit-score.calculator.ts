@@ -59,11 +59,88 @@ export function calcLossRiskScore(
   return { score: Math.min(score, 20), triggered: score > 0 };
 }
 
+/**
+ * 단일 invalidCondition 기계 평가 (DAR-74).
+ *
+ * AI 금지영역: 순수 Rule. position-thesis가 산출한 구조화 조건을 보유종목의
+ * 시세/공시 실데이터(pos·tech·events)로 평가한다. pos·tech 가 없으면(직접 단위
+ * 호출) 시세 기반 조건은 평가하지 않고, 테스트 픽스처의 명시적 `_triggered`
+ * 플래그만 인정한다 — 기존 동작 보존.
+ *
+ * 결측 폴백: 평가에 필요한 시세 필드가 null 이면 그 조건은 미충족(false)으로
+ * 보수 처리해 결측 데이터로 인한 오탐(false positive)을 막는다.
+ */
+export function evaluateInvalidCondition(
+  cond: { type: string; [key: string]: unknown },
+  eventTypes: Set<string>,
+  pos: PositionSnapshot | null,
+  tech: TechnicalSnapshot | null,
+): boolean {
+  // 테스트 픽스처/외부 평가가 명시적으로 표시한 충족 플래그를 항상 인정한다.
+  if (cond['_triggered'] === true) return true;
+
+  switch (cond.type) {
+    case 'AMENDMENT_NEGATIVE':
+      return (
+        eventTypes.has('AMENDMENT_NEGATIVE') ||
+        eventTypes.has('CONTRACT_CANCELLATION') ||
+        eventTypes.has('PAID_IN_CAPITAL_INCREASE')
+      );
+
+    case 'PRICE_BELOW': {
+      const value = cond['value'];
+      if (!tech || typeof value !== 'number') return false;
+      return tech.closePrice < value;
+    }
+
+    case 'PRICE_ABOVE': {
+      const value = cond['value'];
+      if (!tech || typeof value !== 'number') return false;
+      return tech.closePrice > value;
+    }
+
+    case 'VOLUME_COLLAPSE': {
+      const threshold = cond['threshold'];
+      if (!tech || typeof threshold !== 'number' || tech.volumeRatio3d === null) {
+        return false; // 결측 → 미충족(보수)
+      }
+      return tech.volumeRatio3d < threshold;
+    }
+
+    case 'EVENT_STUDY_UNDERPERFORM': {
+      const threshold = cond['threshold'];
+      // 현재 스냅샷은 D5 초과수익만 보유 → D5 지평만 평가, 그 외 결측 처리.
+      if (
+        !tech ||
+        typeof threshold !== 'number' ||
+        cond['horizon'] !== 'D5' ||
+        tech.excessReturn5d === null
+      ) {
+        return false;
+      }
+      return tech.excessReturn5d < threshold;
+    }
+
+    case 'THESIS_METRIC_BREACH':
+    case 'STOP_LOSS_PCT':
+    case 'MAX_HOLD_DAYS':
+      // STOP_LOSS_PCT·MAX_HOLD_DAYS 는 손실·시간 점수에서 별도 평가(이중계상 방지).
+      // THESIS_METRIC_BREACH 는 스냅샷에 임의 지표가 없어 _triggered 외 미평가.
+      return false;
+
+    default:
+      return false;
+  }
+}
+
 // Trigger 3: 투자논리 훼손 (thesisBreakScore 0~20)
-// AMENDMENT_NEGATIVE condition은 disclosure events로 체크, 나머지는 type 매칭
+// AMENDMENT_NEGATIVE는 disclosure events로 체크. DAR-74: 시세 기반 구조화 조건
+// (PRICE_*·VOLUME_COLLAPSE·EVENT_STUDY_UNDERPERFORM)은 pos·tech 실데이터로 평가.
 export function calcThesisBreakScore(
   thesis: ThesisSnapshot | null,
   events: DisclosureEvent[],
+  pos: PositionSnapshot | null = null,
+  tech: TechnicalSnapshot | null = null,
 ): { score: number; triggered: boolean } {
   if (!thesis || thesis.invalidConditions.length === 0) {
     return { score: 0, triggered: false };
@@ -76,23 +153,7 @@ export function calcThesisBreakScore(
   let isFirst = true;
 
   for (const cond of thesis.invalidConditions) {
-    let hit = false;
-    if (cond.type === 'AMENDMENT_NEGATIVE') {
-      hit =
-        eventTypes.has('AMENDMENT_NEGATIVE') ||
-        eventTypes.has('CONTRACT_CANCELLATION') ||
-        eventTypes.has('PAID_IN_CAPITAL_INCREASE');
-    } else if (
-      cond.type === 'STOP_LOSS_PCT' ||
-      cond.type === 'MAX_HOLD_DAYS'
-    ) {
-      // evaluated elsewhere
-      hit = false;
-    } else {
-      // Other InvalidConditionTypes — accept explicit _triggered flag from test fixtures
-      hit =
-        (cond as unknown as Record<string, unknown>)['_triggered'] === true;
-    }
+    const hit = evaluateInvalidCondition(cond, eventTypes, pos, tech);
     if (hit) {
       triggeredCount++;
       if (isFirst) primaryTriggered = true;
@@ -216,7 +277,9 @@ export function calculateExitScore(
   disclosureEvents: DisclosureEvent[],
 ): ExitScoreResult {
   const lossResult = calcLossRiskScore(pos, tech);
-  const thesisResult = calcThesisBreakScore(thesis, disclosureEvents);
+  // DAR-74: 보유 포지션의 시세 실데이터(pos·tech)를 넘겨 구조화 invalidConditions를
+  // 기계 평가한다(테제 훼손 시 THESIS_INVALIDATED 트리거 → 재평가/알림).
+  const thesisResult = calcThesisBreakScore(thesis, disclosureEvents, pos, tech);
   const chartResult = calcChartBreakScore(tech);
   const timeResult = calcTimeExceededScore(pos, thesis, tech);
   const overweightResult = calcOverweightScore(pos);

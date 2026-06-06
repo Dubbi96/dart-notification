@@ -55,14 +55,27 @@ export function getTypeStyle(type: string, isDark = false): BadgeStyle {
 
 // 신호 이벤트 타입 평문 매핑(DAR-31 §3-1). 공시 분류용 TYPE_LABELS와 별개.
 // raw enum(SUPPLY_CONTRACT 등)이 화면에 직접 노출되지 않도록 항상 이 헬퍼를 통한다.
+// 백엔드 prisma `enum EventType` 전체와 1:1 (raw enum 노출 방지 — DAR-81 통계 화면 라벨 포함).
 export const EVENT_TYPE_LABEL: Record<string, string> = {
   SUPPLY_CONTRACT: '대규모 공급계약',
   SHARE_BUYBACK: '자기주식 취득',
   SHARE_CANCELLATION: '자기주식 소각',
   DIVIDEND_INCREASE: '배당 확대',
-  EARNINGS_SURPRISE: '어닝 서프라이즈',
+  PAID_IN_CAPITAL_INCREASE: '유상증자',
+  CB_ISSUANCE: '전환사채(CB) 발행',
+  BW_ISSUANCE: '신주인수권부사채(BW) 발행',
+  CONTRACT_CANCELLATION: '공급계약 해제·취소',
+  DIVIDEND_CUT: '배당 축소·중단',
+  THIRD_PARTY_ALLOTMENT: '제3자배정 유상증자',
+  EARNINGS_SURPRISE: '실적 서프라이즈',
+  EARNINGS_SHOCK: '실적 쇼크',
+  MAJOR_SHAREHOLDER_CHANGE: '최대주주 변경',
+  LAWSUIT: '소송·횡령·배임',
+  AUDIT_OPINION_RISK: '감사의견 거절·한정',
+  TRADING_SUSPENSION: '거래정지',
+  DELISTING_RISK: '상장폐지 위험',
   AUDIT_RISK_RESOLVED: '감사 리스크 해소',
-  // 추가 이벤트 타입은 백엔드 enum 확정 후 동일 패턴으로 추가
+  OTHER: '기타',
 };
 
 export function getEventTypeLabel(eventType: string): string {

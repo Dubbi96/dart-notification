@@ -1,0 +1,319 @@
+import React, { useCallback, useMemo, useState } from 'react';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { SegmentedButtons } from 'react-native-paper';
+import { Feather } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { useTheme } from '@theme';
+import { spacing, radius } from '@theme/spacing';
+import { Card } from '@components/common/Card';
+import { LoadingState, EmptyState, ApiErrorState } from '@components/common/StateView';
+import { DisclaimerSection } from '@components/common/DisclaimerSection';
+import { AppRefreshControl } from '@components/common/AppRefreshControl';
+import { useEventStudyResults } from '@hooks/useEventStudy';
+import { getEventTypeLabel } from '@utils/disclosureType';
+
+import type { EventStudyResult } from '@app-types/signal.types';
+
+// DAR-81: 이벤트 유형별 시장 통계 화면.
+// 기구현 useEventStudyResults(GET /event-study) 연결 — 백엔드 집계는 (eventType, bucketKey)
+// 단위 행으로 내려오므로, 화면에서 eventType 단위로 표본수 가중 평균하여
+// '시장 전체 평균 D+N 초과수익(AR)·표본수·승률'을 유형별 1행으로 렌더한다. read-only.
+// 표본 부족(<30) 시 LOW_SAMPLE 투명 배지로 과신 방지. 테마토큰만·FlatList·접근성·면책.
+
+type MarketType = 'ALL' | 'KOSPI' | 'KOSDAQ';
+
+// 표본이 이 값 미만이면 통계 신뢰도 제한(LOW_SAMPLE) — company/[corpCode] 통계 탭과 동일 임계.
+const LOW_SAMPLE_THRESHOLD = 30;
+
+/** 이벤트 유형별 시장 전체 집계 1행. (eventType, bucketKey) 단위 행들을 유형 단위로 합산. */
+export interface EventTypeAggregate {
+  eventType: string;
+  totalSample: number;
+  /** 표본 가중 평균 D+1 시장초과수익(AR, %) */
+  avgArD1: number;
+  /** 표본 가중 평균 D+5 시장초과수익(AR, %) */
+  avgArD5: number;
+  /** 표본 가중 평균 D+20 시장초과수익(AR, %) */
+  avgArD20: number;
+  /** 표본 가중 평균 D+5 상승확률(승률, 0~1) */
+  winRateD5: number;
+  /** 유의성: 버킷 중 하나 이상이 통계적으로 유의(p<0.05) */
+  isSignificant: boolean;
+  /** 과신 방지: 표본 부족 또는 통계 미유의 */
+  lowSample: boolean;
+}
+
+/**
+ * (eventType, bucketKey) 단위 EventStudyResult[] → 이벤트 유형 단위 시장 전체 집계.
+ * 순수함수: 표본수 가중 평균으로 AR·승률을 합산하고 초과수익(D+5) 내림차순 정렬한다.
+ */
+export function aggregateByEventType(rows: EventStudyResult[]): EventTypeAggregate[] {
+  const byType = new Map<string, EventStudyResult[]>();
+  for (const r of rows) {
+    const list = byType.get(r.eventType);
+    if (list) list.push(r);
+    else byType.set(r.eventType, [r]);
+  }
+
+  const aggregates: EventTypeAggregate[] = [];
+  byType.forEach((list, eventType) => {
+    const totalSample = list.reduce((sum, r) => sum + (r.sampleCount ?? 0), 0);
+    const weighted = (pick: (r: EventStudyResult) => number): number => {
+      if (totalSample <= 0) return 0;
+      const acc = list.reduce((sum, r) => sum + pick(r) * (r.sampleCount ?? 0), 0);
+      return acc / totalSample;
+    };
+    const isSignificant = list.some((r) => r.isSignificant);
+    aggregates.push({
+      eventType,
+      totalSample,
+      avgArD1: weighted((r) => r.avgArD1 ?? 0),
+      avgArD5: weighted((r) => r.avgArD5 ?? 0),
+      avgArD20: weighted((r) => r.avgArD20 ?? 0),
+      winRateD5: weighted((r) => r.upProbD5 ?? 0),
+      isSignificant,
+      lowSample: totalSample < LOW_SAMPLE_THRESHOLD || !isSignificant,
+    });
+  });
+
+  // 초과수익(D+5) 내림차순 — '실제 초과수익을 내는' 유형이 위로(기획: 초과수익순).
+  return aggregates.sort((a, b) => b.avgArD5 - a.avgArD5);
+}
+
+function formatPct(value: number): string {
+  const sign = value >= 0 ? '+' : '';
+  return `${sign}${value.toFixed(1)}%`;
+}
+
+interface MetricCellProps {
+  label: string;
+  value: string;
+  valueColor: string;
+}
+
+function MetricCell({ label, value, valueColor }: MetricCellProps) {
+  const { colors, typography: typo } = useTheme();
+  return (
+    <View style={styles.metricCell}>
+      <Text style={[typo.small, { color: colors.textTertiary }]}>{label}</Text>
+      <Text style={[typo.bodyMedium, { color: valueColor, fontWeight: '600' }]}>{value}</Text>
+    </View>
+  );
+}
+
+interface EventRowProps {
+  item: EventTypeAggregate;
+}
+
+function EventRow({ item }: EventRowProps) {
+  const { colors, typography: typo } = useTheme();
+  const arColor = (v: number) => (v > 0 ? colors.success : v < 0 ? colors.error : colors.textSecondary);
+  const winColor = item.winRateD5 >= 0.5 ? colors.success : colors.error;
+  const winPct = `${(item.winRateD5 * 100).toFixed(0)}%`;
+
+  return (
+    <Card variant="elevated" style={styles.row}>
+      <View
+        accessible
+        accessibilityRole="summary"
+        accessibilityLabel={
+          `${getEventTypeLabel(item.eventType)} — D+5 시장초과수익 ${formatPct(item.avgArD5)}, ` +
+          `D+20 ${formatPct(item.avgArD20)}, 승률 ${winPct}, 표본 ${item.totalSample}건` +
+          (item.lowSample ? ', 표본 부족 또는 통계 미유의로 신뢰도 제한' : '')
+        }
+        style={styles.rowInner}
+      >
+        <View style={styles.rowHeader}>
+          <Text style={[typo.bodyMedium, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+            {getEventTypeLabel(item.eventType)}
+          </Text>
+          {item.lowSample ? (
+            <View style={[styles.badge, { backgroundColor: colors.surfaceSecondary, borderColor: colors.warning }]}>
+              <Feather name="alert-triangle" size={11} color={colors.warning} />
+              <Text style={[typo.small, { color: colors.warning, marginLeft: spacing.xs, fontWeight: '600' }]}>
+                데이터 한계
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={styles.metrics}>
+          <MetricCell label="D+1 초과" value={formatPct(item.avgArD1)} valueColor={arColor(item.avgArD1)} />
+          <MetricCell label="D+5 초과" value={formatPct(item.avgArD5)} valueColor={arColor(item.avgArD5)} />
+          <MetricCell label="D+20 초과" value={formatPct(item.avgArD20)} valueColor={arColor(item.avgArD20)} />
+          <MetricCell label="승률(D+5)" value={winPct} valueColor={winColor} />
+          <MetricCell label="표본" value={`${item.totalSample.toLocaleString('ko-KR')}건`} valueColor={colors.text} />
+        </View>
+      </View>
+    </Card>
+  );
+}
+
+export default function EventStatsScreen() {
+  const { colors, typography: typo } = useTheme();
+  const [marketType, setMarketType] = useState<MarketType>('ALL');
+
+  const query = useEventStudyResults(undefined, marketType);
+
+  const aggregates = useMemo(() => aggregateByEventType(query.data ?? []), [query.data]);
+  const hasData = aggregates.length > 0;
+
+  const renderItem = useCallback(
+    ({ item }: { item: EventTypeAggregate }) => <EventRow item={item} />,
+    [],
+  );
+
+  const keyExtractor = useCallback((item: EventTypeAggregate) => item.eventType, []);
+
+  const renderBody = () => {
+    if (query.isLoading) {
+      return <LoadingState message="이벤트 통계를 불러오는 중..." />;
+    }
+    if (query.isError) {
+      return (
+        <ApiErrorState
+          error={query.error}
+          title="이벤트 통계를 불러오지 못했습니다"
+          description="잠시 후 다시 시도해 주세요."
+          onRetry={query.refetch}
+        />
+      );
+    }
+    return (
+      <FlatList
+        data={aggregates}
+        renderItem={renderItem}
+        keyExtractor={keyExtractor}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <AppRefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} />
+        }
+        ListHeaderComponent={
+          hasData ? (
+            <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.md }]}>
+              공시 유형별 시장 전체 평균 초과수익(시장 대비)·승률·표본입니다. 초과수익(D+5) 높은 순.
+              표본 {LOW_SAMPLE_THRESHOLD}건 미만이거나 통계적으로 유의하지 않으면 데이터 한계로 표시되며 참고용입니다.
+            </Text>
+          ) : null
+        }
+        ListEmptyComponent={
+          <EmptyState
+            icon="bar-chart-2"
+            title="아직 집계된 이벤트 통계가 없습니다"
+            description={
+              marketType === 'ALL'
+                ? '이벤트 스터디 데이터가 쌓이면 유형별 초과수익이 여기에 표시됩니다.'
+                : '선택한 시장의 집계 데이터가 아직 없습니다. 다른 시장을 확인해 보세요.'
+            }
+          />
+        }
+        ListFooterComponent={hasData ? <DisclaimerSection style={styles.disclaimer} /> : null}
+      />
+    );
+  };
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          hitSlop={8}
+          style={styles.backButton}
+          accessibilityRole="button"
+          accessibilityLabel="뒤로 가기"
+        >
+          <Feather name="chevron-left" size={26} color={colors.text} />
+        </TouchableOpacity>
+        <View style={styles.headerTitle}>
+          <Text style={[typo.h3, { color: colors.text }]}>이벤트 통계</Text>
+          <Text style={[typo.small, { color: colors.textSecondary }]}>
+            어떤 공시 유형이 실제 초과수익을 냈는가
+          </Text>
+        </View>
+        <View style={styles.backButton} />
+      </View>
+
+      <View style={styles.tabs}>
+        <SegmentedButtons
+          value={marketType}
+          onValueChange={(v) => setMarketType(v as MarketType)}
+          buttons={[
+            { value: 'ALL', label: '전체' },
+            { value: 'KOSPI', label: '코스피' },
+            { value: 'KOSDAQ', label: '코스닥' },
+          ]}
+        />
+      </View>
+
+      <View style={styles.body}>{renderBody()}</View>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  tabs: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
+  body: {
+    flex: 1,
+  },
+  listContent: {
+    padding: spacing.lg,
+    gap: spacing.md,
+    flexGrow: 1,
+  },
+  row: {
+    padding: spacing.base,
+  },
+  rowInner: {
+    gap: spacing.md,
+  },
+  rowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs / 2,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+  },
+  metrics: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  metricCell: {
+    flex: 1,
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  disclaimer: {
+    marginTop: spacing.lg,
+  },
+});

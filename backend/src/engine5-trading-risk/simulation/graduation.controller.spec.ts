@@ -32,6 +32,16 @@ function sampleMetrics(): GraduationMetrics {
       aiCostToNetPnlRatio: 0.1,
     },
     exitAccuracy: { evaluated: 8, correct: 5, accuracyPct: 62.5 },
+    riskAdjusted: { sharpe: 1.4, mddPct: -8, observations: 20, measurable: true },
+    benchmarkAlpha: {
+      indexCode: '0001',
+      portfolioReturnPct: 5,
+      benchmarkReturnPct: 2,
+      alphaPct: 3,
+      fromDate: '20260101',
+      toDate: '20260601',
+      measurable: true,
+    },
     config: { hitRateHorizonDays: 5, exitAccuracyHorizonDays: 3, usdKrwRate: 1350 },
   };
 }
@@ -53,7 +63,7 @@ describe('GraduationController', () => {
     const res = await controller.metrics();
     expect(metricsService.getMetrics).toHaveBeenCalledTimes(1);
     expect(res.success).toBe(true);
-    expect(res.data.gates.map((g) => g.id)).toEqual(['G1', 'G2', 'G3', 'G5']);
+    expect(res.data.gates.map((g) => g.id)).toEqual(['G1', 'G2', 'G3', 'G5', 'G6', 'G7']);
     expect(res.data.allPassed).toBe(true);
     expect(res.data.lowSample).toBe(false);
   });

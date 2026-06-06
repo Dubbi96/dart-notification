@@ -50,7 +50,13 @@
 | G3 | AI비용/모의순익 ≤20% | ≤20% | 순익=0·AIUsageLog=0 → 측정 불가 | ⏸ 보류 | Step 11 — 데이터 부족 |
 | G4 | 수집 성공률 ≥95% | ≥95% | 99.1% (115/116) | ✅ 통과 | DisclosureCollectionLog |
 | G5 | Exit 정확도 ≥50% (D+3) | ≥50% | 운용 데이터 부족 | ⏸ 보류 | 캘린더 시간 필요 — 미측정 |
-| G6 | AI 금지영역 침범 0 | 0건 | Engine5 import 0 · 비정상actor 0 · aiUsed 0 | ✅ 통과 | Step 12 감사 |
+| G6 | 최대낙폭(MDD) ≥-15% | ≥-15% | 평가액 스냅샷 부족 → 측정 불가(LOW_SAMPLE) | ⏸ 보류 | DAR-68 — 캘린더 시간 필요 |
+| G7 | KOSPI 대비 초과수익(alpha) >0% | >0% | 30일+ 모의운용·시장지수 정합 필요 | ⏸ 보류 | DAR-68 — 데이터 부족 |
+| AI-Guard | AI 금지영역 침범 0 | 0건 | Engine5 import 0 · 비정상actor 0 · aiUsed 0 | ✅ 통과 | Step 12 감사 |
+
+> **DAR-68:** G6(MDD)·G7(벤치마크 alpha) 는 위험조정·상대성과 게이트로 추가됐다(상승장 위장통과 방지).
+> 산식은 engine5 `simulation/domain/graduation-gates.ts`(G6·G7) + 공통 `common/metrics/risk-metrics.ts`
+> (engine3 백테스트와 MDD·Sharpe 산식 공유) 가 정본. Sharpe 는 참고지표(게이트 아님). 순수 Rule.
 
 ## 4. AI 비용 — 추정 vs 실측 / 비용·순익 비율
 

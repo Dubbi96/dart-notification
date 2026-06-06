@@ -1,8 +1,9 @@
-// 졸업 게이트 측정 도메인 타입 계약 — DAR-67.
+// 졸업 게이트 측정 도메인 타입 계약 — DAR-67 / DAR-68.
 // GET /api/graduation/metrics 응답과 1:1.
 // 백엔드 simulation/domain/graduation-gates.ts (GraduationReport/GraduationGate) 와 동기화.
+// DAR-68: 위험조정(G6 MDD)·벤치마크(G7 KOSPI alpha) 게이트 + Sharpe 참고지표 추가.
 
-export type GateId = 'G1' | 'G2' | 'G3' | 'G5';
+export type GateId = 'G1' | 'G2' | 'G3' | 'G5' | 'G6' | 'G7';
 export type GateComparator = 'gte' | 'gt' | 'lte';
 export type GateUnit = 'percent' | 'ratio';
 
@@ -43,4 +44,9 @@ export interface GraduationReport {
   progress: number;
   /** 표본 부족 게이트가 하나라도 있으면 true(과신 경고) */
   lowSample: boolean;
+  /**
+   * Sharpe 비율(연환산, 무위험수익률 0) — DAR-68 참고지표(통과/미달 게이트 아님).
+   * 측정 불가(평가액 표본 부족)면 null.
+   */
+  sharpe: number | null;
 }

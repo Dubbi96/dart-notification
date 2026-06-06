@@ -131,7 +131,14 @@ model NotificationSettings {
   userId          String   @id
   disclosureTypes String[] // ["정기공시", "주요사항보고", "발행공시", "지분공시", "기타공시"]
   keywords        String[] // 키워드 배열 (예: ["증자", "배당"])
-  isEnabled       Boolean  @default(true)
+  isEnabled       Boolean  @default(true) // master 푸시 스위치(공시 포함)
+
+  // DAR-85: 신호·청산·논리훼손 푸시 토글. ★기본 OFF(스팸 차단·안전).
+  // OFF면 NotificationHistory(인박스) 기록만 하고 실발송하지 않는다.
+  signalPushEnabled Boolean @default(false) // 매수 신호(SIGNAL) 푸시
+  exitPushEnabled   Boolean @default(false) // 청산 권고(EXIT) 푸시
+  thesisPushEnabled Boolean @default(false) // 투자논리 훼손(THESIS_VIOLATED) 푸시
+
   updatedAt       DateTime @updatedAt
 
   // Relations

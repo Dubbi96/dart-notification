@@ -27,4 +27,20 @@ export class UpdateNotificationSettingsDto {
   @IsBoolean()
   @IsOptional()
   isEnabled?: boolean;
+
+  // DAR-85: 신호·청산·논리훼손 푸시 토글(기본 OFF).
+  @ApiProperty({ example: false, required: false, description: '매수 신호 푸시 발송' })
+  @IsBoolean()
+  @IsOptional()
+  signalPushEnabled?: boolean;
+
+  @ApiProperty({ example: false, required: false, description: '청산 권고 푸시 발송' })
+  @IsBoolean()
+  @IsOptional()
+  exitPushEnabled?: boolean;
+
+  @ApiProperty({ example: false, required: false, description: '투자논리 훼손 푸시 발송' })
+  @IsBoolean()
+  @IsOptional()
+  thesisPushEnabled?: boolean;
 }

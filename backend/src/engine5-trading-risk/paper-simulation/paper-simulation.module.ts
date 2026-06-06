@@ -13,17 +13,28 @@ import { PaperTradeService } from '../services/paper-trade.service';
 import { PaperSimulationService } from './paper-simulation.service';
 import { PaperSimulationController } from './paper-simulation.controller';
 import { PaperSimulationScheduler } from './paper-simulation.scheduler';
+import { NotificationProducerModule } from '../../notifications/notification-producer.module';
+import { NotificationProducerService } from '../../notifications/notification-producer.service';
 
 @Module({
-  imports: [PrismaModule, TradingRiskModule],
+  imports: [PrismaModule, TradingRiskModule, NotificationProducerModule],
   controllers: [PaperSimulationController],
   providers: [
     PaperSimulationScheduler,
     {
       provide: PaperSimulationService,
-      useFactory: (prisma: PrismaService, paperTrade: PaperTradeService) =>
-        new PaperSimulationService(prisma, paperTrade),
-      inject: [PrismaService, PaperTradeService],
+      // DAR-85: NotificationProducerService 주입(청산 권고 enqueue). optional:true 로
+      // 큐 미설정 환경에서도 안전(producer 내부도 @Optional 큐로 graceful).
+      useFactory: (
+        prisma: PrismaService,
+        paperTrade: PaperTradeService,
+        notifyProducer?: NotificationProducerService,
+      ) => new PaperSimulationService(prisma, paperTrade, notifyProducer),
+      inject: [
+        PrismaService,
+        PaperTradeService,
+        { token: NotificationProducerService, optional: true },
+      ],
     },
   ],
   exports: [PaperSimulationService],

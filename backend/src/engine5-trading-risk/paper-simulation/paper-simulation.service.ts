@@ -13,9 +13,10 @@
  *   PortfolioRiskSnapshot) 재사용.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaperTradeService } from '../services/paper-trade.service';
+import { NotificationProducerService } from '../../notifications/notification-producer.service';
 import { PrismaExitSignalRepository } from '../../engine4-portfolio-exit/repositories/prisma-exit-signal.repository';
 import { calculateExitScore } from '../../engine4-portfolio-exit/domain/exit-score.calculator';
 import {
@@ -80,6 +81,10 @@ export class PaperSimulationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly paperTrade: PaperTradeService,
+    // DAR-85: 청산 권고 시점에 NOTIFY 큐로 enqueue(엔진 직접 발송 금지).
+    // @Optional — 큐/모듈 미주입 환경에서도 안전. ★권고일 뿐 실주문 직결 아님.
+    @Optional()
+    private readonly notifyProducer?: NotificationProducerService,
   ) {}
 
   /** 모의운용 전용 포트폴리오 find-or-create (고정 시스템 유저) */
@@ -589,6 +594,15 @@ export class PaperSimulationService {
       });
 
       if (EXIT_ACTIONS.has(exit.exitAction)) {
+        // DAR-85: 청산 권고 통지 enqueue(graceful — 모의 매도 체결을 깨지 않음).
+        // ★권고일 뿐 자동 실주문/Kill 직결 아님. 수신자는 포트폴리오 소유자.
+        await this.notifyProducer?.enqueueExit({
+          positionId: p.id,
+          corpCode: p.corpCode,
+          stockCode: p.stockCode,
+          exitAction: exit.exitAction,
+          triggerTypes: exit.triggerTypes,
+        });
         const sell = await this.paperTrade.placeOrder({
           corpCode: p.corpCode,
           stockCode: p.stockCode,

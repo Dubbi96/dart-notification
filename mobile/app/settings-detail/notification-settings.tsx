@@ -27,7 +27,22 @@ interface NotificationSettingsForm {
   isEnabled: boolean;
   disclosureTypes: string[];
   keywords: string[];
+  // DAR-85: 신호·청산·논리훼손 푸시 토글(기본 OFF)
+  signalPushEnabled: boolean;
+  exitPushEnabled: boolean;
+  thesisPushEnabled: boolean;
 }
+
+// DAR-85: 투자 신호 푸시 토글 정의(기본 OFF — 스팸 차단·안전)
+const SIGNAL_PUSH_TOGGLES: {
+  name: 'signalPushEnabled' | 'exitPushEnabled' | 'thesisPushEnabled';
+  label: string;
+  description: string;
+}[] = [
+  { name: 'signalPushEnabled', label: '매수 신호', description: '강력매수·매수 신호 발생 시 알림' },
+  { name: 'exitPushEnabled', label: '청산 권고', description: '청산 조건 충족 시 알림 (권고 — 자동 주문 아님)' },
+  { name: 'thesisPushEnabled', label: '투자논리 훼손', description: '매수 논리의 무효 조건 충족 시 알림' },
+];
 
 export default function NotificationSettingsScreen() {
   const { colors, typography: typo } = useTheme();
@@ -41,6 +56,9 @@ export default function NotificationSettingsScreen() {
       isEnabled: true,
       disclosureTypes: [],
       keywords: [],
+      signalPushEnabled: false,
+      exitPushEnabled: false,
+      thesisPushEnabled: false,
     },
   });
 
@@ -50,6 +68,10 @@ export default function NotificationSettingsScreen() {
         isEnabled: settings.isEnabled,
         disclosureTypes: settings.disclosureTypes ?? [],
         keywords: settings.keywords ?? [],
+        // 기본 OFF: 서버가 필드를 안 주는 구버전 호환 위해 ?? false
+        signalPushEnabled: settings.signalPushEnabled ?? false,
+        exitPushEnabled: settings.exitPushEnabled ?? false,
+        thesisPushEnabled: settings.thesisPushEnabled ?? false,
       });
     }
   }, [settings, reset]);
@@ -76,6 +98,9 @@ export default function NotificationSettingsScreen() {
         disclosureTypes: data.disclosureTypes,
         keywords: data.keywords,
         isEnabled: data.isEnabled,
+        signalPushEnabled: data.signalPushEnabled,
+        exitPushEnabled: data.exitPushEnabled,
+        thesisPushEnabled: data.thesisPushEnabled,
       },
       {
         onSuccess: () => {
@@ -144,6 +169,40 @@ export default function NotificationSettingsScreen() {
 
         {watch('isEnabled') && (
           <>
+            {/* 구분선 */}
+            <View style={[styles.sectionDivider, { backgroundColor: colors.border }]} />
+
+            {/* DAR-85: 투자 신호 푸시 토글 (기본 OFF) */}
+            <Text style={[typo.h3, { color: colors.text, marginBottom: spacing.xs }]}>
+              투자 신호 알림
+            </Text>
+            <Text style={[typo.small, { color: colors.textTertiary, marginBottom: spacing.md }]}>
+              매수 신호·청산 권고·논리 훼손 시점 알림 (기본 꺼짐)
+            </Text>
+            {SIGNAL_PUSH_TOGGLES.map((toggle) => (
+              <Controller
+                key={toggle.name}
+                control={control}
+                name={toggle.name}
+                render={({ field: { onChange, value } }) => (
+                  <View
+                    style={[
+                      styles.toggleRow,
+                      { backgroundColor: colors.surface, borderColor: colors.borderLight, marginBottom: spacing.sm },
+                    ]}
+                  >
+                    <View style={styles.typeContent}>
+                      <Text style={[typo.bodyMedium, { color: colors.text }]}>{toggle.label}</Text>
+                      <Text style={[typo.small, { color: colors.textSecondary }]}>
+                        {toggle.description}
+                      </Text>
+                    </View>
+                    <Switch value={value} onValueChange={onChange} color={colors.primary} />
+                  </View>
+                )}
+              />
+            ))}
+
             {/* 구분선 */}
             <View style={[styles.sectionDivider, { backgroundColor: colors.border }]} />
 

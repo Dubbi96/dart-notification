@@ -78,15 +78,22 @@ async function main() {
       try {
         await prisma.notificationHistory.upsert({
           where: {
-            userId_disclosureRcpNo: {
+            // DAR-84: (userId, type, refId) 멱등키. 공시는 refId=rcpNo
+            userId_type_refId: {
               userId: user.id,
-              disclosureRcpNo: disclosure.rcpNo,
+              type: 'DISCLOSURE',
+              refId: disclosure.rcpNo,
             },
           },
           update: {}, // 이미 있으면 건너뛰기
           create: {
             userId: user.id,
+            type: 'DISCLOSURE',
+            refId: disclosure.rcpNo,
             disclosureRcpNo: disclosure.rcpNo,
+            title: `${disclosure.corpName ?? ''} 새 공시`.trim(),
+            body: disclosure.reportName ?? null,
+            deepLink: `/disclosure/${disclosure.rcpNo}`,
             sentAt,
             isRead,
             readAt: isRead ? new Date() : null,

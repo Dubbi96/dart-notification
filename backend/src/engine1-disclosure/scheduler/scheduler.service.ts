@@ -369,23 +369,29 @@ export class SchedulerService {
       for (const disclosure of userData.disclosures) {
         const disclosureRcpNo = disclosure.rcept_no;
 
-        // 중복 알림 방지
+        // 중복 알림 방지 — DAR-84: (userId, type, refId) 멱등키. 공시는 refId=rcpNo
         const exists = await this.prisma.notificationHistory.findUnique({
           where: {
-            userId_disclosureRcpNo: {
+            userId_type_refId: {
               userId: userData.userId,
-              disclosureRcpNo,
+              type: 'DISCLOSURE',
+              refId: disclosureRcpNo,
             },
           },
         });
 
         if (exists) continue;
 
-        // NotificationHistory 생성
+        // NotificationHistory 생성 — 다형 인박스 필드 동봉(공시 타입)
         await this.prisma.notificationHistory.create({
           data: {
             userId: userData.userId,
+            type: 'DISCLOSURE',
+            refId: disclosureRcpNo,
             disclosureRcpNo,
+            title: `${disclosure.corp_name} 새 공시`,
+            body: disclosure.report_nm,
+            deepLink: `/disclosure/${disclosureRcpNo}`,
           },
         });
 

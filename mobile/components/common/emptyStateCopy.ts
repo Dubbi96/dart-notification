@@ -58,6 +58,13 @@ export const emptyStateCopy = {
     title: '선택한 조건에 맞는 신호가 없어요',
     actionLabel: '필터 초기화',
   },
+  // 홈 '오늘의 투자판단' 프리뷰 (매수등급 0 — 가짜 BUY 금지, 점수순 탐색 유도)
+  homeSignalPreviewEmpty: {
+    icon: 'compass',
+    title: '아직 매수등급 신호가 없어요',
+    description: '가짜 매수 신호 대신, 점수순으로 전체 신호를 살펴보세요',
+    actionLabel: '점수순 탐색',
+  },
   // 분석 탐색 (전체 신호 없음 — 표본/분석 대기)
   signalsExploreEmpty: {
     icon: 'compass',

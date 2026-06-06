@@ -15,6 +15,9 @@ import {
   calcPositiveMomentumBonus,
   calculateExitScore,
   evaluateInvalidCondition,
+  calcDisclosureRiskScore,
+  isLargeInsiderNetSell,
+  HIGH_RISK_EVENT_TYPES,
 } from './domain/exit-score.calculator';
 import { ExitEngineService, IPositionProvider } from './services/exit-engine.service';
 import { InMemoryExitSignalRepository } from './repositories/in-memory-exit-signal.repository';
@@ -23,6 +26,8 @@ import type {
   TechnicalSnapshot,
   ThesisSnapshot,
   DisclosureEvent,
+  InsiderFlowSnapshot,
+  InsiderTradeSnapshot,
 } from './domain/exit-engine.types';
 
 // ─── Fixture helpers ─────────────────────────────────────────────────
@@ -853,5 +858,302 @@ describe('calcThesisBreakScore — 시세 기반 기계평가 연결 (DAR-74)', 
     const result = calculateExitScore(pos, tech, thesis, []);
     expect(result.triggerTypes).toContain('THESIS_INVALIDATED');
     expect(result.components.thesisBreakScore).toBeGreaterThan(0);
+  });
+});
+
+// ─── 12. DAR-94: 이벤트 타입별 가중 + 내부자 대량매도 무효화 ──────────────
+
+function makeInsiderTrade(
+  overrides: Partial<InsiderTradeSnapshot> = {},
+): InsiderTradeSnapshot {
+  return {
+    source: 'MAJOR_STOCK',
+    tradeType: 'SELL',
+    ratioChange: null,
+    isMajorShareholder: null,
+    ...overrides,
+  };
+}
+
+function makeInsiderFlow(trades: InsiderTradeSnapshot[] = []): InsiderFlowSnapshot {
+  return { trades };
+}
+
+describe('HIGH_RISK_EVENT_TYPES — 고위험 5종 (DAR-71 engine1 추출기)', () => {
+  it('거래정지·상폐위험·감사의견·소송·계약해지 5종을 포함한다', () => {
+    expect([...HIGH_RISK_EVENT_TYPES].sort()).toEqual(
+      [
+        'AUDIT_OPINION_RISK',
+        'CONTRACT_CANCELLATION',
+        'DELISTING_RISK',
+        'LAWSUIT',
+        'TRADING_SUSPENSION',
+      ].sort(),
+    );
+  });
+});
+
+describe('isLargeInsiderNetSell — 내부자/대량보유 대량 순매도 (DAR-94)', () => {
+  it('null·빈 목록이면 false (결측 → 무효화 없음)', () => {
+    expect(isLargeInsiderNetSell(null)).toBe(false);
+    expect(isLargeInsiderNetSell(makeInsiderFlow([]))).toBe(false);
+  });
+
+  it('규모 명시 대량 매도(Δ -1.5%p)면 true', () => {
+    expect(
+      isLargeInsiderNetSell(
+        makeInsiderFlow([makeInsiderTrade({ ratioChange: -1.5 })]),
+      ),
+    ).toBe(true);
+  });
+
+  it('일반 5% 보유 매도(규모 결측 1건, 0.5 < 1.0)면 false (보수)', () => {
+    expect(
+      isLargeInsiderNetSell(
+        makeInsiderFlow([
+          makeInsiderTrade({ source: 'MAJOR_STOCK', ratioChange: null }),
+        ]),
+      ),
+    ).toBe(false);
+  });
+
+  it('임원 + 주요주주 처분(결측 0.5×1.5×1.5=1.125≥1.0)이면 true', () => {
+    expect(
+      isLargeInsiderNetSell(
+        makeInsiderFlow([
+          makeInsiderTrade({
+            source: 'EXECUTIVE',
+            isMajorShareholder: true,
+            ratioChange: null,
+          }),
+        ]),
+      ),
+    ).toBe(true);
+  });
+
+  it('같은 윈도우 매수가 매도를 상쇄하면 false', () => {
+    expect(
+      isLargeInsiderNetSell(
+        makeInsiderFlow([
+          makeInsiderTrade({ tradeType: 'SELL', ratioChange: -1.2 }),
+          makeInsiderTrade({ tradeType: 'BUY', ratioChange: 1.2 }),
+        ]),
+      ),
+    ).toBe(false);
+  });
+
+  it('MIXED/UNKNOWN 방향은 무시(보수) → false', () => {
+    expect(
+      isLargeInsiderNetSell(
+        makeInsiderFlow([
+          makeInsiderTrade({ tradeType: 'MIXED', ratioChange: -5 }),
+          makeInsiderTrade({ tradeType: 'UNKNOWN', ratioChange: -5 }),
+        ]),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('calcDisclosureRiskScore — 이벤트 타입별 가중 (DAR-94)', () => {
+  it('이벤트 없음 → score 0, triggered/severe false', () => {
+    const r = calcDisclosureRiskScore([]);
+    expect(r.score).toBe(0);
+    expect(r.triggered).toBe(false);
+    expect(r.severe).toBe(false);
+  });
+
+  it('고위험 1건 → 강한 가중(16), severe true', () => {
+    const r = calcDisclosureRiskScore([
+      { type: 'TRADING_SUSPENSION', rcpNo: 'R1' },
+    ]);
+    expect(r.score).toBe(16);
+    expect(r.triggered).toBe(true);
+    expect(r.severe).toBe(true);
+  });
+
+  it('일반 악재 1건 → 약한 가중(5), severe false', () => {
+    const r = calcDisclosureRiskScore([
+      { type: 'DIVIDEND_CUT', rcpNo: 'R1' },
+    ]);
+    expect(r.score).toBe(5);
+    expect(r.triggered).toBe(true);
+    expect(r.severe).toBe(false);
+  });
+
+  it('고위험 가중 > 일반 가중 (단건 비교)', () => {
+    const high = calcDisclosureRiskScore([
+      { type: 'DELISTING_RISK', rcpNo: 'R1' },
+    ]).score;
+    const general = calcDisclosureRiskScore([
+      { type: 'PAID_IN_CAPITAL_INCREASE', rcpNo: 'R2' },
+    ]).score;
+    expect(high).toBeGreaterThan(general);
+  });
+
+  it('다건 누적은 cap(20)에서 절단', () => {
+    const r = calcDisclosureRiskScore([
+      { type: 'TRADING_SUSPENSION', rcpNo: 'R1' },
+      { type: 'DELISTING_RISK', rcpNo: 'R2' },
+    ]);
+    expect(r.score).toBe(20); // 16+16=32 → 20
+    expect(r.severe).toBe(true);
+  });
+
+  it('내부자 대량 순매도만 있어도 결합(12)·severe true', () => {
+    const r = calcDisclosureRiskScore(
+      [],
+      makeInsiderFlow([makeInsiderTrade({ ratioChange: -2 })]),
+    );
+    expect(r.score).toBe(12);
+    expect(r.triggered).toBe(true);
+    expect(r.severe).toBe(true);
+  });
+
+  it('내부자 비대량(결측 1건)은 결합하지 않는다', () => {
+    const r = calcDisclosureRiskScore(
+      [],
+      makeInsiderFlow([makeInsiderTrade({ ratioChange: null })]),
+    );
+    expect(r.score).toBe(0);
+    expect(r.severe).toBe(false);
+  });
+});
+
+describe('calculateExitScore — 타입별 가중·무효화 통합 (DAR-94)', () => {
+  it('고위험 공시는 강한 긍정 모멘텀에 가려지지 않고 최소 WATCH(severe 플로어)', () => {
+    const pos = makePosition(); // 7% 비중, 손실/시간/과다비중 트리거 없음
+    const tech = makeTech({
+      closePrice: 70000,
+      openPrice: 70000,
+      excessReturn5d: 100, // 강한 모멘텀 보너스(감산 -20)
+      volumeRatio3d: 10,
+    });
+    const result = calculateExitScore(pos, tech, makeThesis(), [
+      { type: 'TRADING_SUSPENSION', rcpNo: 'R1' },
+    ]);
+    expect(result.components.disclosureRiskScore).toBe(16);
+    expect(result.exitScore).toBeGreaterThanOrEqual(30);
+    expect(['WATCH', 'REDUCE', 'EXIT', 'BLOCK_REBUY']).toContain(
+      result.exitAction,
+    );
+    expect(result.triggerTypes).toContain('THESIS_INVALIDATED');
+  });
+
+  it('일반 악재는 강한 모멘텀에 가려질 수 있다(severe 플로어 없음)', () => {
+    const pos = makePosition();
+    const tech = makeTech({
+      closePrice: 70000,
+      openPrice: 70000,
+      excessReturn5d: 100,
+      volumeRatio3d: 10,
+    });
+    const result = calculateExitScore(pos, tech, makeThesis(), [
+      { type: 'DIVIDEND_CUT', rcpNo: 'R1' },
+    ]);
+    // 5(disclosure) - 20(momentum) → 0, 플로어 없음 → HOLD 가능
+    expect(result.exitScore).toBeLessThan(30);
+    expect(result.exitAction).toBe('HOLD');
+    // 트리거 자체는 표시(약하더라도 무효화 이벤트 존재)
+    expect(result.triggerTypes).toContain('THESIS_INVALIDATED');
+  });
+
+  it('내부자 대량 순매도 → THESIS_INVALIDATED + 최소 WATCH', () => {
+    const pos = makePosition();
+    const tech = makeTech({ closePrice: 70000, openPrice: 70000 });
+    const insider = makeInsiderFlow([
+      makeInsiderTrade({
+        source: 'EXECUTIVE',
+        isMajorShareholder: true,
+        ratioChange: -3,
+      }),
+    ]);
+    const result = calculateExitScore(pos, tech, makeThesis(), [], insider);
+    expect(result.components.disclosureRiskScore).toBe(12);
+    expect(result.triggerTypes).toContain('THESIS_INVALIDATED');
+    expect(result.exitScore).toBeGreaterThanOrEqual(30);
+  });
+
+  it('고위험 공시 점수 > 일반 악재 점수(동일 시나리오)', () => {
+    const pos = makePosition();
+    const tech = makeTech({ closePrice: 70000, openPrice: 70000 });
+    const high = calculateExitScore(pos, tech, makeThesis(), [
+      { type: 'LAWSUIT', rcpNo: 'R1' },
+    ]).exitScore;
+    const general = calculateExitScore(pos, tech, makeThesis(), [
+      { type: 'CB_ISSUANCE', rcpNo: 'R2' },
+    ]).exitScore;
+    expect(high).toBeGreaterThan(general);
+  });
+
+  // ── 결정론적 스냅샷 (기존 Exit 회귀 보호) ──────────────────────────────
+  it('스냅샷: 고위험 단건·무모멘텀 → 결정론적 컴포넌트/액션', () => {
+    const pos = makePosition({ entryDate: new Date() }); // 시간 트리거 0
+    const tech = makeTech({ closePrice: 70000, openPrice: 70000 });
+    const result = calculateExitScore(pos, tech, makeThesis(), [
+      { type: 'AUDIT_OPINION_RISK', rcpNo: 'R1' },
+    ]);
+    expect(result.components).toEqual({
+      lossRiskScore: 0,
+      thesisBreakScore: 0,
+      chartBreakScore: 0,
+      disclosureRiskScore: 16,
+      overweightScore: 0,
+      timeExceededScore: 0,
+      positiveMomentumBonus: 0,
+    });
+    expect(result.exitScore).toBe(30); // raw 16 → severe 플로어 30
+    expect(result.exitAction).toBe('WATCH');
+    expect(result.primaryTrigger).toBe('THESIS_INVALIDATED');
+  });
+
+  it('회귀: 공시·내부자 없으면 기존 HOLD 경로 보존(무효화 트리거 없음)', () => {
+    const pos = makePosition({ entryDate: new Date() });
+    const tech = makeTech({ closePrice: 70000, openPrice: 70000 });
+    const result = calculateExitScore(pos, tech, makeThesis(), []);
+    expect(result.components.disclosureRiskScore).toBe(0);
+    expect(result.exitAction).toBe('HOLD');
+    expect(result.triggerTypes).not.toContain('THESIS_INVALIDATED');
+  });
+});
+
+describe('ExitEngineService — getInsiderFlow 결합 (DAR-94)', () => {
+  it('provider가 대량 순매도 흐름을 제공하면 무효화가 결합된다', async () => {
+    const repo = new InMemoryExitSignalRepository();
+    const pos = makePosition({ entryDate: new Date() });
+    const provider: IPositionProvider = {
+      getOpenPositions: async () => [pos],
+      getTechnicalSnapshot: async () => makeTech({ closePrice: 70000, openPrice: 70000 }),
+      getThesisSnapshot: async () => null,
+      getDisclosureEvents: async () => [],
+      getInsiderFlow: async () =>
+        makeInsiderFlow([makeInsiderTrade({ ratioChange: -2 })]),
+    };
+    const service = new ExitEngineService(provider, repo);
+
+    const result = await service.checkPosition(pos, 'POST_MARKET');
+    expect(result.components.disclosureRiskScore).toBe(12);
+    expect(result.triggerTypes).toContain('THESIS_INVALIDATED');
+
+    const saved = await repo.findLatestByPositionId(pos.id);
+    expect(saved).not.toBeNull();
+    expect(saved!.exitScore).toBe(result.exitScore);
+    repo.clear();
+  });
+
+  it('getInsiderFlow 미구현 provider도 정상 동작(하위호환)', async () => {
+    const repo = new InMemoryExitSignalRepository();
+    const pos = makePosition({ entryDate: new Date() });
+    const provider: IPositionProvider = {
+      getOpenPositions: async () => [pos],
+      getTechnicalSnapshot: async () => makeTech({ closePrice: 70000, openPrice: 70000 }),
+      getThesisSnapshot: async () => null,
+      getDisclosureEvents: async () => [],
+    };
+    const service = new ExitEngineService(provider, repo);
+
+    const result = await service.checkPosition(pos, 'POST_MARKET');
+    expect(result.components.disclosureRiskScore).toBe(0);
+    expect(result.exitAction).toBe('HOLD');
+    repo.clear();
   });
 });

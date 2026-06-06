@@ -77,6 +77,12 @@ export interface SignalAccuracyReport {
   /** D+5/D+20 실현수익 산출 가능 신호 수 */
   realizedD5: number;
   realizedD20: number;
+  /**
+   * 등급 정밀도 매트릭스 (DAR-80, G1 정량토대):
+   * 예측등급 × 실현수익 confusion + 등급 단조성(상위등급일수록 변별력 있는가).
+   * 신호 0/실현표본 0 이면 hasData=false 로 graceful 표기.
+   */
+  gradePrecision: GradePrecisionMatrix;
 }
 
 /** 오름차순 정렬 후 중앙값. 빈 배열이면 null */
@@ -195,5 +201,293 @@ export function buildSignalAccuracyReport(
     totalSignals: returns.length,
     realizedD5: returns.filter((r) => r.arD5 !== null).length,
     realizedD20: returns.filter((r) => r.arD20 !== null).length,
+    gradePrecision: buildGradePrecisionMatrix(returns),
+  };
+}
+
+// =====================================================================
+// DAR-80 — 등급 정밀도 매트릭스: confusion + 등급 단조성 (G1 정량토대)
+//
+// ★Main Thesis B+ 안전(졸업게이트 G1). 기존 byGrade 버킷은 등급별 '평균AR'만
+//   제공할 뿐, "등급이 실제로 변별력이 있는가"(상위등급→양수익 적중·상위등급일수록
+//   승률/평균AR 단조 증가)를 정량 검증하지 못한다. 아래 순수함수가 그 공백을 메운다.
+// ★ read-only — I/O·AI·가중치 변경 0. service 가 산출한 실현수익만 통계로 변환한다.
+// =====================================================================
+
+/**
+ * 등급 서열(우수→열위). confusion 의 positive 클래스 판정과 단조성 비교축.
+ * SignalGrade enum 순서와 일치. 미등재(unknown) 등급은 최하위로 취급.
+ */
+export const GRADE_RANK_ORDER: readonly string[] = [
+  'STRONG_BUY_CANDIDATE',
+  'BUY_CANDIDATE',
+  'WATCH',
+  'NEUTRAL',
+  'AVOID',
+  'BLOCKED',
+];
+
+/** 매수(양수익 기대) 등급 집합 — confusion 의 'predicted positive' 클래스. */
+export const BULLISH_GRADES: ReadonlySet<string> = new Set([
+  'STRONG_BUY_CANDIDATE',
+  'BUY_CANDIDATE',
+]);
+
+/** 등급 서열 인덱스(작을수록 우수). 미등재 등급은 서열 끝으로. */
+export function gradeRank(grade: string): number {
+  const idx = GRADE_RANK_ORDER.indexOf(grade);
+  return idx === -1 ? GRADE_RANK_ORDER.length : idx;
+}
+
+/**
+ * 단일 지평의 예측등급 × 실현수익 confusion matrix.
+ * positive = 매수등급(STRONG_BUY/BUY) & 실현 초과수익>0(상위등급→양수익 적중).
+ */
+export interface ConfusionMatrix {
+  /** 지평 라벨 */
+  horizon: 'd5' | 'd20';
+  /** 해당 지평에서 실현수익 산출 가능 표본 수 */
+  sampleCount: number;
+  /** 표본<임계(과신 방지 배지) */
+  lowSample: boolean;
+  /** 매수등급 & 실현 양수익(적중) */
+  truePositive: number;
+  /** 매수등급 & 실현 음수익/0(허위 양성) */
+  falsePositive: number;
+  /** 비매수등급 & 실현 음수익/0(정확히 회피) */
+  trueNegative: number;
+  /** 비매수등급 & 실현 양수익(놓침) */
+  falseNegative: number;
+  /** 정밀도 TP/(TP+FP) — 매수등급 적중률. 분모 0이면 null */
+  precision: number | null;
+  /** 재현율 TP/(TP+FN) — 실제 상승을 매수등급이 포착한 비율. 분모 0이면 null */
+  recall: number | null;
+  /** 정확도 (TP+TN)/total. 표본 0이면 null */
+  accuracy: number | null;
+}
+
+/** 단일 지평 등급별 단조성 한 행 */
+export interface GradeMonotonicityRow {
+  grade: string;
+  /** GRADE_RANK_ORDER 서열 인덱스(작을수록 우수) */
+  rank: number;
+  /** 해당 지평 실현수익 산출 가능 표본 */
+  sampleCount: number;
+  lowSample: boolean;
+  /** 평균 초과수익(%). 표본 0이면 null */
+  avgExcessReturn: number | null;
+  /** 승률(초과수익>0 비율). 표본 0이면 null */
+  winRate: number | null;
+}
+
+/**
+ * 단일 지평 등급 단조성 지표: 상위 등급일수록 평균AR·승률이 단조 증가하는가.
+ * 인접 등급쌍(우수→열위) 비교로 단조 위반을 카운트하고 순위상관을 산출한다.
+ */
+export interface GradeMonotonicity {
+  horizon: 'd5' | 'd20';
+  /** 서열대로(우수→열위) 정렬된 등급별 평균AR·승률. 실현표본 있는 등급만. */
+  orderedGrades: GradeMonotonicityRow[];
+  /** 단조성 평가에 쓴 인접 등급쌍 수(양쪽 metric 모두 non-null) */
+  comparedPairs: number;
+  /** 평균AR 단조 위반 수(열위 등급이 우수 등급보다 평균AR 높음) */
+  avgReturnViolations: number;
+  /** 승률 단조 위반 수(열위 등급이 우수 등급보다 승률 높음) */
+  winRateViolations: number;
+  /** 등급우수도 vs 평균AR Spearman 순위상관(+면 우수등급=고수익). 산출불가 null */
+  avgReturnRankCorrelation: number | null;
+  /** 등급우수도 vs 승률 Spearman 순위상관. 산출불가 null */
+  winRateRankCorrelation: number | null;
+  /** 평균AR 완전 단조(비교쌍≥1 & 위반 0). 등급 변별력 통과 신호. */
+  isMonotonic: boolean;
+}
+
+/** 등급 정밀도 매트릭스 묶음(D+5·D+20) */
+export interface GradePrecisionMatrix {
+  /** 매트릭스 평가 가능 여부 — 실현표본 0(신호 0 포함)이면 false(데이터 없음) */
+  hasData: boolean;
+  confusionD5: ConfusionMatrix;
+  confusionD20: ConfusionMatrix;
+  monotonicityD5: GradeMonotonicity;
+  monotonicityD20: GradeMonotonicity;
+}
+
+/** 한 지평의 실현수익 추출기: arD5 또는 arD20 */
+type HorizonPick = (r: SignalRealizedReturn) => number | null;
+const PICK_D5: HorizonPick = (r) => r.arD5;
+const PICK_D20: HorizonPick = (r) => r.arD20;
+
+/** 단일 지평 confusion matrix(예측등급 × 실현 양/음수익) */
+export function computeConfusionMatrix(
+  returns: SignalRealizedReturn[],
+  horizon: 'd5' | 'd20',
+): ConfusionMatrix {
+  const pick = horizon === 'd5' ? PICK_D5 : PICK_D20;
+  let truePositive = 0;
+  let falsePositive = 0;
+  let trueNegative = 0;
+  let falseNegative = 0;
+  for (const r of returns) {
+    const ar = pick(r);
+    if (ar === null) continue; // 해당 지평 미실현 → 제외
+    const isBull = BULLISH_GRADES.has(r.signalGrade);
+    const isPos = ar > 0;
+    if (isBull && isPos) truePositive++;
+    else if (isBull && !isPos) falsePositive++;
+    else if (!isBull && isPos) falseNegative++;
+    else trueNegative++;
+  }
+  const sampleCount = truePositive + falsePositive + trueNegative + falseNegative;
+  const predictedPos = truePositive + falsePositive;
+  const actualPos = truePositive + falseNegative;
+  return {
+    horizon,
+    sampleCount,
+    lowSample: sampleCount < LOW_SAMPLE_THRESHOLD,
+    truePositive,
+    falsePositive,
+    trueNegative,
+    falseNegative,
+    precision: predictedPos > 0 ? round3(truePositive / predictedPos) : null,
+    recall: actualPos > 0 ? round3(truePositive / actualPos) : null,
+    accuracy: sampleCount > 0 ? round3((truePositive + trueNegative) / sampleCount) : null,
+  };
+}
+
+/** 소수 3자리 반올림(비율 표시 안정성). null 보존 */
+function round3(v: number | null): number | null {
+  if (v === null) return null;
+  return Math.round(v * 1000) / 1000;
+}
+
+/**
+ * Spearman 순위상관(동점은 평균순위). 표본<2 또는 분산 0이면 null.
+ * 단조 관계 측정용 — 선형성 가정 없이 순위 일치도만 본다.
+ */
+export function spearmanRankCorrelation(xs: number[], ys: number[]): number | null {
+  const n = xs.length;
+  if (n < 2 || ys.length !== n) return null;
+  const rx = averageRanks(xs);
+  const ry = averageRanks(ys);
+  const mx = mean(rx);
+  const my = mean(ry);
+  let cov = 0;
+  let vx = 0;
+  let vy = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = rx[i] - mx;
+    const dy = ry[i] - my;
+    cov += dx * dy;
+    vx += dx * dx;
+    vy += dy * dy;
+  }
+  if (vx === 0 || vy === 0) return null; // 한 변수가 전부 동점 → 상관 정의불가
+  return round3(cov / Math.sqrt(vx * vy));
+}
+
+/** 값 배열 → 평균순위(동점 평균). 오름차순 1-base 순위. */
+function averageRanks(values: number[]): number[] {
+  const idx = values.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v);
+  const ranks = new Array<number>(values.length);
+  let i = 0;
+  while (i < idx.length) {
+    let j = i;
+    while (j + 1 < idx.length && idx[j + 1].v === idx[i].v) j++;
+    const avgRank = (i + j) / 2 + 1; // 0-base 평균 → 1-base
+    for (let k = i; k <= j; k++) ranks[idx[k].i] = avgRank;
+    i = j + 1;
+  }
+  return ranks;
+}
+
+/** 단일 지평 등급 단조성 산출 */
+export function computeGradeMonotonicity(
+  returns: SignalRealizedReturn[],
+  horizon: 'd5' | 'd20',
+): GradeMonotonicity {
+  const pick = horizon === 'd5' ? PICK_D5 : PICK_D20;
+  // 등급별 실현수익 모으기
+  const byGrade = new Map<string, number[]>();
+  for (const r of returns) {
+    const ar = pick(r);
+    if (ar === null) continue;
+    const arr = byGrade.get(r.signalGrade);
+    if (arr) arr.push(ar);
+    else byGrade.set(r.signalGrade, [ar]);
+  }
+
+  const orderedGrades: GradeMonotonicityRow[] = [...byGrade.entries()]
+    .map(([grade, vals]) => {
+      const wins = vals.filter((v) => v > 0).length;
+      return {
+        grade,
+        rank: gradeRank(grade),
+        sampleCount: vals.length,
+        lowSample: vals.length < LOW_SAMPLE_THRESHOLD,
+        avgExcessReturn: round2(mean(vals)),
+        winRate: Math.round((wins / vals.length) * 1000) / 1000,
+      };
+    })
+    .sort((a, b) => a.rank - b.rank);
+
+  // 인접쌍(우수→열위) 단조 위반: 열위 등급 metric > 우수 등급 metric
+  let comparedPairs = 0;
+  let avgReturnViolations = 0;
+  let winRateViolations = 0;
+  for (let i = 0; i + 1 < orderedGrades.length; i++) {
+    const better = orderedGrades[i];
+    const worse = orderedGrades[i + 1];
+    if (better.avgExcessReturn !== null && worse.avgExcessReturn !== null) {
+      comparedPairs++;
+      if (worse.avgExcessReturn > better.avgExcessReturn) avgReturnViolations++;
+      if (
+        better.winRate !== null &&
+        worse.winRate !== null &&
+        worse.winRate > better.winRate
+      ) {
+        winRateViolations++;
+      }
+    }
+  }
+
+  // 순위상관: 등급우수도(서열 역순) vs metric. +면 우수등급=고수익.
+  const quality = orderedGrades.map((g) => -g.rank);
+  const avgs = orderedGrades.map((g) => g.avgExcessReturn);
+  const wins = orderedGrades.map((g) => g.winRate);
+  const avgReturnRankCorrelation =
+    avgs.every((v): v is number => v !== null) && quality.length >= 2
+      ? spearmanRankCorrelation(quality, avgs as number[])
+      : null;
+  const winRateRankCorrelation =
+    wins.every((v): v is number => v !== null) && quality.length >= 2
+      ? spearmanRankCorrelation(quality, wins as number[])
+      : null;
+
+  return {
+    horizon,
+    orderedGrades,
+    comparedPairs,
+    avgReturnViolations,
+    winRateViolations,
+    avgReturnRankCorrelation,
+    winRateRankCorrelation,
+    isMonotonic: comparedPairs >= 1 && avgReturnViolations === 0,
+  };
+}
+
+/**
+ * 등급 정밀도 매트릭스 빌드(confusion + 단조성, D+5·D+20).
+ * ★ read-only — 사람의 게이트 보정 근거 자료. 실현표본 0이면 hasData=false.
+ */
+export function buildGradePrecisionMatrix(
+  returns: SignalRealizedReturn[],
+): GradePrecisionMatrix {
+  const hasData = returns.some((r) => r.arD5 !== null || r.arD20 !== null);
+  return {
+    hasData,
+    confusionD5: computeConfusionMatrix(returns, 'd5'),
+    confusionD20: computeConfusionMatrix(returns, 'd20'),
+    monotonicityD5: computeGradeMonotonicity(returns, 'd5'),
+    monotonicityD20: computeGradeMonotonicity(returns, 'd20'),
   };
 }

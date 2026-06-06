@@ -20,9 +20,10 @@ import {
   ApiQuery,
   ApiParam,
 } from '@nestjs/swagger';
-import { ParseStatus } from '@prisma/client';
+import { ParseStatus, DartFiledFact } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { DisclosureDocumentsService } from './disclosure-documents.service';
+import { DartFiledFactService } from './facts/dart-filed-fact.service';
 import { ParseResultDto } from './dto/parse-result.dto';
 import { BatchResultDto, RetryResultDto } from './dto/batch-result.dto';
 import { StatsDto } from './dto/stats.dto';
@@ -34,7 +35,52 @@ import { StatsDto } from './dto/stats.dto';
 export class DisclosureDocumentsController {
   constructor(
     private readonly disclosureDocumentsService: DisclosureDocumentsService,
+    private readonly dartFiledFactService: DartFiledFactService,
   ) {}
+
+  // ─── DAR-95: 공시 본문 정량표 fact 적재/조회 ──────────────────────────────
+  // 주의: 'facts/...' 경로를 ':rcpNo' 동적 라우트보다 앞에 선언(라우팅 충돌 방지)
+
+  /**
+   * 파싱 완료 문서 일괄 fact backfill (수동 트리거)
+   */
+  @Post('facts/backfill')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'DartFiledFact 일괄 backfill (DONE 문서 소급 적재)' })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: '처리 문서 수 (기본값 100, 최대 1000)',
+  })
+  async backfillFacts(
+    @Query('limit', new DefaultValuePipe(100), ParseIntPipe) limit: number,
+  ): Promise<{ processed: number; facts: number }> {
+    return this.dartFiledFactService.backfill(limit);
+  }
+
+  /**
+   * 단건 공시 정량 fact 적재 (수동 트리거 / 재처리)
+   */
+  @Post('facts/:rcpNo')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '단건 공시 정량 fact 적재 (parsedJson → DartFiledFact)' })
+  @ApiParam({ name: 'rcpNo', description: 'DART 접수번호 (14자리)' })
+  async persistFacts(
+    @Param('rcpNo') rcpNo: string,
+  ): Promise<{ rcpNo: string; facts: number }> {
+    const facts = await this.dartFiledFactService.persistForRcpNo(rcpNo);
+    return { rcpNo, facts };
+  }
+
+  /**
+   * 단건 공시 적재 fact 조회
+   */
+  @Get('facts/:rcpNo')
+  @ApiOperation({ summary: '단건 공시 적재 fact 조회 (factKey 정렬)' })
+  @ApiParam({ name: 'rcpNo', description: 'DART 접수번호' })
+  async getFacts(@Param('rcpNo') rcpNo: string): Promise<DartFiledFact[]> {
+    return this.dartFiledFactService.findByRcpNo(rcpNo);
+  }
 
   /**
    * 파싱 상태 현황 집계

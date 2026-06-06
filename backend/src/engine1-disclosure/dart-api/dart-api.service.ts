@@ -94,6 +94,50 @@ export interface CompanyFinancialMetrics {
   debtRatio: number | null; // 부채비율 (%) = 부채/자본 × 100
 }
 
+/**
+ * 주식등의 대량보유상황보고(majorstock.json) 개별 행 — 5%룰 지분공시.
+ * DART 정형 응답 필드(콤마 포함 문자열 금액/비율). 결측은 빈 문자열/'-'.
+ */
+export interface DartMajorStockItem {
+  rcept_no: string; // 접수번호
+  rcept_dt?: string; // 접수일자 YYYYMMDD
+  corp_code: string; // 고유번호
+  corp_name?: string;
+  report_tp?: string; // 보고구분 (신규/변동/변경)
+  repror?: string; // 보고자
+  stkqy?: string; // 보유 주식등의 수
+  stkqy_irds?: string; // 보유 주식등의 증감
+  stkrt?: string; // 보유 비율(%)
+  stkrt_irds?: string; // 보유 비율 증감(%p)
+  ctr_stkqy?: string; // 주요체결 주식등의 수
+  ctr_stkrt?: string; // 주요체결 비율
+  report_resn?: string; // 보고사유
+}
+
+/**
+ * 임원·주요주주 특정증권등 소유상황보고(elestock.json) 개별 행 — 내부자 매매.
+ */
+export interface DartExecutiveStockItem {
+  rcept_no: string; // 접수번호
+  rcept_dt?: string; // 접수일자 YYYYMMDD
+  corp_code: string;
+  corp_name?: string;
+  repror?: string; // 보고자(성명)
+  isu_exctv_rgist_at?: string; // 등기임원 여부 (등기/비등기)
+  isu_exctv_ofcps?: string; // 임원 직위
+  isu_main_shrholdr?: string; // 주요주주 여부 (예: '10%이상주주')
+  sp_stock_lmp_cnt?: string; // 특정증권등 소유 수
+  sp_stock_lmp_irds_cnt?: string; // 특정증권등 소유 증감 수
+  sp_stock_lmp_rate?: string; // 특정증권등 소유 비율(%)
+  sp_stock_lmp_irds_rate?: string; // 특정증권등 소유 비율 증감(%p)
+}
+
+export interface DartHoldingListResponse<T> {
+  status: string; // "000" 정상 / "013" 데이터 없음
+  message: string;
+  list?: T[];
+}
+
 export interface DartCompanyOverview {
   status: string;
   message: string;
@@ -379,6 +423,65 @@ export class DartApiService {
     const n = Number(cleaned);
     if (isNaN(n)) return null;
     return negative ? -n : n;
+  }
+
+  /**
+   * 주식등의 대량보유상황보고 조회 (majorstock.json) — 5%룰 지분공시.
+   * 기존 DART 인증/호출 패턴 동일(crtfc_key). KRX 불요.
+   *
+   * API 키 미설정 시 DartApiUnavailableError throw(다른 수집 경로와 동일 graceful 계약).
+   * status "013"(데이터 없음)이면 빈 list로 정상 반환.
+   */
+  async fetchMajorStockHoldings(
+    corpCode: string,
+  ): Promise<DartHoldingListResponse<DartMajorStockItem>> {
+    return this.fetchHoldingReport<DartMajorStockItem>('/majorstock.json', corpCode);
+  }
+
+  /**
+   * 임원·주요주주 특정증권등 소유상황보고 조회 (elestock.json) — 내부자 매매.
+   * 기존 DART 인증/호출 패턴 동일(crtfc_key). KRX 불요.
+   *
+   * API 키 미설정 시 DartApiUnavailableError throw. status "013"이면 빈 list 반환.
+   */
+  async fetchExecutiveStockHoldings(
+    corpCode: string,
+  ): Promise<DartHoldingListResponse<DartExecutiveStockItem>> {
+    return this.fetchHoldingReport<DartExecutiveStockItem>('/elestock.json', corpCode);
+  }
+
+  /** 지분공시 정형 엔드포인트(majorstock/elestock) 공통 호출. */
+  private async fetchHoldingReport<T>(
+    path: string,
+    corpCode: string,
+  ): Promise<DartHoldingListResponse<T>> {
+    if (!this.apiKey) {
+      throw new DartApiUnavailableError('DART_API_KEY가 설정되지 않았습니다');
+    }
+
+    try {
+      const response = await this.httpClient.get(path, {
+        params: {
+          crtfc_key: this.apiKey,
+          corp_code: corpCode,
+        },
+      });
+
+      const data = response.data as DartHoldingListResponse<T>;
+
+      // "013" = 조회된 데이터 없음 → 정상 흐름. 그 외 비정상 status만 경고.
+      if (data.status !== '000' && data.status !== '013') {
+        this.logger.warn(
+          `지분공시 조회 비정상 응답: ${data.status} - ${data.message} (${path} ${corpCode})`,
+        );
+      }
+
+      return { ...data, list: data.list ?? [] };
+    } catch (error) {
+      if (error instanceof DartApiUnavailableError) throw error;
+      this.logger.error(`지분공시 조회 오류 (${path} ${corpCode})`, error as Error);
+      throw error;
+    }
   }
 
   /**

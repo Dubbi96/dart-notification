@@ -170,6 +170,17 @@ export const REPORT_NAME_RULES: ReportNameRule[] = [
     polarity: 'NEGATIVE',
     confidence: 0.97,
   },
+
+  // ── 지분변동: 대량보유(5%룰) ──────────────────────────────────────
+  // DAR-87: 보고서명만으로는 매수/매도 방향을 알 수 없어 polarity UNKNOWN.
+  // 정확한 방향(증감 부호)은 정형 엔드포인트(majorstock.json) 수집 경로에서
+  // InsiderHoldingChange로 보강된다(insider-holding.mapper).
+  {
+    pattern: /주식등의\s*대량보유|대량보유상황보고/,
+    eventType: EventType.MAJOR_HOLDER_5PCT,
+    polarity: 'UNKNOWN',
+    confidence: 0.85,
+  },
 ];
 
 /**

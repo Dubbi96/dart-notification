@@ -20,6 +20,7 @@ import { ExpoPushModule } from './expo-push/expo-push.module';
 import { DisclosureDocumentsModule } from './engine1-disclosure/disclosure-documents/disclosure-documents.module';
 import { DisclosureEventsModule } from './engine1-disclosure/disclosure-events/disclosure-events.module';
 import { FinancialsModule } from './engine1-disclosure/financials/financials.module';
+import { InsiderHoldingsModule } from './engine1-disclosure/insider-holdings/insider-holdings.module';
 import { AiAnalystModule } from './engine2-ai-analyst/ai-analyst.module';
 import { PhilosophyModule } from './engine2-ai-analyst/philosophy/philosophy.module';
 import { PersonaPhilosophyFusionModule } from './engine2-ai-analyst/philosophy/fusion/persona-philosophy-fusion.module';
@@ -81,6 +82,8 @@ import { CollectionStatusModule } from './collection-status/collection-status.mo
     DisclosureDocumentsModule,
     DisclosureEventsModule,
     FinancialsModule,
+    // 내부자·대량보유 지분변동 수집 (DAR-87)
+    InsiderHoldingsModule,
 
     // Engine 2 — AI Analyst (M3)
     AiAnalystModule,

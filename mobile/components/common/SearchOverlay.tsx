@@ -13,7 +13,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
-import { Feather } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { useDebounce } from '@hooks/useDebounce';
@@ -45,6 +46,7 @@ function marketLabel(market: string | null): string {
 export function SearchOverlay({ visible, onClose }: Props) {
   const { colors, typography: typo } = useTheme();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { showSnackbar } = useSnackbar();
 
   const [query, setQuery] = useState('');
@@ -151,19 +153,37 @@ export function SearchOverlay({ visible, onClose }: Props) {
     [watchlistMap, handleRemove, handleAdd],
   );
 
+  const openCompany = useCallback(
+    (company: Company) => {
+      // 본문 탭 → 기업 상세로 이동. 모달을 먼저 닫아 뒤로가기가 진입 탭으로 정상 복귀하게 한다.
+      addRecent(company);
+      handleClose();
+      router.push(`/company/${company.corpCode}`);
+    },
+    [addRecent, handleClose, router],
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: Company }) => {
       const added = watchlistMap.has(item.corpCode);
       const mLabel = marketLabel(item.market);
-      const a11y = added
-        ? `${item.corpName}, 관심목록에 추가됨. 탭하면 제거`
-        : `${item.corpName}${item.stockCode ? ` 종목코드 ${item.stockCode}` : ''}${
-            mLabel ? ` ${mLabel}` : ''
-          }, 추가 버튼`;
+      const detailA11y = `${item.corpName}${item.stockCode ? ` 종목코드 ${item.stockCode}` : ''}${
+        mLabel ? ` ${mLabel}` : ''
+      }, 기업 상세 보기`;
+      const starA11y = added
+        ? `${item.corpName} 관심목록에서 제거`
+        : `${item.corpName} 관심목록에 추가`;
 
       return (
         <View style={styles.resultItem}>
-          <View style={styles.companyInfo}>
+          <TouchableOpacity
+            style={styles.companyInfo}
+            onPress={() => openCompany(item)}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={detailA11y}
+            accessibilityHint="기업 상세 화면으로 이동합니다"
+          >
             <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
               {item.corpName}
             </Text>
@@ -173,30 +193,26 @@ export function SearchOverlay({ visible, onClose }: Props) {
                 {mLabel ? ` · ${mLabel}` : ''}
               </Text>
             ) : null}
-          </View>
+          </TouchableOpacity>
           <TouchableOpacity
-            style={[
-              styles.toggleBtn,
-              added
-                ? { backgroundColor: colors.primary, borderColor: colors.primary }
-                : { borderColor: colors.primary },
-            ]}
+            style={styles.toggleBtn}
             onPress={() => toggle(item)}
             activeOpacity={0.7}
-            hitSlop={8}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
-            accessibilityLabel={a11y}
+            accessibilityState={{ selected: added }}
+            accessibilityLabel={starA11y}
           >
-            <Feather
-              name={added ? 'check' : 'plus'}
-              size={18}
-              color={added ? '#FFFFFF' : colors.primary}
+            <Ionicons
+              name={added ? 'star' : 'star-outline'}
+              size={24}
+              color={added ? colors.primary : colors.textTertiary}
             />
           </TouchableOpacity>
         </View>
       );
     },
-    [watchlistMap, colors, typo, toggle],
+    [watchlistMap, colors, typo, toggle, openCompany],
   );
 
   const renderResults = () => {
@@ -448,12 +464,13 @@ const styles = StyleSheet.create({
   },
   companyInfo: {
     flex: 1,
+    justifyContent: 'center',
+    paddingVertical: spacing.xs,
+    paddingRight: spacing.sm,
   },
   toggleBtn: {
     width: 44,
     height: 44,
-    borderRadius: radius.full,
-    borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
   },

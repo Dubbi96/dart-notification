@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
 import { confidenceLevel, type ConfidenceTone } from '@utils/confidenceLevel';
+import { DataLimitBadge } from '@components/common/DataLimitBadge';
 
 // 점수·적합도 '근거·표본·신뢰도' 강제 동반 표시 규약(DAR-56, 과신 방지).
 // 백엔드가 이미 제공하는 sampleN·evaluatedCount/omittedMetricKeys·confidence·isAiAssisted를
@@ -39,6 +40,11 @@ interface EvidenceMetaProps {
   sample?: EvidenceSample;
   coverage?: EvidenceCoverage;
   ai?: EvidenceAi;
+  /**
+   * 데이터 한계 배지 노출(DAR-121 §6, opt-in). true 일 때만 '데이터 한계' 배지를 동반한다.
+   * 판정(표본<30·미유의)은 호출부가 isDataLimited 로 계산해 넘긴다(기존 호출부 기본 동작 불변).
+   */
+  dataLimit?: boolean;
   /** 한 줄 압축 표기(true) vs 줄바꿈 허용(false, 기본). */
   compact?: boolean;
   style?: ViewStyle;
@@ -78,10 +84,13 @@ function MetaRow({ icon, iconColor, textColor, text, note, accessibilityLabel }:
 /**
  * 근거·표본·신뢰도 통일 표기. 제공된 prop만 해당 줄을 그린다(모두 없으면 null).
  */
-export function EvidenceMeta({ sample, coverage, ai, compact = false, style }: EvidenceMetaProps) {
+export function EvidenceMeta({ sample, coverage, ai, dataLimit, compact = false, style }: EvidenceMetaProps) {
   const { colors } = useTheme();
 
   const rows: React.ReactNode[] = [];
+
+  // 데이터 한계 배지(DAR-121 §6) — opt-in. 호출부가 dataLimit=true 로 명시할 때만 노출.
+  const showDataLimit = dataLimit === true;
 
   if (sample && Number.isFinite(sample.n)) {
     const unit = sample.unit ?? '건';
@@ -149,6 +158,15 @@ export function EvidenceMeta({ sample, coverage, ai, compact = false, style }: E
         />,
       );
     }
+  }
+
+  if (showDataLimit) {
+    rows.unshift(
+      <DataLimitBadge
+        key="data-limit"
+        sampleCount={sample && Number.isFinite(sample.n) ? sample.n : undefined}
+      />,
+    );
   }
 
   if (rows.length === 0) return null;

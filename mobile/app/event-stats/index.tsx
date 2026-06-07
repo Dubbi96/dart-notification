@@ -5,12 +5,14 @@ import { SegmentedButtons } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { LoadingState, EmptyState, ApiErrorState } from '@components/common/StateView';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
+import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { useEventStudyResults } from '@hooks/useEventStudy';
 import { getEventTypeLabel } from '@utils/disclosureType';
+import { isDataLimited, DATA_LIMIT_SAMPLE_THRESHOLD } from '@utils/dataLimit';
 
 import type { EventStudyResult } from '@app-types/signal.types';
 
@@ -18,12 +20,10 @@ import type { EventStudyResult } from '@app-types/signal.types';
 // 기구현 useEventStudyResults(GET /event-study) 연결 — 백엔드 집계는 (eventType, bucketKey)
 // 단위 행으로 내려오므로, 화면에서 eventType 단위로 표본수 가중 평균하여
 // '시장 전체 평균 D+N 초과수익(AR)·표본수·승률'을 유형별 1행으로 렌더한다. read-only.
-// 표본 부족(<30) 시 LOW_SAMPLE 투명 배지로 과신 방지. 테마토큰만·FlatList·접근성·면책.
+// 표본 부족·통계 미유의 시 공용 DataLimitBadge('데이터 한계')로 과신 방지(DAR-121 §6 통일).
+// 테마토큰만·FlatList·접근성·면책.
 
 type MarketType = 'ALL' | 'KOSPI' | 'KOSDAQ';
-
-// 표본이 이 값 미만이면 통계 신뢰도 제한(LOW_SAMPLE) — company/[corpCode] 통계 탭과 동일 임계.
-const LOW_SAMPLE_THRESHOLD = 30;
 
 /** 이벤트 유형별 시장 전체 집계 1행. (eventType, bucketKey) 단위 행들을 유형 단위로 합산. */
 export interface EventTypeAggregate {
@@ -72,7 +72,7 @@ export function aggregateByEventType(rows: EventStudyResult[]): EventTypeAggrega
       avgArD20: weighted((r) => r.avgArD20 ?? 0),
       winRateD5: weighted((r) => r.upProbD5 ?? 0),
       isSignificant,
-      lowSample: totalSample < LOW_SAMPLE_THRESHOLD || !isSignificant,
+      lowSample: isDataLimited({ sampleCount: totalSample, isSignificant }),
     });
   });
 
@@ -127,14 +127,7 @@ function EventRow({ item }: EventRowProps) {
           <Text style={[typo.bodyMedium, { color: colors.text, flex: 1 }]} numberOfLines={1}>
             {getEventTypeLabel(item.eventType)}
           </Text>
-          {item.lowSample ? (
-            <View style={[styles.badge, { backgroundColor: colors.surfaceSecondary, borderColor: colors.warning }]}>
-              <Feather name="alert-triangle" size={11} color={colors.warning} />
-              <Text style={[typo.small, { color: colors.warning, marginLeft: spacing.xs, fontWeight: '600' }]}>
-                데이터 한계
-              </Text>
-            </View>
-          ) : null}
+          {item.lowSample ? <DataLimitBadge /> : null}
         </View>
 
         <View style={styles.metrics}>
@@ -192,7 +185,7 @@ export default function EventStatsScreen() {
           hasData ? (
             <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.md }]}>
               공시 유형별 시장 전체 평균 초과수익(시장 대비)·승률·표본입니다. 초과수익(D+5) 높은 순.
-              표본 {LOW_SAMPLE_THRESHOLD}건 미만이거나 통계적으로 유의하지 않으면 데이터 한계로 표시되며 참고용입니다.
+              표본 {DATA_LIMIT_SAMPLE_THRESHOLD}건 미만이거나 통계적으로 유의하지 않으면 데이터 한계로 표시되며 참고용입니다.
             </Text>
           ) : null
         }
@@ -293,14 +286,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-  },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs / 2,
-    borderRadius: radius.sm,
-    borderWidth: 1,
   },
   metrics: {
     flexDirection: 'row',

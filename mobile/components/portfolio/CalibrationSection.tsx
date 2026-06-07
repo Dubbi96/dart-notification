@@ -5,6 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { getEventTypeLabel } from '@utils/disclosureType';
+import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { useCalibration } from '@hooks/useCalibration';
 
 import type {
@@ -76,21 +77,6 @@ function StatusBadge({ status }: { status: CalibrationStatus }) {
   );
 }
 
-function LowSampleBadge({ sampleCount }: { sampleCount: number }) {
-  const { colors, typography: typo } = useTheme();
-  return (
-    <View
-      style={[styles.lowBadge, { backgroundColor: colors.surfaceSecondary }]}
-      accessibilityLabel={`표본 부족 ${sampleCount}건, 참고용`}
-    >
-      <Feather name="alert-triangle" size={10} color={colors.warning} />
-      <Text style={[typo.small, { color: colors.warning, marginLeft: spacing.xs, fontWeight: '600' }]}>
-        표본 부족 {sampleCount}
-      </Text>
-    </View>
-  );
-}
-
 /** 작은 라벨/값 1쌍 */
 function Field({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   const { colors, typography: typo } = useTheme();
@@ -155,7 +141,7 @@ function EventRow({ item }: { item: EventScoreCalibration }) {
       ) : (
         <View style={styles.holdRow}>
           {item.lowSample ? (
-            <LowSampleBadge sampleCount={item.sampleCount} />
+            <DataLimitBadge sampleCount={item.sampleCount} />
           ) : (
             <Text style={[typo.small, { color: colors.textTertiary }]}>
               {item.reason}
@@ -193,7 +179,7 @@ function GradeRow({ item }: { item: GradeConfidenceCalibration }) {
 
       <View style={styles.holdRow}>
         {item.lowSample ? (
-          <LowSampleBadge sampleCount={item.sampleCount} />
+          <DataLimitBadge sampleCount={item.sampleCount} />
         ) : (
           <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={2}>
             {isDiscount ? `confidence ${item.coefficient.toFixed(3)} 디스카운트 (점수 한정·실주문 무관)` : item.reason}
@@ -404,14 +390,6 @@ const styles = StyleSheet.create({
   arrow: { marginHorizontal: spacing.sm },
   holdRow: { marginTop: spacing.sm },
   statusBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.full,
-  },
-  lowBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     borderRadius: radius.full,

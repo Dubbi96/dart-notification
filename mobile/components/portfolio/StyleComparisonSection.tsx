@@ -7,6 +7,7 @@ import { PriceChangeChip } from '@components/common/PriceChangeChip';
 import { EmptyState, ErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { EquityCurveChart } from '@components/portfolio/EquityCurveChart';
+import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { useStyleComparison } from '@hooks/useStyleComparison';
 
 import type {
@@ -35,20 +36,6 @@ function formatSharpe(value: number | null): string {
 }
 function formatSignedPct(value: number | null): string {
   return value === null ? '측정 불가' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
-}
-
-/** 표본 부족 배지(과신 방지) */
-function LowSampleBadge() {
-  const { colors, typography: typo } = useTheme();
-  return (
-    <View
-      style={[styles.badge, { backgroundColor: colors.surfaceSecondary }]}
-      accessibilityRole="text"
-      accessibilityLabel="표본 부족 — 데이터가 적어 결론을 과신하지 마세요"
-    >
-      <Text style={[typo.small, { color: colors.warning }]}>표본 부족</Text>
-    </View>
-  );
 }
 
 /** 우승 배지 — 표본 있는 스타일 중 최고 누적수익률 */
@@ -97,7 +84,7 @@ function StyleCard({ perf, isBest }: { perf: StylePerformance; isBest: boolean }
         <View style={styles.cardTitleRow}>
           <Text style={[typo.bodyMedium, { color: colors.text }]}>{perf.label}</Text>
           {isBest ? <BestBadge /> : null}
-          {perf.lowSample ? <LowSampleBadge /> : null}
+          {perf.lowSample ? <DataLimitBadge /> : null}
         </View>
         <PriceChangeChip value={sc.cumulativeReturnPct} amount={sc.totalNetPnl} />
       </View>

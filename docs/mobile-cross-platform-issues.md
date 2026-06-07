@@ -12,7 +12,8 @@
 - **수정(적용됨)**:
   - **FlatList**: `refreshControl={<래퍼/>}` → **`refreshing={x}` + `onRefresh={y}` props** 사용(RN 권장, FlatList가 내부에서 RefreshControl 생성).
   - **ScrollView**: refreshing/onRefresh props가 없으므로 → **직접 `<RefreshControl .../>` 엘리먼트**(RN 코어, 래퍼 아님)를 `refreshControl`에 전달.
-- **규칙(재발 방지)**: `refreshControl` prop에는 **절대 커스텀 컴포넌트를 넣지 말 것.** FlatList면 props, ScrollView면 코어 `<RefreshControl>` 직접. (`AppRefreshControl` 래퍼는 제거됨)
+- **규칙(재발 방지)**: `refreshControl` prop에는 **절대 커스텀 컴포넌트를 넣지 말 것.** FlatList면 props, ScrollView면 코어 `<RefreshControl>` 직접.
+- **자동 강제(DAR-115)**: `mobile/.eslintrc.json`의 `no-restricted-syntax` 규칙이 `refreshControl` prop에 `<RefreshControl>` 외 엘리먼트가 들어오면 **lint 에러**로 차단한다. 커스텀 래퍼 `components/common/AppRefreshControl.tsx`는 **삭제됨**(재도입 금지 — 도입해도 lint가 사용처에서 막음).
 - **진단법**: FlatList가 Android에서만 백지면 → prop을 하나씩 제거(특히 refreshControl)하며 격리. bare FlatList(하드코딩 data)부터 시작.
 
 ### 2. 루트 `GestureHandlerRootView` 필수
@@ -22,6 +23,15 @@
 - **증상**: "Encountered two children with the same key" 콘솔 에러(SimulationStatusSection 등).
 - **원인**: `${corpCode}-${stockCode}` 키가 같은 종목 복수 포지션에서 충돌.
 - **수정**: 고유 id 또는 index 포함(`...-${index}`). 모든 keyExtractor는 충돌 불가능하게.
+- **점검(DAR-115)**: 정적 린트는 의미적 키 충돌을 못 잡으므로 **리뷰 체크 항목**으로 강제. 새 리스트 추가 시 키가 데이터 전 범위에서 유일한지 확인.
+
+## 신규 리스트 화면 DoD 체크리스트 (DAR-115)
+
+리스트/스크롤(`FlatList`·`ScrollView`) 화면을 추가·수정하면 아래를 만족해야 완료(`mobile/CLAUDE.md` DoD에서 링크):
+
+- [ ] **refreshControl 안티패턴 0** — `refreshControl`에 커스텀 컴포넌트 미전달. FlatList=`refreshing`/`onRefresh` props, ScrollView=코어 `<RefreshControl>`. ESLint `no-restricted-syntax`가 자동 차단(`npm run lint` 에러 0 확인).
+- [ ] **keyExtractor 고유성** — 키가 데이터 전 범위에서 충돌 불가능(고유 id 또는 `-${index}` 포함).
+- [ ] **iOS+Android 양쪽 렌더 확인** — 헤더·아이템·빈상태가 두 플랫폼 모두에서 그려짐. iOS `xcrun simctl io booted screenshot ios.png`, Android `adb exec-out screencap -p > android.png`로 캡처 비교(Android 단독 백지 회귀 차단).
 
 ## 백엔드/데이터 측 (Android 무관하나 앱 빈화면 유발)
 

@@ -30,8 +30,28 @@ export default function KakaoCallback() {
       // 정리 실패는 무시(앱 복귀 흐름에 영향 없음)
     }
 
+    // 로그인 결과(/auth/kakao/result)는 백엔드에서 1회성으로 소비된다.
+    // sign-in.tsx의 인라인 핸들러/폴링이 먼저 결과를 소비하면 이 딥링크 경로는
+    // success:false 를 받는다. 이때 이미 인증된 상태라면 로그인 화면이 아니라 홈으로 보낸다(레이스 가드).
+    function settleToHome(isNewUser: boolean) {
+      router.replace(isNewUser ? '/onboarding' : '/(tabs)/home');
+    }
+
     async function complete() {
-      if (error || !state) {
+      if (error) {
+        // 이미 다른 경로(폴링/인라인)에서 인증을 마쳤으면 로그인 화면으로 되돌리지 않는다.
+        if (useAuthStore.getState().isAuthenticated) {
+          settleToHome(false);
+          return;
+        }
+        router.replace('/auth/sign-in');
+        return;
+      }
+      if (!state) {
+        if (useAuthStore.getState().isAuthenticated) {
+          settleToHome(false);
+          return;
+        }
         router.replace('/auth/sign-in');
         return;
       }
@@ -41,11 +61,17 @@ export default function KakaoCallback() {
           const { user, tokens, isNewUser } = data.data;
           setAuth(user, tokens.accessToken, tokens.refreshToken);
           SecureStore.setItemAsync('hasLoggedIn', 'true').catch(() => {});
-          router.replace(isNewUser ? '/onboarding' : '/(tabs)/home');
+          settleToHome(isNewUser);
           return;
         }
       } catch {
-        // 결과 조회 실패 → 로그인 화면으로
+        // 결과 조회 실패 → 인증상태에 따라 분기(아래)
+      }
+      // 결과가 없거나(이미 소비됨) 조회 실패 — 다른 경로에서 인증을 마쳤다면 홈으로,
+      // 그렇지 않으면 로그인 화면으로.
+      if (useAuthStore.getState().isAuthenticated) {
+        settleToHome(false);
+        return;
       }
       router.replace('/auth/sign-in');
     }

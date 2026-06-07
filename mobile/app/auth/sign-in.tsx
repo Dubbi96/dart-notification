@@ -68,6 +68,15 @@ export default function SignInScreen() {
     let attempts = 0;
     pollingRef.current = setInterval(async () => {
       attempts++;
+
+      // 인라인 핸들러/딥링크가 이미 결과를 소비해 인증을 마쳤으면 폴링을 중단한다.
+      // (백엔드 결과는 1회성이라 중복 조회는 success:false → 불필요한 타임아웃 실패 다이얼로그 유발)
+      if (useAuthStore.getState().isAuthenticated) {
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        setIsLoading(false);
+        return;
+      }
+
       if (attempts > 60) {
         // 60초 타임아웃 — 서버 연결/카카오 redirect_uri 등록을 점검하도록 안내.
         if (pollingRef.current) clearInterval(pollingRef.current);

@@ -9,7 +9,6 @@ import { PositionCard } from '@components/portfolio/PositionCard';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
-import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { SimulationStatusSection } from '@components/portfolio/SimulationStatusSection';
 import { StyleComparisonSection } from '@components/portfolio/StyleComparisonSection';
 import { usePositions, usePortfolioSummary, usePaperPortfolio } from '@hooks/usePortfolio';
@@ -64,9 +63,9 @@ export default function PortfolioScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <AppRefreshControl refreshing={positionsQuery.isRefetching} onRefresh={positionsQuery.refetch} />
-        }
+        removeClippedSubviews={false}
+        refreshing={positionsQuery.isRefetching}
+          onRefresh={positionsQuery.refetch}
         ListHeaderComponent={
           summary ? (
             <Surface elevation={1} style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -112,9 +111,9 @@ export default function PortfolioScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <AppRefreshControl refreshing={paperQuery.isRefetching} onRefresh={paperQuery.refetch} />
-        }
+        removeClippedSubviews={false}
+        refreshing={paperQuery.isRefetching}
+          onRefresh={paperQuery.refetch}
         ListHeaderComponent={
           <View style={styles.paperHeader}>
             <Banner visible actions={[]} icon="information" style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}>

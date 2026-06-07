@@ -9,7 +9,6 @@ import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { LoadingState, EmptyState, ApiErrorState } from '@components/common/StateView';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
-import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { useEventStudyResults } from '@hooks/useEventStudy';
 import { getEventTypeLabel } from '@utils/disclosureType';
 
@@ -187,9 +186,8 @@ export default function EventStatsScreen() {
         keyExtractor={keyExtractor}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <AppRefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} />
-        }
+        refreshing={query.isRefetching}
+          onRefresh={query.refetch}
         ListHeaderComponent={
           hasData ? (
             <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.md }]}>

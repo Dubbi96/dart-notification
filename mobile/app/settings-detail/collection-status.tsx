@@ -1,12 +1,11 @@
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
-import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { useCollectionStatus } from '@hooks/useCollectionStatus';
 import type {
   CollectionMaturity,
@@ -171,7 +170,14 @@ export default function CollectionStatusScreen() {
         <ScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
-          refreshControl={<AppRefreshControl refreshing={isRefetching} onRefresh={refetch} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={refetch}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
         >
           <Text style={[typo.caption, { color: colors.textSecondary, marginBottom: spacing.md }]}>
             정보가 실제로 모이고 있는지 한눈에 확인하세요. 집계 {formatRelative(data.generatedAt)}.

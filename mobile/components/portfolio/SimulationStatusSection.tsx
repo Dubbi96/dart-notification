@@ -8,7 +8,6 @@ import { spacing, radius } from '@theme/spacing';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
 import { EmptyState, ErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
-import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { EquityCurveChart } from '@components/portfolio/EquityCurveChart';
 import { useSimulationStatus, useSimulationEquityCurve } from '@hooks/useSimulationStatus';
 
@@ -284,12 +283,11 @@ export function SimulationStatusSection() {
     <FlatList
       data={status?.positions ?? []}
       renderItem={renderPosition}
-      keyExtractor={(item) => `${item.corpCode}-${item.stockCode}`}
+      keyExtractor={(item, index) => `${item.corpCode}-${item.stockCode}-${index}`}
       contentContainerStyle={styles.listContent}
       showsVerticalScrollIndicator={false}
-      refreshControl={
-        <AppRefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} />
-      }
+      refreshing={query.isRefetching}
+      onRefresh={query.refetch}
       ListHeaderComponent={
         status ? (
           <SummaryHeader

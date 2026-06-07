@@ -1,4 +1,5 @@
 import React from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -75,8 +76,13 @@ function AppContent() {
 
 export default function RootLayout() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <AppContent />
-    </QueryClientProvider>
+    // DAR-114: 루트 GestureHandlerRootView(flex:1) 추가.
+    // 누락 시 (1) 화면 트리에 높이 경계가 없어 flex:1 FlatList가 높이 0으로 붕괴→아이템 미렌더,
+    // (2) gesture-handler 미초기화로 스크롤/드래그 불가 — 앱 전역 리스트·스크롤 장애의 근본 원인.
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <QueryClientProvider client={queryClient}>
+        <AppContent />
+      </QueryClientProvider>
+    </GestureHandlerRootView>
   );
 }

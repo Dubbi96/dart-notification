@@ -12,9 +12,10 @@ import { ApiErrorState } from '@components/common/StateView';
 import { SkeletonCard } from '@components/common/SkeletonCard';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
+import { curateBuySignals } from '@utils/signalCuration';
 import { useBuySignals } from '@hooks/useSignals';
 
-import type { SignalGrade, TradingSignal } from '@app-types/signal.types';
+import type { TradingSignal } from '@app-types/signal.types';
 
 // 홈 '오늘의 투자판단' 프리뷰 슬롯(DAR-61, 상용 패널 #8).
 // summaryCard 아래 최상단에 상위 1~3 매수등급 시그널을 가로 카루셀로 노출해
@@ -22,8 +23,6 @@ import type { SignalGrade, TradingSignal } from '@app-types/signal.types';
 // 정직 원칙(§2): 매수등급(STRONG_BUY/BUY)이 0이면 가짜 BUY를 만들지 않고
 // '점수순 탐색' 빈 상태로 안내한다. 게스트는 1건 미리보기 + 잠금 오버레이.
 
-/** 카루셀에 노출하는 '매수등급' — 가짜 BUY 금지(§2). WATCH 이하는 프리뷰에서 제외. */
-const BUY_GRADES: readonly SignalGrade[] = ['STRONG_BUY', 'BUY'];
 const MAX_PREVIEW = 3;
 const CARD_WIDTH = 264;
 const EXPLORE_ROUTE = '/(tabs)/signals' as const;
@@ -135,11 +134,8 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
   const { colors, typography: typo } = useTheme();
   const { data, isLoading, isError, error, refetch } = useBuySignals();
 
-  // 가짜 BUY 금지(§2): 매수등급만 점수 내림차순 상위 N. WATCH 이하는 프리뷰 미노출.
-  const topSignals = useMemo(() => {
-    const buys = (data ?? []).filter((s) => BUY_GRADES.includes(s.grade));
-    return [...buys].sort((a, b) => b.buyScore - a.buyScore).slice(0, MAX_PREVIEW);
-  }, [data]);
+  // 가짜 BUY 금지(§2): 매수등급만 점수 내림차순 상위 N(공용 큐레이션 util). WATCH 이하 미노출.
+  const topSignals = useMemo(() => curateBuySignals(data, MAX_PREVIEW), [data]);
 
   const handleCardPress = useCallback((signal: TradingSignal) => {
     // 종목 판단허브 진입(§1) — 신호 상세로 직결.

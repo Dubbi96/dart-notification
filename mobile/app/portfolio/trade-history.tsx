@@ -7,7 +7,6 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
-import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
 import { SignalAccuracySection } from '@components/portfolio/SignalAccuracySection';
 import { CalibrationSection } from '@components/portfolio/CalibrationSection';
@@ -240,7 +239,8 @@ export default function TradeHistoryScreen() {
           keyExtractor={(item) => item.positionId}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          refreshControl={<AppRefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} />}
+          refreshing={query.isRefetching}
+          onRefresh={query.refetch}
           ListHeaderComponent={
             <View style={styles.headerBox}>
               <Banner

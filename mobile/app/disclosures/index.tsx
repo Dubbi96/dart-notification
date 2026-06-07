@@ -17,7 +17,6 @@ import { Card } from '@components/common/Card';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
-import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { InfiniteListFooter } from '@components/common/InfiniteListFooter';
 import { useDisclosures, useDisclosureSearch } from '@hooks/useDisclosures';
 import {
@@ -393,12 +392,8 @@ export default function DisclosuresScreen() {
             }
           }}
           onEndReachedThreshold={0.4}
-          refreshControl={
-            <AppRefreshControl
-              refreshing={activeQuery.isRefetching && !activeQuery.isFetchingNextPage}
-              onRefresh={activeQuery.refetch}
-            />
-          }
+          refreshing={activeQuery.isRefetching && !activeQuery.isFetchingNextPage}
+          onRefresh={activeQuery.refetch}
           ListFooterComponent={
             <InfiniteListFooter
               isFetchingNextPage={activeQuery.isFetchingNextPage}

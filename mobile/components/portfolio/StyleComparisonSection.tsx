@@ -6,7 +6,6 @@ import { spacing, radius } from '@theme/spacing';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
 import { EmptyState, ErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
-import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { EquityCurveChart } from '@components/portfolio/EquityCurveChart';
 import { useStyleComparison } from '@hooks/useStyleComparison';
 
@@ -216,9 +215,8 @@ export function StyleComparisonSection() {
       keyExtractor={(item) => item.style}
       contentContainerStyle={styles.listContent}
       showsVerticalScrollIndicator={false}
-      refreshControl={
-        <AppRefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} />
-      }
+      refreshing={query.isRefetching}
+          onRefresh={query.refetch}
       ListHeaderComponent={data ? <ComparisonHeader data={data} /> : null}
       ListEmptyComponent={
         <EmptyState

@@ -23,7 +23,6 @@ import { HomeSignalPreview } from '@components/home/HomeSignalPreview';
 import { GraduationTracker } from '@components/home/GraduationTracker';
 import { FirstWatchCoachmark } from '@components/home/FirstWatchCoachmark';
 import { DisclosureFeedCard } from '@components/home/DisclosureFeedCard';
-import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { SearchOverlay } from '@components/common/SearchOverlay';
 import { useDisclosures } from '@hooks/useDisclosures';
 import { useWatchlist } from '@hooks/useWatchlist';
@@ -62,10 +61,10 @@ export default function HomeScreen() {
 
   // 홈 헤더 검색 직결(§10) — 1탭 진입. 비로그인은 기존 인증 게이트 유지.
   const [searchVisible, setSearchVisible] = useState(false);
-  const handleSearchOpen = () => {
+  const handleSearchOpen = useCallback(() => {
     if (!requireAuth()) return;
     setSearchVisible(true);
-  };
+  }, [requireAuth]);
 
   const {
     data,
@@ -127,6 +126,125 @@ export default function HomeScreen() {
       fetchNextPage();
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // DAR-114: 졸업 트래커가 잘리고 스크롤되지 않던 문제 수정.
+  // 기존엔 HomeSignalPreview/GraduationTracker/sectionHeader/코치마크가 FlatList 바깥
+  // 고정 형제로 배치돼 화면 하단에서 잘렸다. 이를 FlatList의 ListHeaderComponent로 옮겨
+  // 화면 전체가 단일 FlatList로 스크롤되게 한다(ScrollView 금지 규칙 준수).
+  // listContent의 paddingHorizontal(spacing.lg)이 헤더에도 적용되므로, 헤더는 자체 가로
+  // 마진을 가진 컴포넌트(카드/카루셀)들로 구성되어 있어 음수 마진 래퍼로 이중 패딩을 상쇄한다.
+  const ListHeader = useCallback(
+    () => (
+      <View style={styles.listHeader}>
+        {/* 오늘의 투자판단 프리뷰(DAR-61) — summaryCard 아래 최상단. 공시→투자판단 1순위 동선. */}
+        <HomeSignalPreview isAuthenticated={isAuthenticated} />
+
+        {/* 졸업 트래커(DAR-67) — Main Thesis B 결승선(M10) 게이트 진척. 단일 시스템 모의 포트폴리오라 게스트 데모 가능. */}
+        <GraduationTracker />
+
+        {/* Disclosures */}
+        <View style={styles.sectionHeader}>
+          <View style={styles.segmentControl}>
+            <TouchableOpacity
+              style={[
+                styles.segmentTab,
+                feedTab === 'all'
+                  ? { backgroundColor: colors.primary }
+                  : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
+              ]}
+              onPress={() => setFeedTab('all')}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  typo.captionMedium,
+                  { color: feedTab === 'all' ? '#FFFFFF' : colors.textSecondary },
+                ]}
+              >
+                전체 공시
+              </Text>
+            </TouchableOpacity>
+            {hasWatchlist && (
+              <TouchableOpacity
+                style={[
+                  styles.segmentTab,
+                  feedTab === 'watchlist'
+                    ? { backgroundColor: colors.primary }
+                    : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
+                ]}
+                onPress={() => setFeedTab('watchlist')}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="star"
+                  size={12}
+                  color={feedTab === 'watchlist' ? '#FFFFFF' : colors.textSecondary}
+                  style={{ marginRight: 4 }}
+                />
+                <Text
+                  style={[
+                    typo.captionMedium,
+                    { color: feedTab === 'watchlist' ? '#FFFFFF' : colors.textSecondary },
+                  ]}
+                >
+                  관심 기업
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          {/* DAR-106: 공시 목록(13종 이벤트 필터) 발견성 승격 — 명확한 라벨·Feather 아이콘 진입 버튼. */}
+          <TouchableOpacity
+            style={[styles.browseButton, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+            onPress={() => router.push(
+              isWatchlistFeed
+                ? { pathname: '/disclosures', params: { watchlistOnly: 'true' } }
+                : '/disclosures'
+            )}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={isWatchlistFeed ? '관심 기업 공시 전체보기 (필터)' : '공시 전체보기 (필터)'}
+          >
+            <Feather name="sliders" size={13} color={colors.primary} style={{ marginRight: 4 }} />
+            <Text style={[typo.captionMedium, { color: colors.primary }]}>전체보기</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* 첫 관심기업 코치마크(DAR-65) — 관심목록 비었을 때 1회성·dismiss 가능. 수집 시드 등록 유도. */}
+        {isAuthenticated && watchlistCount === 0 && (
+          <FirstWatchCoachmark onAdd={handleSearchOpen} />
+        )}
+      </View>
+    ),
+    [
+      isAuthenticated,
+      feedTab,
+      hasWatchlist,
+      isWatchlistFeed,
+      watchlistCount,
+      colors,
+      typo,
+      handleSearchOpen,
+    ],
+  );
+
+  const ListEmpty = useCallback(
+    () =>
+      isLoading ? (
+        // DAR-108(#10): 헤더는 유지한 채 피드 영역만 스켈레톤으로 채운다.
+        <SkeletonList variant="disclosure" />
+      ) : isError ? (
+        // 연결 실패 시 빈 상태("기업 검색") 대신 사유+재시도를 노출(DAR-43 §1).
+        <ApiErrorState error={error} onRetry={refetch} title="공시를 불러오지 못했습니다" />
+      ) : (
+        <EmptyState
+          {...emptyStateCopy.homeDisclosureEmpty}
+          actionLabel="기업 검색"
+          onAction={handleSearchOpen}
+        />
+      ),
+    [isLoading, isError, error, refetch, handleSearchOpen],
+  );
 
   // DAR-108(#10): 초기 로딩 시에도 헤더 셸을 유지하고 콘텐츠(피드)만 스켈레톤으로
   // 대체해 레이아웃 점프를 방지한다. (기존: 화면 전체를 스켈레톤으로 대체 → 헤더가 뒤늦게 등장)
@@ -225,93 +343,12 @@ export default function HomeScreen() {
         </GlassCard>
       </LinearGradient>
 
-      {/* Content area with top border radius */}
+      {/* Content area with top border radius — 화면 전체가 단일 FlatList로 스크롤(DAR-114). */}
       <View style={[styles.contentArea, { backgroundColor: colors.background }]}>
-        {/* 오늘의 투자판단 프리뷰(DAR-61) — summaryCard 아래 최상단. 공시→투자판단 1순위 동선. */}
-        <HomeSignalPreview isAuthenticated={isAuthenticated} />
-
-        {/* 졸업 트래커(DAR-67) — Main Thesis B 결승선(M10) 게이트 진척. 단일 시스템 모의 포트폴리오라 게스트 데모 가능. */}
-        <GraduationTracker />
-
-        {/* Disclosures */}
-        <View style={styles.sectionHeader}>
-          <View style={styles.segmentControl}>
-            <TouchableOpacity
-              style={[
-                styles.segmentTab,
-                feedTab === 'all'
-                  ? { backgroundColor: colors.primary }
-                  : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
-              ]}
-              onPress={() => setFeedTab('all')}
-              activeOpacity={0.7}
-            >
-              <Text
-                style={[
-                  typo.captionMedium,
-                  { color: feedTab === 'all' ? '#FFFFFF' : colors.textSecondary },
-                ]}
-              >
-                전체 공시
-              </Text>
-            </TouchableOpacity>
-            {hasWatchlist && (
-              <TouchableOpacity
-                style={[
-                  styles.segmentTab,
-                  feedTab === 'watchlist'
-                    ? { backgroundColor: colors.primary }
-                    : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
-                ]}
-                onPress={() => setFeedTab('watchlist')}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name="star"
-                  size={12}
-                  color={feedTab === 'watchlist' ? '#FFFFFF' : colors.textSecondary}
-                  style={{ marginRight: 4 }}
-                />
-                <Text
-                  style={[
-                    typo.captionMedium,
-                    { color: feedTab === 'watchlist' ? '#FFFFFF' : colors.textSecondary },
-                  ]}
-                >
-                  관심 기업
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          {/* DAR-106: 공시 목록(13종 이벤트 필터) 발견성 승격 — 명확한 라벨·Feather 아이콘 진입 버튼. */}
-          <TouchableOpacity
-            style={[styles.browseButton, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
-            onPress={() => router.push(
-              isWatchlistFeed
-                ? { pathname: '/disclosures', params: { watchlistOnly: 'true' } }
-                : '/disclosures'
-            )}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityRole="button"
-            accessibilityLabel={isWatchlistFeed ? '관심 기업 공시 전체보기 (필터)' : '공시 전체보기 (필터)'}
-          >
-            <Feather name="sliders" size={13} color={colors.primary} style={{ marginRight: 4 }} />
-            <Text style={[typo.captionMedium, { color: colors.primary }]}>전체보기</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* 첫 관심기업 코치마크(DAR-65) — 관심목록 비었을 때 1회성·dismiss 가능. 수집 시드 등록 유도. */}
-        {isAuthenticated && watchlistCount === 0 && (
-          <FirstWatchCoachmark onAdd={handleSearchOpen} />
-        )}
-
-        {isLoading ? (
-          // DAR-108(#10): 헤더·세그먼트 셸은 유지한 채 피드 영역만 스켈레톤으로 채운다.
-          <SkeletonList variant="disclosure" />
-        ) : (
         <FlatList
-          data={disclosures}
+          style={styles.feedList}
+          // 로딩 중에는 data를 빈 배열로 둬 ListEmptyComponent(스켈레톤)가 뜨게 한다.
+          data={isLoading ? [] : disclosures}
           renderItem={renderDisclosureItem}
           keyExtractor={keyExtractor}
           contentContainerStyle={styles.listContent}
@@ -319,35 +356,22 @@ export default function HomeScreen() {
           initialNumToRender={8}
           maxToRenderPerBatch={8}
           windowSize={7}
-          removeClippedSubviews
+          // 헤더(졸업 트래커 등)의 터치/카루셀 인터랙션이 클리핑으로 깨지지 않도록 false.
+          removeClippedSubviews={false}
           onEndReached={handleEndReached}
           onEndReachedThreshold={0.5}
-          refreshControl={
-            <AppRefreshControl refreshing={isRefetching && !isFetchingNextPage} onRefresh={refetch} />
-          }
+          // DAR-114: refreshControl={<커스텀래퍼>}는 RN0.85 Fabric(Android)에서 FlatList 콘텐츠를
+          // 통째로 미렌더시킨다. RN 권장인 refreshing/onRefresh props로 교체(Fabric 호환).
+          refreshing={isRefetching && !isFetchingNextPage}
+          onRefresh={refetch}
+          ListHeaderComponent={ListHeader}
           ListFooterComponent={
             isFetchingNextPage ? (
               <ActivityIndicator style={{ paddingVertical: spacing.lg }} color={colors.primary} />
             ) : null
           }
-          ListEmptyComponent={
-            // 연결 실패 시 빈 상태("기업 검색") 대신 사유+재시도를 노출(DAR-43 §1).
-            isError ? (
-              <ApiErrorState
-                error={error}
-                onRetry={refetch}
-                title="공시를 불러오지 못했습니다"
-              />
-            ) : (
-              <EmptyState
-                {...emptyStateCopy.homeDisclosureEmpty}
-                actionLabel="기업 검색"
-                onAction={handleSearchOpen}
-              />
-            )
-          }
+          ListEmptyComponent={ListEmpty}
         />
-        )}
       </View>
 
       {/* 검색 오버레이(§10) — 1탭 진입 */}
@@ -411,6 +435,10 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.xl,
     marginTop: -radius.xl,
   },
+  // DAR-114: Android에서 FlatList가 부모(flex:1)를 못 채우고 높이 0으로 붕괴하는 문제 방지.
+  feedList: {
+    flex: 1,
+  },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -443,6 +471,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xl,
     gap: spacing.md,
+  },
+  // ListHeaderComponent는 listContent의 paddingHorizontal(spacing.lg)을 받는다.
+  // 헤더 내부 컴포넌트(HomeSignalPreview 카루셀·GraduationTracker·sectionHeader)는
+  // 자체 가로 마진/패딩(spacing.lg)과 전체 화면폭 기준 카드폭을 전제하므로,
+  // 음수 가로 마진으로 컨테이너 패딩을 상쇄해 기존 정렬·여백을 그대로 유지한다.
+  listHeader: {
+    marginHorizontal: -spacing.lg,
   },
   notifBadge: {
     position: 'absolute',

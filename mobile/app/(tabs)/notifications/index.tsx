@@ -15,7 +15,6 @@ import { spacing } from '@theme/spacing';
 import { useAuthStore } from '@stores/authStore';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
-import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { useNotifications, useMarkAsRead, useMarkAllAsRead } from '@hooks/useNotifications';
@@ -209,15 +208,15 @@ export default function NotificationsScreen() {
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews={false}
         onEndReached={() => {
           if (hasNextPage && !isFetchingNextPage) {
             fetchNextPage();
           }
         }}
         onEndReachedThreshold={0.5}
-        refreshControl={
-          <AppRefreshControl refreshing={isRefetching} onRefresh={refetch} />
-        }
+        refreshing={isRefetching}
+          onRefresh={refetch}
         ListEmptyComponent={<EmptyState {...emptyStateCopy.notificationsEmpty} />}
         ListFooterComponent={
           isFetchingNextPage ? (

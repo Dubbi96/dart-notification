@@ -40,3 +40,11 @@
 ## DoD
 
 - `npm run lint` 통과 · 타입 에러 0 · Expo Go에서 동작 확인(secure-store 등 네이티브 제약 준수).
+
+### 크로스플랫폼 회귀 가드 (필수) — 정본: [`docs/mobile-cross-platform-issues.md`](../docs/mobile-cross-platform-issues.md)
+
+2026-06-07 refreshControl 커스텀 래퍼가 RN 0.85 Fabric(Android)에서 **모든 FlatList를 백지화**한 장기 버그 재발 방지. 리스트/스크롤 화면 작업 시 아래를 만족해야 완료:
+
+1. **`refreshControl` prop에 커스텀 컴포넌트 금지** — ESLint `no-restricted-syntax`로 강제(에러). FlatList는 `refreshing`/`onRefresh` props, ScrollView는 RN 코어 `<RefreshControl>` 엘리먼트만 직접 전달. (`AppRefreshControl` 류 래퍼 제거됨 — 재도입 금지)
+2. **`keyExtractor` 고유성 점검** — 키가 모든 데이터에서 충돌 불가능한지 확인(`${corpCode}-${stockCode}`처럼 복수 포지션 충돌 주의 → 고유 id 또는 `-${index}` 포함). 정적 린트로 의미적 충돌은 못 잡으니 리뷰 체크 필수.
+3. **신규 리스트 화면은 iOS+Android 양쪽 렌더 확인** — iOS `xcrun simctl`(스크린샷), Android `adb shell screencap`로 헤더·아이템·빈상태가 실제로 그려지는지 교차 검증(Android 단독 백지 회귀 차단).

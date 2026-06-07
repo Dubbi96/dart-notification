@@ -56,7 +56,14 @@
       }
     ],
     "no-console": ["warn", { "allow": ["warn", "error"] }],
-    "react-native/sort-styles": "off"
+    "react-native/sort-styles": "off",
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "JSXAttribute[name.name='refreshControl'] JSXElement > JSXOpeningElement[name.name!='RefreshControl']",
+        "message": "refreshControl prop에 커스텀 컴포넌트 금지: RN 0.85 Fabric(Android)에서 FlatList/ScrollView 콘텐츠가 통째로 미렌더됩니다. FlatList는 refreshing/onRefresh props를, ScrollView는 RN 코어 <RefreshControl>을 직접 사용하세요. 근거: docs/mobile-cross-platform-issues.md #1."
+      }
+    ]
   },
   "ignorePatterns": ["node_modules/", ".expo/", "dist/", "babel.config.js"]
 }

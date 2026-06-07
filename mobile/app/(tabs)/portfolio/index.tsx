@@ -7,8 +7,11 @@ import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { PositionCard } from '@components/portfolio/PositionCard';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
+import { GuestPrompt } from '@components/common/GuestPrompt';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
+import { guestPromptCopy } from '@components/common/guestPromptCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
+import { useAuthStore } from '@stores/authStore';
 import { SimulationStatusSection } from '@components/portfolio/SimulationStatusSection';
 import { StyleComparisonSection } from '@components/portfolio/StyleComparisonSection';
 import { TodayCheckSlot } from '@components/portfolio/TodayCheckSlot';
@@ -34,6 +37,7 @@ export default function PortfolioScreen() {
   const [subTab, setSubTab] = useState<SubTab>('live');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('urgency');
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   const positionsQuery = usePositions();
   const summaryQuery = usePortfolioSummary();
@@ -206,28 +210,39 @@ export default function PortfolioScreen() {
         <Text style={[typo.h2, { color: colors.text }]}>포트폴리오</Text>
       </View>
 
-      <View style={styles.tabs}>
-        <SegmentedButtons
-          value={subTab}
-          onValueChange={(v) => setSubTab(v as SubTab)}
-          buttons={[
-            { value: 'live', label: '실전', icon: 'wallet' },
-            { value: 'paper', label: '모의', icon: 'flask' },
-            { value: 'sim', label: '모의운용', icon: 'chart-line' },
-            { value: 'style', label: '스타일', icon: 'podium' },
-          ]}
+      {/* DAR-113: 포트폴리오는 전 탭 인증 필요(401). 게스트는 탭/빈·에러 화면 대신 로그인 유도. */}
+      {!isAuthenticated ? (
+        <GuestPrompt
+          {...guestPromptCopy.portfolio}
+          secondaryLabel="공시 먼저 둘러보기"
+          onSecondary={() => router.push('/(tabs)/home')}
         />
-      </View>
+      ) : (
+        <>
+          <View style={styles.tabs}>
+            <SegmentedButtons
+              value={subTab}
+              onValueChange={(v) => setSubTab(v as SubTab)}
+              buttons={[
+                { value: 'live', label: '실전', icon: 'wallet' },
+                { value: 'paper', label: '모의', icon: 'flask' },
+                { value: 'sim', label: '모의운용', icon: 'chart-line' },
+                { value: 'style', label: '스타일', icon: 'podium' },
+              ]}
+            />
+          </View>
 
-      <View style={styles.body}>
-        {subTab === 'live'
-          ? renderLive()
-          : subTab === 'paper'
-            ? renderPaper()
-            : subTab === 'sim'
-              ? <SimulationStatusSection />
-              : <StyleComparisonSection />}
-      </View>
+          <View style={styles.body}>
+            {subTab === 'live'
+              ? renderLive()
+              : subTab === 'paper'
+                ? renderPaper()
+                : subTab === 'sim'
+                  ? <SimulationStatusSection />
+                  : <StyleComparisonSection />}
+          </View>
+        </>
+      )}
     </SafeAreaView>
   );
 }

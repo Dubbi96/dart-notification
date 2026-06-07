@@ -14,7 +14,9 @@ import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
 import { useAuthStore } from '@stores/authStore';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
+import { GuestPrompt } from '@components/common/GuestPrompt';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
+import { guestPromptCopy } from '@components/common/guestPromptCopy';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { useNotifications, useMarkAsRead, useMarkAllAsRead } from '@hooks/useNotifications';
@@ -72,13 +74,8 @@ export default function NotificationsScreen() {
         <View style={[styles.header, { borderBottomColor: colors.borderLight }]}>
           <Text style={[typo.h2, { color: colors.text }]}>알림</Text>
         </View>
-        <EmptyState
-          {...emptyStateCopy.notificationsGuest}
-          onAction={() => {
-            useAuthStore.getState().clearAuth();
-            router.push('/auth/sign-in');
-          }}
-        />
+        {/* DAR-113: 빈/에러 화면 대신 가치 프리뷰 + 로그인 CTA로 자연스러운 로그인 유도. */}
+        <GuestPrompt {...guestPromptCopy.notifications} />
       </SafeAreaView>
     );
   }

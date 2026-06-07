@@ -9,8 +9,10 @@ import { ScoreGauge } from '@components/common/ScoreGauge';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ApiErrorState } from '@components/common/StateView';
+import { GuestPrompt } from '@components/common/GuestPrompt';
 import { SkeletonCard } from '@components/common/SkeletonCard';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
+import { guestPromptCopy } from '@components/common/guestPromptCopy';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
 import { curateBuySignals } from '@utils/signalCuration';
 import { useBuySignals } from '@hooks/useSignals';
@@ -154,6 +156,10 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
   const visibleSignals = isAuthenticated ? topSignals : topSignals.slice(0, 1);
   const showLockedCard = !isAuthenticated && topSignals.length > 0;
 
+  // DAR-113: 투자판단은 인증 필요(401). 게스트가 볼 데이터가 없으면(에러/빈) '버그' 오인을
+  // 막기 위해 에러/빈 화면 대신 로그인 유도 카드로 자연스럽게 동선을 연다.
+  const showGuestPrompt = !isAuthenticated && (isError || topSignals.length === 0);
+
   const renderCard = useCallback(
     ({ item }: { item: TradingSignal }) => (
       <SignalPreviewCard signal={item} onPress={handleCardPress} />
@@ -193,6 +199,13 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
             <SkeletonCard variant="buyScore" />
           </View>
         ))}
+      </View>
+    );
+  } else if (showGuestPrompt) {
+    // 게스트(§DAR-113): 401 에러/빈 화면 대신 로그인 유도 카드(가치 프리뷰 + CTA).
+    body = (
+      <View style={styles.guestWrap}>
+        <GuestPrompt variant="card" {...guestPromptCopy.homeSignalPreview} onLogin={handleSignIn} />
       </View>
     );
   } else if (isError) {
@@ -259,6 +272,9 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
 const styles = StyleSheet.create({
   container: {
     paddingTop: spacing.lg,
+  },
+  guestWrap: {
+    paddingHorizontal: spacing.lg,
   },
   heading: {
     flexDirection: 'row',

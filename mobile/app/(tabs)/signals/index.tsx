@@ -12,8 +12,11 @@ import { CurationSlot } from '@components/signals/CurationSlot';
 import { SignalSearchInput } from '@components/signals/SignalSearchInput';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
+import { GuestPrompt } from '@components/common/GuestPrompt';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
+import { guestPromptCopy } from '@components/common/guestPromptCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
+import { useAuthStore } from '@stores/authStore';
 import { useExitSignals } from '@hooks/useSignals';
 
 import type { ExitSignal } from '@app-types/signal.types';
@@ -24,6 +27,7 @@ export default function SignalsScreen() {
   const { colors, typography: typo } = useTheme();
   const [feedTab, setFeedTab] = useState<FeedTab>('buy');
   const [search, setSearch] = useState('');
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   const exitQuery = useExitSignals();
 
@@ -134,6 +138,17 @@ export default function SignalsScreen() {
   );
 
   const renderBody = () => {
+    // DAR-113: 매수·매도 신호는 인증 필요(401). 게스트는 빈/에러 화면 대신 로그인 유도.
+    if (!isAuthenticated) {
+      return (
+        <GuestPrompt
+          {...guestPromptCopy.signals}
+          secondaryLabel="공시 먼저 둘러보기"
+          onSecondary={() => router.push('/(tabs)/home')}
+        />
+      );
+    }
+
     if (feedTab === 'buy') {
       // L2 SignalExplorer가 단일 스크롤 컨테이너. 상단 슬롯은 ListHeaderComponent로 주입.
       return <SignalExplorer searchQuery={search} ListHeaderComponent={buyHeader} />;

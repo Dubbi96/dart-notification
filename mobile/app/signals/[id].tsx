@@ -18,6 +18,7 @@ import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/co
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { ScoreBreakdownSection } from '@components/signals/ScoreBreakdownSection';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
+import { isDataLimited } from '@utils/dataLimit';
 import { LoadingState, ErrorState } from '@components/common/StateView';
 import { useSignalDetail } from '@hooks/useSignals';
 import {
@@ -212,6 +213,7 @@ export default function SignalDetailScreen() {
           {evidenceSampleN !== undefined ? (
             <EvidenceMeta
               sample={{ n: evidenceSampleN, unit: '건' }}
+              dataLimit={isDataLimited({ sampleCount: evidenceSampleN })}
               style={styles.gaugeEvidence}
             />
           ) : null}

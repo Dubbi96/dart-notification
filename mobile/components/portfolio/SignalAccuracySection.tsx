@@ -5,6 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { getEventTypeLabel } from '@utils/disclosureType';
+import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { useSignalAccuracy } from '@hooks/useSignalAccuracy';
 
 import type { AccuracyBucket, HorizonAccuracy } from '@app-types/signal-accuracy.types';
@@ -83,15 +84,7 @@ function BucketRow({ bucket, dimension }: { bucket: AccuracyBucket; dimension: D
           {bucketLabel(dimension, bucket.key)}
         </Text>
         {bucket.lowSample ? (
-          <View
-            style={[styles.lowBadge, { backgroundColor: colors.surfaceSecondary }]}
-            accessibilityLabel={`표본 부족 ${bucket.sampleCount}건, 참고용`}
-          >
-            <Feather name="alert-triangle" size={10} color={colors.warning} />
-            <Text style={[typo.small, { color: colors.warning, marginLeft: spacing.xs, fontWeight: '600' }]}>
-              표본 부족 {bucket.sampleCount}
-            </Text>
-          </View>
+          <DataLimitBadge sampleCount={bucket.sampleCount} />
         ) : (
           <Text style={[typo.small, { color: colors.textTertiary }]}>표본 {bucket.sampleCount}</Text>
         )}
@@ -224,13 +217,6 @@ const styles = StyleSheet.create({
   horizon: { width: '50%' },
   horizonHead: { flexDirection: 'row', alignItems: 'center' },
   sigIcon: { marginLeft: spacing.xs },
-  lowBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.full,
-  },
   inlineState: {
     flexDirection: 'row',
     alignItems: 'center',

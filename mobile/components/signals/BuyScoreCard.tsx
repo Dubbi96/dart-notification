@@ -1,19 +1,21 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface, Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
-import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { RiskStatusBadges, summarizeRiskStatus } from '@components/common/RiskStatusBadges';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
-import { gradeColor, gradeLabel } from '@utils/signalDisplay';
+import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
 import { getEventTypeLabel } from '@utils/disclosureType';
 
-import type { TradingSignal, EntryCondition } from '@app-types/signal.types';
+import type { TradingSignal } from '@app-types/signal.types';
 
-// 매수 신호 카드(기획 §3 SCR-SIGNALS). Surface(elevation=2) 컨테이너.
+// 매수 신호 카드(기획 §3 SCR-SIGNALS) — DAR-118 압축: 9요소 → 핵심 4요소.
+// 핵심 4요소: 기업명 + 이벤트유형 칩(1곳) + 등급 칩 + Buy Score 게이지(+추천 이유 1줄).
+// 미룬 정보(전체는 /signals/[id]): 진입조건 전체→"N/M 충족" 요약 1줄, AI요약 3줄→제거,
+// riskFlags 전체→개수 배지. 위험은 RiskStatusBadges 단일 채널, AiReferenceLabel은 피드 푸터 1회.
 // 색상 단독 의미 전달 금지 — 색상 + 텍스트 레이블 + 아이콘 병행.
 
 interface BuyScoreCardProps {
@@ -21,55 +23,29 @@ interface BuyScoreCardProps {
   onPress?: (signal: TradingSignal) => void;
 }
 
-function EntryConditionRow({ condition }: { condition: EntryCondition }) {
-  const { colors, typography: typo } = useTheme();
-  // 미충족·비필수 조건도 '읽어야 하는' 진입 정보 → textSecondary(다크 AA 6.1:1, P0-A §2)
-  const metColor = condition.met
-    ? colors.success
-    : condition.required
-      ? colors.error
-      : colors.textSecondary;
-  // 색맹 대응(§8-2): 필수 미충족은 형태가 다른 alert-circle로 구분(색 단독 의존 제거)
-  const iconName = condition.met
-    ? 'check-circle'
-    : condition.required
-      ? 'alert-circle'
-      : 'circle';
-  // 상태어 합성(§8-2): 스크린리더가 색 대신 '필수 미충족' 등 텍스트로 읽도록
-  const conditionStatus = condition.met
-    ? '충족'
-    : condition.required
-      ? '필수 미충족'
-      : '미충족';
-  return (
-    <View
-      style={styles.conditionRow}
-      accessibilityLabel={`${condition.required ? '필수 진입 조건' : '선택 진입 조건'} ${condition.label}: ${conditionStatus}`}
-    >
-      <Feather name={iconName} size={14} color={metColor} />
-      <Text style={[typo.small, { color: colors.textSecondary, flex: 1 }]}>
-        {condition.required ? '필수 ' : ''}
-        {condition.label}
-      </Text>
-    </View>
-  );
-}
-
-export function BuyScoreCard({ signal, onPress }: BuyScoreCardProps) {
+function BuyScoreCardBase({ signal, onPress }: BuyScoreCardProps) {
   const { colors, typography: typo } = useTheme();
   const isBlocked = signal.grade === 'BLOCKED';
   const handlePress = useCallback(() => onPress?.(signal), [onPress, signal]);
-  // DAR-99: 관리종목·거래정지·상폐위험 배지(DART 폴백·근사값). 손실 회피 1차 방어선.
+  // DAR-99: 관리종목·거래정지·상폐위험 배지(DART 폴백·근사값). 손실 회피 1차 방어선·단일 채널.
   const { data: riskStatus } = useStockRiskStatus({ corpCode: signal.corpCode });
   const riskSummary = summarizeRiskStatus(riskStatus);
+
+  // 진입조건 요약(§3-c): 전체 체크리스트 대신 "N/M 충족" 1줄. 전체는 상세 화면.
+  const entrySummary = useMemo(() => {
+    const total = signal.entryConditions.length;
+    if (total === 0) return null;
+    const met = signal.entryConditions.filter((c) => c.met).length;
+    return { met, total };
+  }, [signal.entryConditions]);
+
+  const riskFlagCount = signal.riskFlags.length;
 
   return (
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={handlePress}
       accessibilityRole="button"
-      // 카드 그룹핑(§8-1): 카드를 단일 단위로 읽고, 내부 요소 중복 읽기를 막는다.
-      // 위험상태는 카드가 자식 a11y 를 가리므로(§no-hide) 카드 라벨에 합성한다.
       accessibilityLabel={`${signal.corpName} 매수 신호, Buy Score ${signal.buyScore}, ${gradeLabel(
         signal.grade,
       )}${riskSummary ? `, ${riskSummary}` : ''}`}
@@ -92,8 +68,13 @@ export function BuyScoreCard({ signal, onPress }: BuyScoreCardProps) {
         <View style={styles.headerRow}>
           <View style={styles.headerLeft}>
             {signal.eventType ? (
-              <Chip compact mode="flat" style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
-                textStyle={[typo.small, { color: colors.textSecondary }]}>
+              // eventType 단일 노출(§3-d 중복 제거) — 헤더 칩 1곳만.
+              <Chip
+                compact
+                mode="flat"
+                style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
+                textStyle={[typo.small, { color: colors.textSecondary }]}
+              >
                 {getEventTypeLabel(signal.eventType)}
               </Chip>
             ) : null}
@@ -111,21 +92,13 @@ export function BuyScoreCard({ signal, onPress }: BuyScoreCardProps) {
           </Chip>
         </View>
 
-        {signal.ticker ? (
-          // ticker는 읽어야 할 종목 식별자 → textSecondary(다크 AA, P0-A §2). 이벤트는 평문 변환(P0-B)
-          <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
-            {signal.ticker}
-            {signal.eventType ? ` · ${getEventTypeLabel(signal.eventType)}` : ''}
-          </Text>
-        ) : null}
-
-        {/* DAR-99: 위험 배지(위험 없으면 미표시) — 근사값(DART) 라벨 병기 */}
+        {/* DAR-99: 위험 배지(위험 없으면 미표시) — 단일 채널(riskFlags 평문 노출 제거) */}
         <RiskStatusBadges status={riskStatus} compact style={styles.riskBadges} />
 
         {isBlocked ? (
           <View style={[styles.blockedBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Feather name="slash" size={14} color={colors.textTertiary} />
-            <Text style={[typo.small, { color: colors.textTertiary, flex: 1 }]}>
+            <Text style={[typo.small, { color: colors.textTertiary, flex: 1 }]} numberOfLines={2}>
               {signal.blockedReason ?? '조건 미충족으로 차단된 신호입니다.'}
             </Text>
           </View>
@@ -136,43 +109,40 @@ export function BuyScoreCard({ signal, onPress }: BuyScoreCardProps) {
                 score={signal.buyScore}
                 kind="buy"
                 statusText={gradeLabel(signal.grade)}
+                oneLiner={scoreOneLiner(signal.buyScore, signal.grade)}
                 accessibilityHidden
               />
             </View>
 
-            {/* §9-5: Dynamic Type 1.5x에서 2줄 클립 방지 → 3줄로 완화 */}
-            {signal.summary ? (
-              <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.sm }]} numberOfLines={3}>
-                {signal.summary}
-              </Text>
-            ) : null}
-
-            {signal.entryConditions.length > 0 ? (
-              <View style={styles.conditionList}>
-                {signal.entryConditions.slice(0, 3).map((c) => (
-                  <EntryConditionRow key={c.id} condition={c} />
-                ))}
+            {/* 요약 메타 1줄(§3-c): 진입조건 충족수 + 리스크 개수 배지. 전체는 상세로. */}
+            {entrySummary || riskFlagCount > 0 ? (
+              <View style={styles.metaRow}>
+                {entrySummary ? (
+                  <View style={styles.metaItem}>
+                    <Feather name="check-circle" size={13} color={colors.textSecondary} />
+                    <Text style={[typo.small, { color: colors.textSecondary }]}>
+                      진입조건 {entrySummary.met}/{entrySummary.total} 충족
+                    </Text>
+                  </View>
+                ) : null}
+                {riskFlagCount > 0 ? (
+                  <View style={styles.metaItem}>
+                    <Feather name="alert-triangle" size={13} color={colors.warning} />
+                    <Text style={[typo.small, { color: colors.textSecondary }]}>
+                      리스크 {riskFlagCount}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             ) : null}
-
-            {signal.riskFlags.length > 0 ? (
-              <View style={styles.riskRow}>
-                <Feather name="alert-triangle" size={13} color={colors.warning} />
-                <Text style={[typo.small, { color: colors.textSecondary, flex: 1 }]} numberOfLines={1}>
-                  {signal.riskFlags[0].label}
-                </Text>
-              </View>
-            ) : null}
-
-            <View style={styles.footerRow}>
-              <AiReferenceLabel />
-            </View>
           </>
         )}
       </Surface>
     </TouchableOpacity>
   );
 }
+
+export const BuyScoreCard = React.memo(BuyScoreCardBase);
 
 const styles = StyleSheet.create({
   card: {
@@ -204,20 +174,17 @@ const styles = StyleSheet.create({
   gaugeWrap: {
     marginTop: spacing.md,
   },
-  conditionList: {
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.md,
     marginTop: spacing.sm,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.xs,
-  },
-  conditionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  riskRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
   },
   blockedBox: {
     flexDirection: 'row',
@@ -227,8 +194,5 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     borderRadius: radius.md,
     borderWidth: 1,
-  },
-  footerRow: {
-    marginTop: spacing.md,
   },
 });

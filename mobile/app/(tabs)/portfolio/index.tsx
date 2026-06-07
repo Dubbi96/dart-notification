@@ -11,10 +11,13 @@ import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { SimulationStatusSection } from '@components/portfolio/SimulationStatusSection';
 import { StyleComparisonSection } from '@components/portfolio/StyleComparisonSection';
+import { TodayCheckSlot } from '@components/portfolio/TodayCheckSlot';
+import { PositionSearchBar } from '@components/portfolio/PositionSearchBar';
 import { usePositions, usePortfolioSummary, usePaperPortfolio } from '@hooks/usePortfolio';
 import { pnlColor, formatPnlPercent } from '@utils/signalDisplay';
 
 import type { Position } from '@app-types/portfolio.types';
+import type { SortKey } from '@components/portfolio/PositionSearchBar';
 
 type SubTab = 'live' | 'paper' | 'sim' | 'style';
 
@@ -29,6 +32,8 @@ const STATUS_ORDER: Record<Position['thesisStatus'], number> = {
 export default function PortfolioScreen() {
   const { colors, typography: typo } = useTheme();
   const [subTab, setSubTab] = useState<SubTab>('live');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('urgency');
 
   const positionsQuery = usePositions();
   const summaryQuery = usePortfolioSummary();
@@ -42,6 +47,30 @@ export default function PortfolioScreen() {
     const data = positionsQuery.data ?? [];
     return [...data].sort((a, b) => STATUS_ORDER[a.thesisStatus] - STATUS_ORDER[b.thesisStatus]);
   }, [positionsQuery.data]);
+
+  const filteredPositions = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const base = query
+      ? sortedPositions.filter(
+          (p) =>
+            p.corpName.toLowerCase().includes(query) ||
+            (p.ticker?.toLowerCase().includes(query) ?? false),
+        )
+      : sortedPositions;
+
+    return [...base].sort((a, b) => {
+      if (sortKey === 'pnl') {
+        return a.pnlPercent - b.pnlPercent;
+      }
+      if (sortKey === 'weight') {
+        return (b.weight ?? 0) - (a.weight ?? 0);
+      }
+      return (
+        (STATUS_ORDER[a.thesisStatus] - STATUS_ORDER[b.thesisStatus]) ||
+        ((b.exitScore ?? 0) - (a.exitScore ?? 0))
+      );
+    });
+  }, [sortedPositions, searchQuery, sortKey]);
 
   const renderPosition = useCallback(
     ({ item }: { item: Position }) => <PositionCard position={item} onPress={handlePositionPress} />,
@@ -58,7 +87,7 @@ export default function PortfolioScreen() {
 
     return (
       <FlatList
-        data={sortedPositions}
+        data={filteredPositions}
         renderItem={renderPosition}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
@@ -67,30 +96,51 @@ export default function PortfolioScreen() {
         refreshing={positionsQuery.isRefetching}
           onRefresh={positionsQuery.refetch}
         ListHeaderComponent={
-          summary ? (
-            <Surface elevation={1} style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Text style={[typo.small, { color: colors.textSecondary }]}>총 평가금액</Text>
-              <Text style={[typo.h2, { color: colors.text, marginTop: spacing.xs }]}>
-                {summary.totalValue.toLocaleString()}원
-              </Text>
-              <Text style={[typo.captionMedium, { color: pnlColor(summary.totalPnlPercent, colors), marginTop: spacing.xs }]}>
-                {summary.totalPnl.toLocaleString()}원 ({formatPnlPercent(summary.totalPnlPercent)})
-              </Text>
-              {summary.mddBreached ? (
-                <Banner visible actions={[]} style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}>
-                  <Text style={[typo.small, { color: colors.error }]}>
-                    포트폴리오 손실 한도 초과 위험 — 포지션 점검이 필요합니다.
-                  </Text>
-                </Banner>
-              ) : null}
-            </Surface>
-          ) : null
+          <View style={styles.liveHeader}>
+            {summary ? (
+              <Surface elevation={1} style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[typo.small, { color: colors.textSecondary }]}>총 평가금액</Text>
+                <Text style={[typo.h2, { color: colors.text, marginTop: spacing.xs }]}>
+                  {summary.totalValue.toLocaleString()}원
+                </Text>
+                <Text style={[typo.captionMedium, { color: pnlColor(summary.totalPnlPercent, colors), marginTop: spacing.xs }]}>
+                  {summary.totalPnl.toLocaleString()}원 ({formatPnlPercent(summary.totalPnlPercent)})
+                </Text>
+                {summary.mddBreached ? (
+                  <Banner visible actions={[]} style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}>
+                    <Text style={[typo.small, { color: colors.error }]}>
+                      포트폴리오 손실 한도 초과 위험 — 포지션 점검이 필요합니다.
+                    </Text>
+                  </Banner>
+                ) : null}
+              </Surface>
+            ) : null}
+            <TodayCheckSlot positions={positionsQuery.data ?? []} onPress={handlePositionPress} />
+            <PositionSearchBar
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              sortKey={sortKey}
+              onSortChange={setSortKey}
+            />
+          </View>
         }
         ListEmptyComponent={
-          <EmptyState
-            {...emptyStateCopy.portfolioEmpty}
-            onAction={() => router.push('/(tabs)/signals')}
-          />
+          positionsQuery.data?.length === 0 ? (
+            <EmptyState
+              icon="briefcase"
+              title="아직 보유 종목이 없어요"
+              description="신호 탭에서 매수 신호를 확인해 보세요"
+              actionLabel="신호 보러 가기"
+              onAction={() => router.push('/(tabs)/signals')}
+            />
+          ) : (
+            <EmptyState
+              icon="search"
+              title="검색 결과가 없어요"
+              actionLabel="초기화"
+              onAction={() => setSearchQuery('')}
+            />
+          )
         }
       />
     );
@@ -202,6 +252,10 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
     flexGrow: 1,
+  },
+  liveHeader: {
+    gap: spacing.md,
+    marginBottom: spacing.sm,
   },
   summary: {
     borderRadius: radius.lg,

@@ -2,6 +2,8 @@
 // ⚠️ 포지션/포트폴리오/모의투자 엔드포인트는 아직 미존재(DAR-22).
 // 계약을 고정하고, 실제 응답이 생기면 그대로 연동한다.
 
+import type { ExitAction } from '@app-types/signal.types';
+
 export type ThesisStatus = 'ACTIVE' | 'WATCHING' | 'VIOLATED' | 'EXPIRED';
 
 /** 보유 포지션 */
@@ -17,6 +19,14 @@ export interface Position {
   quantity?: number;
   avgPrice?: number;
   currentPrice?: number;
+  /** 매도 시급도 점수 0~100 (없으면 큐레이션 대상 제외) */
+  exitScore?: number;
+  /** 권장 액션 */
+  exitAction?: ExitAction;
+  /** 점검 이유 1줄 (예: "논거 훼손: 매출 가이던스 하향") */
+  checkReason?: string;
+  /** 포트폴리오 내 비중 % */
+  weight?: number;
 }
 
 /** 포트폴리오 요약(실전) */

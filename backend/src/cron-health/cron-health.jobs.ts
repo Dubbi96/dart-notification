@@ -12,6 +12,7 @@ export const CRON_JOB_KEYS = {
   PAPER_SIMULATION: 'paper.simulation',
   INSIDER_DAILY: 'insider.daily',
   PARSE_RETRY: 'parse.retry',
+  PIPELINE_DRAIN: 'pipeline.drain',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -87,5 +88,13 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: 120, // 30분 간격 — 2시간 무가동이면 정체
     cadence: '매 30분',
+  },
+  {
+    jobKey: CRON_JOB_KEYS.PIPELINE_DRAIN,
+    label: '공시 파이프라인 자동 드레인(파싱→이벤트추출→AI)',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: 60, // 15분 간격 — 1시간 무가동이면 정체
+    cadence: '매 15분',
   },
 ];

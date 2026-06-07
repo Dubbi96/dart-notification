@@ -361,6 +361,30 @@ async notifyMatchedUsers(disclosure: Disclosure) {
 
 ---
 
+### 2.1-b 공시 파이프라인 자동 드레인 (15분마다, DAR-113)
+
+수집 스케줄러는 신규 공시를 `enqueueParsing`으로 `DisclosureDocument(PENDING)`에 **적재만** 하고
+실제 파싱은 트리거하지 않는다(파싱 큐 워커 부재). 과거에는 PENDING→DONE 전환이 수동
+`POST /document-parsing/batch`로만 가능했고 parse-retry 크론은 FAILED만 재처리해, PENDING
+문서가 정체되면 이벤트추출·AI 분석 폐루프가 끊겼다. `PendingPipelineScheduler`가 이 공백을 메운다.
+
+```typescript
+@Cron('*/15 * * * *')  // 매 15분
+async drainPending() {
+  // ① PENDING 파싱 드레인 (DART fetch, 최대 50건/회)
+  const parse = await this.documents.processPendingBatch(50);
+  // ② 파싱완료-이벤트없음 추출 드레인 → AI_ANALYZE 큐 발행 (최대 100건/회, DART 호출 0)
+  //    ★체이닝(onDocumentParsed)에 의존하지 않는 결정적 경로. 멱등(rcpNo upsert + rcpNo+task 캐시).
+  const extract = await this.events.processPendingDisclosures(100);
+}
+```
+
+- **자동 폐루프**: 수집 → 파싱 → 이벤트추출 → AI 분석(AiCostGate L0~L3 + 일/월 한도가드가 비용 통제).
+- **안전**: 이전 실행 진행 중이면 건너뜀(중복 방지), 본업 예외는 흡수(스케줄 유지), CronRunLog에 기록(신선도 판정 `pipeline.drain`, stale 60분).
+- ⚠️ 신규 코드는 **백엔드 재시작 후** 활성화된다(런타임이 stale 빌드면 미반영).
+
+---
+
 ### 2.2 공시 유형 분류 로직
 
 **공시명 기반 분류**:

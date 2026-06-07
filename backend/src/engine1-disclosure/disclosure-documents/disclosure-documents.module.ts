@@ -5,6 +5,7 @@ import { DartApiModule } from '../dart-api/dart-api.module';
 import { DisclosureDocumentsService } from './disclosure-documents.service';
 import { DisclosureDocumentsController } from './disclosure-documents.controller';
 import { ParseRetryScheduler } from './parse-retry.scheduler';
+import { PendingPipelineScheduler } from './pending-pipeline.scheduler';
 import { LocalStorageService } from './storage/storage.service';
 import { DartFiledFactService } from './facts/dart-filed-fact.service';
 import { DartFiledFactController } from './facts/dart-filed-fact.controller';
@@ -22,6 +23,7 @@ import { DisclosureEventsModule } from '../disclosure-events/disclosure-events.m
   providers: [
     DisclosureDocumentsService,
     ParseRetryScheduler,
+    PendingPipelineScheduler,
     LocalStorageService,
     DartFiledFactService,
   ],

@@ -64,3 +64,13 @@ export function useDisclosureAnalysis(rcpNo: string) {
     retry: false,
   });
 }
+
+/** 공시 본문 정량 fact — GET /disclosure-facts/:rcpNo 실연동(DAR-112). 추출 없으면 빈 배열. */
+export function useDisclosureFiledFacts(rcpNo: string) {
+  return useQuery({
+    queryKey: ['disclosure-facts', rcpNo],
+    queryFn: () => disclosureService.getFiledFacts(rcpNo),
+    enabled: !!rcpNo,
+    retry: false,
+  });
+}

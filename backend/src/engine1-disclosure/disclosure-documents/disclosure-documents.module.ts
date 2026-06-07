@@ -7,6 +7,7 @@ import { DisclosureDocumentsController } from './disclosure-documents.controller
 import { ParseRetryScheduler } from './parse-retry.scheduler';
 import { LocalStorageService } from './storage/storage.service';
 import { DartFiledFactService } from './facts/dart-filed-fact.service';
+import { DartFiledFactController } from './facts/dart-filed-fact.controller';
 import { DisclosureEventsModule } from '../disclosure-events/disclosure-events.module';
 
 @Module({
@@ -17,7 +18,7 @@ import { DisclosureEventsModule } from '../disclosure-events/disclosure-events.m
     // M2 체이닝: forwardRef로 순환 참조 방지 (@Optional() 주입과 함께 사용)
     forwardRef(() => DisclosureEventsModule),
   ],
-  controllers: [DisclosureDocumentsController],
+  controllers: [DisclosureDocumentsController, DartFiledFactController],
   providers: [
     DisclosureDocumentsService,
     ParseRetryScheduler,

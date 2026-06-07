@@ -28,6 +28,22 @@ export interface DisclosureEvent {
   updatedAt: string;
 }
 
+/**
+ * 공시 본문 정량 fact (GET /disclosure-facts/:rcpNo 실연동, DAR-112).
+ * DAR-95로 적재된 표준화 정량값(계약금액·전환가·배당성향 등).
+ */
+export interface FiledFact {
+  rcpNo: string;
+  corpCode: string;
+  factKey: string;
+  value: string;
+  numericValue: number | null;
+  unit: string | null;
+  period: string | null;
+  sectionPath: string | null;
+  docType: string | null;
+}
+
 export interface DisclosureType {
   id: string;
   label: string;

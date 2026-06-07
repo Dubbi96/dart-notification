@@ -238,13 +238,13 @@ function SummaryHeader({
       </Surface>
 
       {/* 검증 동선 드릴다운 진입점 (DAR-105) */}
-      {/* 매매 사유 추적 + 성적표 진입 (DAR-64) */}
+      {/* 성과 리포트 진입 (DAR-64 성적표 → DAR-120 성과·정밀도·보정 3탭) */}
       <DrilldownLink
         icon="clipboard"
-        title="매매 성적표"
-        subtitle="진입·청산 사유 추적 · 승률·평균손익"
+        title="성과 리포트"
+        subtitle="매매 성적표 · 신호 정밀도 · 보정 권고"
         onPress={() => router.push('/portfolio/trade-history')}
-        accessibilityLabel="매매 성적표 — 진입·청산 사유 추적"
+        accessibilityLabel="성과 리포트 — 매매 성적표·신호 정밀도·보정 권고"
       />
 
       {/* 철학 체크리스트 진입점 (DAR-105) — 투자거장 허브에서 거장별 체크리스트로 종목 점검 */}

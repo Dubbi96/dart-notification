@@ -45,6 +45,7 @@
 ## 권장: 정식 dev build (Expo Go 한계 대비)
 - 프로젝트에 `expo-dev-client` 존재 → 원래 **development build 전제**. Expo Go는 이번 refreshControl 류 Fabric 이슈에 취약했음(수정으로 현재는 Expo Go에서도 동작).
 - 장기적으로 Galaxy 안정 배포는 **EAS Build(Android dev/preview)** 또는 로컬 `expo run:android`로 dev build 생성 권장. 네이티브 모듈 정합 보장.
+- ▶ **재현 가능한 dev build 생성·Galaxy 설치·Metro LAN·CI 게이트 절차는 [`mobile-dev-build.md`](./mobile-dev-build.md) 참조 (DAR-114).**
 
 ## 교차 검증 결과(2026-06-07)
 - iOS 시뮬레이터: 정상.

@@ -7,6 +7,14 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // DAR-114: ETag/조건부요청(304) 비활성화.
+  // Express는 기본으로 응답에 ETag를 붙인다. 모바일(React Native/OkHttp)이 재요청 시
+  // If-None-Match 를 보내면 서버가 304(본문 없음)를 반환하는데, RN 네트워크 계층이 304에서
+  // 캐시 본문을 제대로 복원하지 못해 빈 응답이 되고 화면이 비는 버그가 있었다(에러 없이 무데이터).
+  // 동적 API 응답엔 ETag 캐시 이득이 없으므로 끈다 → 항상 200 + 전체 본문 반환.
+  const expressInstance = app.getHttpAdapter().getInstance();
+  expressInstance.set('etag', false);
+
   // Global prefix — 운영 헬스 프로브(/health·/health/live)는 prefix 제외(probe 는 /api 미사용, DAR-111).
   app.setGlobalPrefix('api', { exclude: ['health', 'health/live'] });
 

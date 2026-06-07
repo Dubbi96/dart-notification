@@ -23,7 +23,6 @@ import { HomeSignalPreview } from '@components/home/HomeSignalPreview';
 import { GraduationTracker } from '@components/home/GraduationTracker';
 import { FirstWatchCoachmark } from '@components/home/FirstWatchCoachmark';
 import { DisclosureFeedCard } from '@components/home/DisclosureFeedCard';
-import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { SearchOverlay } from '@components/common/SearchOverlay';
 import { useDisclosures } from '@hooks/useDisclosures';
 import { useWatchlist } from '@hooks/useWatchlist';
@@ -347,6 +346,7 @@ export default function HomeScreen() {
       {/* Content area with top border radius — 화면 전체가 단일 FlatList로 스크롤(DAR-114). */}
       <View style={[styles.contentArea, { backgroundColor: colors.background }]}>
         <FlatList
+          style={styles.feedList}
           // 로딩 중에는 data를 빈 배열로 둬 ListEmptyComponent(스켈레톤)가 뜨게 한다.
           data={isLoading ? [] : disclosures}
           renderItem={renderDisclosureItem}
@@ -360,9 +360,10 @@ export default function HomeScreen() {
           removeClippedSubviews={false}
           onEndReached={handleEndReached}
           onEndReachedThreshold={0.5}
-          refreshControl={
-            <AppRefreshControl refreshing={isRefetching && !isFetchingNextPage} onRefresh={refetch} />
-          }
+          // DAR-114: refreshControl={<커스텀래퍼>}는 RN0.85 Fabric(Android)에서 FlatList 콘텐츠를
+          // 통째로 미렌더시킨다. RN 권장인 refreshing/onRefresh props로 교체(Fabric 호환).
+          refreshing={isRefetching && !isFetchingNextPage}
+          onRefresh={refetch}
           ListHeaderComponent={ListHeader}
           ListFooterComponent={
             isFetchingNextPage ? (
@@ -433,6 +434,10 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     marginTop: -radius.xl,
+  },
+  // DAR-114: Android에서 FlatList가 부모(flex:1)를 못 채우고 높이 0으로 붕괴하는 문제 방지.
+  feedList: {
+    flex: 1,
   },
   sectionHeader: {
     flexDirection: 'row',

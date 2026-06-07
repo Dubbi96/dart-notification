@@ -9,7 +9,6 @@ import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
-import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { InfiniteListFooter } from '@components/common/InfiniteListFooter';
 import { useExploreSignals } from '@hooks/useSignals';
 import {
@@ -213,12 +212,8 @@ export function SignalExplorer() {
             }
           }}
           onEndReachedThreshold={0.4}
-          refreshControl={
-            <AppRefreshControl
-              refreshing={query.isRefetching && !query.isFetchingNextPage}
-              onRefresh={query.refetch}
-            />
-          }
+          refreshing={query.isRefetching && !query.isFetchingNextPage}
+          onRefresh={query.refetch}
           ListFooterComponent={
             items.length > 0 ? (
               <View>

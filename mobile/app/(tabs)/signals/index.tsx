@@ -12,7 +12,6 @@ import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
-import { AppRefreshControl } from '@components/common/AppRefreshControl';
 import { useBuySignals, useExitSignals } from '@hooks/useSignals';
 import { useWatchlist } from '@hooks/useWatchlist';
 
@@ -69,14 +68,15 @@ export default function SignalsScreen() {
       const data = buyQuery.data ?? [];
       return (
         <FlatList
+          style={styles.list}
           data={data}
           renderItem={renderBuy}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          refreshControl={
-            <AppRefreshControl refreshing={buyQuery.isRefetching} onRefresh={buyQuery.refetch} />
-          }
+          removeClippedSubviews={false}
+          refreshing={buyQuery.isRefetching}
+          onRefresh={buyQuery.refetch}
           ListEmptyComponent={
             // 관심기업 유무로 §2-2 카피 분기: 없으면 추가 유도, 있으면 신호 없음 안내
             hasWatchlist ? (
@@ -96,14 +96,15 @@ export default function SignalsScreen() {
     const data = exitQuery.data ?? [];
     return (
       <FlatList
+        style={styles.list}
         data={data}
         renderItem={renderExit}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <AppRefreshControl refreshing={exitQuery.isRefetching} onRefresh={exitQuery.refetch} />
-        }
+          removeClippedSubviews={false}
+        refreshing={exitQuery.isRefetching}
+          onRefresh={exitQuery.refetch}
         ListEmptyComponent={<EmptyState {...emptyStateCopy.exitSignalsEmpty} />}
         ListFooterComponent={data.length > 0 ? <DisclaimerSection style={styles.disclaimer} /> : null}
       />
@@ -182,6 +183,9 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
   },
   body: {
+    flex: 1,
+  },
+  list: {
     flex: 1,
   },
   listContent: {

@@ -282,7 +282,6 @@ const styles = StyleSheet.create({
   chipRow: {
     paddingHorizontal: spacing.lg,
     gap: spacing.sm,
-    flexGrow: 1,
   },
   chip: {
     flexDirection: 'row',

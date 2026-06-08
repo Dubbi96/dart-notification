@@ -377,4 +377,108 @@ describe('saveDisclosures — disclosureType 분류 위임 (회귀)', () => {
       }),
     );
   });
+
+  it('기본(라이브) 수집은 isBackfill=false로 저장한다 (회귀)', async () => {
+    const fakeItem = {
+      corp_code: 'CORP001',
+      corp_name: '테스트기업',
+      stock_code: '000001',
+      corp_cls: 'Y',
+      report_nm: '사업보고서',
+      rcept_no: 'RCP2026012',
+      flr_nm: '테스트기업',
+      rcept_dt: '20260601',
+      rm: '',
+    };
+    dartApiMock.getAllDisclosures.mockResolvedValue([fakeItem]);
+    prismaMock.disclosure.findMany.mockResolvedValue([]);
+    prismaMock.disclosure.createMany.mockResolvedValue({ count: 1 });
+
+    await service.collectByDate('20260601', '20260601', 'MANUAL');
+
+    expect(prismaMock.disclosure.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({ isBackfill: false }),
+        ]),
+      }),
+    );
+  });
+});
+
+// ════════════════════════════════════════════
+// describe: DAR-129 백필 격리 — isBackfill 표식 + 알림 미발송
+// ════════════════════════════════════════════
+describe('collectByDate — DAR-129 백필 격리', () => {
+  let service: SchedulerService;
+  let prismaMock: ReturnType<typeof makePrismaMock>;
+  let dartApiMock: ReturnType<typeof makeDartApiMock>;
+  let expoPushMock: ReturnType<typeof makeExpoPushMock>;
+
+  const fakeItem = {
+    corp_code: 'CORP001',
+    corp_name: '테스트기업',
+    stock_code: '000001',
+    corp_cls: 'Y',
+    report_nm: '주요사항보고',
+    rcept_no: 'RCP2026BF1',
+    flr_nm: '테스트기업',
+    rcept_dt: '20230601',
+    rm: '',
+  };
+
+  beforeEach(async () => {
+    prismaMock = makePrismaMock();
+    dartApiMock = makeDartApiMock();
+    expoPushMock = makeExpoPushMock();
+    service = await buildModule(prismaMock, dartApiMock, expoPushMock);
+
+    dartApiMock.getAllDisclosures.mockResolvedValue([fakeItem]);
+    prismaMock.disclosure.findMany.mockResolvedValue([]);
+    prismaMock.disclosure.createMany.mockResolvedValue({ count: 1 });
+  });
+
+  it('백필 모드는 저장 행에 isBackfill=true 표식을 남긴다', async () => {
+    await service.collectByDate('20230601', '20230601', 'MANUAL', {
+      isBackfill: true,
+    });
+
+    expect(prismaMock.disclosure.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({ isBackfill: true }),
+        ]),
+      }),
+    );
+  });
+
+  it('★백필 모드는 사용자 알림을 발송하지 않는다 (matchAndNotify 미실행)', async () => {
+    // 관심 기업 사용자가 존재해도(=라이브였다면 알림 대상) 백필은 매칭 자체를 건너뛴다.
+    prismaMock.watchList.findMany.mockResolvedValue([
+      {
+        corpCode: 'CORP001',
+        user: { id: 'u1', notificationSettings: null, devices: [] },
+      },
+    ]);
+
+    const result = await service.collectByDate('20230601', '20230601', 'MANUAL', {
+      isBackfill: true,
+    });
+
+    // matchAndNotify의 첫 쿼리(watchList.findMany)가 호출되지 않아야 함 = 알림 경로 미진입
+    expect(prismaMock.watchList.findMany).not.toHaveBeenCalled();
+    // 푸시·알림 히스토리 생성 0건
+    expect(expoPushMock.sendPushNotifications).not.toHaveBeenCalled();
+    expect(prismaMock.notificationHistory.create).not.toHaveBeenCalled();
+    // 저장 자체는 성공
+    expect(result.saved).toBe(1);
+  });
+
+  it('라이브(비백필) 모드는 알림 매칭 경로에 진입한다 (대조군)', async () => {
+    prismaMock.watchList.findMany.mockResolvedValue([]);
+
+    await service.collectByDate('20260601', '20260601', 'MANUAL');
+
+    expect(prismaMock.watchList.findMany).toHaveBeenCalled();
+  });
 });

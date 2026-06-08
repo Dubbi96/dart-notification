@@ -42,12 +42,18 @@ export class SchedulerService {
    * @param bgnDe - 수집 시작일 (YYYYMMDD)
    * @param endDe - 수집 종료일 (YYYYMMDD)
    * @param triggeredBy - 'CRON' | 'MANUAL' (기본값: 'MANUAL')
+   * @param options.isBackfill - DAR-129: 과거 공시 백필 모드.
+   *   true면 저장 행에 isBackfill=true 표식을 남기고, 사용자 알림(matchAndNotify)을
+   *   ★건너뛴다(과거 공시 푸시 폭탄 방지). 파싱·이벤트추출 큐 등록은 그대로 수행(분석 baseline).
+   *   라이브 신호 생성은 isBackfill=true 공시를 항상 제외(SignalGenerationService).
    */
   async collectByDate(
     bgnDe: string,
     endDe: string,
     triggeredBy: 'CRON' | 'MANUAL' = 'MANUAL',
+    options: { isBackfill?: boolean } = {},
   ): Promise<{ saved: number; total?: number; message?: string }> {
+    const isBackfill = options.isBackfill ?? false;
     // ① isCollecting 락 — 중복 실행 시 로그를 생성하지 않고 조기 반환
     if (this.isCollecting) {
       this.logger.warn('이전 수집 작업이 아직 진행 중입니다. 건너뜁니다.');
@@ -113,9 +119,11 @@ export class SchedulerService {
         return { saved: 0, total: fetchedCount };
       }
 
-      // DB 저장
-      newCount = await this.saveDisclosures(newDisclosures);
-      this.logger.log(`${newCount}개 신규 공시 저장 완료`);
+      // DB 저장 — 백필 모드면 isBackfill=true 표식 동반
+      newCount = await this.saveDisclosures(newDisclosures, isBackfill);
+      this.logger.log(
+        `${newCount}개 신규 공시 저장 완료${isBackfill ? ' [백필]' : ''}`,
+      );
 
       // M1 연결점: 신규 저장된 공시 rcpNo를 파싱 큐에 등록
       if (this.disclosureDocumentsService && newDisclosures.length > 0) {
@@ -130,11 +138,16 @@ export class SchedulerService {
       }
 
       // 알림 매칭 및 발송 — 오류 시 failedCount 증가, throw하지 않음
-      try {
-        await this.matchAndNotify(newDisclosures);
-      } catch (notifyError) {
-        this.logger.error('알림 발송 오류', notifyError);
-        failedCount = newDisclosures.length; // 매칭 전체 실패로 간주
+      // ★DAR-129: 백필 모드는 사용자 알림을 절대 발송하지 않는다(과거 공시 푸시 폭탄 방지).
+      if (isBackfill) {
+        this.logger.log('[백필] 사용자 알림 매칭·발송 건너뜀');
+      } else {
+        try {
+          await this.matchAndNotify(newDisclosures);
+        } catch (notifyError) {
+          this.logger.error('알림 발송 오류', notifyError);
+          failedCount = newDisclosures.length; // 매칭 전체 실패로 간주
+        }
       }
 
       const skippedFinal = fetchedCount - newCount;
@@ -258,6 +271,7 @@ export class SchedulerService {
    */
   private async saveDisclosures(
     items: DartDisclosureItem[],
+    isBackfill = false,
   ): Promise<number> {
     const data = items.map((item) => ({
       rcpNo: item.rcept_no,
@@ -270,6 +284,8 @@ export class SchedulerService {
       disclosureType: this.dartApiService.classifyDisclosureType(
         item.report_nm,
       ),
+      // DAR-129: 백필 모드면 라이브 신호·알림 격리 표식
+      isBackfill,
     }));
 
     const result = await this.prisma.disclosure.createMany({

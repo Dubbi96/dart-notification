@@ -211,7 +211,11 @@ export class SignalGenerationService {
       const pricedSet = new Set(pricedStocks.map((s) => s.stockCode));
 
       // 2. 후보 이벤트: 종목코드 + 시세 보유
+      // ★DAR-129: 백필(과거 분석 baseline) 공시는 라이브 신호 생성에서 절대 제외(불가침).
+      //   relation 필터로 isBackfill=true 공시의 이벤트를 후보에서 원천 배제한다.
+      //   Event Study·통계·백테스트 등 분석 경로는 별도이며 백필 포함 전체 사용(여기서만 격리).
       const events = await this.prisma.disclosureEvent.findMany({
+        where: { disclosure: { isBackfill: false } },
         select: {
           rcpNo: true,
           corpCode: true,

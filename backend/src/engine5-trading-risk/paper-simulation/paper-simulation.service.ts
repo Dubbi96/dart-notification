@@ -60,6 +60,8 @@ export interface DailyCycleResult {
   bought: number;
   snapshotted: number;
   exited: number;
+  /** DAR-135: 이번 사이클에 합성가로 재기준한 레거시 포지션 수(합성 모드 외엔 항상 0). */
+  rebased: number;
   openPositions: number;
   equity: number;
   metrics: SimulationMetrics;
@@ -139,6 +141,11 @@ export class PaperSimulationService {
       //   환경 시계가 미래라 실 KRX 일봉이 없을 때 매수·스냅샷·Exit가 가격변동을 평가하게 한다.
       await this.priceSource?.prepareUniverse(pf.id, tradeDate);
 
+      // DAR-135: 레거시 포지션(실가격 진입 ↔ 합성가 평가 불일치) 재기준 — 합성 모드에서만.
+      //   유니버스 적재 직후·신규 매수 전 1회. 신규 매수는 이미 합성가로 일관(openNewPositions
+      //   → latestClose → priceSource)이라 대상이 아니다. 실데이터 모드/미주입은 no-op(회귀 0).
+      const rebased = await this.rebaseLegacyPositions(pf.id, tradeDate);
+
       const bought = await this.openNewPositions(pf, tradeDate);
       const snapshotted = await this.snapshotOpenPositions(pf.id, tradeDate);
       const exited = await this.evaluateExits(pf.id, tradeDate);
@@ -146,9 +153,9 @@ export class PaperSimulationService {
       await this.savePortfolioSnapshot(pf.id, tradeDate, equity, metrics, openPositions);
 
       this.logger.log(
-        `[PaperSim] 사이클 완료 매수=${bought} 스냅샷=${snapshotted} 매도=${exited} 보유=${openPositions} 평가자산=${equity}`,
+        `[PaperSim] 사이클 완료 매수=${bought} 스냅샷=${snapshotted} 매도=${exited} 재기준=${rebased} 보유=${openPositions} 평가자산=${equity}`,
       );
-      return { tradeDate, bought, snapshotted, exited, openPositions, equity, metrics };
+      return { tradeDate, bought, snapshotted, exited, rebased, openPositions, equity, metrics };
     } catch (e) {
       this.logger.error(`[PaperSim] 사이클 오류: ${(e as Error).message}`);
       return this.emptyResult(tradeDate, (e as Error).message);
@@ -851,6 +858,75 @@ export class PaperSimulationService {
     return row ? row.closePrice : null;
   }
 
+  /**
+   * 합성 모드 진입↔평가 일관 임계(DAR-135).
+   * 신규 합성 포지션의 진입가(체결가)는 합성 종가와 슬리피지(기본 0.05%)만큼만 차이난다.
+   * 레거시(실가격 진입) 포지션은 합성가와 수십~수백% 괴리하므로, 10% 임계로 둘을 안전히 분리한다.
+   * (드물게 실가격이 합성 기준가의 ±10% 내인 레거시는 재기준에서 누락될 수 있으나 무해·재현됨.)
+   */
+  private static readonly LEGACY_REBASE_DRIFT = 0.1;
+
+  /**
+   * DAR-135: 레거시 포지션 재기준(rebase) — 합성 모드 전용.
+   *
+   * 배경: DAR-124 합성 시세 활성화 전에 열린 포지션은 진입가가 '실 KRX 가격'인데, 이후 평가는
+   *   합성가(SimulatedDailyPrice)로 이뤄져 진입↔평가 기준이 불일치한다. 그 결과 첫 스냅샷에서
+   *   진입가↔합성가 괴리가 통째로 평가손익으로 잡혀 equity 가 비현실적으로 점프한다.
+   *
+   * 처리(재기준): 보유 OPEN 포지션 중 진입가가 합성 시계열과 크게 어긋난 것을 골라, 진입 기준을
+   *   '진입일 시점의 합성 종가'로 재설정한다(수량 보존·평가손익 0으로 리셋). 이후 스냅샷부터
+   *   진입↔평가가 모두 합성가라 일관되며, 누적 괴리 점프가 사라진다.
+   *
+   * 멱등: 재기준 후 진입가 = 합성 종가 → 다음 사이클엔 drift ≤ 임계 → 재대상 아님. 신규 매수분도
+   *   이미 합성가 기준(drift ≈ 슬리피지)이라 건드리지 않는다. 실데이터 모드/미주입은 no-op(회귀 0).
+   *
+   * ★모의/시뮬 전용 — 실시세 오인 금지. SimulatedDailyPrice(source=SYNTHETIC)만 참조한다.
+   */
+  private async rebaseLegacyPositions(portfolioId: string, tradeDate: string): Promise<number> {
+    if (!this.priceSource?.isSynthetic) return 0;
+
+    const positions = await this.prisma.position.findMany({
+      where: { portfolioId, status: 'OPEN' },
+    });
+
+    let rebased = 0;
+    for (const p of positions) {
+      // 진입일 시점(≤tradeDate 로 클램프)의 합성 종가를 기준가로 사용.
+      const entryYmd = this.toBasDd(p.entryDate);
+      const anchorYmd = entryYmd <= tradeDate ? entryYmd : tradeDate;
+      const synRow = await this.latestPriceRow(p.corpCode, anchorYmd);
+      if (!synRow || synRow.closePrice <= 0) continue; // 합성 시세 공백 → 안전 스킵
+
+      const synEntry = synRow.closePrice;
+      const drift = Math.abs(p.entryPrice - synEntry) / synEntry;
+      // 진입↔합성 기준이 이미 일관(신규/재기준 완료) → 멱등 스킵.
+      if (drift <= PaperSimulationService.LEGACY_REBASE_DRIFT) continue;
+
+      await this.prisma.position.update({
+        where: { id: p.id },
+        data: {
+          entryPrice: synEntry,
+          entryAmount: synEntry * p.quantity,
+          currentPrice: synEntry,
+          currentValue: synEntry * p.quantity,
+          unrealizedPnl: 0,
+          unrealizedPnlPct: 0,
+          // 최고가도 합성 기준으로 리셋(실가격 잔재 제거 — 추적손절 왜곡 방지).
+          highestPrice: synEntry,
+          highestAt: p.entryDate,
+        },
+      });
+      rebased++;
+    }
+
+    if (rebased > 0) {
+      this.logger.log(
+        `[PaperSim][합성] 레거시 포지션 재기준 rebased=${rebased} tradeDate=${tradeDate}`,
+      );
+    }
+    return rebased;
+  }
+
   private toBasDd(d: Date): string {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -864,6 +940,7 @@ export class PaperSimulationService {
       bought: 0,
       snapshotted: 0,
       exited: 0,
+      rebased: 0,
       openPositions: 0,
       equity: PaperSimulationService.INITIAL_CAPITAL,
       metrics: calculateSimulationMetrics({

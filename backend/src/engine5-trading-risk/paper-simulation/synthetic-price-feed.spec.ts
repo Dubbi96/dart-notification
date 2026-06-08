@@ -15,6 +15,9 @@ import {
   tradingDaysEndingAt,
   generateSyntheticSeries,
   buildBar,
+  VOL_MIN,
+  VOL_MAX,
+  MAX_DAILY_RETURN,
 } from './synthetic-price-feed';
 
 describe('synthetic-price-feed — 결정적 합성 일봉(DAR-124)', () => {
@@ -78,11 +81,11 @@ describe('synthetic-price-feed — 결정적 합성 일봉(DAR-124)', () => {
       expect(prices.size).toBeGreaterThan(1);
       expect(vols.size).toBeGreaterThan(1);
     });
-    it('stockVolatility는 1.2%~4.0% 밴드 내 결정적', () => {
+    it('stockVolatility는 VOL_MIN~VOL_MAX(0.8%~2.2%) 밴드 내 결정적 (DAR-135 캘리브레이션)', () => {
       for (const c of ['005930', '000660', '035720']) {
         const v = stockVolatility(c);
-        expect(v).toBeGreaterThanOrEqual(0.012);
-        expect(v).toBeLessThanOrEqual(0.04);
+        expect(v).toBeGreaterThanOrEqual(VOL_MIN);
+        expect(v).toBeLessThanOrEqual(VOL_MAX);
         expect(stockVolatility(c)).toBe(v);
       }
     });
@@ -100,6 +103,39 @@ describe('synthetic-price-feed — 결정적 합성 일봉(DAR-124)', () => {
       const a = buildBar('005930', '20260608', 50_000, 0.03);
       const b = buildBar('005930', '20260608', 50_000, 0.03);
       expect(a).toEqual(b);
+    });
+
+    it('일변동 한도 — open/close/high/low 모두 직전 종가 ±MAX_DAILY_RETURN 내 (DAR-135)', () => {
+      // 비현실적 σ(50%)를 줘도 단일일 변동이 한도를 넘지 못함(equity 과도 변동 차단).
+      const prev = 50_000;
+      const hi = Math.round(prev * (1 + MAX_DAILY_RETURN));
+      const lo = Math.round(prev * (1 - MAX_DAILY_RETURN));
+      for (const code of ['005930', '000660', '035720', '207940', '068270']) {
+        const bar = buildBar(code, '20260608', prev, 0.5);
+        expect(bar.openPrice).toBeLessThanOrEqual(hi);
+        expect(bar.openPrice).toBeGreaterThanOrEqual(lo);
+        expect(bar.closePrice).toBeLessThanOrEqual(hi);
+        expect(bar.closePrice).toBeGreaterThanOrEqual(lo);
+        expect(bar.highPrice).toBeLessThanOrEqual(hi);
+        expect(bar.lowPrice).toBeGreaterThanOrEqual(lo);
+      }
+    });
+  });
+
+  describe('변동성 캘리브레이션 — 현실 범위 일변동(DAR-135)', () => {
+    it('실제 σ 밴드(0.8%~2.2%)에서 일간 종가변동이 한도 내·대부분 작음', () => {
+      const dates = tradingDaysEndingAt('20260608', 60);
+      let maxAbs = 0;
+      const code = '005930';
+      const series = generateSyntheticSeries(code, dates);
+      for (let i = 1; i < series.length; i++) {
+        const ret = Math.abs(series[i].closePrice - series[i - 1].closePrice) / series[i - 1].closePrice;
+        maxAbs = Math.max(maxAbs, ret);
+      }
+      // 어떤 날도 한도를 넘지 않는다.
+      expect(maxAbs).toBeLessThanOrEqual(MAX_DAILY_RETURN + 1e-9);
+      // σ 밴드 상한(2.2%)을 감안해도 현실적: 최대 일변동이 KRX 제한(30%)보다 훨씬 작다.
+      expect(maxAbs).toBeLessThan(0.1);
     });
   });
 
@@ -128,10 +164,56 @@ describe('synthetic-price-feed — 결정적 합성 일봉(DAR-124)', () => {
       expect(s.map((b) => b.tradeDate)).toEqual(dates);
     });
 
-    it('seedPrice 주입 시 첫 종가는 그 근방(±σ)에서 시작', () => {
+    it('seedPrice 주입 시 첫 종가는 그 근방(±일변동 한도)에서 시작', () => {
       const s = generateSyntheticSeries('005930', dates, { seedPrice: 100_000, volatility: 0.03 });
-      expect(s[0].closePrice).toBeGreaterThan(100_000 * (1 - 0.05));
-      expect(s[0].closePrice).toBeLessThan(100_000 * (1 + 0.05));
+      // DAR-135: 일변동 한도(±MAX_DAILY_RETURN) 안에서 시작.
+      expect(s[0].closePrice).toBeGreaterThanOrEqual(Math.round(100_000 * (1 - MAX_DAILY_RETURN)));
+      expect(s[0].closePrice).toBeLessThanOrEqual(Math.round(100_000 * (1 + MAX_DAILY_RETURN)));
+    });
+
+    // ── DAR-135 변동성 캘리브레이션: 일변동 한도·현실 범위·0근방 집중 ──
+    describe('DAR-135 변동성 캘리브레이션', () => {
+      const longDates = tradingDaysEndingAt('20260608', 120);
+
+      it('일간 종가 변동률이 ±MAX_DAILY_RETURN(7%) 한도를 절대 넘지 않는다 (다종목·다일)', () => {
+        for (const code of ['005930', '000660', '035720', '207940', '068270']) {
+          const s = generateSyntheticSeries(code, longDates);
+          for (let i = 1; i < s.length; i++) {
+            const ret = (s[i].closePrice - s[i - 1].closePrice) / s[i - 1].closePrice;
+            expect(Math.abs(ret)).toBeLessThanOrEqual(MAX_DAILY_RETURN + 1e-9);
+          }
+        }
+      });
+
+      it('전형적 일변동(중앙값)이 작다 — 평탄 균등이 아니라 0 근방 집중', () => {
+        const s = generateSyntheticSeries('005930', longDates);
+        const moves: number[] = [];
+        for (let i = 1; i < s.length; i++) {
+          moves.push(Math.abs((s[i].closePrice - s[i - 1].closePrice) / s[i - 1].closePrice));
+        }
+        moves.sort((a, b) => a - b);
+        const median = moves[Math.floor(moves.length / 2)];
+        // 종목 σ(≤2.2%) 대비 중앙값은 그보다 작아야 한다(근사정규는 |median|≈0.67σ).
+        expect(median).toBeLessThan(VOL_MAX);
+        // 그래도 평탄선은 아님(변동 존재).
+        expect(median).toBeGreaterThan(0);
+      });
+
+      it('120거래일 누적가도 합리적 배수 범위(0.2x~5x) — 폭주하지 않음', () => {
+        for (const code of ['005930', '000660', '035720']) {
+          const s = generateSyntheticSeries(code, longDates);
+          const first = s[0].closePrice;
+          const last = s[s.length - 1].closePrice;
+          expect(last).toBeGreaterThan(first * 0.2);
+          expect(last).toBeLessThan(first * 5);
+        }
+      });
+
+      it('결정성 보존 — 동일 입력 2회 byte-identical', () => {
+        expect(generateSyntheticSeries('005930', longDates)).toEqual(
+          generateSyntheticSeries('005930', longDates),
+        );
+      });
     });
   });
 });

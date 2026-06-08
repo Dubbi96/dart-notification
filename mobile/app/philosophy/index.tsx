@@ -49,6 +49,10 @@ export default function PhilosophyMastersScreen() {
         keyExtractor={(item) => item.philosophyId}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews={false}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={7}
         onRefresh={refetch}
         refreshing={isRefetching}
         ListHeaderComponent={

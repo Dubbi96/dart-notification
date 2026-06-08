@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -42,6 +42,76 @@ const NOTIFICATION_TYPE_META: Record<NotificationType, TypeMeta> = {
 const getTypeMeta = (type: NotificationType): TypeMeta =>
   NOTIFICATION_TYPE_META[type] ?? NOTIFICATION_TYPE_META.DISCLOSURE;
 
+// DAR-128: 알림 행을 메모이즈된 자식으로 분리(FlatList 리렌더 차단) + a11y 라벨/역할/터치영역 일관화.
+interface NotificationRowProps {
+  item: Notification;
+  onPress: (item: Notification) => void;
+}
+
+function NotificationRowBase({ item, onPress }: NotificationRowProps) {
+  const { colors, typography: typo } = useTheme();
+  const meta = getTypeMeta(item.type);
+  const accent = colors[meta.colorKey];
+  // DAR-84 다형 표시: 공시는 조인 데이터 우선, 그 외 타입은 title/body 사용
+  const primaryText = item.disclosure
+    ? `${item.disclosure.corpName} · ${getTypeLabel(item.disclosure.disclosureType)}`
+    : (item.title ?? meta.label);
+  const secondaryText = item.disclosure?.reportName ?? item.body ?? '';
+  const relativeTime = formatDistanceToNow(new Date(item.sentAt), { addSuffix: true, locale: ko });
+
+  const handlePress = useCallback(() => onPress(item), [onPress, item]);
+
+  // 카드 그룹핑: 행을 단일 단위로 읽기(타입·내용·시각·읽음 상태 합성).
+  const a11yLabel = [
+    meta.label,
+    item.isRead ? '읽음' : '안 읽음',
+    primaryText,
+    secondaryText,
+    relativeTime,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
+  return (
+    <TouchableOpacity
+      style={[
+        styles.notificationItem,
+        {
+          backgroundColor: item.isRead ? colors.surface : colors.primaryLight,
+          borderBottomColor: colors.borderLight,
+        },
+      ]}
+      activeOpacity={0.7}
+      onPress={handlePress}
+      accessibilityRole="button"
+      accessibilityLabel={a11yLabel}
+    >
+      <View style={[styles.iconWrap, { backgroundColor: colors.surface }]}>
+        <Ionicons name={meta.icon} size={18} color={accent} />
+        {!item.isRead && (
+          <View style={[styles.unreadDot, { backgroundColor: accent, borderColor: colors.surface }]} />
+        )}
+      </View>
+      <View style={styles.notificationContent}>
+        <Text style={[typo.captionMedium, { color: colors.text }]} numberOfLines={1}>
+          {primaryText}
+        </Text>
+        {secondaryText ? (
+          <Text style={[typo.caption, { color: colors.textSecondary, marginTop: 2 }]} numberOfLines={2}>
+            {secondaryText}
+          </Text>
+        ) : null}
+        <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
+          {relativeTime}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+    </TouchableOpacity>
+  );
+}
+
+const NotificationRow = React.memo(NotificationRowBase);
+
 export default function NotificationsScreen() {
   const { colors, typography: typo } = useTheme();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -68,6 +138,35 @@ export default function NotificationsScreen() {
 
   const unreadCount = data?.pages[0]?.meta.unreadCount ?? 0;
 
+  // Hooks는 조건부 early return 위에서 호출(rules-of-hooks).
+  const handleNotificationPress = useCallback(
+    (item: Notification) => {
+      if (!item.isRead) {
+        markAsRead.mutate(item.id);
+      }
+      // DAR-90: deepLink 화이트리스트 검증 우선, 없으면 공시 rcpNo 폴백(미허용은 무시)
+      const target = resolveDeepLink(item);
+      if (target) {
+        router.push(target as Href);
+      }
+    },
+    [markAsRead],
+  );
+
+  const handleMarkAllAsRead = useCallback(() => {
+    if (unreadCount === 0) return;
+    const count = unreadCount;
+    markAllAsRead.mutate();
+    showSnackbar(snackbarCopy.allNotificationsRead(count), { duration: SNACKBAR_DURATION.success });
+  }, [unreadCount, markAllAsRead, showSnackbar]);
+
+  const renderItem = useCallback(
+    ({ item }: { item: Notification }) => (
+      <NotificationRow item={item} onPress={handleNotificationPress} />
+    ),
+    [handleNotificationPress],
+  );
+
   if (!isAuthenticated) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -79,73 +178,6 @@ export default function NotificationsScreen() {
       </SafeAreaView>
     );
   }
-
-  const handleNotificationPress = (item: Notification) => {
-    if (!item.isRead) {
-      markAsRead.mutate(item.id);
-    }
-    // DAR-90: deepLink 화이트리스트 검증 우선, 없으면 공시 rcpNo 폴백(미허용은 무시)
-    const target = resolveDeepLink(item);
-    if (target) {
-      router.push(target as Href);
-    }
-  };
-
-  const handleMarkAllAsRead = () => {
-    if (unreadCount === 0) return;
-    const count = unreadCount;
-    markAllAsRead.mutate();
-    showSnackbar(snackbarCopy.allNotificationsRead(count), { duration: SNACKBAR_DURATION.success });
-  };
-
-  const renderItem = ({ item }: { item: Notification }) => {
-    const meta = getTypeMeta(item.type);
-    const accent = colors[meta.colorKey];
-    // DAR-84 다형 표시: 공시는 조인 데이터 우선, 그 외 타입은 title/body 사용
-    const primaryText =
-      item.disclosure
-        ? `${item.disclosure.corpName} · ${getTypeLabel(item.disclosure.disclosureType)}`
-        : (item.title ?? meta.label);
-    const secondaryText = item.disclosure?.reportName ?? item.body ?? '';
-
-    return (
-      <TouchableOpacity
-        style={[
-          styles.notificationItem,
-          {
-            backgroundColor: item.isRead ? colors.surface : colors.primaryLight,
-            borderBottomColor: colors.borderLight,
-          },
-        ]}
-        activeOpacity={0.7}
-        onPress={() => handleNotificationPress(item)}
-      >
-        <View style={[styles.iconWrap, { backgroundColor: colors.surface }]}>
-          <Ionicons name={meta.icon} size={18} color={accent} />
-          {!item.isRead && (
-            <View style={[styles.unreadDot, { backgroundColor: accent, borderColor: colors.surface }]} />
-          )}
-        </View>
-        <View style={styles.notificationContent}>
-          <Text style={[typo.captionMedium, { color: colors.text }]} numberOfLines={1}>
-            {primaryText}
-          </Text>
-          {secondaryText ? (
-            <Text
-              style={[typo.caption, { color: colors.textSecondary, marginTop: 2 }]}
-              numberOfLines={2}
-            >
-              {secondaryText}
-            </Text>
-          ) : null}
-          <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
-            {formatDistanceToNow(new Date(item.sentAt), { addSuffix: true, locale: ko })}
-          </Text>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
-      </TouchableOpacity>
-    );
-  };
 
   if (isLoading) {
     return (
@@ -183,7 +215,12 @@ export default function NotificationsScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <Text style={[typo.h2, { color: colors.text }]}>알림</Text>
-        <TouchableOpacity onPress={() => router.push('/settings-detail/notification-settings')} hitSlop={8}>
+        <TouchableOpacity
+          onPress={() => router.push('/settings-detail/notification-settings')}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="알림 설정 열기"
+        >
           <Text style={[typo.captionMedium, { color: colors.primary }]}>알림 설정</Text>
         </TouchableOpacity>
       </View>
@@ -191,12 +228,25 @@ export default function NotificationsScreen() {
       <View style={styles.subHeader}>
         {unreadCount > 0 && (
           <View style={[styles.unreadBadge, { backgroundColor: colors.primary }]}>
-            <Text style={[typo.small, { color: '#FFFFFF', fontWeight: '600' }]}>{unreadCount}개 안 읽음</Text>
+            <Text style={[typo.small, { color: colors.primaryForeground, fontWeight: '600' }]}>
+              {unreadCount}개 안 읽음
+            </Text>
           </View>
         )}
         <View style={{ flex: 1 }} />
-        <TouchableOpacity onPress={handleMarkAllAsRead}>
-          <Text style={[typo.captionMedium, { color: colors.primary }]}>모두 읽음</Text>
+        <TouchableOpacity
+          onPress={handleMarkAllAsRead}
+          hitSlop={12}
+          disabled={unreadCount === 0}
+          accessibilityRole="button"
+          accessibilityLabel="모든 알림 읽음으로 표시"
+          accessibilityState={{ disabled: unreadCount === 0 }}
+        >
+          <Text
+            style={[typo.captionMedium, { color: unreadCount === 0 ? colors.textTertiary : colors.primary }]}
+          >
+            모두 읽음
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -206,6 +256,9 @@ export default function NotificationsScreen() {
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={false}
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={9}
         onEndReached={() => {
           if (hasNextPage && !isFetchingNextPage) {
             fetchNextPage();
@@ -213,7 +266,7 @@ export default function NotificationsScreen() {
         }}
         onEndReachedThreshold={0.5}
         refreshing={isRefetching}
-          onRefresh={refetch}
+        onRefresh={refetch}
         ListEmptyComponent={<EmptyState {...emptyStateCopy.notificationsEmpty} />}
         ListFooterComponent={
           isFetchingNextPage ? (

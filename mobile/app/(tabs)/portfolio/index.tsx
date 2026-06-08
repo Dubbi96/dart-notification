@@ -102,8 +102,11 @@ export default function PortfolioScreen() {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={false}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={7}
         refreshing={positionsQuery.isRefetching}
-          onRefresh={positionsQuery.refetch}
+        onRefresh={positionsQuery.refetch}
         ListHeaderComponent={
           <View style={styles.liveHeader}>
             {summary ? (
@@ -171,8 +174,11 @@ export default function PortfolioScreen() {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={false}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={7}
         refreshing={paperQuery.isRefetching}
-          onRefresh={paperQuery.refetch}
+        onRefresh={paperQuery.refetch}
         ListHeaderComponent={
           <View style={styles.paperHeader}>
             <Banner visible actions={[]} icon="information" style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}>

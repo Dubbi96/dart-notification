@@ -21,7 +21,7 @@ interface PositionCardProps {
   onPress?: (position: Position) => void;
 }
 
-export function PositionCard({ position, onPress }: PositionCardProps) {
+function PositionCardBase({ position, onPress }: PositionCardProps) {
   const { colors, typography: typo } = useTheme();
   const handlePress = useCallback(() => onPress?.(position), [onPress, position]);
   const statusColor = thesisStatusColor(position.thesisStatus, colors);
@@ -63,6 +63,9 @@ export function PositionCard({ position, onPress }: PositionCardProps) {
     </TouchableOpacity>
   );
 }
+
+// FlatList renderItem 자식 — 부모 리렌더 시 불필요한 리렌더 차단(DAR-128 성능 스윕).
+export const PositionCard = React.memo(PositionCardBase);
 
 const styles = StyleSheet.create({
   card: {

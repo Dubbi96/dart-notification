@@ -197,6 +197,7 @@ model Disclosure {
   flrName        String   // 공시제출인명
   rmk            String   // 비고
   disclosureType String   // 공시 유형 (정기공시, 주요사항보고 등)
+  isBackfill     Boolean  @default(false) // DAR-129: 과거 공시 백필 표식. true=라이브 신호·알림 격리, 분석/백테스트 포함
 
   createdAt DateTime @default(now())
 
@@ -208,6 +209,7 @@ model Disclosure {
   @@index([rcpDt])
   @@index([disclosureType])
   @@index([createdAt]) // 최근 공시 조회용
+  @@index([isBackfill]) // DAR-129: 신호생성·신호피드 백필 제외 필터 조회용
   @@map("disclosures")
 }
 
@@ -354,11 +356,18 @@ model NotificationHistory {
 | flrName | String | 공시제출인명 | NOT NULL |
 | rmk | String | 비고 | default: "" |
 | disclosureType | String | 공시 유형 | NOT NULL |
+| isBackfill | Boolean | 과거 공시 백필 표식 (DAR-129) | NOT NULL, default: false |
 | createdAt | DateTime | DB 저장일시 | default: now() |
+
+> **isBackfill (DAR-129)**: `true`면 추이·분석 baseline 용도로만 적재된 과거 공시.
+> 라이브 신호 생성(`SignalGenerationService`)·신호 피드(`SignalsService.findAll`)·푸시 알림에서 **절대 제외**(불가침).
+> Event Study·통계·백테스트 등 분석 경로는 백필 포함 전체 사용. 백필 적재는 수동 스크립트
+> `src/engine1-disclosure/scheduler/backfill-disclosures.manual.ts`로만 수행(cron 자동화 아님).
 
 **인덱스**:
 - `rcpNo` (PK, 자연키)
 - `corpCode` (기업별 공시 조회)
+- `isBackfill` (신호생성·신호피드 백필 제외 필터)
 - `rcpDt` (날짜별 공시 조회)
 - `disclosureType` (유형별 공시 조회)
 - `createdAt` (최근 공시 목록 조회)

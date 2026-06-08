@@ -163,6 +163,12 @@ model Disclosure {
   rmk            String // 비고
   disclosureType String // 공시 유형 (정기공시, 주요사항보고 등)
 
+  // DAR-129: 과거 공시 대량 백필 표식.
+  // true = 추이/분석 baseline 용도로만 적재된 과거 공시.
+  //   라이브 신호 생성·신호 피드·푸시 알림에서 절대 제외(불가침).
+  //   Event Study·통계·백테스트 등 분석은 백필 포함 전체 사용.
+  isBackfill Boolean @default(false)
+
   createdAt DateTime @default(now())
 
   // Relations
@@ -182,6 +188,7 @@ model Disclosure {
   @@index([rcpDt])
   @@index([disclosureType])
   @@index([createdAt]) // 최근 공시 조회용
+  @@index([isBackfill]) // DAR-129: 신호생성·신호피드 백필 제외 필터 조회용
   @@map("disclosures")
 }
 

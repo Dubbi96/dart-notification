@@ -208,6 +208,9 @@ export class SignalsService {
     const gradeEnum = resolveGradeFilter(grade);
 
     const where: Prisma.TradingSignalWhereInput = {
+      // ★DAR-129: 신호 피드는 백필(과거 분석 baseline) 공시 기반 신호를 절대 노출하지 않는다.
+      //   신호 생성 단계에서 이미 백필을 배제하지만, 피드 조회에도 방어적으로 relation 필터를 둔다.
+      disclosure: { isBackfill: false },
       ...(gradeEnum && { signal: gradeEnum }),
       ...(personaType && { persona: personaType }),
       ...(eventType && { eventType }),

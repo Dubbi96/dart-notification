@@ -209,6 +209,30 @@ describe('SignalsService — scoreBreakdown sampleN (DAR-34)', () => {
         items[1].scoreBreakdown.find((c) => c.key === 'historicalEvent'),
       ).not.toHaveProperty('sampleN');
     });
+
+    // ★DAR-129: 신호 피드는 백필(과거 분석 baseline) 공시 기반 신호를 절대 노출하지 않는다.
+    it('백필 제외 relation 필터(disclosure.isBackfill=false)를 where에 적용한다', async () => {
+      prisma.tradingSignal.findMany.mockResolvedValue([]);
+      prisma.tradingSignal.count.mockResolvedValue(0);
+      prisma.eventStudyResult.findMany.mockResolvedValue([]);
+
+      await service.findAll({});
+
+      expect(prisma.tradingSignal.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            disclosure: { isBackfill: false },
+          }),
+        }),
+      );
+      expect(prisma.tradingSignal.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            disclosure: { isBackfill: false },
+          }),
+        }),
+      );
+    });
   });
 
   /**

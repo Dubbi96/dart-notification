@@ -114,6 +114,23 @@ describe('SignalGenerationService (DAR-41)', () => {
     );
   });
 
+  // ★DAR-129: 라이브 신호 생성은 백필(과거 분석 baseline) 공시를 절대 후보로 삼지 않는다.
+  it('후보 이벤트 조회에 백필 제외 relation 필터(disclosure.isBackfill=false)를 적용한다', async () => {
+    const { prisma } = buildPrisma({
+      events: [makeEvent()],
+      pricedStockCodes: ['000100'],
+    });
+    const service = makeService(prisma);
+
+    await service.generateMissingSignals('MANUAL');
+
+    expect(prisma.disclosureEvent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { disclosure: { isBackfill: false } },
+      }),
+    );
+  });
+
   // DAR-79: 취득금액 매출 대비 정규화 → persona-view 연결
   it('CompanyFinancial.revenue 로 buyback 정규화 비율을 반영한다 (상대비율 우선)', async () => {
     const evt = {

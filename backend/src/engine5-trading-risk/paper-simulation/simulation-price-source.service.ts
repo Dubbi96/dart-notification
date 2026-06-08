@@ -34,7 +34,7 @@ import {
   entryEligibleGrades,
   dedupeCandidatesByCorpCode,
 } from './simulation-entry';
-import { mapSimDateToRealDate, realYearOffset } from './real-date-map';
+import { mapSimDateToRealDate, realYearShift } from './real-date-map';
 import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realtime-quote.cache';
 
 /** 일봉/현재가 1행의 출처 — 정직한 실시간/실데이터/합성 구분 표기용.
@@ -269,13 +269,16 @@ export class SimulationPriceSourceService {
   }
 
   /**
-   * REAL_THEN_SYNTHETIC 매핑 모드에서만 시뮬 거래일(2026)을 실데이터 거래일로 환산한다(DAR-137).
-   * 그 외 모드(REAL 기본·SYNTHETIC)는 입력 거래일을 그대로 사용 → 기존 동작 보존(회귀 0).
+   * REAL_THEN_SYNTHETIC 모드에서 시뮬 거래일을 실데이터 조회 거래일로 환산한다(DAR-137·DAR-139).
+   *   - 연도 시프트는 '옵트인'(realYearShift): PAPER_SIM_REAL_YEAR_OFFSET 명시(≥1) 시에만 N년 시프트
+   *     (과거 데이터만 보유한 환경의 리플레이). 미설정(기본)이면 시프트 0 → 시뮬 날짜 그대로 사용 →
+   *     실데이터를 최신 실 거래일 종가로 평가(DAR-139 DoD: 실데이터 보유 종목 = 최신 실가).
+   *   - 그 외 모드(REAL 기본·SYNTHETIC)는 입력 거래일을 그대로 사용 → 기존 동작 보존(회귀 0).
    */
   private realQueryDate(date: string): string {
-    return this.mode === 'REAL_THEN_SYNTHETIC'
-      ? mapSimDateToRealDate(date, realYearOffset())
-      : date;
+    if (this.mode !== 'REAL_THEN_SYNTHETIC') return date;
+    const shift = realYearShift();
+    return shift >= 1 ? mapSimDateToRealDate(date, shift) : date;
   }
 
   /**

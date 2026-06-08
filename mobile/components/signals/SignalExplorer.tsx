@@ -11,6 +11,7 @@ import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { InfiniteListFooter } from '@components/common/InfiniteListFooter';
 import { useExploreSignals } from '@hooks/useSignals';
+import { dedupeBy, dedupeByStock } from '@utils/dedupe';
 import {
   GRADE_FILTER_OPTIONS,
   PERSONA_FILTER_OPTIONS,
@@ -119,12 +120,10 @@ export function SignalExplorer({ searchQuery = '', ListHeaderComponent }: Signal
 
   const items = useMemo(() => {
     const all = query.data?.pages.flatMap((page) => page.data) ?? [];
-    const seen = new Set<string>();
-    const deduped = all.filter((item) => {
-      if (seen.has(item.id)) return false;
-      seen.add(item.id);
-      return true;
-    });
+    // 1차: 동일 id 페이지 경계 중복 제거. 2차(DAR-122): 종목당 1카드(데이터 레벨 중복
+    // 보조 방어선) — 한 종목의 다수 Persona/공시 신호를 점수순 첫 1건으로 collapse.
+    const byId = dedupeBy(all, (item) => item.id);
+    const deduped = dedupeByStock(byId, (item) => item.id);
     // 종목 검색(DAR-117): 서버 키워드 검색 미존재 → corpName/ticker 클라이언트 필터.
     if (!trimmedQuery) return deduped;
     return deduped.filter(

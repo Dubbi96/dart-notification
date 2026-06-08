@@ -36,7 +36,9 @@ import {
   SIM_MIN_ENTRY_GRADE,
   entryEligibleGrades,
   entryBudget,
+  dedupeCandidatesByCorpCode,
 } from './simulation-entry';
+import { Prisma } from '@prisma/client';
 import { buildEquityCurve, EquityCurvePoint } from './equity-curve';
 import {
   buildTradeRationale,
@@ -235,7 +237,7 @@ export class PhilosophyStyleSimulationService {
     ).map((p) => p.corpCode);
 
     // 적합도 필터로 다수 탈락하므로 후보 풀을 넉넉히 조회한 뒤 스타일 적격만 진입.
-    const candidates = await this.prisma.tradingSignal.findMany({
+    const rawCandidates = await this.prisma.tradingSignal.findMany({
       where: {
         signal: { in: entryEligibleGrades(SIM_MIN_ENTRY_GRADE) as never },
         entryReady: true,
@@ -244,6 +246,10 @@ export class PhilosophyStyleSimulationService {
       orderBy: { buyScore: 'desc' },
       take: PhilosophyStyleSimulationService.CANDIDATE_POOL_CAP,
     });
+    // DAR-122: 종목당 1건으로 디듑 — 동일 corpCode 다중 Persona 신호로 인한 Position 중복 차단.
+    const candidates = dedupeCandidatesByCorpCode(rawCandidates);
+    // 동일 사이클 내 같은 종목 재진입 방지(디듑 후라도 방어선 유지).
+    const openedCorpCodes = new Set<string>(openCorpCodes);
 
     const baseBudget =
       PaperSimulationService.INITIAL_CAPITAL * (pf.maxSinglePositionPct / 100);
@@ -251,6 +257,7 @@ export class PhilosophyStyleSimulationService {
     let opened = 0;
     for (const sig of candidates) {
       if (opened >= available) break;
+      if (openedCorpCodes.has(sig.corpCode)) continue;
 
       // 엔진 경계: DB 저장 재무 기반 philosophy-fit(Rule). 스타일 적격 아니면 진입 제외.
       const fit = await this.philosophyFit.getCompanyFit(sig.corpCode);
@@ -284,28 +291,41 @@ export class PhilosophyStyleSimulationService {
       await this.tagPaperTrade(trade.id, style);
 
       const fillPrice = trade.filledPrice ?? price;
-      await this.prisma.position.create({
-        data: {
-          portfolioId: pf.id,
-          corpCode: sig.corpCode,
-          stockCode: sig.stockCode,
-          positionThesisId: thesis?.id ?? null,
-          entryDate: new Date(),
-          entryPrice: fillPrice,
-          quantity: trade.filledShares,
-          entryAmount: fillPrice * trade.filledShares,
-          currentPrice: fillPrice,
-          currentValue: fillPrice * trade.filledShares,
-          unrealizedPnl: 0,
-          unrealizedPnlPct: 0,
-          highestPrice: fillPrice,
-          highestAt: new Date(),
-          stopLossPct,
-          takeProfitPct: PaperSimulationService.DEFAULT_TAKE_PROFIT_PCT,
-          maxHoldDays,
-          status: 'OPEN',
-        },
-      });
+      try {
+        await this.prisma.position.create({
+          data: {
+            portfolioId: pf.id,
+            corpCode: sig.corpCode,
+            stockCode: sig.stockCode,
+            positionThesisId: thesis?.id ?? null,
+            entryDate: new Date(),
+            entryPrice: fillPrice,
+            quantity: trade.filledShares,
+            entryAmount: fillPrice * trade.filledShares,
+            currentPrice: fillPrice,
+            currentValue: fillPrice * trade.filledShares,
+            unrealizedPnl: 0,
+            unrealizedPnlPct: 0,
+            highestPrice: fillPrice,
+            highestAt: new Date(),
+            stopLossPct,
+            takeProfitPct: PaperSimulationService.DEFAULT_TAKE_PROFIT_PCT,
+            maxHoldDays,
+            status: 'OPEN',
+          },
+        });
+      } catch (err) {
+        // DAR-122: 부분 유니크 인덱스 충돌(동시/재실행 동일 종목 OPEN) → 멱등 스킵.
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          openedCorpCodes.add(sig.corpCode);
+          continue;
+        }
+        throw err;
+      }
+      openedCorpCodes.add(sig.corpCode);
       opened++;
     }
     return opened;

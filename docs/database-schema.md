@@ -516,6 +516,29 @@ model StockDailyPrice {
 }
 ```
 
+### 7.1b SimulatedDailyPrice (simulated_daily_prices) — DAR-124 ★모의 전용·실시세 아님
+
+모의운용 전용 **결정적 합성 일봉**. 환경 시계가 미래(2026)라 실 KRX 일봉이 없어
+모의운용이 가격변동을 평가하지 못하는 문제를 해소한다. 자연키: `(stockCode, tradeDate)`.
+
+★신뢰 원칙(불가침): 이 테이블은 '모의/시뮬레이션' 전용이다. 절대 실시세로 표시하지 않으며
+실데이터(`stock_daily_prices`)와 **혼합하지 않는다**(물리 분리·Company FK 없음). 오직
+`PaperSimulation`(`SimulationPriceSourceService`)만 읽고, 기업 현재가/지표/신호 등 실가격
+표시 경로는 이 테이블을 절대 참조하지 않는다. 활성: `PAPER_SIM_SYNTHETIC_FEED=1`.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | TEXT PK | CUID |
+| corpCode | TEXT | DART 고유번호(평문 — FK 관계 없음, 격리) |
+| stockCode | TEXT | 종목코드 6자리 |
+| tradeDate | TEXT | 거래일 YYYYMMDD |
+| openPrice/highPrice/lowPrice/closePrice | INT | 합성 OHLC(시드 PRNG, Date.now/random 미사용) |
+| volume | BIGINT | 합성 거래량 |
+| source | TEXT | 출처 라벨 — 항상 `'SYNTHETIC'`(오인 방지) |
+| createdAt | TIMESTAMP | 생성 시각 |
+
+마이그레이션: `20260608100000_dar124_simulated_daily_price`(create-only, 적용 휴먼 승인).
+
 ### 7.2 TechnicalIndicator (technical_indicators)
 
 기술지표 계산 결과. MA/RSI/MACD/BB/ATR/VWAP/VolumeRatio/52W/선행상승률. 자연키: `(stockCode, tradeDate)`.

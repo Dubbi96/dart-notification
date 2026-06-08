@@ -43,6 +43,7 @@ import {
   dedupeCandidatesByCorpCode,
 } from './simulation-entry';
 import { Prisma } from '@prisma/client';
+import { SimulationPriceSourceService, SimPriceRow } from './simulation-price-source.service';
 import { buildEquityCurve, EquityCurvePoint } from './equity-curve';
 import {
   buildTradeRationale,
@@ -88,6 +89,10 @@ export class PaperSimulationService {
     // @Optional — 큐/모듈 미주입 환경에서도 안전. ★권고일 뿐 실주문 직결 아님.
     @Optional()
     private readonly notifyProducer?: NotificationProducerService,
+    // DAR-124: 시세 소스 추상화(실데이터 vs 결정적 합성). @Optional — 미주입 환경(기존 테스트)은
+    // 종전대로 StockDailyPrice 직접 읽기로 폴백(회귀 0). 합성 모드는 플래그로만 활성.
+    @Optional()
+    private readonly priceSource?: SimulationPriceSourceService,
   ) {}
 
   /** 모의운용 전용 포트폴리오 find-or-create (고정 시스템 유저) */
@@ -129,6 +134,10 @@ export class PaperSimulationService {
     try {
       this.logger.log(`[PaperSim] 일일 사이클 시작 tradeDate=${tradeDate}`);
       const pf = await this.getOrCreateSimPortfolio();
+
+      // DAR-124: 합성 모드면 사이클 직전 유니버스 시세를 멱등 적재(실데이터 모드는 no-op).
+      //   환경 시계가 미래라 실 KRX 일봉이 없을 때 매수·스냅샷·Exit가 가격변동을 평가하게 한다.
+      await this.priceSource?.prepareUniverse(pf.id, tradeDate);
 
       const bought = await this.openNewPositions(pf, tradeDate);
       const snapshotted = await this.snapshotOpenPositions(pf.id, tradeDate);
@@ -719,12 +728,7 @@ export class PaperSimulationService {
         continue;
       }
       const closeDate = this.toBasDd(p.closedAt);
-      const after = await this.prisma.stockDailyPrice.findMany({
-        where: { corpCode: p.corpCode, tradeDate: { gt: closeDate } },
-        orderBy: { tradeDate: 'asc' },
-        select: { closePrice: true },
-        take: 3,
-      });
+      const after = await this.closesAfter(p.corpCode, closeDate, 3);
       const exitPx = p.entryPrice; // 청산 시 currentPrice 가 entry 자리에 없으므로 보수적으로 null 처리
       if (after.length >= 3 && exitPx > 0) {
         exitOutcomes.push({ d3ReturnPct: ((after[2].closePrice - exitPx) / exitPx) * 100 });
@@ -815,11 +819,30 @@ export class PaperSimulationService {
     return { invalidConditions, maxHoldDays: null };
   }
 
-  private async latestPriceRow(corpCode: string, tradeDate: string) {
-    return this.prisma.stockDailyPrice.findFirst({
+  // DAR-124: 시세 소스 추상화 경유. priceSource 미주입(기존 테스트)이면 종전대로
+  //   StockDailyPrice 직접 읽기로 폴백(회귀 0). 합성 모드는 소스 내부에서 SimulatedDailyPrice 만 읽음.
+  private async latestPriceRow(corpCode: string, tradeDate: string): Promise<SimPriceRow | null> {
+    if (this.priceSource) return this.priceSource.latestPriceRow(corpCode, tradeDate);
+    const row = await this.prisma.stockDailyPrice.findFirst({
       where: { corpCode, tradeDate: { lte: tradeDate } },
       orderBy: { tradeDate: 'desc' },
       select: { openPrice: true, highPrice: true, lowPrice: true, closePrice: true, volume: true },
+    });
+    return row ?? null;
+  }
+
+  /** 청산 후 N거래일 종가(소스 경유). priceSource 미주입이면 StockDailyPrice 폴백. */
+  private async closesAfter(
+    corpCode: string,
+    afterTradeDate: string,
+    take: number,
+  ): Promise<Array<{ closePrice: number }>> {
+    if (this.priceSource) return this.priceSource.closesAfter(corpCode, afterTradeDate, take);
+    return this.prisma.stockDailyPrice.findMany({
+      where: { corpCode, tradeDate: { gt: afterTradeDate } },
+      orderBy: { tradeDate: 'asc' },
+      select: { closePrice: true },
+      take,
     });
   }
 

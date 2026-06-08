@@ -642,6 +642,38 @@ model StockDailyPrice {
 }
 
 // ====================================
+// 모의운용 합성 시세 (DAR-124, M10) — ★실시세 아님·실데이터 혼합 금지
+// ====================================
+//
+// 환경 시계가 미래(2026)라 실 KRX 일봉이 없어 모의운용이 가격변동을 평가하지 못하는 문제를
+// 결정적·재현가능 합성 일봉으로 해소한다(synthetic-price-feed.ts). 신뢰 원칙(불가침):
+//   - 이 테이블은 '모의/시뮬레이션' 전용이다. 절대 실시세로 표시하지 않는다.
+//   - 실데이터(StockDailyPrice)와 혼합하지 않는다 — 물리적으로 분리된 별도 테이블.
+//   - 오직 PaperSimulation 만 읽는다. 기업 현재가/지표/신호 등 실가격 표시 경로는 이 테이블을
+//     절대 참조하지 않는다(코드 경로 격리로 오인표시를 구조적으로 차단).
+// Company FK 관계를 의도적으로 두지 않는다(격리·Company 모델 무변경). corpCode/stockCode 는
+// 평문 컬럼으로 보관(고아 가능하나 모의 전용이라 무해).
+model SimulatedDailyPrice {
+  id         String   @id @default(cuid())
+  corpCode   String // DART 고유번호(평문 — FK 관계 없음, 격리)
+  stockCode  String // 종목코드 6자리
+  tradeDate  String // 거래일 (YYYYMMDD)
+  openPrice  Int // 합성 시가
+  highPrice  Int // 합성 고가
+  lowPrice   Int // 합성 저가
+  closePrice Int // 합성 종가
+  volume     BigInt // 합성 거래량
+  /// 데이터 출처 라벨 — 항상 'SYNTHETIC'(실시세 오인 방지용 명시 라벨)
+  source     String   @default("SYNTHETIC")
+  createdAt  DateTime @default(now())
+
+  @@unique([stockCode, tradeDate])
+  @@index([corpCode])
+  @@index([tradeDate])
+  @@map("simulated_daily_prices")
+}
+
+// ====================================
 // 기술지표 (M4 신규)
 // ====================================
 

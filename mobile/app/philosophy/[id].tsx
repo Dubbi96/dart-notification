@@ -14,9 +14,11 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
+import { CollapsibleCard } from '@components/common/CollapsibleCard';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { LoadingState, EmptyState, ApiErrorState } from '@components/common/StateView';
 import { PhilosophyFitBreakdown } from '@components/philosophy/PhilosophyFitBreakdown';
+import { PhilosophyStatStrip } from '@components/philosophy/PhilosophyStatStrip';
 import { sourceTypeLabel } from '@components/philosophy/metricFormat';
 import { usePhilosophies, usePhilosophyFit } from '@hooks/usePhilosophies';
 import { useWatchlist } from '@hooks/useWatchlist';
@@ -135,79 +137,91 @@ function PhilosophyHeader({
       <View style={styles.tagRow}>
         {philosophy.styleTags.map((tag) => (
           <View key={tag} style={[styles.tag, { backgroundColor: colors.primaryLight }]}>
-            <Text style={[typo.small, { color: colors.primaryDark, fontWeight: '600' }]}>{tag}</Text>
+            <Text style={[typo.small, { color: colors.primaryDark }, styles.tagText]}>{tag}</Text>
           </View>
         ))}
       </View>
 
-      {/* 리스크 성향 */}
-      <Card variant="elevated" style={styles.section}>
-        <SectionTitle icon="shield" label="리스크 성향" colors={colors} typo={typo} />
-        <Text style={[typo.caption, { color: colors.textSecondary }]}>{philosophy.riskProfile}</Text>
-      </Card>
+      {/* 한눈 통계 — 핵심 수치 우선(DAR-123) */}
+      <PhilosophyStatStrip philosophy={philosophy} />
 
-      {/* 핵심 원칙 */}
-      <Card variant="elevated" style={styles.section}>
-        <SectionTitle icon="target" label="핵심 원칙" colors={colors} typo={typo} />
-        {philosophy.corePrinciples.map((p, idx) => (
-          <BulletRow key={idx} text={p} icon="check" colors={colors} typo={typo} />
-        ))}
-      </Card>
+      {/* 리스크 성향 — 1줄 칩(서술 카드 제거) */}
+      <View style={[styles.riskChip, { backgroundColor: colors.surfaceSecondary }]}>
+        <Feather name="shield" size={14} color={colors.primary} />
+        <Text style={[typo.caption, { color: colors.textSecondary }, styles.riskText]} numberOfLines={2}>
+          {philosophy.riskProfile}
+        </Text>
+      </View>
 
-      {/* 체크리스트 */}
-      <Card variant="elevated" style={styles.section}>
-        <SectionTitle icon="check-square" label="체크리스트" colors={colors} typo={typo} />
-        {philosophy.checklistItems.map((c, idx) => (
-          <BulletRow key={idx} text={c} icon="square" colors={colors} typo={typo} />
-        ))}
-      </Card>
+      {/* 상세 텍스트 근거는 드릴다운(접이식) — 진입 화면 텍스트 최소화(DAR-123) */}
+      <CollapsibleCard
+        icon="book-open"
+        title="철학 자세히 보기"
+        summary={`핵심 원칙·체크리스트·출처 ${philosophy.sources.length}건`}
+      >
+        {/* 핵심 원칙 */}
+        <View style={styles.subSection}>
+          <SectionTitle icon="target" label="핵심 원칙" colors={colors} typo={typo} />
+          {philosophy.corePrinciples.map((p, idx) => (
+            <BulletRow key={idx} text={p} icon="check" colors={colors} typo={typo} />
+          ))}
+        </View>
 
-      {/* 점수 산식(참고) */}
-      {philosophy.scoreFormula ? (
-        <Card variant="elevated" style={styles.section}>
-          <SectionTitle icon="sliders" label="점수 산식(참고)" colors={colors} typo={typo} />
-          <Text style={[typo.small, { color: colors.textSecondary }]}>{philosophy.scoreFormula}</Text>
-        </Card>
-      ) : null}
+        {/* 체크리스트 */}
+        <View style={styles.subSection}>
+          <SectionTitle icon="check-square" label="체크리스트" colors={colors} typo={typo} />
+          {philosophy.checklistItems.map((c, idx) => (
+            <BulletRow key={idx} text={c} icon="square" colors={colors} typo={typo} />
+          ))}
+        </View>
 
-      {/* 출처 */}
-      <Card variant="elevated" style={styles.section}>
-        <SectionTitle icon="book-open" label="출처(공개 자료)" colors={colors} typo={typo} />
-        {philosophy.sources.map((s, idx) => {
-          const hasUrl = !!s.url;
-          const Row = (
-            <View style={styles.sourceRow}>
-              <Feather name="file-text" size={14} color={colors.textTertiary} style={styles.sourceIcon} />
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={[
-                    typo.caption,
-                    { color: hasUrl ? colors.primary : colors.text },
-                    hasUrl && { textDecorationLine: 'underline' },
-                  ]}
-                >
-                  {s.title}
-                </Text>
-                <Text style={[typo.small, { color: colors.textTertiary }]}>
-                  {sourceTypeLabel(s.type)} · {s.year}
-                </Text>
+        {/* 점수 산식(참고) */}
+        {philosophy.scoreFormula ? (
+          <View style={styles.subSection}>
+            <SectionTitle icon="sliders" label="점수 산식(참고)" colors={colors} typo={typo} />
+            <Text style={[typo.small, { color: colors.textSecondary }]}>{philosophy.scoreFormula}</Text>
+          </View>
+        ) : null}
+
+        {/* 출처 */}
+        <View style={styles.subSection}>
+          <SectionTitle icon="book-open" label="출처(공개 자료)" colors={colors} typo={typo} />
+          {philosophy.sources.map((s, idx) => {
+            const hasUrl = !!s.url;
+            const Row = (
+              <View style={styles.sourceRow}>
+                <Feather name="file-text" size={14} color={colors.textTertiary} style={styles.sourceIcon} />
+                <View style={styles.sourceBody}>
+                  <Text
+                    style={[
+                      typo.caption,
+                      { color: hasUrl ? colors.primary : colors.text },
+                      hasUrl && styles.sourceLink,
+                    ]}
+                  >
+                    {s.title}
+                  </Text>
+                  <Text style={[typo.small, { color: colors.textTertiary }]}>
+                    {sourceTypeLabel(s.type)} · {s.year}
+                  </Text>
+                </View>
               </View>
-            </View>
-          );
-          return hasUrl ? (
-            <TouchableOpacity
-              key={idx}
-              onPress={() => openSource(s.url)}
-              accessibilityRole="link"
-              accessibilityLabel={`출처 열기: ${s.title}`}
-            >
-              {Row}
-            </TouchableOpacity>
-          ) : (
-            <View key={idx}>{Row}</View>
-          );
-        })}
-      </Card>
+            );
+            return hasUrl ? (
+              <TouchableOpacity
+                key={idx}
+                onPress={() => openSource(s.url)}
+                accessibilityRole="link"
+                accessibilityLabel={`출처 열기: ${s.title}`}
+              >
+                {Row}
+              </TouchableOpacity>
+            ) : (
+              <View key={idx}>{Row}</View>
+            );
+          })}
+        </View>
+      </CollapsibleCard>
 
       {/* 적합 종목 섹션 제목 */}
       <View style={styles.fitHeader}>
@@ -389,8 +403,27 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: radius.sm,
   },
-  section: {
-    marginBottom: 0,
+  tagText: {
+    fontWeight: '600',
+  },
+  riskChip: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+  },
+  riskText: {
+    flex: 1,
+    marginLeft: spacing.xs,
+  },
+  subSection: {
+    marginBottom: spacing.md,
+  },
+  sourceBody: {
+    flex: 1,
+  },
+  sourceLink: {
+    textDecorationLine: 'underline',
   },
   sectionTitle: {
     flexDirection: 'row',

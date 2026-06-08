@@ -196,11 +196,35 @@
 |-----------|-----------|---------|
 | **데이터 정합성** | 자연키 FK(rcpNo/corpCode) 무결성, 고아 레코드 0 | 마이그레이션/서비스 수정 |
 | **마이그레이션 규율** | 신규 모델 마이그레이션 커밋·재현 가능(`migrate deploy`) | 누락 마이그레이션 보완 |
-| **테스트 그린** | 직전까지 작성한 단위/통합 테스트 전부 통과(회귀) | 다음 단계 진입 보류 |
+| **테스트 그린** | 직전까지 작성한 단위/통합 테스트 전부 통과(회귀). 취약 도메인 핵심 스위트 `npm run test:core` 그린 | 다음 단계 진입 보류 |
 | **AI 비용 추적** | `AIUsageLog` 기록 누락 0, L0 비율·일 한도 준수 | 게이트 재조정/호출 축소 |
 | **AI 금지영역** | 주문승인·하드룰·한도·수량·리스크우회에 AI 미개입 | 즉시 차단(설계 결함) |
 | **보안/운영** | 시크릿 평문 미커밋, (실서비스 전) HTTPS 전환 | 배포 보류 |
 | **문서 동기화** | 스키마·API 변경 시 해당 docs/ 갱신(CLAUDE.md 규칙) | 문서 갱신 후 머지 |
+
+### 3-1. 회귀 테스트 안전망 (DAR-127)
+
+누적 회귀("앞이 무너지면 뒤는 의미 없다")를 코드로 강제하기 위한 표준 검증 절차.
+
+**표준 회귀 명령(백엔드):**
+
+| 명령 | 범위 | 게이트 |
+|------|------|--------|
+| `cd backend && npx tsc --noEmit` | 전체 타입 정합 | 하드(에러 0) |
+| `cd backend && npm run test:core` | 취약 도메인(신호·포트폴리오·페이퍼심·dedup) 핵심 스위트 | 하드(빠른 실패) |
+| `cd backend && npm test` | 전체 단위 스위트 누적 회귀 | 하드(전부 그린) |
+| `cd mobile && npm run typecheck && npm run bundle:android` | 모바일 타입체크 + Android 번들 | 하드 |
+
+**취약 도메인 핵심 스위트 커버리지(순수 Rule, DB/AI 미개입 — 결정론적):**
+
+| 도메인 | 핵심 순수 모듈 | 비고 |
+|--------|----------------|------|
+| 신호(engine3) | `buy-signal/scoring/*`(key-metric·risk-penalty·fundamental·persona-fit·chart 등), `event-study/utils/abnormal-return` | 임계값·가중·초과수익 단조성 고정 |
+| 포트폴리오(engine4) | `domain/exit-score.calculator`(scoreToAction 5경계·DAR-94 내부자 대량순매도·공시 악재 가중) | 청산 트리거·하드플로어 불변 |
+| 페이퍼심(engine5) | `simulation/domain/position-sizing·signal-funnel`, `domain/paper-portfolio·fill-simulator` | 수량·퍼널 분모0 보호·가중평균 진입가 |
+| dedup(전 도메인) | `paper-simulation/simulation-entry·simulation-positions`(`dedupeCandidatesByCorpCode`·`dedupeOpenPositionRows`) | 동일 종목 1건만(DAR-122/125) |
+
+**CI 강제(후속):** PR·main push 마다 위 게이트(be tsc + `test:core` + 전체 test)를 실행하는 `.github/workflows/regression-ci.yml` 워크플로를 후속으로 추가한다. ★봇 토큰이 `workflow` OAuth 스코프를 못 가져 `.github/workflows/*` 푸시가 거부되므로(이 PR에서 분리), 워크플로 파일은 `workflow` 스코프 보유 주체(사람/CI 봇)가 별도 커밋한다. 그 전까지는 `cd backend && npx tsc --noEmit && npm test`(또는 빠른 `npm run test:core`)로 로컬 게이트한다.
 
 ---
 
@@ -208,7 +232,7 @@
 
 | 트랙 | 내용 | 시작 시점 |
 |------|------|-----------|
-| **기술부채 해소** | 테스트 0 → 핵심 서비스부터 단위/통합 테스트 도입, CI(GitHub Actions) | M0부터 점진 |
+| **기술부채 해소** | 단위/통합 테스트 누적(현 백엔드 128스위트·1758테스트), CI(`regression-ci.yml`) 하드 게이트는 후속(workflow 스코프) — §3-1 | M0부터 점진(DAR-127 안전망 가동) |
 | **보안 강화** | ALB HTTP→HTTPS(도메인+ACM), 시크릿 매니저 정리 | 실서비스(M10 이후) 전 필수 |
 | **관측성** | 수집/AI/시세 배치 로그·메트릭·알림(실패 시 통지) | M0(CollectionLog)부터 확장 |
 | **비용 모니터링** | KRX/DART/LLM 호출량·비용 대시보드 | M3(AIUsageLog)부터 |

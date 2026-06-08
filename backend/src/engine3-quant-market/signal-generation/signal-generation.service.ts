@@ -3,7 +3,8 @@
  *
  * 끊긴 파이프라인 링크 연결: DisclosureEvent + StockDailyPrice 가 있고 아직
  * TradingSignal 이 없는 공시에 대해 BuyScoreParams 를 조립 → computeBuyScore()
- * → TradingSignal 영속화. 멱등: 같은 (rcpNo, persona) 중복 생성 금지.
+ * → TradingSignal 영속화. 멱등(DAR-125): 자연키 (corpCode, rcpNo, eventType,
+ * persona) upsert — 재생성/동시실행에도 원천 중복 0.
  *
  * AI 금지영역: BuyScore 계산·persona view 파생은 순수 Rule. AI/LLM 개입 절대 금지.
  * (signalSummary 는 기존 캐시된 DisclosureAnalysis 요약을 참조만 — 새 AI 호출 없음)
@@ -235,7 +236,9 @@ export class SignalGenerationService {
         return { candidates: 0, created: 0, updated: 0, skipped: 0, gradeDist, triggeredBy };
       }
 
-      // 3. 멱등: 기존 (rcpNo, persona) 집합
+      // 3. 멱등: 이번 실행 전 기존 신호 집합. (corpCode, rcpNo, eventType, persona)
+      //    자연키이나 공시:이벤트 1:1 이라 (rcpNo, persona) 로 식별 동치.
+      //    신규/재채점 분기와 신규 신호만 통지 enqueue 하기 위한 스냅샷.
       const existing = await this.prisma.tradingSignal.findMany({
         select: { rcpNo: true, persona: true },
       });
@@ -316,25 +319,33 @@ export class SignalGenerationService {
           );
 
           try {
+            // DAR-125: 원천 멱등 upsert. 자연키 (corpCode, rcpNo, eventType, persona)
+            //   단일 진입으로 신규/재채점을 원자 처리 — create 후 P2002 캐치 패턴 제거.
+            const sig = await this.prisma.tradingSignal.upsert({
+              where: {
+                corpCode_rcpNo_eventType_persona: {
+                  corpCode: ev.corpCode,
+                  rcpNo: ev.rcpNo,
+                  eventType: ev.eventType,
+                  persona,
+                },
+              },
+              create: this.toCreateData(result, calibratedConfidence),
+              update: this.toUpdateData(result, calibratedConfidence),
+              select: { id: true },
+            });
             if (exists) {
-              await this.prisma.tradingSignal.update({
-                where: { rcpNo_persona: { rcpNo: ev.rcpNo, persona } },
-                data: this.toUpdateData(result, calibratedConfidence),
-              });
               updated++;
             } else {
-              const createdSig = await this.prisma.tradingSignal.create({
-                data: this.toCreateData(result, calibratedConfidence),
-                select: { id: true },
-              });
               created++;
               existingSet.add(key);
-              // DAR-85: 신규 매수신호(STRONG_BUY/BUY)만 큐로 통지 enqueue.
-              await this.maybeEnqueueSignal(createdSig.id, result, ev.company?.stockCode);
+              // DAR-85: 신규 매수신호(STRONG_BUY/BUY)만 큐로 통지 enqueue(재채점 제외).
+              await this.maybeEnqueueSignal(sig.id, result, ev.company?.stockCode);
             }
             gradeDist[result.signal] = (gradeDist[result.signal] ?? 0) + 1;
           } catch (err) {
-            // 동시 생성 등으로 (rcpNo, persona) 유니크 충돌 → 멱등 스킵
+            // 동시 생성 레이스 등으로 유니크 충돌(P2002) → 이미 존재 = 멱등 스킵.
+            //   (upsert 도 동시 insert 레이스에서 P2002 가능 — 방어적 처리 유지.)
             if (
               err instanceof Prisma.PrismaClientKnownRequestError &&
               err.code === 'P2002'
@@ -365,7 +376,7 @@ export class SignalGenerationService {
 
   /**
    * 신호 재생성·재채점 (DAR-50).
-   * 기존 (rcpNo, persona) 신호를 재계산하여 upsert(갱신)한다. 누락 신호는 신규 생성.
+   * 기존 (corpCode, rcpNo, eventType, persona) 신호를 재계산하여 upsert(갱신)한다. 누락 신호는 신규 생성.
    * TI 백필 후 chart·entryReady 반영이 파생 trading_signals 에 반영되도록 한다.
    * 사용자 데이터(주가·공시) 무변경 — 파생 신호만 갱신.
    */

@@ -783,7 +783,7 @@ Buy Score = W1×C1 + W2×C2 + W3×C3 + W4×C4 + W5×C5 + W6×C6 + W7×C7 − Ris
 
 - `TradingSignal.rcpNo` → `Disclosure.rcpNo` (N:1, 공시 1건에 Persona 수만큼 생성)
 - `TradingSignal.corpCode` → `Company.corpCode` (N:1)
-- 고유 제약: `(rcpNo, persona)` UNIQUE
+- 고유 제약: `(corpCode, rcpNo, eventType, persona)` UNIQUE (DAR-125: 원천 멱등 자연키. DisclosureEvent 1:1 로 기존 `(rcpNo, persona)` 와 동치이나 eventType 명시로 향후 1:N 확장 대비. 신호 생성부 upsert 키)
 
 ---
 

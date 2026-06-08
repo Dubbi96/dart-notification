@@ -24,17 +24,28 @@ describe('SignalGenerationService (DAR-41)', () => {
     pricedStockCodes: string[];
     existingSignals?: { rcpNo: string; persona: string }[];
     createImpl?: jest.Mock;
+    upsertImpl?: jest.Mock;
     esrRows?: any[];
     financials?: any[];
     insiderChanges?: any[];
     filedFacts?: any[];
   }) {
     const created: any[] = [];
+    const upsertCalls: any[] = [];
     const create =
       opts.createImpl ??
       jest.fn(async ({ data }: any) => {
         created.push(data);
         return data;
+      });
+    // DAR-125: 신호 생성부는 자연키 upsert. create 경로(신규)는 `create` payload 를
+    //   created 배열에 기록해 기존 단언(생성 수·FK·persona)을 그대로 유지한다.
+    const upsert =
+      opts.upsertImpl ??
+      jest.fn(async (args: any) => {
+        upsertCalls.push(args);
+        created.push(args.create);
+        return { id: `sig_${created.length}` };
       });
     const prisma = {
       stockDailyPrice: {
@@ -55,6 +66,7 @@ describe('SignalGenerationService (DAR-41)', () => {
       tradingSignal: {
         findMany: jest.fn(async () => opts.existingSignals ?? []),
         create,
+        upsert,
       },
       technicalIndicator: {
         findFirst: jest.fn(async () => null),
@@ -83,7 +95,7 @@ describe('SignalGenerationService (DAR-41)', () => {
         findMany: jest.fn(async () => opts.filedFacts ?? []),
       },
     };
-    return { prisma, created, create };
+    return { prisma, created, create, upsert, upsertCalls };
   }
 
   function makeService(prisma: any) {
@@ -264,8 +276,8 @@ describe('SignalGenerationService (DAR-41)', () => {
     expect(created).toHaveLength(0);
   });
 
-  it('멱등: 유니크 충돌(P2002)은 스킵으로 처리된다', async () => {
-    const createImpl = jest.fn(async () => {
+  it('멱등: upsert 동시 insert 레이스 유니크 충돌(P2002)은 스킵으로 처리된다', async () => {
+    const upsertImpl = jest.fn(async () => {
       throw new Prisma.PrismaClientKnownRequestError('dup', {
         code: 'P2002',
         clientVersion: 'test',
@@ -274,7 +286,7 @@ describe('SignalGenerationService (DAR-41)', () => {
     const { prisma } = buildPrisma({
       events: [makeEvent()],
       pricedStockCodes: ['000100'],
-      createImpl,
+      upsertImpl,
     });
     const service = makeService(prisma);
 
@@ -282,6 +294,62 @@ describe('SignalGenerationService (DAR-41)', () => {
 
     expect(result.created).toBe(0);
     expect(result.skipped).toBe(4);
+  });
+
+  // DAR-125: 원천 멱등화 — 신호 생성부는 자연키 (corpCode, rcpNo, eventType, persona)
+  //   upsert 로 영속한다. create+P2002캐치가 아니라 upsert 단일 진입을 검증.
+  it('DAR-125: 신규 신호는 자연키 (corpCode, rcpNo, eventType, persona) upsert 로 생성한다', async () => {
+    const { prisma, upsertCalls } = buildPrisma({
+      events: [
+        makeEvent({
+          rcpNo: 'Z1',
+          corpCode: '00100000',
+          eventType: 'SHARE_BUYBACK',
+          company: { stockCode: '000100', market: 'KOSPI' },
+        }),
+      ],
+      pricedStockCodes: ['000100'],
+    });
+    const service = makeService(prisma);
+
+    const result = await service.generateMissingSignals('MANUAL');
+
+    // create() 는 호출되지 않고 upsert() 로만 영속 (4 Persona)
+    expect((prisma.tradingSignal.create as jest.Mock)).not.toHaveBeenCalled();
+    expect(upsertCalls).toHaveLength(4);
+    expect(result.created).toBe(4);
+    // where 키가 자연키 전체 그레인인지
+    const personas = upsertCalls
+      .map((c) => c.where.corpCode_rcpNo_eventType_persona)
+      .sort((a, b) => a.persona.localeCompare(b.persona));
+    expect(personas).toEqual([
+      { corpCode: '00100000', rcpNo: 'Z1', eventType: 'SHARE_BUYBACK', persona: 'EVENT_DRIVEN' },
+      { corpCode: '00100000', rcpNo: 'Z1', eventType: 'SHARE_BUYBACK', persona: 'GROWTH' },
+      { corpCode: '00100000', rcpNo: 'Z1', eventType: 'SHARE_BUYBACK', persona: 'MOMENTUM' },
+      { corpCode: '00100000', rcpNo: 'Z1', eventType: 'SHARE_BUYBACK', persona: 'VALUE' },
+    ]);
+  });
+
+  // DAR-125: 재생성(overwrite) 은 기존 행을 upsert 로 갱신 — 신규 생성/중복 0.
+  it('DAR-125: 재생성 시 기존 신호를 upsert 갱신하고 신규 생성은 0 (멱등)', async () => {
+    const { prisma, upsertCalls } = buildPrisma({
+      events: [makeEvent({ rcpNo: 'X' })],
+      pricedStockCodes: ['000100'],
+      existingSignals: [
+        { rcpNo: 'X', persona: 'GROWTH' },
+        { rcpNo: 'X', persona: 'VALUE' },
+        { rcpNo: 'X', persona: 'MOMENTUM' },
+        { rcpNo: 'X', persona: 'EVENT_DRIVEN' },
+      ],
+    });
+    const service = makeService(prisma);
+
+    const result = await service.regenerateSignals('MANUAL');
+
+    // 4건 모두 기존 → 갱신(updated), 신규 0. upsert 는 4회 호출(재채점).
+    expect(result.created).toBe(0);
+    expect(result.updated).toBe(4);
+    expect(upsertCalls).toHaveLength(4);
   });
 
   it('grade 분포: 전부 BUY 쏠림이 아니라 NEUTRAL 위주(데이터 빈약 시)', async () => {

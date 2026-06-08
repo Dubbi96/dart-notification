@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { NotificationType } from '@prisma/client';
+import { NotificationType, NotificationHistory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueryNotificationDto } from './dto/query-notification.dto';
 
@@ -28,14 +28,29 @@ export class NotificationsService {
    * 동일 키가 이미 있으면 기존 행을 반환(중복 통지 0). DAR-85 실발송 파이프라인의 토대.
    */
   async createNotification(input: CreateNotificationInput) {
+    const { notification } = await this.createNotificationIfAbsent(input);
+    return notification;
+  }
+
+  /**
+   * createNotification 의 멱등 변형 — 신규 생성 여부(created)를 함께 반환한다.
+   *
+   * DAR-136: NotificationHistory(인박스) 를 **푸시 발송의 멱등 권위**로 승격하기 위함.
+   * 동일 (userId,type,refId) 가 이미 있으면 created=false → 호출측(NotifyConsumer)이
+   * 푸시 재발송을 건너뛴다. BullMQ 잡 재시도(attempts:3)가 부분 실패 후 재실행돼도
+   * 이미 통지된 사용자에게 **중복 푸시가 가지 않도록** 보장한다(인박스 중복 0 + 푸시 중복 0).
+   */
+  async createNotificationIfAbsent(
+    input: CreateNotificationInput,
+  ): Promise<{ notification: NotificationHistory; created: boolean }> {
     const { userId, type, refId, title, body, deepLink, disclosureRcpNo } = input;
 
     const exists = await this.prisma.notificationHistory.findUnique({
       where: { userId_type_refId: { userId, type, refId } },
     });
-    if (exists) return exists;
+    if (exists) return { notification: exists, created: false };
 
-    return this.prisma.notificationHistory.create({
+    const notification = await this.prisma.notificationHistory.create({
       data: {
         userId,
         type,
@@ -47,6 +62,7 @@ export class NotificationsService {
           type === NotificationType.DISCLOSURE ? (disclosureRcpNo ?? refId) : null,
       },
     });
+    return { notification, created: true };
   }
 
   async findAll(userId: string, query: QueryNotificationDto) {

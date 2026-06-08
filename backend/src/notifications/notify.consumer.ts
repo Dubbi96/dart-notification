@@ -180,7 +180,22 @@ export class NotifyConsumer extends WorkerHost {
     deepLink: string,
   ): Promise<void> {
     // 1) 인박스는 토글과 무관하게 항상 기록(멱등). 사용자가 앱에서 확인 가능.
-    await this.notifications.createNotification({ userId, type, refId, title, body, deepLink });
+    //    created=false 면 이전 시도(잡 재시도 등)가 이미 처리한 통지 → 푸시 재발송 금지.
+    const { created } = await this.notifications.createNotificationIfAbsent({
+      userId,
+      type,
+      refId,
+      title,
+      body,
+      deepLink,
+    });
+    if (!created) {
+      // ★DAR-136: NotificationHistory 가 푸시 멱등 권위. 중복 인박스 0 + 중복 푸시 0.
+      this.logger.debug(
+        `[NOTIFY] 이미 통지된 항목(멱등) — 푸시 재발송 스킵: user=${userId} type=${type} ref=${refId}`,
+      );
+      return;
+    }
 
     // 2) ★실발송은 토글 뒤 기본 OFF. 미설정/OFF면 인박스만 남기고 푸시 미발송.
     const settings = await this.prisma.notificationSettings.findUnique({

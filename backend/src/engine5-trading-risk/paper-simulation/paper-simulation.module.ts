@@ -13,6 +13,7 @@ import { PaperTradeService } from '../services/paper-trade.service';
 import { PaperSimulationService } from './paper-simulation.service';
 import { PaperSimulationController } from './paper-simulation.controller';
 import { PaperSimulationScheduler } from './paper-simulation.scheduler';
+import { SimulationPriceSourceService } from './simulation-price-source.service';
 import { NotificationProducerModule } from '../../notifications/notification-producer.module';
 import { NotificationProducerService } from '../../notifications/notification-producer.service';
 
@@ -21,19 +22,24 @@ import { NotificationProducerService } from '../../notifications/notification-pr
   controllers: [PaperSimulationController],
   providers: [
     PaperSimulationScheduler,
+    // DAR-124: 시세 소스(실데이터 vs 결정적 합성). 모드는 PAPER_SIM_SYNTHETIC_FEED 플래그.
+    SimulationPriceSourceService,
     {
       provide: PaperSimulationService,
       // DAR-85: NotificationProducerService 주입(청산 권고 enqueue). optional:true 로
       // 큐 미설정 환경에서도 안전(producer 내부도 @Optional 큐로 graceful).
+      // DAR-124: SimulationPriceSourceService 주입(시세 소스 추상화).
       useFactory: (
         prisma: PrismaService,
         paperTrade: PaperTradeService,
         notifyProducer?: NotificationProducerService,
-      ) => new PaperSimulationService(prisma, paperTrade, notifyProducer),
+        priceSource?: SimulationPriceSourceService,
+      ) => new PaperSimulationService(prisma, paperTrade, notifyProducer, priceSource),
       inject: [
         PrismaService,
         PaperTradeService,
         { token: NotificationProducerService, optional: true },
+        { token: SimulationPriceSourceService, optional: true },
       ],
     },
   ],

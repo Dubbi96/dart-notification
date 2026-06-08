@@ -51,7 +51,7 @@ function reasonKindLabel(kind: ExitReason['kind']): string {
   }
 }
 
-export function ExitScoreCard({ signal, onPress }: ExitScoreCardProps) {
+function ExitScoreCardBase({ signal, onPress }: ExitScoreCardProps) {
   const { colors, typography: typo } = useTheme();
   const handlePress = useCallback(() => onPress?.(signal), [onPress, signal]);
   // DAR-99: 관리종목·거래정지·상폐위험 배지(DART 폴백·근사값). 손실 회피 1차 방어선.
@@ -156,6 +156,9 @@ export function ExitScoreCard({ signal, onPress }: ExitScoreCardProps) {
     </TouchableOpacity>
   );
 }
+
+// FlatList renderItem 자식 — 부모 리렌더 시 불필요한 리렌더 차단(DAR-128 성능 스윕).
+export const ExitScoreCard = React.memo(ExitScoreCardBase);
 
 const styles = StyleSheet.create({
   card: {

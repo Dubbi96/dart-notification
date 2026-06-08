@@ -186,6 +186,9 @@ export default function SignalsScreen() {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={false}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={7}
         refreshing={exitQuery.isRefetching}
         onRefresh={exitQuery.refetch}
         ListHeaderComponent={sellHeader}

@@ -134,7 +134,18 @@ export class SimulationPriceSourceService {
     if (dates.length === 0) return { stocks: stocks.length, inserted: 0 };
 
     let inserted = 0;
+    let skippedReal = 0;
     for (const s of stocks) {
+      // ★DAR-139: 하이브리드 모드에서 실데이터 보유 종목은 합성을 적재하지 않는다 — 평가에서
+      //   합성을 절대 쓰지 않으므로(resolveSource→REAL) 적재는 불필요할 뿐 아니라, 'SimulatedDailyPrice는
+      //   실데이터 없는 종목만' 원칙을 적재 단계에서도 지켜 합성/실 혼재를 원천 차단한다.
+      if (this.mode === 'REAL_THEN_SYNTHETIC') {
+        const src = await this.resolveSource(s.corpCode, tradeDate);
+        if (src === 'REAL') {
+          skippedReal++;
+          continue;
+        }
+      }
       const bars = this.seriesFor(s.stockCode, tradeDate);
       const data: Prisma.SimulatedDailyPriceCreateManyInput[] = bars
         .filter((b) => dates.includes(b.tradeDate))
@@ -148,7 +159,7 @@ export class SimulationPriceSourceService {
       inserted += res.count;
     }
     this.logger.log(
-      `[SimPriceSource][합성] 유니버스 준비 stocks=${stocks.length} inserted=${inserted} tradeDate=${tradeDate}`,
+      `[SimPriceSource][${this.modeLabel}] 유니버스 준비 stocks=${stocks.length} inserted=${inserted} 실데이터스킵=${skippedReal} tradeDate=${tradeDate}`,
     );
     return { stocks: stocks.length, inserted };
   }
@@ -171,13 +182,24 @@ export class SimulationPriceSourceService {
       return { ...rest, source: 'SYNTHETIC', sourceDate: rowDate };
     }
     // 실데이터: REAL_THEN_SYNTHETIC 모드는 시뮬 날짜를 실 거래일로 매핑(일별 전진 = 실가 변동).
+    //   매핑일 이하 최신 실 거래일 종가(공백일/주말은 lte 로 직전 거래일 종가 자동 사용).
     const realDate = this.realQueryDate(tradeDate);
-    const row = await this.prisma.stockDailyPrice.findFirst({
+    let row = await this.prisma.stockDailyPrice.findFirst({
       where: { corpCode, tradeDate: { lte: realDate } },
       orderBy: { tradeDate: 'desc' },
       select: { ...this.rowSelect, tradeDate: true },
     });
-    if (!row) return null;
+    if (!row) {
+      // ★DAR-139: 매핑일이 보유 실데이터 최초일보다 과거 → 합성으로 떨어뜨리지 않고
+      //   '최신 실 거래일 종가'로 평가(실데이터 종목은 항상 실가). 정직: sourceDate=실 원일자.
+      //   상한은 매핑 전 시뮬 날짜(tradeDate) — 시뮬 '오늘' 이후의 실데이터는 보지 않는다(미래참조 금지).
+      row = await this.prisma.stockDailyPrice.findFirst({
+        where: { corpCode, tradeDate: { lte: tradeDate } },
+        orderBy: { tradeDate: 'desc' },
+        select: { ...this.rowSelect, tradeDate: true },
+      });
+    }
+    if (!row) return null; // 실데이터 전무(resolveSource 가 이 경우 SYNTHETIC 라우팅하므로 사실상 미도달)
     const { tradeDate: rowDate, ...rest } = row;
     // sourceDate = 실제 사용한 실 거래일(원일자) — 2026 오인 방지 정직 고지.
     return { ...rest, source: 'REAL', sourceDate: rowDate };
@@ -213,16 +235,18 @@ export class SimulationPriceSourceService {
    * 한 종목이 어느 소스로 평가될지 결정(종목 단위 단일 소스 — 행 혼합 금지).
    *   - REAL: 항상 실데이터(StockDailyPrice). 조회 없음(회귀 0).
    *   - SYNTHETIC: 항상 합성(SimulatedDailyPrice). 조회 없음.
-   *   - REAL_THEN_SYNTHETIC(DAR-137): asOf 이하 실 일봉이 1건이라도 있으면 REAL, 없으면 SYNTHETIC.
-   *     존재성만 1회 가볍게 확인 — 실데이터 보유 종목은 실가, 공백 종목만 합성으로 폴백.
+   *   - REAL_THEN_SYNTHETIC(DAR-137·DAR-139): 종목이 시뮬 날짜 이하 실 일봉을 '하나라도' 보유하면 REAL.
+   *     ★DAR-139: 보유 판정을 '매핑일(2025) 기준 lte' 가 아니라 '시뮬 날짜(asOf, 미매핑) 이하 존재'로
+   *     한다. 매핑일이 보유 실데이터 최초일보다 과거여도(공백일·윈도 밖) 실데이터 종목은 합성으로
+   *     떨어지지 않고 최신 실 거래일 종가로 평가된다(latestPriceRow 폴백). 실데이터 전무 종목만
+   *     SYNTHETIC. ★상한은 미매핑 asOf — 시뮬 '오늘' 이후 실데이터는 보유 판정에서 제외(미래참조 금지).
    */
   private async resolveSource(corpCode: string, asOf: string): Promise<SimPriceSource> {
     const m = this.mode;
     if (m === 'REAL') return 'REAL';
     if (m === 'SYNTHETIC') return 'SYNTHETIC';
-    // 하이브리드: 매핑된 실 거래일 이하 실 일봉이 1건이라도 있으면 REAL, 없으면 SYNTHETIC 폴백.
     const real = await this.prisma.stockDailyPrice.findFirst({
-      where: { corpCode, tradeDate: { lte: this.realQueryDate(asOf) } },
+      where: { corpCode, tradeDate: { lte: asOf } },
       orderBy: { tradeDate: 'desc' },
       select: { tradeDate: true },
     });

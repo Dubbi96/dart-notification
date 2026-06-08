@@ -114,6 +114,30 @@ function makeSyntheticPriceSource(): SimulationPriceSourceService {
   } as unknown as SimulationPriceSourceService;
 }
 
+const REAL_CLOSE = 23_500; // 실 종가(하이브리드 재기준 기준가, DAR-139 — 126730 최신 실가 예시)
+
+/** 하이브리드(REAL_THEN_SYNTHETIC) 소스 스텁 — 실데이터 보유 종목을 실 종가로 평가. */
+function makeHybridPriceSource(): SimulationPriceSourceService {
+  const row: SimPriceRow = {
+    openPrice: REAL_CLOSE,
+    highPrice: REAL_CLOSE + 300,
+    lowPrice: REAL_CLOSE - 300,
+    closePrice: REAL_CLOSE,
+    volume: BigInt(100),
+    source: 'REAL',
+    sourceDate: '20260605',
+  };
+  return {
+    mode: 'REAL_THEN_SYNTHETIC',
+    isSynthetic: false,
+    seedsSynthetic: true,
+    modeLabel: '실가 우선·합성 폴백(테스트)',
+    prepareUniverse: jest.fn().mockResolvedValue({ stocks: 1, inserted: 0 }),
+    latestPriceRow: jest.fn().mockResolvedValue(row),
+    closesAfter: jest.fn().mockResolvedValue([]),
+  } as unknown as SimulationPriceSourceService;
+}
+
 function makePaperTradeStub() {
   return {
     placeOrder: jest.fn(async ({ orderedShares }: { orderedShares: number }) => ({
@@ -166,6 +190,50 @@ describe('레거시 포지션 합성가 재기준(DAR-135)', () => {
   it('실데이터 모드(priceSource 미주입) → 재기준 no-op(회귀 0)', async () => {
     const prisma = makePrismaMock(buildPosition(50_000));
     const svc = new PaperSimulationService(prisma as never, makePaperTradeStub() as never);
+    const result = await svc.runDailyCycle('20260608');
+
+    expect(result.rebased).toBe(0);
+    expect(prisma._updates.find((u) => u.entryPrice !== undefined)).toBeUndefined();
+  });
+});
+
+describe('레거시 포지션 실가 재기준(DAR-139, 하이브리드 모드)', () => {
+  it('합성가 진입(83,050) 레거시 → 실 종가(23,500) 기준으로 재기준(가짜 +253% 손익 제거)', async () => {
+    // 합성가로 적재됐던 진입가(83,050)가 실데이터 종목의 실 종가(23,500)와 큰 괴리 = 레거시.
+    const prisma = makePrismaMock(buildPosition(83_050));
+    const priceSource = makeHybridPriceSource();
+
+    const svc = new PaperSimulationService(
+      prisma as never,
+      makePaperTradeStub() as never,
+      undefined,
+      priceSource,
+    );
+    const result = await svc.runDailyCycle('20260608');
+
+    expect(result.rebased).toBe(1);
+    // 재기준 update: 진입가=실 종가, 원금=실가×수량, 손익 0, 최고가=실가 → +253% 사라짐.
+    const rebaseUpdate = prisma._updates.find((u) => u.entryPrice === REAL_CLOSE);
+    expect(rebaseUpdate).toBeDefined();
+    expect(rebaseUpdate?.entryAmount).toBe(REAL_CLOSE * 8);
+    expect(rebaseUpdate?.currentPrice).toBe(REAL_CLOSE);
+    expect(rebaseUpdate?.currentValue).toBe(REAL_CLOSE * 8);
+    expect(rebaseUpdate?.unrealizedPnl).toBe(0);
+    expect(rebaseUpdate?.unrealizedPnlPct).toBe(0);
+    expect(rebaseUpdate?.highestPrice).toBe(REAL_CLOSE);
+  });
+
+  it('실 종가 진입(23,500±slip) 포지션 → drift 임계 이내 → 재대상 아님(멱등)', async () => {
+    // 실가로 진입한(또는 이미 재기준된) 포지션은 현재-소스 종가와 일관 → 건드리지 않음.
+    const prisma = makePrismaMock(buildPosition(23_600)); // 23,500 대비 drift 0.4% ≤ 10%
+    const priceSource = makeHybridPriceSource();
+
+    const svc = new PaperSimulationService(
+      prisma as never,
+      makePaperTradeStub() as never,
+      undefined,
+      priceSource,
+    );
     const result = await svc.runDailyCycle('20260608');
 
     expect(result.rebased).toBe(0);

@@ -27,10 +27,7 @@ import {
   FundamentalFiledFactInput,
 } from '../buy-signal/scoring/fundamental.scorer';
 import { derivePersonaViews, ImpactMagnitude } from './persona-view.rule';
-import {
-  classifyBucket,
-  EventExtractedData,
-} from '../event-study/utils/bucket-classifier';
+import { deriveBucketKeyForEvent } from '../event-study/utils/bucket-classifier';
 import { SignalAccuracyService } from '../backtest/signal-accuracy.service';
 import {
   gradeCoefficientMap,
@@ -543,26 +540,16 @@ export class SignalGenerationService {
   }
 
   /**
-   * DisclosureEvent → bucketKey. 집계 시 쓰인 canonical classifyBucket 을 그대로 사용해
-   * 조회키 일관성을 보장한다(같은 함수·같은 extractedData → 같은 키). isAmendment 는
-   * 별도 컬럼이므로 extractedData 에 병합해 분류기에 전달한다.
+   * DisclosureEvent → bucketKey. Event Study 산출(집계)과 동일한 deriveBucketKeyForEvent
+   * 를 써서 조회키 일관성을 보장한다(같은 함수·같은 extractedData → 같은 키). DAR-133:
+   * 산출/조회 양측이 같은 함수를 공유하도록 공통 헬퍼로 위임.
    */
   private deriveBucketKey(ev: {
     eventType: string;
     isAmendment: boolean;
     extractedData: Prisma.JsonValue;
   }): string {
-    const ed =
-      ev.extractedData &&
-      typeof ev.extractedData === 'object' &&
-      !Array.isArray(ev.extractedData)
-        ? (ev.extractedData as Record<string, unknown>)
-        : {};
-    const data: EventExtractedData = {
-      ...(ed as EventExtractedData),
-      isAmendment: ev.isAmendment,
-    };
-    return classifyBucket(ev.eventType, data);
+    return deriveBucketKeyForEvent(ev.eventType, ev.extractedData, ev.isAmendment);
   }
 
   /** 기존 캐시된 AI 요약(task=summary) → rcpNo → summary 텍스트 (새 AI 호출 없음) */

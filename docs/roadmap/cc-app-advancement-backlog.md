@@ -198,3 +198,16 @@
 | 10 | 홈 초기 로딩 헤더 셸 유지 + 수치 대시 처리 | low/small | mobile |
 
 **구동 순서**: #1 AI분석노출(차별점) → #4 ai-cost 진입(완성화면 출시·small) → #2·#3 에러상태(신뢰·small) → #5 검색동선 → #7 포트폴리오 드릴다운 → #6 탭라벨/발견성 → #8 성능 → #9·#10 정리. (이후 신규 사용자가치 기능은 화면반영 DAR 동반·DoD에 진입점/상태/인터렉션 포함.)
+
+---
+
+## 사용자 리포트 UI 버그 백로그 (2026-06-08)
+
+> ★사용자 직접 리포트(Android 에뮬레이터 실측). Paperclip 플릿(fe) 처리 대상. 상세 작업문서: `docs/work/DAR-141-*.md`, `docs/work/DAR-142-*.md`.
+
+| # | 항목 | severity/effort | layer | 영향 파일 |
+|---|---|---|---|---|
+| DAR-141 | 포트폴리오 상단 서브탭 라벨 잘림·우측 클리핑(`SegmentedButtons` 5탭 균등분할 폭초과 → 가로 스크롤 탭으로) | medium/small | mobile | `app/(tabs)/portfolio/index.tsx` |
+| DAR-142 | 신호 필터 칩 행 좌측 공백(`FilterChipRow` `chipRow` `flexGrow:1`+padding 정렬 이상) | low/small | mobile | `components/signals/SignalExplorer.tsx` |
+
+**공통 DoD**: `npm run lint`·타입 0 · **크로스플랫폼 가드(iOS simctl + Android adb 양쪽 렌더 확인, 정본 `docs/mobile-cross-platform-issues.md`)** · 테마 토큰 사용.

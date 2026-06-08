@@ -1063,6 +1063,11 @@ model Position {
   dailySnapshots PositionDailySnapshot[]
   exitSignals    ExitSignal[]
 
+  // DAR-122: 포트폴리오별 종목당 OPEN 포지션 1건 강제(데이터 레벨 중복 근절).
+  // 부분 유니크 인덱스 `positions_portfolioId_stockCode_open_key`
+  //   = UNIQUE (portfolioId, stockCode) WHERE status='OPEN'.
+  // Prisma 스키마는 WHERE 조건부 유니크를 표현할 수 없어 raw 마이그레이션
+  //   (20260608000000_dar122_position_open_unique)으로만 관리한다. CLOSED 이력은 다수 허용.
   @@index([portfolioId, status])
   @@index([corpCode])
   @@index([stockCode])

@@ -76,3 +76,42 @@ export interface EntryMeta {
 export function buildEntryMeta(grade: string, buyScore: number): EntryMeta {
   return { grade, buyScore, sizingFactor: gradeSizingFactor(grade) };
 }
+
+/**
+ * 모의 매수 후보 종목당 1건 디듑(DAR-122).
+ *
+ * 한 종목(corpCode)은 4 Persona(또는 다수 공시)당 TradingSignal 행을 가질 수 있어,
+ * 후보 목록에 동일 corpCode가 여러 번 들어온다. 디듑 없이 루프를 돌면 같은 종목에
+ * Position이 중복 생성된다(★코칩 4행 중복의 근본원인). 종목당 최선 1건만 남긴다.
+ *
+ * 선정 규칙(결정론적): buyScore 내림차순 → 등급 서열 내림차순 → id 오름차순.
+ * 입력 순서와 무관하게 동일 결과(재실행 멱등성). side-effect 0.
+ */
+export interface DedupeCandidate {
+  id: string;
+  corpCode: string;
+  buyScore: number;
+  signal: string;
+}
+
+function isBetterCandidate(a: DedupeCandidate, b: DedupeCandidate): boolean {
+  if (a.buyScore !== b.buyScore) return a.buyScore > b.buyScore;
+  const ra = GRADE_RANK[a.signal] ?? -1;
+  const rb = GRADE_RANK[b.signal] ?? -1;
+  if (ra !== rb) return ra > rb;
+  return a.id < b.id;
+}
+
+export function dedupeCandidatesByCorpCode<T extends DedupeCandidate>(
+  candidates: readonly T[],
+): T[] {
+  const best = new Map<string, T>();
+  for (const c of candidates) {
+    const prev = best.get(c.corpCode);
+    if (!prev || isBetterCandidate(c, prev)) {
+      best.set(c.corpCode, c);
+    }
+  }
+  // 결정론적 출력 순서: buyScore desc → 등급 desc → id asc
+  return [...best.values()].sort((a, b) => (isBetterCandidate(a, b) ? -1 : 1));
+}

@@ -18,6 +18,7 @@ import { TodayCheckSlot } from '@components/portfolio/TodayCheckSlot';
 import { PositionSearchBar } from '@components/portfolio/PositionSearchBar';
 import { usePositions, usePortfolioSummary, usePaperPortfolio } from '@hooks/usePortfolio';
 import { pnlColor, formatPnlPercent } from '@utils/signalDisplay';
+import { dedupeByStock } from '@utils/dedupe';
 
 import type { Position } from '@app-types/portfolio.types';
 import type { SortKey } from '@components/portfolio/PositionSearchBar';
@@ -49,7 +50,11 @@ export default function PortfolioScreen() {
 
   const sortedPositions = useMemo(() => {
     const data = positionsQuery.data ?? [];
-    return [...data].sort((a, b) => STATUS_ORDER[a.thesisStatus] - STATUS_ORDER[b.thesisStatus]);
+    const sorted = [...data].sort(
+      (a, b) => STATUS_ORDER[a.thesisStatus] - STATUS_ORDER[b.thesisStatus],
+    );
+    // DAR-122: 종목당 1카드(데이터 레벨 중복 보조 방어선) — 상태 우선순위가 높은 행을 대표로 보존.
+    return dedupeByStock(sorted, (p) => p.id);
   }, [positionsQuery.data]);
 
   const filteredPositions = useMemo(() => {

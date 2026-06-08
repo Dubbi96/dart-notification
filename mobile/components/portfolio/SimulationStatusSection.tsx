@@ -10,6 +10,7 @@ import { EmptyState, ErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { EquityCurveChart } from '@components/portfolio/EquityCurveChart';
 import { useSimulationStatus, useSimulationEquityCurve } from '@hooks/useSimulationStatus';
+import { dedupeByStock } from '@utils/dedupe';
 
 import type { SimPosition, SimulationMetrics } from '@app-types/simulation.types';
 
@@ -279,11 +280,15 @@ export function SimulationStatusSection() {
 
   const status = query.data;
 
+  // DAR-122: 종목당 1카드(데이터 레벨 중복 보조 방어선). keyExtractor에 index를 쓰면
+  // 중복이 '정상 렌더'되어 오히려 눈에 보이므로, 디듑 후 안정 키(stockCode/corpCode)만 사용.
+  const positions = dedupeByStock(status?.positions ?? [], (item) => item.corpCode);
+
   return (
     <FlatList
-      data={status?.positions ?? []}
+      data={positions}
       renderItem={renderPosition}
-      keyExtractor={(item, index) => `${item.corpCode}-${item.stockCode}-${index}`}
+      keyExtractor={(item) => item.stockCode || item.corpCode}
       contentContainerStyle={styles.listContent}
       showsVerticalScrollIndicator={false}
       refreshing={query.isRefetching}

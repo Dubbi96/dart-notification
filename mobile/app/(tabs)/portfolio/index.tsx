@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import { View, Text, FlatList, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { SegmentedButtons, Surface, Banner } from 'react-native-paper';
+import { Surface, Banner } from 'react-native-paper';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
@@ -25,6 +25,15 @@ import type { Position } from '@app-types/portfolio.types';
 import type { SortKey } from '@components/portfolio/PositionSearchBar';
 
 type SubTab = 'live' | 'paper' | 'sim' | 'persona' | 'style';
+
+// 상단 서브탭 — 가로 스크롤 칩 바(라벨 잘림/클리핑 방지, DAR-141).
+const SUB_TABS: { value: SubTab; label: string }[] = [
+  { value: 'live', label: '실전' },
+  { value: 'paper', label: '모의' },
+  { value: 'sim', label: '모의운용' },
+  { value: 'persona', label: '페르소나' },
+  { value: 'style', label: '스타일' },
+];
 
 // VIOLATED/EXPIRED 포지션을 리스트 최상단으로 고정하는 정렬 우선순위.
 const STATUS_ORDER: Record<Position['thesisStatus'], number> = {
@@ -231,19 +240,41 @@ export default function PortfolioScreen() {
         />
       ) : (
         <>
-          <View style={styles.tabs}>
-            <SegmentedButtons
-              value={subTab}
-              onValueChange={(v) => setSubTab(v as SubTab)}
-              buttons={[
-                { value: 'live', label: '실전', icon: 'wallet' },
-                { value: 'paper', label: '모의', icon: 'flask' },
-                { value: 'sim', label: '모의운용', icon: 'chart-line' },
-                { value: 'persona', label: '페르소나', icon: 'account-group' },
-                { value: 'style', label: '스타일', icon: 'podium' },
-              ]}
-            />
-          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.tabsBar}
+            contentContainerStyle={styles.tabs}
+          >
+            {SUB_TABS.map((t) => {
+              const active = subTab === t.value;
+              return (
+                <TouchableOpacity
+                  key={t.value}
+                  style={[
+                    styles.tabChip,
+                    active
+                      ? { backgroundColor: colors.primary }
+                      : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
+                  ]}
+                  onPress={() => setSubTab(t.value)}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={t.label}
+                >
+                  <Text
+                    style={[
+                      typo.small,
+                      { color: active ? '#FFFFFF' : colors.text, fontWeight: active ? '600' : '400' },
+                    ]}
+                  >
+                    {t.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
 
           <View style={styles.body}>
             {subTab === 'live'
@@ -271,9 +302,22 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
   },
+  tabsBar: {
+    flexGrow: 0,
+    marginTop: spacing.md,
+  },
   tabs: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
+    gap: spacing.sm,
+    alignItems: 'center',
+  },
+  tabChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.full,
+    height: 40,
   },
   body: {
     flex: 1,

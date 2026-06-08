@@ -33,13 +33,19 @@ describe('SignalGenerationService.regenerate (DAR-50)', () => {
       disclosureEvent: { findMany: jest.fn(async () => [event]) },
       tradingSignal: {
         findMany: jest.fn(async () => existing),
-        create: jest.fn(async ({ data }: any) => {
-          creates.push(data);
-          return data;
-        }),
-        update: jest.fn(async ({ data }: any) => {
-          updates.push(data);
-          return data;
+        // DAR-125: 신호 생성부는 자연키 upsert. 실제 upsert 의미를 모사 —
+        //   where 키가 기존 신호면 update 페이로드, 아니면 create 페이로드로 기록.
+        upsert: jest.fn(async ({ where, create, update }: any) => {
+          const k = where.corpCode_rcpNo_eventType_persona;
+          const isExisting = existing.some(
+            (e) => e.rcpNo === k.rcpNo && e.persona === k.persona,
+          );
+          if (isExisting) {
+            updates.push(update);
+            return { ...update, id: 'sig' };
+          }
+          creates.push(create);
+          return { ...create, id: 'sig' };
         }),
       },
       technicalIndicator: {

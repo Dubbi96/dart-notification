@@ -939,7 +939,12 @@ model TradingSignal {
   positionThesis PositionThesis?
   paperTrades    PaperTrade[]
 
-  @@unique([rcpNo, persona])
+  // DAR-125: 원천 멱등 자연키. corpCode+rcpNo+eventType(이슈 요청 키) + persona.
+  //   DisclosureEvent.rcpNo 가 @unique(공시:이벤트 1:1)라 corpCode·eventType 은
+  //   rcpNo 에 함수종속 → 기존 (rcpNo, persona) 와 동치이나, 이벤트타입을 키에
+  //   명시해 향후 1:N 확장에도 중복이 원천 차단되도록 강화한다. persona 는 4종
+  //   페르소나별 독립 분석(상이한 buyScore·personaType 필터)이므로 보존(손실 금지).
+  @@unique([corpCode, rcpNo, eventType, persona])
   @@index([corpCode])
   @@index([stockCode])
   @@index([signal])

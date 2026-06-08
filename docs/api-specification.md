@@ -933,5 +933,68 @@ GET /api/ai-cost/cross-engine
 
 ---
 
-**작성일**: 2026-06-05
-**버전**: 1.2 (AI 비용 거버넌스 API 추가 — DAR-17)
+## 11. Persona 모의운용 + 현재 장 적합 추천 (DAR-130)
+
+persona(거장 철학) 4종(VALUE≡버핏 / GROWTH≡린치 / QUANTITATIVE≡그린블라트 / MACRO≡드러켄밀러)을
+독립 모의 포트폴리오로 분기 운용(DAR-76 재사용)하고, 현재 시장 레짐(추세·변동성·이벤트분포)과 최근
+성과(수익률·MDD·적중률)를 **결정론적 규칙**으로 결합해 적합 persona 1~2개를 추천한다. AI 미개입.
+신뢰 원칙: 표본 < 30 이면 `dataLimited=true`(미유의) 표기.
+
+### 11.1 persona별 성과 + 현재 장 추천
+
+```
+GET /api/paper-trading/personas       (OptionalJwt — 게스트 데모)
+```
+
+**응답**:
+```json
+{
+  "success": true,
+  "data": {
+    "initialCapital": 10000000,
+    "regime": {
+      "trend": "UPTREND", "volatility": "HIGH", "eventSkew": "OPPORTUNITY",
+      "trendChangePct": 8.4, "dailyVolatilityPct": 1.7,
+      "indexSampleSize": 35, "eventSampleSize": 50,
+      "classifiable": true, "dataLimited": false, "asOf": "20260608"
+    },
+    "personas": [
+      {
+        "performance": { "style": "DRUCKENMILLER", "label": "드러켄밀러", "scorecard": { "...": "..." }, "graduation": { "...": "..." } },
+        "archetype": "MACRO", "regimeFitScore": 87, "compositeScore": 76.2,
+        "recommended": true, "rationale": "드러켄밀러(MACRO): 현재 장(상승추세·고변동성·호재 우세) 적합도 87점, ..."
+      }
+    ],
+    "recommended": ["DRUCKENMILLER", "LYNCH"],
+    "dataLimited": false,
+    "significantSampleThreshold": 30,
+    "lowSampleThreshold": 5,
+    "minEntryFit": 50
+  }
+}
+```
+
+### 11.2 현재 시장 레짐
+
+```
+GET /api/paper-trading/personas/regime   (OptionalJwt — 게스트 데모)
+```
+
+추세·변동성·이벤트분포 레짐만 반환(위 `regime` 객체와 동일 구조).
+
+### 11.3 persona 4종 1일치 사이클 수동 실행
+
+```
+POST /api/paper-trading/personas/run-once   (JWT 필수 — 쓰기)
+```
+
+| 바디 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `date` | string (YYYYMMDD) | 선택 | 기본: 오늘 |
+
+persona별 독립 포트폴리오에 1일치 사이클(적합도 진입 → 시가평가 → Exit) 분기 실행. ★모의 전용.
+
+---
+
+**작성일**: 2026-06-08
+**버전**: 1.3 (Persona 모의운용 + 현재 장 적합 추천 API 추가 — DAR-130)

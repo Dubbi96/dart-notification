@@ -110,3 +110,28 @@ function classifyDividendIncrease(data: EventExtractedData): string {
   if (changeRatio >= 0.20) return 'DIVIDEND_INCREASE__gte20pct_yoy';
   return 'DIVIDEND_INCREASE__lt20pct_yoy';
 }
+
+/**
+ * DisclosureEvent 한 건 → canonical bucketKey (DAR-133).
+ *
+ * Event Study 산출(집계)과 signal-generation 조회가 **동일한** 버킷 키를 쓰도록 하는
+ * 단일 진입점. `isAmendment` 는 DisclosureEvent 의 별도 컬럼이므로 분류기에 넘기기 전
+ * extractedData 에 병합한다(분류기는 EventExtractedData.isAmendment 를 읽음).
+ *
+ * extractedData 가 객체가 아니면(빈 JSON·배열·null) 빈 객체로 폴백 → default 버킷.
+ */
+export function deriveBucketKeyForEvent(
+  eventType: string,
+  extractedData: unknown,
+  isAmendment: boolean,
+): string {
+  const ed =
+    extractedData && typeof extractedData === 'object' && !Array.isArray(extractedData)
+      ? (extractedData as Record<string, unknown>)
+      : {};
+  const data: EventExtractedData = {
+    ...(ed as EventExtractedData),
+    isAmendment,
+  };
+  return classifyBucket(eventType, data);
+}

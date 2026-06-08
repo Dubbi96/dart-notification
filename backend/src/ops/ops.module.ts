@@ -3,6 +3,7 @@ import { TerminusModule } from '@nestjs/terminus';
 import { BullModule } from '@nestjs/bullmq';
 import { QUEUE } from '../common/queues/queue.constants';
 import { GraduationModule } from '../engine5-trading-risk/simulation/graduation.module';
+import { PipelineModule } from '../engine1-disclosure/pipeline/pipeline.module';
 import { OpsHealthController } from './ops-health.controller';
 import { OpsMetricsController } from './ops-metrics.controller';
 import { OpsMetricsService } from './ops-metrics.service';
@@ -30,6 +31,8 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
     TerminusModule,
     BullModule.registerQueue({ name: QUEUE.AI_ANALYZE }),
     GraduationModule,
+    // DAR-126: PipelineIntegrityService(단계 카운트) 재사용 — /ops/metrics.pipeline 노출.
+    PipelineModule,
   ],
   controllers: [OpsHealthController, OpsMetricsController],
   providers: [

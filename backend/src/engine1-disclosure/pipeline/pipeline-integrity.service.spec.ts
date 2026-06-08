@@ -1,0 +1,303 @@
+import { ExtractionStatus, ParseStatus } from '@prisma/client';
+import { PipelineIntegrityService } from './pipeline-integrity.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import { DisclosureDocumentsService } from '../disclosure-documents/disclosure-documents.service';
+import { DisclosureEventsService } from '../disclosure-events/disclosure-events.service';
+import { JOB } from '../../common/queues/queue.constants';
+
+/**
+ * DAR-126 — 수집→파싱→이벤트→AI 폐루프 견고화.
+ * 집계(read-only) 정합 + 누락 backfill 순서·멱등 + AI 재발행 페이로드 검증.
+ */
+describe('PipelineIntegrityService (DAR-126)', () => {
+  const NOW = new Date('2026-06-08T12:00:00.000Z');
+
+  function makePrisma(over: Record<string, unknown> = {}) {
+    return {
+      disclosure: {
+        count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      disclosureDocument: {
+        groupBy: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      disclosureEvent: {
+        groupBy: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      disclosureAnalysis: {
+        count: jest.fn().mockResolvedValue(0),
+      },
+      ...over,
+    } as unknown as PrismaService;
+  }
+
+  function makeDocs(over: Partial<DisclosureDocumentsService> = {}) {
+    return {
+      enqueueParsing: jest.fn().mockResolvedValue(undefined),
+      processPendingBatch: jest
+        .fn()
+        .mockResolvedValue({ success: 0, failed: 0, durationMs: 0 }),
+      ...over,
+    } as unknown as DisclosureDocumentsService;
+  }
+
+  function makeEvents(over: Partial<DisclosureEventsService> = {}) {
+    return {
+      processPendingDisclosures: jest
+        .fn()
+        .mockResolvedValue({ success: 0, failed: 0, needsReview: 0, durationMs: 0 }),
+      ...over,
+    } as unknown as DisclosureEventsService;
+  }
+
+  // ─── 관측(getHealth) ───────────────────────────────────────────────────────
+
+  it('단계별 건수·지연을 read-only 로 집계한다', async () => {
+    const prisma = makePrisma();
+    // disclosure.count: [total, last24h, missingDocument]
+    (prisma.disclosure.count as jest.Mock)
+      .mockResolvedValueOnce(100) // total
+      .mockResolvedValueOnce(12) // last24h
+      .mockResolvedValueOnce(3); // missingDocument
+    (prisma.disclosureDocument.groupBy as jest.Mock).mockResolvedValue([
+      { parseStatus: ParseStatus.DONE, _count: { _all: 80 } },
+      { parseStatus: ParseStatus.PENDING, _count: { _all: 5 } },
+      { parseStatus: ParseStatus.PARSE_FAILED, _count: { _all: 2 } },
+    ]);
+    // disclosureDocument.count: [retryable, countParsedDocsWithoutEvent]
+    (prisma.disclosureDocument.count as jest.Mock)
+      .mockResolvedValueOnce(2) // retryable
+      .mockResolvedValueOnce(4); // missingForParsedDocs
+    // oldest pending doc: 90분 전
+    (prisma.disclosureDocument.findFirst as jest.Mock).mockResolvedValue({
+      createdAt: new Date(NOW.getTime() - 90 * 60 * 1000),
+    });
+    (prisma.disclosureEvent.groupBy as jest.Mock).mockResolvedValue([
+      { extractionStatus: ExtractionStatus.SUCCESS, _count: { _all: 60 } },
+      { extractionStatus: ExtractionStatus.NEEDS_REVIEW, _count: { _all: 10 } },
+      { extractionStatus: ExtractionStatus.PENDING, _count: { _all: 1 } },
+    ]);
+    // disclosureEvent.count: [eligibleEvents, awaitingSummary]
+    (prisma.disclosureEvent.count as jest.Mock)
+      .mockResolvedValueOnce(70) // eligibleEvents
+      .mockResolvedValueOnce(15); // awaitingSummary
+    (prisma.disclosureEvent.findFirst as jest.Mock).mockResolvedValue(null); // no pending event age
+    (prisma.disclosureAnalysis.count as jest.Mock).mockResolvedValue(55); // summarized
+
+    const service = new PipelineIntegrityService(
+      prisma,
+      makeDocs(),
+      makeEvents(),
+      null,
+    );
+
+    const health = await service.getHealth(NOW);
+
+    expect(health.generatedAt).toBe(NOW.toISOString());
+    expect(health.collection).toEqual({ total: 100, last24h: 12, missingDocument: 3 });
+    expect(health.parsing.done).toBe(80);
+    expect(health.parsing.pending).toBe(5);
+    expect(health.parsing.parseFailed).toBe(2);
+    expect(health.parsing.retryable).toBe(2);
+    expect(health.parsing.oldestPendingAgeMinutes).toBe(90);
+    expect(health.events.success).toBe(60);
+    expect(health.events.needsReview).toBe(10);
+    expect(health.events.missingForParsedDocs).toBe(4);
+    expect(health.events.oldestPendingAgeMinutes).toBeNull();
+    expect(health.ai).toEqual({
+      eligibleEvents: 70,
+      summarized: 55,
+      awaitingSummary: 15,
+    });
+  });
+
+  it('표본 0건이면 모든 카운터가 0·지연 null(graceful 기본값)', async () => {
+    const service = new PipelineIntegrityService(
+      makePrisma(),
+      makeDocs(),
+      makeEvents(),
+      null,
+    );
+    const health = await service.getHealth(NOW);
+    expect(health.parsing.pending).toBe(0);
+    expect(health.parsing.oldestPendingAgeMinutes).toBeNull();
+    expect(health.events.oldestPendingAgeMinutes).toBeNull();
+    expect(health.ai.awaitingSummary).toBe(0);
+    expect(health.recentFailures).toEqual([]);
+  });
+
+  it('실패 행을 단계 혼합·최신순으로 가시화한다', async () => {
+    const prisma = makePrisma();
+    (prisma.disclosureDocument.findMany as jest.Mock).mockResolvedValue([
+      {
+        rcpNo: 'p1',
+        parseStatus: ParseStatus.PARSE_FAILED,
+        lastError: 'boom',
+        retryCount: 2,
+        updatedAt: new Date('2026-06-08T11:00:00.000Z'),
+      },
+    ]);
+    (prisma.disclosureEvent.findMany as jest.Mock).mockResolvedValue([
+      {
+        rcpNo: 'e1',
+        extractionStatus: ExtractionStatus.FAILED,
+        failReason: 'NO_PARSED_FIELD',
+        updatedAt: new Date('2026-06-08T11:30:00.000Z'),
+      },
+    ]);
+    const service = new PipelineIntegrityService(
+      prisma,
+      makeDocs(),
+      makeEvents(),
+      null,
+    );
+    const health = await service.getHealth(NOW);
+    // e1(11:30) 이 p1(11:00) 보다 최신 → 먼저.
+    expect(health.recentFailures.map((r) => r.rcpNo)).toEqual(['e1', 'p1']);
+    expect(health.recentFailures[0].stage).toBe('EVENT');
+    expect(health.recentFailures[1]).toMatchObject({
+      stage: 'PARSE',
+      detail: 'boom',
+      retryCount: 2,
+    });
+  });
+
+  // ─── backfill / drain ───────────────────────────────────────────────────────
+
+  it('수집됐으나 파싱 큐 미등록 공시를 enqueueParsing 으로 backfill 한다', async () => {
+    const prisma = makePrisma();
+    (prisma.disclosure.findMany as jest.Mock).mockResolvedValue([
+      { rcpNo: 'a' },
+      { rcpNo: 'b' },
+    ]);
+    const docs = makeDocs();
+    const service = new PipelineIntegrityService(prisma, docs, makeEvents(), null);
+
+    const n = await service.backfillMissingDocuments(50);
+
+    expect(n).toBe(2);
+    expect(docs.enqueueParsing).toHaveBeenCalledWith(['a', 'b']);
+  });
+
+  it('누락이 없으면 enqueueParsing 을 호출하지 않는다(멱등·무부작용)', async () => {
+    const docs = makeDocs();
+    const service = new PipelineIntegrityService(
+      makePrisma(),
+      docs,
+      makeEvents(),
+      null,
+    );
+    const n = await service.backfillMissingDocuments();
+    expect(n).toBe(0);
+    expect(docs.enqueueParsing).not.toHaveBeenCalled();
+  });
+
+  it('drainOnce 는 backfill→파싱→이벤트 순서로 폐루프를 닫고 결과를 합산한다', async () => {
+    const calls: string[] = [];
+    const prisma = makePrisma();
+    (prisma.disclosure.findMany as jest.Mock).mockResolvedValue([{ rcpNo: 'm1' }]);
+
+    const docs = makeDocs({
+      enqueueParsing: jest.fn().mockImplementation(async () => {
+        calls.push('enqueue');
+      }),
+      processPendingBatch: jest.fn().mockImplementation(async () => {
+        calls.push('parse');
+        return { success: 3, failed: 1, durationMs: 5 };
+      }),
+    });
+    const events = makeEvents({
+      processPendingDisclosures: jest.fn().mockImplementation(async () => {
+        calls.push('events');
+        return { success: 2, failed: 0, needsReview: 1, durationMs: 7 };
+      }),
+    });
+
+    const service = new PipelineIntegrityService(prisma, docs, events, null);
+    const result = await service.drainOnce(100);
+
+    expect(calls).toEqual(['enqueue', 'parse', 'events']);
+    expect(result.enqueuedMissingDocuments).toBe(1);
+    expect(result.parse).toEqual({ success: 3, failed: 1 });
+    expect(result.events).toEqual({ success: 2, failed: 0, needsReview: 1 });
+  });
+
+  it('한 단계가 throw 해도 다음 단계를 진행한다(부분 진행 보장)', async () => {
+    const prisma = makePrisma();
+    (prisma.disclosure.findMany as jest.Mock).mockResolvedValue([]);
+    const docs = makeDocs({
+      processPendingBatch: jest.fn().mockRejectedValue(new Error('parse down')),
+    });
+    const events = makeEvents({
+      processPendingDisclosures: jest
+        .fn()
+        .mockResolvedValue({ success: 5, failed: 0, needsReview: 0, durationMs: 1 }),
+    });
+    const service = new PipelineIntegrityService(prisma, docs, events, null);
+
+    const result = await service.drainOnce();
+    // 파싱 단계는 폴백(0/0), 이벤트 단계는 정상 진행.
+    expect(result.parse).toEqual({ success: 0, failed: 0 });
+    expect(result.events.success).toBe(5);
+    expect(events.processPendingDisclosures).toHaveBeenCalled();
+  });
+
+  // ─── AI 재발행(수동) ─────────────────────────────────────────────────────────
+
+  it('reprocessMissingAi 는 summary 미도달 자격 이벤트를 큐에 재발행한다(페이로드 정합)', async () => {
+    const prisma = makePrisma();
+    (prisma.disclosureEvent.findMany as jest.Mock).mockResolvedValue([
+      {
+        rcpNo: 'r1',
+        corpCode: 'c1',
+        eventType: 'SUPPLY_CONTRACT',
+        polarity: 'POSITIVE',
+        confidence: 0.9,
+        isAiAssisted: false,
+      },
+    ]);
+    const queue = { add: jest.fn().mockResolvedValue(undefined) };
+    const service = new PipelineIntegrityService(
+      prisma,
+      makeDocs(),
+      makeEvents(),
+      queue as never,
+    );
+
+    const result = await service.reprocessMissingAi(10);
+
+    expect(result).toEqual({ scanned: 1, reEnqueued: 1 });
+    expect(queue.add).toHaveBeenCalledTimes(1);
+    const [jobName, payload] = queue.add.mock.calls[0];
+    expect(jobName).toBe(JOB.EVENT_EXTRACTED);
+    expect(payload).toMatchObject({
+      rcpNo: 'r1',
+      corpCode: 'c1',
+      eventType: 'SUPPLY_CONTRACT',
+      polarity: 'POSITIVE',
+      confidence: 0.9,
+      isAiAssisted: false,
+    });
+  });
+
+  it('큐 미가용(null) 시 재발행은 0(graceful)', async () => {
+    const prisma = makePrisma();
+    (prisma.disclosureEvent.findMany as jest.Mock).mockResolvedValue([
+      { rcpNo: 'r1', corpCode: 'c1', eventType: 'OTHER', polarity: 'UNKNOWN', confidence: 0, isAiAssisted: false },
+    ]);
+    const service = new PipelineIntegrityService(
+      prisma,
+      makeDocs(),
+      makeEvents(),
+      null,
+    );
+    const result = await service.reprocessMissingAi();
+    expect(result).toEqual({ scanned: 1, reEnqueued: 0 });
+  });
+});

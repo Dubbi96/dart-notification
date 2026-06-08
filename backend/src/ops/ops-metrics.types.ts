@@ -1,6 +1,8 @@
 // 운영 메트릭 응답 타입 (DAR-111) — 경량 JSON 카운터.
 // 외부키/실호출 0, AI 0, 마이그레이션 0. 기존 테이블·도메인 서비스 read-only 집계만.
 
+import { PipelineHealth } from '../engine1-disclosure/pipeline/pipeline.types';
+
 /** AIUsageLog 누적 카운터(전체 기간). 표본 0건이면 모두 0(graceful). */
 export interface AiUsageCounters {
   /** 누적 AI 호출 건수 */
@@ -72,4 +74,9 @@ export interface OpsMetrics {
   collection: CollectionFreshnessSummary | null;
   /** G1/G2/G3/G5 현재값·표본수 — 산출 실패/데이터 부족 시 null(graceful) */
   graduation: GraduationGateSummary[] | null;
+  /**
+   * DAR-126 — 수집→파싱→이벤트→AI 단계별 건수·지연·실패 행.
+   * PipelineModule 미배선/집계 실패 시 null(graceful) — 카운터 본체는 항상 반환.
+   */
+  pipeline: PipelineHealth | null;
 }

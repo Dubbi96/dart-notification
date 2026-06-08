@@ -1,8 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { DataFreshnessService } from '../cron-health/data-freshness.service';
 import { GraduationMetricsService } from '../engine5-trading-risk/simulation/graduation-metrics.service';
 import { buildGraduationReport } from '../engine5-trading-risk/simulation/domain/graduation-gates';
+import { PipelineIntegrityService } from '../engine1-disclosure/pipeline/pipeline-integrity.service';
+import { PipelineHealth } from '../engine1-disclosure/pipeline/pipeline.types';
 import {
   CollectionFreshnessSummary,
   GraduationGateSummary,
@@ -33,6 +35,8 @@ export class OpsMetricsService {
     private readonly prisma: PrismaService,
     private readonly freshness: DataFreshnessService,
     private readonly graduation: GraduationMetricsService,
+    // DAR-126: 파이프라인 단계 카운트 재사용. @Optional — 미배선 시 pipeline=null(graceful).
+    @Optional() private readonly pipeline?: PipelineIntegrityService,
   ) {}
 
   /** 운영 메트릭 스냅샷. `now` 주입 가능(테스트 결정론). */
@@ -40,7 +44,7 @@ export class OpsMetricsService {
     const since24h = new Date(now.getTime() - MS_PER_DAY);
     const since7d = new Date(now.getTime() - 7 * MS_PER_DAY);
 
-    const [aiAgg, signals24h, signals7d, signalsTotal, positions, collection, graduation] =
+    const [aiAgg, signals24h, signals7d, signalsTotal, positions, collection, graduation, pipeline] =
       await Promise.all([
         this.prisma.aIUsageLog.aggregate({
           _count: { _all: true },
@@ -52,6 +56,7 @@ export class OpsMetricsService {
         this.prisma.position.groupBy({ by: ['status'], _count: { _all: true } }),
         this.buildCollectionSummary(now),
         this.buildGraduationSummary(),
+        this.buildPipelineSummary(now),
       ]);
 
     // 모의 포지션 — 실주문 모듈(M11/M12) 미구축이라 전 포지션이 모의 포지션.
@@ -79,7 +84,24 @@ export class OpsMetricsService {
       },
       collection,
       graduation,
+      pipeline,
     };
+  }
+
+  /**
+   * DAR-126 — 파이프라인 단계 카운트·지연·실패 행 요약.
+   * PipelineModule 미배선(@Optional 미주입) 또는 집계 실패 시 null(graceful).
+   */
+  private async buildPipelineSummary(now: Date): Promise<PipelineHealth | null> {
+    if (!this.pipeline) return null;
+    try {
+      return await this.pipeline.getHealth(now);
+    } catch (err) {
+      this.logger.warn(
+        `pipeline 집계 실패(graceful, null 노출): ${(err as Error).message}`,
+      );
+      return null;
+    }
   }
 
   private sumStatus(

@@ -68,6 +68,39 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
     });
   });
 
+  describe('createNotificationIfAbsent — created 플래그(DAR-136 푸시 멱등 권위)', () => {
+    it('신규 생성 시 created=true 와 함께 새 행 반환', async () => {
+      const { service, prisma } = buildService();
+      prisma.notificationHistory.findUnique.mockResolvedValueOnce(null);
+
+      const { notification, created } = await service.createNotificationIfAbsent({
+        userId: 'u1',
+        type: NotificationType.SIGNAL,
+        refId: 'sig-1',
+      });
+
+      expect(created).toBe(true);
+      expect(prisma.notificationHistory.create).toHaveBeenCalledTimes(1);
+      expect(notification.refId).toBe('sig-1');
+    });
+
+    it('이미 존재하면 created=false·기존 행 반환·create 미호출(중복 푸시 차단 근거)', async () => {
+      const { service, prisma } = buildService();
+      const existing = { id: 'exist-1', userId: 'u1', type: NotificationType.SIGNAL, refId: 'sig-1' };
+      prisma.notificationHistory.findUnique.mockResolvedValueOnce(existing);
+
+      const { notification, created } = await service.createNotificationIfAbsent({
+        userId: 'u1',
+        type: NotificationType.SIGNAL,
+        refId: 'sig-1',
+      });
+
+      expect(created).toBe(false);
+      expect(notification).toBe(existing);
+      expect(prisma.notificationHistory.create).not.toHaveBeenCalled();
+    });
+  });
+
   describe('createNotification — 다형 타입', () => {
     it.each([
       [NotificationType.SIGNAL, 'signal-1', '/signal/signal-1'],

@@ -22,7 +22,13 @@ const makePrisma = () => ({
 
 const makeDeps = () => {
   const prisma = makePrisma();
-  const notifications = { createNotification: jest.fn().mockResolvedValue({ id: 'n1' }) };
+  // DAR-136: consumer 는 createNotificationIfAbsent 를 사용(푸시 멱등 권위).
+  // 기본 created=true(신규) → 토글 ON 시 푸시 발송 경로 진입.
+  const notifications = {
+    createNotificationIfAbsent: jest
+      .fn()
+      .mockResolvedValue({ notification: { id: 'n1' }, created: true }),
+  };
   const expoPush = {
     isValidExpoPushToken: jest.fn().mockReturnValue(true),
     sendPushNotifications: jest.fn().mockResolvedValue([]),
@@ -42,7 +48,7 @@ describe('NotifyConsumer (DAR-85)', () => {
 
       await consumer.process(job(NOTIFY_JOB.SIGNAL, { signalId: 's1', corpCode: 'c1' }));
 
-      expect(notifications.createNotification).not.toHaveBeenCalled();
+      expect(notifications.createNotificationIfAbsent).not.toHaveBeenCalled();
       expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
       expect(prisma.tradingSignal.update).not.toHaveBeenCalled();
     });
@@ -64,7 +70,7 @@ describe('NotifyConsumer (DAR-85)', () => {
       const { consumer, prisma, notifications } = makeDeps();
       prisma.tradingSignal.findUnique.mockResolvedValue(null);
       await consumer.process(job(NOTIFY_JOB.SIGNAL, { signalId: 'sX', corpCode: 'c1' }));
-      expect(notifications.createNotification).not.toHaveBeenCalled();
+      expect(notifications.createNotificationIfAbsent).not.toHaveBeenCalled();
     });
   });
 
@@ -78,8 +84,8 @@ describe('NotifyConsumer (DAR-85)', () => {
 
       await consumer.process(job(NOTIFY_JOB.SIGNAL, { signalId: 's1', corpCode: 'c1' }));
 
-      expect(notifications.createNotification).toHaveBeenCalledTimes(1);
-      expect(notifications.createNotification.mock.calls[0][0]).toMatchObject({
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledTimes(1);
+      expect(notifications.createNotificationIfAbsent.mock.calls[0][0]).toMatchObject({
         userId: 'u1',
         type: NotificationType.SIGNAL,
         refId: 's1',
@@ -100,7 +106,7 @@ describe('NotifyConsumer (DAR-85)', () => {
 
       await consumer.process(job(NOTIFY_JOB.SIGNAL, { signalId: 's1', corpCode: 'c1' }));
 
-      expect(notifications.createNotification).toHaveBeenCalledTimes(1);
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledTimes(1);
       expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
     });
 
@@ -161,6 +167,87 @@ describe('NotifyConsumer (DAR-85)', () => {
     });
   });
 
+  // ── ★DAR-136: 푸시 멱등(NotificationHistory created 권위) ────────────────────
+  describe('★푸시 멱등(중복 발송 방지) — created=false 면 재발송 스킵', () => {
+    it('이미 통지된 항목(created=false)은 토글 ON·유효토큰이어도 푸시 재발송 안 함', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.tradingSignal.findUnique.mockResolvedValue({ id: 's1', isNotified: false });
+      prisma.watchList.findMany.mockResolvedValue([{ userId: 'u1' }]);
+      prisma.notificationSettings.findUnique.mockResolvedValue({
+        isEnabled: true,
+        signalPushEnabled: true,
+        exitPushEnabled: true,
+        thesisPushEnabled: true,
+      });
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+      // 잡 재시도 등으로 이미 인박스가 존재 → created=false
+      notifications.createNotificationIfAbsent.mockResolvedValue({
+        notification: { id: 'n1' },
+        created: false,
+      });
+
+      await consumer.process(
+        job(NOTIFY_JOB.SIGNAL, { signalId: 's1', corpCode: 'c1', grade: 'BUY' }),
+      );
+
+      // 설정 조회조차 하지 않고 즉시 스킵(중복 푸시 0)
+      expect(prisma.notificationSettings.findUnique).not.toHaveBeenCalled();
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('EXIT 재시도(created=false)도 푸시 재발송 안 함 — 신호레벨 가드 없는 EXIT/THESIS 보호', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.position.findUnique.mockResolvedValue({
+        corpCode: 'c1',
+        stockCode: '005930',
+        portfolio: { id: 'pf-1', userId: 'owner-1' },
+      });
+      prisma.notificationSettings.findUnique.mockResolvedValue({
+        isEnabled: true,
+        signalPushEnabled: true,
+        exitPushEnabled: true,
+        thesisPushEnabled: true,
+      });
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+      notifications.createNotificationIfAbsent.mockResolvedValue({
+        notification: { id: 'n1' },
+        created: false,
+      });
+
+      await consumer.process(
+        job(NOTIFY_JOB.EXIT, { positionId: 'pos-1', corpCode: 'c1', exitAction: 'EXIT' }),
+      );
+
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('신규(created=true) 동일 입력은 정상적으로 푸시 발송 — 멱등 가드가 첫 발송은 막지 않음', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.position.findUnique.mockResolvedValue({
+        corpCode: 'c1',
+        stockCode: '005930',
+        portfolio: { id: 'pf-1', userId: 'owner-1' },
+      });
+      prisma.notificationSettings.findUnique.mockResolvedValue({
+        isEnabled: true,
+        signalPushEnabled: true,
+        exitPushEnabled: true,
+        thesisPushEnabled: true,
+      });
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+      notifications.createNotificationIfAbsent.mockResolvedValue({
+        notification: { id: 'n1' },
+        created: true,
+      });
+
+      await consumer.process(
+        job(NOTIFY_JOB.EXIT, { positionId: 'pos-1', corpCode: 'c1', exitAction: 'EXIT' }),
+      );
+
+      expect(expoPush.sendPushNotifications).toHaveBeenCalledTimes(1);
+    });
+  });
+
   // ── EXIT / THESIS 수신자 해석 ─────────────────────────────────────────────
   describe('EXIT 수신자 해석', () => {
     it('포지션→포트폴리오 소유자에게 EXIT 인박스(refId=positionId)', async () => {
@@ -175,7 +262,7 @@ describe('NotifyConsumer (DAR-85)', () => {
         job(NOTIFY_JOB.EXIT, { positionId: 'pos-1', corpCode: 'c1', exitAction: 'EXIT' }),
       );
 
-      expect(notifications.createNotification.mock.calls[0][0]).toMatchObject({
+      expect(notifications.createNotificationIfAbsent.mock.calls[0][0]).toMatchObject({
         userId: 'owner-1',
         type: NotificationType.EXIT,
         refId: 'pos-1',
@@ -186,7 +273,7 @@ describe('NotifyConsumer (DAR-85)', () => {
       const { consumer, prisma, notifications } = makeDeps();
       prisma.position.findUnique.mockResolvedValue(null);
       await consumer.process(job(NOTIFY_JOB.EXIT, { positionId: 'pX', corpCode: 'c1' }));
-      expect(notifications.createNotification).not.toHaveBeenCalled();
+      expect(notifications.createNotificationIfAbsent).not.toHaveBeenCalled();
     });
   });
 
@@ -202,7 +289,7 @@ describe('NotifyConsumer (DAR-85)', () => {
         job(NOTIFY_JOB.THESIS_VIOLATED, { positionThesisId: 't-1', corpCode: 'c1' }),
       );
 
-      expect(notifications.createNotification.mock.calls[0][0]).toMatchObject({
+      expect(notifications.createNotificationIfAbsent.mock.calls[0][0]).toMatchObject({
         userId: 'owner-2',
         type: NotificationType.THESIS_VIOLATED,
         refId: 't-1',

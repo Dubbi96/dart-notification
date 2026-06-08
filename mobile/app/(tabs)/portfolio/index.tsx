@@ -14,6 +14,7 @@ import { SkeletonList } from '@components/common/SkeletonCard';
 import { useAuthStore } from '@stores/authStore';
 import { SimulationStatusSection } from '@components/portfolio/SimulationStatusSection';
 import { StyleComparisonSection } from '@components/portfolio/StyleComparisonSection';
+import { PersonaTrackSection } from '@components/portfolio/PersonaTrackSection';
 import { TodayCheckSlot } from '@components/portfolio/TodayCheckSlot';
 import { PositionSearchBar } from '@components/portfolio/PositionSearchBar';
 import { usePositions, usePortfolioSummary, usePaperPortfolio } from '@hooks/usePortfolio';
@@ -23,7 +24,7 @@ import { dedupeByStock } from '@utils/dedupe';
 import type { Position } from '@app-types/portfolio.types';
 import type { SortKey } from '@components/portfolio/PositionSearchBar';
 
-type SubTab = 'live' | 'paper' | 'sim' | 'style';
+type SubTab = 'live' | 'paper' | 'sim' | 'persona' | 'style';
 
 // VIOLATED/EXPIRED 포지션을 리스트 최상단으로 고정하는 정렬 우선순위.
 const STATUS_ORDER: Record<Position['thesisStatus'], number> = {
@@ -238,6 +239,7 @@ export default function PortfolioScreen() {
                 { value: 'live', label: '실전', icon: 'wallet' },
                 { value: 'paper', label: '모의', icon: 'flask' },
                 { value: 'sim', label: '모의운용', icon: 'chart-line' },
+                { value: 'persona', label: '페르소나', icon: 'account-group' },
                 { value: 'style', label: '스타일', icon: 'podium' },
               ]}
             />
@@ -250,7 +252,9 @@ export default function PortfolioScreen() {
                 ? renderPaper()
                 : subTab === 'sim'
                   ? <SimulationStatusSection />
-                  : <StyleComparisonSection />}
+                  : subTab === 'persona'
+                    ? <PersonaTrackSection />
+                    : <StyleComparisonSection />}
           </View>
         </>
       )}

@@ -1,14 +1,22 @@
 /**
- * SimulationPriceSourceService — 모의운용 시세 소스 추상화 (DAR-124)
+ * SimulationPriceSourceService — 모의운용 시세 소스 추상화 (DAR-124 · DAR-137)
  *
- * 모의운용이 읽는 일봉 소스를 한 곳으로 모은다. 두 모드(혼합 금지 — 한 런은 한 모드만):
- *   - 실데이터 모드(기본): 기존 그대로 StockDailyPrice(실 KRX 일봉)를 읽는다. 회귀 0.
- *   - 합성 모드(PAPER_SIM_SYNTHETIC_FEED=1): SimulatedDailyPrice(결정적 합성 일봉)만 읽는다.
- *     환경 시계가 미래(2026)라 실 KRX 일봉이 없을 때 30일 트랙레코드가 의미를 갖게 한다.
+ * 모의운용이 읽는 일봉 소스를 한 곳으로 모은다. 세 모드:
+ *   - REAL(기본): StockDailyPrice(실 KRX 일봉)만 읽는다. 회귀 0.
+ *   - SYNTHETIC(PAPER_SIM_SYNTHETIC_FEED=1): SimulatedDailyPrice(결정적 합성 일봉)만 읽는다.
+ *     환경 시계가 미래(2026)라 실 KRX 일봉이 없을 때 30일 트랙레코드가 의미를 갖게 한다(DAR-124).
+ *   - REAL_THEN_SYNTHETIC(PAPER_SIM_REAL_FEED=1, DAR-137): 종목 단위로 실가격 우선,
+ *     실데이터가 없는 종목만 합성으로 폴백. 보유/후보 종목에 실 KRX 시계열을 적재해두면
+ *     진입/Exit/스냅샷/스코어가 '실가 변동'을 평가하고, 데이터 공백 종목만 합성으로 트랙을 잇는다.
  *
  * ★신뢰 원칙(불가침): 합성 가격은 '모의/시뮬레이션' 전용이다. 실시세로 표시하지 않으며
- *   실데이터와 혼합하지 않는다(소스 테이블 물리 분리 + 모드 단일). 합성 가격은 이 서비스를
- *   통해 PaperSimulation 만 소비한다 — 기업 현재가/지표/신호 등 실가격 경로는 미참조.
+ *   실데이터와 혼합하지 않는다. 한 종목은 한 소스로만 평가된다(행 단위 혼합 금지) — 실데이터가
+ *   있는 종목은 처음부터 끝까지 실가, 없는 종목은 합성. 각 행은 source('REAL'|'SYNTHETIC')로
+ *   라벨되어 소비자가 정직하게 구분 표기한다. 합성 가격은 이 서비스를 통해 PaperSimulation 만
+ *   소비한다 — 기업 현재가/지표/신호 등 실가격 경로는 미참조.
+ *
+ * ★정직(DAR-137): 실 KRX 일봉은 환경 시계(2026)가 아니라 '최신 가용 실데이터' 기준이다.
+ *   실가는 실제 거래일 종가지만 날짜축은 과거일 수 있다 — 2026 실시세로 오인 금지.
  *
  * AI 금지영역: 가격 생성은 순수 시드 PRNG(Rule). 체결·주문수량·하드룰과 무관.
  */
@@ -26,14 +34,27 @@ import {
   entryEligibleGrades,
   dedupeCandidatesByCorpCode,
 } from './simulation-entry';
+import { mapSimDateToRealDate, realYearOffset } from './real-date-map';
 
-/** 모의운용이 소비하는 일봉 1행(소스 무관 공통 형태). volume 은 스냅샷 BigInt 컬럼 정합. */
+/** 일봉 1행의 출처 — 정직한 실/합성 구분 표기용. */
+export type SimPriceSource = 'REAL' | 'SYNTHETIC';
+
+/** 모의운용 시세 소스 모드(런 단위). REAL=실데이터만, SYNTHETIC=합성만,
+ *  REAL_THEN_SYNTHETIC=종목 단위 실가 우선·합성 폴백(DAR-137). */
+export type SimPriceMode = 'REAL' | 'SYNTHETIC' | 'REAL_THEN_SYNTHETIC';
+
+/** 모의운용이 소비하는 일봉 1행(소스 무관 공통 형태). volume 은 스냅샷 BigInt 컬럼 정합.
+ *  source 는 이 행이 실데이터인지 합성인지 — 소비자가 정직하게 라벨하도록 동반한다. */
 export interface SimPriceRow {
   openPrice: number;
   highPrice: number;
   lowPrice: number;
   closePrice: number;
   volume: bigint;
+  source: SimPriceSource;
+  /** DAR-137: 이 행이 실제로 가져온 거래일(YYYYMMDD). REAL_THEN_SYNTHETIC 매핑 모드에서는
+   *  시뮬 날짜가 아니라 '매핑된 실 거래일' — 2026 오인 방지·정직 고지(원일자)용. */
+  sourceDate?: string;
 }
 
 /** 합성 시계열 고정 앵커일(YYYYMMDD). 슬라이딩 윈도가 아니라 고정 앵커에서 워크해야
@@ -50,10 +71,48 @@ export class SimulationPriceSourceService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  /** 합성 모드 여부(환경 플래그). 기본 false → 실데이터 모드(회귀 0). */
+  /**
+   * 시세 소스 모드 — 환경 플래그로 결정(런 단위, 우선순위 명시).
+   *   PAPER_SIM_REAL_FEED 우선 → REAL_THEN_SYNTHETIC(실가 우선·합성 폴백, DAR-137)
+   *   그다음 PAPER_SIM_SYNTHETIC_FEED → SYNTHETIC(합성 전용, DAR-124)
+   *   둘 다 미설정 → REAL(실데이터 전용, 기본·회귀 0)
+   */
+  get mode(): SimPriceMode {
+    if (SimulationPriceSourceService.flagOn(process.env.PAPER_SIM_REAL_FEED)) {
+      return 'REAL_THEN_SYNTHETIC';
+    }
+    if (SimulationPriceSourceService.flagOn(process.env.PAPER_SIM_SYNTHETIC_FEED)) {
+      return 'SYNTHETIC';
+    }
+    return 'REAL';
+  }
+
+  /** 합성 전용 모드 여부(DAR-124 가드 호환). 하이브리드는 false — 실가가 주 소스이므로
+   *  합성 전용 후처리(레거시 재기준)는 적용하지 않는다. */
   get isSynthetic(): boolean {
-    const v = (process.env.PAPER_SIM_SYNTHETIC_FEED ?? '').toLowerCase();
-    return v === '1' || v === 'true' || v === 'on';
+    return this.mode === 'SYNTHETIC';
+  }
+
+  /** 합성 일봉을 적재(시드)해야 하는 모드 여부 — SYNTHETIC + 하이브리드 폴백분. */
+  get seedsSynthetic(): boolean {
+    return this.mode !== 'REAL';
+  }
+
+  /** 정직 표기용 한국어 모드 라벨(로그·운영 노출). */
+  get modeLabel(): string {
+    switch (this.mode) {
+      case 'SYNTHETIC':
+        return '합성(모의 전용)';
+      case 'REAL_THEN_SYNTHETIC':
+        return '실가 우선·합성 폴백(최신 가용 실데이터 기준)';
+      default:
+        return '실데이터(최신 가용 실 KRX 일봉)';
+    }
+  }
+
+  private static flagOn(v: string | undefined): boolean {
+    const s = (v ?? '').toLowerCase();
+    return s === '1' || s === 'true' || s === 'on';
   }
 
   /**
@@ -65,7 +124,8 @@ export class SimulationPriceSourceService {
     portfolioId: string,
     tradeDate: string,
   ): Promise<{ stocks: number; inserted: number }> {
-    if (!this.isSynthetic) return { stocks: 0, inserted: 0 };
+    // REAL 전용 모드는 합성 적재 불필요(no-op). SYNTHETIC·하이브리드는 합성 폴백분을 시드한다.
+    if (!this.seedsSynthetic) return { stocks: 0, inserted: 0 };
 
     const stocks = await this.resolveUniverse(portfolioId);
     if (stocks.length === 0) return { stocks: 0, inserted: 0 };
@@ -93,31 +153,45 @@ export class SimulationPriceSourceService {
     return { stocks: stocks.length, inserted };
   }
 
-  /** tradeDate 이하의 가장 최신 일봉 1행(소스 모드별). 없으면 null. */
+  /**
+   * tradeDate 이하의 가장 최신 일봉 1행(소스 모드별). 없으면 null.
+   * 반환 행에는 source('REAL'|'SYNTHETIC') 가 라벨된다 — 정직 구분 표기용.
+   */
   async latestPriceRow(corpCode: string, tradeDate: string): Promise<SimPriceRow | null> {
-    if (this.isSynthetic) {
+    const src = await this.resolveSource(corpCode, tradeDate);
+    if (src === 'SYNTHETIC') {
+      // 합성은 시뮬 캘린더(2026)에 적재 — 매핑 없이 sim 날짜로 조회.
       const row = await this.prisma.simulatedDailyPrice.findFirst({
         where: { corpCode, tradeDate: { lte: tradeDate } },
         orderBy: { tradeDate: 'desc' },
-        select: this.rowSelect,
+        select: { ...this.rowSelect, tradeDate: true },
       });
-      return row ?? null;
+      if (!row) return null;
+      const { tradeDate: rowDate, ...rest } = row;
+      return { ...rest, source: 'SYNTHETIC', sourceDate: rowDate };
     }
+    // 실데이터: REAL_THEN_SYNTHETIC 모드는 시뮬 날짜를 실 거래일로 매핑(일별 전진 = 실가 변동).
+    const realDate = this.realQueryDate(tradeDate);
     const row = await this.prisma.stockDailyPrice.findFirst({
-      where: { corpCode, tradeDate: { lte: tradeDate } },
+      where: { corpCode, tradeDate: { lte: realDate } },
       orderBy: { tradeDate: 'desc' },
-      select: this.rowSelect,
+      select: { ...this.rowSelect, tradeDate: true },
     });
-    return row ?? null;
+    if (!row) return null;
+    const { tradeDate: rowDate, ...rest } = row;
+    // sourceDate = 실제 사용한 실 거래일(원일자) — 2026 오인 방지 정직 고지.
+    return { ...rest, source: 'REAL', sourceDate: rowDate };
   }
 
-  /** afterTradeDate 초과 거래일의 종가 take 개(오름차순). Exit 정확도(D+3) 산출용. */
+  /** afterTradeDate 초과 거래일의 종가 take 개(오름차순). Exit 정확도(D+3) 산출용.
+   *  종목별 단일 소스(혼합 금지) — latestPriceRow 와 동일 기준일(afterTradeDate)로 소스 결정. */
   async closesAfter(
     corpCode: string,
     afterTradeDate: string,
     take: number,
   ): Promise<Array<{ closePrice: number }>> {
-    if (this.isSynthetic) {
+    const src = await this.resolveSource(corpCode, afterTradeDate);
+    if (src === 'SYNTHETIC') {
       return this.prisma.simulatedDailyPrice.findMany({
         where: { corpCode, tradeDate: { gt: afterTradeDate } },
         orderBy: { tradeDate: 'asc' },
@@ -125,12 +199,44 @@ export class SimulationPriceSourceService {
         take,
       });
     }
+    // 실데이터: 하한도 매핑(시뮬 날짜 전진 → 매핑 실날짜 전진 → 후속 실 종가 D+N).
+    const afterReal = this.realQueryDate(afterTradeDate);
     return this.prisma.stockDailyPrice.findMany({
-      where: { corpCode, tradeDate: { gt: afterTradeDate } },
+      where: { corpCode, tradeDate: { gt: afterReal } },
       orderBy: { tradeDate: 'asc' },
       select: { closePrice: true },
       take,
     });
+  }
+
+  /**
+   * 한 종목이 어느 소스로 평가될지 결정(종목 단위 단일 소스 — 행 혼합 금지).
+   *   - REAL: 항상 실데이터(StockDailyPrice). 조회 없음(회귀 0).
+   *   - SYNTHETIC: 항상 합성(SimulatedDailyPrice). 조회 없음.
+   *   - REAL_THEN_SYNTHETIC(DAR-137): asOf 이하 실 일봉이 1건이라도 있으면 REAL, 없으면 SYNTHETIC.
+   *     존재성만 1회 가볍게 확인 — 실데이터 보유 종목은 실가, 공백 종목만 합성으로 폴백.
+   */
+  private async resolveSource(corpCode: string, asOf: string): Promise<SimPriceSource> {
+    const m = this.mode;
+    if (m === 'REAL') return 'REAL';
+    if (m === 'SYNTHETIC') return 'SYNTHETIC';
+    // 하이브리드: 매핑된 실 거래일 이하 실 일봉이 1건이라도 있으면 REAL, 없으면 SYNTHETIC 폴백.
+    const real = await this.prisma.stockDailyPrice.findFirst({
+      where: { corpCode, tradeDate: { lte: this.realQueryDate(asOf) } },
+      orderBy: { tradeDate: 'desc' },
+      select: { tradeDate: true },
+    });
+    return real ? 'REAL' : 'SYNTHETIC';
+  }
+
+  /**
+   * REAL_THEN_SYNTHETIC 매핑 모드에서만 시뮬 거래일(2026)을 실데이터 거래일로 환산한다(DAR-137).
+   * 그 외 모드(REAL 기본·SYNTHETIC)는 입력 거래일을 그대로 사용 → 기존 동작 보존(회귀 0).
+   */
+  private realQueryDate(date: string): string {
+    return this.mode === 'REAL_THEN_SYNTHETIC'
+      ? mapSimDateToRealDate(date, realYearOffset())
+      : date;
   }
 
   // ─── 내부 ───────────────────────────────────────────────────────────────
@@ -206,14 +312,61 @@ export class SimulationPriceSourceService {
   }
 
   /**
+   * 모의운용 시세 유니버스 — 보유 OPEN 포지션 + 진입 후보 종목(공개 래퍼).
+   * 실 KRX 일봉 적재 대상/커버리지 점검에 외부(수동 스크립트)에서 재사용한다.
+   * portfolioId 미지정 시 전체 SIM 포트폴리오의 OPEN 포지션을 대상으로 한다.
+   */
+  async resolveSimUniverse(
+    portfolioId?: string,
+  ): Promise<Array<{ corpCode: string; stockCode: string }>> {
+    return this.resolveUniverse(portfolioId);
+  }
+
+  /**
+   * 모의 유니버스의 실 KRX 일봉 커버리지 점검(DAR-137 적재 검증·정직 고지용).
+   * asOf 이하 실데이터가 있는 종목 수/없는 종목 목록과, 전체에서 가장 최신 실데이터 거래일을 집계한다.
+   * ★latestRealDate 는 '최신 가용 실데이터' 기준 — 환경 시계(2026)와 다를 수 있다(2026 실시세 오인 금지).
+   */
+  async realCoverage(
+    asOf: string,
+    portfolioId?: string,
+  ): Promise<{
+    total: number;
+    covered: number;
+    uncovered: Array<{ corpCode: string; stockCode: string }>;
+    latestRealDate: string | null;
+  }> {
+    const universe = await this.resolveUniverse(portfolioId);
+    const uncovered: Array<{ corpCode: string; stockCode: string }> = [];
+    let covered = 0;
+    let latestRealDate: string | null = null;
+    for (const s of universe) {
+      const row = await this.prisma.stockDailyPrice.findFirst({
+        where: { corpCode: s.corpCode, tradeDate: { lte: asOf } },
+        orderBy: { tradeDate: 'desc' },
+        select: { tradeDate: true },
+      });
+      if (row) {
+        covered++;
+        if (latestRealDate === null || row.tradeDate > latestRealDate) {
+          latestRealDate = row.tradeDate;
+        }
+      } else {
+        uncovered.push(s);
+      }
+    }
+    return { total: universe.length, covered, uncovered, latestRealDate };
+  }
+
+  /**
    * 합성 적재 대상 종목 — 보유 OPEN 포지션 + 진입 후보(entryReady·자격등급) 종목 합집합.
    * 종목코드 보유 종목만(합성도 stockCode 기반). 중복 제거.
    */
   private async resolveUniverse(
-    portfolioId: string,
+    portfolioId?: string,
   ): Promise<Array<{ corpCode: string; stockCode: string }>> {
     const open = await this.prisma.position.findMany({
-      where: { portfolioId, status: 'OPEN' },
+      where: { status: 'OPEN', ...(portfolioId ? { portfolioId } : {}) },
       select: { corpCode: true, stockCode: true },
     });
 

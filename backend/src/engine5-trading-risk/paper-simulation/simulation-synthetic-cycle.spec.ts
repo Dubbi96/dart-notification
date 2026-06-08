@@ -103,6 +103,7 @@ function makePriceSourceStub(): SimulationPriceSourceService {
     lowPrice: SYNTH_CLOSE - 500,
     closePrice: SYNTH_CLOSE,
     volume: BigInt(1_000_000),
+    source: 'SYNTHETIC',
   };
   return {
     isSynthetic: true,

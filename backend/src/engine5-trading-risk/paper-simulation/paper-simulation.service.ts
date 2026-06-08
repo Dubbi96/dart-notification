@@ -134,7 +134,10 @@ export class PaperSimulationService {
     }
     this.isRunning = true;
     try {
-      this.logger.log(`[PaperSim] 일일 사이클 시작 tradeDate=${tradeDate}`);
+      const feedLabel = this.priceSource?.modeLabel ?? '실데이터(미주입 폴백)';
+      this.logger.log(
+        `[PaperSim] 일일 사이클 시작 tradeDate=${tradeDate} 시세=${feedLabel}`,
+      );
       const pf = await this.getOrCreateSimPortfolio();
 
       // DAR-124: 합성 모드면 사이클 직전 유니버스 시세를 멱등 적재(실데이터 모드는 no-op).
@@ -835,7 +838,8 @@ export class PaperSimulationService {
       orderBy: { tradeDate: 'desc' },
       select: { openPrice: true, highPrice: true, lowPrice: true, closePrice: true, volume: true },
     });
-    return row ?? null;
+    // 미주입 폴백은 StockDailyPrice(실 KRX) 직접 읽기 → source='REAL'.
+    return row ? { ...row, source: 'REAL' } : null;
   }
 
   /** 청산 후 N거래일 종가(소스 경유). priceSource 미주입이면 StockDailyPrice 폴백. */

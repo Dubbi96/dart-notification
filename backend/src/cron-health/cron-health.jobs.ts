@@ -13,6 +13,7 @@ export const CRON_JOB_KEYS = {
   INSIDER_DAILY: 'insider.daily',
   PARSE_RETRY: 'parse.retry',
   PIPELINE_DRAIN: 'pipeline.drain',
+  EVENT_STUDY_CALC: 'event-study.calculate',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -96,5 +97,13 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: 60, // 15분 간격 — 1시간 무가동이면 정체(수집→AI 폐루프 견고화, DAR-126)
     cadence: '매 15분',
+  },
+  {
+    jobKey: CRON_JOB_KEYS.EVENT_STUDY_CALC,
+    label: 'Event Study baseline 산출',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: 14_400, // 10일 — 주간 카덴스 + 한 주 누락까지 흡수(DAR-134)
+    cadence: '주간(토) 04:00',
   },
 ];

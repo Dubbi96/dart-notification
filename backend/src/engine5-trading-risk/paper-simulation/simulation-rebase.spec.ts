@@ -104,6 +104,7 @@ function makeSyntheticPriceSource(): SimulationPriceSourceService {
     lowPrice: SYNTH_CLOSE - 20,
     closePrice: SYNTH_CLOSE,
     volume: BigInt(1_000_000),
+    source: 'SYNTHETIC',
   };
   return {
     isSynthetic: true,

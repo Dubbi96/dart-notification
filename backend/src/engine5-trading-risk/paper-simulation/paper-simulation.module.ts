@@ -22,7 +22,8 @@ import { NotificationProducerService } from '../../notifications/notification-pr
   controllers: [PaperSimulationController],
   providers: [
     PaperSimulationScheduler,
-    // DAR-124: 시세 소스(실데이터 vs 결정적 합성). 모드는 PAPER_SIM_SYNTHETIC_FEED 플래그.
+    // DAR-124/137: 시세 소스(REAL / SYNTHETIC / REAL_THEN_SYNTHETIC).
+    //   PAPER_SIM_SYNTHETIC_FEED=합성 전용, PAPER_SIM_REAL_FEED=실가 우선·합성 폴백(하이브리드).
     SimulationPriceSourceService,
     {
       provide: PaperSimulationService,

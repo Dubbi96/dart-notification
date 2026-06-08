@@ -34,10 +34,16 @@ function makeService(prisma: ReturnType<typeof makePrismaMock>) {
 }
 
 const ORIGINAL_FLAG = process.env.PAPER_SIM_SYNTHETIC_FEED;
+const ORIGINAL_REAL_FLAG = process.env.PAPER_SIM_REAL_FEED;
+const ORIGINAL_OFFSET = process.env.PAPER_SIM_REAL_YEAR_OFFSET;
 
 afterEach(() => {
   if (ORIGINAL_FLAG === undefined) delete process.env.PAPER_SIM_SYNTHETIC_FEED;
   else process.env.PAPER_SIM_SYNTHETIC_FEED = ORIGINAL_FLAG;
+  if (ORIGINAL_REAL_FLAG === undefined) delete process.env.PAPER_SIM_REAL_FEED;
+  else process.env.PAPER_SIM_REAL_FEED = ORIGINAL_REAL_FLAG;
+  if (ORIGINAL_OFFSET === undefined) delete process.env.PAPER_SIM_REAL_YEAR_OFFSET;
+  else process.env.PAPER_SIM_REAL_YEAR_OFFSET = ORIGINAL_OFFSET;
   jest.clearAllMocks();
 });
 
@@ -175,6 +181,152 @@ describe('SimulationPriceSourceService — 시세 소스(DAR-124)', () => {
       await run();
       expect(capture).toHaveLength(2);
       expect(capture[0]).toEqual(capture[1]); // 동일 입력 → 동일 적재 데이터(멱등)
+    });
+  });
+});
+
+describe('SimulationPriceSourceService — REAL_THEN_SYNTHETIC 하이브리드(DAR-137)', () => {
+  function realFeed() {
+    delete process.env.PAPER_SIM_SYNTHETIC_FEED;
+    process.env.PAPER_SIM_REAL_FEED = '1';
+  }
+
+  describe('mode — 플래그 우선순위', () => {
+    it('PAPER_SIM_REAL_FEED 가 SYNTHETIC 플래그보다 우선(하이브리드)', () => {
+      const svc = makeService(makePrismaMock());
+      process.env.PAPER_SIM_REAL_FEED = '1';
+      process.env.PAPER_SIM_SYNTHETIC_FEED = '1';
+      expect(svc.mode).toBe('REAL_THEN_SYNTHETIC');
+      expect(svc.isSynthetic).toBe(false); // 합성 전용 가드(레거시 재기준)는 미적용
+      expect(svc.seedsSynthetic).toBe(true); // 폴백분 시드는 필요
+    });
+    it('REAL 플래그만 → 하이브리드, 합성만 → SYNTHETIC, 둘 다 없음 → REAL', () => {
+      const svc = makeService(makePrismaMock());
+      delete process.env.PAPER_SIM_REAL_FEED;
+      delete process.env.PAPER_SIM_SYNTHETIC_FEED;
+      expect(svc.mode).toBe('REAL');
+      process.env.PAPER_SIM_SYNTHETIC_FEED = '1';
+      expect(svc.mode).toBe('SYNTHETIC');
+      process.env.PAPER_SIM_REAL_FEED = 'on';
+      expect(svc.mode).toBe('REAL_THEN_SYNTHETIC');
+    });
+  });
+
+  describe('latestPriceRow — 종목별 실가 우선·합성 폴백(혼합 금지)', () => {
+    it('실데이터 있는 종목: 매핑된 실 거래일로 StockDailyPrice 조회, source=REAL·sourceDate=원일자', async () => {
+      realFeed();
+      process.env.PAPER_SIM_REAL_YEAR_OFFSET = '1';
+      const prisma = makePrismaMock();
+      // resolveSource 존재성 확인 + 본 조회 모두 실데이터 반환
+      (prisma.stockDailyPrice.findFirst as AnyFn).mockImplementation(
+        async ({ where }: { where: { tradeDate: { lte: string } } }) => {
+          // 매핑(2026→2025) 확인: 쿼리 하한은 2025 거래일이어야 한다.
+          expect(where.tradeDate.lte.startsWith('2025')).toBe(true);
+          return {
+            openPrice: 300, highPrice: 320, lowPrice: 295, closePrice: 310,
+            volume: BigInt(5000), tradeDate: '20250605',
+          };
+        },
+      );
+      const svc = makeService(prisma);
+      const row = await svc.latestPriceRow('00126380', '20260608');
+      expect(row?.source).toBe('REAL');
+      expect(row?.closePrice).toBe(310);
+      expect(row?.sourceDate).toBe('20250605'); // 2026 아님 — 원일자 정직 고지
+      expect(prisma.simulatedDailyPrice.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('실데이터 없는 종목: 합성으로 폴백, source=SYNTHETIC', async () => {
+      realFeed();
+      const prisma = makePrismaMock();
+      (prisma.stockDailyPrice.findFirst as AnyFn).mockResolvedValue(null); // 실데이터 없음
+      (prisma.simulatedDailyPrice.findFirst as AnyFn).mockResolvedValue({
+        openPrice: 100, highPrice: 110, lowPrice: 90, closePrice: 105,
+        volume: BigInt(1000), tradeDate: '20260606',
+      });
+      const svc = makeService(prisma);
+      const row = await svc.latestPriceRow('99999999', '20260608');
+      expect(row?.source).toBe('SYNTHETIC');
+      expect(row?.closePrice).toBe(105);
+    });
+  });
+
+  describe('closesAfter — 동일 소스 일관(실가 D+N)', () => {
+    it('실데이터 종목은 매핑 실날짜 초과 종가를 StockDailyPrice 에서', async () => {
+      realFeed();
+      const prisma = makePrismaMock();
+      // resolveSource 존재성 확인은 실데이터 있음
+      (prisma.stockDailyPrice.findFirst as AnyFn).mockResolvedValue({ tradeDate: '20250604' });
+      (prisma.stockDailyPrice.findMany as AnyFn).mockImplementation(
+        async ({ where }: { where: { tradeDate: { gt: string } } }) => {
+          expect(where.tradeDate.gt.startsWith('2025')).toBe(true);
+          return [{ closePrice: 311 }, { closePrice: 312 }];
+        },
+      );
+      const svc = makeService(prisma);
+      const out = await svc.closesAfter('00126380', '20260605', 3);
+      expect(out).toEqual([{ closePrice: 311 }, { closePrice: 312 }]);
+      expect(prisma.simulatedDailyPrice.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('실가 변동 평가 — 시뮬 날짜 전진이 실 종가 변동을 부른다(DoD 핵심)', () => {
+    it('연속 시뮬 거래일 2일은 서로 다른 매핑 실 종가를 반환(무변동 아님)', async () => {
+      realFeed();
+      process.env.PAPER_SIM_REAL_YEAR_OFFSET = '1';
+      // 실 일봉 시계열(날짜→종가). 매핑 lte 하한 이하의 최신행을 흉내낸다.
+      const realSeries: Record<string, number> = {
+        '20250608': 1000,
+        '20250609': 1042,
+        '20250610': 1018,
+      };
+      const prisma = makePrismaMock();
+      (prisma.stockDailyPrice.findFirst as AnyFn).mockImplementation(
+        async ({ where }: { where: { tradeDate: { lte: string } } }) => {
+          const bound = where.tradeDate.lte;
+          const day = Object.keys(realSeries)
+            .filter((d) => d <= bound)
+            .sort()
+            .pop();
+          if (!day) return null;
+          return {
+            openPrice: realSeries[day], highPrice: realSeries[day],
+            lowPrice: realSeries[day], closePrice: realSeries[day],
+            volume: BigInt(1), tradeDate: day,
+          };
+        },
+      );
+      const svc = makeService(prisma);
+      const d1 = await svc.latestPriceRow('00126380', '20260608');
+      const d2 = await svc.latestPriceRow('00126380', '20260609');
+      expect(d1?.source).toBe('REAL');
+      expect(d2?.source).toBe('REAL');
+      expect(d1?.closePrice).toBe(1000);
+      expect(d2?.closePrice).toBe(1042); // 시뮬 날짜 1일 전진 → 실 종가 변동(평가손익 발생)
+      expect(d1?.closePrice).not.toBe(d2?.closePrice);
+      expect(d2?.sourceDate).toBe('20250609'); // 2026 아님 — 원일자 정직
+    });
+  });
+
+  describe('realCoverage — 적재 검증·정직 고지', () => {
+    it('유니버스 종목 중 실데이터 보유/미보유 집계 + 최신 실데이터 거래일', async () => {
+      const prisma = makePrismaMock();
+      (prisma.position.findMany as AnyFn).mockResolvedValue([
+        { corpCode: 'A', stockCode: '000001' },
+        { corpCode: 'B', stockCode: '000002' },
+      ]);
+      (prisma.tradingSignal.findMany as AnyFn).mockResolvedValue([]);
+      // A 는 실데이터 있음(20251230), B 는 없음
+      (prisma.stockDailyPrice.findFirst as AnyFn).mockImplementation(
+        async ({ where }: { where: { corpCode: string } }) =>
+          where.corpCode === 'A' ? { tradeDate: '20251230' } : null,
+      );
+      const svc = makeService(prisma);
+      const cov = await svc.realCoverage('20251231');
+      expect(cov.total).toBe(2);
+      expect(cov.covered).toBe(1);
+      expect(cov.uncovered).toEqual([{ corpCode: 'B', stockCode: '000002' }]);
+      expect(cov.latestRealDate).toBe('20251230');
     });
   });
 });

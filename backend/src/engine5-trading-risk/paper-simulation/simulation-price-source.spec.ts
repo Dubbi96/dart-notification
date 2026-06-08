@@ -37,6 +37,15 @@ const ORIGINAL_FLAG = process.env.PAPER_SIM_SYNTHETIC_FEED;
 const ORIGINAL_REAL_FLAG = process.env.PAPER_SIM_REAL_FEED;
 const ORIGINAL_OFFSET = process.env.PAPER_SIM_REAL_YEAR_OFFSET;
 
+// DAR-139: 매 테스트 시작 시 모드 플래그를 깨끗한 기본 상태(미설정=REAL 모드)로 강제.
+// 파일/워커 간 process.env 누수(다른 spec 가 PAPER_SIM_REAL_FEED 를 남겨 ORIGINAL 로 잡히면
+// afterEach 가 그 값을 '복원'해 누수가 고착)로 인한 비결정 실패를 차단한다.
+beforeEach(() => {
+  delete process.env.PAPER_SIM_SYNTHETIC_FEED;
+  delete process.env.PAPER_SIM_REAL_FEED;
+  delete process.env.PAPER_SIM_REAL_YEAR_OFFSET;
+});
+
 afterEach(() => {
   if (ORIGINAL_FLAG === undefined) delete process.env.PAPER_SIM_SYNTHETIC_FEED;
   else process.env.PAPER_SIM_SYNTHETIC_FEED = ORIGINAL_FLAG;
@@ -217,11 +226,16 @@ describe('SimulationPriceSourceService — REAL_THEN_SYNTHETIC 하이브리드(D
       realFeed();
       process.env.PAPER_SIM_REAL_YEAR_OFFSET = '1';
       const prisma = makePrismaMock();
-      // resolveSource 존재성 확인 + 본 조회 모두 실데이터 반환
+      // resolveSource(존재성)·본 가격조회 모두 실데이터 반환. 두 조회의 하한 기준이 다르다(DAR-139):
+      //   - 본 가격조회(select.openPrice 有): 매핑일(2026→2025) lte → 실가 일별 변동.
+      //   - resolveSource 존재성(select.tradeDate 만): 미매핑 시뮬 날짜(2026) lte → 미래참조 금지.
       (prisma.stockDailyPrice.findFirst as AnyFn).mockImplementation(
-        async ({ where }: { where: { tradeDate: { lte: string } } }) => {
-          // 매핑(2026→2025) 확인: 쿼리 하한은 2025 거래일이어야 한다.
-          expect(where.tradeDate.lte.startsWith('2025')).toBe(true);
+        async ({ where, select }: { where: { corpCode: string; tradeDate?: { lte: string } }; select?: Record<string, unknown> }) => {
+          if (select?.openPrice) {
+            expect(where.tradeDate?.lte?.startsWith('2025')).toBe(true);
+          } else {
+            expect(where.tradeDate?.lte?.startsWith('2026')).toBe(true);
+          }
           return {
             openPrice: 300, highPrice: 320, lowPrice: 295, closePrice: 310,
             volume: BigInt(5000), tradeDate: '20250605',
@@ -305,6 +319,67 @@ describe('SimulationPriceSourceService — REAL_THEN_SYNTHETIC 하이브리드(D
       expect(d2?.closePrice).toBe(1042); // 시뮬 날짜 1일 전진 → 실 종가 변동(평가손익 발생)
       expect(d1?.closePrice).not.toBe(d2?.closePrice);
       expect(d2?.sourceDate).toBe('20250609'); // 2026 아님 — 원일자 정직
+    });
+  });
+
+  describe('실데이터 공백일 → 최신 실가 폴백(DAR-139 DoD 핵심)', () => {
+    it('실데이터 보유 종목은 매핑일이 실 시계열보다 과거(공백)여도 합성이 아니라 최신 실 거래일 종가로 평가', async () => {
+      realFeed();
+      process.env.PAPER_SIM_REAL_YEAR_OFFSET = '1';
+      // 실 일봉이 2026 까지 존재하나 매핑일(2025-06-08)은 그 이전 → 매핑 조회는 공백.
+      const LATEST_REAL = {
+        openPrice: 23000, highPrice: 23800, lowPrice: 22800, closePrice: 23500,
+        volume: BigInt(100), tradeDate: '20260605',
+      };
+      const prisma = makePrismaMock();
+      (prisma.stockDailyPrice.findFirst as AnyFn).mockImplementation(
+        async ({
+          where,
+          select,
+        }: {
+          where: { corpCode: string; tradeDate?: { lte: string } };
+          select?: Record<string, unknown>;
+        }) => {
+          const lte = where.tradeDate?.lte ?? '';
+          // resolveSource 존재성(select.tradeDate 만): 미매핑 2026 하한 → 실데이터 있음 → REAL.
+          if (!select?.openPrice) return { tradeDate: '20260605' };
+          // 본 가격조회: 매핑일(2025) lte 는 실 시계열(2025-07~) 이전 → 공백(null).
+          if (lte.startsWith('2025')) return null;
+          // 폴백: 미매핑 시뮬 날짜(2026) lte → 최신 실 거래일 종가(미래참조 금지 상한).
+          return LATEST_REAL;
+        },
+      );
+      const svc = makeService(prisma);
+      const row = await svc.latestPriceRow('00446901', '20260608');
+      expect(row?.source).toBe('REAL'); // 합성 아님 — 실데이터 종목은 실가만(per-stock 일관)
+      expect(row?.closePrice).toBe(23500); // 합성 83,050(+253%) 아님 — 최신 실가
+      expect(row?.sourceDate).toBe('20260605'); // 원일자 정직 고지(2026 실가격으로 오인 금지)
+      expect(prisma.simulatedDailyPrice.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('prepareUniverse(하이브리드): 실데이터 보유 종목엔 합성 미적재 — SimulatedDailyPrice는 실데이터 없는 종목만', async () => {
+      realFeed();
+      const prisma = makePrismaMock();
+      (prisma.position.findMany as AnyFn).mockResolvedValue([
+        { corpCode: 'REALCO', stockCode: '000111' }, // 실데이터 보유
+        { corpCode: 'GAPCO', stockCode: '000222' }, // 실데이터 없음
+      ]);
+      (prisma.tradingSignal.findMany as AnyFn).mockResolvedValue([]);
+      (prisma.stockDailyPrice.findFirst as AnyFn).mockImplementation(
+        async ({ where }: { where: { corpCode: string } }) =>
+          where.corpCode === 'REALCO' ? { tradeDate: '20260605' } : null,
+      );
+      (prisma.simulatedDailyPrice.createMany as AnyFn).mockImplementation(
+        async ({ data }: { data: Array<{ stockCode: string }> }) => ({ count: data.length }),
+      );
+      const svc = makeService(prisma);
+      const res = await svc.prepareUniverse('pf1', '20260608');
+      expect(res.stocks).toBe(2);
+      // 합성 적재는 GAPCO(실데이터 없음) 1종목에만 — REALCO 는 실데이터라 스킵.
+      expect(prisma.simulatedDailyPrice.createMany).toHaveBeenCalledTimes(1);
+      const call = (prisma.simulatedDailyPrice.createMany as AnyFn).mock.calls[0][0];
+      const rows = call.data as Array<{ stockCode: string }>;
+      expect(rows.every((r) => r.stockCode === '000222')).toBe(true);
     });
   });
 

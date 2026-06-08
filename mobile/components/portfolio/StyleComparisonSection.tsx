@@ -1,6 +1,8 @@
 import React, { useMemo, useCallback } from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import { View, Text, FlatList, StyleSheet, Pressable } from 'react-native';
 import { Surface, Banner } from 'react-native-paper';
+import { Feather } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
@@ -8,7 +10,10 @@ import { EmptyState, ErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { EquityCurveChart } from '@components/portfolio/EquityCurveChart';
 import { DataLimitBadge } from '@components/common/DataLimitBadge';
+import { MarketRegimeCard } from '@components/persona/MarketRegimeCard';
 import { useStyleComparison } from '@hooks/useStyleComparison';
+import { usePersonaOverview } from '@hooks/usePersonaOverview';
+import { usePersonaStore } from '@stores/personaStore';
 
 import type {
   StyleComparison,
@@ -115,6 +120,55 @@ function StyleCard({ perf, isBest }: { perf: StylePerformance; isBest: boolean }
   );
 }
 
+// persona 추천 + 자동매매 persona 선택 진입 — DAR-131.
+// 스타일 비교 상단에 '현재 장 적합 persona' 추천 카드와 persona 선택 화면 진입 CTA를 얹는다.
+// persona 성과 데이터(usePersonaOverview)는 스타일 비교의 상위집합 — 로드 전엔 graceful 미표시.
+function PersonaPickerHeader() {
+  const { colors, typography: typo } = useTheme();
+  const personaQuery = usePersonaOverview();
+  const selectedPersona = usePersonaStore((s) => s.selectedPersona);
+
+  const data = personaQuery.data;
+  const selected = data?.personas.find((p) => p.performance.style === selectedPersona);
+
+  const goSelect = useCallback(() => router.push('/persona'), []);
+
+  return (
+    <View style={styles.personaBox}>
+      {data ? (
+        <MarketRegimeCard regime={data.regime} personas={data.personas} dataLimited={data.dataLimited} />
+      ) : null}
+
+      <Pressable
+        onPress={goSelect}
+        accessibilityRole="button"
+        accessibilityLabel={
+          selected
+            ? `자동매매 persona 선택 화면 열기. 현재 선택: ${selected.performance.label}(모의)`
+            : '자동매매 persona 선택 화면 열기'
+        }
+      >
+        <Surface
+          elevation={1}
+          style={[styles.ctaCard, { backgroundColor: colors.surface, borderColor: colors.primary }]}
+        >
+          <View style={styles.ctaTextCol}>
+            <Text style={[typo.captionMedium, { color: colors.text }]}>
+              {selected ? '선택한 모의운용 persona' : '자동매매 persona 선택하기'}
+            </Text>
+            <Text style={[typo.small, { color: colors.textSecondary, marginTop: 2 }]}>
+              {selected
+                ? `${selected.performance.label} · 모의 운용(실주문 아님)`
+                : '현재 장 추천을 보고 거장 철학을 고르세요 — 모의/선택까지'}
+            </Text>
+          </View>
+          <Feather name="chevron-right" size={20} color={colors.primary} />
+        </Surface>
+      </Pressable>
+    </View>
+  );
+}
+
 function ComparisonHeader({ data }: { data: StyleComparison }) {
   const { colors, typography: typo } = useTheme();
   const best = data.ranking.bestStyle
@@ -204,7 +258,12 @@ export function StyleComparisonSection() {
       showsVerticalScrollIndicator={false}
       refreshing={query.isRefetching}
           onRefresh={query.refetch}
-      ListHeaderComponent={data ? <ComparisonHeader data={data} /> : null}
+      ListHeaderComponent={
+        <>
+          <PersonaPickerHeader />
+          {data ? <ComparisonHeader data={data} /> : null}
+        </>
+      }
       ListEmptyComponent={
         <EmptyState
           icon="bar-chart-2"
@@ -226,6 +285,22 @@ const styles = StyleSheet.create({
   headerBox: {
     gap: spacing.md,
     marginBottom: spacing.md,
+  },
+  personaBox: {
+    gap: spacing.md,
+    marginBottom: spacing.md,
+  },
+  ctaCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.base,
+    gap: spacing.sm,
+  },
+  ctaTextCol: {
+    flexShrink: 1,
   },
   banner: {
     borderRadius: radius.md,

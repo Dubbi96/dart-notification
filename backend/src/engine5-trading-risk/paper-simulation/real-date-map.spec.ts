@@ -9,6 +9,7 @@ import {
   DEFAULT_REAL_YEAR_OFFSET,
   mapSimDateToRealDate,
   realYearOffset,
+  realYearShift,
 } from './real-date-map';
 
 const ORIGINAL_OFFSET = process.env.PAPER_SIM_REAL_YEAR_OFFSET;
@@ -67,5 +68,25 @@ describe('realYearOffset — 환경 파싱', () => {
     expect(realYearOffset()).toBe(1);
     process.env.PAPER_SIM_REAL_YEAR_OFFSET = '3';
     expect(realYearOffset()).toBe(3);
+  });
+});
+
+describe('realYearShift — 옵트인 연도 시프트(DAR-139)', () => {
+  it('미설정/불량/0이하는 0(시프트 미적용 → 실데이터 있는 그대로 = 최신 실가)', () => {
+    delete process.env.PAPER_SIM_REAL_YEAR_OFFSET;
+    expect(realYearShift()).toBe(0);
+    process.env.PAPER_SIM_REAL_YEAR_OFFSET = 'abc';
+    expect(realYearShift()).toBe(0);
+    process.env.PAPER_SIM_REAL_YEAR_OFFSET = '0';
+    expect(realYearShift()).toBe(0);
+    process.env.PAPER_SIM_REAL_YEAR_OFFSET = '-2';
+    expect(realYearShift()).toBe(0);
+  });
+
+  it('명시 정수≥1 은 그 값(과거 데이터 리플레이 모드 옵트인)', () => {
+    process.env.PAPER_SIM_REAL_YEAR_OFFSET = '1';
+    expect(realYearShift()).toBe(1);
+    process.env.PAPER_SIM_REAL_YEAR_OFFSET = '2';
+    expect(realYearShift()).toBe(2);
   });
 });

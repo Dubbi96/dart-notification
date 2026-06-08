@@ -268,6 +268,7 @@ describe('SimulationPriceSourceService — REAL_THEN_SYNTHETIC 하이브리드(D
   describe('closesAfter — 동일 소스 일관(실가 D+N)', () => {
     it('실데이터 종목은 매핑 실날짜 초과 종가를 StockDailyPrice 에서', async () => {
       realFeed();
+      process.env.PAPER_SIM_REAL_YEAR_OFFSET = '1'; // 연도 시프트 명시(리플레이 모드) → 매핑 실날짜
       const prisma = makePrismaMock();
       // resolveSource 존재성 확인은 실데이터 있음
       (prisma.stockDailyPrice.findFirst as AnyFn).mockResolvedValue({ tradeDate: '20250604' });
@@ -323,6 +324,39 @@ describe('SimulationPriceSourceService — REAL_THEN_SYNTHETIC 하이브리드(D
   });
 
   describe('실데이터 공백일 → 최신 실가 폴백(DAR-139 DoD 핵심)', () => {
+    it('기본(연도 시프트 미설정): 실데이터 보유 종목은 연도 시프트 없이 최신 실 거래일 종가로 평가(126730=23,500)', async () => {
+      // ★DoD 핵심 — 실 KRX 가 최신(2026-06-05=23,500)까지 적재된 환경: PAPER_SIM_REAL_YEAR_OFFSET
+      //   미설정 → 연도 시프트 0 → 시뮬 날짜 그대로 조회 → 최신 실가(23,500). 합성 83,050(+253%) 아님.
+      //   (시프트가 켜졌다면 1년 전 stale 12,900 으로 평가돼 진입가 23,511 과 어긋난다 — 그래서 옵트인.)
+      realFeed();
+      delete process.env.PAPER_SIM_REAL_YEAR_OFFSET; // 명시 안 함 → 시프트 0(있는 그대로)
+      const LATEST_REAL_2026 = {
+        openPrice: 23000, highPrice: 23800, lowPrice: 22800, closePrice: 23500,
+        volume: BigInt(100), tradeDate: '20260605',
+      };
+      const prisma = makePrismaMock();
+      (prisma.stockDailyPrice.findFirst as AnyFn).mockImplementation(
+        async ({
+          where,
+          select,
+        }: {
+          where: { corpCode: string; tradeDate?: { lte: string } };
+          select?: Record<string, unknown>;
+        }) => {
+          // 시프트 0 → resolveSource·본 조회 모두 미매핑 2026 하한이어야 한다(연도 시프트 없음).
+          expect(where.tradeDate?.lte?.startsWith('2026')).toBe(true);
+          if (!select?.openPrice) return { tradeDate: '20260605' };
+          return LATEST_REAL_2026;
+        },
+      );
+      const svc = makeService(prisma);
+      const row = await svc.latestPriceRow('00446901', '20260608');
+      expect(row?.source).toBe('REAL'); // 실데이터 종목 = 실가(합성 미사용)
+      expect(row?.closePrice).toBe(23500); // 최신 실가 — 합성 83,050(+253%) 아님, stale 12,900 아님
+      expect(row?.sourceDate).toBe('20260605'); // 실제 사용한 실 거래일(정직)
+      expect(prisma.simulatedDailyPrice.findFirst).not.toHaveBeenCalled();
+    });
+
     it('실데이터 보유 종목은 매핑일이 실 시계열보다 과거(공백)여도 합성이 아니라 최신 실 거래일 종가로 평가', async () => {
       realFeed();
       process.env.PAPER_SIM_REAL_YEAR_OFFSET = '1';

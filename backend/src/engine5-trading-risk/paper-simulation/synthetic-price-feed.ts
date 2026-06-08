@@ -63,12 +63,20 @@ export function baseSeedPrice(stockCode: string): number {
 }
 
 /**
- * 종목별 일간 변동성 σ — 코드 해시로 1.2%~4.0% 밴드에 결정적 배치.
+ * 종목별 일간 변동성 σ(수익률 표준편차) — 코드 해시로 VOL_MIN~VOL_MAX 밴드에 결정적 배치.
  * 종목마다 다른 변동성을 줘 트랙레코드가 평탄하지 않게 한다.
+ *
+ * DAR-135 캘리브레이션: 기존 1.2%~4.0% 균등밴드 + 균등[-σ,+σ] 수익률은 실제보다 과대한
+ *   일변동(매일 평균 |수익률|≈σ/1, 최대 ±4%)을 만들어 equity 가 비현실적으로 출렁였다.
+ *   한국 일반주 일간 수익률 표준편차(≈0.8%~2.2%) 범위로 좁히고, 수익률 분포 자체를 0 근방에
+ *   집중(근사정규, dailyReturn 참고)시켜 '대부분 작은 변동, 가끔 큰 변동'을 모사한다.
  */
+export const VOL_MIN = 0.008; // 일간 수익률 표준편차 하한 0.8%
+export const VOL_MAX = 0.022; // 일간 수익률 표준편차 상한 2.2%
+
 export function stockVolatility(stockCode: string): number {
   const r = mulberry32(hashSeed(`vol:${stockCode}`))();
-  return 0.012 + r * (0.04 - 0.012);
+  return VOL_MIN + r * (VOL_MAX - VOL_MIN);
 }
 
 /** YYYYMMDD → Date(UTC 정오, 타임존 경계 안전). 형식 불량은 NaN Date. */
@@ -119,10 +127,32 @@ export function tradingDaysEndingAt(endDate: string, count: number): string[] {
   return out.reverse();
 }
 
-/** 일간 수익률 — date 시드로 [-σ, +σ] 균등(결정적). 종목별 σ 반영. */
+/**
+ * 일간 수익률 한도(절대값) — 결정적 합성가의 하루 변동을 현실 범위로 캡(DAR-135).
+ * 한국 일반주의 큰 하루 변동(±7%) 수준에서 절단. KRX 가격제한(±30%) 보다 훨씬 보수적이라
+ * equity 가 합성 노이즈로 비현실적으로 출렁이지 않는다.
+ */
+export const MAX_DAILY_RETURN = 0.07;
+
+/** 변동률을 일간 한도 [-MAX_DAILY_RETURN, +MAX_DAILY_RETURN] 로 윈저라이즈(결정적, DAR-135). */
+export function clampDailyChange(ret: number): number {
+  return Math.max(-MAX_DAILY_RETURN, Math.min(MAX_DAILY_RETURN, ret));
+}
+
+/**
+ * 일간 수익률 — date 시드로 0 근방에 집중(근사정규)·종목별 σ 반영·±MAX_DAILY_RETURN 캡(DAR-135).
+ *
+ * 기존(DAR-124): (r-0.5)*2*σ → [-σ,+σ] 균등. 평탄분포라 매일 σ 가까운 큰 변동이 흔했다.
+ * 변경: 3개 균등난수 평균(중심극한 근사정규, 평균 0). ((u1+u2+u3)/3 - 0.5) 의 표준편차는
+ *   sqrt((1/12)/3)=1/6 이므로 ×6×σ 로 스케일하면 수익률 표준편차가 정확히 σ 가 된다.
+ *   분포 범위는 [-3σ,+3σ] 이고 질량이 0 근방에 모여 '대부분 작은 변동, 가끔 큰 변동'을 모사한다.
+ *   마지막에 ±MAX_DAILY_RETURN 으로 하드 클램프(극단 꼬리 차단). 결정성·재현성 보존.
+ */
 function dailyReturn(stockCode: string, tradeDate: string, volatility: number): number {
-  const r = mulberry32(hashSeed(`ret:${stockCode}:${tradeDate}`))();
-  return (r - 0.5) * 2 * volatility;
+  const rng = mulberry32(hashSeed(`ret:${stockCode}:${tradeDate}`));
+  const avg3 = (rng() + rng() + rng()) / 3; // 평균 0.5, 0 근방 집중
+  const ret = (avg3 - 0.5) * 6 * volatility; // 표준편차 = σ, 범위 [-3σ,+3σ]
+  return clampDailyChange(ret);
 }
 
 const MIN_PRICE = 100; // 합성 하한가(원)
@@ -162,19 +192,25 @@ export function buildBar(
   const rng = mulberry32(hashSeed(`bar:${stockCode}:${tradeDate}`));
   const base = Math.max(MIN_PRICE, Math.round(prevClose));
 
+  // DAR-135: 일봉 전체(open/close/high/low)를 직전 종가 ±MAX_DAILY_RETURN 안으로 캡.
+  //   close 만 캡하면 시가 갭·일중 고저(wick)가 한도를 넘어 equity·추적손절을 비현실적으로 흔든다.
+  const limitHi = Math.round(base * (1 + MAX_DAILY_RETURN));
+  const limitLo = Math.max(MIN_PRICE, Math.round(base * (1 - MAX_DAILY_RETURN)));
+  const clampPrice = (v: number): number => Math.min(limitHi, Math.max(limitLo, v));
+
   const ret = dailyReturn(stockCode, tradeDate, volatility);
-  const close = Math.max(MIN_PRICE, Math.round(base * (1 + ret)));
+  const close = clampPrice(Math.max(MIN_PRICE, Math.round(base * (1 + ret))));
 
-  // 시가: 직전 종가 대비 작은 갭(±σ/2)
-  const gap = (rng() - 0.5) * volatility;
-  const open = Math.max(MIN_PRICE, Math.round(base * (1 + gap)));
+  // 시가: 직전 종가 대비 작은 갭(±σ/2), 일간 한도로 윈저라이즈.
+  const gap = clampDailyChange((rng() - 0.5) * volatility);
+  const open = clampPrice(Math.max(MIN_PRICE, Math.round(base * (1 + gap))));
 
-  // 일중 고저: open/close 범위를 σ/2 만큼 바깥으로 확장
+  // 일중 고저: open/close 범위를 σ/2 만큼 바깥으로 확장하되 일간 한도 내로 절단(불변식 보존).
   const wick = rng() * (volatility / 2);
   const hi = Math.max(open, close);
   const lo = Math.min(open, close);
-  const high = Math.max(hi, Math.round(hi * (1 + wick)));
-  const low = Math.max(MIN_PRICE, Math.min(lo, Math.round(lo * (1 - wick))));
+  const high = Math.min(limitHi, Math.max(hi, Math.round(hi * (1 + wick))));
+  const low = Math.max(limitLo, Math.min(lo, Math.round(lo * (1 - wick))));
 
   // 거래량: 10만~210만주 밴드(결정적)
   const volume = 100_000 + Math.floor(rng() * 2_000_000);

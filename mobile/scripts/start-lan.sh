@@ -16,6 +16,11 @@
 
 set -euo pipefail
 
+# 어느 위치에서 실행하든 mobile/ 디렉터리에서 동작하도록 이동.
+# (이 스크립트는 mobile/scripts/ 에 있으므로 부모의 부모가 mobile/)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/.." || { echo "✗ mobile/ 디렉터리로 이동 실패" >&2; exit 1; }
+
 API_PORT="${API_PORT:-3000}"
 IFACE="${IFACE:-}"
 

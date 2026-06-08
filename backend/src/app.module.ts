@@ -30,6 +30,7 @@ import { TradingRiskModule } from './engine5-trading-risk/trading-risk.module';
 import { PaperSimulationModule } from './engine5-trading-risk/paper-simulation/paper-simulation.module';
 import { GraduationModule } from './engine5-trading-risk/simulation/graduation.module';
 import { PhilosophyStyleSimulationModule } from './engine5-trading-risk/paper-simulation/philosophy-style-simulation.module';
+import { PersonaTradingModule } from './engine5-trading-risk/paper-simulation/persona/persona-trading.module';
 import { CollectionStatusModule } from './collection-status/collection-status.module';
 import { CronHealthModule } from './cron-health/cron-health.module';
 import { OpsModule } from './ops/ops.module';
@@ -111,6 +112,7 @@ import { OpsModule } from './ops/ops.module';
 
     // Engine 5 — 철학 스타일별(BUFFETT/LYNCH/GREENBLATT/DRUCKENMILLER) 모의운용 분기·비교 (DAR-76, P-D)
     PhilosophyStyleSimulationModule,
+    PersonaTradingModule,
 
     // 횡단 — 수집 상태 대시보드 read-only 집계 (DAR-63)
     CollectionStatusModule,

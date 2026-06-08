@@ -21,7 +21,7 @@
  * AI 금지영역: 가격 생성은 순수 시드 PRNG(Rule). 체결·주문수량·하드룰과 무관.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -35,9 +35,11 @@ import {
   dedupeCandidatesByCorpCode,
 } from './simulation-entry';
 import { mapSimDateToRealDate, realYearOffset } from './real-date-map';
+import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realtime-quote.cache';
 
-/** 일봉 1행의 출처 — 정직한 실/합성 구분 표기용. */
-export type SimPriceSource = 'REAL' | 'SYNTHETIC';
+/** 일봉/현재가 1행의 출처 — 정직한 실시간/실데이터/합성 구분 표기용.
+ *  REALTIME=KIS 실시간 현재가(DAR-140) · REAL=실 KRX 일봉 · SYNTHETIC=합성. */
+export type SimPriceSource = 'REALTIME' | 'REAL' | 'SYNTHETIC';
 
 /** 모의운용 시세 소스 모드(런 단위). REAL=실데이터만, SYNTHETIC=합성만,
  *  REAL_THEN_SYNTHETIC=종목 단위 실가 우선·합성 폴백(DAR-137). */
@@ -69,7 +71,11 @@ const CANDIDATE_UNIVERSE_CAP = 200;
 export class SimulationPriceSourceService {
   private readonly logger = new Logger(SimulationPriceSourceService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // DAR-140: KIS 실시간 현재가 캐시(@Global). 미주입/미설정이면 실시간 비활성(일봉/합성 폴백·회귀 0).
+    @Optional() private readonly realtimeCache?: RealtimeQuoteCache,
+  ) {}
 
   /**
    * 시세 소스 모드 — 환경 플래그로 결정(런 단위, 우선순위 명시).
@@ -166,9 +172,18 @@ export class SimulationPriceSourceService {
 
   /**
    * tradeDate 이하의 가장 최신 일봉 1행(소스 모드별). 없으면 null.
-   * 반환 행에는 source('REAL'|'SYNTHETIC') 가 라벨된다 — 정직 구분 표기용.
+   * 반환 행에는 source('REALTIME'|'REAL'|'SYNTHETIC') 가 라벨된다 — 정직 구분 표기용.
+   *
+   * 우선순위(DAR-140): 신선한 실시간 현재가 > 실 일봉(REAL) > 합성(SYNTHETIC).
+   *   ★실시간은 SYNTHETIC 전용 모드에서는 미적용(순수 합성 트랙 보존). REAL/하이브리드에서만 우선.
    */
   async latestPriceRow(corpCode: string, tradeDate: string): Promise<SimPriceRow | null> {
+    // DAR-140: 실시간 우선 — SYNTHETIC 전용 모드가 아니고, 신선한 실시간 현재가가 있으면 그것으로 평가.
+    if (this.mode !== 'SYNTHETIC') {
+      const rt = this.realtimeRowFor(corpCode);
+      if (rt) return rt;
+    }
+
     const src = await this.resolveSource(corpCode, tradeDate);
     if (src === 'SYNTHETIC') {
       // 합성은 시뮬 캘린더(2026)에 적재 — 매핑 없이 sim 날짜로 조회.
@@ -261,6 +276,34 @@ export class SimulationPriceSourceService {
     return this.mode === 'REAL_THEN_SYNTHETIC'
       ? mapSimDateToRealDate(date, realYearOffset())
       : date;
+  }
+
+  /**
+   * DAR-140: 신선한 KIS 실시간 현재가를 SimPriceRow(source=REALTIME)로 변환. 없으면 null.
+   *   캐시 미주입(@Optional)·미설정·stale 이면 null → 호출측이 일봉/합성으로 폴백.
+   *   sourceDate = 실 wall-clock 날짜(원일자) — 환경 시계(2026)와 다를 수 있음을 정직 고지.
+   */
+  private realtimeRowFor(corpCode: string): SimPriceRow | null {
+    const q = this.realtimeCache?.getFresh(corpCode);
+    if (!q || q.price <= 0) return null;
+    return {
+      openPrice: q.open > 0 ? q.open : q.price,
+      highPrice: q.high > 0 ? q.high : q.price,
+      lowPrice: q.low > 0 ? q.low : q.price,
+      closePrice: q.price,
+      volume: BigInt(Math.max(0, q.volume)),
+      source: 'REALTIME',
+      sourceDate: this.msToYmd(q.fetchedAtMs),
+    };
+  }
+
+  /** epoch ms → YYYYMMDD(UTC). 실시간 원일자 정직 고지용. */
+  private msToYmd(ms: number): string {
+    const d = new Date(ms);
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}${m}${day}`;
   }
 
   // ─── 내부 ───────────────────────────────────────────────────────────────

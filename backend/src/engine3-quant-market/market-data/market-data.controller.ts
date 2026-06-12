@@ -7,6 +7,7 @@ import {
 } from '@nestjs/swagger';
 import { KrxMarketDataScheduler } from './krx-market-data.scheduler';
 import { StockQuoteService } from './stock-quote.service';
+import { MarketDataService } from './market-data.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../auth/guards/optional-jwt-auth.guard';
 
@@ -18,6 +19,7 @@ export class MarketDataController {
   constructor(
     private readonly scheduler: KrxMarketDataScheduler,
     private readonly stockQuote: StockQuoteService,
+    private readonly marketData: MarketDataService,
   ) {}
 
   // 가격 배지 종단연결(DAR-158): 읽기 전용 시세 조회는 게스트 열람 허용(DAR-99 패턴).
@@ -39,6 +41,22 @@ export class MarketDataController {
       .map((c) => c.trim())
       .filter((c) => c.length > 0);
     const data = await this.stockQuote.getQuotes(codes);
+    return { success: true, data };
+  }
+
+  /**
+   * 시장지수 최신값 조회 (DAR-160, read-only).
+   * KOSPI·KOSDAQ 최신 종가 + 전일대비 등락률(%) + 거래일을 반환한다. 홈 헤더 '시장 한눈에'
+   * 배지·신호 화면 시장국면 맥락에 쓰인다. 시장 데이터는 비개인 공개정보이므로
+   * 메서드 단위 OptionalJwtAuthGuard 로 컨트롤러 기본 JwtAuthGuard 를 덮어 게스트 열람을 허용한다.
+   */
+  @Get('indices/latest')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary: '시장지수 최신값 — KOSPI·KOSDAQ 종가·전일대비 등락률 (게스트 열람, DAR-160)',
+  })
+  async latestIndices() {
+    const data = await this.marketData.fetchLatestIndices();
     return { success: true, data };
   }
 

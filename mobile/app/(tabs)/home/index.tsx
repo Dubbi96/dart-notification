@@ -22,6 +22,7 @@ import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { HomeSignalPreview } from '@components/home/HomeSignalPreview';
+import { MarketIndexBadge } from '@components/home/MarketIndexBadge';
 import { GraduationTracker } from '@components/home/GraduationTracker';
 import { FirstWatchCoachmark } from '@components/home/FirstWatchCoachmark';
 import { DisclosureFeedCard } from '@components/home/DisclosureFeedCard';
@@ -140,6 +141,9 @@ export default function HomeScreen() {
   const ListHeader = useCallback(
     () => (
       <View style={styles.listHeader}>
+        {/* 시장 한눈에 배지(DAR-160) — KOSPI·KOSDAQ 최신 지수·전일대비 등락률. 데이터 없으면 미표시. */}
+        <MarketIndexBadge />
+
         {/* 오늘의 투자판단 프리뷰(DAR-61) — summaryCard 아래 최상단. 공시→투자판단 1순위 동선. */}
         <HomeSignalPreview isAuthenticated={isAuthenticated} />
 

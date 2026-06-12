@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 
 import type { StockRiskStatus } from '@app-types/stock-status.types';
@@ -89,7 +89,9 @@ export function RiskStatusBadges({ status, compact = false, style }: RiskStatusB
               ]}
             >
               <Feather name={b.icon} size={compact ? 11 : 13} color={tone} />
+              {/* DAR-174: 고정 아이콘 크기와 함께 놓이는 배지 라벨 — OS 글꼴 확대 시 클리핑·정렬깨짐 방지 가드. */}
               <Text
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                 style={[
                   compact ? typo.small : typo.captionMedium,
                   { color: tone, fontWeight: '700', marginLeft: spacing.xs },
@@ -105,7 +107,10 @@ export function RiskStatusBadges({ status, compact = false, style }: RiskStatusB
       {/* ★근사값 라벨 필수 — KRX 정밀 실시간 아님(DART 공시 기반 도출) */}
       <View style={styles.approxRow}>
         <Feather name="info" size={compact ? 10 : 12} color={colors.textTertiary} />
-        <Text style={[typo.small, { color: colors.textTertiary, marginLeft: spacing.xs, flex: 1 }]}>
+        <Text
+          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          style={[typo.small, { color: colors.textTertiary, marginLeft: spacing.xs, flex: 1 }]}
+        >
           {approxLabel}
         </Text>
       </View>

@@ -31,8 +31,9 @@ export function useMe() {
           setAuth(data, accessToken, refreshToken);
         }
         return data;
-      } catch (err: any) {
-        if (err?.response?.status === 401 || err?.response?.status === 403) {
+      } catch (err) {
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status === 401 || status === 403) {
           clearAuth();
           router.replace('/auth/sign-in');
         }

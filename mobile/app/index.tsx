@@ -8,16 +8,16 @@ export default function Index() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isGuest = useAuthStore((s) => s.isGuest);
   const onboardingCompleted = useAuthStore((s) => s.onboardingCompleted);
-  const [hydrated, setHydrated] = useState(false);
+  const [hydrated, setHydrated] = useState(() => useAuthStore.persist.hasHydrated());
   const [hasSeenIntro, setHasSeenIntro] = useState<boolean | null>(null);
 
   useEffect(() => {
+    if (useAuthStore.persist.hasHydrated()) {
+      return;
+    }
     const unsub = useAuthStore.persist.onFinishHydration(() => {
       setHydrated(true);
     });
-    if (useAuthStore.persist.hasHydrated()) {
-      setHydrated(true);
-    }
     return unsub;
   }, []);
 

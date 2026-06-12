@@ -10,6 +10,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
+import { type ThemeColors } from '@theme/colors';
+import { type Typography } from '@theme/typography';
 import { spacing } from '@theme/spacing';
 
 export default function TermsScreen() {
@@ -33,7 +35,7 @@ export default function TermsScreen() {
         </Text>
 
         <Section title="제1조 (목적)" colors={colors} typo={typo}>
-          본 약관은 공시on(이하 "서비스")이 제공하는 DART 공시 알림 서비스의 이용과 관련하여
+          본 약관은 공시on(이하 &quot;서비스&quot;)이 제공하는 DART 공시 알림 서비스의 이용과 관련하여
           서비스와 이용자 간의 권리, 의무 및 책임 사항을 규정함을 목적으로 합니다.
         </Section>
 
@@ -100,7 +102,7 @@ export default function TermsScreen() {
   );
 }
 
-function Section({ title, children, colors, typo }: { title: string; children: string; colors: any; typo: any }) {
+function Section({ title, children, colors, typo }: { title: string; children: string; colors: ThemeColors; typo: Typography }) {
   return (
     <View style={styles.section}>
       <Text style={[typo.bodyMedium, { color: colors.text, marginBottom: spacing.sm }]}>{title}</Text>

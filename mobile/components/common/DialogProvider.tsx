@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Dialog, Portal, Button } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
@@ -16,7 +16,7 @@ interface DialogOptions {
   message: string;
   buttons?: DialogButton[];
   icon?: {
-    name: string;
+    name: React.ComponentProps<typeof Feather>['name'];
     color?: string;
   };
 }
@@ -53,8 +53,10 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
     setVisible(true);
   }, []);
 
-  // ref 동기화
-  dialogRef.current = { showDialog };
+  // ref 동기화 (모듈 변수 변경은 렌더 중 금지 — 이펙트에서 동기화)
+  useEffect(() => {
+    dialogRef.current = { showDialog };
+  }, [showDialog]);
 
   const handleDismiss = () => setVisible(false);
 
@@ -77,7 +79,7 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
           {options.icon && (
             <View style={styles.iconContainer}>
               <Feather
-                name={options.icon.name as any}
+                name={options.icon.name}
                 size={32}
                 color={options.icon.color ?? colors.primary}
               />

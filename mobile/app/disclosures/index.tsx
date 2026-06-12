@@ -212,13 +212,13 @@ export default function DisclosuresScreen() {
               <Ionicons
                 name="star"
                 size={12}
-                color={watchlistOnly ? '#FFFFFF' : colors.primary}
+                color={watchlistOnly ? colors.primaryForeground : colors.primary}
               />
               <Text
                 style={[
                   typo.small,
                   {
-                    color: watchlistOnly ? '#FFFFFF' : colors.text,
+                    color: watchlistOnly ? colors.primaryForeground : colors.text,
                     fontWeight: watchlistOnly ? '600' : '400',
                   },
                 ]}
@@ -249,7 +249,7 @@ export default function DisclosuresScreen() {
                   style={[
                     typo.small,
                     {
-                      color: isActive ? '#FFFFFF' : colors.text,
+                      color: isActive ? colors.primaryForeground : colors.text,
                       fontWeight: isActive ? '600' : '400',
                     },
                   ]}

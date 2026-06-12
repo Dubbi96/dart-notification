@@ -17,3 +17,13 @@ export function isConnectionError(error: unknown): boolean {
     error.message === 'Network Error'
   );
 }
+
+/**
+ * 서버가 404 로 응답한 "진짜 미존재" 에러인지 판별한다(DAR-187).
+ * 네트워크/타임아웃/5xx(재시도로 회복 가능)와 구분해, 미존재 안내를 띄울지 결정한다.
+ * react-native 의존이 없는 순수 함수 — node 스크립트로 결정론적 검증 가능.
+ */
+export function isNotFoundError(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+  return error.response?.status === 404;
+}

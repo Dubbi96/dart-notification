@@ -30,7 +30,7 @@ import { gradeColor, gradeLabel } from '@utils/signalDisplay';
 import { formatReturnPct, returnColor } from '@utils/numberFormat';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { parse, format } from 'date-fns';
-import { LoadingState, EmptyState, ErrorState } from '@components/common/StateView';
+import { LoadingState, EmptyState, ErrorState, ApiErrorState } from '@components/common/StateView';
 import { DetailSkeleton } from '@components/common/DetailSkeleton';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { PhilosophyFitBreakdown } from '@components/philosophy/PhilosophyFitBreakdown';
@@ -47,6 +47,7 @@ import { useHaptics } from '@hooks/useHaptics';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { OfflineStaleLabel } from '@components/common/OfflineStaleLabel';
+import { isNotFoundError } from '@services/api';
 import type { EventStudyResult } from '@app-types/signal.types';
 
 type CompanyTab = 'decision' | 'disclosures' | 'financials' | 'insider' | 'stats' | 'philosophy';
@@ -305,6 +306,8 @@ export default function CompanyDetailScreen() {
   const {
     data: company,
     isLoading,
+    isError: isCompanyError,
+    error: companyError,
     refetch: refetchCompany,
     isRefetching: isRefetchingCompany,
   } = useCompanyDetail(corpCode!);
@@ -399,6 +402,33 @@ export default function CompanyDetailScreen() {
           </TouchableOpacity>
         </View>
         <DetailSkeleton cards={[{ chip: true, lines: 2 }, { lines: 3 }, { lines: 2 }]} />
+      </SafeAreaView>
+    );
+  }
+
+  // DAR-187: 네트워크/서버 실패는 "기업 정보 없음"으로 위장하지 않고 사유 + 재시도 동선을 노출한다.
+  // 진짜 미존재(서버 404)는 이 분기를 건너뛰어 아래 not-found 문구를 그대로 유지한다(두 케이스 분리).
+  if (isCompanyError && !isNotFoundError(companyError)) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+            accessibilityLabel="뒤로 가기"
+            accessibilityRole="button"
+          >
+            <Ionicons name="chevron-back" size={26} color={colors.text} />
+          </TouchableOpacity>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ApiErrorState
+            error={companyError}
+            title="기업 정보를 불러오지 못했습니다"
+            description="잠시 후 다시 시도해 주세요."
+            onRetry={refetchCompany}
+          />
+        </View>
       </SafeAreaView>
     );
   }

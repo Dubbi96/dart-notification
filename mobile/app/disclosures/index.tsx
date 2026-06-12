@@ -149,9 +149,26 @@ export default function DisclosuresScreen() {
           >
             {item.reportName}
           </Text>
-          <Text style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
-            {item.corpName}
-          </Text>
+          {/* 기업명 보조 탭 — 종목 허브 1탭 직행. 카드 본 탭(공시 상세)과 분리(DAR-155). */}
+          {item.corpCode ? (
+            <TouchableOpacity
+              style={styles.corpLink}
+              onPress={() => router.push(`/company/${item.corpCode}`)}
+              activeOpacity={0.6}
+              hitSlop={{ top: 8, bottom: 8, left: 4, right: 12 }}
+              accessibilityRole="link"
+              accessibilityLabel={`${item.corpName} 기업 정보 보기`}
+            >
+              <Text style={[typo.caption, { color: colors.primary }]} numberOfLines={1}>
+                {item.corpName}
+              </Text>
+              <Ionicons name="chevron-forward" size={13} color={colors.primary} />
+            </TouchableOpacity>
+          ) : (
+            <Text style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+              {item.corpName}
+            </Text>
+          )}
         </Card>
       </TouchableOpacity>
     );
@@ -528,6 +545,13 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: 0,
+  },
+  corpLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: spacing.xs,
+    gap: 2,
   },
   cardHeader: {
     flexDirection: 'row',

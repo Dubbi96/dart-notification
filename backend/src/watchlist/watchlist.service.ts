@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateWatchlistDto } from './dto/create-watchlist.dto';
-import { formatRcpThreshold } from './watchlist.util';
+import { resolveCursor } from './watchlist.util';
 
 const MAX_WATCHLIST_COUNT = 30;
 
@@ -40,13 +40,14 @@ export class WatchlistService {
       latestDisclosures.map((d) => [d.corpCode, d._max.rcpDt]),
     );
 
-    // 마지막 조회 시각(lastViewedAt, 없으면 등록 시각) 이후 신규 공시 수 파생(DAR-165).
-    // rcpDt(YYYYMMDD[HHmmss], KST 문자열) > KST 임계 문자열 = 신규. 항목별 임계값이 달라 항목 단위 count.
+    // 마지막으로 본 rcpNo 커서(없으면 등록일 floor) 이후 신규 공시 수 파생(DAR-185).
+    // rcpNo(='YYYYMMDD'+일련번호) > 커서 = 신규. rcpDt(일 단위)와 달리 같은 날 안의
+    // 순서까지 보존되어 당일 공시도 정확히 집계된다. 항목별 커서가 달라 항목 단위 count.
     const newCounts = await Promise.all(
       watchlist.map((item) => {
-        const threshold = formatRcpThreshold(item.lastViewedAt ?? item.createdAt);
+        const cursor = resolveCursor(item.lastViewedRcpNo, item.createdAt);
         return this.prisma.disclosure.count({
-          where: { corpCode: item.corpCode, rcpDt: { gt: threshold } },
+          where: { corpCode: item.corpCode, rcpNo: { gt: cursor } },
         });
       }),
     );
@@ -67,14 +68,28 @@ export class WatchlistService {
   }
 
   /**
-   * 종목 상세 진입 등으로 사용자가 해당 종목을 조회했음을 기록한다(DAR-165).
-   * lastViewedAt 을 현재 시각으로 갱신 → 이후 신규 공시 카운트가 0으로 리셋(배지 소거).
+   * 종목 상세 진입 등으로 사용자가 해당 종목을 조회했음을 기록한다(DAR-165/DAR-185).
+   * 현재 그 종목의 최신 공시 rcpNo 를 커서로 고정 → 이후 더 큰 rcpNo(같은 날 포함)만 신규로
+   * 집계되어 배지가 0 으로 리셋된다. 공시가 아직 하나도 없으면 커서는 변경하지 않는다
+   * (등록일 floor 폴백 유지 → 향후 들어올 공시가 정상적으로 신규로 잡힘).
    * 관심목록에 없는 종목이면 no-op(영향 행 0).
    */
   async markViewed(userId: string, corpCode: string) {
+    const latest = await this.prisma.disclosure.aggregate({
+      where: { corpCode },
+      _max: { rcpNo: true },
+    });
+
+    const data: { lastViewedAt: Date; lastViewedRcpNo?: string } = {
+      lastViewedAt: new Date(),
+    };
+    if (latest._max.rcpNo) {
+      data.lastViewedRcpNo = latest._max.rcpNo;
+    }
+
     const result = await this.prisma.watchList.updateMany({
       where: { userId, corpCode },
-      data: { lastViewedAt: new Date() },
+      data,
     });
     return { updated: result.count };
   }

@@ -114,7 +114,12 @@ model WatchList {
   corpCode     String // DART 고유번호
   corpName     String // 기업명 (중복 저장, 조회 성능)
   createdAt    DateTime  @default(now())
-  lastViewedAt DateTime? // 사용자가 해당 종목을 마지막으로 조회한 시각 (이후 신규 공시 카운트 기준점, DAR-165)
+  lastViewedAt DateTime? // 사용자가 해당 종목을 마지막으로 조회한 시각 (표시용, DAR-165)
+  // DAR-185: 마지막으로 본 공시의 rcpNo 커서. rcpNo(=YYYYMMDD+일련번호, 사전식 단조)는
+  // 일(day) 단위라 시각을 잃는 rcpDt 와 달리 같은 날 안의 순서까지 보존하므로,
+  // 이 커서보다 큰 rcpNo 만 신규로 집계하면 당일 공시도 정확히 잡히고 조회 즉시 배지가 0이 된다.
+  // 실 rcpNo 값만 저장(커서 스냅샷)하며 Disclosure 행 삭제와 무관해야 하므로 FK 로 묶지 않는다.
+  lastViewedRcpNo String?
 
   // Relations
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { useEventStudyObservations } from '@hooks/useEventStudy';
+import { formatReturnPct, returnColor } from '@utils/numberFormat';
 
 import type { EventStudyObservation } from '@app-types/signal.types';
 
@@ -17,12 +18,6 @@ interface Props {
 function formatYmd(ymd: string): string {
   if (!ymd || ymd.length !== 8) return ymd || '-';
   return `${ymd.slice(0, 4)}.${ymd.slice(4, 6)}.${ymd.slice(6, 8)}`;
-}
-
-function formatCar(value: number | null): string {
-  if (value === null || value === undefined || Number.isNaN(value)) return '—';
-  const sign = value >= 0 ? '+' : '';
-  return `${sign}${value.toFixed(1)}%`;
 }
 
 /**
@@ -48,8 +43,7 @@ export function EventStudyObservationsDrilldown({ bucketKey, sampleCount }: Prop
   const total = query.data?.pages[0]?.total ?? sampleCount;
 
   const carColor = useCallback(
-    (v: number | null) =>
-      v === null ? colors.textTertiary : v > 0 ? colors.success : v < 0 ? colors.error : colors.textSecondary,
+    (v: number | null) => (v === null ? colors.textTertiary : returnColor(v, colors)),
     [colors],
   );
 
@@ -60,7 +54,7 @@ export function EventStudyObservationsDrilldown({ bucketKey, sampleCount }: Prop
         <View
           style={[styles.obsRow, { borderBottomColor: colors.border }]}
           accessible
-          accessibilityLabel={`${title}, 이벤트일 ${formatYmd(item.d0Date)}, D+5 초과수익 ${formatCar(item.carD5)}`}
+          accessibilityLabel={`${title}, 이벤트일 ${formatYmd(item.d0Date)}, D+5 초과수익 ${formatReturnPct(item.carD5)}`}
         >
           <View style={styles.obsMain}>
             <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
@@ -71,7 +65,7 @@ export function EventStudyObservationsDrilldown({ bucketKey, sampleCount }: Prop
           <View style={styles.obsCar}>
             <Text style={[typo.small, { color: colors.textTertiary }]}>D+5 초과</Text>
             <Text style={[typo.bodyMedium, { color: carColor(item.carD5), fontWeight: '600' }]}>
-              {formatCar(item.carD5)}
+              {formatReturnPct(item.carD5)}
             </Text>
           </View>
         </View>

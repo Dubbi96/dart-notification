@@ -3,6 +3,10 @@ import { Platform } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useRouter, type Href } from 'expo-router';
 import { useAuthStore } from '@stores/authStore';
+import {
+  usePendingDeepLinkStore,
+  shouldConsumePendingDeepLink,
+} from '@stores/pendingDeepLinkStore';
 import { deviceService } from '@services/device.service';
 import { resolveDeepLink } from '@utils/deeplink';
 
@@ -40,8 +44,12 @@ if (!pushUnsupported) {
 export function useNotificationSetup() {
   const router = useRouter();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const onboardingCompleted = useAuthStore((s) => s.onboardingCompleted);
   const expoPushToken = useAuthStore((s) => s.expoPushToken);
   const setExpoPushToken = useAuthStore((s) => s.setExpoPushToken);
+  const pendingDeepLink = usePendingDeepLinkStore((s) => s.pendingDeepLink);
+  const setPendingDeepLink = usePendingDeepLinkStore((s) => s.setPendingDeepLink);
+  const consumePendingDeepLink = usePendingDeepLinkStore((s) => s.consumePendingDeepLink);
   const coldStartHandled = useRef(false);
 
   // 이미 권한이 있는 경우만 토큰 등록 (권한 요청은 온보딩에서 처리)
@@ -87,7 +95,10 @@ export function useNotificationSetup() {
     return () => subscription.remove();
   }, [router]);
 
-  // 콜드스타트: 앱 종료 상태에서 알림 탭으로 열린 경우
+  // 콜드스타트: 앱 종료 상태에서 알림 탭으로 열린 경우 (DAR-154)
+  // 즉시 push 하지 않는다 — 인증/하이드레이션/온보딩 게이트와 경쟁하면 비로그인 상태로
+  // 대상에 진입(401)하거나 게이트 리다이렉트에 push 가 덮여 사라진다. 대신 보류 대상으로
+  // 저장하고, 게이트 통과(인증+온보딩 완료) 후 아래 소비 effect 가 한 번만 push 한다.
   useEffect(() => {
     if (!Notifications || coldStartHandled.current) return;
     const N = Notifications;
@@ -99,11 +110,37 @@ export function useNotificationSetup() {
         const data = response.notification.request.content.data;
         const target = resolveDeepLink(data);
         if (target) {
-          setTimeout(() => router.push(target as Href), 500);
+          setPendingDeepLink(target);
         }
       }
     }
 
     handleColdStart();
-  }, [router]);
+  }, [setPendingDeepLink]);
+
+  // 보류된 콜드스타트 딥링크 소비 (DAR-154)
+  // app/index.tsx 인증 게이트의 '홈 진입' 조건(인증+온보딩 완료)과 1:1 일치하는 시점에만
+  // push 한다. 비로그인·온보딩 미완이면 보류를 유지 → 로그인/온보딩 완료 후 자연히 소비.
+  // 고정 지연(500ms) 없이 상태 변화로 트리거되며, consume 가 보류를 비우므로 1회만 실행된다.
+  useEffect(() => {
+    if (
+      !shouldConsumePendingDeepLink({
+        pendingDeepLink,
+        isAuthenticated,
+        onboardingCompleted,
+      })
+    ) {
+      return;
+    }
+    const target = consumePendingDeepLink();
+    if (target) {
+      router.push(target as Href);
+    }
+  }, [
+    pendingDeepLink,
+    isAuthenticated,
+    onboardingCompleted,
+    router,
+    consumePendingDeepLink,
+  ]);
 }

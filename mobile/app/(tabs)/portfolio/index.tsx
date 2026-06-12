@@ -222,7 +222,11 @@ export default function PortfolioScreen() {
           paper?.started ? (
             <EmptyState icon="activity" title="아직 실행된 모의투자 신호가 없습니다." />
           ) : (
-            <EmptyState {...emptyStateCopy.paperTradingEmpty} />
+            <EmptyState
+              {...emptyStateCopy.paperTradingEmpty}
+              description="신호 탭에서 매수 신호를 확인하면 AI 기반 가상 주문이 채워져요"
+              onAction={() => router.push('/(tabs)/signals')}
+            />
           )
         }
       />

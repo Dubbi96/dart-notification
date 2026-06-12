@@ -14,6 +14,7 @@ import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { useEventStudyResults } from '@hooks/useEventStudy';
 import { getEventTypeLabel } from '@utils/disclosureType';
 import { isDataLimited, DATA_LIMIT_SAMPLE_THRESHOLD } from '@utils/dataLimit';
+import { formatReturnPct, formatWinRate, returnColor } from '@utils/numberFormat';
 
 import type { EventStudyResult } from '@app-types/signal.types';
 
@@ -81,11 +82,6 @@ export function aggregateByEventType(rows: EventStudyResult[]): EventTypeAggrega
   return aggregates.sort((a, b) => b.avgArD5 - a.avgArD5);
 }
 
-function formatPct(value: number): string {
-  const sign = value >= 0 ? '+' : '';
-  return `${sign}${value.toFixed(1)}%`;
-}
-
 interface MetricCellProps {
   label: string;
   value: string;
@@ -108,9 +104,9 @@ interface EventRowProps {
 
 function EventRow({ item }: EventRowProps) {
   const { colors, typography: typo } = useTheme();
-  const arColor = (v: number) => (v > 0 ? colors.success : v < 0 ? colors.error : colors.textSecondary);
+  const arColor = (v: number) => returnColor(v, colors);
   const winColor = item.winRateD5 >= 0.5 ? colors.success : colors.error;
-  const winPct = `${(item.winRateD5 * 100).toFixed(0)}%`;
+  const winPct = formatWinRate(item.winRateD5);
 
   return (
     <Card variant="elevated" style={styles.row}>
@@ -118,8 +114,8 @@ function EventRow({ item }: EventRowProps) {
         accessible
         accessibilityRole="summary"
         accessibilityLabel={
-          `${getEventTypeLabel(item.eventType)} — D+5 시장초과수익 ${formatPct(item.avgArD5)}, ` +
-          `D+20 ${formatPct(item.avgArD20)}, 승률 ${winPct}, 표본 ${item.totalSample}건` +
+          `${getEventTypeLabel(item.eventType)} — D+5 시장초과수익 ${formatReturnPct(item.avgArD5)}, ` +
+          `D+20 ${formatReturnPct(item.avgArD20)}, 승률 ${winPct}, 표본 ${item.totalSample}건` +
           (item.lowSample ? ', 표본 부족 또는 통계 미유의로 신뢰도 제한' : '')
         }
         style={styles.rowInner}
@@ -132,9 +128,9 @@ function EventRow({ item }: EventRowProps) {
         </View>
 
         <View style={styles.metrics}>
-          <MetricCell label="D+1 초과" value={formatPct(item.avgArD1)} valueColor={arColor(item.avgArD1)} />
-          <MetricCell label="D+5 초과" value={formatPct(item.avgArD5)} valueColor={arColor(item.avgArD5)} />
-          <MetricCell label="D+20 초과" value={formatPct(item.avgArD20)} valueColor={arColor(item.avgArD20)} />
+          <MetricCell label="D+1 초과" value={formatReturnPct(item.avgArD1)} valueColor={arColor(item.avgArD1)} />
+          <MetricCell label="D+5 초과" value={formatReturnPct(item.avgArD5)} valueColor={arColor(item.avgArD5)} />
+          <MetricCell label="D+20 초과" value={formatReturnPct(item.avgArD20)} valueColor={arColor(item.avgArD20)} />
           <MetricCell label="승률(D+5)" value={winPct} valueColor={winColor} />
           <MetricCell label="표본" value={`${item.totalSample.toLocaleString('ko-KR')}건`} valueColor={colors.text} />
         </View>

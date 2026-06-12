@@ -14,6 +14,7 @@ import { MarketRegimeCard } from '@components/persona/MarketRegimeCard';
 import { useStyleComparison } from '@hooks/useStyleComparison';
 import { usePersonaOverview } from '@hooks/usePersonaOverview';
 import { usePersonaStore } from '@stores/personaStore';
+import { formatReturnPct, formatWinRate } from '@utils/numberFormat';
 
 import type {
   StyleComparison,
@@ -24,16 +25,6 @@ import type {
 // 어느 거장 스타일이 한국시장 공시에서 실제 모의수익을 내는지 데이터로 변별한다(Main Thesis B).
 // 스타일별 자산곡선·승률·누적수익·표본 + 졸업지표(Sharpe·MDD·alpha)를 비교. 표본 부족은
 // LOW_SAMPLE 배지로 과신 방지(정직 표기). 테마 토큰만 사용·하드코딩 색상 0·접근성 라벨.
-
-/** 승률(0~1) 표시 — 표본 없으면 '표본 부족' */
-function formatWinRate(value: number | null): string {
-  return value === null ? '표본 부족' : `${Math.round(value * 100)}%`;
-}
-
-/** 수익률(%) 부호 포함 표기 */
-function formatPct(pct: number): string {
-  return `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
-}
 
 /** Sharpe·MDD·alpha — 측정 불가(null)는 정직하게 '측정 불가' */
 function formatSharpe(value: number | null): string {
@@ -104,8 +95,8 @@ function StyleCard({ perf, isBest }: { perf: StylePerformance; isBest: boolean }
       )}
 
       <View style={styles.statGrid}>
-        <StatPair label="승률" value={formatWinRate(sc.winRate)} sub={`n=${sc.sampleSize}`} />
-        <StatPair label="누적수익" value={formatPct(sc.cumulativeReturnPct)} />
+        <StatPair label="승률" value={formatWinRate(sc.winRate, { fallback: '표본 부족' })} sub={`n=${sc.sampleSize}`} />
+        <StatPair label="누적수익" value={formatReturnPct(sc.cumulativeReturnPct)} />
         <StatPair label="보유 포지션" value={`${perf.openPositions}개`} />
         <StatPair
           label="신호 적중률(D+5)"
@@ -198,7 +189,7 @@ function ComparisonHeader({ data }: { data: StyleComparison }) {
               {best.label}
             </Text>
             <Text style={[typo.captionMedium, { color: colors.textSecondary, marginTop: spacing.xs }]}>
-              누적수익 {formatPct(best.scorecard.cumulativeReturnPct)} · 표본 {best.scorecard.sampleSize}건
+              누적수익 {formatReturnPct(best.scorecard.cumulativeReturnPct)} · 표본 {best.scorecard.sampleSize}건
             </Text>
           </>
         ) : (

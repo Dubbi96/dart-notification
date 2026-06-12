@@ -46,6 +46,7 @@ export function useAddToWatchlist() {
           stockCode: vars.stockCode ?? null,
           market: vars.market ?? null,
           lastDisclosureDate: null,
+          newDisclosureCount: 0,
           createdAt: new Date().toISOString(),
         };
         queryClient.setQueryData<WatchlistCache>(WATCHLIST_KEY, {
@@ -70,6 +71,20 @@ export function useAddToWatchlist() {
       }
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY }),
+  });
+}
+
+/**
+ * DAR-165: 종목 조회 시각 갱신 → 신규 공시 unread 배지 소거.
+ * 종목 상세 진입 시 호출하고, 성공 시 관심목록 캐시를 무효화해 배지를 0으로 갱신한다.
+ */
+export function useMarkWatchlistViewed() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (corpCode: string) => watchlistService.markViewed(corpCode),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY });
+    },
   });
 }
 

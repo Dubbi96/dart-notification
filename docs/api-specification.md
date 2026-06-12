@@ -387,12 +387,20 @@ GET /companies/search?query=삼성&limit=5
       "id": "clx...",
       "corpCode": "00126380",
       "corpName": "삼성전자",
+      "stockCode": "005930",
+      "market": "KOSPI",
+      "lastDisclosureDate": "20260307",
+      "newDisclosureCount": 3,
       "createdAt": "2026-03-07T12:00:00Z"
     },
     {
       "id": "clx...",
       "corpCode": "00164779",
       "corpName": "삼성물산",
+      "stockCode": "028260",
+      "market": "KOSPI",
+      "lastDisclosureDate": "20260306",
+      "newDisclosureCount": 0,
       "createdAt": "2026-03-06T10:00:00Z"
     }
   ],
@@ -402,6 +410,8 @@ GET /companies/search?query=삼성&limit=5
   }
 }
 ```
+
+- `newDisclosureCount`(DAR-165): 마지막 조회(`lastViewedAt`, 없으면 등록 시각) 이후 접수된 신규 공시 수. `0`이면 unread 배지 미표시. 종목 상세 진입 시 5.4 호출로 0으로 리셋.
 
 ---
 
@@ -452,6 +462,24 @@ GET /companies/search?query=삼성&limit=5
 
 **Errors**:
 - `404 Not Found`: 존재하지 않는 관심 기업
+
+---
+
+### 5.4 관심 기업 조회 시각 갱신 (DAR-165)
+
+**Endpoint**: `POST /watchlist/:corpCode/viewed`
+
+**Headers**: `Authorization: Bearer {accessToken}`
+
+종목 상세 진입 시 호출. 해당 관심 기업의 `lastViewedAt`을 현재 시각으로 갱신하여 신규 공시 unread 배지를 소거한다. 관심목록에 없는 종목이면 no-op(`updated: 0`).
+
+**Response**: `200 OK`
+```json
+{
+  "success": true,
+  "data": { "updated": 1 }
+}
+```
 
 ---
 

@@ -113,7 +113,20 @@ export default function WatchlistScreen() {
             onPress={() => router.push(`/company/${item.corpCode}`)}
           >
             <View style={styles.itemContent}>
-              <Text style={[typo.bodyMedium, { color: colors.text }]}>{item.corpName}</Text>
+              <View style={styles.nameRow}>
+                <Text style={[typo.bodyMedium, { color: colors.text }]}>{item.corpName}</Text>
+                {(item.newDisclosureCount ?? 0) > 0 && (
+                  <View
+                    style={[styles.newBadge, { backgroundColor: colors.primary }]}
+                    accessibilityRole="text"
+                    accessibilityLabel={`신규 공시 ${item.newDisclosureCount}건`}
+                  >
+                    <Text style={[typo.small, styles.newBadgeText, { color: colors.primaryForeground }]}>
+                      신규 {(item.newDisclosureCount ?? 0) > 99 ? '99+' : item.newDisclosureCount}
+                    </Text>
+                  </View>
+                )}
+              </View>
               <Text style={[typo.small, { color: colors.textSecondary }]}>
                 {item.stockCode ? `${item.stockCode}${item.market ? ` · ${item.market}` : ''}` : ''}
                 {item.stockCode && item.lastDisclosureDate ? ' · ' : ''}
@@ -190,6 +203,18 @@ const styles = StyleSheet.create({
   },
   itemContent: { flex: 1 },
   priceBadge: { marginTop: spacing.xs },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  newBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+  },
+  newBadgeText: { fontWeight: '700' },
   itemActions: { flexDirection: 'row', gap: spacing.md },
   actionBtn: { padding: spacing.xs },
 });

@@ -152,11 +152,12 @@ model Company {
 // ====================================
 
 model WatchList {
-  id        String   @id @default(cuid())
-  userId    String
-  corpCode  String   // DART 고유번호
-  corpName  String   // 기업명 (중복 저장, 조회 성능)
-  createdAt DateTime @default(now())
+  id           String    @id @default(cuid())
+  userId       String
+  corpCode     String    // DART 고유번호
+  corpName     String    // 기업명 (중복 저장, 조회 성능)
+  createdAt    DateTime  @default(now())
+  lastViewedAt DateTime? // DAR-165: 마지막 조회 시각. 이후 신규 공시 수(unread 배지) 파생 기준점
 
   // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -307,6 +308,7 @@ model NotificationHistory {
 | corpCode | String | DART 고유번호 | NOT NULL |
 | corpName | String | 기업명 | NOT NULL |
 | createdAt | DateTime | 등록일시 | default: now() |
+| lastViewedAt | DateTime? | 마지막 조회 시각 (DAR-165, 신규 공시 unread 배지 기준점) | NULLABLE |
 
 **인덱스**:
 - `userId` (사용자의 관심 목록 조회)

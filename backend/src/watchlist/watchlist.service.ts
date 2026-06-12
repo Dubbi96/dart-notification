@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateWatchlistDto } from './dto/create-watchlist.dto';
+import { formatRcpThreshold } from './watchlist.util';
 
 const MAX_WATCHLIST_COUNT = 30;
 
@@ -39,11 +40,23 @@ export class WatchlistService {
       latestDisclosures.map((d) => [d.corpCode, d._max.rcpDt]),
     );
 
-    const items = watchlist.map(({ company, ...item }) => ({
+    // 마지막 조회 시각(lastViewedAt, 없으면 등록 시각) 이후 신규 공시 수 파생(DAR-165).
+    // rcpDt(YYYYMMDD[HHmmss], KST 문자열) > KST 임계 문자열 = 신규. 항목별 임계값이 달라 항목 단위 count.
+    const newCounts = await Promise.all(
+      watchlist.map((item) => {
+        const threshold = formatRcpThreshold(item.lastViewedAt ?? item.createdAt);
+        return this.prisma.disclosure.count({
+          where: { corpCode: item.corpCode, rcpDt: { gt: threshold } },
+        });
+      }),
+    );
+
+    const items = watchlist.map(({ company, ...item }, idx) => ({
       ...item,
       stockCode: company?.stockCode ?? null,
       market: company?.market ?? null,
       lastDisclosureDate: latestMap.get(item.corpCode) ?? null,
+      newDisclosureCount: newCounts[idx],
     }));
 
     return {
@@ -51,6 +64,19 @@ export class WatchlistService {
       total: items.length,
       limit: MAX_WATCHLIST_COUNT,
     };
+  }
+
+  /**
+   * 종목 상세 진입 등으로 사용자가 해당 종목을 조회했음을 기록한다(DAR-165).
+   * lastViewedAt 을 현재 시각으로 갱신 → 이후 신규 공시 카운트가 0으로 리셋(배지 소거).
+   * 관심목록에 없는 종목이면 no-op(영향 행 0).
+   */
+  async markViewed(userId: string, corpCode: string) {
+    const result = await this.prisma.watchList.updateMany({
+      where: { userId, corpCode },
+      data: { lastViewedAt: new Date() },
+    });
+    return { updated: result.count };
   }
 
   async create(userId: string, dto: CreateWatchlistDto) {

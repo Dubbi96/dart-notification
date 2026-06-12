@@ -40,6 +40,17 @@ export class WatchlistController {
     return { success: true, data: item };
   }
 
+  @Post(':corpCode/viewed')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '관심 기업 조회 시각 갱신 (신규 공시 배지 소거)' })
+  async markViewed(
+    @CurrentUser('id') userId: string,
+    @Param('corpCode') corpCode: string,
+  ) {
+    const result = await this.watchlistService.markViewed(userId, corpCode);
+    return { success: true, data: result };
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '관심 기업 삭제' })

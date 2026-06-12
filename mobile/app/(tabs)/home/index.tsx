@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { MoonStars, Sun, CloudSun, Moon } from 'phosphor-react-native';
-import { router } from 'expo-router';
+import { router, useScrollToTop } from 'expo-router';
 import { useTheme } from '@theme';
 import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
@@ -54,6 +54,10 @@ export default function HomeScreen() {
   const { colors, typography: typo } = useTheme();
   const { isAuthenticated, requireAuth } = useRequireAuth();
   const userName = useAuthStore((s) => s.user?.name);
+
+  // DAR-181: 같은 탭 재탭 시 피드 최상단 복귀(iOS 표준 인터랙션). RN Navigation useScrollToTop.
+  const listRef = useRef<FlatList<Disclosure>>(null);
+  useScrollToTop(listRef);
 
   const {
     data: watchlistData,
@@ -356,6 +360,7 @@ export default function HomeScreen() {
       {/* Content area with top border radius — 화면 전체가 단일 FlatList로 스크롤(DAR-114). */}
       <View style={[styles.contentArea, { backgroundColor: colors.background }]}>
         <FlatList
+          ref={listRef}
           style={styles.feedList}
           // 로딩 중에는 data를 빈 배열로 둬 ListEmptyComponent(스켈레톤)가 뜨게 한다.
           data={isLoading ? [] : disclosures}

@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { router, type Href } from 'expo-router';
+import { router, useScrollToTop, type Href } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { useAuthStore } from '@stores/authStore';
@@ -197,6 +197,10 @@ export default function NotificationsScreen() {
   // DAR-161: 선택된 타입 세그먼트(null = 전체). queryKey에 반영돼 캐시가 분리된다.
   const [selectedType, setSelectedType] = useState<SegmentKey>(null);
 
+  // DAR-181: 탭 재탭 시 알림 리스트 최상단 복귀.
+  const listRef = useRef<FlatList<Notification>>(null);
+  useScrollToTop(listRef);
+
   const {
     data,
     fetchNextPage,
@@ -356,6 +360,7 @@ export default function NotificationsScreen() {
       </View>
 
       <FlatList
+        ref={listRef}
         data={notifications}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}

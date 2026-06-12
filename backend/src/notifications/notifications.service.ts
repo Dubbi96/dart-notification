@@ -66,14 +66,18 @@ export class NotificationsService {
   }
 
   async findAll(userId: string, query: QueryNotificationDto) {
-    const { page = 1, limit = 20, isRead } = query;
+    const { page = 1, limit = 20, isRead, type } = query;
 
     const where: any = { userId };
     if (isRead !== undefined) {
       where.isRead = isRead === 'true';
     }
+    // DAR-161: 타입 필터(공시/신호/청산/논리훼손). 미지정 시 전체 타입.
+    if (type !== undefined) {
+      where.type = type;
+    }
 
-    const [items, total, unreadCount] = await Promise.all([
+    const [items, total, unreadCount, unreadByTypeRows] = await Promise.all([
       this.prisma.notificationHistory.findMany({
         where,
         skip: (page - 1) * limit,
@@ -95,7 +99,25 @@ export class NotificationsService {
       this.prisma.notificationHistory.count({
         where: { userId, isRead: false },
       }),
+      // DAR-161: 타입별 미읽음 카운트 — 타입 필터와 무관하게 사용자 전체 기준으로 집계
+      // (세그먼트 칩의 타입별 배지가 현재 선택 필터에 영향받지 않도록).
+      this.prisma.notificationHistory.groupBy({
+        by: ['type'],
+        where: { userId, isRead: false },
+        _count: { _all: true },
+      }),
     ]);
+
+    // 모든 타입 키를 0으로 초기화한 뒤 집계행으로 덮어써 누락 키 없이 안정적 맵 반환.
+    const unreadByType: Record<NotificationType, number> = {
+      [NotificationType.DISCLOSURE]: 0,
+      [NotificationType.SIGNAL]: 0,
+      [NotificationType.EXIT]: 0,
+      [NotificationType.THESIS_VIOLATED]: 0,
+    };
+    for (const row of unreadByTypeRows) {
+      unreadByType[row.type] = row._count._all;
+    }
 
     return {
       items,
@@ -104,6 +126,7 @@ export class NotificationsService {
         limit,
         total,
         unreadCount,
+        unreadByType,
       },
     };
   }

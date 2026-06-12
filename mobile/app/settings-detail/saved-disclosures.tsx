@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,11 +13,15 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
-import { EmptyState } from '@components/common/StateView';
+import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
-import { useSavedDisclosures, useRemoveSavedDisclosure } from '@hooks/useSavedDisclosures';
+import {
+  useSavedDisclosures,
+  useRemoveSavedDisclosure,
+  useSaveDisclosure,
+} from '@hooks/useSavedDisclosures';
 import { useHaptics } from '@hooks/useHaptics';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { parse, format } from 'date-fns';
@@ -35,18 +39,27 @@ export default function SavedDisclosuresScreen() {
   const { colors, typography: typo, isDark } = useTheme();
   const { showSnackbar } = useSnackbar();
   const haptics = useHaptics();
-  const { data, isLoading } = useSavedDisclosures();
+  const { data, isLoading, isError, error, refetch } = useSavedDisclosures();
   const removeMutation = useRemoveSavedDisclosure();
+  const saveMutation = useSaveDisclosure();
 
   const items = data?.data ?? [];
 
-  const handleRemove = (id: string) => {
-    removeMutation.mutate(id);
-    haptics.light();
-    showSnackbar(snackbarCopy.disclosureUnsaved, { duration: SNACKBAR_DURATION.success });
-  };
+  // 해제는 즉시 mutate하되, SearchOverlay 워치리스트 패턴과 동일하게 '실행 취소'(rcpNo 재저장) 동선 제공.
+  const handleRemove = useCallback(
+    (id: string, rcpNo: string) => {
+      removeMutation.mutate(id);
+      haptics.light();
+      showSnackbar(snackbarCopy.disclosureUnsaved, {
+        duration: SNACKBAR_DURATION.success,
+        action: { label: '실행 취소', onPress: () => saveMutation.mutate(rcpNo) },
+      });
+    },
+    [removeMutation, saveMutation, haptics, showSnackbar],
+  );
 
-  const renderItem = ({ item }: { item: SavedDisclosureItem }) => {
+  const renderItem = useCallback(
+    ({ item }: { item: SavedDisclosureItem }) => {
     const typeStyle = getTypeStyle(item.disclosureType, isDark);
     return (
       <TouchableOpacity
@@ -62,7 +75,7 @@ export default function SavedDisclosuresScreen() {
             </View>
             <TouchableOpacity
               hitSlop={8}
-              onPress={() => handleRemove(item.id)}
+              onPress={() => handleRemove(item.id, item.rcpNo)}
             >
               <Ionicons name="bookmark" size={20} color={colors.primary} />
             </TouchableOpacity>
@@ -84,7 +97,9 @@ export default function SavedDisclosuresScreen() {
         </Card>
       </TouchableOpacity>
     );
-  };
+    },
+    [colors, typo, isDark, handleRemove],
+  );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -94,15 +109,25 @@ export default function SavedDisclosuresScreen() {
         </TouchableOpacity>
         <Text style={[typo.h3, { color: colors.text, marginLeft: spacing.sm }]}>저장된 공시</Text>
         <View style={{ flex: 1 }} />
-        <Text style={[typo.caption, { color: colors.textSecondary }]}>
-          {items.length}건
-        </Text>
+        {!isLoading && !isError ? (
+          <Text style={[typo.caption, { color: colors.textSecondary }]}>
+            {items.length}건
+          </Text>
+        ) : null}
       </View>
 
       {isLoading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
+      ) : isError ? (
+        // 장애를 '저장 0건' 빈 상태로 위장하지 않도록 에러는 명시 분기 + 재시도 동선 제공.
+        <ApiErrorState
+          error={error}
+          onRetry={refetch}
+          title="저장된 공시를 불러오지 못했습니다"
+          description="잠시 후 다시 시도해 주세요."
+        />
       ) : (
         <FlatList
           data={items}
@@ -110,6 +135,10 @@ export default function SavedDisclosuresScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={11}
+          removeClippedSubviews
           ListEmptyComponent={<EmptyState {...emptyStateCopy.savedDisclosuresEmpty} />}
         />
       )}

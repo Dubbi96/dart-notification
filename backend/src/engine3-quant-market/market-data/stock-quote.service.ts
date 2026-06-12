@@ -127,34 +127,26 @@ export class StockQuoteService {
     for (const code of stockCodes) result[code] = null;
     if (stockCodes.length === 0) return result;
 
-    // N+1 회피: 종목 전체를 한 번의 in 쿼리로. 모든 종목이 동일 거래 캘린더를 공유하므로
-    // tradeDate desc 정렬 후 종목수 × (스파크라인+1) 행을 가져오면 종목별 최근 행이 고르게 포함된다.
-    const rows = await this.prisma.stockDailyPrice.findMany({
-      where: { stockCode: { in: stockCodes } },
-      orderBy: { tradeDate: 'desc' },
-      take: stockCodes.length * DAILY_ROWS_PER_STOCK,
-      select: { stockCode: true, corpCode: true, tradeDate: true, closePrice: true },
-    });
+    // 종목별 보장 쿼리(DAR-170): 종목마다 자기 몫 take 로 최신 일봉을 조회한다.
+    // (이전: 단일 in 쿼리 + 전역 desc take 종목수×행수. "모든 종목 동일 거래 캘린더" 전제라
+    //  거래정지·신규상장으로 최근일이 결측인 종목은, 정상 종목이 전역 예산을 선소비하면 0행을
+    //  받아 DB에 데이터가 있어도 quote=null·스파크라인 결손으로 위장됐다.)
+    // 코드별 take 로 캘린더 불일치에도 각 종목의 최신 DAILY_ROWS_PER_STOCK 행을 보장한다.
+    // 종목 수는 sanitize 로 MAX_QUOTE_STOCK_CODES(50) 이하라 병렬 쿼리 수는 유계.
+    const perStockRows = await Promise.all(
+      stockCodes.map((code) =>
+        this.prisma.stockDailyPrice.findMany({
+          where: { stockCode: code },
+          orderBy: { tradeDate: 'desc' },
+          take: DAILY_ROWS_PER_STOCK,
+          select: { stockCode: true, corpCode: true, tradeDate: true, closePrice: true },
+        }),
+      ),
+    );
 
-    // 종목별 그룹화(현재 desc 순서 유지 → 종목당 최신 DAILY_ROWS_PER_STOCK 만 보존).
-    const byStock = new Map<
-      string,
-      Array<{ corpCode: string; tradeDate: string; closePrice: number }>
-    >();
-    for (const r of rows) {
-      const list = byStock.get(r.stockCode) ?? [];
-      if (list.length < DAILY_ROWS_PER_STOCK) {
-        list.push({
-          corpCode: r.corpCode,
-          tradeDate: r.tradeDate,
-          closePrice: r.closePrice,
-        });
-        byStock.set(r.stockCode, list);
-      }
-    }
-
-    for (const code of stockCodes) {
-      const desc = byStock.get(code) ?? [];
+    for (let i = 0; i < stockCodes.length; i++) {
+      const code = stockCodes[i];
+      const desc = perStockRows[i] ?? [];
       const asc = [...desc].reverse(); // 오래된→최신
       const corpCode = asc.length > 0 ? asc[asc.length - 1].corpCode : null;
       const realtime =

@@ -31,9 +31,16 @@ export interface MarketIndexQuote {
  * 시세 조회 서비스 — Prisma DB에서 읽기 전용 조회 제공.
  * 수집은 KrxMarketDataScheduler가 담당 (EOD 배치).
  */
+/** 시장지수 최신값 캐시 TTL(ms) — EOD 데이터라 분 단위 신선도면 충분(DAR-170). */
+export const INDICES_CACHE_TTL_MS = 60_000;
+
 @Injectable()
 export class MarketDataService {
   private readonly logger = new Logger(MarketDataService.name);
+
+  // 시장지수 최신값 in-memory 캐시(DAR-170) — 지수는 장 마감 후(EOD) 1회만 갱신되는데
+  // 홈 진입마다 KOSPI·KOSDAQ 2회 DB 조회가 발생했다. 60s TTL 로 동일 결과 재조회를 흡수한다.
+  private indicesCache: { expiresAtMs: number; data: MarketIndexQuote[] } | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -116,8 +123,15 @@ export class MarketDataService {
    * 시장지수 최신값 조회 (DAR-160) — KOSPI·KOSDAQ 각각 최신 종가 + 전일대비 등락률.
    * 지수별로 최근 2거래일(desc)을 읽어 최신/전일을 산출한다. 데이터가 없는 지수는 결과에서
    * 생략하고, 1건뿐이면 등락 필드를 null 로 둔다(홈 배지가 깨지지 않도록 graceful).
+   *
+   * EOD 데이터이므로 60s in-memory TTL 캐시(DAR-170)로 홈 진입마다의 반복 DB 조회를 흡수한다.
+   * @param nowMs 캐시 신선도 판정용 현재 epoch ms(테스트 주입 가능).
    */
-  async fetchLatestIndices(): Promise<MarketIndexQuote[]> {
+  async fetchLatestIndices(nowMs: number = Date.now()): Promise<MarketIndexQuote[]> {
+    if (this.indicesCache && nowMs < this.indicesCache.expiresAtMs) {
+      return this.indicesCache.data;
+    }
+
     const results: MarketIndexQuote[] = [];
 
     for (const { code, market } of MarketDataService.MARKET_INDEX_CODES) {
@@ -152,6 +166,10 @@ export class MarketDataService {
       });
     }
 
+    this.indicesCache = {
+      expiresAtMs: nowMs + INDICES_CACHE_TTL_MS,
+      data: results,
+    };
     return results;
   }
 }

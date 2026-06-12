@@ -66,10 +66,17 @@ describe('buildQuote (순수 합성)', () => {
 describe('StockQuoteService.getQuotes', () => {
   const NOW = 1_000_000;
 
+  // 종목별 보장 쿼리(DAR-170)를 충실히 흉내내는 mock: where.stockCode 단건으로 필터 후
+  // tradeDate desc 정렬·take 슬라이스. (이전엔 in 쿼리 전역 take 한 번이라 고정 행을 반환했다.)
   function makeService(rows: any[], realtime?: RealtimeQuoteCache) {
     const prisma = {
       stockDailyPrice: {
-        findMany: jest.fn().mockResolvedValue(rows),
+        findMany: jest.fn(async ({ where, take }: any) =>
+          rows
+            .filter((r) => r.stockCode === where.stockCode)
+            .sort((a, b) => (a.tradeDate < b.tradeDate ? 1 : -1))
+            .slice(0, take),
+        ),
       },
     } as any;
     return {
@@ -86,18 +93,58 @@ describe('StockQuoteService.getQuotes', () => {
     { stockCode: '000660', corpCode: 'C2', tradeDate: '20260603', closePrice: 50 },
   ];
 
-  it('다건 종목을 단일 in 쿼리로 조회하고 stockCode 키 맵을 반환', async () => {
+  it('다건 종목을 종목별 보장 쿼리로 조회하고 stockCode 키 맵을 반환', async () => {
     const { service, findMany } = makeService(dailyRows);
     const result = await service.getQuotes(['005930', '000660'], NOW);
 
-    expect(findMany).toHaveBeenCalledTimes(1);
-    expect(findMany.mock.calls[0][0].where).toEqual({
-      stockCode: { in: ['005930', '000660'] },
-    });
+    // 종목별 보장 쿼리: 종목당 1회, where 는 단건 stockCode(전역 in·예산 공유 아님).
+    expect(findMany).toHaveBeenCalledTimes(2);
+    expect(findMany.mock.calls.map((c: any[]) => c[0].where)).toEqual([
+      { stockCode: '005930' },
+      { stockCode: '000660' },
+    ]);
     expect(result['005930']!.price).toBe(121);
     expect(result['005930']!.changePercent).toBe(10);
     expect(result['000660']!.price).toBe(50);
     expect(result['000660']!.previousClose).toBeNull();
+  });
+
+  it('일부 종목이 최근일 결측이어도 각 종목 quote 를 보장(거래캘린더 불일치·DAR-170)', async () => {
+    // 정상 종목 A(005930): 최근 12거래일(20260601~20260612) 보유.
+    // 거래정지 종목 B(000660): 훨씬 과거 3거래일(20260101~20260103)만 보유.
+    // 과거 버그: 단일 in 쿼리 + 전역 take(종목수×6=12)·tradeDate desc 였다면, 가장 최신 12행은
+    // 전부 A 차지 → B 는 0행 → DB에 데이터가 있는데도 quote=null·스파크라인 결손으로 위장.
+    const aRows = Array.from({ length: 12 }, (_, i) => ({
+      stockCode: '005930',
+      corpCode: 'C1',
+      tradeDate: `202606${String(1 + i).padStart(2, '0')}`,
+      closePrice: 100 + i,
+    }));
+    const bRows = [
+      { stockCode: '000660', corpCode: 'C2', tradeDate: '20260101', closePrice: 40 },
+      { stockCode: '000660', corpCode: 'C2', tradeDate: '20260102', closePrice: 42 },
+      { stockCode: '000660', corpCode: 'C2', tradeDate: '20260103', closePrice: 44 },
+    ];
+    const { service, findMany } = makeService([...aRows, ...bRows]);
+
+    const result = await service.getQuotes(['005930', '000660'], NOW);
+
+    // 종목별 보장 쿼리라 종목당 자기 몫 take(6)로 조회 → 전역 예산 고갈 없음.
+    expect(findMany).toHaveBeenCalledTimes(2);
+    expect(findMany.mock.calls.map((c: any[]) => c[0].where)).toEqual([
+      { stockCode: '005930' },
+      { stockCode: '000660' },
+    ]);
+
+    // 정상 종목 A: 최신 종가(20260612 = 111).
+    expect(result['005930']!.price).toBe(111);
+    expect(result['005930']!.tradeDate).toBe('20260612');
+
+    // 결측 종목 B: 예산 고갈로 누락되지 않고 quote 가 보장된다.
+    expect(result['000660']).not.toBeNull();
+    expect(result['000660']!.price).toBe(44);
+    expect(result['000660']!.tradeDate).toBe('20260103');
+    expect(result['000660']!.sparkline).toEqual([40, 42, 44]);
   });
 
   it('데이터 없는 종목은 null 로 흡수', async () => {

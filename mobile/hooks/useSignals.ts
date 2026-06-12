@@ -31,6 +31,22 @@ export function useCompanyBuySignal(corpCode: string | undefined) {
 }
 
 /**
+ * 종목별 최신 신호 단건(DAR-159) — 종목 상세 헤더 신호 배지용.
+ * 전용 엔드포인트 GET /signals/by-corp/:corpCode 를 사용해 해당 종목 최신 신호
+ * (등급·점수·진입준비)만 경량 조회한다. 백필 제외는 백엔드가 보장.
+ * 신호 없으면 data=null → 배지 미표시(빈상태 흡수).
+ */
+export function useCompanySignal(corpCode: string | undefined) {
+  return useQuery({
+    queryKey: ['signals', 'company-badge', corpCode],
+    queryFn: () => signalService.getCompanySignal(corpCode!),
+    enabled: !!corpCode,
+    retry: 1,
+    staleTime: 60 * 1000,
+  });
+}
+
+/**
  * 등급무관 전체 시그널 탐색(DAR-46) — 무한스크롤(DAR-45 패턴 재사용).
  * grade 미지정 시 전체 등급을 조회하며, 필터/정렬 변경은 queryKey로 새 조회를 트리거한다.
  */

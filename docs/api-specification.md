@@ -11,6 +11,8 @@
 8. [알림 히스토리 (Notifications)](#8-알림-히스토리-notifications)
 9. [에러 코드](#9-에러-코드)
 10. [AI 비용 거버넌스 (AI Cost Governance)](#10-ai-비용-거버넌스-ai-cost-governance)
+11. [Persona 모의운용 + 현재 장 적합 추천 (DAR-130)](#11-persona-모의운용--현재-장-적합-추천-dar-130)
+12. [매매 신호 (Signals, Engine3)](#12-매매-신호-signals-engine3)
 
 ---
 
@@ -996,5 +998,45 @@ persona별 독립 포트폴리오에 1일치 사이클(적합도 진입 → 시�
 
 ---
 
-**작성일**: 2026-06-08
-**버전**: 1.3 (Persona 모의운용 + 현재 장 적합 추천 API 추가 — DAR-130)
+## 12. 매매 신호 (Signals, Engine3)
+
+### 12.1 종목별 최신 신호 단건 조회 (DAR-159)
+
+```
+GET /api/signals/by-corp/:corpCode   (JWT 필수)
+```
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `corpCode` | string | 필수 | DART 기업 고유번호(8자리) |
+
+해당 종목의 **최신 매수 신호 1건**(등급·점수·진입준비)을 단건 반환한다. 백필(과거 분석 baseline) 공시 기반 신호는 제외(피드와 동일 방어, DAR-129). 신호가 없는 종목은 `data: null` → 호출측이 빈상태로 흡수. 종목 상세 화면(`company/[corpCode]`) 헤더 신호 배지가 소비한다.
+
+**Response 200 (신호 있음)**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "sig_xxx",
+    "corpCode": "00126380",
+    "corpName": "삼성전자",
+    "ticker": "005930",
+    "eventType": "SUPPLY_CONTRACT",
+    "grade": "BUY",
+    "buyScore": 72,
+    "entryReady": true,
+    "summary": "…",
+    "relatedDisclosureRcpNo": "20240101000001",
+    "expiresAt": "2024-01-10T00:00:00.000Z",
+    "createdAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+`grade`: `STRONG_BUY | BUY | WATCH | NEUTRAL | AVOID | BLOCKED` (모바일 6단계 enum). 신호 없으면 `data: null`.
+
+---
+
+**작성일**: 2026-06-12
+**버전**: 1.4 (종목별 최신 신호 단건 조회 API 추가 — DAR-159)

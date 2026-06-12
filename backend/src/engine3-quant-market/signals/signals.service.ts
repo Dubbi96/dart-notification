@@ -348,6 +348,44 @@ export class SignalsService {
     };
   }
 
+  /**
+   * DAR-159: 특정 종목(corpCode)의 최신 매수 신호 단건을 조회한다.
+   * 종목 상세 화면의 신호 배지(등급·점수·진입준비)용 경량 응답.
+   * - ★DAR-129: 백필(과거 분석 baseline) 공시 기반 신호는 절대 노출하지 않는다(피드와 동일 방어).
+   * - 신호가 없는 종목은 null 반환(호출측이 빈상태로 흡수).
+   */
+  async findLatestByCorpCode(corpCode: string) {
+    const s = await this.prisma.tradingSignal.findFirst({
+      where: {
+        corpCode,
+        disclosure: { isBackfill: false },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        company: {
+          select: { corpCode: true, corpName: true, stockCode: true },
+        },
+      },
+    });
+
+    if (!s) return null;
+
+    return {
+      id: s.id,
+      corpCode: s.corpCode,
+      corpName: s.company?.corpName ?? '',
+      ticker: s.company?.stockCode ?? s.stockCode ?? undefined,
+      eventType: s.eventType,
+      grade: mapGrade(s.signal),
+      buyScore: s.buyScore,
+      entryReady: s.entryReady,
+      summary: s.signalSummary ?? undefined,
+      relatedDisclosureRcpNo: s.rcpNo,
+      expiresAt: s.validUntil?.toISOString() ?? undefined,
+      createdAt: s.createdAt.toISOString(),
+    };
+  }
+
   async findExitSignals() {
     const exitSignals = await this.prisma.exitSignal.findMany({
       orderBy: { createdAt: 'desc' },

@@ -97,6 +97,29 @@ export interface ExitSignal {
   createdAt: string;
 }
 
+/**
+ * 종목별 최신 신호 단건(DAR-159) — 종목 상세 신호 배지용 경량 응답.
+ * 백엔드 GET /signals/by-corp/:corpCode 의 data(없으면 null).
+ */
+export interface CompanySignalBadge {
+  id: string;
+  corpCode: string;
+  corpName: string;
+  ticker?: string;
+  eventType?: string;
+  grade: SignalGrade;
+  /** 0~100 */
+  buyScore: number;
+  /** 진입 준비 여부 */
+  entryReady: boolean;
+  summary?: string;
+  relatedDisclosureRcpNo?: string;
+  /** ISO 8601 — 신호 만료 시각 */
+  expiresAt?: string;
+  /** ISO 8601 — 신호 생성 시각 */
+  createdAt: string;
+}
+
 /** 신호 피드 필터 */
 export interface SignalFilters {
   personaType?: string;

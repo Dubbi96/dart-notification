@@ -1,8 +1,11 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
+import { verticalHitSlopForHeight } from '@utils/touchTarget';
+import { useHaptics } from '@hooks/useHaptics';
+import { InfoSheet, type InfoSheetSection } from '@components/common/InfoSheet';
 
 import type { StockRiskStatus } from '@app-types/stock-status.types';
 
@@ -19,6 +22,9 @@ import type { StockRiskStatus } from '@app-types/stock-status.types';
  *  - 위험 없음 시 아무것도 렌더하지 않는다(빈상태 미표시).
  *
  * 색상 단독 의미전달 금지(접근성): 색상 + 아이콘 + 텍스트 레이블 병행.
+ *
+ * 비대화형 개선 (DAR-175): 배지·근사값 라벨을 탭 가능한 버튼으로 만들고, 탭 시 등급 정의와
+ * "왜 근사값인지(DART 폴백 사유)"를 설명하는 정보 시트(InfoSheet)로 연결한다. 탭 시 light 햅틱.
  */
 
 interface RiskBadge {
@@ -55,6 +61,41 @@ export function summarizeRiskStatus(status: StockRiskStatus | undefined | null):
   return `위험: ${badges.map((b) => b.label).join(', ')} (근사값, DART 공시 기반)`;
 }
 
+/** 정보 시트에 표시할 등급 정의(고정). 표시된 배지에 해당하는 항목만 노출한다. */
+const RISK_DEFINITIONS: Record<string, InfoSheetSection> = {
+  halted: {
+    icon: 'slash',
+    heading: '거래정지',
+    body:
+      '거래소가 해당 종목의 매매를 일시적으로 정지한 상태입니다. 불성실공시·관리종목 사유 발생 등으로 ' +
+      '지정되며, 정지 기간에는 매수·매도가 불가합니다.',
+  },
+  delisting: {
+    icon: 'alert-octagon',
+    heading: '상폐위험(상장폐지 위험)',
+    body:
+      '상장폐지 기준에 해당할 가능성이 있는 종목입니다. 감사의견 거절·자본잠식·상장적격성 실질심사 대상 ' +
+      '등으로 지정되며, 원금 전액 손실로 이어질 수 있어 가장 높은 주의가 필요합니다.',
+  },
+  management: {
+    icon: 'alert-triangle',
+    heading: '관리종목',
+    body:
+      '상장폐지 가능성이 있어 거래소가 별도로 관리하는 종목입니다. 감사의견 한정 등 사유로 지정되며, ' +
+      '투자 위험이 높습니다.',
+  },
+};
+
+const RISK_SHEET_FOOTNOTE =
+  '이 위험 표시는 KRX 실시간 데이터가 아니라 DART 전자공시를 기반으로 도출한 근사값입니다. ' +
+  '공시 접수 시점과 실제 지정·해제 시점 사이에 차이가 있을 수 있으니, 매매 전 거래소·증권사 ' +
+  '공식 정보로 반드시 확인하세요.';
+
+// 배지 시각 높이(터치 영역 보정용). paddingVertical*2 + 텍스트 라인높이 근사치.
+const BADGE_HEIGHT = 28;
+const BADGE_COMPACT_HEIGHT = 20;
+const APPROX_ROW_HEIGHT = 18;
+
 interface RiskStatusBadgesProps {
   status: StockRiskStatus | undefined | null;
   /** 카드 인라인용 압축 모드(작은 배지·짧은 라벨). 기본 false(상세 화면). */
@@ -64,24 +105,43 @@ interface RiskStatusBadgesProps {
 
 export function RiskStatusBadges({ status, compact = false, style }: RiskStatusBadgesProps) {
   const { colors, typography: typo } = useTheme();
+  const { light } = useHaptics();
   const badges = useMemo(() => deriveBadges(status), [status]);
+  const [sheetVisible, setSheetVisible] = useState(false);
+
+  const openSheet = useCallback(() => {
+    light();
+    setSheetVisible(true);
+  }, [light]);
+  const closeSheet = useCallback(() => setSheetVisible(false), []);
+
+  const sections = useMemo<InfoSheetSection[]>(() => {
+    const tone = (severe: boolean) => (severe ? colors.error : colors.warning);
+    return badges.map((b) => ({
+      ...RISK_DEFINITIONS[b.key],
+      iconColor: tone(b.severe),
+    }));
+  }, [badges, colors.error, colors.warning]);
 
   if (badges.length === 0) return null;
 
   const approxLabel = compact ? '근사값(DART)' : '근사값 (DART 공시 기반)';
+  const badgeHitSlop = verticalHitSlopForHeight(compact ? BADGE_COMPACT_HEIGHT : BADGE_HEIGHT);
 
   return (
-    <View
-      style={[styles.container, style]}
-      accessible
-      accessibilityLabel={`종목 위험상태: ${badges.map((b) => b.label).join(', ')}. 근사값, DART 공시 기반 도출.`}
-    >
+    <View style={[styles.container, style]}>
       <View style={styles.badgeRow}>
         {badges.map((b) => {
           const tone = b.severe ? colors.error : colors.warning;
           return (
-            <View
+            <TouchableOpacity
               key={b.key}
+              onPress={openSheet}
+              activeOpacity={0.7}
+              hitSlop={badgeHitSlop}
+              accessibilityRole="button"
+              accessibilityLabel={`${b.label} 위험`}
+              accessibilityHint="탭하면 위험 등급과 근사값 기준 설명을 봅니다"
               style={[
                 styles.badge,
                 compact && styles.badgeCompact,
@@ -97,18 +157,35 @@ export function RiskStatusBadges({ status, compact = false, style }: RiskStatusB
               >
                 {b.label}
               </Text>
-            </View>
+            </TouchableOpacity>
           );
         })}
       </View>
 
-      {/* ★근사값 라벨 필수 — KRX 정밀 실시간 아님(DART 공시 기반 도출) */}
-      <View style={styles.approxRow}>
+      {/* ★근사값 라벨 필수 — KRX 정밀 실시간 아님(DART 공시 기반 도출). 탭 시 '왜 근사값인지' 설명. */}
+      <TouchableOpacity
+        onPress={openSheet}
+        activeOpacity={0.7}
+        hitSlop={verticalHitSlopForHeight(APPROX_ROW_HEIGHT)}
+        accessibilityRole="button"
+        accessibilityLabel="근사값(DART 공시 기반) 안내"
+        accessibilityHint="탭하면 위험 등급 정의와 근사값인 이유를 봅니다"
+        style={styles.approxRow}
+      >
         <Feather name="info" size={compact ? 10 : 12} color={colors.textTertiary} />
         <Text style={[typo.small, { color: colors.textTertiary, marginLeft: spacing.xs, flex: 1 }]}>
           {approxLabel}
         </Text>
-      </View>
+        <Feather name="chevron-right" size={compact ? 12 : 14} color={colors.textTertiary} />
+      </TouchableOpacity>
+
+      <InfoSheet
+        visible={sheetVisible}
+        onClose={closeSheet}
+        title="위험 등급 안내"
+        sections={sections}
+        footnote={RISK_SHEET_FOOTNOTE}
+      />
     </View>
   );
 }

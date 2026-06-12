@@ -145,12 +145,16 @@ export default function NotificationsScreen() {
         markAsRead.mutate(item.id);
       }
       // DAR-90: deepLink 화이트리스트 검증 우선, 없으면 공시 rcpNo 폴백(미허용은 무시)
+      // DAR-150: deepLink 미충전 비공시 알림은 type·refId 타입별 폴백으로 라우팅,
+      // 그래도 대상이 없으면 스낵바로 안내해 무반응(dead tap) 제거.
       const target = resolveDeepLink(item);
       if (target) {
         router.push(target as Href);
+      } else {
+        showSnackbar(snackbarCopy.notificationNoTarget, { duration: SNACKBAR_DURATION.error });
       }
     },
-    [markAsRead],
+    [markAsRead, showSnackbar],
   );
 
   const handleMarkAllAsRead = useCallback(() => {

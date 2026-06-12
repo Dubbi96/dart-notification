@@ -17,6 +17,8 @@ export const snackbarCopy = {
   disclosureUnsaved: '저장된 공시에서 제거했어요.',
   // 알림 전체 읽음
   allNotificationsRead: (count: number) => `${count}개의 알림을 모두 읽었어요.`,
+  // 알림 탭 시 이동 대상이 없을 때(DAR-150 dead tap 안내)
+  notificationNoTarget: '해당 항목을 열 수 없어요.',
   // 링크 복사
   linkCopied: '링크를 복사했어요.',
 } as const;

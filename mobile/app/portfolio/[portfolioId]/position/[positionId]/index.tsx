@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Chip } from 'react-native-paper';
@@ -40,6 +41,13 @@ export default function PositionDetailScreen() {
   const handleViewThesis = useCallback(() => {
     router.push(`/portfolio/${portfolioId}/position/${positionId}/thesis`);
   }, [portfolioId, positionId]);
+
+  // 시세·논거 변동 데이터 갱신 — 포지션·Thesis 두 쿼리를 함께 새로고침.
+  const handleRefresh = useCallback(() => {
+    positionQuery.refetch();
+    thesisQuery.refetch();
+  }, [positionQuery, thesisQuery]);
+  const isRefreshing = positionQuery.isRefetching || thesisQuery.isRefetching;
 
   if (positionQuery.isLoading) {
     // 헤더 유지 + 포지션 카드/Thesis 골격 스켈레톤으로 로딩→콘텐츠 점프 제거(DAR-147).
@@ -96,7 +104,18 @@ export default function PositionDetailScreen() {
           </Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
+        >
           {/* 헤더 */}
           <Surface elevation={1} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.titleRow}>

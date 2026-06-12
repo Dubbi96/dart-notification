@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Linking,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -84,7 +85,7 @@ function EventStudyTab({ corpCode }: EventStudyTabProps) {
   const { colors, typography: typo } = useTheme();
   const [selectedEventType, setSelectedEventType] = useState<string | undefined>(undefined);
 
-  const { data, isLoading, isError, refetch } = useCompanyEventStudy(
+  const { data, isLoading, isError, refetch, isRefetching } = useCompanyEventStudy(
     corpCode,
     selectedEventType,
   );
@@ -119,7 +120,18 @@ function EventStudyTab({ corpCode }: EventStudyTabProps) {
     );
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.statsScroll}>
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.statsScroll}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefetching}
+          onRefresh={refetch}
+          colors={[colors.primary]}
+          tintColor={colors.primary}
+        />
+      }
+    >
       {/* Event type chip selector */}
       {eventTypes.length > 1 && (
         <ScrollView
@@ -265,9 +277,18 @@ export default function CompanyDetailScreen() {
   const { corpCode } = useLocalSearchParams<{ corpCode: string }>();
   const { colors, typography: typo, isDark } = useTheme();
   const { isAuthenticated, requireAuth } = useRequireAuth();
-  const { data: company, isLoading } = useCompanyDetail(corpCode!);
+  const {
+    data: company,
+    isLoading,
+    refetch: refetchCompany,
+    isRefetching: isRefetchingCompany,
+  } = useCompanyDetail(corpCode!);
   // DAR-99: 관리종목·거래정지·상폐위험 배지(손실 회피 1차 방어선, DART 폴백·근사값).
-  const { data: riskStatus } = useStockRiskStatus({ corpCode: corpCode! });
+  const {
+    data: riskStatus,
+    refetch: refetchRisk,
+    isRefetching: isRefetchingRisk,
+  } = useStockRiskStatus({ corpCode: corpCode! });
   const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
   const addToWatchlist = useAddToWatchlist();
   const removeFromWatchlist = useRemoveFromWatchlist();
@@ -278,6 +299,12 @@ export default function CompanyDetailScreen() {
     [watchlistData, corpCode],
   );
   const isWatched = !!watchlistItem;
+
+  // 기업 개요·최근 공시·위험 배지 갱신(공시 탭 당겨서 새로고침).
+  const handleRefreshOverview = useCallback(() => {
+    refetchCompany();
+    refetchRisk();
+  }, [refetchCompany, refetchRisk]);
 
   const handleToggleWatchlist = () => {
     if (!requireAuth()) return;
@@ -431,7 +458,18 @@ export default function CompanyDetailScreen() {
       {activeTab === 'decision' ? (
         <DecisionHubTab corpCode={corpCode!} />
       ) : activeTab === 'disclosures' ? (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetchingCompany || isRefetchingRisk}
+              onRefresh={handleRefreshOverview}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
+        >
           {overview && (
             <View style={styles.section}>
               <Text style={[typo.h3, { color: colors.text, marginBottom: spacing.md }]}>기업 개요</Text>
@@ -542,7 +580,7 @@ interface CompanyPhilosophyTabProps {
 
 function CompanyPhilosophyTab({ corpCode, corpName }: CompanyPhilosophyTabProps) {
   const { colors, typography: typo } = useTheme();
-  const { data, isLoading, isError, refetch } = useCompanyPhilosophyFit(corpCode);
+  const { data, isLoading, isError, refetch, isRefetching } = useCompanyPhilosophyFit(corpCode);
 
   if (isLoading) return <LoadingState message="거장별 적합도를 계산하는 중…" />;
   if (isError)
@@ -565,7 +603,18 @@ function CompanyPhilosophyTab({ corpCode, corpName }: CompanyPhilosophyTabProps)
   const basis = data.financialBasis;
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.statsScroll}>
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.statsScroll}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefetching}
+          onRefresh={refetch}
+          colors={[colors.primary]}
+          tintColor={colors.primary}
+        />
+      }
+    >
       {basis ? (
         <Text style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.base }]}>
           {basis.bsnsYear}년 {basis.fsDiv} 재무 기준 · 점수 높은 순

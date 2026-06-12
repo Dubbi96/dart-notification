@@ -65,12 +65,15 @@ export class PortfolioService {
 
     const agg = await this.prisma.position.aggregate({
       where: { portfolio: { userId }, status: 'OPEN' },
-      _sum: { currentValue: true, unrealizedPnl: true },
+      _sum: { currentValue: true, unrealizedPnl: true, entryAmount: true },
     });
 
     const totalValue = agg._sum.currentValue ?? 0;
     const totalPnl = agg._sum.unrealizedPnl ?? 0;
-    const totalPnlPercent = totalValue > 0 ? (totalPnl / totalValue) * 100 : 0;
+    // 수익률 정의는 (평가금액-원가)/원가 = 손익/원가. 분모는 평가금액이 아니라 원가(entryAmount 합)여야 한다.
+    // 평가금액을 분모로 쓰면 이익은 과소·손실은 과대 평가된다(예: 원가100→평가50, 정답 -50%인데 -100%).
+    const totalCost = agg._sum.entryAmount ?? 0;
+    const totalPnlPercent = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
 
     const latestSnapshot = portfolio?.riskSnapshots?.[0];
 

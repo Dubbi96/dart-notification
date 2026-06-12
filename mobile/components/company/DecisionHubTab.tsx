@@ -12,6 +12,7 @@ import { ScoreGauge } from '@components/common/ScoreGauge';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
+import { OfflineStaleLabel } from '@components/common/OfflineStaleLabel';
 import { PhilosophyFitBreakdown } from '@components/philosophy/PhilosophyFitBreakdown';
 import { PersonaPhilosophyFusionList } from '@components/company/PersonaPhilosophyFusionList';
 import { useCompanyDetail } from '@hooks/useCompanyDetail';
@@ -127,7 +128,7 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
   const latestRcpNo = latestDisclosure?.rcpNo ?? '';
 
   const { data: disclosureEvent } = useDisclosureEvent(latestRcpNo);
-  const { data: buySignal } = useCompanyBuySignal(corpCode);
+  const { data: buySignal, dataUpdatedAt: buyUpdatedAt } = useCompanyBuySignal(corpCode);
   const { data: philosophyFit } = useCompanyPhilosophyFit(corpCode);
   const { data: fusion } = useCompanyPersonaPhilosophyFusion(corpCode);
 
@@ -301,6 +302,9 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
               statusText={gradeLabel(buySignal.grade)}
               oneLiner={scoreOneLiner(buySignal.buyScore, buySignal.grade)}
             />
+
+            {/* DAR-173: 오프라인 시 점수의 마지막 갱신 경과 표식(stale 옛값 오인 방지). */}
+            <OfflineStaleLabel updatedAt={buyUpdatedAt} style={styles.staleLabel} />
 
             {topBreakdown.length > 0 ? (
               <View style={styles.breakdown}>
@@ -486,6 +490,9 @@ const styles = StyleSheet.create({
   },
   evidence: {
     marginTop: spacing.md,
+  },
+  staleLabel: {
+    marginTop: spacing.sm,
   },
   breakdown: {
     marginTop: spacing.md,

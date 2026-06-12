@@ -7,6 +7,7 @@ import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
 import { useCollectionStatus } from '@hooks/useCollectionStatus';
+import { relativeTimeOrFallback } from '@utils/datetime';
 import type {
   CollectionMaturity,
   CollectionRunStatus,
@@ -46,22 +47,6 @@ function formatStatus(status: CollectionRunStatus): string {
 function formatTradeDate(yyyymmdd: string | null): string {
   if (!yyyymmdd || yyyymmdd.length !== 8) return yyyymmdd ?? '기록 없음';
   return `${yyyymmdd.slice(0, 4)}.${yyyymmdd.slice(4, 6)}.${yyyymmdd.slice(6, 8)}`;
-}
-
-// ISO → 상대 시각('방금', 'N분 전', 'N시간 전', 'N일 전'). null이면 '기록 없음'.
-function formatRelative(iso: string | null): string {
-  if (!iso) return '기록 없음';
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '기록 없음';
-  const diffMs = Date.now() - then;
-  if (diffMs < 0) return '방금';
-  const min = Math.floor(diffMs / 60000);
-  if (min < 1) return '방금';
-  if (min < 60) return `${min}분 전`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}시간 전`;
-  const day = Math.floor(hr / 24);
-  return `${day}일 전`;
 }
 
 function MaturityBadge({ maturity }: { maturity: CollectionMaturity }) {
@@ -180,7 +165,7 @@ export default function CollectionStatusScreen() {
           }
         >
           <Text style={[typo.caption, { color: colors.textSecondary, marginBottom: spacing.md }]}>
-            정보가 실제로 모이고 있는지 한눈에 확인하세요. 집계 {formatRelative(data.generatedAt)}.
+            정보가 실제로 모이고 있는지 한눈에 확인하세요. 집계 {relativeTimeOrFallback(data.generatedAt)}.
           </Text>
 
           <CoverageCard
@@ -191,7 +176,7 @@ export default function CollectionStatusScreen() {
             maturity={data.disclosure.maturity}
             rows={[
               { label: '최근 신규', value: `${data.disclosure.lastNewCount.toLocaleString('ko-KR')}건` },
-              { label: '최근 수집', value: formatRelative(data.disclosure.lastCollectedAt) },
+              { label: '최근 수집', value: relativeTimeOrFallback(data.disclosure.lastCollectedAt) },
               { label: '수집 상태', value: formatStatus(data.disclosure.lastStatus) },
             ]}
           />
@@ -204,7 +189,7 @@ export default function CollectionStatusScreen() {
             maturity={data.financial.maturity}
             rows={[
               { label: '최근 분기', value: data.financial.latestPeriod ?? '기록 없음' },
-              { label: '최근 수집', value: formatRelative(data.financial.lastCollectedAt) },
+              { label: '최근 수집', value: relativeTimeOrFallback(data.financial.lastCollectedAt) },
               { label: '수집 상태', value: formatStatus(data.financial.lastStatus) },
             ]}
           />
@@ -217,7 +202,7 @@ export default function CollectionStatusScreen() {
             maturity={data.indicator.maturity}
             rows={[
               { label: '최근 거래일', value: formatTradeDate(data.indicator.latestTradeDate) },
-              { label: '최근 수집', value: formatRelative(data.indicator.lastCollectedAt) },
+              { label: '최근 수집', value: relativeTimeOrFallback(data.indicator.lastCollectedAt) },
               { label: '수집 상태', value: formatStatus(data.indicator.lastStatus) },
             ]}
           />
@@ -230,7 +215,7 @@ export default function CollectionStatusScreen() {
             maturity={data.simulation.maturity}
             rows={[
               { label: '누적 체결', value: `${data.simulation.totalTrades.toLocaleString('ko-KR')}건` },
-              { label: '최근 체결', value: formatRelative(data.simulation.lastTradeAt) },
+              { label: '최근 체결', value: relativeTimeOrFallback(data.simulation.lastTradeAt) },
             ]}
           />
 

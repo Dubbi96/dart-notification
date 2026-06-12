@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { mapThesisStatus } from './thesis-status.util';
 
 export interface ThesisCondition {
   id: string;
@@ -83,7 +84,7 @@ export class PositionThesisService {
     return {
       positionId,
       corpName: thesis.company.corpName,
-      status: thesis.status as 'ACTIVE' | 'WATCHING' | 'VIOLATED' | 'EXPIRED',
+      status: mapThesisStatus(thesis.status),
       entryLogic,
       violationConditions,
       exitRules,

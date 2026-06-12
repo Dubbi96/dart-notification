@@ -3,11 +3,13 @@ import { CompaniesService } from './companies.service';
 describe('CompaniesService.search', () => {
   let service: CompaniesService;
   let findMany: jest.Mock;
+  let count: jest.Mock;
 
   beforeEach(() => {
     findMany = jest.fn().mockResolvedValue([]);
+    count = jest.fn().mockResolvedValue(0);
     const prisma = {
-      company: { findMany },
+      company: { findMany, count },
       watchList: { groupBy: jest.fn() },
     } as any;
     const dartApiService = {} as any;
@@ -52,5 +54,50 @@ describe('CompaniesService.search', () => {
     findMany.mockClear();
     await service.search('가');
     expect(findMany.mock.calls[0][0].take).toBe(10);
+  });
+});
+
+describe('CompaniesService.searchWithCount', () => {
+  let service: CompaniesService;
+  let findMany: jest.Mock;
+  let count: jest.Mock;
+
+  beforeEach(() => {
+    findMany = jest.fn().mockResolvedValue([]);
+    count = jest.fn().mockResolvedValue(0);
+    const prisma = {
+      company: { findMany, count },
+      watchList: { groupBy: jest.fn() },
+    } as any;
+    const dartApiService = {} as any;
+    service = new CompaniesService(prisma, dartApiService);
+  });
+
+  it('빈/공백 검색어는 DB 조회 없이 0건 묶음을 반환한다', async () => {
+    await expect(service.searchWithCount('   ')).resolves.toEqual({
+      items: [],
+      total: 0,
+    });
+    expect(findMany).not.toHaveBeenCalled();
+    expect(count).not.toHaveBeenCalled();
+  });
+
+  it('limit 된 items 와 함께 매칭 전체 건수(total)를 반환한다', async () => {
+    findMany.mockResolvedValue([
+      { corpCode: '00126380', corpName: '삼성전자', stockCode: '005930', market: 'KOSPI' },
+    ]);
+    count.mockResolvedValue(137);
+
+    const result = await service.searchWithCount('삼성', 1);
+
+    // items 는 limit 적용(1건)이지만 total 은 매칭 전체수(137).
+    expect(result.items).toHaveLength(1);
+    expect(result.total).toBe(137);
+    // findMany 와 count 가 동일 where 절을 공유한다.
+    expect(findMany.mock.calls[0][0].where).toEqual(count.mock.calls[0][0].where);
+    expect(findMany.mock.calls[0][0].where.OR).toEqual([
+      { corpName: { contains: '삼성', mode: 'insensitive' } },
+      { stockCode: { contains: '삼성' } },
+    ]);
   });
 });

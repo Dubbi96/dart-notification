@@ -26,6 +26,7 @@ import { DisclosureAiAnalysisSection } from '@components/disclosure/DisclosureAi
 import { DisclosureFiledFactsSection } from '@components/disclosure/DisclosureFiledFactsSection';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
+import { useHaptics } from '@hooks/useHaptics';
 import { useDisclosureDetail, useDisclosureEvent } from '@hooks/useDisclosures';
 import { useCheckSaved, useSaveDisclosure, useUnsaveDisclosure } from '@hooks/useSavedDisclosures';
 import { useWatchlist, useAddToWatchlist, useRemoveFromWatchlist } from '@hooks/useWatchlist';
@@ -51,6 +52,7 @@ export default function DisclosureDetailScreen() {
   const { colors, typography: typo, isDark } = useTheme();
   const { isAuthenticated, requireAuth } = useRequireAuth();
   const { showSnackbar } = useSnackbar();
+  const haptics = useHaptics();
   const { data: disclosure, isLoading, isError, error, refetch } = useDisclosureDetail(id!);
   const { data: disclosureEvent } = useDisclosureEvent(id!);
   const { data: isSaved, refetch: refetchSaved } = useCheckSaved(id!, { enabled: isAuthenticated });
@@ -69,6 +71,7 @@ export default function DisclosureDetailScreen() {
     try {
       if (isWatched && watchlistItem) {
         await removeFromWatchlist.mutateAsync(watchlistItem.id);
+        haptics.success();
         showSnackbar(snackbarCopy.watchlistRemoved(disclosure.corpName), {
           duration: SNACKBAR_DURATION.success,
         });
@@ -77,6 +80,7 @@ export default function DisclosureDetailScreen() {
           corpCode: disclosure.corpCode,
           corpName: disclosure.corpName,
         });
+        haptics.success();
         showSnackbar(snackbarCopy.watchlistAdded(disclosure.corpName), {
           duration: SNACKBAR_DURATION.success,
         });
@@ -94,9 +98,11 @@ export default function DisclosureDetailScreen() {
     try {
       if (wasSaved) {
         await removeMutation.mutateAsync(disclosure.rcpNo);
+        haptics.light();
         showSnackbar(snackbarCopy.disclosureUnsaved, { duration: SNACKBAR_DURATION.success });
       } else {
         await saveMutation.mutateAsync(disclosure.rcpNo);
+        haptics.success();
         showSnackbar(snackbarCopy.disclosureSaved, {
           duration: SNACKBAR_DURATION.success,
           action: { label: '저장된 공시 보기', onPress: () => router.push('/settings-detail/saved-disclosures') },

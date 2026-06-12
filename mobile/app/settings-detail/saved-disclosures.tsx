@@ -18,13 +18,23 @@ import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { useSavedDisclosures, useRemoveSavedDisclosure } from '@hooks/useSavedDisclosures';
-import type { SavedDisclosure } from '@services/saved-disclosure.service';
+import { useHaptics } from '@hooks/useHaptics';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { parse, format } from 'date-fns';
+
+interface SavedDisclosureItem {
+  id: string;
+  rcpNo: string;
+  reportName: string;
+  corpName: string;
+  rcpDt: string;
+  disclosureType: string;
+}
 
 export default function SavedDisclosuresScreen() {
   const { colors, typography: typo, isDark } = useTheme();
   const { showSnackbar } = useSnackbar();
+  const haptics = useHaptics();
   const { data, isLoading } = useSavedDisclosures();
   const removeMutation = useRemoveSavedDisclosure();
 
@@ -32,10 +42,11 @@ export default function SavedDisclosuresScreen() {
 
   const handleRemove = (id: string) => {
     removeMutation.mutate(id);
+    haptics.light();
     showSnackbar(snackbarCopy.disclosureUnsaved, { duration: SNACKBAR_DURATION.success });
   };
 
-  const renderItem = ({ item }: { item: SavedDisclosure }) => {
+  const renderItem = ({ item }: { item: SavedDisclosureItem }) => {
     const typeStyle = getTypeStyle(item.disclosureType, isDark);
     return (
       <TouchableOpacity

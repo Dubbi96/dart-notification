@@ -14,7 +14,8 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
-import { LoadingState, ErrorState } from '@components/common/StateView';
+import { ErrorState } from '@components/common/StateView';
+import { DetailSkeleton } from '@components/common/DetailSkeleton';
 import { usePosition, usePositionThesis } from '@hooks/usePortfolio';
 import {
   thesisStatusColor,
@@ -40,9 +41,22 @@ export default function PositionDetailScreen() {
   }, [portfolioId, positionId]);
 
   if (positionQuery.isLoading) {
+    // 헤더 유지 + 포지션 카드/Thesis 골격 스켈레톤으로 로딩→콘텐츠 점프 제거(DAR-147).
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-        <LoadingState message="포지션을 불러오는 중…" />
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="뒤로 가기"
+          >
+            <Feather name="arrow-left" size={22} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={[typo.h3, { color: colors.text, flex: 1, marginLeft: spacing.md }]}>
+            포지션 상세
+          </Text>
+        </View>
+        <DetailSkeleton cards={[{ chip: true, lines: 2 }, { lines: 2 }, { lines: 1 }]} />
       </SafeAreaView>
     );
   }

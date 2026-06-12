@@ -11,7 +11,9 @@ type SkeletonVariant = 'disclosure' | 'buyScore';
 
 const PULSE_DURATION = 750; // 0.4→1, 1→0.4 각 750ms = 1.5s 1사이클
 
-function usePulse() {
+// 단일 pulse Animated.Value를 제공하는 공통 훅.
+// 상세 화면 스켈레톤(DetailSkeleton)이 동일한 펄스 타이밍을 재사용하도록 export.
+export function useSkeletonPulse() {
   // lazy init: 컴포넌트 수명 동안 안정적인 단일 Animated.Value 보관
   const [opacity] = useState(() => new Animated.Value(0.4));
 
@@ -44,7 +46,8 @@ interface BarProps {
   style?: object;
 }
 
-function Bar({ width, height, opacity, style }: BarProps) {
+// 펄스 막대 1개. 외부 펄스(useSkeletonPulse)를 주입받아 상세 화면 스켈레톤에서도 재사용.
+export function SkeletonBar({ width, height, opacity, style }: BarProps) {
   const { colors } = useTheme();
   return (
     <Animated.View
@@ -67,12 +70,12 @@ function DisclosureSkeleton({ opacity }: { opacity: Animated.Value }) {
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
       <View style={styles.row}>
-        <Bar width={60} height={20} opacity={opacity} />
-        <Bar width={80} height={12} opacity={opacity} />
+        <SkeletonBar width={60} height={20} opacity={opacity} />
+        <SkeletonBar width={80} height={12} opacity={opacity} />
       </View>
-      <Bar width="100%" height={16} opacity={opacity} style={{ marginTop: spacing.sm }} />
-      <Bar width="75%" height={16} opacity={opacity} style={{ marginTop: spacing.xs }} />
-      <Bar width="30%" height={12} opacity={opacity} style={{ marginTop: spacing.sm }} />
+      <SkeletonBar width="100%" height={16} opacity={opacity} style={{ marginTop: spacing.sm }} />
+      <SkeletonBar width="75%" height={16} opacity={opacity} style={{ marginTop: spacing.xs }} />
+      <SkeletonBar width="30%" height={12} opacity={opacity} style={{ marginTop: spacing.sm }} />
     </View>
   );
 }
@@ -83,25 +86,25 @@ function BuyScoreSkeleton({ opacity }: { opacity: Animated.Value }) {
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
       <View style={styles.row}>
         <View style={styles.rowLeft}>
-          <Bar width={24} height={24} opacity={opacity} />
-          <Bar width={100} height={16} opacity={opacity} style={{ marginLeft: spacing.sm }} />
+          <SkeletonBar width={24} height={24} opacity={opacity} />
+          <SkeletonBar width={100} height={16} opacity={opacity} style={{ marginLeft: spacing.sm }} />
         </View>
-        <Bar width={56} height={24} opacity={opacity} />
+        <SkeletonBar width={56} height={24} opacity={opacity} />
       </View>
-      <Bar width="100%" height={10} opacity={opacity} style={{ marginTop: spacing.base }} />
-      <Bar width="90%" height={12} opacity={opacity} style={{ marginTop: spacing.base }} />
-      <Bar width="60%" height={12} opacity={opacity} style={{ marginTop: spacing.xs }} />
+      <SkeletonBar width="100%" height={10} opacity={opacity} style={{ marginTop: spacing.base }} />
+      <SkeletonBar width="90%" height={12} opacity={opacity} style={{ marginTop: spacing.base }} />
+      <SkeletonBar width="60%" height={12} opacity={opacity} style={{ marginTop: spacing.xs }} />
       <View style={styles.dotsRow}>
-        <Bar width={52} height={20} opacity={opacity} />
-        <Bar width={52} height={20} opacity={opacity} />
-        <Bar width={52} height={20} opacity={opacity} />
+        <SkeletonBar width={52} height={20} opacity={opacity} />
+        <SkeletonBar width={52} height={20} opacity={opacity} />
+        <SkeletonBar width={52} height={20} opacity={opacity} />
       </View>
     </View>
   );
 }
 
 export function SkeletonCard({ variant }: { variant: SkeletonVariant }) {
-  const opacity = usePulse();
+  const opacity = useSkeletonPulse();
   return variant === 'buyScore' ? (
     <BuyScoreSkeleton opacity={opacity} />
   ) : (

@@ -169,11 +169,15 @@ export function thesisStatusLabel(status: ThesisStatus): string {
   }
 }
 
-/** 손익률 색상: 양수 success / 음수 error / 보합 textTertiary */
+/**
+ * 손익률 색상: 양수 success / 음수 error / 보합 textSecondary.
+ * 보합(0%)은 textTertiary(≈2.5:1, 거의 안 보임) 대신 AA 가독성을 갖는
+ * textSecondary를 사용한다(DAR-148). 방향 단서는 호출부 아이콘(minus)이 병행.
+ */
 export function pnlColor(pnlPercent: number, colors: ThemeColors): string {
   if (pnlPercent > 0) return colors.success;
   if (pnlPercent < 0) return colors.error;
-  return colors.textTertiary;
+  return colors.textSecondary;
 }
 
 /** +/- 부호를 포함한 손익률 포맷 */

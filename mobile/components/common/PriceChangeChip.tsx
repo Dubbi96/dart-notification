@@ -21,8 +21,11 @@ export function PriceChangeChip({ value, amount, style }: PriceChangeChipProps) 
   const { colors, typography: typo } = useTheme();
 
   const iconName = value > 0 ? 'trending-up' : value < 0 ? 'trending-down' : 'minus';
+  const isNeutral = value === 0;
+  // 보합(0%)은 surfaceSecondary 틴트 위에서 textSecondary 대비가 AA(4.5:1) 미만으로 떨어진다.
+  // surface 배경 + 헤어라인 보더로 칩 형태를 유지하면서 대비를 AA로 확보한다(DAR-148).
   const chipBg =
-    value > 0 ? colors.successSurface : value < 0 ? colors.errorSurface : colors.surfaceSecondary;
+    value > 0 ? colors.successSurface : value < 0 ? colors.errorSurface : colors.surface;
   const textColor = pnlColor(value, colors);
   const sign = value > 0 ? '+' : '';
   const directionWord = value > 0 ? '상승' : value < 0 ? '하락' : '보합';
@@ -33,7 +36,12 @@ export function PriceChangeChip({ value, amount, style }: PriceChangeChipProps) 
     <Chip
       compact
       mode="flat"
-      style={[styles.chip, { backgroundColor: chipBg }, style]}
+      style={[
+        styles.chip,
+        { backgroundColor: chipBg },
+        isNeutral && { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+        style,
+      ]}
       textStyle={[typo.small, { color: textColor, fontWeight: '700' }]}
       icon={({ size }) => <Feather name={iconName} size={size} color={textColor} />}
       accessibilityLabel={`수익률 ${Math.abs(value).toFixed(2)}% ${directionWord}${amountText}`}

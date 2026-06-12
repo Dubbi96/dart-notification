@@ -251,8 +251,20 @@ export default function DisclosuresScreen() {
                 activeOpacity={0.7}
                 hitSlop={FILTER_CHIP_HIT_SLOP}
               >
-                {!isActive && typeStyle && (
-                  <View style={[styles.chipDot, { backgroundColor: typeStyle.text }]} />
+                {typeStyle && (
+                  // 유형색 도트를 활성 칩에도 유지해 색 단서가 사라지지 않게 한다(DAR-148).
+                  // 활성 시 primary 배경 위에서 유형색 대비가 약해질 수 있어 primaryForeground 링을 둘러
+                  // 색 단서를 보존하면서 가시성을 확보한다(라벨 병행).
+                  <View
+                    style={[
+                      styles.chipDot,
+                      { backgroundColor: typeStyle.text },
+                      isActive && {
+                        borderWidth: 1,
+                        borderColor: colors.primaryForeground,
+                      },
+                    ]}
+                  />
                 )}
                 <Text
                   style={[

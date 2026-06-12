@@ -50,3 +50,45 @@ export interface GraduationReport {
    */
   sharpe: number | null;
 }
+
+// 신호→진입 퍼널 도메인 타입 계약 — DAR-162 / DAR-109.
+// GET /api/graduation/funnel 응답과 1:1.
+// 백엔드 simulation/domain/signal-funnel.ts (FunnelReport/FunnelDayReport/FunnelTotals) 와 동기화.
+// '당일 생성 신호 → 진입 후보 통과 → 실제 체결'의 일별/누적 전환율. 분모 0이면 rate=null(가짜 비율 금지).
+
+/** 일별 퍼널 + 파생 전환율 */
+export interface FunnelDayReport {
+  /** 거래일 YYYYMMDD */
+  tradeDate: string;
+  /** 당일 생성 신호 수 */
+  signalsGenerated: number;
+  /** 진입 후보 통과 수 */
+  candidatesPassed: number;
+  /** 실제 체결 수 */
+  filled: number;
+  /** 채택률 = 후보 통과 / 생성 신호 (0~1, 신호 0이면 null) */
+  adoptionRate: number | null;
+  /** 체결률 = 체결 / 후보 통과 (0~1, 후보 0이면 null) */
+  fillRate: number | null;
+  /** 신호→체결 전환율 = 체결 / 생성 신호 (0~1, 신호 0이면 null) */
+  conversionRate: number | null;
+}
+
+/** 누적 퍼널(전 기간 합산) + 전환율 + 운용일수 */
+export interface FunnelTotals {
+  days: number;
+  signalsGenerated: number;
+  candidatesPassed: number;
+  filled: number;
+  adoptionRate: number | null;
+  fillRate: number | null;
+  conversionRate: number | null;
+}
+
+/** 신호→진입 퍼널 리포트 */
+export interface FunnelReport {
+  /** 거래일 오름차순 일별 퍼널 */
+  daily: FunnelDayReport[];
+  /** 전 기간 누적 */
+  totals: FunnelTotals;
+}

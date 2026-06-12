@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -23,6 +23,13 @@ import type { TradingSignal, SignalGrade, SignalSort } from '@app-types/signal.t
 
 // 등급무관 분석 탐색(DAR-46) — 전체 시그널을 등급/페르소나/이벤트유형 필터 + 정렬로 탐색.
 // 무한스크롤·pull-refresh는 DAR-45 패턴(useInfiniteQuery + onEndReached + InfiniteListFooter)을 재사용한다.
+
+// 종목 검색(DAR-157): 백엔드 /signals는 키워드 검색 미지원 → 불러온 페이지를 corpName/ticker로
+// 클라이언트 필터. 검색 결과가 1페이지를 넘어도 보이도록 검색 중에도 추가 페이지를 로드한다.
+//  - 결과가 sparse(화면을 못 채움)하면 onEndReached가 안 뜨므로 자동으로 다음 페이지를 당겨온다.
+//  - 무한 로딩 방지: 자동 로딩은 MAX_SEARCH_AUTOLOAD_PAGES까지만(상한 도달 시 범위 한계 안내).
+const MAX_SEARCH_AUTOLOAD_PAGES = 15; // ≈300건(20/page)까지만 검색용 자동 로딩
+const MIN_SEARCH_RESULTS_TO_FILL = 8; // 이 미만이면 스크롤이 안 생겨 자동 로딩 필요
 
 interface ChipOption<T> {
   value: T;
@@ -136,6 +143,19 @@ export function SignalExplorer({ searchQuery = '', ListHeaderComponent }: Signal
   // 검색 중에는 서버 total이 아니라 필터된 건수를 노출(정직한 결과 수).
   const totalCount = isSearching ? items.length : query.data?.pages[0]?.meta.total ?? 0;
 
+  // 검색용 자동 로딩 상태 — 불러온 페이지 수가 상한에 닿으면 자동 로딩 중단(범위 한계).
+  const loadedPages = query.data?.pages.length ?? 0;
+  const searchAutoloadCapped = loadedPages >= MAX_SEARCH_AUTOLOAD_PAGES;
+  const canLoadMore = !!query.hasNextPage && !query.isFetchingNextPage;
+
+  // 검색 결과가 sparse하면 스크롤이 안 생겨 onEndReached가 발화하지 않는다.
+  // 매칭이 뒤쪽 페이지에 있을 수 있으므로, 결과가 적을 때 상한까지 다음 페이지를 자동 로드.
+  useEffect(() => {
+    if (!isSearching || !canLoadMore || searchAutoloadCapped) return;
+    if (items.length >= MIN_SEARCH_RESULTS_TO_FILL) return;
+    query.fetchNextPage();
+  }, [isSearching, canLoadMore, searchAutoloadCapped, items.length, query]);
+
   const handlePress = useCallback((signal: TradingSignal) => {
     router.push(`/signals/${signal.id}`);
   }, []);
@@ -228,10 +248,11 @@ export function SignalExplorer({ searchQuery = '', ListHeaderComponent }: Signal
       windowSize={11}
       removeClippedSubviews
       onEndReached={() => {
-        // 검색 중에는 클라이언트 필터 결과라 추가 페이지 fetch를 막는다(정직한 결과 수).
-        if (!isSearching && query.hasNextPage && !query.isFetchingNextPage) {
-          query.fetchNextPage();
-        }
+        if (!canLoadMore) return;
+        // 검색 중에도 다음 페이지를 로드해 클라이언트 필터 대상 데이터셋을 넓힌다.
+        // 단, 자동 로딩 상한(MAX_SEARCH_AUTOLOAD_PAGES)에 닿으면 검색 모드에선 중단(범위 한계 안내).
+        if (isSearching && searchAutoloadCapped) return;
+        query.fetchNextPage();
       }}
       onEndReachedThreshold={0.4}
       refreshing={query.isRefetching && !query.isFetchingNextPage}
@@ -242,8 +263,15 @@ export function SignalExplorer({ searchQuery = '', ListHeaderComponent }: Signal
           <View>
             <InfiniteListFooter
               isFetchingNextPage={query.isFetchingNextPage}
-              hasNextPage={!isSearching && !!query.hasNextPage}
+              hasNextPage={isSearching ? !!query.hasNextPage && !searchAutoloadCapped : !!query.hasNextPage}
               itemCount={items.length}
+              endLabel={
+                isSearching
+                  ? searchAutoloadCapped && query.hasNextPage
+                    ? '검색은 불러온 결과 내에서 동작합니다 · 검색어를 좁혀 보세요'
+                    : '검색 결과의 끝입니다'
+                  : undefined
+              }
             />
             <DisclaimerSection style={styles.disclaimer} />
           </View>
@@ -257,6 +285,9 @@ export function SignalExplorer({ searchQuery = '', ListHeaderComponent }: Signal
             title="분석 신호를 불러오지 못했습니다"
             description="잠시 후 다시 시도해 주세요."
           />
+        ) : isSearching && query.isFetchingNextPage ? (
+          // 검색 매칭이 뒤쪽 페이지에 있을 수 있어 자동 로딩 중 — 빈 상태 깜빡임 방지
+          <SkeletonList variant="buyScore" />
         ) : isFilterActive ? (
           <EmptyState {...emptyStateCopy.signalsFilterEmpty} onAction={resetFilters} />
         ) : (

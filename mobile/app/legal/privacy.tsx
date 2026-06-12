@@ -28,7 +28,7 @@ export default function PrivacyScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={[typo.small, { color: colors.textTertiary, marginBottom: spacing.lg }]}>
+        <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.lg }]}>
           시행일: 2026년 3월 9일
         </Text>
 
@@ -116,7 +116,7 @@ export default function PrivacyScreen() {
           변경 시 앱 내 공지를 통해 안내합니다.
         </Section>
 
-        <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xl }]}>
+        <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xl }]}>
           본 개인정보 처리방침은 2026년 3월 9일부터 시행합니다.
         </Text>
       </ScrollView>

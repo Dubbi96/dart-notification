@@ -25,7 +25,6 @@ import { HomeSignalPreview } from '@components/home/HomeSignalPreview';
 import { GraduationTracker } from '@components/home/GraduationTracker';
 import { FirstWatchCoachmark } from '@components/home/FirstWatchCoachmark';
 import { DisclosureFeedCard } from '@components/home/DisclosureFeedCard';
-import { SearchOverlay } from '@components/common/SearchOverlay';
 import { useDisclosures } from '@hooks/useDisclosures';
 import { useWatchlist } from '@hooks/useWatchlist';
 import { useSavedDisclosures } from '@hooks/useSavedDisclosures';
@@ -66,12 +65,10 @@ export default function HomeScreen() {
   const [feedTab, setFeedTab] = useState<'all' | 'watchlist'>(hasWatchlist ? 'watchlist' : 'all');
   const isWatchlistFeed = feedTab === 'watchlist';
 
-  // 홈 헤더 검색 직결(§10) — 1탭 진입. 비로그인은 기존 인증 게이트 유지.
-  const [searchVisible, setSearchVisible] = useState(false);
+  // 홈 헤더 검색 직결(§10) — 1탭 진입. 통합 검색(기업+공시)은 읽기전용 탐색이라 게스트도 접근 가능(DAR-164).
   const handleSearchOpen = useCallback(() => {
-    if (!requireAuth()) return;
-    setSearchVisible(true);
-  }, [requireAuth]);
+    router.push('/search');
+  }, []);
 
   const {
     data,
@@ -286,7 +283,7 @@ export default function HomeScreen() {
               onPress={handleSearchOpen}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
-              accessibilityLabel="기업 검색"
+              accessibilityLabel="통합 검색"
             >
               <GlassCard intensity={20} variant="iridescent" style={styles.headerIconGlass}>
                 <View style={styles.headerIconInner}>
@@ -382,9 +379,6 @@ export default function HomeScreen() {
           ListEmptyComponent={ListEmpty}
         />
       </View>
-
-      {/* 검색 오버레이(§10) — 1탭 진입 */}
-      <SearchOverlay visible={searchVisible} onClose={() => setSearchVisible(false)} />
     </View>
   );
 }

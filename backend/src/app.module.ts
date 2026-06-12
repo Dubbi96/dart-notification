@@ -13,6 +13,7 @@ import { WatchlistModule } from './watchlist/watchlist.module';
 import { NotificationSettingsModule } from './notification-settings/notification-settings.module';
 import { DisclosuresModule } from './engine1-disclosure/disclosures/disclosures.module';
 import { SavedDisclosuresModule } from './saved-disclosures/saved-disclosures.module';
+import { SearchModule } from './search/search.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SchedulerModule } from './engine1-disclosure/scheduler/scheduler.module';
 import { DartApiModule } from './engine1-disclosure/dart-api/dart-api.module';
@@ -79,6 +80,7 @@ import { OpsModule } from './ops/ops.module';
     NotificationSettingsModule,
     DisclosuresModule,
     SavedDisclosuresModule,
+    SearchModule,
     NotificationsModule,
     SchedulerModule,
     DartApiModule,

@@ -637,6 +637,62 @@ GET /disclosures/search?q=증자&page=1&limit=20
 
 ---
 
+### 7.4 통합 검색 (기업 + 공시)
+
+기업 검색(`/companies/search`)과 공시 검색(`/disclosures/search`)을 하나의 진입점으로 묶는다. 내부적으로 기존 두 도메인 서비스를 재사용하며 검색 로직을 중복 구현하지 않는다.
+
+**Endpoint**: `GET /search`
+
+**Query Parameters**:
+- `q` (required): 통합 검색어 (기업명·종목코드·공시명). **2글자 미만이면 DB 조회 없이 빈 카테고리 묶음을 반환**한다.
+- `companyLimit` (optional): 기업 카테고리 최대 건수 (기본: 10, 최대: 20)
+- `disclosureLimit` (optional): 공시 카테고리 최대 건수 (기본: 10, 최대: 20)
+
+**Request Example**:
+```
+GET /search?q=삼성&companyLimit=10&disclosureLimit=10
+```
+
+**Response**: `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "query": "삼성",
+    "companies": {
+      "items": [
+        {
+          "corpCode": "00126380",
+          "corpName": "삼성전자",
+          "stockCode": "005930",
+          "market": "KOSPI"
+        }
+      ],
+      "total": 1,
+      "limit": 10
+    },
+    "disclosures": {
+      "items": [
+        {
+          "rcpNo": "20260307000456",
+          "corpCode": "00164779",
+          "corpName": "삼성물산",
+          "reportName": "유상증자결정",
+          "rcpDt": "20260307140000",
+          "disclosureType": "발행공시"
+        }
+      ],
+      "total": 5,
+      "limit": 10
+    }
+  }
+}
+```
+
+> `companies.total`은 반환된 항목 수, `disclosures.total`은 공시 검색 전체 일치 건수(도메인 서비스 meta.total)를 그대로 전달한다.
+
+---
+
 ## 8. 알림 히스토리 (Notifications)
 
 ### 8.1 알림 목록 조회

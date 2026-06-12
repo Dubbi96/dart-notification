@@ -25,6 +25,15 @@ export class PortfolioController {
     return { success: true, data };
   }
 
+  @Get('portfolio/risk/latest')
+  @ApiOperation({
+    summary: '활성 포트폴리오 최신 리스크 스냅샷 조회 (일손익·집중도·하드룰 위반·riskLevel)',
+  })
+  async findLatestRisk(@CurrentUser('id') userId: string) {
+    const data = await this.portfolioService.findLatestRiskSnapshot(userId);
+    return { success: true, data };
+  }
+
   @Get('positions/:id')
   @ApiOperation({ summary: '단일 포지션 조회' })
   async findPosition(

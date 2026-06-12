@@ -3,6 +3,30 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 type ThesisStatus = 'ACTIVE' | 'WATCHING' | 'VIOLATED' | 'EXPIRED';
 
+/**
+ * 최신 포트폴리오 리스크 스냅샷 읽기 응답.
+ * PortfolioRiskSnapshot 모델(읽기 전용)을 화면 친화 형태로 노출한다.
+ * 스냅샷 부재 시 컨트롤러는 `null`을 반환한다.
+ */
+export interface PortfolioRiskSnapshotView {
+  portfolioId: string;
+  snapshotDate: string;
+  totalValue: number;
+  cashAmount: number | null;
+  unrealizedPnl: number;
+  unrealizedPnlPct: number;
+  topPositionPct: number;
+  topSectorPct: number | null;
+  openPositionCount: number;
+  dailyPnl: number | null;
+  dailyPnlPct: number | null;
+  weeklyPnl: number | null;
+  weeklyPnlPct: number | null;
+  riskLevel: string;
+  hardRuleBreached: boolean;
+  hardRuleDetail: string | null;
+}
+
 @Injectable()
 export class PortfolioService {
   constructor(private readonly prisma: PrismaService) {}
@@ -59,6 +83,46 @@ export class PortfolioService {
         : undefined,
       dailyLossLimitRemaining: portfolio?.maxDailyLossPct ?? undefined,
       mddBreached: latestSnapshot?.hardRuleBreached ?? false,
+    };
+  }
+
+  /**
+   * 활성 포트폴리오의 최신 리스크 스냅샷(일손익·집중도·하드룰 위반·riskLevel) 조회.
+   * 활성 포트폴리오 또는 스냅샷이 없으면 `null`(빈상태).
+   * 읽기 전용 — Engine5 Risk 하드룰 산출 로직은 침범하지 않는다.
+   */
+  async findLatestRiskSnapshot(
+    userId: string,
+  ): Promise<PortfolioRiskSnapshotView | null> {
+    const portfolio = await this.prisma.portfolio.findFirst({
+      where: { userId, isActive: true },
+      include: {
+        riskSnapshots: { orderBy: { snapshotDate: 'desc' }, take: 1 },
+      },
+    });
+
+    const snapshot = portfolio?.riskSnapshots?.[0];
+    if (!portfolio || !snapshot) {
+      return null;
+    }
+
+    return {
+      portfolioId: portfolio.id,
+      snapshotDate: snapshot.snapshotDate,
+      totalValue: snapshot.totalValue,
+      cashAmount: snapshot.cashAmount ?? null,
+      unrealizedPnl: snapshot.unrealizedPnl,
+      unrealizedPnlPct: snapshot.unrealizedPnlPct,
+      topPositionPct: snapshot.topPositionPct,
+      topSectorPct: snapshot.topSectorPct ?? null,
+      openPositionCount: snapshot.openPositionCount,
+      dailyPnl: snapshot.dailyPnl ?? null,
+      dailyPnlPct: snapshot.dailyPnlPct ?? null,
+      weeklyPnl: snapshot.weeklyPnl ?? null,
+      weeklyPnlPct: snapshot.weeklyPnlPct ?? null,
+      riskLevel: snapshot.riskLevel,
+      hardRuleBreached: snapshot.hardRuleBreached,
+      hardRuleDetail: snapshot.hardRuleDetail ?? null,
     };
   }
 

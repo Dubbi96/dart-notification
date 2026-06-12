@@ -123,3 +123,44 @@ describe('DisclosuresService.findAll (DAR-45 기간 필터)', () => {
     expect(args.where.rcpDt).toEqual({ gte: '20240101', lte: '20240131999999' });
   });
 });
+
+describe('DisclosuresService.findOne 종목코드 평탄화 (DAR-188)', () => {
+  function makeService(findUnique: jest.Mock) {
+    const prisma = { disclosure: { findUnique } } as unknown as PrismaService;
+    return new DisclosuresService(prisma);
+  }
+
+  it('Company.stockCode(6자리)를 평탄화해 반환하고 corpCode와 구분한다', async () => {
+    const findUnique = jest.fn().mockResolvedValue(
+      makeRow({
+        rcpNo: '20240101000001',
+        corpCode: '00126380', // 삼성전자 8자리 고유번호
+        company: { stockCode: '005930' }, // HTS용 6자리 종목코드
+        disclosureEvent: null,
+      }),
+    );
+    const service = makeService(findUnique);
+
+    const res = (await service.findOne('20240101000001')) as Record<string, unknown>;
+
+    // 종목코드는 corpCode(8자리)가 아니라 stockCode(6자리)여야 한다.
+    expect(res.stockCode).toBe('005930');
+    expect(res.corpCode).toBe('00126380');
+    // include로 끌어온 company 객체는 응답에서 제거된다.
+    expect(res.company).toBeUndefined();
+    // 상세 조회는 company.stockCode를 include 한다.
+    const args = findUnique.mock.calls[0][0];
+    expect(args.include.company).toEqual({ select: { stockCode: true } });
+  });
+
+  it('stockCode 미보유(비상장) 공시는 stockCode=null로 정직하게 노출한다', async () => {
+    const findUnique = jest.fn().mockResolvedValue(
+      makeRow({ corpCode: '00999999', company: { stockCode: null }, disclosureEvent: null }),
+    );
+    const service = makeService(findUnique);
+
+    const res = (await service.findOne('1')) as Record<string, unknown>;
+
+    expect(res.stockCode).toBeNull();
+  });
+});

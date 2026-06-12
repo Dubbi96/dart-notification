@@ -109,11 +109,12 @@ model CompanyOverview {
 // ====================================
 
 model WatchList {
-  id        String   @id @default(cuid())
-  userId    String
-  corpCode  String // DART 고유번호
-  corpName  String // 기업명 (중복 저장, 조회 성능)
-  createdAt DateTime @default(now())
+  id           String    @id @default(cuid())
+  userId       String
+  corpCode     String // DART 고유번호
+  corpName     String // 기업명 (중복 저장, 조회 성능)
+  createdAt    DateTime  @default(now())
+  lastViewedAt DateTime? // 사용자가 해당 종목을 마지막으로 조회한 시각 (이후 신규 공시 카운트 기준점, DAR-165)
 
   // Relations
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)

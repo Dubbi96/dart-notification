@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,12 @@ import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { useCompanyDetail } from '@hooks/useCompanyDetail';
-import { useWatchlist, useAddToWatchlist, useRemoveFromWatchlist } from '@hooks/useWatchlist';
+import {
+  useWatchlist,
+  useAddToWatchlist,
+  useRemoveFromWatchlist,
+  useMarkWatchlistViewed,
+} from '@hooks/useWatchlist';
 import { useRequireAuth } from '@hooks/useRequireAuth';
 import { useCompanyEventStudy } from '@hooks/useEventStudy';
 import { useCompanySignal } from '@hooks/useSignals';
@@ -298,6 +303,7 @@ export default function CompanyDetailScreen() {
   const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
   const addToWatchlist = useAddToWatchlist();
   const removeFromWatchlist = useRemoveFromWatchlist();
+  const markViewed = useMarkWatchlistViewed();
   const [activeTab, setActiveTab] = useState<CompanyTab>('decision');
 
   const watchlistItem = useMemo(
@@ -311,6 +317,18 @@ export default function CompanyDetailScreen() {
     refetchCompany();
     refetchRisk();
   }, [refetchCompany, refetchRisk]);
+
+  // DAR-165: 관심 종목 상세 진입 시 조회 시각 갱신 → 신규 공시 unread 배지 소거.
+  // 관심목록에 있고 미확인 신규 공시가 있을 때 corpCode당 1회만 호출(중복 mutation 방지).
+  const markedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isAuthenticated || !corpCode) return;
+    if (!isWatched) return;
+    if ((watchlistItem?.newDisclosureCount ?? 0) <= 0) return;
+    if (markedRef.current === corpCode) return;
+    markedRef.current = corpCode;
+    markViewed.mutate(corpCode);
+  }, [isAuthenticated, corpCode, isWatched, watchlistItem?.newDisclosureCount, markViewed]);
 
   const handleToggleWatchlist = () => {
     if (!requireAuth()) return;

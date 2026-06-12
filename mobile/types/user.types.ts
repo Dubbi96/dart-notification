@@ -6,6 +6,8 @@ export interface WatchlistItem {
   stockCode: string | null;
   market: string | null;
   lastDisclosureDate: string | null;
+  /** 마지막 조회(lastViewedAt) 이후 신규 공시 수 — unread 배지(DAR-165) */
+  newDisclosureCount?: number;
   createdAt: string;
 }
 

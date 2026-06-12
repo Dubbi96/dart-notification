@@ -167,3 +167,34 @@ export interface EventStudyResult {
   dataFromDate: string;
   dataToDate: string;
 }
+
+/** 버킷 구성 개별 관측치 (DAR-166 드릴다운 — 어떤 공시로 통계를 만들었나) */
+export interface EventStudyObservation {
+  eventId: string;
+  rcpNo: string;
+  corpCode: string;
+  corpName: string | null;
+  stockCode: string | null;
+  eventType: string;
+  bucketKey: string;
+  /** 실제 D0 날짜 (YYYYMMDD) */
+  d0Date: string;
+  /** D+5 누적 초과수익 (CAR, %) — 데이터 미보유 시 null */
+  carD5: number | null;
+  /** D+20 누적 초과수익 (CAR, %) */
+  carD20: number | null;
+  /** D0~D+20 최대낙폭 (%) */
+  maxDrawdown: number;
+  isUpD5: boolean;
+  isCrashD5: boolean;
+}
+
+/** GET /event-study/:bucketKey/observations 페이지네이션 응답 */
+export interface EventStudyObservationsPage {
+  bucketKey: string;
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+  items: EventStudyObservation[];
+}

@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { EventStudyQueryService } from './event-study-query.service';
 import { EventStudyCalculationService } from './event-study-calculation.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -41,6 +41,29 @@ export class EventStudyController {
       eventType,
       marketType,
       includeInsufficient: includeInsufficient === 'true',
+    });
+    return { success: true, data };
+  }
+
+  @Get(':bucketKey/observations')
+  @ApiOperation({
+    summary: '버킷 구성 개별 관측치 드릴다운 (표본 투명성 — 어떤 공시들로 만든 통계인가)',
+  })
+  @ApiParam({ name: 'bucketKey', description: '버킷 식별자 (예: SUPPLY_CONTRACT__ratio_5to20)' })
+  @ApiQuery({ name: 'eventType', required: false, description: '이벤트 유형 추가 필터(선택)' })
+  @ApiQuery({ name: 'limit', required: false, description: '페이지 크기 (1~100, 기본 20)' })
+  @ApiQuery({ name: 'offset', required: false, description: '오프셋 (기본 0)' })
+  async findObservations(
+    @Param('bucketKey') bucketKey: string,
+    @Query('eventType') eventType?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    const data = await this.eventStudyQueryService.findObservations({
+      bucketKey,
+      eventType,
+      limit: limit !== undefined ? Number(limit) : undefined,
+      offset: offset !== undefined ? Number(offset) : undefined,
     });
     return { success: true, data };
   }

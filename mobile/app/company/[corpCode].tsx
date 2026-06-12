@@ -34,6 +34,7 @@ import { DetailSkeleton } from '@components/common/DetailSkeleton';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { PhilosophyFitBreakdown } from '@components/philosophy/PhilosophyFitBreakdown';
 import { DecisionHubTab } from '@components/company/DecisionHubTab';
+import { EventStudyObservationsDrilldown } from '@components/company/EventStudyObservationsDrilldown';
 import { InsiderHoldingsTab } from '@components/company/InsiderHoldingsTab';
 import { FundamentalsTab } from '@components/company/FundamentalsTab';
 import { RiskStatusBadges } from '@components/common/RiskStatusBadges';
@@ -255,6 +256,12 @@ function EventStudyTab({ corpCode }: EventStudyTabProps) {
           <Text style={[typo.small, { color: colors.textTertiary, textAlign: 'center', marginTop: spacing.sm }]}>
             집계 기간: {selected.dataFromDate} ~ {selected.dataToDate}
           </Text>
+
+          {/* DAR-166: 버킷 구성 개별 관측치 드릴다운 — 표본 투명성(과신 방지) */}
+          <EventStudyObservationsDrilldown
+            bucketKey={selected.bucketKey}
+            sampleCount={selected.sampleCount}
+          />
         </View>
       )}
 

@@ -15,6 +15,7 @@ describe('EventStudyCalculationScheduler (DAR-134)', () => {
   const summary: EventStudyCalcSummary = {
     eventsScanned: 50,
     observationsBuilt: 40,
+    observationsPersisted: 40,
     skipped: { noStockOrMarket: 2, noPrices: 3, immatureOrUnaligned: 5 },
     groupsAggregated: 12,
     readyCount: 7,

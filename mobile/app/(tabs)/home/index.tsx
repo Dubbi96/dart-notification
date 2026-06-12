@@ -15,6 +15,8 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
+import { typography } from '@theme/typography';
+import { verticalHitSlopForHeight } from '@utils/touchTarget';
 import { GlassCard } from '@components/common/GlassCard';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
@@ -41,6 +43,11 @@ function getGreeting(): { text: string; Icon: typeof Sun } {
   if (hour < 18) return { text: '기분 좋은 오후예요', Icon: CloudSun };
   return { text: '편안한 밤 보내세요', Icon: Moon };
 }
+
+// 세그먼트 탭 실효 시각 높이 = paddingVertical(spacing.sm 상·하) + 라벨 lineHeight.
+// 시각 크기는 유지하고 유효 터치 영역만 44pt로 확장한다(접근성, DAR-146).
+const SEGMENT_TAB_VISUAL_HEIGHT = spacing.sm * 2 + typography.captionMedium.lineHeight;
+const SEGMENT_TAB_HIT_SLOP = verticalHitSlopForHeight(SEGMENT_TAB_VISUAL_HEIGHT);
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -154,6 +161,7 @@ export default function HomeScreen() {
               ]}
               onPress={() => setFeedTab('all')}
               activeOpacity={0.7}
+              hitSlop={SEGMENT_TAB_HIT_SLOP}
             >
               <Text
                 style={[
@@ -174,6 +182,7 @@ export default function HomeScreen() {
                 ]}
                 onPress={() => setFeedTab('watchlist')}
                 activeOpacity={0.7}
+                hitSlop={SEGMENT_TAB_HIT_SLOP}
               >
                 <Ionicons
                   name="star"

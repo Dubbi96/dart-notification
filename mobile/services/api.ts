@@ -7,7 +7,7 @@ const DEV_HOST = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || `http://${DEV_HOST}:3000/api`;
 
 // 연결 실패 판별 순수 함수는 RN 비의존 모듈로 분리(결정론적 단위 검증용) — 여기서 재노출한다.
-export { isConnectionError } from './connectionError';
+export { isConnectionError, isNotFoundError } from './connectionError';
 
 export const api = axios.create({
   baseURL: API_BASE_URL,

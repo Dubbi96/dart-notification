@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
+import { verticalHitSlopForHeight } from '@utils/touchTarget';
 import { Card } from '@components/common/Card';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
@@ -33,6 +34,12 @@ import { useAuthStore } from '@stores/authStore';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { getHighRiskInfo } from '@utils/disclosureRisk';
 import { parse, format } from 'date-fns';
+
+// 칩 시각 높이(접근성 hitSlop 계산 기준). 시각 크기는 유지하고 유효 터치 영역만 44pt로 확장한다.
+const FILTER_CHIP_HEIGHT = 34;
+const SUB_FILTER_CHIP_HEIGHT = 30;
+const FILTER_CHIP_HIT_SLOP = verticalHitSlopForHeight(FILTER_CHIP_HEIGHT);
+const SUB_FILTER_CHIP_HIT_SLOP = verticalHitSlopForHeight(SUB_FILTER_CHIP_HEIGHT);
 
 export default function DisclosuresScreen() {
   const { colors, typography: typo, isDark } = useTheme();
@@ -208,6 +215,7 @@ export default function DisclosuresScreen() {
               ]}
               onPress={() => setWatchlistOnly(!watchlistOnly)}
               activeOpacity={0.7}
+              hitSlop={FILTER_CHIP_HIT_SLOP}
             >
               <Ionicons
                 name="star"
@@ -241,6 +249,7 @@ export default function DisclosuresScreen() {
                 ]}
                 onPress={() => handleFilterPress(filter)}
                 activeOpacity={0.7}
+                hitSlop={FILTER_CHIP_HIT_SLOP}
               >
                 {!isActive && typeStyle && (
                   <View style={[styles.chipDot, { backgroundColor: typeStyle.text }]} />
@@ -282,6 +291,7 @@ export default function DisclosuresScreen() {
                 ]}
                 onPress={() => setPeriod(opt.key)}
                 activeOpacity={0.7}
+                hitSlop={SUB_FILTER_CHIP_HIT_SLOP}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isActive }}
                 accessibilityLabel={`${opt.label} 기간 필터`}
@@ -317,6 +327,7 @@ export default function DisclosuresScreen() {
                     ]}
                     onPress={() => setSort(opt.key)}
                     activeOpacity={0.7}
+                    hitSlop={SUB_FILTER_CHIP_HIT_SLOP}
                     accessibilityRole="button"
                     accessibilityState={{ selected: isActive }}
                     accessibilityLabel={`${opt.label} 정렬`}
@@ -474,7 +485,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
-    height: 30,
+    height: SUB_FILTER_CHIP_HEIGHT,
     gap: spacing.xs,
   },
   subFilterDivider: {
@@ -489,7 +500,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radius.full,
-    height: 34,
+    height: FILTER_CHIP_HEIGHT,
     gap: spacing.xs,
   },
   chipDot: {

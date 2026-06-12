@@ -10,6 +10,11 @@ export const spacing = {
   '4xl': 48,
 } as const;
 
+// 접근성: 플랫폼 권장 최소 터치 영역(pt). 시각 크기와 무관하게 유효 터치 영역을 보장하는 기준값.
+export const sizing = {
+  minTouchTarget: 44,
+} as const;
+
 export const radius = {
   sm: 8,
   md: 12,

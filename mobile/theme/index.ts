@@ -7,7 +7,7 @@ import {
   type MD3Theme,
 } from 'react-native-paper';
 import { lightColors, darkColors, type ThemeColors } from './colors';
-import { spacing, radius } from './spacing';
+import { spacing, radius, sizing } from './spacing';
 import { typography, makeTypography, clampTextScale, type Typography } from './typography';
 
 export type ColorScheme = 'light' | 'dark';
@@ -86,5 +86,5 @@ export function getPaperTheme(scheme: ColorScheme): MD3Theme {
   };
 }
 
-export { lightColors, darkColors, spacing, radius, typography };
+export { lightColors, darkColors, spacing, radius, sizing, typography };
 export type { ThemeColors };

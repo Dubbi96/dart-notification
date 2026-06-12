@@ -5,6 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { getEventTypeLabel } from '@utils/disclosureType';
+import { formatReturnPct, formatWinRate, returnColor } from '@utils/numberFormat';
 import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { useSignalAccuracy } from '@hooks/useSignalAccuracy';
 
@@ -32,30 +33,18 @@ function bucketLabel(dimension: Dimension, key: string): string {
   return getEventTypeLabel(key);
 }
 
-function formatPct(v: number | null): string {
-  if (v === null) return '—';
-  return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
-}
-
-function formatWinRate(v: number | null): string {
-  if (v === null) return '—';
-  return `${Math.round(v * 100)}%`;
-}
-
 /** D+N 한 지평 요약(평균 초과수익·승률·표본·유의) */
 function HorizonStat({ label, h }: { label: string; h: HorizonAccuracy }) {
   const { colors, typography: typo } = useTheme();
   const hasSample = h.sampleCount > 0;
   const valColor = !hasSample
     ? colors.textTertiary
-    : (h.avgExcessReturn ?? 0) >= 0
-      ? colors.success
-      : colors.error;
+    : returnColor(h.avgExcessReturn ?? 0, colors);
   return (
     <View
       style={styles.horizon}
       accessibilityRole="text"
-      accessibilityLabel={`${label} 평균 초과수익 ${formatPct(h.avgExcessReturn)}, 승률 ${formatWinRate(
+      accessibilityLabel={`${label} 평균 초과수익 ${formatReturnPct(h.avgExcessReturn)}, 승률 ${formatWinRate(
         h.winRate,
       )}, 표본 ${h.sampleCount}`}
     >
@@ -66,7 +55,7 @@ function HorizonStat({ label, h }: { label: string; h: HorizonAccuracy }) {
         ) : null}
       </View>
       <Text style={[typo.captionMedium, { color: valColor, marginTop: spacing.xs }]}>
-        {formatPct(h.avgExcessReturn)}
+        {formatReturnPct(h.avgExcessReturn)}
       </Text>
       <Text style={[typo.small, { color: colors.textTertiary }]}>
         승률 {formatWinRate(h.winRate)} · 표본 {h.sampleCount}

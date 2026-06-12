@@ -1,13 +1,14 @@
 import React from 'react';
 import { View, Text, StyleSheet, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { formatDistanceToNow } from 'date-fns';
-import { ko } from 'date-fns/locale';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
 
 // 출처·시점 상시 노출 바(기획 §7). "언제·무엇 기준" 데이터인지 항상 보이게 한다.
 // 캐시된 구버전 데이터 식별 + stale 경고. 색상 단독 금지 — 아이콘 형태로도 stale 구분.
+
+// 상대시간 표기는 utils/datetime 단일소스(DAR-178)를 재노출 — 기존 임포터 호환 유지.
+export { relativeTime } from '@utils/datetime';
 
 export interface ProvenanceItem {
   icon: 'clock' | 'database' | 'hash' | 'calendar';
@@ -20,11 +21,6 @@ export interface ProvenanceItem {
 interface ProvenanceBarProps {
   items: ProvenanceItem[];
   style?: ViewStyle;
-}
-
-/** ISO 시각 → '2분 전' 같은 상대 표현(한국어). */
-export function relativeTime(iso: string): string {
-  return formatDistanceToNow(new Date(iso), { addSuffix: true, locale: ko });
 }
 
 /** 시세 신선도: 마지막 시세 시각으로부터 15분 초과 시 stale(§7). */

@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-
-type ThesisStatus = 'ACTIVE' | 'WATCHING' | 'VIOLATED' | 'EXPIRED';
+import { mapThesisStatus } from './thesis-status.util';
 
 /**
  * 최신 포트폴리오 리스크 스냅샷 읽기 응답.
@@ -37,6 +36,7 @@ export class PortfolioService {
       include: {
         company: { select: { corpName: true, stockCode: true } },
         portfolio: { select: { id: true } },
+        positionThesis: { select: { status: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -48,7 +48,7 @@ export class PortfolioService {
       corpName: pos.company.corpName,
       ticker: pos.company.stockCode ?? undefined,
       pnlPercent: pos.unrealizedPnlPct ?? 0,
-      thesisStatus: (pos.positionThesisId ? 'ACTIVE' : 'ACTIVE') as ThesisStatus,
+      thesisStatus: mapThesisStatus(pos.positionThesis?.status),
       quantity: pos.quantity,
       avgPrice: pos.entryPrice,
       currentPrice: pos.currentPrice ?? undefined,
@@ -132,6 +132,7 @@ export class PortfolioService {
       include: {
         company: { select: { corpName: true, stockCode: true } },
         portfolio: { select: { id: true } },
+        positionThesis: { select: { status: true } },
       },
     });
 
@@ -146,7 +147,7 @@ export class PortfolioService {
       corpName: pos.company.corpName,
       ticker: pos.company.stockCode ?? undefined,
       pnlPercent: pos.unrealizedPnlPct ?? 0,
-      thesisStatus: (pos.positionThesisId ? 'ACTIVE' : 'ACTIVE') as ThesisStatus,
+      thesisStatus: mapThesisStatus(pos.positionThesis?.status),
       quantity: pos.quantity,
       avgPrice: pos.entryPrice,
       currentPrice: pos.currentPrice ?? undefined,

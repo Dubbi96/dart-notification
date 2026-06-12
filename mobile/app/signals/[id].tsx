@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Chip, Banner } from 'react-native-paper';
@@ -74,7 +75,7 @@ function RiskFlagRow({ flag }: { flag: RiskFlag }) {
 export default function SignalDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors, typography: typo } = useTheme();
-  const { data: signal, isLoading, isError, refetch } = useSignalDetail(id!);
+  const { data: signal, isLoading, isError, refetch, isRefetching } = useSignalDetail(id!);
   const relatedRcpNo = signal?.relatedDisclosureRcpNo;
 
   const handleRelatedDisclosure = useCallback(() => {
@@ -165,7 +166,18 @@ export default function SignalDetailScreen() {
         </Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={refetch}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
         {isExpired ? (
           <Banner
             visible

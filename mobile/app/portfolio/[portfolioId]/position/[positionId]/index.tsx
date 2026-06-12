@@ -16,6 +16,7 @@ import { spacing, radius } from '@theme/spacing';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { ErrorState } from '@components/common/StateView';
 import { DetailSkeleton } from '@components/common/DetailSkeleton';
+import { CompanyHubLink } from '@components/company/CompanyHubLink';
 import { usePosition, usePositionThesis } from '@hooks/usePortfolio';
 import {
   thesisStatusColor,
@@ -126,6 +127,13 @@ export default function PositionDetailScreen() {
               </Text>
             ) : null}
           </Surface>
+
+          {/* 기업 허브 진입(DAR-149) — corpCode 부재 시 미노출(graceful) */}
+          <CompanyHubLink
+            corpCode={position.corpCode}
+            corpName={position.corpName}
+            ticker={position.ticker}
+          />
 
           {/* Thesis 요약 + 이동 */}
           <TouchableOpacity

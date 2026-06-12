@@ -17,6 +17,7 @@ import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { ScoreBreakdownSection } from '@components/signals/ScoreBreakdownSection';
+import { CompanyHubLink } from '@components/company/CompanyHubLink';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
 import { isDataLimited } from '@utils/dataLimit';
 import { ErrorState } from '@components/common/StateView';
@@ -232,6 +233,13 @@ export default function SignalDetailScreen() {
             />
           ) : null}
         </View>
+
+        {/* 기업 허브 진입(DAR-149) — corpCode 부재 시 미노출(graceful) */}
+        <CompanyHubLink
+          corpCode={signal.corpCode}
+          corpName={signal.corpName}
+          ticker={signal.ticker}
+        />
 
         {/* Score 근거 분해(P0-C) — HeaderSection 직후. scoreBreakdown 미연동 시 graceful null */}
         {signal.scoreBreakdown && signal.scoreBreakdown.length > 0 ? (

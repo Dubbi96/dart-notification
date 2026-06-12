@@ -10,6 +10,8 @@ export interface PaginationMeta {
   total: number;
   totalPages?: number;
   unreadCount?: number;
+  // DAR-161: 알림 인박스 타입별 미읽음 카운트(DISCLOSURE/SIGNAL/EXIT/THESIS_VIOLATED).
+  unreadByType?: Record<string, number>;
 }
 
 export interface AiCostMetrics {

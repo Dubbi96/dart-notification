@@ -646,10 +646,12 @@ GET /disclosures/search?q=증자&page=1&limit=20
 - `page` (optional): 페이지 번호 (기본: 1)
 - `limit` (optional): 페이지당 개수 (기본: 20, 최대: 50)
 - `isRead` (optional): 읽음 필터 (true | false)
+- `type` (optional, DAR-161): 알림 타입 필터 (`DISCLOSURE` | `SIGNAL` | `EXIT` | `THESIS_VIOLATED`). 미지정 시 전체 타입.
 
 **Request Example**:
 ```
 GET /notifications?isRead=false&page=1&limit=20
+GET /notifications?type=SIGNAL&page=1&limit=20
 ```
 
 **Response**: `200 OK`
@@ -676,10 +678,18 @@ GET /notifications?isRead=false&page=1&limit=20
     "page": 1,
     "limit": 20,
     "total": 10,
-    "unreadCount": 5
+    "unreadCount": 5,
+    "unreadByType": {
+      "DISCLOSURE": 3,
+      "SIGNAL": 1,
+      "EXIT": 1,
+      "THESIS_VIOLATED": 0
+    }
   }
 }
 ```
+
+> `unreadByType` (DAR-161): 타입별 미읽음 카운트. **타입 필터와 무관하게 사용자 전체(미읽음) 기준**으로 집계되어, 모바일 세그먼트 칩의 타입별 unread 배지가 현재 선택과 독립적으로 동작한다. 모든 타입 키는 항상 존재(미읽음 없으면 0).
 
 ---
 

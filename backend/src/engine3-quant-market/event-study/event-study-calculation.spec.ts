@@ -136,6 +136,8 @@ interface UpsertCall {
 
 function makePrismaMock(rows: any[]) {
   const upserts: UpsertCall[] = [];
+  const obsCreates: any[] = [];
+  const obsDeletes: any[] = [];
   let findManyArg: any = null;
   const prisma = {
     disclosureEvent: {
@@ -150,8 +152,25 @@ function makePrismaMock(rows: any[]) {
         return call.create;
       }),
     },
+    // DAR-166: 개별 관측치 영속 — delete(멱등) + createMany 캡처
+    eventStudyObservation: {
+      deleteMany: jest.fn(async (arg: any) => {
+        obsDeletes.push(arg);
+        return { count: 0 };
+      }),
+      createMany: jest.fn(async (arg: any) => {
+        obsCreates.push(...arg.data);
+        return { count: arg.data.length };
+      }),
+    },
   };
-  return { prisma, upserts, getFindManyArg: () => findManyArg };
+  return {
+    prisma,
+    upserts,
+    getFindManyArg: () => findManyArg,
+    getObsCreates: () => obsCreates,
+    getObsDeletes: () => obsDeletes,
+  };
 }
 
 /** prisma findMany select 형태에 맞춘 row (company/disclosure 조인 포함) */
@@ -170,7 +189,8 @@ function makeDbEvent(idx: number, market = 'KOSPI', isBackfill = false) {
 }
 
 function buildService(dbEvents: any[]) {
-  const { prisma, upserts, getFindManyArg } = makePrismaMock(dbEvents);
+  const { prisma, upserts, getFindManyArg, getObsCreates, getObsDeletes } =
+    makePrismaMock(dbEvents);
   // 모든 종목 + KOSPI/KOSDAQ 지수 가격을 in-memory 어댑터에 적재
   const stockData: IStockDailyPrice[] = dbEvents.flatMap(e =>
     makeStockSeries(e.company.stockCode),
@@ -185,7 +205,7 @@ function buildService(dbEvents: any[]) {
     new InMemoryStockPriceAdapter(stockData),
     new InMemoryMarketIndexAdapter(indexData),
   );
-  return { service, upserts, getFindManyArg };
+  return { service, upserts, getFindManyArg, getObsCreates, getObsDeletes };
 }
 
 describe('EventStudyCalculationService.run()', () => {
@@ -219,6 +239,43 @@ describe('EventStudyCalculationService.run()', () => {
       bucketKey: 'SUPPLY_CONTRACT__ratio_5to20',
       marketType: 'KOSPI',
     });
+  });
+
+  it('persists individual observations once per event (DAR-166 drilldown sample)', async () => {
+    const events = Array.from({ length: 35 }, (_, i) => makeDbEvent(i));
+    const { service, getObsCreates, getObsDeletes } = buildService(events);
+
+    const summary = await service.run();
+
+    // 시장 그룹(KOSPI+ALL)은 2이지만 관측치는 이벤트당 1건만 영속(중복 없음)
+    expect(summary.observationsPersisted).toBe(35);
+    const creates = getObsCreates();
+    expect(creates).toHaveLength(35);
+
+    // 멱등: 영속 전 동일 eventId 선삭제
+    const deletes = getObsDeletes();
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0].where.eventId.in).toHaveLength(35);
+
+    // 각 관측치는 버킷키·CAR(JSON)·플래그를 보존(표본 투명성)
+    const sample = creates[0];
+    expect(sample.bucketKey).toBe('SUPPLY_CONTRACT__ratio_5to20');
+    expect(sample.eventType).toBe('SUPPLY_CONTRACT');
+    expect(sample.d0Date).toBe('20250102');
+    expect(typeof sample.cumulativeAR).toBe('object');
+    expect(sample.cumulativeAR.d5).toBeCloseTo(5, 1); // D0=100→D+1=105, 시장 flat
+    expect(sample.isUpD5).toBe(true);
+    expect(typeof sample.maxDrawdown).toBe('number');
+    // eventId 는 입력 이벤트와 1:1
+    expect(new Set(creates.map((c: any) => c.eventId)).size).toBe(35);
+  });
+
+  it('persists no observations and skips delete when no matured events', async () => {
+    const { service, getObsCreates, getObsDeletes } = buildService([]);
+    const summary = await service.run();
+    expect(summary.observationsPersisted).toBe(0);
+    expect(getObsCreates()).toHaveLength(0);
+    expect(getObsDeletes()).toHaveLength(0); // 빈 입력은 delete 도 생략
   });
 
   it('persists INSUFFICIENT (표본<30 데이터한계) for small samples', async () => {

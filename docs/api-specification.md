@@ -16,6 +16,7 @@
 13. [종목 최신 시세 (Market Data Quote, DAR-158)](#13-종목-최신-시세-market-data-quote--dar-158)
 14. [포트폴리오 리스크 스냅샷 (Portfolio Risk, DAR-163)](#14-포트폴리오-리스크-스냅샷-portfolio-risk--dar-163)
 15. [시장지수 (Market Index, DAR-160)](#15-시장지수-market-index-dar-160)
+16. [이벤트 스터디 (Event Study)](#16-이벤트-스터디-event-study)
 
 ---
 
@@ -1281,5 +1282,58 @@ KOSPI(0001)·KOSDAQ(1001)의 최신 종가지수 + 전일대비 등락폭·등�
 
 ---
 
+## 16. 이벤트 스터디 (Event Study)
+
+### 16.1 이벤트 통계(버킷 집계) 조회
+
+```
+GET /api/event-study   (JWT 필수)
+```
+
+| 쿼리 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `eventType` | string | 선택 | 이벤트 유형 필터 |
+| `marketType` | string | 선택 | `KOSPI` / `KOSDAQ` / `ALL` (기본 `ALL`) |
+| `includeInsufficient` | boolean | 선택 | 표본<30 미유의(`INSUFFICIENT`) 데이터한계 항목 포함 (기본 false → `READY`만) |
+
+(eventType, bucketKey, marketType) 단위 버킷 평균 통계(D+N 초과수익·승률·표본 등)를 반환.
+
+### 16.2 버킷 구성 개별 관측치 드릴다운 (DAR-166)
+
+```
+GET /api/event-study/:bucketKey/observations   (JWT 필수)
+```
+
+버킷 통계가 **실제로 어떤 공시들로 만들어졌는지**를 검증할 수 있도록, 해당 버킷을 구성한
+개별 관측치(공시별 CAR)를 페이지네이션으로 반환한다(표본 투명성 — 과신 방지).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `bucketKey` (path) | string | 필수 | 버킷 식별자 (예: `SUPPLY_CONTRACT__ratio_5to20`) |
+| `eventType` | string | 선택 | 이벤트 유형 추가 필터 |
+| `limit` | number | 선택 | 페이지 크기 (1~100, 기본 20) |
+| `offset` | number | 선택 | 오프셋 (기본 0) |
+
+**응답 `data`**
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `bucketKey` | string | 요청 버킷 |
+| `total` | number | 버킷 전체 관측치 수 |
+| `limit` / `offset` | number | 적용된 페이지 파라미터 |
+| `hasMore` | boolean | 다음 페이지 존재 여부 |
+| `items[]` | object | 개별 관측치 목록 |
+| `items[].rcpNo` | string | 공시 접수번호 |
+| `items[].corpName` | string\|null | 기업명(논리 조인, 미존재 시 null) |
+| `items[].d0Date` | string (YYYYMMDD) | 실제 D0 날짜 |
+| `items[].carD5` / `carD20` | number\|null | D+5 / D+20 누적 초과수익(CAR, %) — 미보유 시 null |
+| `items[].maxDrawdown` | number | D0~D+20 최대낙폭(%) |
+| `items[].isUpD5` / `isCrashD5` | boolean | D+5 상승 / 급락(-5% 이하) 여부 |
+
+> 관측치 모델은 `marketType`이 없어 시장 무관 풀(= `ALL` 버킷과 동일 표본)이다. 빈 버킷이면 `items: []`.
+> 관측치는 `POST /api/event-study/calculate` 산출 시 영속된다(스키마 변경 없음, 기존 `EventStudyObservation` 모델 사용).
+
+---
+
 **작성일**: 2026-06-12
-**버전**: 1.7 (시장지수 최신값 조회 API 추가 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)
+**버전**: 1.8 (EventStudy 버킷 관측치 드릴다운 API 추가 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)

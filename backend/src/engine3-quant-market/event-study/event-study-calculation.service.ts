@@ -61,6 +61,8 @@ export interface EventStudyCalcOptions {
 export interface EventStudyCalcSummary {
   eventsScanned: number;
   observationsBuilt: number;
+  /** EventStudyObservation 으로 영속된 개별 관측치 수 (드릴다운 표본 투명성, DAR-166) */
+  observationsPersisted: number;
   skipped: {
     noStockOrMarket: number;
     noPrices: number;
@@ -204,11 +206,15 @@ export class EventStudyCalculationService {
     const summary: EventStudyCalcSummary = {
       eventsScanned: rows.length,
       observationsBuilt: 0,
+      observationsPersisted: 0,
       skipped: { noStockOrMarket: 0, noPrices: 0, immatureOrUnaligned: 0 },
       groupsAggregated: 0,
       readyCount: 0,
       insufficientCount: 0,
     };
+
+    // 영속 대상 개별 관측치(이벤트당 1건, 시장 그룹과 무관). DAR-166 드릴다운 표본.
+    const builtObs: EventObservationInput[] = [];
 
     // (eventType::marketType::bucketKey) → 관측치 묶음. 시장별 + 'ALL' 동시 적재.
     const groups = new Map<string, ObsGroup>();
@@ -250,9 +256,13 @@ export class EventStudyCalculationService {
       }
 
       summary.observationsBuilt++;
+      builtObs.push(obs); // 영속용(이벤트당 1건)
       addToGroup(row.market, obs); // KOSPI / KOSDAQ
       addToGroup('ALL', obs); // 시장 미상 폴백·교차시장 풀링
     }
+
+    // 개별 관측치 영속(드릴다운 표본 투명성). 멱등: 동일 eventId 선삭제 후 재적재.
+    summary.observationsPersisted = await this.persistObservations(builtObs);
 
     for (const g of groups.values()) {
       const dates = g.observations.map(o => o.d0Date).sort();
@@ -272,9 +282,48 @@ export class EventStudyCalculationService {
 
     this.logger.log(
       `Event Study 산출 완료: scanned=${summary.eventsScanned} obs=${summary.observationsBuilt} ` +
+        `persisted=${summary.observationsPersisted} ` +
         `groups=${summary.groupsAggregated} ready=${summary.readyCount} insufficient=${summary.insufficientCount}`,
     );
     return summary;
+  }
+
+  /**
+   * 개별 관측치(EventStudyObservation)를 영속한다 — 버킷 통계의 표본 투명성(DAR-166 드릴다운).
+   *
+   * - 멱등: 재산출 시 동일 eventId 행을 선삭제 후 재적재(스키마 자연키 부재 → delete+insert).
+   * - 시장 그룹(KOSPI/KOSDAQ/ALL)과 무관하게 이벤트당 1건만 저장(관측치 모델은 marketType 없음).
+   * - ARResult(일별 수익률·AR·누적 AR·거래량비·MDD·상승/급락 플래그)를 그대로 JSON 보존.
+   */
+  private async persistObservations(builtObs: EventObservationInput[]): Promise<number> {
+    if (builtObs.length === 0) return 0;
+
+    const eventIds = builtObs.map(o => o.eventId);
+    await this.prisma.eventStudyObservation.deleteMany({
+      where: { eventId: { in: eventIds } },
+    });
+
+    const data = builtObs.map(obs => {
+      const ar = this.engine.computeObservation(obs);
+      return {
+        eventId: obs.eventId,
+        rcpNo: obs.rcpNo,
+        corpCode: obs.corpCode,
+        eventType: obs.eventType,
+        bucketKey: obs.bucketKey,
+        d0Date: obs.d0Date,
+        dailyReturns: ar.dailyReturns,
+        dailyAR: ar.dailyAR,
+        cumulativeAR: ar.cumulativeAR,
+        volumeRatios: ar.volumeRatios,
+        maxDrawdown: ar.maxDrawdown,
+        isUpD5: ar.isUpD5,
+        isCrashD5: ar.isCrashD5,
+      };
+    });
+
+    const created = await this.prisma.eventStudyObservation.createMany({ data });
+    return created?.count ?? data.length;
   }
 
   /**

@@ -81,6 +81,16 @@ export default function PositionDetailScreen() {
   const position = positionQuery.data;
   const thesis = thesisQuery.data;
 
+  // Thesis 카드 보조 라벨 — 로딩/에러/무데이터/데이터를 명시적으로 분기(DAR-183).
+  // 기존엔 data 존재여부만 봐 에러·무데이터에도 "불러오는 중…"으로 고착됐다.
+  const thesisSummary = thesisQuery.isLoading
+    ? 'Thesis 불러오는 중…'
+    : thesisQuery.isError
+      ? 'Thesis를 불러오지 못했습니다'
+      : thesis
+        ? '진입 논리 및 훼손 조건 확인'
+        : 'Thesis 없음';
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
@@ -166,7 +176,7 @@ export default function PositionDetailScreen() {
                 <View style={{ gap: spacing.xs }}>
                   <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>Thesis</Text>
                   <Text style={[typo.bodyMedium, { color: colors.text }]}>
-                    {thesis ? '진입 논리 및 훼손 조건 확인' : 'Thesis 불러오는 중…'}
+                    {thesisSummary}
                   </Text>
                 </View>
                 <Feather name="chevron-right" size={20} color={colors.primary} />

@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, type ViewStyle } from 'react-native';
 import { Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing } from '@theme/spacing';
 import { pnlColor } from '@utils/signalDisplay';
 
@@ -36,6 +36,8 @@ export function PriceChangeChip({ value, amount, style }: PriceChangeChipProps) 
     <Chip
       compact
       mode="flat"
+      // DAR-174: OS 글꼴 최대 확대 시 고정 높이 칩에서 텍스트가 잘리지 않도록 배율 상한 가드.
+      maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
       style={[
         styles.chip,
         { backgroundColor: chipBg },
@@ -53,7 +55,9 @@ export function PriceChangeChip({ value, amount, style }: PriceChangeChipProps) 
 
 const styles = StyleSheet.create({
   chip: {
-    height: 26,
+    // DAR-174: 고정 height(26) → minHeight + 수직 패딩. 큰 글꼴에서도 칩이 늘어나 클리핑되지 않는다.
+    minHeight: 26,
     paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
   },
 });

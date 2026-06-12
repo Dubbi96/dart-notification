@@ -1,9 +1,7 @@
 /**
- * portfolio.service.spec.ts — 헤드라인 총수익률 분모 회귀 (DAR-184)
- *
- * 버그: totalPnlPercent 분모가 원가(entryAmount 합)가 아니라 평가금액(currentValue 합)이었다.
- * 수익률 정의는 손익/원가 = (평가-원가)/원가. 평가금액 분모는 이익 과소·손실 과대 평가를 유발.
- * 실제 DB 없이 PrismaService aggregate만 스텁한 순수 산술 검증.
+ * portfolio.service.spec.ts
+ * - DAR-184: 헤드라인 총수익률(totalPnlPercent) 분모 회귀 (원가 기준)
+ * - DAR-171: thesisStatus 데드 삼항 수정 (실제 PositionThesis.status 매핑)
  */
 
 import { PortfolioService } from './portfolio.service';
@@ -15,7 +13,7 @@ interface AggSum {
   entryAmount: number | null;
 }
 
-function makeService(aggSum: AggSum) {
+function makeSummaryService(aggSum: AggSum) {
   const prisma = {
     portfolio: {
       findFirst: jest.fn().mockResolvedValue({ riskSnapshots: [] }),
@@ -30,7 +28,7 @@ function makeService(aggSum: AggSum) {
 
 describe('PortfolioService.findPortfolioSummary — 총수익률 분모(DAR-184)', () => {
   it('이익 구간: 원가100→평가110(손익+10)이면 +10% (분모=원가)', async () => {
-    const service = makeService({ currentValue: 110, unrealizedPnl: 10, entryAmount: 100 });
+    const service = makeSummaryService({ currentValue: 110, unrealizedPnl: 10, entryAmount: 100 });
     const summary = await service.findPortfolioSummary('user-1');
 
     expect(summary.totalPnl).toBe(10);
@@ -40,7 +38,7 @@ describe('PortfolioService.findPortfolioSummary — 총수익률 분모(DAR-184)
   });
 
   it('손실 구간: 원가100→평가50(손익-50)이면 -50% (분모=원가, -100% 아님)', async () => {
-    const service = makeService({ currentValue: 50, unrealizedPnl: -50, entryAmount: 100 });
+    const service = makeSummaryService({ currentValue: 50, unrealizedPnl: -50, entryAmount: 100 });
     const summary = await service.findPortfolioSummary('user-1');
 
     expect(summary.totalPnl).toBe(-50);
@@ -50,25 +48,100 @@ describe('PortfolioService.findPortfolioSummary — 총수익률 분모(DAR-184)
   });
 
   it('다종목 합산: 원가합200·손익합+30이면 +15%', async () => {
-    const service = makeService({ currentValue: 230, unrealizedPnl: 30, entryAmount: 200 });
+    const service = makeSummaryService({ currentValue: 230, unrealizedPnl: 30, entryAmount: 200 });
     const summary = await service.findPortfolioSummary('user-1');
 
     expect(summary.totalPnlPercent).toBeCloseTo(15, 6);
   });
 
   it('원가 합이 0(포지션 없음)이면 0% — 0 나눗셈 방지', async () => {
-    const service = makeService({ currentValue: 0, unrealizedPnl: 0, entryAmount: 0 });
+    const service = makeSummaryService({ currentValue: 0, unrealizedPnl: 0, entryAmount: 0 });
     const summary = await service.findPortfolioSummary('user-1');
 
     expect(summary.totalPnlPercent).toBe(0);
   });
 
   it('entryAmount 합이 null(미집계)이어도 0%로 안전 폴백', async () => {
-    const service = makeService({ currentValue: null, unrealizedPnl: null, entryAmount: null });
+    const service = makeSummaryService({ currentValue: null, unrealizedPnl: null, entryAmount: null });
     const summary = await service.findPortfolioSummary('user-1');
 
     expect(summary.totalValue).toBe(0);
     expect(summary.totalPnl).toBe(0);
     expect(summary.totalPnlPercent).toBe(0);
+  });
+});
+
+/**
+ * DAR-171: thesisStatus 데드 삼항(양 분기 모두 'ACTIVE') 수정 검증.
+ * 실제 PositionThesis.status(DB) → 화면용 ThesisStatus 매핑이 응답에 반영되는지 확인한다.
+ */
+describe('PortfolioService thesisStatus 매핑 (DAR-171)', () => {
+  function makePosition(thesisStatus: string | null) {
+    return {
+      id: 'pos-1',
+      portfolio: { id: 'pf-1' },
+      corpCode: '00126380',
+      company: { corpName: '삼성전자', stockCode: '005930' },
+      unrealizedPnlPct: 1.2,
+      quantity: 10,
+      entryPrice: 50000,
+      currentPrice: 51000,
+      positionThesisId: thesisStatus ? 'th-1' : null,
+      positionThesis: thesisStatus ? { status: thesisStatus } : null,
+    };
+  }
+
+  function makeService(position: ReturnType<typeof makePosition>) {
+    const prisma = {
+      position: {
+        findMany: jest.fn().mockResolvedValue([position]),
+        findFirst: jest.fn().mockResolvedValue(position),
+      },
+    } as any;
+    return new PortfolioService(prisma);
+  }
+
+  it('findUserPositions: thesis INVALIDATED → 응답 VIOLATED', async () => {
+    const service = makeService(makePosition('INVALIDATED'));
+    const [row] = await service.findUserPositions('user-1');
+    expect(row.thesisStatus).toBe('VIOLATED');
+  });
+
+  it('findPosition: thesis INVALIDATED → 응답 VIOLATED', async () => {
+    const service = makeService(makePosition('INVALIDATED'));
+    const row = await service.findPosition('user-1', 'pos-1');
+    expect(row.thesisStatus).toBe('VIOLATED');
+  });
+
+  it('findUserPositions: thesis CLOSED → 응답 EXPIRED', async () => {
+    const service = makeService(makePosition('CLOSED'));
+    const [row] = await service.findUserPositions('user-1');
+    expect(row.thesisStatus).toBe('EXPIRED');
+  });
+
+  it('findUserPositions: thesis ACTIVE → 응답 ACTIVE', async () => {
+    const service = makeService(makePosition('ACTIVE'));
+    const [row] = await service.findUserPositions('user-1');
+    expect(row.thesisStatus).toBe('ACTIVE');
+  });
+
+  it('findUserPositions: thesis 미연결 → 응답 ACTIVE(기본값)', async () => {
+    const service = makeService(makePosition(null));
+    const [row] = await service.findUserPositions('user-1');
+    expect(row.thesisStatus).toBe('ACTIVE');
+  });
+
+  it('findUserPositions: positionThesis를 include 한다(status select)', async () => {
+    const position = makePosition('INVALIDATED');
+    const prisma = {
+      position: {
+        findMany: jest.fn().mockResolvedValue([position]),
+        findFirst: jest.fn(),
+      },
+    } as any;
+    const service = new PortfolioService(prisma);
+    await service.findUserPositions('user-1');
+    const arg = prisma.position.findMany.mock.calls[0][0];
+    expect(arg.include.positionThesis).toEqual({ select: { status: true } });
   });
 });

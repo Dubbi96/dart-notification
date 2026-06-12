@@ -6,6 +6,7 @@ import type { SignalGrade, ExitAction } from '@app-types/signal.types';
 import type { ThesisStatus } from '@app-types/portfolio.types';
 
 import { SCORE_ONE_LINER, EXIT_SCORE_ONE_LINER } from './copy';
+import { formatReturnPct, returnColor } from './numberFormat';
 
 import type { ThemeColors } from '@theme';
 
@@ -170,18 +171,14 @@ export function thesisStatusLabel(status: ThesisStatus): string {
 }
 
 /**
- * 손익률 색상: 양수 success / 음수 error / 보합 textSecondary.
- * 보합(0%)은 textTertiary(≈2.5:1, 거의 안 보임) 대신 AA 가독성을 갖는
- * textSecondary를 사용한다(DAR-148). 방향 단서는 호출부 아이콘(minus)이 병행.
+ * 손익률 색상 — 부호→색 단일 규칙 `returnColor`의 손익 도메인 별칭(DAR-177).
+ * 양수 success / 음수 error / 보합 textSecondary(AA, DAR-148).
  */
 export function pnlColor(pnlPercent: number, colors: ThemeColors): string {
-  if (pnlPercent > 0) return colors.success;
-  if (pnlPercent < 0) return colors.error;
-  return colors.textSecondary;
+  return returnColor(pnlPercent, colors);
 }
 
-/** +/- 부호를 포함한 손익률 포맷 */
+/** +/- 부호를 포함한 손익률 포맷 — 정본 `formatReturnPct`(자릿수 1) 별칭. */
 export function formatPnlPercent(pnlPercent: number): string {
-  const sign = pnlPercent > 0 ? '+' : '';
-  return `${sign}${pnlPercent.toFixed(1)}%`;
+  return formatReturnPct(pnlPercent, { digits: 1 });
 }

@@ -99,9 +99,11 @@ interface SignalExplorerProps {
   searchQuery?: string;
   /** 큐레이션 슬롯·검색 입력 등 L1/L2 상단 요소를 리스트 헤더로 주입(단일 스크롤 컨테이너). */
   ListHeaderComponent?: React.ReactElement | null;
+  /** DAR-181: 탭 재탭 시 최상단 복귀(useScrollToTop)를 위해 내부 FlatList ref를 부모에 노출. */
+  listRef?: React.RefObject<FlatList<TradingSignal> | null>;
 }
 
-export function SignalExplorer({ searchQuery = '', ListHeaderComponent }: SignalExplorerProps) {
+export function SignalExplorer({ searchQuery = '', ListHeaderComponent, listRef }: SignalExplorerProps) {
   const { colors, typography: typo } = useTheme();
   const [grade, setGrade] = useState<SignalGrade | undefined>(undefined);
   const [persona, setPersona] = useState<string | undefined>(undefined);
@@ -236,6 +238,7 @@ export function SignalExplorer({ searchQuery = '', ListHeaderComponent }: Signal
 
   return (
     <FlatList
+      ref={listRef}
       style={styles.container}
       data={query.isLoading ? [] : items}
       renderItem={renderItem}

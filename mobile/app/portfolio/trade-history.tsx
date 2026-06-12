@@ -16,6 +16,7 @@ import { useSimulationEquityCurve } from '@hooks/useSimulationStatus';
 import { useSignalAccuracy } from '@hooks/useSignalAccuracy';
 import { useCalibration } from '@hooks/useCalibration';
 import { getEventTypeLabel } from '@utils/disclosureType';
+import { formatReturnPct, formatWinRate, returnColor } from '@utils/numberFormat';
 
 import type { TradeRationale, TradeScorecard } from '@app-types/trade-rationale.types';
 
@@ -56,10 +57,6 @@ function triggerLabel(t: string): string {
 function formatPnl(pnl: number): string {
   const sign = pnl > 0 ? '+' : '';
   return `${sign}${Math.round(pnl).toLocaleString('ko-KR')}원`;
-}
-
-function formatPct(pct: number): string {
-  return `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
 }
 
 function formatDate(iso: string): string {
@@ -105,7 +102,7 @@ function SummaryRow({
 }) {
   const { colors, typography: typo } = useTheme();
   const cumPct = scorecard?.cumulativeReturnPct ?? 0;
-  const valueColor = cumPct >= 0 ? colors.success : colors.error;
+  const valueColor = returnColor(cumPct, colors);
   const hasTrend = returnSeries.length >= 2;
 
   return (
@@ -113,12 +110,12 @@ function SummaryRow({
       onPress={onPress}
       activeOpacity={0.7}
       accessibilityRole="button"
-      accessibilityLabel={`기간 수익률 ${formatPct(cumPct)}. 성과 탭에서 매매 성적표 전체 보기`}
+      accessibilityLabel={`기간 수익률 ${formatReturnPct(cumPct)}. 성과 탭에서 매매 성적표 전체 보기`}
     >
       <Surface elevation={1} style={[styles.summaryRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.summaryLeft}>
           <Text style={[typo.small, { color: colors.textSecondary }]}>기간 수익률</Text>
-          <Text style={[typo.h3, { color: valueColor, marginTop: spacing.xs }]}>{formatPct(cumPct)}</Text>
+          <Text style={[typo.h3, { color: valueColor, marginTop: spacing.xs }]}>{formatReturnPct(cumPct)}</Text>
         </View>
         <View style={styles.summaryTrend}>
           {hasTrend ? (
@@ -208,7 +205,7 @@ function DataLimitBadge() {
 
 function Scorecard({ scorecard }: { scorecard: TradeScorecard }) {
   const { colors, typography: typo } = useTheme();
-  const winRateText = scorecard.winRate === null ? '표본 부족' : `${Math.round(scorecard.winRate * 100)}%`;
+  const winRateText = formatWinRate(scorecard.winRate, { fallback: '표본 부족' });
   const avgHoldText = scorecard.avgHoldDays === null ? '—' : `${scorecard.avgHoldDays}일`;
 
   return (
@@ -232,8 +229,8 @@ function Scorecard({ scorecard }: { scorecard: TradeScorecard }) {
         <Metric label="승률" value={winRateText} sub={`${scorecard.winCount}승 ${scorecard.lossCount}패`} />
         <Metric
           label="누적 수익률"
-          value={`${scorecard.cumulativeReturnPct >= 0 ? '+' : ''}${scorecard.cumulativeReturnPct.toFixed(2)}%`}
-          valueColor={scorecard.cumulativeReturnPct >= 0 ? colors.success : colors.error}
+          value={formatReturnPct(scorecard.cumulativeReturnPct)}
+          valueColor={returnColor(scorecard.cumulativeReturnPct, colors)}
         />
         <Metric label="평균 손익" value={formatPnl(scorecard.avgPnl)} />
         <Metric label="평균 보유" value={avgHoldText} />

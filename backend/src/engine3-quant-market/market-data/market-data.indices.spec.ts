@@ -87,6 +87,40 @@ describe('MarketDataService.fetchLatestIndices (DAR-160)', () => {
     expect(res[0].change).toBe(2700);
     expect(res[0].changePercent).toBeNull();
   });
+
+  // DAR-170: EOD 데이터라 60s in-memory TTL 캐시로 홈 진입마다의 반복 DB 조회를 흡수한다.
+  it('60s TTL 캐시: 윈도 내 재호출은 DB 재조회 없이 동일 결과를 반환', async () => {
+    const { service, findMany } = makeService({
+      '0001': [
+        { closeIndex: 2700, tradeDate: '20260610' },
+        { closeIndex: 2727, tradeDate: '20260611' },
+      ],
+    });
+
+    const T0 = 1_000_000;
+    const first = await service.fetchLatestIndices(T0);
+    // KOSPI·KOSDAQ 각 1회 → 2회 DB 조회.
+    expect(findMany).toHaveBeenCalledTimes(2);
+
+    // TTL(60s) 내 재호출 → DB 추가 조회 0, 캐시된 동일 결과.
+    const second = await service.fetchLatestIndices(T0 + 59_000);
+    expect(findMany).toHaveBeenCalledTimes(2);
+    expect(second).toEqual(first);
+  });
+
+  it('60s TTL 만료 후에는 DB 를 다시 조회한다', async () => {
+    const { service, findMany } = makeService({
+      '0001': [{ closeIndex: 2700, tradeDate: '20260611' }],
+    });
+
+    const T0 = 1_000_000;
+    await service.fetchLatestIndices(T0);
+    expect(findMany).toHaveBeenCalledTimes(2); // 0001 + 1001
+
+    // 60s 경과(경계 초과) → 캐시 만료·재조회.
+    await service.fetchLatestIndices(T0 + 60_000);
+    expect(findMany).toHaveBeenCalledTimes(4);
+  });
 });
 
 describe('MarketDataController.latestIndices (DAR-160)', () => {

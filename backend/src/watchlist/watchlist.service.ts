@@ -80,24 +80,31 @@ export class WatchlistService {
   }
 
   async create(userId: string, dto: CreateWatchlistDto) {
-    const count = await this.prisma.watchList.count({
-      where: { userId },
-    });
-
-    if (count >= MAX_WATCHLIST_COUNT) {
-      throw new UnprocessableEntityException('Watchlist limit exceeded (max 30)');
-    }
-
+    // 동시성: count→create 는 비원자적이라 서로 다른 corpCode 병렬 추가가
+    // 각각 count(<30) 통과 후 모두 insert → MAX_WATCHLIST_COUNT 초과 가능(DAR-179).
+    // 사용자 단위 트랜잭션 advisory lock 으로 같은 userId 의 추가를 직렬화하면
+    // 트랜잭션 안의 count→create 가 원자적으로 보장된다(스키마 변경 불필요).
     try {
-      const item = await this.prisma.watchList.create({
-        data: {
-          userId,
-          corpCode: dto.corpCode,
-          corpName: dto.corpName,
-        },
-      });
+      return await this.prisma.$transaction(async (tx) => {
+        // pg_advisory_xact_lock: 트랜잭션 종료 시 자동 해제. 같은 userId 끼리만 직렬화
+        // (hashtextextended 로 cuid → bigint 키). 다른 사용자는 경합 없이 병렬 진행.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 0))`;
 
-      return item;
+        const count = await tx.watchList.count({ where: { userId } });
+        if (count >= MAX_WATCHLIST_COUNT) {
+          throw new UnprocessableEntityException(
+            'Watchlist limit exceeded (max 30)',
+          );
+        }
+
+        return tx.watchList.create({
+          data: {
+            userId,
+            corpCode: dto.corpCode,
+            corpName: dto.corpName,
+          },
+        });
+      });
     } catch (error: any) {
       if (error.code === 'P2002') {
         throw new ConflictException('Company already in watchlist');

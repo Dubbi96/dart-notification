@@ -1,9 +1,9 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SegmentedButtons } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useScrollToTop } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ExitScoreCard } from '@components/signals/ExitScoreCard';
@@ -19,7 +19,7 @@ import { SkeletonList } from '@components/common/SkeletonCard';
 import { useAuthStore } from '@stores/authStore';
 import { useExitSignals } from '@hooks/useSignals';
 
-import type { ExitSignal } from '@app-types/signal.types';
+import type { ExitSignal, TradingSignal } from '@app-types/signal.types';
 
 type FeedTab = 'buy' | 'sell';
 
@@ -28,6 +28,13 @@ export default function SignalsScreen() {
   const [feedTab, setFeedTab] = useState<FeedTab>('buy');
   const [search, setSearch] = useState('');
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  // DAR-181: 탭 재탭 시 최상단 복귀. 매수(SignalExplorer)·매도 FlatList는 상호배타로
+  // 동시에 하나만 마운트되므로 비활성 ref는 null → useScrollToTop이 no-op.
+  const buyListRef = useRef<FlatList<TradingSignal>>(null);
+  const sellListRef = useRef<FlatList<ExitSignal>>(null);
+  useScrollToTop(buyListRef);
+  useScrollToTop(sellListRef);
 
   const exitQuery = useExitSignals();
 
@@ -151,7 +158,7 @@ export default function SignalsScreen() {
 
     if (feedTab === 'buy') {
       // L2 SignalExplorer가 단일 스크롤 컨테이너. 상단 슬롯은 ListHeaderComponent로 주입.
-      return <SignalExplorer searchQuery={search} ListHeaderComponent={buyHeader} />;
+      return <SignalExplorer searchQuery={search} ListHeaderComponent={buyHeader} listRef={buyListRef} />;
     }
 
     // 매도 피드 — 큐레이션·검색 아래의 전체 매도 신호. 토글로 진입.
@@ -179,6 +186,7 @@ export default function SignalsScreen() {
     const data = exitQuery.data ?? [];
     return (
       <FlatList
+        ref={sellListRef}
         style={styles.body}
         data={data}
         renderItem={renderExit}

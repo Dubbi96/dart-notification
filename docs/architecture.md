@@ -159,7 +159,8 @@ External APIs:
   - 토큰 만료 시 재등록 필요
   - 배치 전송 지원 (최대 100개)
 - **무효 토큰 처리**:
-  - 발송 ticket/receipt에서 `DeviceNotRegistered` 감지 시 DB에서 자동 삭제
+  - 발송 ticket 단계: `DeviceNotRegistered` 즉시 감지 시 DB에서 자동 삭제
+  - 발송 receipt 단계(DAR-182): 발송 ~15분 후 receipt 조회로 드러나는 `DeviceNotRegistered` 정리. **durable BullMQ delayed job(`QUEUE.EXPO_RECEIPT`)** 으로 처리해 배포·크래시·오토스케일 재시작에도 보장(기존 휘발성 `setTimeout` 대체 — 프로세스 생존 의존 제거).
   - 로그아웃 시 클라이언트가 deviceToken을 전달하여 서버에서 삭제
 
 ## 3. 데이터 흐름

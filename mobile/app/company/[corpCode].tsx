@@ -27,6 +27,7 @@ import { useRequireAuth } from '@hooks/useRequireAuth';
 import { useCompanyEventStudy } from '@hooks/useEventStudy';
 import { useCompanySignal } from '@hooks/useSignals';
 import { gradeColor, gradeLabel } from '@utils/signalDisplay';
+import { formatReturnPct, returnColor } from '@utils/numberFormat';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { parse, format } from 'date-fns';
 import { LoadingState, EmptyState, ErrorState } from '@components/common/StateView';
@@ -42,6 +43,7 @@ import { useCompanyPhilosophyFit } from '@hooks/usePhilosophies';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
 import { useStockQuotes } from '@hooks/useStockQuotes';
 import { StockPriceBadge } from '@components/common/StockPriceBadge';
+import { OfflineStaleLabel } from '@components/common/OfflineStaleLabel';
 import type { EventStudyResult } from '@app-types/signal.types';
 
 type CompanyTab = 'decision' | 'disclosures' | 'financials' | 'insider' | 'stats' | 'philosophy';
@@ -79,20 +81,14 @@ function getMarketLabel(corpCls: string | null, market: string | null): string {
   }
 }
 
-function formatPct(value: number): string {
-  const sign = value >= 0 ? '+' : '';
-  return `${sign}${value.toFixed(1)}%`;
-}
-
 function PctText({ value, typo, colors }: {
   value: number;
   typo: ReturnType<typeof useTheme>['typography'];
   colors: ReturnType<typeof useTheme>['colors'];
 }) {
-  const color = value > 0 ? colors.success : value < 0 ? colors.error : colors.textSecondary;
   return (
-    <Text style={[typo.bodyMedium, { color, fontWeight: '600' }]}>
-      {formatPct(value)}
+    <Text style={[typo.bodyMedium, { color: returnColor(value, colors), fontWeight: '600' }]}>
+      {formatReturnPct(value)}
     </Text>
   );
 }
@@ -237,19 +233,19 @@ function EventStudyTab({ corpCode }: EventStudyTabProps) {
             />
             <StatRow
               label="평균 최대낙폭 (MDD)"
-              value={formatPct(selected.avgMaxDrawdown)}
+              value={formatReturnPct(selected.avgMaxDrawdown)}
               colors={colors}
               typo={typo}
               valueColor={colors.error}
-              accessibilityLabel={`평균 최대낙폭: ${formatPct(selected.avgMaxDrawdown)}`}
+              accessibilityLabel={`평균 최대낙폭: ${formatReturnPct(selected.avgMaxDrawdown)}`}
             />
             <StatRow
               label="시장 대비 초과수익 D+5"
-              value={formatPct(selected.avgArD5)}
+              value={formatReturnPct(selected.avgArD5)}
               colors={colors}
               typo={typo}
-              valueColor={selected.avgArD5 >= 0 ? colors.success : colors.error}
-              accessibilityLabel={`시장 대비 초과수익 D+5: ${formatPct(selected.avgArD5)}`}
+              valueColor={returnColor(selected.avgArD5, colors)}
+              accessibilityLabel={`시장 대비 초과수익 D+5: ${formatReturnPct(selected.avgArD5)}`}
             />
           </Card>
 
@@ -316,7 +312,7 @@ export default function CompanyDetailScreen() {
     isRefetching: isRefetchingRisk,
   } = useStockRiskStatus({ corpCode: corpCode! });
   // DAR-158: 최신 시세(현재가·전일대비%·5일 스파크라인) 배지. 가격 없으면 미표시.
-  const { quotes } = useStockQuotes([company?.stockCode]);
+  const { quotes, dataUpdatedAt: quoteUpdatedAt } = useStockQuotes([company?.stockCode]);
   const quote = company?.stockCode ? quotes[company.stockCode] : null;
   const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
   const addToWatchlist = useAddToWatchlist();
@@ -449,6 +445,11 @@ export default function CompanyDetailScreen() {
 
           {/* DAR-158: 가격 배지 — 시세 적재 시 현재가·등락률·스파크라인, 없으면 미표시. */}
           <StockPriceBadge quote={quote} style={styles.priceBadge} />
+
+          {/* DAR-173: 오프라인 시 '마지막 갱신 N분 전' 보조 라벨(stale 옛값 오인 방지). 온라인이면 미표시. */}
+          {company.stockCode ? (
+            <OfflineStaleLabel updatedAt={quoteUpdatedAt} style={styles.staleLabel} />
+          ) : null}
 
 
           {/* DAR-99: 위험 배지 — 위험 없으면 미표시. 근사값(DART 공시 기반) 라벨 병기. */}
@@ -903,6 +904,9 @@ const styles = StyleSheet.create({
   },
   priceBadge: {
     marginTop: spacing.sm,
+  },
+  staleLabel: {
+    marginTop: spacing.xs,
   },
   watchlistButton: {
     flexDirection: 'row',

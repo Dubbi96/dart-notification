@@ -19,6 +19,8 @@ import { useCompanyDetail } from '@hooks/useCompanyDetail';
 import { useWatchlist, useAddToWatchlist, useRemoveFromWatchlist } from '@hooks/useWatchlist';
 import { useRequireAuth } from '@hooks/useRequireAuth';
 import { useCompanyEventStudy } from '@hooks/useEventStudy';
+import { useCompanySignal } from '@hooks/useSignals';
+import { gradeColor, gradeLabel } from '@utils/signalDisplay';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { parse, format } from 'date-fns';
 import { LoadingState, EmptyState, ErrorState } from '@components/common/StateView';
@@ -370,6 +372,9 @@ export default function CompanyDetailScreen() {
           {/* DAR-99: 위험 배지 — 위험 없으면 미표시. 근사값(DART 공시 기반) 라벨 병기. */}
           <RiskStatusBadges status={riskStatus} style={styles.riskBadges} />
 
+          {/* DAR-159: 종목 신호 배지 — 로그인 사용자에게만. 신호 없으면 빈상태 흡수. */}
+          {isAuthenticated && <CompanySignalBadgeRow corpCode={corpCode!} />}
+
           <TouchableOpacity
             style={[
               styles.watchlistButton,
@@ -590,6 +595,71 @@ function CompanyPhilosophyTab({ corpCode, corpName }: CompanyPhilosophyTabProps)
   );
 }
 
+// DAR-159: 종목 상세 헤더 신호 배지 — 해당 종목 최신 매수 신호(등급·점수·진입준비)를
+// 전용 엔드포인트로 단건 조회해 노출한다. 신호 없으면 '신호 없음' 빈상태로 흡수.
+// 로그인 사용자에게만 마운트(게스트는 신호 비노출 → 401 회피).
+function CompanySignalBadgeRow({ corpCode }: { corpCode: string }) {
+  const { colors, typography: typo } = useTheme();
+  const { data, isLoading } = useCompanySignal(corpCode);
+
+  if (isLoading) {
+    return (
+      <View style={styles.signalBadgeLoading} accessibilityLabel="종목 신호 불러오는 중">
+        <ActivityIndicator size="small" color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (!data) {
+    return (
+      <View
+        style={[styles.signalBadgeEmpty, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+        accessible
+        accessibilityLabel="아직 매수 신호가 없습니다"
+      >
+        <Feather name="bell-off" size={13} color={colors.textTertiary} />
+        <Text style={[typo.small, { color: colors.textTertiary, marginLeft: spacing.xs }]}>
+          아직 매수 신호 없음
+        </Text>
+      </View>
+    );
+  }
+
+  const color = gradeColor(data.grade, colors);
+  const label = gradeLabel(data.grade);
+
+  return (
+    <TouchableOpacity
+      style={[styles.signalBadgeRow, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+      activeOpacity={0.8}
+      onPress={() => router.push(`/signals/${data.id}`)}
+      accessibilityRole="button"
+      accessibilityLabel={`매수 신호 ${label}, 점수 ${data.buyScore}점${data.entryReady ? ', 진입 준비 완료' : ''}. 신호 상세 보기`}
+    >
+      <View
+        style={[styles.gradeChip, { backgroundColor: color + '22', borderColor: color }]}
+      >
+        <Text style={[typo.small, { color, fontWeight: '700' }]}>{label}</Text>
+      </View>
+      <Text
+        style={[typo.bodyMedium, { color: colors.text, fontWeight: '700', marginLeft: spacing.sm }]}
+      >
+        {data.buyScore}점
+      </Text>
+      {data.entryReady && (
+        <View style={[styles.entryReadyChip, { backgroundColor: colors.successSurface }]}>
+          <Feather name="check-circle" size={12} color={colors.success} />
+          <Text style={[typo.small, { color: colors.success, fontWeight: '600', marginLeft: 4 }]}>
+            진입 준비
+          </Text>
+        </View>
+      )}
+      <View style={{ flex: 1 }} />
+      <Feather name="chevron-right" size={16} color={colors.textTertiary} />
+    </TouchableOpacity>
+  );
+}
+
 function InfoRow({ icon, label, value, colors, typo, isLink }: {
   icon: string;
   label: string;
@@ -664,6 +734,46 @@ const styles = StyleSheet.create({
   },
   riskBadges: {
     marginTop: spacing.sm,
+  },
+  signalBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+    minHeight: 44,
+  },
+  signalBadgeEmpty: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+  },
+  signalBadgeLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    marginTop: spacing.sm,
+    minHeight: 44,
+  },
+  gradeChip: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+  },
+  entryReadyChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    marginLeft: spacing.sm,
   },
   watchlistButton: {
     flexDirection: 'row',

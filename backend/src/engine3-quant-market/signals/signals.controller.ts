@@ -59,6 +59,16 @@ export class SignalsController {
     return { success: true, data };
   }
 
+  // DAR-159: 종목별 최신 신호 단건 — ':id'(catch-all)보다 먼저 선언해 라우트 충돌 방지.
+  @Get('by-corp/:corpCode')
+  @ApiOperation({
+    summary: '종목별 최신 매수 신호 단건 조회 (corpCode, 백필 제외)',
+  })
+  async findLatestByCorpCode(@Param('corpCode') corpCode: string) {
+    const data = await this.signalsService.findLatestByCorpCode(corpCode);
+    return { success: true, data };
+  }
+
   @Get(':id')
   @ApiOperation({ summary: '매매 신호 상세 조회' })
   async findOne(@Param('id') id: string) {

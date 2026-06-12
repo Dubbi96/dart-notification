@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Chip } from 'react-native-paper';
@@ -14,7 +15,9 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
-import { LoadingState, ErrorState } from '@components/common/StateView';
+import { ErrorState } from '@components/common/StateView';
+import { DetailSkeleton } from '@components/common/DetailSkeleton';
+import { CompanyHubLink } from '@components/company/CompanyHubLink';
 import { usePosition, usePositionThesis } from '@hooks/usePortfolio';
 import {
   thesisStatusColor,
@@ -39,10 +42,30 @@ export default function PositionDetailScreen() {
     router.push(`/portfolio/${portfolioId}/position/${positionId}/thesis`);
   }, [portfolioId, positionId]);
 
+  // 시세·논거 변동 데이터 갱신 — 포지션·Thesis 두 쿼리를 함께 새로고침.
+  const handleRefresh = useCallback(() => {
+    positionQuery.refetch();
+    thesisQuery.refetch();
+  }, [positionQuery, thesisQuery]);
+  const isRefreshing = positionQuery.isRefetching || thesisQuery.isRefetching;
+
   if (positionQuery.isLoading) {
+    // 헤더 유지 + 포지션 카드/Thesis 골격 스켈레톤으로 로딩→콘텐츠 점프 제거(DAR-147).
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-        <LoadingState message="포지션을 불러오는 중…" />
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="뒤로 가기"
+          >
+            <Feather name="arrow-left" size={22} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={[typo.h3, { color: colors.text, flex: 1, marginLeft: spacing.md }]}>
+            포지션 상세
+          </Text>
+        </View>
+        <DetailSkeleton cards={[{ chip: true, lines: 2 }, { lines: 2 }, { lines: 1 }]} />
       </SafeAreaView>
     );
   }
@@ -81,7 +104,18 @@ export default function PositionDetailScreen() {
           </Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
+        >
           {/* 헤더 */}
           <Surface elevation={1} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.titleRow}>
@@ -112,6 +146,13 @@ export default function PositionDetailScreen() {
               </Text>
             ) : null}
           </Surface>
+
+          {/* 기업 허브 진입(DAR-149) — corpCode 부재 시 미노출(graceful) */}
+          <CompanyHubLink
+            corpCode={position.corpCode}
+            corpName={position.corpName}
+            ticker={position.ticker}
+          />
 
           {/* Thesis 요약 + 이동 */}
           <TouchableOpacity

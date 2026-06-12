@@ -91,7 +91,9 @@ export function ScoreGauge({
     >
       <View style={styles.row}>
         <Text style={[typo.small, { color: colors.textSecondary }]}>{label ?? title}</Text>
-        <Text style={[typo.captionMedium, { color }]}>{displayScore}</Text>
+        {/* DAR-143: 카드 주인공인 점수값을 h2(22px/700)로 승격 — 좌측 라벨(small 12px) 대비
+            명확한 타이포 위계 확보. 색상은 buy/exit 등급 로직(color) 유지(하드코딩 금지). */}
+        <Text style={[typo.h2, { color }]}>{displayScore}</Text>
       </View>
 
       {/* 바 + 등급 컷 틱 + 노브 (position:relative 컨테이너) */}

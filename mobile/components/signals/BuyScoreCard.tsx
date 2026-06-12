@@ -73,7 +73,8 @@ function BuyScoreCardBase({ signal, onPress }: BuyScoreCardProps) {
                 compact
                 mode="flat"
                 style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
-                textStyle={[typo.small, { color: colors.textSecondary }]}
+                // DAR-143: surfaceSecondary 위 textSecondary 12px(≈4.4:1) 대비 여유 보강 — weight 500.
+                textStyle={[typo.small, styles.eventChipText, { color: colors.textSecondary }]}
               >
                 {getEventTypeLabel(signal.eventType)}
               </Chip>
@@ -164,6 +165,10 @@ const styles = StyleSheet.create({
   },
   eventChip: {
     height: 26,
+  },
+  // DAR-143: 이벤트 라벨칩 대비 보강(weight 500) — 인라인 스타일 경고 회피용 StyleSheet 분리.
+  eventChipText: {
+    fontWeight: '500',
   },
   gradeChip: {
     height: 26,

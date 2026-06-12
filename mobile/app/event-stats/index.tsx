@@ -7,7 +7,8 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
 import { Card } from '@components/common/Card';
-import { LoadingState, EmptyState, ApiErrorState } from '@components/common/StateView';
+import { EmptyState, ApiErrorState } from '@components/common/StateView';
+import { DetailSkeleton } from '@components/common/DetailSkeleton';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { useEventStudyResults } from '@hooks/useEventStudy';
@@ -160,7 +161,12 @@ export default function EventStatsScreen() {
 
   const renderBody = () => {
     if (query.isLoading) {
-      return <LoadingState message="이벤트 통계를 불러오는 중..." />;
+      // 헤더·시장 탭은 유지되고 본문만 이벤트 행 골격 스켈레톤으로 채워 점프 제거(DAR-147).
+      return (
+        <DetailSkeleton
+          cards={[{ lines: 2 }, { lines: 2 }, { lines: 2 }, { lines: 2 }, { lines: 2 }]}
+        />
+      );
     }
     if (query.isError) {
       return (

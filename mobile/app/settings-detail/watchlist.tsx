@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,8 @@ import { useDialog } from '@components/common/DialogProvider';
 import { SearchOverlay } from '@components/common/SearchOverlay';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
+import { useStockQuotes } from '@hooks/useStockQuotes';
+import { StockPriceBadge } from '@components/common/StockPriceBadge';
 
 export default function WatchlistScreen() {
   const { colors, typography: typo } = useTheme();
@@ -31,6 +33,13 @@ export default function WatchlistScreen() {
   const watchlistItems = data?.data ?? [];
   const total = data?.meta?.total ?? 0;
   const limit = data?.meta?.limit ?? 30;
+
+  // DAR-158: 관심기업 가격 배지 — 종목코드 일괄 조회(N+1 회피, 단일 in 쿼리).
+  const stockCodes = useMemo(
+    () => (data?.data ?? []).map((i) => i.stockCode).filter((c): c is string => !!c),
+    [data],
+  );
+  const { quotes } = useStockQuotes(stockCodes);
 
   if (isLoading) {
     return (
@@ -112,6 +121,10 @@ export default function WatchlistScreen() {
                   ? `마지막 공시 ${formatDistanceToNow(parse(item.lastDisclosureDate, 'yyyyMMdd', new Date()), { addSuffix: true, locale: ko })}`
                   : !item.stockCode ? '공시 없음' : ''}
               </Text>
+              {/* DAR-158: 가격 배지 — 시세 있을 때만, 없으면 미표시. */}
+              {item.stockCode && quotes[item.stockCode] ? (
+                <StockPriceBadge quote={quotes[item.stockCode]} style={styles.priceBadge} />
+              ) : null}
             </View>
             <View style={styles.itemActions}>
               <TouchableOpacity
@@ -176,6 +189,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   itemContent: { flex: 1 },
+  priceBadge: { marginTop: spacing.xs },
   itemActions: { flexDirection: 'row', gap: spacing.md },
   actionBtn: { padding: spacing.xs },
 });

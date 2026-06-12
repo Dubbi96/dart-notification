@@ -15,6 +15,8 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
+import { typography } from '@theme/typography';
+import { verticalHitSlopForHeight } from '@utils/touchTarget';
 import { GlassCard } from '@components/common/GlassCard';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
@@ -23,7 +25,6 @@ import { HomeSignalPreview } from '@components/home/HomeSignalPreview';
 import { GraduationTracker } from '@components/home/GraduationTracker';
 import { FirstWatchCoachmark } from '@components/home/FirstWatchCoachmark';
 import { DisclosureFeedCard } from '@components/home/DisclosureFeedCard';
-import { SearchOverlay } from '@components/common/SearchOverlay';
 import { useDisclosures } from '@hooks/useDisclosures';
 import { useWatchlist } from '@hooks/useWatchlist';
 import { useSavedDisclosures } from '@hooks/useSavedDisclosures';
@@ -42,6 +43,11 @@ function getGreeting(): { text: string; Icon: typeof Sun } {
   return { text: '편안한 밤 보내세요', Icon: Moon };
 }
 
+// 세그먼트 탭 실효 시각 높이 = paddingVertical(spacing.sm 상·하) + 라벨 lineHeight.
+// 시각 크기는 유지하고 유효 터치 영역만 44pt로 확장한다(접근성, DAR-146).
+const SEGMENT_TAB_VISUAL_HEIGHT = spacing.sm * 2 + typography.captionMedium.lineHeight;
+const SEGMENT_TAB_HIT_SLOP = verticalHitSlopForHeight(SEGMENT_TAB_VISUAL_HEIGHT);
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { colors, typography: typo } = useTheme();
@@ -59,12 +65,10 @@ export default function HomeScreen() {
   const [feedTab, setFeedTab] = useState<'all' | 'watchlist'>(hasWatchlist ? 'watchlist' : 'all');
   const isWatchlistFeed = feedTab === 'watchlist';
 
-  // 홈 헤더 검색 직결(§10) — 1탭 진입. 비로그인은 기존 인증 게이트 유지.
-  const [searchVisible, setSearchVisible] = useState(false);
+  // 홈 헤더 검색 직결(§10) — 1탭 진입. 통합 검색(기업+공시)은 읽기전용 탐색이라 게스트도 접근 가능(DAR-164).
   const handleSearchOpen = useCallback(() => {
-    if (!requireAuth()) return;
-    setSearchVisible(true);
-  }, [requireAuth]);
+    router.push('/search');
+  }, []);
 
   const {
     data,
@@ -154,11 +158,12 @@ export default function HomeScreen() {
               ]}
               onPress={() => setFeedTab('all')}
               activeOpacity={0.7}
+              hitSlop={SEGMENT_TAB_HIT_SLOP}
             >
               <Text
                 style={[
                   typo.captionMedium,
-                  { color: feedTab === 'all' ? '#FFFFFF' : colors.textSecondary },
+                  { color: feedTab === 'all' ? colors.primaryForeground : colors.textSecondary },
                 ]}
               >
                 전체 공시
@@ -174,17 +179,18 @@ export default function HomeScreen() {
                 ]}
                 onPress={() => setFeedTab('watchlist')}
                 activeOpacity={0.7}
+                hitSlop={SEGMENT_TAB_HIT_SLOP}
               >
                 <Ionicons
                   name="star"
                   size={12}
-                  color={feedTab === 'watchlist' ? '#FFFFFF' : colors.textSecondary}
+                  color={feedTab === 'watchlist' ? colors.primaryForeground : colors.textSecondary}
                   style={{ marginRight: 4 }}
                 />
                 <Text
                   style={[
                     typo.captionMedium,
-                    { color: feedTab === 'watchlist' ? '#FFFFFF' : colors.textSecondary },
+                    { color: feedTab === 'watchlist' ? colors.primaryForeground : colors.textSecondary },
                   ]}
                 >
                   관심 기업
@@ -277,7 +283,7 @@ export default function HomeScreen() {
               onPress={handleSearchOpen}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
-              accessibilityLabel="기업 검색"
+              accessibilityLabel="통합 검색"
             >
               <GlassCard intensity={20} variant="iridescent" style={styles.headerIconGlass}>
                 <View style={styles.headerIconInner}>
@@ -373,9 +379,6 @@ export default function HomeScreen() {
           ListEmptyComponent={ListEmpty}
         />
       </View>
-
-      {/* 검색 오버레이(§10) — 1탭 진입 */}
-      <SearchOverlay visible={searchVisible} onClose={() => setSearchVisible(false)} />
     </View>
   );
 }

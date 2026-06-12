@@ -13,6 +13,7 @@ describe('SignalsService — scoreBreakdown sampleN (DAR-34)', () => {
   let prisma: {
     tradingSignal: {
       findUnique: jest.Mock;
+      findFirst: jest.Mock;
       findMany: jest.Mock;
       count: jest.Mock;
     };
@@ -56,6 +57,7 @@ describe('SignalsService — scoreBreakdown sampleN (DAR-34)', () => {
     prisma = {
       tradingSignal: {
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
         findMany: jest.fn(),
         count: jest.fn(),
       },
@@ -232,6 +234,49 @@ describe('SignalsService — scoreBreakdown sampleN (DAR-34)', () => {
           }),
         }),
       );
+    });
+  });
+
+  /**
+   * DAR-159: 종목별 최신 신호 단건 조회(corpCode 필터) 계약.
+   */
+  describe('findLatestByCorpCode', () => {
+    it('corpCode·백필제외 where + 최신순(createdAt desc)으로 단건 조회한다', async () => {
+      prisma.tradingSignal.findFirst.mockResolvedValue(baseSignal);
+
+      const result = await service.findLatestByCorpCode('00126380');
+
+      expect(prisma.tradingSignal.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { corpCode: '00126380', disclosure: { isBackfill: false } },
+          orderBy: { createdAt: 'desc' },
+        }),
+      );
+      expect(result).toMatchObject({
+        corpCode: '00126380',
+        grade: 'BUY',
+        buyScore: 72,
+        entryReady: true,
+      });
+    });
+
+    it('해당 종목 신호가 없으면 null을 반환한다(빈상태 흡수)', async () => {
+      prisma.tradingSignal.findFirst.mockResolvedValue(null);
+
+      const result = await service.findLatestByCorpCode('99999999');
+
+      expect(result).toBeNull();
+    });
+
+    it('진입준비 여부(entryReady)를 그대로 노출한다', async () => {
+      prisma.tradingSignal.findFirst.mockResolvedValue({
+        ...baseSignal,
+        entryReady: false,
+      });
+
+      const result = await service.findLatestByCorpCode('00126380');
+
+      expect(result?.entryReady).toBe(false);
     });
   });
 

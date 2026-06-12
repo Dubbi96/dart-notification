@@ -1,12 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   Linking,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -19,9 +20,12 @@ import { useCompanyDetail } from '@hooks/useCompanyDetail';
 import { useWatchlist, useAddToWatchlist, useRemoveFromWatchlist } from '@hooks/useWatchlist';
 import { useRequireAuth } from '@hooks/useRequireAuth';
 import { useCompanyEventStudy } from '@hooks/useEventStudy';
+import { useCompanySignal } from '@hooks/useSignals';
+import { gradeColor, gradeLabel } from '@utils/signalDisplay';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { parse, format } from 'date-fns';
 import { LoadingState, EmptyState, ErrorState } from '@components/common/StateView';
+import { DetailSkeleton } from '@components/common/DetailSkeleton';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { PhilosophyFitBreakdown } from '@components/philosophy/PhilosophyFitBreakdown';
 import { DecisionHubTab } from '@components/company/DecisionHubTab';
@@ -30,6 +34,8 @@ import { FundamentalsTab } from '@components/company/FundamentalsTab';
 import { RiskStatusBadges } from '@components/common/RiskStatusBadges';
 import { useCompanyPhilosophyFit } from '@hooks/usePhilosophies';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
+import { useStockQuotes } from '@hooks/useStockQuotes';
+import { StockPriceBadge } from '@components/common/StockPriceBadge';
 import type { EventStudyResult } from '@app-types/signal.types';
 
 type CompanyTab = 'decision' | 'disclosures' | 'financials' | 'insider' | 'stats' | 'philosophy';
@@ -82,7 +88,7 @@ function EventStudyTab({ corpCode }: EventStudyTabProps) {
   const { colors, typography: typo } = useTheme();
   const [selectedEventType, setSelectedEventType] = useState<string | undefined>(undefined);
 
-  const { data, isLoading, isError, refetch } = useCompanyEventStudy(
+  const { data, isLoading, isError, refetch, isRefetching } = useCompanyEventStudy(
     corpCode,
     selectedEventType,
   );
@@ -117,7 +123,18 @@ function EventStudyTab({ corpCode }: EventStudyTabProps) {
     );
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.statsScroll}>
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.statsScroll}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefetching}
+          onRefresh={refetch}
+          colors={[colors.primary]}
+          tintColor={colors.primary}
+        />
+      }
+    >
       {/* Event type chip selector */}
       {eventTypes.length > 1 && (
         <ScrollView
@@ -263,9 +280,21 @@ export default function CompanyDetailScreen() {
   const { corpCode } = useLocalSearchParams<{ corpCode: string }>();
   const { colors, typography: typo, isDark } = useTheme();
   const { isAuthenticated, requireAuth } = useRequireAuth();
-  const { data: company, isLoading } = useCompanyDetail(corpCode!);
+  const {
+    data: company,
+    isLoading,
+    refetch: refetchCompany,
+    isRefetching: isRefetchingCompany,
+  } = useCompanyDetail(corpCode!);
   // DAR-99: 관리종목·거래정지·상폐위험 배지(손실 회피 1차 방어선, DART 폴백·근사값).
-  const { data: riskStatus } = useStockRiskStatus({ corpCode: corpCode! });
+  const {
+    data: riskStatus,
+    refetch: refetchRisk,
+    isRefetching: isRefetchingRisk,
+  } = useStockRiskStatus({ corpCode: corpCode! });
+  // DAR-158: 최신 시세(현재가·전일대비%·5일 스파크라인) 배지. 가격 없으면 미표시.
+  const { quotes } = useStockQuotes([company?.stockCode]);
+  const quote = company?.stockCode ? quotes[company.stockCode] : null;
   const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
   const addToWatchlist = useAddToWatchlist();
   const removeFromWatchlist = useRemoveFromWatchlist();
@@ -276,6 +305,12 @@ export default function CompanyDetailScreen() {
     [watchlistData, corpCode],
   );
   const isWatched = !!watchlistItem;
+
+  // 기업 개요·최근 공시·위험 배지 갱신(공시 탭 당겨서 새로고침).
+  const handleRefreshOverview = useCallback(() => {
+    refetchCompany();
+    refetchRisk();
+  }, [refetchCompany, refetchRisk]);
 
   const handleToggleWatchlist = () => {
     if (!requireAuth()) return;
@@ -289,11 +324,20 @@ export default function CompanyDetailScreen() {
   };
 
   if (isLoading) {
+    // 헤더(뒤로가기) 유지 + 기업 카드/탭 콘텐츠 골격 스켈레톤으로 로딩→콘텐츠 점프 제거(DAR-147).
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+            accessibilityLabel="뒤로 가기"
+            accessibilityRole="button"
+          >
+            <Ionicons name="chevron-back" size={26} color={colors.text} />
+          </TouchableOpacity>
         </View>
+        <DetailSkeleton cards={[{ chip: true, lines: 2 }, { lines: 3 }, { lines: 2 }]} />
       </SafeAreaView>
     );
   }
@@ -367,8 +411,15 @@ export default function CompanyDetailScreen() {
             </Text>
           )}
 
+          {/* DAR-158: 가격 배지 — 시세 적재 시 현재가·등락률·스파크라인, 없으면 미표시. */}
+          <StockPriceBadge quote={quote} style={styles.priceBadge} />
+
+
           {/* DAR-99: 위험 배지 — 위험 없으면 미표시. 근사값(DART 공시 기반) 라벨 병기. */}
           <RiskStatusBadges status={riskStatus} style={styles.riskBadges} />
+
+          {/* DAR-159: 종목 신호 배지 — 로그인 사용자에게만. 신호 없으면 빈상태 흡수. */}
+          {isAuthenticated && <CompanySignalBadgeRow corpCode={corpCode!} />}
 
           <TouchableOpacity
             style={[
@@ -417,7 +468,18 @@ export default function CompanyDetailScreen() {
       {activeTab === 'decision' ? (
         <DecisionHubTab corpCode={corpCode!} />
       ) : activeTab === 'disclosures' ? (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetchingCompany || isRefetchingRisk}
+              onRefresh={handleRefreshOverview}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
+        >
           {overview && (
             <View style={styles.section}>
               <Text style={[typo.h3, { color: colors.text, marginBottom: spacing.md }]}>기업 개요</Text>
@@ -528,7 +590,7 @@ interface CompanyPhilosophyTabProps {
 
 function CompanyPhilosophyTab({ corpCode, corpName }: CompanyPhilosophyTabProps) {
   const { colors, typography: typo } = useTheme();
-  const { data, isLoading, isError, refetch } = useCompanyPhilosophyFit(corpCode);
+  const { data, isLoading, isError, refetch, isRefetching } = useCompanyPhilosophyFit(corpCode);
 
   if (isLoading) return <LoadingState message="거장별 적합도를 계산하는 중…" />;
   if (isError)
@@ -551,7 +613,18 @@ function CompanyPhilosophyTab({ corpCode, corpName }: CompanyPhilosophyTabProps)
   const basis = data.financialBasis;
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.statsScroll}>
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.statsScroll}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefetching}
+          onRefresh={refetch}
+          colors={[colors.primary]}
+          tintColor={colors.primary}
+        />
+      }
+    >
       {basis ? (
         <Text style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.base }]}>
           {basis.bsnsYear}년 {basis.fsDiv} 재무 기준 · 점수 높은 순
@@ -587,6 +660,71 @@ function CompanyPhilosophyTab({ corpCode, corpName }: CompanyPhilosophyTabProps)
       <DisclaimerSection style={styles.philosophyDisclaimer} />
       <View style={{ height: spacing['2xl'] }} />
     </ScrollView>
+  );
+}
+
+// DAR-159: 종목 상세 헤더 신호 배지 — 해당 종목 최신 매수 신호(등급·점수·진입준비)를
+// 전용 엔드포인트로 단건 조회해 노출한다. 신호 없으면 '신호 없음' 빈상태로 흡수.
+// 로그인 사용자에게만 마운트(게스트는 신호 비노출 → 401 회피).
+function CompanySignalBadgeRow({ corpCode }: { corpCode: string }) {
+  const { colors, typography: typo } = useTheme();
+  const { data, isLoading } = useCompanySignal(corpCode);
+
+  if (isLoading) {
+    return (
+      <View style={styles.signalBadgeLoading} accessibilityLabel="종목 신호 불러오는 중">
+        <ActivityIndicator size="small" color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (!data) {
+    return (
+      <View
+        style={[styles.signalBadgeEmpty, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+        accessible
+        accessibilityLabel="아직 매수 신호가 없습니다"
+      >
+        <Feather name="bell-off" size={13} color={colors.textTertiary} />
+        <Text style={[typo.small, { color: colors.textTertiary, marginLeft: spacing.xs }]}>
+          아직 매수 신호 없음
+        </Text>
+      </View>
+    );
+  }
+
+  const color = gradeColor(data.grade, colors);
+  const label = gradeLabel(data.grade);
+
+  return (
+    <TouchableOpacity
+      style={[styles.signalBadgeRow, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+      activeOpacity={0.8}
+      onPress={() => router.push(`/signals/${data.id}`)}
+      accessibilityRole="button"
+      accessibilityLabel={`매수 신호 ${label}, 점수 ${data.buyScore}점${data.entryReady ? ', 진입 준비 완료' : ''}. 신호 상세 보기`}
+    >
+      <View
+        style={[styles.gradeChip, { backgroundColor: color + '22', borderColor: color }]}
+      >
+        <Text style={[typo.small, { color, fontWeight: '700' }]}>{label}</Text>
+      </View>
+      <Text
+        style={[typo.bodyMedium, { color: colors.text, fontWeight: '700', marginLeft: spacing.sm }]}
+      >
+        {data.buyScore}점
+      </Text>
+      {data.entryReady && (
+        <View style={[styles.entryReadyChip, { backgroundColor: colors.successSurface }]}>
+          <Feather name="check-circle" size={12} color={colors.success} />
+          <Text style={[typo.small, { color: colors.success, fontWeight: '600', marginLeft: 4 }]}>
+            진입 준비
+          </Text>
+        </View>
+      )}
+      <View style={{ flex: 1 }} />
+      <Feather name="chevron-right" size={16} color={colors.textTertiary} />
+    </TouchableOpacity>
   );
 }
 
@@ -663,6 +801,49 @@ const styles = StyleSheet.create({
     marginLeft: spacing.sm,
   },
   riskBadges: {
+    marginTop: spacing.sm,
+  },
+  signalBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+    minHeight: 44,
+  },
+  signalBadgeEmpty: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+  },
+  signalBadgeLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    marginTop: spacing.sm,
+    minHeight: 44,
+  },
+  gradeChip: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+  },
+  entryReadyChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    marginLeft: spacing.sm,
+  },
+  priceBadge: {
     marginTop: spacing.sm,
   },
   watchlistButton: {

@@ -15,6 +15,7 @@ const makePrismaMock = () => ({
     findUnique: jest.fn().mockResolvedValue(null),
     findMany: jest.fn().mockResolvedValue([]),
     count: jest.fn().mockResolvedValue(0),
+    groupBy: jest.fn().mockResolvedValue([]),
     create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: 'new', ...data })),
     update: jest.fn(),
     delete: jest.fn(),
@@ -170,6 +171,50 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
       expect(result.items[1].disclosure).toBeNull();
       expect(result.items[1].deepLink).toBe('/signal/sig1');
       expect(result.meta.unreadCount).toBe(2);
+    });
+  });
+
+  describe('findAll — DAR-161 타입 필터 + 타입별 미읽음', () => {
+    it('type 지정 시 where.type 에 반영되어 해당 타입만 조회', async () => {
+      const { service, prisma } = buildService();
+      prisma.notificationHistory.findMany.mockResolvedValueOnce([]);
+      prisma.notificationHistory.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+
+      await service.findAll('u1', { type: NotificationType.SIGNAL });
+
+      const findArg = prisma.notificationHistory.findMany.mock.calls[0][0];
+      expect(findArg.where).toMatchObject({ userId: 'u1', type: NotificationType.SIGNAL });
+    });
+
+    it('type 미지정 시 where 에 type 키 없음(전체 타입 조회)', async () => {
+      const { service, prisma } = buildService();
+
+      await service.findAll('u1', {});
+
+      const findArg = prisma.notificationHistory.findMany.mock.calls[0][0];
+      expect(findArg.where.type).toBeUndefined();
+    });
+
+    it('타입별 미읽음 맵은 모든 타입 키를 0으로 초기화하고 집계행으로 덮어쓴다', async () => {
+      const { service, prisma } = buildService();
+      // groupBy 는 미읽음이 있는 타입만 반환 — 누락 타입은 0 으로 채워져야 함.
+      prisma.notificationHistory.groupBy.mockResolvedValueOnce([
+        { type: NotificationType.DISCLOSURE, _count: { _all: 3 } },
+        { type: NotificationType.SIGNAL, _count: { _all: 1 } },
+      ]);
+
+      const result = await service.findAll('u1', {});
+
+      // 타입별 미읽음 집계는 항상 사용자 전체(미읽음) 기준 — 현재 선택 필터와 무관.
+      const groupByArg = prisma.notificationHistory.groupBy.mock.calls[0][0];
+      expect(groupByArg.where).toEqual({ userId: 'u1', isRead: false });
+
+      expect(result.meta.unreadByType).toEqual({
+        DISCLOSURE: 3,
+        SIGNAL: 1,
+        EXIT: 0,
+        THESIS_VIOLATED: 0,
+      });
     });
   });
 });

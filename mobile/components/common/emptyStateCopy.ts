@@ -93,16 +93,6 @@ export const emptyStateCopy = {
     title: '아직 관심 기업이 없어요. 검색해서 추가해 보세요',
     actionLabel: '기업 검색',
   },
-  // 주문 승인 대기 (없음)
-  ordersPendingEmpty: {
-    icon: 'check-circle',
-    title: '대기 중인 주문안이 없어요',
-  },
-  // 주문 이력 (없음)
-  ordersHistoryEmpty: {
-    icon: 'clock',
-    title: '아직 처리된 주문이 없어요',
-  },
   // AI 비용 (데이터 없음)
   aiCostEmpty: {
     icon: 'cpu',

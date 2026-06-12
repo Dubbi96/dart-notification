@@ -7,6 +7,8 @@ import { spacing, radius } from '@theme/spacing';
 import { RiskStatusBadges, summarizeRiskStatus } from '@components/common/RiskStatusBadges';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
+import { useStockQuotes } from '@hooks/useStockQuotes';
+import { StockPriceBadge } from '@components/common/StockPriceBadge';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
 import { getEventTypeLabel } from '@utils/disclosureType';
 
@@ -31,6 +33,9 @@ function CuratedSignalCardBase({ signal, onPress }: CuratedSignalCardProps) {
   // 손실 회피 1차 방어선(§6): 관리종목·거래정지 배지(DART 근사값). 추천 카드에도 즉시 노출.
   const { data: riskStatus } = useStockRiskStatus({ corpCode: signal.corpCode });
   const riskSummary = summarizeRiskStatus(riskStatus);
+  // DAR-158: 최신 시세 배지(현재가·전일대비%). ticker(종목코드) 없으면 미표시.
+  const { quotes } = useStockQuotes([signal.ticker]);
+  const quote = signal.ticker ? quotes[signal.ticker] : null;
 
   return (
     <TouchableOpacity
@@ -80,6 +85,11 @@ function CuratedSignalCardBase({ signal, onPress }: CuratedSignalCardProps) {
 
         {/* 위험 배지(위험 없으면 미표시) — RiskStatusBadges 단일 채널(§3-d) */}
         <RiskStatusBadges status={riskStatus} compact style={styles.riskBadges} />
+
+        {/* DAR-158: 가격 배지 — 시세 있을 때만(없으면 미표시), 스파크라인 생략(카드 밀도). */}
+        {quote ? (
+          <StockPriceBadge quote={quote} showSparkline={false} style={styles.priceBadge} />
+        ) : null}
 
         {isBlocked ? (
           <View style={[styles.blockedBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
@@ -131,6 +141,9 @@ const styles = StyleSheet.create({
     height: 26,
   },
   riskBadges: {
+    marginTop: spacing.sm,
+  },
+  priceBadge: {
     marginTop: spacing.sm,
   },
   gaugeWrap: {

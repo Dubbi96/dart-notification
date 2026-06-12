@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Chip, Banner } from 'react-native-paper';
@@ -17,9 +18,11 @@ import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { ScoreBreakdownSection } from '@components/signals/ScoreBreakdownSection';
+import { CompanyHubLink } from '@components/company/CompanyHubLink';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
 import { isDataLimited } from '@utils/dataLimit';
-import { LoadingState, ErrorState } from '@components/common/StateView';
+import { ErrorState } from '@components/common/StateView';
+import { DetailSkeleton } from '@components/common/DetailSkeleton';
 import { useSignalDetail } from '@hooks/useSignals';
 import {
   gradeColor,
@@ -74,7 +77,7 @@ function RiskFlagRow({ flag }: { flag: RiskFlag }) {
 export default function SignalDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors, typography: typo } = useTheme();
-  const { data: signal, isLoading, isError, refetch } = useSignalDetail(id!);
+  const { data: signal, isLoading, isError, refetch, isRefetching } = useSignalDetail(id!);
   const relatedRcpNo = signal?.relatedDisclosureRcpNo;
 
   const handleRelatedDisclosure = useCallback(() => {
@@ -84,9 +87,22 @@ export default function SignalDetailScreen() {
   }, [relatedRcpNo]);
 
   if (isLoading) {
+    // 헤더는 유지하고 콘텐츠 영역만 점수카드·섹션 골격 스켈레톤으로 채워 레이아웃 점프 제거(DAR-147).
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-        <LoadingState message="신호를 불러오는 중…" />
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="뒤로 가기"
+          >
+            <Feather name="arrow-left" size={22} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={[typo.h3, { color: colors.text, flex: 1, marginLeft: spacing.md }]}>
+            매수 후보 상세
+          </Text>
+        </View>
+        <DetailSkeleton cards={[{ chip: true, gauge: true, lines: 1 }, { lines: 3 }, { lines: 2 }]} />
       </SafeAreaView>
     );
   }
@@ -165,7 +181,18 @@ export default function SignalDetailScreen() {
         </Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={refetch}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
         {isExpired ? (
           <Banner
             visible
@@ -218,6 +245,13 @@ export default function SignalDetailScreen() {
             />
           ) : null}
         </View>
+
+        {/* 기업 허브 진입(DAR-149) — corpCode 부재 시 미노출(graceful) */}
+        <CompanyHubLink
+          corpCode={signal.corpCode}
+          corpName={signal.corpName}
+          ticker={signal.ticker}
+        />
 
         {/* Score 근거 분해(P0-C) — HeaderSection 직후. scoreBreakdown 미연동 시 graceful null */}
         {signal.scoreBreakdown && signal.scoreBreakdown.length > 0 ? (

@@ -4,6 +4,7 @@ import type {
   ExitSignal,
   SignalFilters,
   SignalExploreFilters,
+  CompanySignalBadge,
 } from '@app-types/signal.types';
 
 import { api } from './api';
@@ -43,4 +44,13 @@ export const signalService = {
 
   getExitSignals: () =>
     api.get<ApiResponse<ExitSignal[]>>('/signals/exit').then((r) => r.data.data),
+
+  /**
+   * 종목별 최신 신호 단건(DAR-159) — 종목 상세 신호 배지용. 백필 제외(백엔드 방어).
+   * 해당 종목 신호가 없으면 data=null → 호출측이 빈상태로 흡수.
+   */
+  getCompanySignal: (corpCode: string) =>
+    api
+      .get<ApiResponse<CompanySignalBadge | null>>(`/signals/by-corp/${corpCode}`)
+      .then((r) => r.data.data),
 };

@@ -28,6 +28,7 @@ import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { useDisclosureDetail, useDisclosureEvent } from '@hooks/useDisclosures';
 import { useCheckSaved, useSaveDisclosure, useUnsaveDisclosure } from '@hooks/useSavedDisclosures';
+import { useWatchlist, useAddToWatchlist, useRemoveFromWatchlist } from '@hooks/useWatchlist';
 import { useRequireAuth } from '@hooks/useRequireAuth';
 import {
   getTypeStyle,
@@ -55,6 +56,35 @@ export default function DisclosureDetailScreen() {
   const { data: isSaved, refetch: refetchSaved } = useCheckSaved(id!, { enabled: isAuthenticated });
   const saveMutation = useSaveDisclosure();
   const removeMutation = useUnsaveDisclosure();
+  // 관심기업 토글(DAR-155) — 기업 상세까지 가지 않고 공시 상세에서 1탭 등록/해제. 서버 상태는 React Query 동기.
+  const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
+  const addToWatchlist = useAddToWatchlist();
+  const removeFromWatchlist = useRemoveFromWatchlist();
+  const watchlistItem = watchlistData?.data?.find((item) => item.corpCode === disclosure?.corpCode);
+  const isWatched = !!watchlistItem;
+
+  const handleToggleWatchlist = async () => {
+    if (!disclosure) return;
+    if (!requireAuth()) return;
+    try {
+      if (isWatched && watchlistItem) {
+        await removeFromWatchlist.mutateAsync(watchlistItem.id);
+        showSnackbar(snackbarCopy.watchlistRemoved(disclosure.corpName), {
+          duration: SNACKBAR_DURATION.success,
+        });
+      } else {
+        await addToWatchlist.mutateAsync({
+          corpCode: disclosure.corpCode,
+          corpName: disclosure.corpName,
+        });
+        showSnackbar(snackbarCopy.watchlistAdded(disclosure.corpName), {
+          duration: SNACKBAR_DURATION.success,
+        });
+      }
+    } catch {
+      showSnackbar(snackbarCopy.watchlistAddFailed, { duration: SNACKBAR_DURATION.error });
+    }
+  };
 
   const handleToggleSave = async () => {
     if (!disclosure) return;
@@ -134,17 +164,38 @@ export default function DisclosureDetailScreen() {
         <Text style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}>
           공시 상세
         </Text>
-        <TouchableOpacity
-          style={styles.headerButton}
-          onPress={handleToggleSave}
-          disabled={saveMutation.isPending || removeMutation.isPending}
-        >
-          <Ionicons
-            name={isSaved ? 'bookmark' : 'bookmark-outline'}
-            size={24}
-            color={isSaved ? colors.primary : colors.text}
-          />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          {/* 관심기업 토글(DAR-155) — 로그인 사용자에게만 노출, 게스트는 기존 헤더 유지 */}
+          {isAuthenticated && disclosure.corpCode ? (
+            <TouchableOpacity
+              style={styles.headerActionButton}
+              onPress={handleToggleWatchlist}
+              disabled={addToWatchlist.isPending || removeFromWatchlist.isPending}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isWatched }}
+              accessibilityLabel={isWatched ? '관심기업 해제' : '관심기업 추가'}
+            >
+              <Ionicons
+                name={isWatched ? 'star' : 'star-outline'}
+                size={23}
+                color={isWatched ? colors.primary : colors.text}
+              />
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            style={styles.headerActionButton}
+            onPress={handleToggleSave}
+            disabled={saveMutation.isPending || removeMutation.isPending}
+            accessibilityRole="button"
+            accessibilityLabel={isSaved ? '저장 해제' : '공시 저장'}
+          >
+            <Ionicons
+              name={isSaved ? 'bookmark' : 'bookmark-outline'}
+              size={24}
+              color={isSaved ? colors.primary : colors.text}
+            />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -338,6 +389,17 @@ const styles = StyleSheet.create({
   headerButton: {
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.sm,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerActionButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xs,
   },
   content: {
     paddingTop: spacing.xl,

@@ -7,6 +7,7 @@ import { spacing, radius } from '@theme/spacing';
 import { ApiErrorState } from '@components/common/StateView';
 import { SkeletonCard } from '@components/common/SkeletonCard';
 import { useGraduationMetrics } from '@hooks/useGraduationMetrics';
+import { EntryFunnelSection } from '@components/home/EntryFunnelSection';
 
 import type { GraduationGate, GraduationReport } from '@app-types/graduation.types';
 
@@ -203,9 +204,13 @@ export function GraduationTracker() {
   }
 
   return (
-    <View style={styles.container}>
-      {Heading}
-      {body}
+    <View>
+      <View style={styles.container}>
+        {Heading}
+        {body}
+      </View>
+      {/* 신호→진입 퍼널(DAR-162) — 졸업 트래커 하위 카드. 자체 쿼리·로딩/에러/빈 상태 독립. */}
+      <EntryFunnelSection />
     </View>
   );
 }

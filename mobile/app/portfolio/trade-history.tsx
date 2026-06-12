@@ -292,7 +292,7 @@ function TradeCard({ item }: { item: TradeRationale }) {
 
       {/* 진입 사유 */}
       <View style={[styles.section, { borderTopColor: colors.borderLight }]}>
-        <Text style={[typo.small, { color: colors.textTertiary, marginBottom: spacing.xs }]}>진입 사유</Text>
+        <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.xs }]}>진입 사유</Text>
         <Text style={[typo.caption, { color: colors.text }]}>
           {item.entryReason ?? '근거 기록 없음 (룰 기반 진입)'}
         </Text>
@@ -308,7 +308,7 @@ function TradeCard({ item }: { item: TradeRationale }) {
       {/* 청산 사유 (CLOSED 만) */}
       {item.status === 'CLOSED' ? (
         <View style={[styles.section, { borderTopColor: colors.borderLight }]}>
-          <Text style={[typo.small, { color: colors.textTertiary, marginBottom: spacing.xs }]}>청산 사유</Text>
+          <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.xs }]}>청산 사유</Text>
           <Text style={[typo.caption, { color: colors.text }]}>
             {item.exitAction ? ACTION_LABEL[item.exitAction] ?? item.exitAction : '청산 완료'}
           </Text>

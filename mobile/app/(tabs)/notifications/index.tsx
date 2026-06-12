@@ -1,8 +1,9 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useState } from 'react';
 import {
   View,
   Text,
   FlatList,
+  ScrollView,
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
@@ -11,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router, type Href } from 'expo-router';
 import { useTheme } from '@theme';
-import { spacing } from '@theme/spacing';
+import { spacing, radius } from '@theme/spacing';
 import { useAuthStore } from '@stores/authStore';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { GuestPrompt } from '@components/common/GuestPrompt';
@@ -41,6 +42,82 @@ const NOTIFICATION_TYPE_META: Record<NotificationType, TypeMeta> = {
 };
 const getTypeMeta = (type: NotificationType): TypeMeta =>
   NOTIFICATION_TYPE_META[type] ?? NOTIFICATION_TYPE_META.DISCLOSURE;
+
+// DAR-161: 알림 인박스 타입 필터 세그먼트. null = 전체.
+type SegmentKey = NotificationType | null;
+interface Segment {
+  key: SegmentKey;
+  label: string;
+}
+const SEGMENTS: readonly Segment[] = [
+  { key: null, label: '전체' },
+  { key: 'DISCLOSURE', label: '공시' },
+  { key: 'SIGNAL', label: '신호' },
+  { key: 'EXIT', label: '청산' },
+  { key: 'THESIS_VIOLATED', label: '논리훼손' },
+];
+
+// DAR-161: 세그먼트 칩 — 타입별 미읽음 점 배지. 활성 시 primary 배경 + primaryForeground 텍스트.
+interface TypeSegmentChipProps {
+  segment: Segment;
+  active: boolean;
+  unread: number;
+  onSelect: (key: SegmentKey) => void;
+}
+
+function TypeSegmentChipBase({ segment, active, unread, onSelect }: TypeSegmentChipProps) {
+  const { colors, typography: typo } = useTheme();
+  const handlePress = useCallback(() => onSelect(segment.key), [onSelect, segment.key]);
+
+  const a11yLabel = unread > 0 ? `${segment.label}, 안 읽음 ${unread}개` : segment.label;
+
+  return (
+    <TouchableOpacity
+      style={[
+        styles.segmentChip,
+        {
+          backgroundColor: active ? colors.primary : colors.surfaceSecondary,
+          borderColor: active ? colors.primary : colors.borderLight,
+        },
+      ]}
+      activeOpacity={0.7}
+      onPress={handlePress}
+      hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={a11yLabel}
+    >
+      <Text
+        style={[
+          typo.captionMedium,
+          { color: active ? colors.primaryForeground : colors.textSecondary },
+        ]}
+      >
+        {segment.label}
+      </Text>
+      {unread > 0 && (
+        <View
+          style={[
+            styles.segmentBadge,
+            { backgroundColor: active ? colors.primaryForeground : colors.primary },
+          ]}
+        >
+          <Text
+            style={[
+              typo.small,
+              styles.segmentBadgeText,
+              { color: active ? colors.primary : colors.primaryForeground },
+            ]}
+          >
+            {unread > 99 ? '99+' : unread}
+          </Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+const TypeSegmentChip = React.memo(TypeSegmentChipBase);
 
 // DAR-128: 알림 행을 메모이즈된 자식으로 분리(FlatList 리렌더 차단) + a11y 라벨/역할/터치영역 일관화.
 interface NotificationRowProps {
@@ -117,6 +194,9 @@ export default function NotificationsScreen() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const { showSnackbar } = useSnackbar();
 
+  // DAR-161: 선택된 타입 세그먼트(null = 전체). queryKey에 반영돼 캐시가 분리된다.
+  const [selectedType, setSelectedType] = useState<SegmentKey>(null);
+
   const {
     data,
     fetchNextPage,
@@ -127,7 +207,7 @@ export default function NotificationsScreen() {
     error,
     isRefetching,
     refetch,
-  } = useNotifications({ enabled: isAuthenticated });
+  } = useNotifications({ enabled: isAuthenticated, type: selectedType ?? undefined });
   const markAsRead = useMarkAsRead();
   const markAllAsRead = useMarkAllAsRead();
 
@@ -137,6 +217,10 @@ export default function NotificationsScreen() {
   );
 
   const unreadCount = data?.pages[0]?.meta.unreadCount ?? 0;
+  // 타입별 미읽음 — 세그먼트 점 배지용(전체 기준, 현재 필터와 무관).
+  const unreadByType = data?.pages[0]?.meta.unreadByType ?? {};
+
+  const handleSelectType = useCallback((key: SegmentKey) => setSelectedType(key), []);
 
   // Hooks는 조건부 early return 위에서 호출(rules-of-hooks).
   const handleNotificationPress = useCallback(
@@ -145,12 +229,16 @@ export default function NotificationsScreen() {
         markAsRead.mutate(item.id);
       }
       // DAR-90: deepLink 화이트리스트 검증 우선, 없으면 공시 rcpNo 폴백(미허용은 무시)
+      // DAR-150: deepLink 미충전 비공시 알림은 type·refId 타입별 폴백으로 라우팅,
+      // 그래도 대상이 없으면 스낵바로 안내해 무반응(dead tap) 제거.
       const target = resolveDeepLink(item);
       if (target) {
         router.push(target as Href);
+      } else {
+        showSnackbar(snackbarCopy.notificationNoTarget, { duration: SNACKBAR_DURATION.error });
       }
     },
-    [markAsRead],
+    [markAsRead, showSnackbar],
   );
 
   const handleMarkAllAsRead = useCallback(() => {
@@ -225,6 +313,23 @@ export default function NotificationsScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* DAR-161: 타입 세그먼트 칩 — 공시/신호/청산/논리훼손 + 전체, 타입별 미읽음 배지 */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.segmentRow}
+      >
+        {SEGMENTS.map((segment) => (
+          <TypeSegmentChip
+            key={segment.key ?? 'ALL'}
+            segment={segment}
+            active={selectedType === segment.key}
+            unread={segment.key === null ? unreadCount : (unreadByType[segment.key] ?? 0)}
+            onSelect={handleSelectType}
+          />
+        ))}
+      </ScrollView>
+
       <View style={styles.subHeader}>
         {unreadCount > 0 && (
           <View style={[styles.unreadBadge, { backgroundColor: colors.primary }]}>
@@ -267,7 +372,18 @@ export default function NotificationsScreen() {
         onEndReachedThreshold={0.5}
         refreshing={isRefetching}
         onRefresh={refetch}
-        ListEmptyComponent={<EmptyState {...emptyStateCopy.notificationsEmpty} />}
+        ListEmptyComponent={
+          // 타입 필터 적용 중이면 '해당 타입 알림 없음'으로 정직하게 안내(장애 위장 방지).
+          selectedType ? (
+            <EmptyState
+              icon="bell-off"
+              title={`${getTypeMeta(selectedType).label} 알림이 아직 없어요`}
+              description="다른 타입을 선택하거나 전체에서 확인해 보세요"
+            />
+          ) : (
+            <EmptyState {...emptyStateCopy.notificationsEmpty} />
+          )
+        }
         ListFooterComponent={
           isFetchingNextPage ? (
             <View style={styles.footerLoading}>
@@ -300,6 +416,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.base,
     borderBottomWidth: 1,
+  },
+  segmentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
+  },
+  segmentChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+    borderWidth: 1,
+  },
+  segmentBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+  },
+  segmentBadgeText: {
+    fontWeight: '700',
   },
   subHeader: {
     flexDirection: 'row',

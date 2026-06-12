@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
+import { verticalHitSlopForHeight } from '@utils/touchTarget';
 import { Card } from '@components/common/Card';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
@@ -33,6 +34,12 @@ import { useAuthStore } from '@stores/authStore';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { getHighRiskInfo } from '@utils/disclosureRisk';
 import { parse, format } from 'date-fns';
+
+// 칩 시각 높이(접근성 hitSlop 계산 기준). 시각 크기는 유지하고 유효 터치 영역만 44pt로 확장한다.
+const FILTER_CHIP_HEIGHT = 34;
+const SUB_FILTER_CHIP_HEIGHT = 30;
+const FILTER_CHIP_HIT_SLOP = verticalHitSlopForHeight(FILTER_CHIP_HEIGHT);
+const SUB_FILTER_CHIP_HIT_SLOP = verticalHitSlopForHeight(SUB_FILTER_CHIP_HEIGHT);
 
 export default function DisclosuresScreen() {
   const { colors, typography: typo, isDark } = useTheme();
@@ -131,7 +138,7 @@ export default function DisclosuresScreen() {
                 </View>
               )}
             </View>
-            <Text style={[typo.small, { color: colors.textTertiary }]}>{format(parse(item.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd')}</Text>
+            <Text style={[typo.small, { color: colors.textSecondary }]}>{format(parse(item.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd')}</Text>
           </View>
           <Text
             style={[
@@ -142,9 +149,26 @@ export default function DisclosuresScreen() {
           >
             {item.reportName}
           </Text>
-          <Text style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
-            {item.corpName}
-          </Text>
+          {/* 기업명 보조 탭 — 종목 허브 1탭 직행. 카드 본 탭(공시 상세)과 분리(DAR-155). */}
+          {item.corpCode ? (
+            <TouchableOpacity
+              style={styles.corpLink}
+              onPress={() => router.push(`/company/${item.corpCode}`)}
+              activeOpacity={0.6}
+              hitSlop={{ top: 8, bottom: 8, left: 4, right: 12 }}
+              accessibilityRole="link"
+              accessibilityLabel={`${item.corpName} 기업 정보 보기`}
+            >
+              <Text style={[typo.caption, { color: colors.primary }]} numberOfLines={1}>
+                {item.corpName}
+              </Text>
+              <Ionicons name="chevron-forward" size={13} color={colors.primary} />
+            </TouchableOpacity>
+          ) : (
+            <Text style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+              {item.corpName}
+            </Text>
+          )}
         </Card>
       </TouchableOpacity>
     );
@@ -208,17 +232,18 @@ export default function DisclosuresScreen() {
               ]}
               onPress={() => setWatchlistOnly(!watchlistOnly)}
               activeOpacity={0.7}
+              hitSlop={FILTER_CHIP_HIT_SLOP}
             >
               <Ionicons
                 name="star"
                 size={12}
-                color={watchlistOnly ? '#FFFFFF' : colors.primary}
+                color={watchlistOnly ? colors.primaryForeground : colors.primary}
               />
               <Text
                 style={[
                   typo.small,
                   {
-                    color: watchlistOnly ? '#FFFFFF' : colors.text,
+                    color: watchlistOnly ? colors.primaryForeground : colors.text,
                     fontWeight: watchlistOnly ? '600' : '400',
                   },
                 ]}
@@ -241,15 +266,28 @@ export default function DisclosuresScreen() {
                 ]}
                 onPress={() => handleFilterPress(filter)}
                 activeOpacity={0.7}
+                hitSlop={FILTER_CHIP_HIT_SLOP}
               >
-                {!isActive && typeStyle && (
-                  <View style={[styles.chipDot, { backgroundColor: typeStyle.text }]} />
+                {typeStyle && (
+                  // 유형색 도트를 활성 칩에도 유지해 색 단서가 사라지지 않게 한다(DAR-148).
+                  // 활성 시 primary 배경 위에서 유형색 대비가 약해질 수 있어 primaryForeground 링을 둘러
+                  // 색 단서를 보존하면서 가시성을 확보한다(라벨 병행).
+                  <View
+                    style={[
+                      styles.chipDot,
+                      { backgroundColor: typeStyle.text },
+                      isActive && {
+                        borderWidth: 1,
+                        borderColor: colors.primaryForeground,
+                      },
+                    ]}
+                  />
                 )}
                 <Text
                   style={[
                     typo.small,
                     {
-                      color: isActive ? '#FFFFFF' : colors.text,
+                      color: isActive ? colors.primaryForeground : colors.text,
                       fontWeight: isActive ? '600' : '400',
                     },
                   ]}
@@ -282,6 +320,7 @@ export default function DisclosuresScreen() {
                 ]}
                 onPress={() => setPeriod(opt.key)}
                 activeOpacity={0.7}
+                hitSlop={SUB_FILTER_CHIP_HIT_SLOP}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isActive }}
                 accessibilityLabel={`${opt.label} 기간 필터`}
@@ -317,6 +356,7 @@ export default function DisclosuresScreen() {
                     ]}
                     onPress={() => setSort(opt.key)}
                     activeOpacity={0.7}
+                    hitSlop={SUB_FILTER_CHIP_HIT_SLOP}
                     accessibilityRole="button"
                     accessibilityState={{ selected: isActive }}
                     accessibilityLabel={`${opt.label} 정렬`}
@@ -474,7 +514,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
-    height: 30,
+    height: SUB_FILTER_CHIP_HEIGHT,
     gap: spacing.xs,
   },
   subFilterDivider: {
@@ -489,7 +529,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radius.full,
-    height: 34,
+    height: FILTER_CHIP_HEIGHT,
     gap: spacing.xs,
   },
   chipDot: {
@@ -505,6 +545,13 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: 0,
+  },
+  corpLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: spacing.xs,
+    gap: 2,
   },
   cardHeader: {
     flexDirection: 'row',

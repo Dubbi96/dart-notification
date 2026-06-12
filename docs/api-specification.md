@@ -11,6 +11,10 @@
 8. [알림 히스토리 (Notifications)](#8-알림-히스토리-notifications)
 9. [에러 코드](#9-에러-코드)
 10. [AI 비용 거버넌스 (AI Cost Governance)](#10-ai-비용-거버넌스-ai-cost-governance)
+11. [Persona 모의운용 + 현재 장 적합 추천 (DAR-130)](#11-persona-모의운용--현재-장-적합-추천-dar-130)
+12. [매매 신호 (Signals, Engine3)](#12-매매-신호-signals-engine3)
+13. [종목 최신 시세 (Market Data Quote, DAR-158)](#13-종목-최신-시세-market-data-quote--dar-158)
+14. [포트폴리오 리스크 스냅샷 (Portfolio Risk, DAR-163)](#14-포트폴리오-리스크-스냅샷-portfolio-risk--dar-163)
 
 ---
 
@@ -634,6 +638,62 @@ GET /disclosures/search?q=증자&page=1&limit=20
 
 ---
 
+### 7.4 통합 검색 (기업 + 공시)
+
+기업 검색(`/companies/search`)과 공시 검색(`/disclosures/search`)을 하나의 진입점으로 묶는다. 내부적으로 기존 두 도메인 서비스를 재사용하며 검색 로직을 중복 구현하지 않는다.
+
+**Endpoint**: `GET /search`
+
+**Query Parameters**:
+- `q` (required): 통합 검색어 (기업명·종목코드·공시명). **2글자 미만이면 DB 조회 없이 빈 카테고리 묶음을 반환**한다.
+- `companyLimit` (optional): 기업 카테고리 최대 건수 (기본: 10, 최대: 20)
+- `disclosureLimit` (optional): 공시 카테고리 최대 건수 (기본: 10, 최대: 20)
+
+**Request Example**:
+```
+GET /search?q=삼성&companyLimit=10&disclosureLimit=10
+```
+
+**Response**: `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "query": "삼성",
+    "companies": {
+      "items": [
+        {
+          "corpCode": "00126380",
+          "corpName": "삼성전자",
+          "stockCode": "005930",
+          "market": "KOSPI"
+        }
+      ],
+      "total": 1,
+      "limit": 10
+    },
+    "disclosures": {
+      "items": [
+        {
+          "rcpNo": "20260307000456",
+          "corpCode": "00164779",
+          "corpName": "삼성물산",
+          "reportName": "유상증자결정",
+          "rcpDt": "20260307140000",
+          "disclosureType": "발행공시"
+        }
+      ],
+      "total": 5,
+      "limit": 10
+    }
+  }
+}
+```
+
+> `companies.total`은 반환된 항목 수, `disclosures.total`은 공시 검색 전체 일치 건수(도메인 서비스 meta.total)를 그대로 전달한다.
+
+---
+
 ## 8. 알림 히스토리 (Notifications)
 
 ### 8.1 알림 목록 조회
@@ -646,10 +706,12 @@ GET /disclosures/search?q=증자&page=1&limit=20
 - `page` (optional): 페이지 번호 (기본: 1)
 - `limit` (optional): 페이지당 개수 (기본: 20, 최대: 50)
 - `isRead` (optional): 읽음 필터 (true | false)
+- `type` (optional, DAR-161): 알림 타입 필터 (`DISCLOSURE` | `SIGNAL` | `EXIT` | `THESIS_VIOLATED`). 미지정 시 전체 타입.
 
 **Request Example**:
 ```
 GET /notifications?isRead=false&page=1&limit=20
+GET /notifications?type=SIGNAL&page=1&limit=20
 ```
 
 **Response**: `200 OK`
@@ -676,10 +738,18 @@ GET /notifications?isRead=false&page=1&limit=20
     "page": 1,
     "limit": 20,
     "total": 10,
-    "unreadCount": 5
+    "unreadCount": 5,
+    "unreadByType": {
+      "DISCLOSURE": 3,
+      "SIGNAL": 1,
+      "EXIT": 1,
+      "THESIS_VIOLATED": 0
+    }
   }
 }
 ```
+
+> `unreadByType` (DAR-161): 타입별 미읽음 카운트. **타입 필터와 무관하게 사용자 전체(미읽음) 기준**으로 집계되어, 모바일 세그먼트 칩의 타입별 unread 배지가 현재 선택과 독립적으로 동작한다. 모든 타입 키는 항상 존재(미읽음 없으면 0).
 
 ---
 
@@ -994,14 +1064,98 @@ POST /api/paper-trading/personas/run-once   (JWT 필수 — 쓰기)
 
 persona별 독립 포트폴리오에 1일치 사이클(적합도 진입 → 시가평가 → Exit) 분기 실행. ★모의 전용.
 
+## 12. 매매 신호 (Signals, Engine3)
+
+### 12.1 종목별 최신 신호 단건 조회 (DAR-159)
+
+```
+GET /api/signals/by-corp/:corpCode   (JWT 필수)
+```
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `corpCode` | string | 필수 | DART 기업 고유번호(8자리) |
+
+해당 종목의 **최신 매수 신호 1건**(등급·점수·진입준비)을 단건 반환한다. 백필(과거 분석 baseline) 공시 기반 신호는 제외(피드와 동일 방어, DAR-129). 신호가 없는 종목은 `data: null` → 호출측이 빈상태로 흡수. 종목 상세 화면(`company/[corpCode]`) 헤더 신호 배지가 소비한다.
+
+**Response 200 (신호 있음)**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "sig_xxx",
+    "corpCode": "00126380",
+    "corpName": "삼성전자",
+    "ticker": "005930",
+    "eventType": "SUPPLY_CONTRACT",
+    "grade": "BUY",
+    "buyScore": 72,
+    "entryReady": true,
+    "summary": "…",
+    "relatedDisclosureRcpNo": "20240101000001",
+    "expiresAt": "2024-01-10T00:00:00.000Z",
+    "createdAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+`grade`: `STRONG_BUY | BUY | WATCH | NEUTRAL | AVOID | BLOCKED` (모바일 6단계 enum). 신호 없으면 `data: null`.
+
+## 13. 종목 최신 시세 (Market Data Quote) — DAR-158
+
+적재된 일봉(`StockDailyPrice`)과 KIS 실시간 캐시를 **읽는** 조회 경로. 화면의 가격 배지(현재가·전일대비%·5일 스파크라인)에 종단연결한다. 가격 우선순위: 실시간 캐시 신선 시 `source=REALTIME`, 없으면 최신 일봉 종가 `source=DAILY`. 데이터 없는 종목은 `null`로 흡수(배지 미표시). 점수·체결·하드룰과 무관한 순수 조회(AI 미개입).
+
+### 13.1 다건 종목 시세 조회
+
+```
+GET /api/market-data/quote?stockCodes=005930,000660   (OptionalJwt — 게스트 열람)
+```
+
+| 쿼리 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `stockCodes` | string | 필수 | 종목코드 6자리 콤마구분. 6자리 숫자만 정규화·중복 제거, 최대 50종목. |
+
+다건 조회는 단일 `in` 쿼리로 처리(N+1 회피). 응답은 `stockCode → 시세\|null` 맵.
+
+**응답**:
+```json
+{
+  "success": true,
+  "data": {
+    "005930": {
+      "stockCode": "005930",
+      "corpCode": "00126380",
+      "price": 73500,
+      "previousClose": 72000,
+      "change": 1500,
+      "changePercent": 2.08,
+      "tradeDate": "20260611",
+      "source": "DAILY",
+      "sparkline": [70800, 71200, 71500, 72000, 73500]
+    },
+    "000660": null
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `price` | number | 최종가(원) — 실시간 우선, 폴백 최신 일봉 종가 |
+| `previousClose` | number\|null | 직전 기준 종가(실시간이면 최신 일봉 종가, 일봉이면 전일 종가). 없으면 null |
+| `change` / `changePercent` | number\|null | 전일대비 절대 등락(원) / 등락률(%) 소수 2자리. `previousClose` 없으면 null |
+| `tradeDate` | string\|null | 가격 기준 일봉일(YYYYMMDD) |
+| `source` | `REALTIME`\|`DAILY` | 가격 출처(정직 라벨) |
+| `sparkline` | number[] | 최근 종가(오래된→최신, 최대 5) |
+
 ---
 
-## 12. 포트폴리오 리스크 스냅샷 (Portfolio Risk — DAR-163)
+## 14. 포트폴리오 리스크 스냅샷 (Portfolio Risk — DAR-163)
 
 활성 포트폴리오의 최신 리스크 스냅샷(일손익·집중도·하드룰 위반·riskLevel)을 읽기 전용으로
 노출한다. `PortfolioRiskSnapshot` 모델을 읽기만 하며, Engine5 Risk 하드룰 산출 로직은 침범하지 않는다.
 
-### 12.1 최신 리스크 스냅샷 조회
+### 14.1 최신 리스크 스냅샷 조회
 
 ```
 GET /api/portfolio/risk/latest   (JWT 필수)
@@ -1043,4 +1197,4 @@ GET /api/portfolio/risk/latest   (JWT 필수)
 ---
 
 **작성일**: 2026-06-12
-**버전**: 1.4 (포트폴리오 리스크 스냅샷 조회 API 추가 — DAR-163)
+**버전**: 1.6 (포트폴리오 리스크 스냅샷 조회 API 추가 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)

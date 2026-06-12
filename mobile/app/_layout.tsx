@@ -43,6 +43,7 @@ function AppContent() {
             <Stack.Screen name="auth/sign-in" />
             <Stack.Screen name="kakao" options={{ animation: 'none' }} />
             <Stack.Screen name="disclosures/index" />
+            <Stack.Screen name="search/index" />
             <Stack.Screen
               name="disclosure/[id]"
               options={{ animation: 'slide_from_bottom' }}

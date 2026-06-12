@@ -68,7 +68,9 @@ export const lightColors = {
   // Text
   text: palette.gray900,
   textSecondary: palette.gray500,
-  textTertiary: palette.gray400,
+  // DAR-144: gray400(#9CA3AF)는 흰 배경 대비 ~2.5:1로 AA(4.5:1)·UI 3:1 모두 미달.
+  // gray500로 상향해 가독 텍스트는 AA를 충족하고 장식 아이콘도 3:1 이상 확보한다.
+  textTertiary: palette.gray500,
   textInverse: palette.white,
 
   // Borders
@@ -123,7 +125,9 @@ export const darkColors = {
   // Text
   text: '#E8EAF0',
   textSecondary: '#8B90A8',
-  textTertiary: '#5C6180',
+  // DAR-144: #5C6180는 navy950 대비 ~3.3:1로 AA 미달. #7B82A0로 상향(navy950 5.2:1)해
+  // 가독 텍스트는 AA를 충족하고 secondary(#8B90A8)와 단계 구분은 유지한다.
+  textTertiary: '#7B82A0',
   textInverse: palette.navy900,
 
   // Borders

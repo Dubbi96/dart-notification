@@ -18,6 +18,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { useDebounce } from '@hooks/useDebounce';
+import { useHaptics } from '@hooks/useHaptics';
 import { useCompanySearch, usePopularCompanies, shouldSearch } from '@hooks/useCompanySearch';
 import {
   useAddToWatchlist,
@@ -48,6 +49,7 @@ export function SearchOverlay({ visible, onClose }: Props) {
   const queryClient = useQueryClient();
   const router = useRouter();
   const { showSnackbar } = useSnackbar();
+  const haptics = useHaptics();
 
   const [query, setQuery] = useState('');
   const debounced = useDebounce(query, 300);
@@ -115,12 +117,13 @@ export function SearchOverlay({ visible, onClose }: Props) {
           },
         },
       );
+      haptics.success();
       showSnackbar(`${company.corpName}을(를) 관심목록에 추가했어요.`, {
         duration: 2500,
         action: { label: '실행 취소', onPress: () => undoAdd(company.corpCode) },
       });
     },
-    [atLimit, addRecent, addToWatchlist, showSnackbar, undoAdd],
+    [atLimit, addRecent, addToWatchlist, showSnackbar, undoAdd, haptics],
   );
 
   const handleRemove = useCallback(
@@ -128,6 +131,7 @@ export function SearchOverlay({ visible, onClose }: Props) {
       const item = watchlistMap.get(company.corpCode);
       if (!item) return;
       removeFromWatchlist.mutate(item.id);
+      haptics.success();
       showSnackbar(`${company.corpName}을(를) 관심목록에서 제거했어요.`, {
         duration: 2500,
         action: {
@@ -142,7 +146,7 @@ export function SearchOverlay({ visible, onClose }: Props) {
         },
       });
     },
-    [watchlistMap, removeFromWatchlist, addToWatchlist, showSnackbar],
+    [watchlistMap, removeFromWatchlist, addToWatchlist, showSnackbar, haptics],
   );
 
   const toggle = useCallback(

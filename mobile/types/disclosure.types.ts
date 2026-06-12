@@ -2,6 +2,8 @@ export interface Disclosure {
   rcpNo: string;
   corpCode: string;
   corpName: string;
+  /** 종목코드 6자리(상장사). 비상장·미연동 공시는 null (DAR-188, 상세 응답에서만 평탄화 제공). */
+  stockCode?: string | null;
   reportName: string;
   rcpDt: string;
   flrName: string;

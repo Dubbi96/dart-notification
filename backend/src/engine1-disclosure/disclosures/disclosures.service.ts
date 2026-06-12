@@ -71,6 +71,9 @@ export class DisclosuresService {
     const disclosure = await this.prisma.disclosure.findUnique({
       where: { rcpNo },
       include: {
+        // DAR-188: 종목코드(6자리)는 Company에만 존재 — 상세 응답에 평탄화해 노출.
+        //   corpCode(8자리 고유번호)와 혼동 금지(공시상세 "종목코드" 라벨 버그 수정).
+        company: { select: { stockCode: true } },
         // M2: 이벤트 추출 결과 포함 (없으면 null)
         disclosureEvent: {
           select: {
@@ -92,8 +95,13 @@ export class DisclosuresService {
       throw new NotFoundException('Disclosure not found');
     }
 
+    // include로 끌어온 company는 응답 형태 일관성을 위해 제거하고 stockCode만 평탄화.
+    const { company, ...rest } = disclosure;
+
     return {
-      ...disclosure,
+      ...rest,
+      // DAR-188: 종목코드 6자리(비상장·미연동 시 null). 클라이언트는 null이면 라벨 정정/숨김.
+      stockCode: company?.stockCode ?? null,
       dartUrl: `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${disclosure.rcpNo}`,
       // event 필드: M2 추출 결과 (미추출 시 null)
       event: disclosure.disclosureEvent ?? null,

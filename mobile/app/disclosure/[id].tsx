@@ -41,6 +41,9 @@ import { extractKeyFigures } from '@utils/keyFigures';
 
 // 극성/이벤트 평문 매핑은 utils/disclosureType.ts(단일 출처)로 통합 — raw enum 단독 노출 금지(P0-B).
 
+/** 공시 상세 정보 행 — onPress 없는 행도 허용(종목코드/고유번호 등 비대화형 행). */
+type InfoRow = { label: string; value: string; onPress?: () => void };
+
 function polarityColor(polarity: string, colors: { success: string; error: string; textSecondary: string }): string {
   if (polarity === 'POSITIVE') return colors.success;
   if (polarity === 'NEGATIVE') return colors.error;
@@ -149,9 +152,16 @@ export default function DisclosureDetailScreen() {
     );
   }
 
-  const infoRows = [
+  // DAR-188: "종목코드"는 HTS/증권앱에서 쓰는 6자리 stockCode여야 한다.
+  //   과거엔 corpCode(8자리 DART 고유번호)를 잘못 바인딩해 종목상세(005930)와 불일치.
+  //   상장사는 6자리 stockCode를 노출하고, 비상장·미연동 공시는 라벨을 "고유번호"로
+  //   정직하게 정정해 corpCode를 표기(가짜 종목코드 노출 금지).
+  const stockCodeRow: InfoRow = disclosure.stockCode
+    ? { label: '종목코드', value: disclosure.stockCode }
+    : { label: '고유번호', value: disclosure.corpCode };
+  const infoRows: InfoRow[] = [
     { label: '기업명', value: disclosure.corpName, onPress: () => router.push(`/company/${disclosure.corpCode}`) },
-    { label: '종목코드', value: disclosure.corpCode },
+    stockCodeRow,
     { label: '공시유형', value: getTypeLabel(disclosure.disclosureType) },
     { label: '접수번호', value: disclosure.rcpNo },
     { label: '접수일시', value: format(parse(disclosure.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd') },

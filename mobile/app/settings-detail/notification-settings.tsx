@@ -7,6 +7,8 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Switch, Checkbox, Divider } from 'react-native-paper';
@@ -145,7 +147,15 @@ export default function NotificationSettingsScreen() {
         <View style={styles.headerButton} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Push toggle */}
         <Text style={[typo.h3, { color: colors.text, marginBottom: spacing.md }]}>
           푸시 알림
@@ -292,6 +302,7 @@ export default function NotificationSettingsScreen() {
           style={{ marginTop: spacing.xl }}
         />
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

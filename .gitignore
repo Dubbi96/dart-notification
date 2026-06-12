@@ -1,5 +1,10 @@
 # Dependencies
 node_modules/
+# Also ignore a `node_modules` symlink/file (the trailing-slash pattern above
+# only matches directories, so a self-referencing symlink slipped into the
+# index once — see DAR-189). A bare path catches files and symlinks too.
+node_modules
+backend/node_modules
 .pnp
 .pnp.js
 

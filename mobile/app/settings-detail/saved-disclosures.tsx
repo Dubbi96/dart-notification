@@ -18,6 +18,7 @@ import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { useSavedDisclosures, useRemoveSavedDisclosure } from '@hooks/useSavedDisclosures';
+import type { SavedDisclosure } from '@services/saved-disclosure.service';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { parse, format } from 'date-fns';
 
@@ -34,7 +35,7 @@ export default function SavedDisclosuresScreen() {
     showSnackbar(snackbarCopy.disclosureUnsaved, { duration: SNACKBAR_DURATION.success });
   };
 
-  const renderItem = ({ item }: { item: any }) => {
+  const renderItem = ({ item }: { item: SavedDisclosure }) => {
     const typeStyle = getTypeStyle(item.disclosureType, isDark);
     return (
       <TouchableOpacity

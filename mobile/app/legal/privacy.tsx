@@ -10,6 +10,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
+import { type ThemeColors } from '@theme/colors';
+import { type Typography } from '@theme/typography';
 import { spacing } from '@theme/spacing';
 
 export default function PrivacyScreen() {
@@ -33,7 +35,7 @@ export default function PrivacyScreen() {
         </Text>
 
         <Text style={[typo.body, { color: colors.textSecondary, lineHeight: 22, marginBottom: spacing.xl }]}>
-          공시on(이하 "서비스")은 이용자의 개인정보를 중요시하며, 「개인정보 보호법」 등
+          공시on(이하 &quot;서비스&quot;)은 이용자의 개인정보를 중요시하며, 「개인정보 보호법」 등
           관련 법령을 준수합니다. 본 개인정보 처리방침은 서비스가 수집하는 개인정보의 항목,
           수집 목적, 보유 기간 등을 안내합니다.
         </Text>
@@ -124,7 +126,7 @@ export default function PrivacyScreen() {
   );
 }
 
-function Section({ title, children, colors, typo }: { title: string; children: string; colors: any; typo: any }) {
+function Section({ title, children, colors, typo }: { title: string; children: string; colors: ThemeColors; typo: Typography }) {
   return (
     <View style={styles.section}>
       <Text style={[typo.bodyMedium, { color: colors.text, marginBottom: spacing.sm }]}>{title}</Text>

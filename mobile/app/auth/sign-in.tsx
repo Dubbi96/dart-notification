@@ -20,6 +20,7 @@ import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
 import { useDialog } from '@components/common/DialogProvider';
 import LogoCards from '@/assets/logo/logo-cards.svg';
+import kakaoLoginImage from '../../assets/kakao_login_large_wide.png';
 import { useAuthStore } from '@stores/authStore';
 import { api, API_BASE_URL } from '@services/api';
 
@@ -190,7 +191,7 @@ export default function SignInScreen() {
       <SafeAreaView style={styles.content}>
         {/* Logo Area */}
         <View style={styles.logoArea}>
-          <Text style={[{ fontSize: 60, fontWeight: '300', color: palette.white }]}>
+          <Text style={{ fontSize: 60, fontWeight: '300', color: palette.white }}>
             공시<Text style={{ color: palette.teal400, fontWeight: '700' }}>온</Text>
           </Text>
           <Text style={[typo.caption, { color: 'rgba(255,255,255,0.5)', marginTop: spacing.sm }]}>
@@ -224,7 +225,7 @@ export default function SignInScreen() {
               <ActivityIndicator size="small" color={palette.gray900} />
             ) : (
               <Image
-                source={require('../../assets/kakao_login_large_wide.png')}
+                source={kakaoLoginImage}
                 style={styles.kakaoImage}
                 resizeMode="contain"
               />

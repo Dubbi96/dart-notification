@@ -42,6 +42,9 @@ import { useCompanyPhilosophyFit } from '@hooks/usePhilosophies';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
 import { useStockQuotes } from '@hooks/useStockQuotes';
 import { StockPriceBadge } from '@components/common/StockPriceBadge';
+import { useHaptics } from '@hooks/useHaptics';
+import { useSnackbar } from '@components/common/SnackbarProvider';
+import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import type { EventStudyResult } from '@app-types/signal.types';
 
 type CompanyTab = 'decision' | 'disclosures' | 'financials' | 'insider' | 'stats' | 'philosophy';
@@ -322,6 +325,8 @@ export default function CompanyDetailScreen() {
   const addToWatchlist = useAddToWatchlist();
   const removeFromWatchlist = useRemoveFromWatchlist();
   const markViewed = useMarkWatchlistViewed();
+  const haptics = useHaptics();
+  const { showSnackbar } = useSnackbar();
   const [activeTab, setActiveTab] = useState<CompanyTab>('decision');
 
   const watchlistItem = useMemo(
@@ -353,9 +358,33 @@ export default function CompanyDetailScreen() {
     if (!company) return;
 
     if (isWatched && watchlistItem) {
-      removeFromWatchlist.mutate(watchlistItem.id);
+      // 해제: 성공 햅틱 + 스낵바 확인(낙관적 업데이트만으로 무피드백이던 갭 해소, DAR-172).
+      removeFromWatchlist.mutate(watchlistItem.id, {
+        onSuccess: () => {
+          haptics.success();
+          showSnackbar(snackbarCopy.watchlistRemoved(company.corpName), {
+            duration: SNACKBAR_DURATION.success,
+          });
+        },
+      });
     } else {
-      addToWatchlist.mutate({ corpCode: company.corpCode, corpName: company.corpName });
+      // 추가: 성공 햅틱 + 스낵바, 실패 시 에러 스낵바(롤백은 훅 onError가 담당).
+      addToWatchlist.mutate(
+        { corpCode: company.corpCode, corpName: company.corpName },
+        {
+          onSuccess: () => {
+            haptics.success();
+            showSnackbar(snackbarCopy.watchlistAdded(company.corpName), {
+              duration: SNACKBAR_DURATION.success,
+            });
+          },
+          onError: () => {
+            showSnackbar(snackbarCopy.watchlistAddFailed, {
+              duration: SNACKBAR_DURATION.error,
+            });
+          },
+        },
+      );
     }
   };
 

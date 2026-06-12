@@ -72,6 +72,16 @@ export class CompaniesService {
     return result;
   }
 
+  /** 종목명·종목코드 부분일치 검색의 공통 where 절. 종목코드 6자리 직접검색도 stockCode contains 로 처리. */
+  private buildSearchWhere(term: string) {
+    return {
+      OR: [
+        { corpName: { contains: term, mode: 'insensitive' as const } },
+        { stockCode: { contains: term } },
+      ],
+    };
+  }
+
   async search(query: string, limit?: number) {
     // 종목명·종목코드 부분일치 검색. 종목코드 6자리 직접검색도 stockCode contains 로 처리.
     const term = (query ?? '').trim();
@@ -81,12 +91,7 @@ export class CompaniesService {
 
     const take = Math.min(Number(limit) || 10, 20);
     const companies = await this.prisma.company.findMany({
-      where: {
-        OR: [
-          { corpName: { contains: term, mode: 'insensitive' } },
-          { stockCode: { contains: term } },
-        ],
-      },
+      where: this.buildSearchWhere(term),
       take,
       orderBy: { corpName: 'asc' },
       select: {
@@ -98,6 +103,39 @@ export class CompaniesService {
     });
 
     return companies;
+  }
+
+  /**
+   * 통합 검색용: limit 적용 items 와 함께 매칭 전체 건수(total)를 반환한다.
+   * disclosures.search 의 meta.total 과 정합을 맞추기 위함이며, 빈 검색어는 0건으로 폴백.
+   */
+  async searchWithCount(
+    query: string,
+    limit?: number,
+  ): Promise<{ items: Awaited<ReturnType<CompaniesService['search']>>; total: number }> {
+    const term = (query ?? '').trim();
+    if (!term) {
+      return { items: [], total: 0 };
+    }
+
+    const take = Math.min(Number(limit) || 10, 20);
+    const where = this.buildSearchWhere(term);
+    const [items, total] = await Promise.all([
+      this.prisma.company.findMany({
+        where,
+        take,
+        orderBy: { corpName: 'asc' },
+        select: {
+          corpCode: true,
+          corpName: true,
+          stockCode: true,
+          market: true,
+        },
+      }),
+      this.prisma.company.count({ where }),
+    ]);
+
+    return { items, total };
   }
 
   async findByCorpCode(corpCode: string) {

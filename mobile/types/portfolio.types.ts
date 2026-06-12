@@ -41,6 +41,35 @@ export interface PortfolioSummary {
   mddBreached?: boolean;
 }
 
+/**
+ * 포트폴리오 리스크 스냅샷(DAR-163) — `GET /portfolio/risk/latest`.
+ * 일손익·집중도·하드룰 위반·riskLevel. 스냅샷 부재 시 응답 data 는 null.
+ */
+export type PortfolioRiskLevel = 'NORMAL' | 'WARNING' | 'CRITICAL' | string;
+
+export interface PortfolioRiskSnapshot {
+  portfolioId: string;
+  /** YYYY-MM-DD */
+  snapshotDate: string;
+  totalValue: number;
+  cashAmount: number | null;
+  unrealizedPnl: number;
+  unrealizedPnlPct: number;
+  /** 최대 단일 종목 비중 % (집중도) */
+  topPositionPct: number;
+  topSectorPct: number | null;
+  openPositionCount: number;
+  /** 당일 손익(금액) */
+  dailyPnl: number | null;
+  /** 당일 손익률 % */
+  dailyPnlPct: number | null;
+  weeklyPnl: number | null;
+  weeklyPnlPct: number | null;
+  riskLevel: PortfolioRiskLevel;
+  hardRuleBreached: boolean;
+  hardRuleDetail: string | null;
+}
+
 /** Thesis 진입 논리 / 훼손 조건 항목 */
 export interface ThesisCondition {
   id: string;

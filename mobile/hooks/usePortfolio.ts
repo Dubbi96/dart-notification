@@ -17,6 +17,14 @@ export function usePortfolioSummary() {
   });
 }
 
+export function usePortfolioRisk() {
+  return useQuery({
+    queryKey: ['portfolio', 'risk', 'latest'],
+    queryFn: () => portfolioService.getRiskSnapshot(),
+    retry: 1,
+  });
+}
+
 export function usePosition(positionId: string) {
   return useQuery({
     queryKey: ['position', positionId],

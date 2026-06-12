@@ -14,6 +14,7 @@
 11. [Persona 모의운용 + 현재 장 적합 추천 (DAR-130)](#11-persona-모의운용--현재-장-적합-추천-dar-130)
 12. [매매 신호 (Signals, Engine3)](#12-매매-신호-signals-engine3)
 13. [종목 최신 시세 (Market Data Quote, DAR-158)](#13-종목-최신-시세-market-data-quote--dar-158)
+14. [포트폴리오 리스크 스냅샷 (Portfolio Risk, DAR-163)](#14-포트폴리오-리스크-스냅샷-portfolio-risk--dar-163)
 
 ---
 
@@ -1177,5 +1178,51 @@ GET /api/market-data/quote?stockCodes=005930,000660   (OptionalJwt — 게스트
 
 ---
 
+## 14. 포트폴리오 리스크 스냅샷 (Portfolio Risk — DAR-163)
+
+활성 포트폴리오의 최신 리스크 스냅샷(일손익·집중도·하드룰 위반·riskLevel)을 읽기 전용으로
+노출한다. `PortfolioRiskSnapshot` 모델을 읽기만 하며, Engine5 Risk 하드룰 산출 로직은 침범하지 않는다.
+
+### 14.1 최신 리스크 스냅샷 조회
+
+```
+GET /api/portfolio/risk/latest   (JWT 필수)
+```
+
+활성 포트폴리오의 가장 최근(`snapshotDate` 내림차순) 스냅샷 1건을 반환한다.
+활성 포트폴리오 또는 스냅샷이 없으면 `data: null`(빈상태).
+
+**Response `data` (스냅샷 존재 시):**
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `portfolioId` | string | 포트폴리오 ID |
+| `snapshotDate` | string (YYYY-MM-DD) | 스냅샷 기준일 |
+| `totalValue` | number | 총 평가금액 |
+| `cashAmount` | number \| null | 현금 |
+| `unrealizedPnl` | number | 미실현 손익(금액) |
+| `unrealizedPnlPct` | number | 미실현 손익률 % |
+| `topPositionPct` | number | 최대 단일 종목 비중 %(집중도) |
+| `topSectorPct` | number \| null | 최대 섹터 비중 % |
+| `openPositionCount` | number | 보유(OPEN) 포지션 수 |
+| `dailyPnl` | number \| null | 당일 손익(금액) |
+| `dailyPnlPct` | number \| null | 당일 손익률 % |
+| `weeklyPnl` | number \| null | 주간 손익(금액) |
+| `weeklyPnlPct` | number \| null | 주간 손익률 % |
+| `riskLevel` | string | `NORMAL` \| `WARNING` \| `CRITICAL` 등 |
+| `hardRuleBreached` | boolean | 하드룰 위반 여부 |
+| `hardRuleDetail` | string \| null | 위반 상세(없으면 null) |
+
+```jsonc
+// 스냅샷 부재 시
+{ "success": true, "data": null }
+```
+
+모바일은 `usePortfolioRisk()` 훅으로 소비하고, 포트폴리오 실전 탭 요약 카드에
+`PortfolioRiskBadge`(당일 손익 색상 칩·집중도 % 칩·하드룰 위반 경고 칩)로 노출한다.
+`data: null`이면 배지를 렌더하지 않는다(화면 무손상).
+
+---
+
 **작성일**: 2026-06-12
-**버전**: 1.5 (종목 최신 시세 조회 API 추가 — DAR-158; 1.4 종목별 최신 신호 단건 조회 — DAR-159)
+**버전**: 1.6 (포트폴리오 리스크 스냅샷 조회 API 추가 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)

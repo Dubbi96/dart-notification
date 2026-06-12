@@ -2,6 +2,7 @@ import type { ApiResponse } from '@app-types/api.types';
 import type {
   Position,
   PortfolioSummary,
+  PortfolioRiskSnapshot,
   PositionThesis,
   PaperPortfolio,
 } from '@app-types/portfolio.types';
@@ -14,6 +15,11 @@ export const portfolioService = {
 
   getSummary: () =>
     api.get<ApiResponse<PortfolioSummary>>('/portfolio/summary').then((r) => r.data.data),
+
+  getRiskSnapshot: () =>
+    api
+      .get<ApiResponse<PortfolioRiskSnapshot | null>>('/portfolio/risk/latest')
+      .then((r) => r.data.data),
 
   getPosition: (positionId: string) =>
     api.get<ApiResponse<Position>>(`/positions/${positionId}`).then((r) => r.data.data),

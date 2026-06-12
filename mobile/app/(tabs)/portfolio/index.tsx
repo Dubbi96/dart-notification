@@ -17,7 +17,13 @@ import { StyleComparisonSection } from '@components/portfolio/StyleComparisonSec
 import { PersonaTrackSection } from '@components/portfolio/PersonaTrackSection';
 import { TodayCheckSlot } from '@components/portfolio/TodayCheckSlot';
 import { PositionSearchBar } from '@components/portfolio/PositionSearchBar';
-import { usePositions, usePortfolioSummary, usePaperPortfolio } from '@hooks/usePortfolio';
+import { PortfolioRiskBadge } from '@components/portfolio/PortfolioRiskBadge';
+import {
+  usePositions,
+  usePortfolioSummary,
+  usePortfolioRisk,
+  usePaperPortfolio,
+} from '@hooks/usePortfolio';
 import { pnlColor, formatPnlPercent } from '@utils/signalDisplay';
 import { dedupeByStock } from '@utils/dedupe';
 
@@ -43,6 +49,7 @@ export default function PortfolioScreen() {
 
   const positionsQuery = usePositions();
   const summaryQuery = usePortfolioSummary();
+  const riskQuery = usePortfolioRisk();
   const paperQuery = usePaperPortfolio();
 
   const handlePositionPress = useCallback((position: Position) => {
@@ -107,7 +114,11 @@ export default function PortfolioScreen() {
         maxToRenderPerBatch={8}
         windowSize={7}
         refreshing={positionsQuery.isRefetching}
-        onRefresh={positionsQuery.refetch}
+        onRefresh={() => {
+          positionsQuery.refetch();
+          summaryQuery.refetch();
+          riskQuery.refetch();
+        }}
         ListHeaderComponent={
           <View style={styles.liveHeader}>
             {summary ? (
@@ -119,6 +130,8 @@ export default function PortfolioScreen() {
                 <Text style={[typo.captionMedium, { color: pnlColor(summary.totalPnlPercent, colors), marginTop: spacing.xs }]}>
                   {summary.totalPnl.toLocaleString()}원 ({formatPnlPercent(summary.totalPnlPercent)})
                 </Text>
+                {/* DAR-163: 최신 리스크 스냅샷(일손익·집중도·하드룰 위반). 데이터 없으면 미표시. */}
+                <PortfolioRiskBadge snapshot={riskQuery.data} style={styles.riskBadge} />
                 {summary.mddBreached ? (
                   <Banner visible actions={[]} style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}>
                     <Text style={[typo.small, { color: colors.error }]}>
@@ -291,6 +304,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     padding: spacing.base,
+  },
+  riskBadge: {
+    marginTop: spacing.sm,
   },
   paperHeader: {
     gap: spacing.md,

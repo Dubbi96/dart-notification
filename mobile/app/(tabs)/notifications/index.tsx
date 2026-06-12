@@ -23,8 +23,7 @@ import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy
 import { useNotifications, useMarkAsRead, useMarkAllAsRead } from '@hooks/useNotifications';
 import { getTypeLabel } from '@utils/disclosureType';
 import { resolveDeepLink } from '@utils/deeplink';
-import { formatDistanceToNow } from 'date-fns';
-import { ko } from 'date-fns/locale';
+import { relativeTime } from '@utils/datetime';
 
 import type { Notification, NotificationType } from '@app-types/notification.types';
 
@@ -134,7 +133,7 @@ function NotificationRowBase({ item, onPress }: NotificationRowProps) {
     ? `${item.disclosure.corpName} · ${getTypeLabel(item.disclosure.disclosureType)}`
     : (item.title ?? meta.label);
   const secondaryText = item.disclosure?.reportName ?? item.body ?? '';
-  const relativeTime = formatDistanceToNow(new Date(item.sentAt), { addSuffix: true, locale: ko });
+  const sentAtLabel = relativeTime(item.sentAt);
 
   const handlePress = useCallback(() => onPress(item), [onPress, item]);
 
@@ -144,7 +143,7 @@ function NotificationRowBase({ item, onPress }: NotificationRowProps) {
     item.isRead ? '읽음' : '안 읽음',
     primaryText,
     secondaryText,
-    relativeTime,
+    sentAtLabel,
   ]
     .filter(Boolean)
     .join(', ');
@@ -179,7 +178,7 @@ function NotificationRowBase({ item, onPress }: NotificationRowProps) {
           </Text>
         ) : null}
         <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
-          {relativeTime}
+          {sentAtLabel}
         </Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MarketDataService } from './market-data.service';
+import { StockQuoteService } from './stock-quote.service';
 import { KrxApiService } from './krx-api.service';
 import { KrxMarketDataScheduler } from './krx-market-data.scheduler';
 import { DartStockStatusService } from './dart-stock-status.service';
@@ -16,6 +17,7 @@ import { RealtimeQuoteModule } from './realtime-quote.module';
   controllers: [MarketDataController, StockStatusController],
   providers: [
     MarketDataService,
+    StockQuoteService,
     KrxApiService,
     KrxMarketDataScheduler,
     DartStockStatusService,
@@ -25,6 +27,7 @@ import { RealtimeQuoteModule } from './realtime-quote.module';
   ],
   exports: [
     MarketDataService,
+    StockQuoteService,
     KrxApiService,
     KrxMarketDataScheduler,
     DartStockStatusService,

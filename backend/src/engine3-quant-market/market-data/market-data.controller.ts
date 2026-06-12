@@ -6,14 +6,41 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { KrxMarketDataScheduler } from './krx-market-data.scheduler';
+import { StockQuoteService } from './stock-quote.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../../auth/guards/optional-jwt-auth.guard';
 
 @ApiTags('Market Data')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('market-data')
 export class MarketDataController {
-  constructor(private readonly scheduler: KrxMarketDataScheduler) {}
+  constructor(
+    private readonly scheduler: KrxMarketDataScheduler,
+    private readonly stockQuote: StockQuoteService,
+  ) {}
+
+  // 가격 배지 종단연결(DAR-158): 읽기 전용 시세 조회는 게스트 열람 허용(DAR-99 패턴).
+  // 클래스 기본 JwtAuthGuard 를 메서드 단위 OptionalJwtAuthGuard 로 오버라이드한다.
+  @Get('quote')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      '종목 최신 시세 조회 — 최종가·전일대비%·5일 스파크라인 (실시간 우선·일봉 폴백, 게스트 열람 가능, DAR-158)',
+  })
+  @ApiQuery({
+    name: 'stockCodes',
+    required: true,
+    description: '종목코드 6자리 콤마구분 (예: 005930,000660). 데이터 없는 종목은 null.',
+  })
+  async getQuote(@Query('stockCodes') stockCodes?: string) {
+    const codes = (stockCodes ?? '')
+      .split(',')
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0);
+    const data = await this.stockQuote.getQuotes(codes);
+    return { success: true, data };
+  }
 
   @Post('collect/daily')
   @ApiOperation({ summary: 'KRX 일봉 수동 수집 (날짜 지정)' })

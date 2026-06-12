@@ -13,6 +13,7 @@
 10. [AI 비용 거버넌스 (AI Cost Governance)](#10-ai-비용-거버넌스-ai-cost-governance)
 11. [Persona 모의운용 + 현재 장 적합 추천 (DAR-130)](#11-persona-모의운용--현재-장-적합-추천-dar-130)
 12. [매매 신호 (Signals, Engine3)](#12-매매-신호-signals-engine3)
+13. [종목 최신 시세 (Market Data Quote, DAR-158)](#13-종목-최신-시세-market-data-quote--dar-158)
 
 ---
 
@@ -996,8 +997,6 @@ POST /api/paper-trading/personas/run-once   (JWT 필수 — 쓰기)
 
 persona별 독립 포트폴리오에 1일치 사이클(적합도 진입 → 시가평가 → Exit) 분기 실행. ★모의 전용.
 
----
-
 ## 12. 매매 신호 (Signals, Engine3)
 
 ### 12.1 종목별 최신 신호 단건 조회 (DAR-159)
@@ -1036,7 +1035,53 @@ GET /api/signals/by-corp/:corpCode   (JWT 필수)
 
 `grade`: `STRONG_BUY | BUY | WATCH | NEUTRAL | AVOID | BLOCKED` (모바일 6단계 enum). 신호 없으면 `data: null`.
 
+## 13. 종목 최신 시세 (Market Data Quote) — DAR-158
+
+적재된 일봉(`StockDailyPrice`)과 KIS 실시간 캐시를 **읽는** 조회 경로. 화면의 가격 배지(현재가·전일대비%·5일 스파크라인)에 종단연결한다. 가격 우선순위: 실시간 캐시 신선 시 `source=REALTIME`, 없으면 최신 일봉 종가 `source=DAILY`. 데이터 없는 종목은 `null`로 흡수(배지 미표시). 점수·체결·하드룰과 무관한 순수 조회(AI 미개입).
+
+### 13.1 다건 종목 시세 조회
+
+```
+GET /api/market-data/quote?stockCodes=005930,000660   (OptionalJwt — 게스트 열람)
+```
+
+| 쿼리 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `stockCodes` | string | 필수 | 종목코드 6자리 콤마구분. 6자리 숫자만 정규화·중복 제거, 최대 50종목. |
+
+다건 조회는 단일 `in` 쿼리로 처리(N+1 회피). 응답은 `stockCode → 시세\|null` 맵.
+
+**응답**:
+```json
+{
+  "success": true,
+  "data": {
+    "005930": {
+      "stockCode": "005930",
+      "corpCode": "00126380",
+      "price": 73500,
+      "previousClose": 72000,
+      "change": 1500,
+      "changePercent": 2.08,
+      "tradeDate": "20260611",
+      "source": "DAILY",
+      "sparkline": [70800, 71200, 71500, 72000, 73500]
+    },
+    "000660": null
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `price` | number | 최종가(원) — 실시간 우선, 폴백 최신 일봉 종가 |
+| `previousClose` | number\|null | 직전 기준 종가(실시간이면 최신 일봉 종가, 일봉이면 전일 종가). 없으면 null |
+| `change` / `changePercent` | number\|null | 전일대비 절대 등락(원) / 등락률(%) 소수 2자리. `previousClose` 없으면 null |
+| `tradeDate` | string\|null | 가격 기준 일봉일(YYYYMMDD) |
+| `source` | `REALTIME`\|`DAILY` | 가격 출처(정직 라벨) |
+| `sparkline` | number[] | 최근 종가(오래된→최신, 최대 5) |
+
 ---
 
 **작성일**: 2026-06-12
-**버전**: 1.4 (종목별 최신 신호 단건 조회 API 추가 — DAR-159)
+**버전**: 1.5 (종목 최신 시세 조회 API 추가 — DAR-158; 1.4 종목별 최신 신호 단건 조회 — DAR-159)

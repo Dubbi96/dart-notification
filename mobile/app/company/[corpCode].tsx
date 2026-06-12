@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Linking,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -33,6 +34,8 @@ import { FundamentalsTab } from '@components/company/FundamentalsTab';
 import { RiskStatusBadges } from '@components/common/RiskStatusBadges';
 import { useCompanyPhilosophyFit } from '@hooks/usePhilosophies';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
+import { useStockQuotes } from '@hooks/useStockQuotes';
+import { StockPriceBadge } from '@components/common/StockPriceBadge';
 import type { EventStudyResult } from '@app-types/signal.types';
 
 type CompanyTab = 'decision' | 'disclosures' | 'financials' | 'insider' | 'stats' | 'philosophy';
@@ -289,6 +292,9 @@ export default function CompanyDetailScreen() {
     refetch: refetchRisk,
     isRefetching: isRefetchingRisk,
   } = useStockRiskStatus({ corpCode: corpCode! });
+  // DAR-158: 최신 시세(현재가·전일대비%·5일 스파크라인) 배지. 가격 없으면 미표시.
+  const { quotes } = useStockQuotes([company?.stockCode]);
+  const quote = company?.stockCode ? quotes[company.stockCode] : null;
   const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
   const addToWatchlist = useAddToWatchlist();
   const removeFromWatchlist = useRemoveFromWatchlist();
@@ -404,6 +410,10 @@ export default function CompanyDetailScreen() {
               종목코드 {company.stockCode}
             </Text>
           )}
+
+          {/* DAR-158: 가격 배지 — 시세 적재 시 현재가·등락률·스파크라인, 없으면 미표시. */}
+          <StockPriceBadge quote={quote} style={styles.priceBadge} />
+
 
           {/* DAR-99: 위험 배지 — 위험 없으면 미표시. 근사값(DART 공시 기반) 라벨 병기. */}
           <RiskStatusBadges status={riskStatus} style={styles.riskBadges} />
@@ -832,6 +842,9 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: radius.sm,
     marginLeft: spacing.sm,
+  },
+  priceBadge: {
+    marginTop: spacing.sm,
   },
   watchlistButton: {
     flexDirection: 'row',

@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
-import { Chip, SegmentedButtons } from 'react-native-paper';
+import { Chip } from 'react-native-paper';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
@@ -39,6 +39,17 @@ import { StockPriceBadge } from '@components/common/StockPriceBadge';
 import type { EventStudyResult } from '@app-types/signal.types';
 
 type CompanyTab = 'decision' | 'disclosures' | 'financials' | 'insider' | 'stats' | 'philosophy';
+
+// 기업 상세 상단 6탭(DAR-156). 한 줄 SegmentedButtons는 좁은 기기에서 라벨이 압축·잘려
+// 오탭을 유발하므로 가로 스크롤 칩 행으로 노출한다(홈 segmentTab 패턴 재사용).
+const COMPANY_TABS: { value: CompanyTab; label: string; a11y: string }[] = [
+  { value: 'decision', label: '판단', a11y: '종목 의사결정 허브 탭' },
+  { value: 'disclosures', label: '공시', a11y: '최근 공시 탭' },
+  { value: 'financials', label: '재무', a11y: '재무지표 펀더멘털 카드 탭' },
+  { value: 'insider', label: '내부자', a11y: '내부자·대량보유 동향 탭' },
+  { value: 'stats', label: '통계', a11y: 'Event Study 통계 탭' },
+  { value: 'philosophy', label: '적합도', a11y: '거장별 철학 적합도 탭' },
+];
 
 function formatEstDate(estDate: string | null): string {
   if (!estDate || estDate.length !== 8) return '-';
@@ -447,21 +458,43 @@ export default function CompanyDetailScreen() {
         </Card>
       </View>
 
-      {/* Tab selector */}
+      {/* Tab selector — 6탭 가로 스크롤 칩 행(DAR-156): 좁은 기기 라벨 압축·오탭 방지 */}
       <View style={[styles.tabWrap, { borderBottomColor: colors.borderLight }]}>
-        <SegmentedButtons
-          value={activeTab}
-          onValueChange={(v) => setActiveTab(v as CompanyTab)}
-          buttons={[
-            { value: 'decision', label: '판단', accessibilityLabel: '종목 의사결정 허브 탭' },
-            { value: 'disclosures', label: '공시', accessibilityLabel: '최근 공시 탭' },
-            { value: 'financials', label: '재무', accessibilityLabel: '재무지표 펀더멘털 카드 탭' },
-            { value: 'insider', label: '내부자', accessibilityLabel: '내부자·대량보유 동향 탭' },
-            { value: 'stats', label: '통계', accessibilityLabel: 'Event Study 통계 탭' },
-            { value: 'philosophy', label: '적합도', accessibilityLabel: '거장별 철학 적합도 탭' },
-          ]}
-          style={styles.segmented}
-        />
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabScrollContent}
+        >
+          {COMPANY_TABS.map((tab) => {
+            const isActive = activeTab === tab.value;
+            return (
+              <TouchableOpacity
+                key={tab.value}
+                style={[
+                  styles.tabChip,
+                  isActive
+                    ? { backgroundColor: colors.primary, borderColor: colors.primary }
+                    : { backgroundColor: colors.surface, borderColor: colors.borderLight },
+                ]}
+                onPress={() => setActiveTab(tab.value)}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={tab.a11y}
+              >
+                <Text
+                  style={[
+                    typo.captionMedium,
+                    { color: isActive ? colors.primaryForeground : colors.textSecondary },
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       {/* Tab content */}
@@ -861,8 +894,20 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
     borderBottomWidth: 1,
   },
-  segmented: {
-    alignSelf: 'stretch',
+  tabScrollContent: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingRight: spacing.lg,
+  },
+  tabChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    minHeight: 36,
   },
   section: {
     marginTop: spacing.xl,

@@ -158,7 +158,7 @@ export default function HomeScreen() {
               <Text
                 style={[
                   typo.captionMedium,
-                  { color: feedTab === 'all' ? '#FFFFFF' : colors.textSecondary },
+                  { color: feedTab === 'all' ? colors.primaryForeground : colors.textSecondary },
                 ]}
               >
                 전체 공시
@@ -178,13 +178,13 @@ export default function HomeScreen() {
                 <Ionicons
                   name="star"
                   size={12}
-                  color={feedTab === 'watchlist' ? '#FFFFFF' : colors.textSecondary}
+                  color={feedTab === 'watchlist' ? colors.primaryForeground : colors.textSecondary}
                   style={{ marginRight: 4 }}
                 />
                 <Text
                   style={[
                     typo.captionMedium,
-                    { color: feedTab === 'watchlist' ? '#FFFFFF' : colors.textSecondary },
+                    { color: feedTab === 'watchlist' ? colors.primaryForeground : colors.textSecondary },
                   ]}
                 >
                   관심 기업

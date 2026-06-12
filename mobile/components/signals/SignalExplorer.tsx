@@ -72,7 +72,7 @@ function FilterChipRow<T extends string | undefined>({
                 style={[
                   typo.small,
                   {
-                    color: isActive ? '#FFFFFF' : colors.text,
+                    color: isActive ? colors.primaryForeground : colors.text,
                     fontWeight: isActive ? '600' : '400',
                   },
                 ]}

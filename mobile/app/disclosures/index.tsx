@@ -131,7 +131,7 @@ export default function DisclosuresScreen() {
                 </View>
               )}
             </View>
-            <Text style={[typo.small, { color: colors.textTertiary }]}>{format(parse(item.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd')}</Text>
+            <Text style={[typo.small, { color: colors.textSecondary }]}>{format(parse(item.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd')}</Text>
           </View>
           <Text
             style={[

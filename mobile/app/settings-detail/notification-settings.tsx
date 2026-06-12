@@ -176,7 +176,7 @@ export default function NotificationSettingsScreen() {
             <Text style={[typo.h3, { color: colors.text, marginBottom: spacing.xs }]}>
               투자 신호 알림
             </Text>
-            <Text style={[typo.small, { color: colors.textTertiary, marginBottom: spacing.md }]}>
+            <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.md }]}>
               매수 신호·청산 권고·논리 훼손 시점 알림 (기본 꺼짐)
             </Text>
             {SIGNAL_PUSH_TOGGLES.map((toggle) => (
@@ -210,7 +210,7 @@ export default function NotificationSettingsScreen() {
             <Text style={[typo.h3, { color: colors.text, marginBottom: spacing.xs }]}>
               공시 유형
             </Text>
-            <Text style={[typo.small, { color: colors.textTertiary, marginBottom: spacing.md }]}>
+            <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.md }]}>
               선택하지 않으면 모든 유형의 공시를 받습니다
             </Text>
             <Controller
@@ -265,7 +265,7 @@ export default function NotificationSettingsScreen() {
             <Text style={[typo.h3, { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.xs }]}>
               키워드
             </Text>
-            <Text style={[typo.small, { color: colors.textTertiary, marginBottom: spacing.md }]}>
+            <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.md }]}>
               알림 받을 키워드 (최대 {MAX_KEYWORDS}개)
             </Text>
             <Controller
@@ -374,7 +374,7 @@ function KeywordTagInput({ keywords, onChange, maxKeywords }: KeywordTagInputPro
           />
         </View>
       )}
-      <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
+      <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
         {keywords.length}/{maxKeywords}개
       </Text>
     </View>

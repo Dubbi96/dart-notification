@@ -87,6 +87,9 @@ export const lightColors = {
   error: palette.red500,
   errorSurface: '#FEE2E2',
   warning: palette.yellow500,
+  // DAR-173: 오프라인 배너 배경(tinted surface). success/errorSurface 와 동일 규약
+  // — 옅은 동색 surface + 진한 warning 전경 텍스트로 AA 확보.
+  warningSurface: '#FEF3C7',
   info: palette.blue500,
 
   // Tab bar
@@ -144,6 +147,8 @@ export const darkColors = {
   error: palette.red400,
   errorSurface: '#450A0A',
   warning: palette.yellow400,
+  // DAR-173: 다크 오프라인 배너 배경(deep amber). errorSurface 다크값과 동일 톤 규약.
+  warningSurface: '#422006',
   info: palette.blue400,
 
   // Tab bar

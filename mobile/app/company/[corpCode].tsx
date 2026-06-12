@@ -42,6 +42,7 @@ import { useCompanyPhilosophyFit } from '@hooks/usePhilosophies';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
 import { useStockQuotes } from '@hooks/useStockQuotes';
 import { StockPriceBadge } from '@components/common/StockPriceBadge';
+import { OfflineStaleLabel } from '@components/common/OfflineStaleLabel';
 import type { EventStudyResult } from '@app-types/signal.types';
 
 type CompanyTab = 'decision' | 'disclosures' | 'financials' | 'insider' | 'stats' | 'philosophy';
@@ -316,7 +317,7 @@ export default function CompanyDetailScreen() {
     isRefetching: isRefetchingRisk,
   } = useStockRiskStatus({ corpCode: corpCode! });
   // DAR-158: 최신 시세(현재가·전일대비%·5일 스파크라인) 배지. 가격 없으면 미표시.
-  const { quotes } = useStockQuotes([company?.stockCode]);
+  const { quotes, dataUpdatedAt: quoteUpdatedAt } = useStockQuotes([company?.stockCode]);
   const quote = company?.stockCode ? quotes[company.stockCode] : null;
   const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
   const addToWatchlist = useAddToWatchlist();
@@ -449,6 +450,11 @@ export default function CompanyDetailScreen() {
 
           {/* DAR-158: 가격 배지 — 시세 적재 시 현재가·등락률·스파크라인, 없으면 미표시. */}
           <StockPriceBadge quote={quote} style={styles.priceBadge} />
+
+          {/* DAR-173: 오프라인 시 '마지막 갱신 N분 전' 보조 라벨(stale 옛값 오인 방지). 온라인이면 미표시. */}
+          {company.stockCode ? (
+            <OfflineStaleLabel updatedAt={quoteUpdatedAt} style={styles.staleLabel} />
+          ) : null}
 
 
           {/* DAR-99: 위험 배지 — 위험 없으면 미표시. 근사값(DART 공시 기반) 라벨 병기. */}
@@ -903,6 +909,9 @@ const styles = StyleSheet.create({
   },
   priceBadge: {
     marginTop: spacing.sm,
+  },
+  staleLabel: {
+    marginTop: spacing.xs,
   },
   watchlistButton: {
     flexDirection: 'row',

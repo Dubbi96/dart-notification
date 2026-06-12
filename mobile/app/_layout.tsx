@@ -1,4 +1,5 @@
 import React from 'react';
+import { View, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -7,7 +8,13 @@ import { PaperProvider } from 'react-native-paper';
 import { ThemeContext, getTheme, useAppColorScheme, useTextScale, getPaperTheme } from '@theme';
 import { SnackbarProvider } from '@components/common/SnackbarProvider';
 import { DialogProvider } from '@components/common/DialogProvider';
+import { OfflineBanner } from '@components/common/OfflineBanner';
 import { useNotificationSetup } from '@hooks/useNotificationSetup';
+import { configureOnlineManager } from '@services/onlineManager';
+
+// DAR-173: React Query onlineManager 를 NetInfo 에 연동(모듈 로드 1회).
+// 단절→복구 시 refetchOnReconnect 로 stale 쿼리 자동 재요청.
+configureOnlineManager();
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,6 +39,7 @@ function AppContent() {
         <DialogProvider>
         <SnackbarProvider>
           <StatusBar style={theme.isDark ? 'light' : 'dark'} />
+          <View style={styles.appShell}>
           <Stack
             screenOptions={{
               headerShown: false,
@@ -69,6 +77,9 @@ function AppContent() {
             <Stack.Screen name="legal/terms" />
             <Stack.Screen name="legal/privacy" />
           </Stack>
+          {/* DAR-173: 전역 오프라인 배너 — 절대 위치 오버레이라 화면 트리 위에 떠야 하므로 Stack 뒤. */}
+          <OfflineBanner />
+          </View>
         </SnackbarProvider>
         </DialogProvider>
       </ThemeContext.Provider>
@@ -88,3 +99,9 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  appShell: {
+    flex: 1,
+  },
+});

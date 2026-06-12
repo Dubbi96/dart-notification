@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 import { ProgressBar } from 'react-native-paper';
 import { useTheme } from '@theme';
-import { spacing } from '@theme/spacing';
+import { spacing, gauge } from '@theme/spacing';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import {
   buyScoreColor,
@@ -96,7 +96,9 @@ export function ScoreGauge({
         <Text style={[typo.h2, { color }]}>{displayScore}</Text>
       </View>
 
-      {/* 바 + 등급 컷 틱 + 노브 (position:relative 컨테이너) */}
+      {/* 바 + 등급 컷 틱 + 노브 (position:relative 컨테이너).
+          DAR-174: 게이지 영역은 고정 픽셀 높이(gauge.barHeight) + 퍼센트 left 기반이라 OS 글꼴
+          확대와 독립적이다. 위 점수 숫자(h2)가 커져도 게이지 내부 틱/노브 정렬은 틀어지지 않는다. */}
       <View style={styles.gaugeArea}>
         <ProgressBar
           progress={displayScore / 100}
@@ -134,6 +136,11 @@ export function ScoreGauge({
   );
 }
 
+// DAR-174: 게이지 영역 높이 = knobSize. 막대(barHeight)는 영역 세로 중앙에 놓이므로
+// 막대/틱의 상단 오프셋과 노브의 수평 중심 오프셋을 토큰에서 계산한다(매직넘버 -1/-5 제거).
+const BAR_TOP_OFFSET = (gauge.knobSize - gauge.barHeight) / 2;
+const KNOB_LEFT_OFFSET = -gauge.knobSize / 2;
+
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
@@ -143,25 +150,28 @@ const styles = StyleSheet.create({
   },
   gaugeArea: {
     position: 'relative',
+    // 고정 픽셀 높이 — 글꼴 배율과 무관하게 틱/노브 절대 위치 기준이 결정적이다(DAR-174).
+    height: gauge.knobSize,
     justifyContent: 'center',
   },
   bar: {
-    height: 8,
-    borderRadius: 4,
+    height: gauge.barHeight,
+    borderRadius: gauge.barRadius,
   },
   tick: {
     position: 'absolute',
-    top: 0,
-    width: 1,
-    height: 8,
+    // 막대가 게이지 영역 세로 중앙에 놓이므로 틱도 동일 오프셋으로 막대에 정렬.
+    top: BAR_TOP_OFFSET,
+    width: gauge.tickWidth,
+    height: gauge.barHeight,
   },
   knob: {
     position: 'absolute',
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginLeft: -5, // 노브 중심을 현재값에 정렬
-    marginTop: -1, // 바 중앙 정렬
+    width: gauge.knobSize,
+    height: gauge.knobSize,
+    borderRadius: gauge.knobSize / 2,
+    top: 0, // gaugeArea 높이 = knobSize → 노브가 영역에 꽉 차며 막대 중앙에 정렬
+    marginLeft: KNOB_LEFT_OFFSET, // 노브 중심을 현재값에 정렬
   },
   captionRow: {
     flexDirection: 'row',

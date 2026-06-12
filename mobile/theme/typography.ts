@@ -47,6 +47,11 @@ const FONT_WEIGHTS = {
 
 const MIN_FONT_SIZE = 12; // small 바닥값
 
+// 고정·압축 지오메트리(칩·배지)에서 OS 글꼴 최대 확대 시 텍스트 클리핑을 막는 글꼴 배율 상한(§9, DAR-174).
+// 타이포 토큰은 이미 clampTextScale(≤1.5)을 반영하지만, RN Text는 그 위에 OS 배율을 추가로 곱한다(이중 스케일).
+// 고정 높이 칩/배지는 이 상한으로 RN 추가 배율을 제한해 레이아웃 붕괴를 막는다(가변 높이 본문 텍스트엔 미적용).
+export const MAX_CHIP_FONT_SCALE = 1.3;
+
 export type TypographyKey = keyof typeof BASE_SIZES;
 
 export interface TextStyleToken {

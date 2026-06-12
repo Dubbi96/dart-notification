@@ -8,12 +8,48 @@ export const QUEUE = {
    * 발송·인박스 기록은 NotifyConsumer가 단독 담당한다(엔진 직접 발송 금지).
    */
   NOTIFY: 'notify',
+  /**
+   * DAR-182: Expo 푸시 receipt 검증·dead-token 정리 큐(durable).
+   * sendPushNotifications가 ticketId 배치를 delay 15분으로 enqueue하고,
+   * ExpoReceiptConsumer가 receipt 조회+무효 토큰 정리를 단독 담당한다.
+   * 휘발성 setTimeout(프로세스 메모리)을 대체해 배포·크래시·오토스케일
+   * 재시작에도 receipt 처리를 보장한다(Redis 영속).
+   */
+  EXPO_RECEIPT: 'expo-receipt',
 } as const;
 
 /** QUEUE.AI_ANALYZE 큐 잡 이름 */
 export const JOB = {
   EVENT_EXTRACTED: 'event.extracted',
 } as const;
+
+/** QUEUE.EXPO_RECEIPT 잡 이름 */
+export const EXPO_RECEIPT_JOB = {
+  /** ticketId 배치의 receipt 조회 + dead-token 정리 */
+  CHECK: 'expo-receipt.check',
+} as const;
+
+/** Expo 권장: receipt 는 발송 후 약 15분 뒤 확인 가능 → delayed job 지연값 */
+export const EXPO_RECEIPT_CHECK_DELAY_MS = 15 * 60 * 1000;
+
+/**
+ * QUEUE.EXPO_RECEIPT 잡 발행 옵션 — 재시도·보존 정책(NOTIFY 큐 패턴 재사용).
+ *  - attempts:3 + exponential backoff: Expo receipt 조회 일시 장애 자동 흡수.
+ *  - removeOnFail:100(보존): 소진된 실패 잡을 큐에 보존(관측·유실 방지).
+ *  - delay 는 enqueue 시점에 개별 지정(EXPO_RECEIPT_CHECK_DELAY_MS).
+ */
+export const EXPO_RECEIPT_JOB_OPTIONS = {
+  removeOnComplete: true,
+  removeOnFail: 100,
+  attempts: 3,
+  backoff: { type: 'exponential', delay: 5000 },
+} as const;
+
+/** QUEUE.EXPO_RECEIPT 잡 페이로드 — receipt 검증 대상 ticket 배치 */
+export interface ExpoReceiptJobData {
+  /** sendPushNotifications 가 받은 status:ok ticket 의 id 와 발송 대상 토큰 쌍 */
+  ticketIds: { id: string; token: string }[];
+}
 
 /**
  * DAR-89: QUEUE.AI_ANALYZE 잡 발행 옵션 — 재시도·DLQ 정책.

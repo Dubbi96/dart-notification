@@ -5,6 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { getEventTypeLabel } from '@utils/disclosureType';
+import { formatReturnPct, formatWinRate, returnColor } from '@utils/numberFormat';
 import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { useCalibration } from '@hooks/useCalibration';
 
@@ -44,19 +45,9 @@ function formatScore(v: number | null): string {
   return `${v}`;
 }
 
-function formatPct(v: number | null): string {
-  if (v === null) return '—';
-  return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
-}
-
 function formatSignedInt(v: number | null): string {
   if (v === null) return '—';
   return `${v >= 0 ? '+' : ''}${v}`;
-}
-
-function formatWinRate(v: number | null): string {
-  if (v === null) return '—';
-  return `${Math.round(v * 100)}%`;
 }
 
 function StatusBadge({ status }: { status: CalibrationStatus }) {
@@ -95,9 +86,7 @@ function EventRow({ item }: { item: EventScoreCalibration }) {
   const arColor =
     item.avgExcessReturn === null
       ? colors.textTertiary
-      : item.avgExcessReturn >= 0
-        ? colors.success
-        : colors.error;
+      : returnColor(item.avgExcessReturn, colors);
   const showDelta = item.status === 'CALIBRATE';
 
   return (
@@ -111,7 +100,7 @@ function EventRow({ item }: { item: EventScoreCalibration }) {
 
       <View style={styles.fieldGrid}>
         <Field label="현재 BASE" value={formatScore(item.currentBaseScore)} />
-        <Field label="실현 초과수익" value={formatPct(item.avgExcessReturn)} valueColor={arColor} />
+        <Field label="실현 초과수익" value={formatReturnPct(item.avgExcessReturn)} valueColor={arColor} />
         <Field label="괴리(gap)" value={formatSignedInt(item.gap)} />
       </View>
 

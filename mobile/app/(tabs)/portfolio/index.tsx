@@ -1,8 +1,8 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SegmentedButtons, Surface, Banner } from 'react-native-paper';
-import { router } from 'expo-router';
+import { router, useScrollToTop } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { PositionCard } from '@components/portfolio/PositionCard';
@@ -46,6 +46,11 @@ export default function PortfolioScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('urgency');
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  // DAR-181: 탭 재탭 시 최상단 복귀. 실전·모의 FlatList는 상호배타로 하나만 마운트되어
+  // 동일 ref를 공유한다(비활성 list는 언마운트되어 ref.current=null).
+  const listRef = useRef<FlatList<Position>>(null);
+  useScrollToTop(listRef);
 
   const positionsQuery = usePositions();
   const summaryQuery = usePortfolioSummary();
@@ -104,6 +109,7 @@ export default function PortfolioScreen() {
 
     return (
       <FlatList
+        ref={listRef}
         data={filteredPositions}
         renderItem={renderPosition}
         keyExtractor={(item) => item.id}
@@ -182,6 +188,7 @@ export default function PortfolioScreen() {
 
     return (
       <FlatList
+        ref={listRef}
         data={paper?.positions ?? []}
         renderItem={renderPosition}
         keyExtractor={(item) => item.id}

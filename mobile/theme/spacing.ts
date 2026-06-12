@@ -22,3 +22,12 @@ export const radius = {
   xl: 20,
   full: 9999,
 } as const;
+
+// 점수 게이지(ScoreGauge) 픽셀 지오메트리(DAR-174). 막대·틱·노브는 글꼴 배율과 독립적인
+// 절대 위치/퍼센트 기반이라 OS 글꼴 확대에도 정렬이 유지된다. 매직넘버 금지 → 토큰화.
+export const gauge = {
+  barHeight: 8,
+  barRadius: 4,
+  tickWidth: 1,
+  knobSize: 10,
+} as const;

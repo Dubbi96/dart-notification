@@ -5,8 +5,15 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { PipelineIntegrityService } from './pipeline-integrity.service';
 import {
   AiReprocessResult,
@@ -25,11 +32,15 @@ const MAX_LIMIT = 500;
  * POST /pipeline/drain       — 누락분 backfill 1회 수동 실행(멱등). cron과 동일 경로.
  * POST /pipeline/reprocess-ai — AI summary 미도달 자격 이벤트 큐 재발행(★운영자 수동 전용).
  *
- * ★인증 미적용 — 비밀값 미노출(카운터·집계만). 운영/내부용 — 노출 범위는
- *   게이트웨이/네트워크에서 제한 권장(/ops/metrics·/collection/freshness 와 동일 정책).
+ * ★인증 필수(DAR-176) — JwtAuthGuard 컨트롤러 전역 적용. drain/reprocess-ai 변형
+ *   엔드포인트가 외부 무인증 호출로 backfill 큐·AI 재발행을 유발해 DoS·AI 비용을
+ *   일으키는 것을 차단한다. cron(pipeline-drain.scheduler)은 서비스 직접 호출이라
+ *   컨트롤러 가드의 영향을 받지 않는다.
  * ★read-only(health)·멱등(drain)·AI 신규 호출 0(reprocess는 기존 큐 재발행, consumer 멱등 캐시).
  */
 @ApiTags('Pipeline')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('pipeline')
 export class PipelineController {
   constructor(private readonly pipeline: PipelineIntegrityService) {}

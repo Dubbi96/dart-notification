@@ -39,7 +39,7 @@ export default function ProfileScreen() {
       showDialog({ title: '저장 완료', message: '프로필이 업데이트되었습니다.', icon: { name: 'check-circle' } });
       router.back();
     } catch {
-      showDialog({ title: '오류', message: '프로필 저장에 실패했습니다.', icon: { name: 'alert-circle', color: '#EF4444' } });
+      showDialog({ title: '오류', message: '프로필 저장에 실패했습니다.', icon: { name: 'alert-circle', color: colors.error } });
     } finally {
       setIsSaving(false);
     }

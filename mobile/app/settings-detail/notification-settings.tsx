@@ -83,7 +83,7 @@ export default function NotificationSettingsScreen() {
       showDialog({
         title: '변경사항이 있어요',
         message: '저장하지 않고 나가시겠어요?',
-        icon: { name: 'alert-circle', color: '#F59E0B' },
+        icon: { name: 'alert-circle', color: colors.warning },
         buttons: [
           { text: '취소', style: 'cancel' },
           { text: '나가기', onPress: () => router.back() },
@@ -110,7 +110,7 @@ export default function NotificationSettingsScreen() {
           reset(data);
         },
         onError: () => {
-          showDialog({ title: '오류', message: '설정 저장에 실패했습니다.', icon: { name: 'alert-circle', color: '#EF4444' } });
+          showDialog({ title: '오류', message: '설정 저장에 실패했습니다.', icon: { name: 'alert-circle', color: colors.error } });
         },
       },
     );

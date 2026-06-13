@@ -288,6 +288,29 @@ describe('MarketCalendarService', () => {
     it('아침 09:00은 장중', () => {
       expect(calendar.isAfterMarket(new Date('2024-01-08T09:00:00+09:00'))).toBe(false);
     });
+    // 회귀방지(DAR-198): 시스템 로컬 TZ가 아닌 KST 명시 계산.
+    // UTC 인스턴트로 단정하면 어떤 머신 TZ에서도 동일 결과여야 한다.
+    it('TZ 무관: 06:30 UTC(=15:30 KST)는 장마감', () => {
+      expect(calendar.isAfterMarket(new Date('2024-01-08T06:30:00Z'))).toBe(true);
+    });
+    it('TZ 무관: 06:29 UTC(=15:29 KST)는 장중', () => {
+      expect(calendar.isAfterMarket(new Date('2024-01-08T06:29:00Z'))).toBe(false);
+    });
+  });
+
+  // 회귀방지(DAR-198): KST 거래일 환산이 시스템 TZ에 의존하지 않음.
+  describe('formatDate (KST 거래일)', () => {
+    it('자정~09시 KST 구간 공시(UTC 전일)도 KST 날짜로 환산', () => {
+      // 2024-01-08 08:00 KST = 2024-01-07 23:00 UTC → KST 거래일은 01-08
+      expect(calendar.formatDate(new Date('2024-01-08T08:00:00+09:00'))).toBe('2024-01-08');
+    });
+    it('심야 23:30 KST 공시도 당일 KST 날짜', () => {
+      // 2024-01-08 23:30 KST = 2024-01-08 14:30 UTC → 01-08
+      expect(calendar.formatDate(new Date('2024-01-08T23:30:00+09:00'))).toBe('2024-01-08');
+    });
+    it('parseDate → formatDate 왕복 일치', () => {
+      expect(calendar.formatDate(calendar.parseDate('2024-01-08'))).toBe('2024-01-08');
+    });
   });
 
   describe('getEntryDate', () => {

@@ -8,6 +8,8 @@ import { ApiErrorState } from '@components/common/StateView';
 import { SkeletonCard } from '@components/common/SkeletonCard';
 import { useGraduationMetrics } from '@hooks/useGraduationMetrics';
 import { EntryFunnelSection } from '@components/home/EntryFunnelSection';
+import { CollapsibleCard } from '@components/common/CollapsibleCard';
+import { pickNextGate } from '@utils/graduation';
 
 import type { GraduationGate, GraduationReport } from '@app-types/graduation.types';
 
@@ -92,77 +94,129 @@ function GateRow({ gate }: { gate: GraduationGate }) {
   );
 }
 
+/** 다음 게이트 한 줄 요약(미달/미측정 1개). 전부 통과면 '졸업 도달' 라인. */
+function NextGateSummary({ report }: { report: GraduationReport }) {
+  const { colors, typography: typo } = useTheme();
+  const gate = pickNextGate(report);
+
+  if (!gate) {
+    return (
+      <Text
+        style={[typo.small, { color: colors.success, marginTop: spacing.md }]}
+        accessibilityRole="text"
+        accessibilityLabel="모든 게이트 통과 — 졸업 도달"
+      >
+        모든 게이트 통과 — 졸업 도달
+      </Text>
+    );
+  }
+
+  const kind = badgeKind(gate);
+  return (
+    <View
+      style={[styles.nextGateRow, { borderTopColor: colors.border }]}
+      accessibilityRole="text"
+      accessibilityLabel={`다음 게이트 ${gate.label}, 현재 ${formatCurrent(gate)}, 기준 ${formatThreshold(
+        gate,
+      )}, ${BADGE_TEXT[kind]}`}
+    >
+      <Text style={[typo.small, styles.nextGateLabel, { color: colors.text }]} numberOfLines={1}>
+        <Text style={{ color: colors.textTertiary }}>다음 게이트  </Text>
+        {gate.label}
+      </Text>
+      <Text style={[typo.captionMedium, { color: colors.text }]} numberOfLines={1}>
+        {formatCurrent(gate)}
+        <Text style={[typo.small, { color: colors.textTertiary }]}>{`  (기준 ${formatThreshold(gate)})`}</Text>
+      </Text>
+    </View>
+  );
+}
+
 function TrackerBody({ report }: { report: GraduationReport }) {
   const { colors, typography: typo } = useTheme();
   return (
-    <Surface
-      elevation={1}
-      style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
-    >
-      <View style={styles.cardHeader}>
-        <View style={styles.headerText}>
-          <View style={styles.titleRow}>
-            <Feather name="award" size={16} color={colors.primary} />
-            <Text style={[typo.bodyMedium, { color: colors.text }]}>졸업 트래커</Text>
-            {report.lowSample ? (
-              <View
-                style={[styles.lowSampleBadge, { borderColor: colors.border }]}
-                accessibilityLabel="표본 부족 — 일부 지표는 데이터가 더 쌓여야 합니다"
-              >
-                <Text style={[typo.small, { color: colors.textTertiary }]}>표본 부족</Text>
-              </View>
-            ) : null}
+    <View style={styles.bodyWrap}>
+      {/* 홈 요약 — 진척바 + 통과 카운트 + 다음 게이트 1개(과밀 해소·DAR-197). */}
+      <Surface
+        elevation={1}
+        style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
+      >
+        <View style={styles.cardHeader}>
+          <View style={styles.headerText}>
+            <View style={styles.titleRow}>
+              <Feather name="award" size={16} color={colors.primary} />
+              <Text style={[typo.bodyMedium, { color: colors.text }]}>졸업 트래커</Text>
+              {report.lowSample ? (
+                <View
+                  style={[styles.lowSampleBadge, { borderColor: colors.border }]}
+                  accessibilityLabel="표본 부족 — 일부 지표는 데이터가 더 쌓여야 합니다"
+                >
+                  <Text style={[typo.small, { color: colors.textTertiary }]}>표본 부족</Text>
+                </View>
+              ) : null}
+            </View>
+            <Text style={[typo.small, { color: colors.textSecondary }]}>
+              졸업 게이트 {report.passedCount}/{report.totalGates} 통과
+            </Text>
           </View>
+        </View>
+
+        {/* 진척 막대 — passedCount/totalGates 비율(테마 토큰만) */}
+        <View
+          style={[styles.progressTrack, { backgroundColor: colors.surfaceSecondary }]}
+          accessibilityRole="progressbar"
+          accessibilityLabel={`졸업 진척 ${Math.round(report.progress * 100)}퍼센트`}
+        >
+          <View
+            style={[
+              styles.progressFill,
+              {
+                backgroundColor: report.allPassed ? colors.success : colors.primary,
+                width: `${Math.round(report.progress * 100)}%`,
+              },
+            ]}
+          />
+        </View>
+
+        <NextGateSummary report={report} />
+      </Surface>
+
+      {/* 게이트별 표·Sharpe·면책은 opt-in 접기로(progressive disclosure·DAR-197). */}
+      <CollapsibleCard
+        icon="list"
+        title="게이트 상세"
+        summary={`${report.totalGates}개 게이트${
+          report.sharpe !== null ? ` · Sharpe ${report.sharpe.toFixed(2)}` : ''
+        }`}
+      >
+        <View style={styles.gateList}>
+          {report.gates.map((g) => (
+            <GateRow key={g.id} gate={g} />
+          ))}
+        </View>
+
+        {/* Sharpe 참고지표(통과/미달 게이트 아님) — DAR-68. 측정 불가면 '—'. */}
+        <View
+          style={[styles.sharpeRow, { borderTopColor: colors.border }]}
+          accessibilityRole="text"
+          accessibilityLabel={`위험조정 수익(Sharpe 비율) ${
+            report.sharpe !== null ? report.sharpe.toFixed(2) : '측정 불가'
+          }, 참고지표`}
+        >
           <Text style={[typo.small, { color: colors.textSecondary }]}>
-            졸업 게이트 {report.passedCount}/{report.totalGates} 통과
+            위험조정 수익(Sharpe)
+          </Text>
+          <Text style={[typo.captionMedium, { color: colors.text }]}>
+            {report.sharpe !== null ? report.sharpe.toFixed(2) : '—'}
+            <Text style={[typo.small, { color: colors.textTertiary }]}>{'  참고'}</Text>
           </Text>
         </View>
-      </View>
 
-      {/* 진척 막대 — passedCount/totalGates 비율(테마 토큰만) */}
-      <View
-        style={[styles.progressTrack, { backgroundColor: colors.surfaceSecondary }]}
-        accessibilityRole="progressbar"
-        accessibilityLabel={`졸업 진척 ${Math.round(report.progress * 100)}퍼센트`}
-      >
-        <View
-          style={[
-            styles.progressFill,
-            {
-              backgroundColor: report.allPassed ? colors.success : colors.primary,
-              width: `${Math.round(report.progress * 100)}%`,
-            },
-          ]}
-        />
-      </View>
-
-      <View style={styles.gateList}>
-        {report.gates.map((g) => (
-          <GateRow key={g.id} gate={g} />
-        ))}
-      </View>
-
-      {/* Sharpe 참고지표(통과/미달 게이트 아님) — DAR-68. 측정 불가면 '—'. */}
-      <View
-        style={[styles.sharpeRow, { borderTopColor: colors.border }]}
-        accessibilityRole="text"
-        accessibilityLabel={`위험조정 수익(Sharpe 비율) ${
-          report.sharpe !== null ? report.sharpe.toFixed(2) : '측정 불가'
-        }, 참고지표`}
-      >
-        <Text style={[typo.small, { color: colors.textSecondary }]}>
-          위험조정 수익(Sharpe)
+        <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.sm }]}>
+          모의운용 누적 측정값 · 실제 주문이 아닙니다(참고용).
         </Text>
-        <Text style={[typo.captionMedium, { color: colors.text }]}>
-          {report.sharpe !== null ? report.sharpe.toFixed(2) : '—'}
-          <Text style={[typo.small, { color: colors.textTertiary }]}>{'  참고'}</Text>
-        </Text>
-      </View>
-
-      <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.sm }]}>
-        모의운용 누적 측정값 · 실제 주문이 아닙니다(참고용).
-      </Text>
-    </Surface>
+      </CollapsibleCard>
+    </View>
   );
 }
 
@@ -224,10 +278,25 @@ const styles = StyleSheet.create({
     gap: 2,
     marginBottom: spacing.md,
   },
+  bodyWrap: {
+    gap: spacing.md,
+  },
   card: {
     borderRadius: radius.lg,
     borderWidth: 1,
     padding: spacing.base,
+  },
+  nextGateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  nextGateLabel: {
+    flex: 1,
   },
   cardHeader: {
     flexDirection: 'row',

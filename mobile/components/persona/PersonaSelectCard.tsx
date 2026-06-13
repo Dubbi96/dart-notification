@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
@@ -14,6 +14,12 @@ import { ARCHETYPE_DESC, formatSignedPct } from './personaDisplay';
 // 자동매매 persona 선택 카드 — DAR-131 (P-D).
 // 거장 철학 1종: 스타일·아키타입 설명·성과 수치·현재 장 적합도·추천/선택 배지를 한 카드로.
 // 탭하면 선택(영속). ★ 신뢰: 과신 카피 금지·표본<30 DataLimitBadge·'참고' 전제. 색 단독 의미 금지(아이콘+평문).
+//
+// DAR-195 정보위계: '현재 장 적합도'가 결정 동인 → hero(크게/굵게)로 승격.
+// 누적수익·신호 적중률·MDD는 '성과 자세히' 접기(progressive disclosure, DecisionHubTab
+// summary-first/detail-on-tap 패턴 일관성)로 demote. 적중률 표본수는 가시 셀에서 빼고
+// tertiary 접미·a11y 라벨로만 노출(셀 과밀 제거). 카드 본체 선택 Pressable과 접기 토글은
+// 중첩 Pressable로 분리(토글이 responder를 선점 → 토글 탭이 선택을 트리거하지 않음).
 
 interface PersonaSelectCardProps {
   row: PersonaOverviewRow;
@@ -21,13 +27,14 @@ interface PersonaSelectCardProps {
   onSelect: (style: PhilosophyStyle) => void;
 }
 
-/** 성과 수치 1쌍 — 라벨 위, 값 아래. */
-function Metric({ label, value }: { label: string; value: string }) {
+/** 성과 수치 1쌍 — 라벨 위, 값 아래(보조). hint는 tertiary 접미(표본수 등). */
+function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   const { colors, typography: typo } = useTheme();
   return (
     <View style={styles.metric}>
       <Text style={[typo.small, { color: colors.textSecondary }]}>{label}</Text>
       <Text style={[typo.captionMedium, { color: colors.text }]}>{value}</Text>
+      {hint ? <Text style={[typo.small, { color: colors.textTertiary }]}>{hint}</Text> : null}
     </View>
   );
 }
@@ -54,16 +61,20 @@ function PersonaSelectCardBase({ row, selected, onSelect }: PersonaSelectCardPro
   const sc = perf.scorecard;
   const g = perf.graduation;
 
+  const [detailExpanded, setDetailExpanded] = useState(false);
+  const toggleDetail = useCallback(() => setDetailExpanded((v) => !v), []);
+
   const handlePress = useCallback(() => onSelect(perf.style), [onSelect, perf.style]);
 
   const archetypeDesc = ARCHETYPE_DESC[row.archetype] ?? row.archetype;
+  const fitScore = Math.round(row.regimeFitScore);
 
   return (
     <Pressable
       onPress={handlePress}
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      accessibilityLabel={`${perf.label} persona 선택. ${row.archetype}. 현재 장 적합도 ${Math.round(row.regimeFitScore)}점. 누적수익 ${formatSignedPct(sc.cumulativeReturnPct)}.${row.recommended ? ' 현재 장 추천.' : ''}${selected ? ' 선택됨.' : ''}`}
+      accessibilityLabel={`${perf.label} persona 선택. ${row.archetype}. 현재 장 적합도 ${fitScore}점. 누적수익 ${formatSignedPct(sc.cumulativeReturnPct)}. 신호 적중률 ${Math.round(g.hitRatePct)}퍼센트 표본 ${g.hitRateSampleSize}건.${row.recommended ? ' 현재 장 추천.' : ''}${selected ? ' 선택됨.' : ''}`}
     >
       <Surface
         elevation={selected ? 2 : 1}
@@ -98,18 +109,47 @@ function PersonaSelectCardBase({ row, selected, onSelect }: PersonaSelectCardPro
           {perf.lowSample ? <DataLimitBadge sampleCount={sc.sampleSize} /> : null}
         </View>
 
-        <View style={styles.metricGrid}>
-          <Metric label="현재 장 적합도" value={`${Math.round(row.regimeFitScore)}점`} />
-          <Metric label="누적수익" value={formatSignedPct(sc.cumulativeReturnPct)} />
-          <Metric
-            label="신호 적중률"
-            value={`${Math.round(g.hitRatePct)}% (n=${g.hitRateSampleSize})`}
-          />
-          <Metric
-            label="MDD"
-            value={g.mddPct === null ? '측정 불가' : formatSignedPct(g.mddPct)}
-          />
+        {/* HERO: 결정 동인 — 현재 장 적합도 단일 prominent 값 */}
+        <View style={[styles.hero, { backgroundColor: colors.primaryLight }]}>
+          <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>현재 장 적합도</Text>
+          <Text style={[typo.h1, { color: colors.primary }]} maxFontSizeMultiplier={1.3}>
+            {fitScore}점
+          </Text>
         </View>
+
+        {/* 성과 상세 — demote: 기본 접힘(progressive disclosure). 중첩 Pressable로 선택과 분리 */}
+        <Pressable
+          onPress={toggleDetail}
+          style={styles.detailToggle}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: detailExpanded }}
+          accessibilityLabel={`성과 상세 ${detailExpanded ? '접기' : '펼치기'}`}
+        >
+          <Feather name="bar-chart-2" size={13} color={colors.textSecondary} />
+          <Text style={[typo.small, styles.toggleLabel, { color: colors.textSecondary }]}>
+            성과 자세히
+          </Text>
+          <Feather
+            name={detailExpanded ? 'chevron-up' : 'chevron-down'}
+            size={16}
+            color={colors.textTertiary}
+          />
+        </Pressable>
+
+        {detailExpanded ? (
+          <View style={styles.metricGrid}>
+            <Metric label="누적수익" value={formatSignedPct(sc.cumulativeReturnPct)} />
+            <Metric
+              label="신호 적중률"
+              value={`${Math.round(g.hitRatePct)}%`}
+              hint={`표본 ${g.hitRateSampleSize}건`}
+            />
+            <Metric
+              label="MDD"
+              value={g.mddPct === null ? '측정 불가' : formatSignedPct(g.mddPct)}
+            />
+          </View>
+        ) : null}
 
         {selected ? (
           <View style={[styles.selectedBar, { backgroundColor: colors.primaryLight }]}>
@@ -165,6 +205,23 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs / 2,
+  },
+  hero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  detailToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 44,
+  },
+  toggleLabel: {
+    flex: 1,
+    marginLeft: spacing.xs,
   },
   metricGrid: {
     flexDirection: 'row',

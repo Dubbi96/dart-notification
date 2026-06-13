@@ -138,3 +138,94 @@ describe('EventStudyQueryService.findObservations()', () => {
     });
   });
 });
+
+/**
+ * findResultsByCorpCode() — 기업별 이벤트 스터디 통계 (DAR-190)
+ *
+ * 기업 보유 공시 유형 → 시장 전체 EventStudyResult 매핑. 공시 0건이면 빈 배열(에러 아님).
+ */
+function makeCorpPrisma(eventTypes: string[], results: any[]) {
+  let resultWhere: any = null;
+  return {
+    disclosureEvent: {
+      findMany: jest.fn(async () => eventTypes.map((eventType) => ({ eventType }))),
+    },
+    eventStudyResult: {
+      findMany: jest.fn(async (arg: any) => {
+        resultWhere = arg.where;
+        return results;
+      }),
+    },
+    getResultWhere: () => resultWhere,
+  };
+}
+
+describe('EventStudyQueryService.findResultsByCorpCode()', () => {
+  it('maps company disclosure event types to market-wide results (default ALL/READY)', async () => {
+    const prisma = makeCorpPrisma(
+      ['SUPPLY_CONTRACT', 'PAID_CAPITAL_INCREASE'],
+      [{ id: 'r1', eventType: 'SUPPLY_CONTRACT' }],
+    );
+    const svc = new EventStudyQueryService(prisma as any);
+
+    const out = await svc.findResultsByCorpCode({ corpCode: '00126380' });
+
+    expect(out).toHaveLength(1);
+    expect(prisma.disclosureEvent.findMany).toHaveBeenCalledWith({
+      where: { corpCode: '00126380' },
+      select: { eventType: true },
+      distinct: ['eventType'],
+    });
+    expect(prisma.getResultWhere()).toEqual({
+      eventType: { in: ['SUPPLY_CONTRACT', 'PAID_CAPITAL_INCREASE'] },
+      marketType: 'ALL',
+      status: 'READY',
+    });
+  });
+
+  it('returns [] without querying results when the company has no disclosure events', async () => {
+    const prisma = makeCorpPrisma([], []);
+    const svc = new EventStudyQueryService(prisma as any);
+
+    const out = await svc.findResultsByCorpCode({ corpCode: 'NEW_CORP' });
+
+    expect(out).toEqual([]);
+    expect(prisma.eventStudyResult.findMany).not.toHaveBeenCalled();
+  });
+
+  it('intersects eventType query with the company-owned types', async () => {
+    const prisma = makeCorpPrisma(['SUPPLY_CONTRACT', 'BUYBACK'], [{ id: 'r1' }]);
+    const svc = new EventStudyQueryService(prisma as any);
+
+    await svc.findResultsByCorpCode({ corpCode: '00126380', eventType: 'BUYBACK' });
+
+    expect(prisma.getResultWhere().eventType).toEqual({ in: ['BUYBACK'] });
+  });
+
+  it('returns [] when the requested eventType is not among the company-owned types', async () => {
+    const prisma = makeCorpPrisma(['SUPPLY_CONTRACT'], [{ id: 'r1' }]);
+    const svc = new EventStudyQueryService(prisma as any);
+
+    const out = await svc.findResultsByCorpCode({ corpCode: '00126380', eventType: 'BUYBACK' });
+
+    expect(out).toEqual([]);
+    expect(prisma.eventStudyResult.findMany).not.toHaveBeenCalled();
+  });
+
+  it('honors marketType and includeInsufficient', async () => {
+    const prisma = makeCorpPrisma(['SUPPLY_CONTRACT'], []);
+    const svc = new EventStudyQueryService(prisma as any);
+
+    await svc.findResultsByCorpCode({
+      corpCode: '00126380',
+      marketType: 'KOSPI',
+      includeInsufficient: true,
+    });
+
+    expect(prisma.getResultWhere()).toEqual({
+      eventType: { in: ['SUPPLY_CONTRACT'] },
+      marketType: 'KOSPI',
+      status: { in: ['READY', 'INSUFFICIENT'] },
+    });
+  });
+});

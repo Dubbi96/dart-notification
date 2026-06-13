@@ -1,5 +1,5 @@
-import React, { useMemo, useCallback } from 'react';
-import { View, Text, FlatList, StyleSheet, Pressable } from 'react-native';
+import React, { useMemo, useCallback, useState } from 'react';
+import { View, Text, FlatList, StyleSheet, Pressable, TouchableOpacity } from 'react-native';
 import { Surface, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -67,6 +67,79 @@ function StatPair({ label, value, sub }: { label: string; value: string; sub?: s
   );
 }
 
+/** 1차 핵심 지표 — 값을 라벨보다 명확히 키운 위계(값 typo.body/bold, 라벨 small+textSecondary). */
+function PrimaryStat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  const { colors, typography: typo } = useTheme();
+  return (
+    <View
+      style={styles.primaryStat}
+      accessibilityRole="text"
+      accessibilityLabel={`${label} ${value}${sub ? ` ${sub}` : ''}`}
+    >
+      <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+        {label}
+      </Text>
+      <Text style={[typo.body, styles.primaryValue, { color: colors.text }]} numberOfLines={1}>
+        {value}
+      </Text>
+      {sub ? (
+        <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={1}>
+          {sub}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+// 인라인 접기(DAR-194) — 전문/희귀 지표를 '한 탭 뒤'로 숨겨 카드 과밀을 줄인다. CollapsibleCard와
+// 동일한 summary-first/detail-on-tap 상호작용(chevron·accessibilityState expanded·44pt)을 따르되,
+// 카드 내부에 중첩하므로 카드 크롬 없이 경량 노출한다. 색 단독 의미 금지 — 아이콘(형태)+평문 병행.
+function InlineDisclosure({
+  label,
+  icon,
+  accent = false,
+  defaultExpanded = false,
+  children,
+}: {
+  label: string;
+  icon?: keyof typeof Feather.glyphMap;
+  accent?: boolean;
+  defaultExpanded?: boolean;
+  children: React.ReactNode;
+}) {
+  const { colors, typography: typo } = useTheme();
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const toggle = useCallback(() => setExpanded((v) => !v), []);
+  const tone = accent ? colors.warning : colors.textSecondary;
+  return (
+    <View>
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={toggle}
+        style={styles.discHeader}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityLabel={`${label}, ${expanded ? '펼침' : '접힘'}`}
+      >
+        <View style={styles.discHeaderLeft}>
+          {icon ? (
+            <Feather name={icon} size={14} color={accent ? colors.warning : colors.textTertiary} />
+          ) : null}
+          <Text style={[typo.small, { color: tone }]} numberOfLines={1}>
+            {label}
+          </Text>
+        </View>
+        <Feather
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={16}
+          color={colors.textTertiary}
+        />
+      </TouchableOpacity>
+      {expanded ? <View style={styles.discBody}>{children}</View> : null}
+    </View>
+  );
+}
+
 function StyleCard({ perf, isBest }: { perf: StylePerformance; isBest: boolean }) {
   const { colors, typography: typo } = useTheme();
   const sc = perf.scorecard;
@@ -94,19 +167,30 @@ function StyleCard({ perf, isBest }: { perf: StylePerformance; isBest: boolean }
         </Text>
       )}
 
-      <View style={styles.statGrid}>
-        <StatPair label="승률" value={formatWinRate(sc.winRate, { fallback: '표본 부족' })} sub={`n=${sc.sampleSize}`} />
-        <StatPair label="누적수익" value={formatReturnPct(sc.cumulativeReturnPct)} />
-        <StatPair label="보유 포지션" value={`${perf.openPositions}개`} />
-        <StatPair
-          label="신호 적중률(D+5)"
-          value={`${Math.round(g.hitRatePct)}%`}
-          sub={`n=${g.hitRateSampleSize}`}
+      {/* 1차: 카드 순위를 정하는 핵심 3수치만 한눈에(값 위계 강화) */}
+      <View style={styles.primaryRow}>
+        <PrimaryStat label="누적수익" value={formatReturnPct(sc.cumulativeReturnPct)} />
+        <PrimaryStat
+          label="승률"
+          value={formatWinRate(sc.winRate, { fallback: '표본 부족' })}
+          sub={`n=${sc.sampleSize}`}
         />
-        <StatPair label="Sharpe" value={formatSharpe(g.sharpe)} />
-        <StatPair label="MDD" value={formatSignedPct(g.mddPct)} />
-        <StatPair label="vs KOSPI" value={formatSignedPct(g.benchmarkAlphaPct)} />
+        <PrimaryStat label="보유 포지션" value={`${perf.openPositions}개`} />
       </View>
+
+      {/* 2차: 전문/희귀 리스크 지표는 한 탭 뒤로(progressive disclosure) */}
+      <InlineDisclosure label="상세 지표 — 적중률·Sharpe·MDD·vs KOSPI">
+        <View style={styles.statGrid}>
+          <StatPair
+            label="신호 적중률(D+5)"
+            value={`${Math.round(g.hitRatePct)}%`}
+            sub={`n=${g.hitRateSampleSize}`}
+          />
+          <StatPair label="Sharpe" value={formatSharpe(g.sharpe)} />
+          <StatPair label="MDD" value={formatSignedPct(g.mddPct)} />
+          <StatPair label="vs KOSPI" value={formatSignedPct(g.benchmarkAlphaPct)} />
+        </View>
+      </InlineDisclosure>
     </Surface>
   );
 }
@@ -197,14 +281,28 @@ function ComparisonHeader({ data }: { data: StyleComparison }) {
             아직 청산 표본이 없어 우열을 가릴 수 없습니다.
           </Text>
         )}
-        {data.ranking.allLowSample ? (
-          <Text style={[typo.small, { color: colors.warning, marginTop: spacing.sm }]}>
-            표본이 적어 결론을 과신하지 마세요(표본 {data.lowSampleThreshold}건 미만).
-          </Text>
-        ) : null}
-        <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.sm }]}>
-          진입 기준: 스타일 적합도 {data.minEntryFit}점 이상(재무 기반 Rule)
-        </Text>
+        <View style={styles.headerDisclosure}>
+          <InlineDisclosure
+            label={
+              data.ranking.allLowSample
+                ? `표본 적음 · 진입 기준 보기`
+                : '진입 기준 보기'
+            }
+            icon={data.ranking.allLowSample ? 'alert-triangle' : 'info'}
+            accent={data.ranking.allLowSample}
+          >
+            <View style={styles.headerDiscRows}>
+              {data.ranking.allLowSample ? (
+                <Text style={[typo.small, { color: colors.warning }]}>
+                  표본이 적어 결론을 과신하지 마세요(표본 {data.lowSampleThreshold}건 미만).
+                </Text>
+              ) : null}
+              <Text style={[typo.small, { color: colors.textTertiary }]}>
+                진입 기준: 스타일 적합도 {data.minEntryFit}점 이상(재무 기반 Rule)
+              </Text>
+            </View>
+          </InlineDisclosure>
+        </View>
       </Surface>
     </View>
   );
@@ -323,6 +421,39 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     paddingHorizontal: spacing.xs,
     paddingVertical: 2,
+  },
+  primaryRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  primaryStat: {
+    flex: 1,
+    gap: 2,
+  },
+  primaryValue: {
+    fontWeight: '700',
+  },
+  discHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 44,
+    gap: spacing.sm,
+  },
+  discHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flexShrink: 1,
+  },
+  discBody: {
+    paddingBottom: spacing.xs,
+  },
+  headerDisclosure: {
+    marginTop: spacing.xs,
+  },
+  headerDiscRows: {
+    gap: spacing.xs,
   },
   statGrid: {
     flexDirection: 'row',

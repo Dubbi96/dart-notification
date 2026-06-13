@@ -165,6 +165,10 @@ const styles = StyleSheet.create({
   },
   eventChip: {
     height: 26,
+    // DAR-191: 긴 이벤트 라벨이 같은 행 기업명을 짓눌러 "삼…"으로 축약하던 문제 수정.
+    // flexShrink로 칩이 먼저 양보하고, maxWidth(행의 ~50%)로 칩 라벨이 대신 잘리게(기업명 우선).
+    flexShrink: 1,
+    maxWidth: '50%',
   },
   // DAR-143: 이벤트 라벨칩 대비 보강(weight 500) — 인라인 스타일 경고 회피용 StyleSheet 분리.
   eventChipText: {

@@ -1,0 +1,70 @@
+# 회귀 안전망 CI (DAR-127 / DAR-132)
+# 로드맵 핵심 원칙: 누적 회귀 — "앞이 무너지면 뒤는 의미 없다".
+# PR·main push마다 백엔드 핵심 도메인(신호·포트폴리오·페이퍼심·dedup) 스위트 +
+# 전체 jest + tsc, 모바일 타입체크/lint/Android 번들을 하드 게이트로 강제한다.
+#
+# compose-break 방지: 개별 PR이 깨끗해도 머지 상호작용으로 main이 tsc-red가 되는
+# 사례(DAR-167 선례)를 PR 단계에서 차단한다.
+#
+# 참고: .github/workflows/* 푸시는 GitHub OAuth `workflow` 스코프가 필요하다.
+# 봇이 스코프를 못 가지면 이 파일은 사람이 머지·푸시한다(DAR-114/DAR-132 선례).
+
+name: regression-ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# 같은 ref의 이전 실행은 취소(중복 빌드 비용 절감)
+concurrency:
+  group: regression-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-regression:
+    name: 백엔드 회귀(tsc + 핵심 스위트 + 전체 jest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: 의존성 설치
+        run: npm ci --legacy-peer-deps
+      - name: Prisma Client 생성
+        run: npx prisma generate
+      - name: 타입체크 + 빌드 (tsc 0)
+        run: npm run build
+      - name: 핵심 도메인 스위트 (test:core)
+        run: npm run test:core
+      - name: 전체 회귀 (jest)
+        run: npm test
+
+  mobile-regression:
+    name: 모바일 회귀(tsc + lint + Android 번들)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: 의존성 설치
+        run: npm ci --legacy-peer-deps
+      - name: 타입체크 (tsc --noEmit 0)
+        run: npm run typecheck
+      - name: Lint (errors 0)
+        run: npm run lint
+      - name: Android 번들 (expo export)
+        run: npm run bundle:android

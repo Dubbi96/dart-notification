@@ -12,6 +12,7 @@ import { SkeletonList } from '@components/common/SkeletonCard';
 import { InfiniteListFooter } from '@components/common/InfiniteListFooter';
 import { useExploreSignals } from '@hooks/useSignals';
 import { dedupeBy, dedupeByStock } from '@utils/dedupe';
+import { verticalHitSlopForHeight } from '@utils/touchTarget';
 import {
   GRADE_FILTER_OPTIONS,
   PERSONA_FILTER_OPTIONS,
@@ -109,6 +110,8 @@ export function SignalExplorer({ searchQuery = '', ListHeaderComponent, listRef 
   const [persona, setPersona] = useState<string | undefined>(undefined);
   const [eventType, setEventType] = useState<string | undefined>(undefined);
   const [sort, setSort] = useState<SignalSort>('score');
+  // DAR-196: 3행 필터칩을 단일 "필터" 토글 뒤로 접어 피드 상단 밀림 해소(기본 접힘·활성 수 배지).
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
 
   const filters = useMemo(
     () => ({ grade, personaType: persona, eventType, sort }),
@@ -120,12 +123,19 @@ export function SignalExplorer({ searchQuery = '', ListHeaderComponent, listRef 
   const isSearching = trimmedQuery.length > 0;
   const isFilterActive =
     grade !== undefined || persona !== undefined || eventType !== undefined || isSearching;
+  // 검색은 별도 입력(상단 검색바)이라 "필터" 배지에는 등급·투자성향·이벤트 3개만 집계한다.
+  const activeFilterCount =
+    (grade !== undefined ? 1 : 0) +
+    (persona !== undefined ? 1 : 0) +
+    (eventType !== undefined ? 1 : 0);
 
   const resetFilters = useCallback(() => {
     setGrade(undefined);
     setPersona(undefined);
     setEventType(undefined);
   }, []);
+
+  const toggleFilters = useCallback(() => setFiltersExpanded((v) => !v), []);
 
   const items = useMemo(() => {
     const all = query.data?.pages.flatMap((page) => page.data) ?? [];
@@ -173,24 +183,57 @@ export function SignalExplorer({ searchQuery = '', ListHeaderComponent, listRef 
   const filterHeader = (
     <View>
       {ListHeaderComponent}
-      <FilterChipRow label="등급" options={GRADE_FILTER_OPTIONS} selected={grade} onSelect={setGrade} />
-      <FilterChipRow
-        label="투자성향"
-        options={PERSONA_FILTER_OPTIONS}
-        selected={persona}
-        onSelect={setPersona}
-      />
-      <FilterChipRow
-        label="이벤트"
-        options={EVENT_TYPE_FILTER_OPTIONS}
-        selected={eventType}
-        onSelect={setEventType}
-      />
 
+      {/* DAR-196: 기본 노출은 정렬행+결과수+"필터" 토글만. 3행 필터칩은 opt-in 시에만 펼쳐진다. */}
       <View style={styles.sortRow}>
-        <Text style={[typo.small, { color: colors.textTertiary }]}>
-          {totalCount > 0 ? `${totalCount.toLocaleString()}건` : ''}
-        </Text>
+        <View style={styles.controlLeft}>
+          <TouchableOpacity
+            style={[
+              styles.filterToggle,
+              activeFilterCount > 0
+                ? { backgroundColor: colors.primaryLight, borderColor: colors.primary }
+                : { backgroundColor: colors.surface, borderColor: colors.borderLight },
+            ]}
+            onPress={toggleFilters}
+            activeOpacity={0.7}
+            hitSlop={verticalHitSlopForHeight(32)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: filtersExpanded }}
+            accessibilityLabel={`필터${activeFilterCount > 0 ? `, ${activeFilterCount}개 적용됨` : ''}, ${filtersExpanded ? '펼침' : '접힘'}`}
+          >
+            <Feather
+              name="sliders"
+              size={12}
+              color={activeFilterCount > 0 ? colors.primaryDark : colors.textSecondary}
+            />
+            <Text
+              style={[
+                typo.small,
+                {
+                  color: activeFilterCount > 0 ? colors.primaryDark : colors.textSecondary,
+                  fontWeight: activeFilterCount > 0 ? '600' : '400',
+                },
+              ]}
+            >
+              필터
+            </Text>
+            {activeFilterCount > 0 ? (
+              <View style={[styles.filterBadge, { backgroundColor: colors.primary }]}>
+                <Text style={[typo.small, styles.filterBadgeText, { color: colors.primaryForeground }]}>
+                  {activeFilterCount}
+                </Text>
+              </View>
+            ) : null}
+            <Feather
+              name={filtersExpanded ? 'chevron-up' : 'chevron-down'}
+              size={14}
+              color={activeFilterCount > 0 ? colors.primaryDark : colors.textTertiary}
+            />
+          </TouchableOpacity>
+          <Text style={[typo.small, { color: colors.textTertiary }]}>
+            {totalCount > 0 ? `${totalCount.toLocaleString()}건` : ''}
+          </Text>
+        </View>
         <View style={styles.sortChips}>
           {SIGNAL_SORT_OPTIONS.map((opt) => {
             const isActive = sort === opt.value;
@@ -230,6 +273,37 @@ export function SignalExplorer({ searchQuery = '', ListHeaderComponent, listRef 
           })}
         </View>
       </View>
+
+      {/* opt-in 시에만 공간 차지 — 펼침 상태에서 3행 필터칩 노출(+ 활성 시 초기화). */}
+      {filtersExpanded ? (
+        <View style={styles.filterPanel}>
+          <FilterChipRow label="등급" options={GRADE_FILTER_OPTIONS} selected={grade} onSelect={setGrade} />
+          <FilterChipRow
+            label="투자성향"
+            options={PERSONA_FILTER_OPTIONS}
+            selected={persona}
+            onSelect={setPersona}
+          />
+          <FilterChipRow
+            label="이벤트"
+            options={EVENT_TYPE_FILTER_OPTIONS}
+            selected={eventType}
+            onSelect={setEventType}
+          />
+          {activeFilterCount > 0 ? (
+            <TouchableOpacity
+              style={styles.resetRow}
+              onPress={resetFilters}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="필터 초기화"
+            >
+              <Feather name="rotate-ccw" size={12} color={colors.textSecondary} />
+              <Text style={[typo.small, { color: colors.textSecondary }]}>필터 초기화</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
 
       {/* 초기 로딩 시 헤더는 유지하고 본문만 스켈레톤(헤더 깜빡임 방지) */}
       {query.isLoading ? <SkeletonList variant="buyScore" /> : null}
@@ -334,6 +408,43 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     marginTop: spacing.md,
     marginBottom: spacing.xs,
+  },
+  controlLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  filterToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    height: 32,
+    gap: spacing.xs,
+  },
+  filterBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterBadgeText: {
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  filterPanel: {
+    marginBottom: spacing.xs,
+  },
+  resetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.lg,
+    minHeight: 44,
   },
   sortChips: {
     flexDirection: 'row',

@@ -75,17 +75,37 @@ function mapGrade(grade: SignalGrade): MobileGrade {
   }
 }
 
-/** 모바일 등급값(또는 raw enum)을 Prisma enum으로 정규화. 미인식 값은 undefined → 필터 미적용. */
-function resolveGradeFilter(grade?: string): SignalGrade | undefined {
-  if (!grade) return undefined;
-  if (grade in MOBILE_GRADE_TO_ENUM) {
-    return MOBILE_GRADE_TO_ENUM[grade as MobileGrade];
+/** 단일 등급 토큰(모바일 값 또는 raw enum)을 Prisma enum으로 정규화. 미인식이면 undefined. */
+function resolveGradeToken(token: string): SignalGrade | undefined {
+  if (token in MOBILE_GRADE_TO_ENUM) {
+    return MOBILE_GRADE_TO_ENUM[token as MobileGrade];
   }
   // raw enum 값(STRONG_BUY_CANDIDATE 등)도 하위호환으로 허용
-  if ((Object.values(SignalGrade) as string[]).includes(grade)) {
-    return grade as SignalGrade;
+  if ((Object.values(SignalGrade) as string[]).includes(token)) {
+    return token as SignalGrade;
   }
   return undefined;
+}
+
+/**
+ * 등급 필터를 Prisma where 조건으로 정규화한다(DAR-193).
+ * - 단일 등급: `signal: <enum>` (기존 계약 보존).
+ * - 콤마 구분 다중 등급("STRONG_BUY,BUY"): `signal: { in: [...] }` —
+ *   홈 '상위 매수 신호' 큐레이션이 매수등급(STRONG_BUY+BUY)만 점수순으로 받기 위함.
+ * - 인식 가능한 토큰이 없으면 undefined → signal 조건 미생성(전 등급).
+ */
+function resolveGradeFilter(
+  grade?: string,
+): SignalGrade | { in: SignalGrade[] } | undefined {
+  if (!grade) return undefined;
+  const enums: SignalGrade[] = [];
+  for (const token of grade.split(',')) {
+    const resolved = resolveGradeToken(token.trim());
+    if (resolved && !enums.includes(resolved)) enums.push(resolved);
+  }
+  if (enums.length === 0) return undefined;
+  if (enums.length === 1) return enums[0];
+  return { in: enums };
 }
 
 function mapScoreBreakdown(
@@ -205,13 +225,13 @@ export class SignalsService {
       limit = 20,
     } = filters;
 
-    const gradeEnum = resolveGradeFilter(grade);
+    const gradeFilter = resolveGradeFilter(grade);
 
     const where: Prisma.TradingSignalWhereInput = {
       // ★DAR-129: 신호 피드는 백필(과거 분석 baseline) 공시 기반 신호를 절대 노출하지 않는다.
       //   신호 생성 단계에서 이미 백필을 배제하지만, 피드 조회에도 방어적으로 relation 필터를 둔다.
       disclosure: { isBackfill: false },
-      ...(gradeEnum && { signal: gradeEnum }),
+      ...(gradeFilter && { signal: gradeFilter }),
       ...(personaType && { persona: personaType }),
       ...(eventType && { eventType }),
       ...(entryReady !== undefined && { entryReady }),

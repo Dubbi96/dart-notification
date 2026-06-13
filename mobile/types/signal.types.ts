@@ -123,8 +123,11 @@ export interface CompanySignalBadge {
 /** 신호 피드 필터 */
 export interface SignalFilters {
   personaType?: string;
-  grade?: SignalGrade;
+  /** 단일 등급 또는 다중 등급(콤마 직렬화) — 홈 큐레이션은 매수등급 다중 지정(DAR-193). */
+  grade?: SignalGrade | SignalGrade[];
   entryReady?: boolean;
+  /** 정렬(DAR-193) — 'score'로 점수 내림차순 큐레이션. 미지정 시 백엔드 기본(latest). */
+  sort?: SignalSort;
 }
 
 /** 등급무관 탐색 필터(DAR-46) — 등급/페르소나/이벤트유형 미지정 시 전체. */

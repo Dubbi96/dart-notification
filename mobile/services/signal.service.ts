@@ -15,7 +15,13 @@ export const signalService = {
       .get<ApiResponse<TradingSignal[]>>('/signals', {
         params: {
           ...(filters?.personaType && { personaType: filters.personaType }),
-          ...(filters?.grade && { grade: filters.grade }),
+          // 다중 등급은 콤마 직렬화('STRONG_BUY,BUY') — 백엔드가 signal.in 으로 해석(DAR-193).
+          ...(filters?.grade && {
+            grade: Array.isArray(filters.grade)
+              ? filters.grade.join(',')
+              : filters.grade,
+          }),
+          ...(filters?.sort && { sort: filters.sort }),
           ...(filters?.entryReady && { entryReady: true }),
         },
       })

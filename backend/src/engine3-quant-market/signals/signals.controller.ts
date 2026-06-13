@@ -17,7 +17,7 @@ export class SignalsController {
 
   @Get()
   @ApiOperation({ summary: '매매 신호 목록 조회 (필터·페이지네이션)' })
-  @ApiQuery({ name: 'grade', required: false, description: '신호 등급 (STRONG_BUY|BUY|WATCH|NEUTRAL|AVOID|BLOCKED)' })
+  @ApiQuery({ name: 'grade', required: false, description: '신호 등급 (STRONG_BUY|BUY|WATCH|NEUTRAL|AVOID|BLOCKED). 콤마로 다중 지정 가능: "STRONG_BUY,BUY"' })
   @ApiQuery({ name: 'personaType', required: false, description: '페르소나 유형 (GROWTH|VALUE|MOMENTUM|EVENT_DRIVEN)' })
   @ApiQuery({ name: 'eventType', required: false, description: '공시 이벤트 유형 (SUPPLY_CONTRACT 등)' })
   @ApiQuery({ name: 'entryReady', required: false, description: '진입 준비 여부 (true/false)' })

@@ -1,13 +1,34 @@
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { signalService } from '@services/signal.service';
 import { eventStudyService } from '@services/event-study.service';
+import { CURATION_BUY_GRADES } from '@utils/signalCuration';
 
 import type { SignalFilters, SignalExploreFilters } from '@app-types/signal.types';
 
+/**
+ * 홈/신호탭 '상위 매수 신호' 큐레이션 기본 필터(DAR-193).
+ * 매수등급(STRONG_BUY/BUY)만 점수 내림차순으로 받아 "최근성에 가려진 빈상태"를 해소한다.
+ * (기존: grade 필터 없이 latest-20 → 대부분 NEUTRAL이라 매수등급 0건 위장 빈상태)
+ * 빈상태는 시스템에 매수등급 신호가 진짜 0건일 때만 발생.
+ */
+const CURATION_FILTERS: SignalFilters = {
+  grade: [...CURATION_BUY_GRADES],
+  sort: 'score',
+};
+
 export function useBuySignals(filters?: SignalFilters) {
+  // 인자 미지정 시 점수순 매수등급 큐레이션을 기본으로 사용(홈 프리뷰·신호탭 L1 공통).
+  const effective = filters ?? CURATION_FILTERS;
   return useQuery({
-    queryKey: ['signals', 'buy', filters?.personaType, filters?.grade, filters?.entryReady],
-    queryFn: () => signalService.getBuySignals(filters),
+    queryKey: [
+      'signals',
+      'buy',
+      effective.personaType,
+      effective.grade,
+      effective.entryReady,
+      effective.sort,
+    ],
+    queryFn: () => signalService.getBuySignals(effective),
     retry: 1,
   });
 }

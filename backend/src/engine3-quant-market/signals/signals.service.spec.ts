@@ -327,6 +327,36 @@ describe('SignalsService — scoreBreakdown sampleN (DAR-34)', () => {
       );
     });
 
+    it('콤마 다중 등급(STRONG_BUY,BUY)을 signal.in 으로 적용한다 (DAR-193 홈 큐레이션)', async () => {
+      prisma.tradingSignal.findMany.mockResolvedValue([]);
+
+      await service.findAll({ grade: 'STRONG_BUY,BUY' });
+
+      expect(prisma.tradingSignal.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            signal: {
+              in: [
+                SignalGrade.STRONG_BUY_CANDIDATE,
+                SignalGrade.BUY_CANDIDATE,
+              ],
+            },
+          }),
+        }),
+      );
+    });
+
+    it('다중 등급 중 미인식 토큰은 무시하고 인식분만 적용한다', async () => {
+      prisma.tradingSignal.findMany.mockResolvedValue([]);
+
+      await service.findAll({ grade: 'STRONG_BUY, NONSENSE , BUY' });
+
+      const call = prisma.tradingSignal.findMany.mock.calls[0][0];
+      expect(call.where.signal).toEqual({
+        in: [SignalGrade.STRONG_BUY_CANDIDATE, SignalGrade.BUY_CANDIDATE],
+      });
+    });
+
     it('미인식 등급값은 필터에서 무시한다(signal 조건 미생성)', async () => {
       prisma.tradingSignal.findMany.mockResolvedValue([]);
 

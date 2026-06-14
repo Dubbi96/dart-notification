@@ -17,7 +17,6 @@ import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
 import { GlassCard } from '@components/common/GlassCard';
 import { DevConnectionStatus } from '@components/common/DevConnectionStatus';
-import { useSnackbar } from '@components/common/SnackbarProvider';
 import { useAuthStore } from '@stores/authStore';
 import { useSettingsStore } from '@stores/settingsStore';
 import { useLogout, useMe } from '@hooks/useAuth';
@@ -73,8 +72,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
   const watchlistCount = watchlistData?.meta?.total ?? 0;
-  const { showSnackbar } = useSnackbar();
-  
+
   // 설정 탭 포커스 시 유저 정보 갱신
   useFocusEffect(
     useCallback(() => {
@@ -133,7 +131,12 @@ export default function SettingsScreen() {
               </View>
             </View>
 
-            <TouchableOpacity activeOpacity={0.8} onPress={() => showSnackbar('서비스 준비중입니다')}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => router.push('/settings-detail/pro')}
+              accessibilityRole="button"
+              accessibilityLabel="Pro 혜택 보기"
+            >
               <GlassCard style={styles.promoBanner} intensity={25} variant="iridescent">
                 <View style={styles.promoContent}>
                   <View>

@@ -414,7 +414,12 @@ export class DisclosureDocumentsService {
    * 재처리 대상 조회
    * parseStatus IN [FETCH_FAILED, PARSE_FAILED] AND retryCount < MAX_RETRY
    */
-  async getRetryQueue(limit = DEFAULT_RETRY_LIMIT): Promise<DisclosureDocument[]> {
+  async getRetryQueue(
+    limit = DEFAULT_RETRY_LIMIT,
+  ): Promise<Pick<DisclosureDocument, 'rcpNo'>[]> {
+    // claim·parseDisclosure 는 rcpNo 만 사용하므로 select 로 경량화한다.
+    // select 없이 조회하면 행마다 rawText(@db.Text 최대 200KB)·parsedJson·tables
+    // 등 대용량 컬럼을 DB→앱으로 불필요 전송한다(매 30분 재처리 스케줄러).
     return this.prisma.disclosureDocument.findMany({
       where: {
         parseStatus: {
@@ -424,6 +429,7 @@ export class DisclosureDocumentsService {
       },
       take: limit,
       orderBy: { updatedAt: 'asc' },
+      select: { rcpNo: true },
     });
   }
 
@@ -447,7 +453,7 @@ export class DisclosureDocumentsService {
 
     // 원자적 claim: 재처리 대상 상태에서 직접 전이에 성공한 문서만 이번 실행의 몫.
     // 오버랩/재시작으로 경쟁한 다른 실행은 count===0 으로 해당 문서를 건너뛴다.
-    const claimed: DisclosureDocument[] = [];
+    const claimed: Pick<DisclosureDocument, 'rcpNo'>[] = [];
     for (const doc of candidates) {
       const { count } = await this.prisma.disclosureDocument.updateMany({
         where: {

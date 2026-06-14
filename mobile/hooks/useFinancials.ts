@@ -11,5 +11,6 @@ export function useFinancials(corpCode: string, fsDiv?: string) {
     queryKey: ['financials', corpCode, fsDiv ?? 'CFS'],
     queryFn: () => financialsService.getLatest(corpCode, fsDiv),
     enabled: Boolean(corpCode),
+    staleTime: 1000 * 60 * 30, // 30분 — 분기 1회 갱신되는 정적 재무 스냅샷, 재진입 시 불필요 재요청 방지(기업메타 정책 정렬)
   });
 }

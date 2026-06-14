@@ -15,5 +15,6 @@ export function useCompanyInsiderHoldings(
     queryKey: ['insider-holdings', 'company', corpCode, query],
     queryFn: () => insiderHoldingService.list({ corpCode, limit: 20, ...query }),
     enabled: Boolean(corpCode),
+    staleTime: 1000 * 60 * 30, // 30분 — 공시 기반 저빈도 내부자/대량보유 동향, 재진입 시 불필요 재요청 방지(기업메타 정책 정렬)
   });
 }

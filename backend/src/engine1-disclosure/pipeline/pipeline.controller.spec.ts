@@ -71,8 +71,9 @@ describe('PipelineController', () => {
       await controller.drain('999');
       expect(service.drainOnce).toHaveBeenLastCalledWith(500);
 
+      // DAR-273: 음수는 하한(min=1)으로 클램프(정본 parsePaginationInt 계약).
       await controller.drain('-5');
-      expect(service.drainOnce).toHaveBeenLastCalledWith(100);
+      expect(service.drainOnce).toHaveBeenLastCalledWith(1);
 
       await controller.drain('42');
       expect(service.drainOnce).toHaveBeenLastCalledWith(42);

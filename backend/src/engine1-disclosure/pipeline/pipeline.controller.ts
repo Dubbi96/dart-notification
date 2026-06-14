@@ -14,6 +14,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { parsePaginationInt } from '../../common/pagination/parse-pagination';
 import { PipelineIntegrityService } from './pipeline-integrity.service';
 import {
   AiReprocessResult,
@@ -65,7 +66,9 @@ export class PipelineController {
   async drain(
     @Query('limit') limit?: string,
   ): Promise<{ success: true; data: PipelineDrainResult }> {
-    const data = await this.pipeline.drainOnce(clampLimit(limit));
+    const data = await this.pipeline.drainOnce(
+      parsePaginationInt(limit, { default: DEFAULT_LIMIT, min: 1, max: MAX_LIMIT }),
+    );
     return { success: true, data };
   }
 
@@ -79,13 +82,9 @@ export class PipelineController {
   async reprocessAi(
     @Query('limit') limit?: string,
   ): Promise<{ success: true; data: AiReprocessResult }> {
-    const data = await this.pipeline.reprocessMissingAi(clampLimit(limit));
+    const data = await this.pipeline.reprocessMissingAi(
+      parsePaginationInt(limit, { default: DEFAULT_LIMIT, min: 1, max: MAX_LIMIT }),
+    );
     return { success: true, data };
   }
-}
-
-function clampLimit(raw?: string): number {
-  const n = raw ? Number(raw) : DEFAULT_LIMIT;
-  if (!Number.isFinite(n) || n <= 0) return DEFAULT_LIMIT;
-  return Math.min(Math.floor(n), MAX_LIMIT);
 }

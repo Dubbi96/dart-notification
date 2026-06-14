@@ -19,6 +19,7 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { OptionalJwtAuthGuard } from '../../auth/guards/optional-jwt-auth.guard';
 import { SignalAccuracyService } from './signal-accuracy.service';
+import { parsePaginationInt } from '../../common/pagination/parse-pagination';
 
 @ApiTags('Backtest')
 @ApiBearerAuth()
@@ -37,9 +38,10 @@ export class SignalAccuracyController {
     @Query('eventType') eventType?: string,
     @Query('signalGrade') signalGrade?: string,
   ) {
-    const limit = limitStr ? parseInt(limitStr, 10) : undefined;
+    // DAR-273: 비숫자/음수 안전화 — 미지정·무효 → undefined(서비스 기본 표본).
+    const limit = parsePaginationInt(limitStr, {});
     const data = await this.accuracy.getSignalAccuracy({
-      limit: Number.isFinite(limit as number) ? limit : undefined,
+      limit,
       eventType: eventType?.trim() || undefined,
       signalGrade: signalGrade?.trim() || undefined,
     });
@@ -57,9 +59,10 @@ export class SignalAccuracyController {
     @Query('eventType') eventType?: string,
     @Query('signalGrade') signalGrade?: string,
   ) {
-    const limit = limitStr ? parseInt(limitStr, 10) : undefined;
+    // DAR-273: 비숫자/음수 안전화 — 미지정·무효 → undefined(서비스 기본 표본).
+    const limit = parsePaginationInt(limitStr, {});
     const data = await this.accuracy.getCalibration({
-      limit: Number.isFinite(limit as number) ? limit : undefined,
+      limit,
       eventType: eventType?.trim() || undefined,
       signalGrade: signalGrade?.trim() || undefined,
     });
@@ -77,9 +80,10 @@ export class SignalAccuracyController {
     @Query('eventType') eventType?: string,
     @Query('signalGrade') signalGrade?: string,
   ) {
-    const limit = limitStr ? parseInt(limitStr, 10) : undefined;
+    // DAR-273: 비숫자/음수 안전화 — 미지정·무효 → undefined(서비스 기본 표본).
+    const limit = parsePaginationInt(limitStr, {});
     const data = await this.accuracy.getFeatureAbReport({
-      limit: Number.isFinite(limit as number) ? limit : undefined,
+      limit,
       eventType: eventType?.trim() || undefined,
       signalGrade: signalGrade?.trim() || undefined,
     });

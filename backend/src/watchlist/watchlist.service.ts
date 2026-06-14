@@ -4,9 +4,10 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateWatchlistDto } from './dto/create-watchlist.dto';
-import { resolveCursor } from './watchlist.util';
+import { resolveCursor, newCountMapFromGrouped } from './watchlist.util';
 
 const MAX_WATCHLIST_COUNT = 30;
 
@@ -42,22 +43,25 @@ export class WatchlistService {
 
     // 마지막으로 본 rcpNo 커서(없으면 등록일 floor) 이후 신규 공시 수 파생(DAR-185).
     // rcpNo(='YYYYMMDD'+일련번호) > 커서 = 신규. rcpDt(일 단위)와 달리 같은 날 안의
-    // 순서까지 보존되어 당일 공시도 정확히 집계된다. 항목별 커서가 달라 항목 단위 count.
-    const newCounts = await Promise.all(
-      watchlist.map((item) => {
-        const cursor = resolveCursor(item.lastViewedRcpNo, item.createdAt);
-        return this.prisma.disclosure.count({
-          where: { corpCode: item.corpCode, rcpNo: { gt: cursor } },
-        });
-      }),
-    );
+    // 순서까지 보존되어 당일 공시도 정확히 집계된다.
+    //
+    // 항목별 커서(lastViewedRcpNo)가 달라 단일 groupBy 로는 셀 수 없었고, 기존에는 항목당
+    // disclosure.count 를 Promise.all 로 N건 병렬 발행했다(DAR-214 N+1). 진입 빈도가 높은
+    // 화면에서 종목 수만큼 대용량 Disclosure count 가 동시 발행되는 부하다.
+    //
+    // 해결: (corpCode, 커서) 쌍을 VALUES 로 만들어 disclosures 와 LEFT JOIN → corpCode 별
+    // 그룹 count 를 단일 raw 쿼리로 1회 집계한다(N→1). LEFT JOIN 이라 신규 0건 종목도 행이
+    // 남고, corpCode 는 사용자별 유니크(@@unique([userId, corpCode]))라 항목과 1:1 매핑된다.
+    // 동일 술어(rcpNo > cursor)라 배지 수치는 기존과 정확히 일치한다. (corpCode, rcpNo)
+    // 복합 인덱스가 이 조인 조건을 직접 서빙한다(DAR-214 마이그레이션).
+    const newCountMap = await this.countNewDisclosures(watchlist);
 
-    const items = watchlist.map(({ company, ...item }, idx) => ({
+    const items = watchlist.map(({ company, ...item }) => ({
       ...item,
       stockCode: company?.stockCode ?? null,
       market: company?.market ?? null,
       lastDisclosureDate: latestMap.get(item.corpCode) ?? null,
-      newDisclosureCount: newCounts[idx],
+      newDisclosureCount: newCountMap.get(item.corpCode) ?? 0,
     }));
 
     return {
@@ -65,6 +69,43 @@ export class WatchlistService {
       total: items.length,
       limit: MAX_WATCHLIST_COUNT,
     };
+  }
+
+  /**
+   * 워치리스트 각 항목의 (corpCode, 커서) 쌍을 VALUES 로 묶어 disclosures 와 LEFT JOIN,
+   * corpCode 별 신규(rcpNo > 커서) 공시 수를 단일 쿼리로 집계한다(DAR-214 N→1).
+   * 반환: corpCode → 신규 공시 수 Map. 빈 워치리스트면 쿼리 없이 빈 Map.
+   *
+   * 각 VALUES 값은 ::text 캐스팅해 Postgres 의 컬럼 타입 추론 모호성을 제거하고,
+   * COUNT(...)::int 로 bigint 대신 number 로 받는다(JS number 직매핑).
+   */
+  private async countNewDisclosures(
+    watchlist: { corpCode: string; lastViewedRcpNo: string | null; createdAt: Date }[],
+  ): Promise<Map<string, number>> {
+    if (watchlist.length === 0) {
+      return new Map();
+    }
+
+    const cursorRows = Prisma.join(
+      watchlist.map((item) => {
+        const cursor = resolveCursor(item.lastViewedRcpNo, item.createdAt);
+        return Prisma.sql`(${item.corpCode}::text, ${cursor}::text)`;
+      }),
+    );
+
+    // 컬럼은 Prisma 필드명을 그대로 쓰는 camelCase 라 큰따옴표 인용 필수("corpCode"/"rcpNo").
+    // VALUES 별칭(v.corp_code/v.cursor)은 자체 명명이라 비인용 소문자.
+    const grouped = await this.prisma.$queryRaw<
+      { corpCode: string; count: number }[]
+    >(Prisma.sql`
+      SELECT v.corp_code AS "corpCode", COUNT(d."rcpNo")::int AS "count"
+      FROM (VALUES ${cursorRows}) AS v(corp_code, cursor)
+      LEFT JOIN disclosures d
+        ON d."corpCode" = v.corp_code AND d."rcpNo" > v.cursor
+      GROUP BY v.corp_code
+    `);
+
+    return newCountMapFromGrouped(grouped);
   }
 
   /**

@@ -58,3 +58,15 @@ export function countNewByCursor(rcpNos: string[], cursor: string): number {
     0,
   );
 }
+
+/**
+ * DAR-214 — grouped count 쿼리 결과(corpCode 별 신규 공시 수) 행 배열을 corpCode → count
+ * Map 으로 정규화한다(순수 함수). LEFT JOIN 으로 0건 종목도 행이 남으나, 행이 누락된
+ * corpCode 는 호출부에서 `?? 0` 으로 폴백한다. COUNT 가 bigint 로 와도 number 로 강제
+ * 변환해 안전하게 매핑한다.
+ */
+export function newCountMapFromGrouped(
+  grouped: { corpCode: string; count: number | bigint }[],
+): Map<string, number> {
+  return new Map(grouped.map((g) => [g.corpCode, Number(g.count)]));
+}

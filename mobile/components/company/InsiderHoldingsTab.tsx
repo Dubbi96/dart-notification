@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import React, { useCallback } from 'react';
+import { View, Text, FlatList, StyleSheet, type ListRenderItem } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
@@ -58,7 +58,7 @@ function formatRatioChange(value: number | null): string {
   return `${sign}${value.toFixed(2)}%p`;
 }
 
-function InsiderRow({ item }: { item: InsiderHoldingChange }) {
+const InsiderRow = React.memo(function InsiderRow({ item }: { item: InsiderHoldingChange }) {
   const { colors, typography: typo } = useTheme();
   const ts = tradeStyle(item.tradeType);
   const toneColor =
@@ -129,11 +129,16 @@ function InsiderRow({ item }: { item: InsiderHoldingChange }) {
       ) : null}
     </Card>
   );
-}
+});
 
 export function InsiderHoldingsTab({ corpCode }: InsiderHoldingsTabProps) {
   const { colors, typography: typo } = useTheme();
   const { data, isLoading, isError, refetch } = useCompanyInsiderHoldings(corpCode);
+
+  const renderItem = useCallback<ListRenderItem<InsiderHoldingChange>>(
+    ({ item }) => <InsiderRow item={item} />,
+    [],
+  );
 
   if (isLoading) return <LoadingState message="내부자/대량보유 동향을 불러오는 중…" />;
   if (isError)
@@ -157,7 +162,7 @@ export function InsiderHoldingsTab({ corpCode }: InsiderHoldingsTabProps) {
     <FlatList
       data={data}
       keyExtractor={(item) => item.id}
-      renderItem={({ item }) => <InsiderRow item={item} />}
+      renderItem={renderItem}
       contentContainerStyle={styles.listContent}
       showsVerticalScrollIndicator={false}
       ListHeaderComponent={

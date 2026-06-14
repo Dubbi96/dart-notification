@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Animated, FlatList } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Animated, FlatList, type ListRenderItem } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
@@ -78,7 +78,7 @@ function LoadingSkeleton() {
   );
 }
 
-function FactRow({ fact }: { fact: FiledFact }) {
+const FactRow = React.memo(function FactRow({ fact }: { fact: FiledFact }) {
   const { colors, typography: typo } = useTheme();
   const display = formatFiledFactValue(fact);
   if (!display) return null;
@@ -96,11 +96,16 @@ function FactRow({ fact }: { fact: FiledFact }) {
       </Text>
     </View>
   );
-}
+});
 
 export function DisclosureFiledFactsSection({ rcpNo }: { rcpNo: string }) {
   const { colors, typography: typo } = useTheme();
   const { data, isLoading, isError, error, refetch } = useDisclosureFiledFacts(rcpNo);
+
+  const renderItem = useCallback<ListRenderItem<FiledFact>>(
+    ({ item }) => <FactRow fact={item} />,
+    [],
+  );
 
   if (isLoading) {
     return (
@@ -158,7 +163,7 @@ export function DisclosureFiledFactsSection({ rcpNo }: { rcpNo: string }) {
         data={facts}
         scrollEnabled={false}
         keyExtractor={(f) => `${f.factKey}-${f.sectionPath ?? ''}`}
-        renderItem={({ item }) => <FactRow fact={item} />}
+        renderItem={renderItem}
         ListFooterComponent={
           <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.sm }]}>
             DART 공시 원문 기반 추출값이며, 일부 항목은 누락·근사일 수 있습니다.

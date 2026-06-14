@@ -22,8 +22,7 @@ import { useCompanyPhilosophyFit, useCompanyPersonaPhilosophyFusion } from '@hoo
 import { getEventTypeLabel, getPolarityLabel, getTypeLabel } from '@utils/disclosureType';
 import { gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
 import { extractKeyFigures } from '@utils/keyFigures';
-
-import { parse, format } from 'date-fns';
+import { formatYmdDots } from '@utils/datetime';
 
 import type { BuyScoreComponent } from '@app-types/signal.types';
 
@@ -46,11 +45,6 @@ function polarityIcon(polarity: string): keyof typeof Feather.glyphMap {
   if (polarity === 'POSITIVE') return 'trending-up';
   if (polarity === 'NEGATIVE') return 'trending-down';
   return 'minus';
-}
-
-function formatRcpDt(rcpDt: string): string {
-  if (rcpDt.length !== 8) return rcpDt;
-  return format(parse(rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd');
 }
 
 interface CollapsibleSectionProps {
@@ -200,7 +194,7 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
                 {getTypeLabel(latestDisclosure.disclosureType)}
               </Chip>
               <Text style={[typo.small, { color: colors.textTertiary }]}>
-                {formatRcpDt(latestDisclosure.rcpDt)}
+                {formatYmdDots(latestDisclosure.rcpDt)}
               </Text>
             </View>
             <Text style={[typo.body, { color: colors.text, marginTop: spacing.sm }]} numberOfLines={2}>

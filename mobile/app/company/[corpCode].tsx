@@ -30,7 +30,6 @@ import { gradeColor, gradeLabel } from '@utils/signalDisplay';
 import { formatReturnPct, returnColor } from '@utils/numberFormat';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { formatYmdDots } from '@utils/datetime';
-import { parse, format } from 'date-fns';
 import { LoadingState, EmptyState, ErrorState, ApiErrorState } from '@components/common/StateView';
 import { DetailSkeleton } from '@components/common/DetailSkeleton';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
@@ -666,9 +665,7 @@ export default function CompanyDetailScreen() {
                         </Text>
                       </View>
                       <Text style={[typo.small, { color: colors.textTertiary }]}>
-                        {disclosure.rcpDt.length === 8
-                          ? format(parse(disclosure.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd')
-                          : disclosure.rcpDt}
+                        {formatYmdDots(disclosure.rcpDt)}
                       </Text>
                     </View>
                     <Text style={[typo.body, { color: colors.text, marginTop: spacing.sm }]} numberOfLines={2}>

@@ -12,7 +12,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Chip } from 'react-native-paper';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { parse, format } from 'date-fns';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
@@ -40,6 +39,7 @@ import {
   getPolarityLabel,
 } from '@utils/disclosureType';
 import { extractKeyFigures } from '@utils/keyFigures';
+import { formatYmdDots } from '@utils/datetime';
 
 // 극성/이벤트 평문 매핑은 utils/disclosureType.ts(단일 출처)로 통합 — raw enum 단독 노출 금지(P0-B).
 
@@ -175,7 +175,7 @@ export default function DisclosureDetailScreen() {
     stockCodeRow,
     { label: '공시유형', value: getTypeLabel(disclosure.disclosureType) },
     { label: '접수번호', value: disclosure.rcpNo },
-    { label: '접수일시', value: format(parse(disclosure.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd') },
+    { label: '접수일시', value: formatYmdDots(disclosure.rcpDt) },
   ];
 
   // 이벤트 추출 핵심 수치(DAR-46 §3) — 화이트리스트 키만 평문 라벨·단위로 노출.

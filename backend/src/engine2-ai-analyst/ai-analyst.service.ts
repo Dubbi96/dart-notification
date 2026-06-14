@@ -83,6 +83,8 @@ export class AiAnalystService {
 
     const cached = await this.repo.findAnalysis(rcpNo, 'summary');
     if (cached) {
+      // DAR-241: 캐시히트(비용0 재사용)를 관측 기록 — 재처리 통계에서 사라지지 않도록.
+      await this.usageLog.logCacheHit({ rcpNo, task: 'summary', level: cached.level });
       return cached.resultJson as DisclosureSummaryDraft;
     }
 
@@ -126,6 +128,8 @@ export class AiAnalystService {
 
     const cached = await this.repo.findAnalysis(rcpNo, 'event-classification');
     if (cached) {
+      // DAR-241: 캐시히트(비용0 재사용)를 관측 기록.
+      await this.usageLog.logCacheHit({ rcpNo, task: 'event-classification', level: cached.level });
       return cached.resultJson as EventClassificationDraft;
     }
 
@@ -169,6 +173,8 @@ export class AiAnalystService {
 
     const cached = await this.repo.findAnalysis(rcpNo, 'persona-interpretation');
     if (cached) {
+      // DAR-241: 캐시히트(비용0 재사용)를 관측 기록.
+      await this.usageLog.logCacheHit({ rcpNo, task: 'persona-interpretation', level: cached.level });
       return cached.resultJson as PersonaAnalysisDraft[];
     }
 
@@ -213,6 +219,8 @@ export class AiAnalystService {
 
     const cached = await this.repo.findAnalysis(rcpNo, 'position-thesis');
     if (cached) {
+      // DAR-241: 캐시히트(비용0 재사용)를 관측 기록.
+      await this.usageLog.logCacheHit({ rcpNo, task: 'position-thesis', level: cached.level });
       return cached.resultJson as PositionThesisDraft;
     }
 

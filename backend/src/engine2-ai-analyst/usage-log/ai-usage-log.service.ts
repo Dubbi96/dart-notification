@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AiCostMetrics, AiUsageLogParams } from '../types/ai-analyst.types';
+import { AiCostLevel, AiCostMetrics, AiTaskName, AiUsageLogParams } from '../types/ai-analyst.types';
 import { AiAnalysisRepository } from '../ports/ai-analysis.repository';
 
 /**
@@ -21,6 +21,22 @@ export class AiUsageLogService {
     );
   }
 
+  /**
+   * DAR-241: 멱등 캐시히트(비용0 재사용)를 경량 기록한다.
+   * 'AI 호출'이 아니므로 logUsage(비용·토큰 기록)와 별도 경로로 — l0Ratio·비용 분모 무오염.
+   * 동일 rcpNo+task 재처리(BullMQ 재시도/중복)의 캐시히트를 관측해 AI 활용률 과소보고를 해소한다.
+   */
+  async logCacheHit(params: {
+    rcpNo: string;
+    task: AiTaskName;
+    level: AiCostLevel;
+  }): Promise<void> {
+    await this.repo.saveCacheHit({ ...params, createdAt: new Date() });
+    this.logger.debug(
+      `[AIUsageLog] cache-hit ${params.task}/${params.level} rcpNo=${params.rcpNo} (비용0 재사용)`,
+    );
+  }
+
   async getCostMetrics(from: Date, to: Date): Promise<AiCostMetrics> {
     const rows = await this.repo.getUsageSummary(from, to);
     const totalCostUsd = rows.reduce((s, r) => s + r.costUsd, 0);
@@ -29,6 +45,14 @@ export class AiUsageLogService {
     const l0Ratio = callCount > 0 ? l0Count / callCount : 1;
     const disclosureCount = new Set(rows.map(r => r.rcpNo)).size;
     const costPerDisclosure = disclosureCount > 0 ? totalCostUsd / disclosureCount : 0;
-    return { totalCostUsd, callCount, l0Ratio, costPerDisclosure, l0Warning: l0Ratio < 0.7 };
+    const cacheHitCount = await this.repo.getCacheHitCount(from, to);
+    return {
+      totalCostUsd,
+      callCount,
+      l0Ratio,
+      costPerDisclosure,
+      l0Warning: l0Ratio < 0.7,
+      cacheHitCount,
+    };
   }
 }

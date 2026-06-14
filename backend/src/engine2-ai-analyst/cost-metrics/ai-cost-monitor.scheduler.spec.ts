@@ -32,6 +32,7 @@ describe('AiCostMonitorScheduler', () => {
           'persona-interpretation': { costUsd: 0, callCount: 0 },
           'position-thesis': { costUsd: 0, callCount: 0 },
         },
+        cacheHitCount: 0,
       },
       weekly: {
         totalCostUsd: 0.05,
@@ -49,6 +50,7 @@ describe('AiCostMonitorScheduler', () => {
           'persona-interpretation': { costUsd: 0, callCount: 0 },
           'position-thesis': { costUsd: 0, callCount: 0 },
         },
+        cacheHitCount: 0,
       },
       weekFrom: '2026-05-31T00:00:00.000Z',
       weekTo: '2026-06-06T00:00:00.000Z',

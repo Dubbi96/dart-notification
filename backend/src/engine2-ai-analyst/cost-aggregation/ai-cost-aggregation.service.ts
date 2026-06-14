@@ -31,6 +31,8 @@ export class AiCostAggregationService {
 
   async getPeriodSummary(from: Date, to: Date): Promise<AiCostPeriodSummary> {
     const rows = await this.repo.getUsageSummary(from, to);
+    // DAR-241: 캐시히트는 실호출 집계(rows)와 분리 — 비용·L0 분모 무오염, 적중률만 별도 노출.
+    const cacheHitCount = await this.repo.getCacheHitCount(from, to);
     const totalCostUsd = rows.reduce((s, r) => s + r.costUsd, 0);
     const totalInputTokens = rows.reduce((s, r) => s + r.inputTokens, 0);
     const totalOutputTokens = rows.reduce((s, r) => s + r.outputTokens, 0);
@@ -61,6 +63,7 @@ export class AiCostAggregationService {
       l3Count,
       l0Ratio,
       byTask,
+      cacheHitCount,
     };
   }
 

@@ -12,9 +12,8 @@ import { CurationSlot } from '@components/signals/CurationSlot';
 import { SignalSearchInput } from '@components/signals/SignalSearchInput';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
-import { GuestPrompt } from '@components/common/GuestPrompt';
+import { GuestSignalPreview } from '@components/signals/GuestSignalPreview';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
-import { guestPromptCopy } from '@components/common/guestPromptCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { useAuthStore } from '@stores/authStore';
 import { useExitSignals } from '@hooks/useSignals';
@@ -145,11 +144,11 @@ export default function SignalsScreen() {
   );
 
   const renderBody = () => {
-    // DAR-113: 매수·매도 신호는 인증 필요(401). 게스트는 빈/에러 화면 대신 로그인 유도.
+    // DAR-113/DAR-213: 매수·매도 신호는 인증 필요(401). 게스트는 빈/에러 화면 대신
+    // read-only 미리보기(블러+잠금 카드) + 로그인 CTA로 가치를 직접 맛보게 한다.
     if (!isAuthenticated) {
       return (
-        <GuestPrompt
-          {...guestPromptCopy.signals}
+        <GuestSignalPreview
           secondaryLabel="공시 먼저 둘러보기"
           onSecondary={() => router.push('/(tabs)/home')}
         />

@@ -71,7 +71,8 @@ const tt = touchTarget();
 log(tt.w >= 44 && tt.h >= 44, `삭제 버튼 터치영역 ${tt.w}x${tt.h}pt ≥ 44pt`);
 
 // ④ 스낵바 카피 정본
-log(snackbarCopy.watchlistRemoved('삼성전자') === '삼성전자을(를) 관심목록에서 제거했어요.', '제거 스낵바 카피');
+// DAR-274: 조사 자동선택 적용 — '삼성전자'(받침無) → '를'.
+log(snackbarCopy.watchlistRemoved('삼성전자') === '삼성전자를 관심목록에서 제거했어요.', '제거 스낵바 카피');
 log(snackbarCopy.watchlistRemoveFailed === '제거에 실패했어요. 다시 시도해 주세요.', '제거 실패 카피');
 log(snackbarCopy.watchlistLimitReached(30) === '관심 기업은 최대 30개까지 등록할 수 있어요.', '한도 안내 카피');
 log(SNACKBAR_DURATION.success === 2500 && SNACKBAR_DURATION.error === 4000, '스낵바 지속시간 정본(성공2.5s/실패4s)');

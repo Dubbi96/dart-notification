@@ -6,6 +6,7 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { useSnackbar } from '@components/common/SnackbarProvider';
+import { snackbarCopy } from '@components/common/snackbarCopy';
 import {
   useWatchlist,
   useAddToWatchlist,
@@ -74,7 +75,7 @@ export function CompanyHubLink({
         },
       },
     );
-    showSnackbar(`${corpName}을(를) 관심목록에 추가했어요.`, { duration: 2500 });
+    showSnackbar(snackbarCopy.watchlistAdded(corpName), { duration: 2500 });
   }, [
     corpCode,
     corpName,

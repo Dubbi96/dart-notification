@@ -45,14 +45,36 @@ const KEY_FIGURE_SPEC: Record<string, FigureSpec> = {
 // 핵심 수치를 너무 많이 노출하지 않도록 카드당 상한.
 const MAX_FIGURES = 6;
 
+const EOK = 1_0000_0000; // 억 (1e8)
+const JO = 1_0000_0000_0000; // 조 (1e12)
+
+// 원 → 한국 금융관례 압축 표기(조/억/만). 음수·소수 입력 안전.
+// - 조 이상: 'N조 M억원'(억 나머지 有) 또는 'N조원'(나머지 0). 억 단위 반올림으로 결정.
+// - 억 구간: 10억 미만 소수1자리(예: 1.23억→'1.2억원'), 10억 이상 정수(예: 12억→'12억원').
+// - 만 구간: 정수 만원. 미만: 원 단위.
 function formatKrwCompact(value: number): string {
   const abs = Math.abs(value);
-  if (abs >= 1_0000_0000)
-    return `${(value / 1_0000_0000).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}억원`;
+  if (abs >= JO) {
+    const sign = value < 0 ? '-' : '';
+    // 전체를 억 단위로 반올림 후 조/억으로 분해(나머지 반올림이 1조에 닿으면 자동 올림).
+    const totalEok = Math.round(abs / EOK);
+    const joUnits = Math.floor(totalEok / 10000);
+    const eokRemainder = totalEok % 10000;
+    if (eokRemainder === 0) return `${sign}${joUnits.toLocaleString('ko-KR')}조원`;
+    return `${sign}${joUnits.toLocaleString('ko-KR')}조 ${eokRemainder.toLocaleString('ko-KR')}억원`;
+  }
+  if (abs >= EOK) {
+    const eok = value / EOK;
+    const digits = abs >= 10 * EOK ? 0 : 1;
+    return `${eok.toLocaleString('ko-KR', { maximumFractionDigits: digits })}억원`;
+  }
   if (abs >= 1_0000)
     return `${(value / 1_0000).toLocaleString('ko-KR', { maximumFractionDigits: 0 })}만원`;
   return `${value.toLocaleString('ko-KR')}원`;
 }
+
+// 단위테스트(RN 비의존)에서 직접 검증할 수 있도록 노출. 표시 경로(formatFigure)는 그대로.
+export { formatKrwCompact };
 
 function formatFigure(value: number | string, unit: FigureUnit): string | null {
   if (unit === 'text') {

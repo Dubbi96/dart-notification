@@ -4,6 +4,8 @@ import {
   formatKstDateCompact,
   kstYear,
   kstMonth,
+  kstDayStart,
+  kstMonthStart,
 } from './kst';
 
 /**
@@ -74,6 +76,69 @@ describe('KST 날짜 유틸 (DAR-199, TZ 독립)', () => {
       const d = new Date('2026-08-10T03:00:00Z'); // KST 12:00
       expect(kstYear(d)).toBe(2026);
       expect(kstMonth(d)).toBe(8);
+    });
+  });
+
+  /**
+   * DAR-243 — 비용 한도 윈도 경계의 KST 고정.
+   *
+   * KST 자정/월초의 절대 시각은 UTC로는 전일/전월 15:00이다(KST=UTC+9, DST 없음).
+   * createdAt(UTC 저장)과 비교할 경계가 이 절대 시각이어야 일/월 윈도가 9시간
+   * 어긋나지 않는다. 단정은 모두 절대 시각('Z')이라 process.env.TZ에 무관하다.
+   */
+  describe('한도 윈도 경계 — kstDayStart/kstMonthStart (DAR-243, TZ 독립)', () => {
+    it('kstDayStart는 KST 당일 00:00 = UTC 전일 15:00', () => {
+      // 2026-06-14T18:00Z = KST 06-15 03:00 → 그 날 KST 자정은 06-14 15:00Z
+      const dawn = new Date('2026-06-14T18:00:00Z');
+      expect(kstDayStart(dawn).toISOString()).toBe('2026-06-14T15:00:00.000Z');
+    });
+
+    it('UTC 자정 가정(옛 버그)이었다면 9시간 빠른 경계가 잡혔어야 함 — 회귀 대조', () => {
+      const dawn = new Date('2026-06-14T18:00:00Z');
+      const kstBoundary = kstDayStart(dawn).getTime();
+      // 옛 setHours(0,0,0,0)을 UTC로 해석하면 06-14 00:00Z가 경계였다.
+      const buggyUtcBoundary = new Date('2026-06-14T00:00:00Z').getTime();
+      const NINE_HOURS_MS = 9 * 60 * 60 * 1000;
+      expect(kstBoundary - buggyUtcBoundary).toBe(15 * 60 * 60 * 1000);
+      // KST 자정은 UTC 자정보다 9시간 *이르다*(전일 15:00) — 경계 어긋남의 핵심.
+      const kstMidnightAsUtcDay = new Date('2026-06-15T00:00:00Z').getTime();
+      expect(kstMidnightAsUtcDay - kstBoundary).toBe(NINE_HOURS_MS);
+    });
+
+    it('KST 자정 직후(00:30=UTC 전일 15:30)도 같은 KST 당일 경계로 묶임', () => {
+      const justAfter = new Date('2026-06-14T15:30:00Z'); // KST 06-15 00:30
+      // KST 06-15의 자정 = UTC 06-14 15:00. 경계는 입력보다 이르다(이후로 포함).
+      expect(kstDayStart(justAfter).toISOString()).toBe(
+        '2026-06-14T15:00:00.000Z',
+      );
+      expect(justAfter.getTime()).toBeGreaterThanOrEqual(
+        kstDayStart(justAfter).getTime(),
+      );
+    });
+
+    it('KST 자정 직전(23:59=UTC 14:59)은 같은 날 경계로 묶임', () => {
+      const justBefore = new Date('2026-06-15T14:59:59Z'); // KST 06-15 23:59
+      expect(kstDayStart(justBefore).toISOString()).toBe(
+        '2026-06-14T15:00:00.000Z',
+      );
+    });
+
+    it('kstMonthStart는 KST 1일 00:00 = UTC 전월 말일 15:00', () => {
+      // 2026-06-14T18:00Z = KST 06-15 → 6월 KST 월초는 05-31 15:00Z
+      const d = new Date('2026-06-14T18:00:00Z');
+      expect(kstMonthStart(d).toISOString()).toBe('2026-05-31T15:00:00.000Z');
+    });
+
+    it('월말 UTC 새벽(KST 익월 진입)은 새 달의 월초 경계', () => {
+      // 2026-05-31T20:00Z = KST 06-01 05:00 → 6월 월초 = 05-31 15:00Z
+      const d = new Date('2026-05-31T20:00:00Z');
+      expect(kstMonthStart(d).toISOString()).toBe('2026-05-31T15:00:00.000Z');
+      expect(d.getUTCMonth() + 1).toBe(5); // UTC는 아직 5월 — 버그 대조
+    });
+
+    it('연말 경계: KST 익년 1월은 전년 12-31 15:00Z 월초', () => {
+      const d = new Date('2025-12-31T20:00:00Z'); // KST 2026-01-01 05:00
+      expect(kstMonthStart(d).toISOString()).toBe('2025-12-31T15:00:00.000Z');
     });
   });
 });

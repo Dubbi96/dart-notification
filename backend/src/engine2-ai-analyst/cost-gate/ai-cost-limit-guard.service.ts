@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiCostLevel, AiCostLimitStatus } from '../types/ai-analyst.types';
+import { kstDayStart, kstMonthStart } from '../../common/time/kst';
 
 /**
  * AI 비용 한도 가드 — 순수 Rule (AI 미개입).
@@ -15,10 +16,12 @@ export class AiCostLimitGuardService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getLimitStatus(): Promise<AiCostLimitStatus> {
+    // 한도 윈도 경계는 KST 벽시계 자정/월초로 고정한다(DAR-243). createdAt은
+    // Prisma 기본 UTC 저장이므로 로컬 TZ setHours/생성자로 만든 경계는 UTC
+    // 컨테이너에서 9시간 어긋나 일/월 한도를 오산정한다.
     const now = new Date();
-    const dayStart = new Date(now);
-    dayStart.setHours(0, 0, 0, 0);
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    const dayStart = kstDayStart(now);
+    const monthStart = kstMonthStart(now);
 
     const [dailyAgg, monthlyAgg] = await Promise.all([
       this.prisma.aIUsageLog.aggregate({

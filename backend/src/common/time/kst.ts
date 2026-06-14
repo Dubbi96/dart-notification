@@ -46,3 +46,24 @@ export function kstYear(date: Date): number {
 export function kstMonth(date: Date): number {
   return Number(formatKstDateCompact(date).slice(4, 6));
 }
+
+/**
+ * KST 기준 "오늘 00:00:00"의 절대 시각(UTC `Date`).
+ *
+ * 배경(DAR-243): 비용 한도 윈도 경계를 `Date.setHours(0,0,0,0)`(로컬 TZ)로 만들면
+ * UTC 컨테이너에서 KST 자정이 아니라 UTC 자정으로 잡혀, Prisma가 UTC로 저장한
+ * `createdAt`과 비교 시 일/월 경계가 9시간 어긋나 한도 윈도를 오산정한다.
+ * Asia/Seoul은 DST가 없어 항상 +09:00이므로, KST 벽시계 날짜에 고정 오프셋을
+ * 붙인 ISO 리터럴로 그 KST 자정의 절대 시각(UTC)을 안전하게 환산한다.
+ */
+export function kstDayStart(date: Date): Date {
+  return new Date(`${formatKstDateDashed(date)}T00:00:00+09:00`);
+}
+
+/**
+ * KST 기준 "이번 달 1일 00:00:00"의 절대 시각(UTC `Date`). 비용 한도 월윈도 경계.
+ * `kstDayStart`와 동일 처방 — KST 벽시계 연·월에 +09:00을 붙여 UTC 절대 시각 환산.
+ */
+export function kstMonthStart(date: Date): Date {
+  return new Date(`${formatKstDateDashed(date).slice(0, 7)}-01T00:00:00+09:00`);
+}

@@ -8,6 +8,7 @@ import { RiskStatusBadges, summarizeRiskStatus } from '@components/common/RiskSt
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
+import { buildSignalCardA11yLabel } from '@utils/signalTerms';
 import { getEventTypeLabel } from '@utils/disclosureType';
 
 import type { TradingSignal } from '@app-types/signal.types';
@@ -46,9 +47,13 @@ function BuyScoreCardBase({ signal, onPress }: BuyScoreCardProps) {
       activeOpacity={0.8}
       onPress={handlePress}
       accessibilityRole="button"
-      accessibilityLabel={`${signal.corpName} 매수 신호, Buy Score ${signal.buyScore}, ${gradeLabel(
-        signal.grade,
-      )}${riskSummary ? `, ${riskSummary}` : ''}`}
+      // 용어 위계 L2 고정(DAR-217): 카드 a11y는 SSOT 빌더로 '매수 신호'+'Buy Score' 일관.
+      accessibilityLabel={buildSignalCardA11yLabel({
+        corpName: signal.corpName,
+        buyScore: signal.buyScore,
+        gradeText: gradeLabel(signal.grade),
+        riskSummary,
+      })}
       accessibilityActions={[{ name: 'activate', label: '신호 상세 보기' }]}
       onAccessibilityAction={(event) => {
         if (event.nativeEvent.actionName === 'activate') handlePress();

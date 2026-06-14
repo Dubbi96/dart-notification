@@ -7,6 +7,7 @@ import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { useDisclosureSignal } from '@hooks/useSignals';
 import { gradeColor, gradeLabel, buyScoreColor } from '@utils/signalDisplay';
+import { SIGNAL_TERMS } from '@utils/signalTerms';
 import { disclosureSignalTarget } from '@utils/disclosureSignalLink';
 
 // 공시 → 매수 신호 역링크 진입 카드(DAR-208).
@@ -42,7 +43,7 @@ export function DisclosureSignalLink({ rcpNo, enabled = true }: DisclosureSignal
       <View style={styles.titleRow}>
         <Feather name="zap" size={16} color={colors.primary} />
         <Text style={[typo.captionMedium, { color: colors.text, marginLeft: spacing.xs }]}>
-          이 공시의 매수 신호
+          이 공시의 {SIGNAL_TERMS.card}
         </Text>
       </View>
 
@@ -50,7 +51,7 @@ export function DisclosureSignalLink({ rcpNo, enabled = true }: DisclosureSignal
         onPress={handlePress}
         style={[styles.link, { borderColor: colors.border }]}
         accessibilityRole="button"
-        accessibilityLabel={`이 공시의 매수 신호 보기 · ${signal.corpName} Buy Score ${signal.buyScore}점 ${gradeLabel(signal.grade)}`}
+        accessibilityLabel={`이 공시의 ${SIGNAL_TERMS.card} 보기 · ${signal.corpName} ${SIGNAL_TERMS.buyScore} ${signal.buyScore}점 ${gradeLabel(signal.grade)}`}
       >
         <Chip
           compact
@@ -61,7 +62,7 @@ export function DisclosureSignalLink({ rcpNo, enabled = true }: DisclosureSignal
           {gradeLabel(signal.grade)}
         </Chip>
         <Text style={[typo.captionMedium, { color: buyScoreColor(signal.buyScore, colors), flex: 1 }]}>
-          Buy Score {signal.buyScore}
+          {SIGNAL_TERMS.buyScore} {signal.buyScore}
         </Text>
         <Feather name="chevron-right" size={16} color={colors.textTertiary} />
       </TouchableOpacity>

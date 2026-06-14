@@ -409,25 +409,31 @@ describe('SignalsService — scoreBreakdown sampleN (DAR-34)', () => {
       expect(call.where).not.toHaveProperty('signal');
     });
 
-    it('sort=score 시 점수 내림차순 + 최신순 tiebreak로 정렬한다', async () => {
+    it('sort=score 시 점수 내림차순 + 최신순 tiebreak + 유니크 id tiebreak(DAR-289)로 정렬한다', async () => {
       prisma.tradingSignal.findMany.mockResolvedValue([]);
 
       await service.findAll({ sort: 'score' });
 
       expect(prisma.tradingSignal.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          orderBy: [{ buyScore: 'desc' }, { createdAt: 'desc' }],
+          orderBy: [
+            { buyScore: 'desc' },
+            { createdAt: 'desc' },
+            { id: 'desc' },
+          ],
         }),
       );
     });
 
-    it('sort 미지정 시 최신순(createdAt desc)을 기본으로 한다', async () => {
+    it('sort 미지정 시 최신순(createdAt desc) + 유니크 id tiebreak(DAR-289)를 기본으로 한다', async () => {
       prisma.tradingSignal.findMany.mockResolvedValue([]);
 
       await service.findAll({});
 
       expect(prisma.tradingSignal.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ orderBy: [{ createdAt: 'desc' }] }),
+        expect.objectContaining({
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        }),
       );
     });
 
@@ -454,5 +460,132 @@ describe('SignalsService — scoreBreakdown sampleN (DAR-34)', () => {
         }),
       );
     });
+  });
+});
+
+// ─── DAR-289: 페이지네이션 tie-break ───────────────────────────────────────────
+// createdAt 이 같은 배치에서 동값이면(점수순은 buyScore+createdAt 동값까지) orderBy 가
+// 행 순서를 미결정 → 페이지 경계 중복/누락. 유니크 id 를 최종 tie-break 로 추가해 결정화.
+// fake findMany 로 그 불안정성을 모델링한다.
+describe('SignalsService — 페이지네이션 tie-break (DAR-289)', () => {
+  let service: SignalsService;
+  let prisma: {
+    tradingSignal: { findMany: jest.Mock; count: jest.Mock };
+    eventStudyResult: { findMany: jest.Mock };
+  };
+
+  const sameTs = new Date('2026-06-15T00:00:00.000Z');
+  const mkRow = (id: string) => ({
+    id,
+    rcpNo: id,
+    corpCode: '00126380',
+    stockCode: '005930',
+    eventType: 'SUPPLY_CONTRACT',
+    persona: 'GROWTH',
+    buyScore: 72, // 동점 — score 정렬에서도 createdAt 동값과 합쳐 tie 발생
+    signal: SignalGrade.BUY_CANDIDATE,
+    scoreBreakdown: {},
+    riskPenalty: 0,
+    entryConditionMet: [],
+    entryConditionUnmet: [],
+    entryReady: true,
+    riskFactors: [],
+    signalSummary: '요약',
+    blockedReason: null,
+    validUntil: sameTs,
+    isNotified: false,
+    notifiedAt: null,
+    createdAt: sameTs,
+    updatedAt: sameTs,
+    company: { corpCode: '00126380', corpName: '삼성전자', stockCode: '005930' },
+  });
+  const rows = [mkRow('s1'), mkRow('s2'), mkRow('s3'), mkRow('s4')];
+
+  let callSeq = 0;
+  const cmpBy =
+    (orderBy: Array<Record<string, 'asc' | 'desc'>>) =>
+    (a: Record<string, unknown>, b: Record<string, unknown>): number => {
+      for (const o of orderBy) {
+        const field = Object.keys(o)[0];
+        const dir = o[field];
+        const av = a[field] as string | number | Date;
+        const bv = b[field] as string | number | Date;
+        const c = av < bv ? -1 : av > bv ? 1 : 0;
+        if (c !== 0) return dir === 'desc' ? -c : c;
+      }
+      return 0;
+    };
+  const unstableFindMany = (orderBy: any, skip = 0, take?: number) => {
+    const cmp = cmpBy(Array.isArray(orderBy) ? orderBy : [orderBy]);
+    const sorted = [...rows].sort(cmp);
+    const seq = callSeq++;
+    const groups: Array<Array<Record<string, unknown>>> = [];
+    for (const r of sorted) {
+      const last = groups[groups.length - 1];
+      if (last && cmp(last[0], r) === 0) last.push(r);
+      else groups.push([r]);
+    }
+    return groups
+      .flatMap((g) => {
+        if (g.length <= 1) return g;
+        const off = seq % g.length;
+        return [...g.slice(off), ...g.slice(0, off)];
+      })
+      .slice(skip, take == null ? undefined : skip + take);
+  };
+
+  beforeEach(async () => {
+    callSeq = 0;
+    prisma = {
+      tradingSignal: {
+        findMany: jest.fn(({ orderBy, skip, take }: any) =>
+          Promise.resolve(unstableFindMany(orderBy, skip, take)),
+        ),
+        count: jest.fn().mockResolvedValue(rows.length),
+      },
+      eventStudyResult: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        SignalsService,
+        { provide: PrismaService, useValue: prisma },
+      ],
+    }).compile();
+    service = module.get<SignalsService>(SignalsService);
+  });
+
+  it('latest: 동값 createdAt 다건에서 2페이지 연속 조회 시 union=전체·교집합=0', async () => {
+    const p1 = await service.findAll({ sort: 'latest', page: 1, limit: 2 });
+    const p2 = await service.findAll({ sort: 'latest', page: 2, limit: 2 });
+    const ids1 = p1.items.map((s: any) => s.id);
+    const ids2 = p2.items.map((s: any) => s.id);
+    expect(new Set([...ids1, ...ids2]).size).toBe(rows.length);
+    expect(ids1.filter((id: string) => ids2.includes(id))).toHaveLength(0);
+  });
+
+  it('latest 분기 orderBy 끝에 유니크 id tie-break 전달', async () => {
+    await service.findAll({ sort: 'latest', page: 1, limit: 2 });
+    expect(prisma.tradingSignal.findMany.mock.calls[0][0].orderBy).toEqual([
+      { createdAt: 'desc' },
+      { id: 'desc' },
+    ]);
+  });
+
+  it('score 분기 orderBy 끝에 유니크 id tie-break 전달', async () => {
+    await service.findAll({ sort: 'score', page: 1, limit: 2 });
+    expect(prisma.tradingSignal.findMany.mock.calls[0][0].orderBy).toEqual([
+      { buyScore: 'desc' },
+      { createdAt: 'desc' },
+      { id: 'desc' },
+    ]);
+  });
+
+  it('대조군: tie-break 없는 단일 키 정렬은 동일 fake 에서 중복/누락이 발생한다', () => {
+    callSeq = 0;
+    const single = [{ createdAt: 'desc' as const }];
+    const page1 = unstableFindMany(single, 0, 2).map((s) => s.id as string);
+    const page2 = unstableFindMany(single, 2, 2).map((s) => s.id as string);
+    expect(new Set([...page1, ...page2]).size).toBeLessThan(rows.length);
+    expect(page1.filter((id) => page2.includes(id)).length).toBeGreaterThan(0);
   });
 });

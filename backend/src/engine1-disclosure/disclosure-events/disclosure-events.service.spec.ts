@@ -296,4 +296,103 @@ describe('DisclosureEventsService', () => {
       await expect(service.findOne('NONEXIST')).rejects.toThrow(NotFoundException);
     });
   });
+
+  // ─── DAR-289: 페이지네이션 tie-break ─────────────────────────────────────────
+  // extractedAt 이 동값(배치 추출)일 때, orderBy 에 유니크 tie-break 가 없으면
+  // Postgres 는 동값 행 순서를 보장하지 않아 페이지 경계에서 중복/누락이 난다.
+  // 아래 fake findMany 는 그 불안정성을 모델링한다: orderBy 키로 정렬한 뒤,
+  // 모든 키가 동값이라 순서가 미결정된 그룹을 호출 시퀀스마다 회전시킨다.
+  describe('findMany — 페이지네이션 tie-break (DAR-289)', () => {
+    const sameTs = new Date('2026-06-15T00:00:00.000Z');
+    const rows = [
+      { id: 'e1', rcpNo: '20260615000001', corpCode: 'C', extractedAt: sameTs },
+      { id: 'e2', rcpNo: '20260615000002', corpCode: 'C', extractedAt: sameTs },
+      { id: 'e3', rcpNo: '20260615000003', corpCode: 'C', extractedAt: sameTs },
+      { id: 'e4', rcpNo: '20260615000004', corpCode: 'C', extractedAt: sameTs },
+    ];
+
+    // orderBy 배열을 실제로 적용하고, 미결정 tie 그룹을 호출마다 회전시키는 fake.
+    let callSeq = 0;
+    const cmpBy =
+      (orderBy: Array<Record<string, 'asc' | 'desc'>>) =>
+      (a: Record<string, unknown>, b: Record<string, unknown>): number => {
+        for (const o of orderBy) {
+          const field = Object.keys(o)[0];
+          const dir = o[field];
+          const av = a[field] as string | Date;
+          const bv = b[field] as string | Date;
+          const c = av < bv ? -1 : av > bv ? 1 : 0;
+          if (c !== 0) return dir === 'desc' ? -c : c;
+        }
+        return 0;
+      };
+    const unstableFindMany = jest.fn(
+      async ({
+        orderBy,
+        skip = 0,
+        take,
+      }: {
+        orderBy: Array<Record<string, 'asc' | 'desc'>>;
+        skip?: number;
+        take?: number;
+      }) => {
+        const cmp = cmpBy(Array.isArray(orderBy) ? orderBy : [orderBy]);
+        const sorted = [...rows].sort(cmp);
+        const seq = callSeq++;
+        const groups: Array<Array<Record<string, unknown>>> = [];
+        for (const r of sorted) {
+          const last = groups[groups.length - 1];
+          if (last && cmp(last[0], r) === 0) last.push(r);
+          else groups.push([r]);
+        }
+        const flat = groups.flatMap((g) => {
+          if (g.length <= 1) return g;
+          const off = seq % g.length;
+          return [...g.slice(off), ...g.slice(0, off)];
+        });
+        return flat.slice(skip, take == null ? undefined : skip + take);
+      },
+    );
+
+    beforeEach(() => {
+      callSeq = 0;
+      mockPrismaService.disclosureEvent.findMany.mockImplementation(unstableFindMany);
+      mockPrismaService.disclosureEvent.count.mockResolvedValue(rows.length);
+    });
+
+    it('동값 extractedAt 다건에서 2페이지 연속 조회 시 union=전체·교집합=0', async () => {
+      const p1 = await service.findMany({ corpCode: 'C', page: 1, limit: 2 });
+      const p2 = await service.findMany({ corpCode: 'C', page: 2, limit: 2 });
+
+      const ids1 = p1.items.map((e) => e.id);
+      const ids2 = p2.items.map((e) => e.id);
+      const union = new Set([...ids1, ...ids2]);
+      const intersection = ids1.filter((id) => ids2.includes(id));
+
+      expect(union.size).toBe(rows.length); // 누락 0
+      expect(intersection).toHaveLength(0); // 중복 0
+    });
+
+    it('서비스는 유니크 tie-break(rcpNo)를 orderBy 마지막에 전달한다', async () => {
+      await service.findMany({ corpCode: 'C', page: 1, limit: 2 });
+      const passed = (mockPrismaService.disclosureEvent.findMany as jest.Mock).mock
+        .calls[0][0].orderBy;
+      expect(passed).toEqual([{ extractedAt: 'desc' }, { rcpNo: 'desc' }]);
+    });
+
+    it('대조군: tie-break 없는 단일 키 정렬은 동일 fake 에서 중복/누락이 발생한다', async () => {
+      // fake 의 불안정성 모델이 실재함을 입증(테스트에 teeth 부여).
+      const single = [{ extractedAt: 'desc' as const }];
+      const page1 = (await unstableFindMany({ orderBy: single, skip: 0, take: 2 })).map(
+        (e) => e.id as string,
+      );
+      const page2 = (await unstableFindMany({ orderBy: single, skip: 2, take: 2 })).map(
+        (e) => e.id as string,
+      );
+      const union = new Set([...page1, ...page2]);
+      const intersection = page1.filter((id) => page2.includes(id));
+      expect(union.size).toBeLessThan(rows.length); // 누락 발생
+      expect(intersection.length).toBeGreaterThan(0); // 중복 발생
+    });
+  });
 });

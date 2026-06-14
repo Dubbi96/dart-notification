@@ -392,7 +392,8 @@ export class DisclosureEventsService {
     const [items, total] = await Promise.all([
       this.prisma.disclosureEvent.findMany({
         where,
-        orderBy: { extractedAt: 'desc' },
+        // DAR-289: extractedAt 은 배치 추출 시 동값 가능 → 유니크 rcpNo 로 tie-break(페이지 경계 안정화)
+        orderBy: [{ extractedAt: 'desc' }, { rcpNo: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
       }),

@@ -238,10 +238,11 @@ export class SignalsService {
     };
 
     // 정렬(DAR-46): 점수순은 동점 시 최신순으로 안정화. 기본은 최신순.
+    // DAR-289: createdAt 도 같은 배치에서 동값 가능 → 유니크 id 로 최종 tie-break(페이지 경계 안정화)
     const orderBy: Prisma.TradingSignalOrderByWithRelationInput[] =
       sort === 'score'
-        ? [{ buyScore: 'desc' }, { createdAt: 'desc' }]
-        : [{ createdAt: 'desc' }];
+        ? [{ buyScore: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }]
+        : [{ createdAt: 'desc' }, { id: 'desc' }];
 
     const [signals, total] = await Promise.all([
       this.prisma.tradingSignal.findMany({

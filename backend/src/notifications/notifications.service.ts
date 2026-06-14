@@ -94,7 +94,8 @@ export class NotificationsService {
         where,
         skip: (page - 1) * limit,
         take: limit,
-        orderBy: { sentAt: 'desc' },
+        // DAR-289: sentAt 은 배치 발송 시 동값 가능 → 유니크 id 로 tie-break(페이지 경계 안정화)
+        orderBy: [{ sentAt: 'desc' }, { id: 'desc' }],
         include: {
           disclosure: {
             select: {

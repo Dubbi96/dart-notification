@@ -56,6 +56,11 @@ export class SavedDisclosuresService {
       if (error.code === 'P2002') {
         throw new ConflictException('Disclosure already saved');
       }
+      // 선검증(findUnique)과 insert 사이에 해당 공시 행이 삭제·프루닝되는 경쟁(TOCTOU)에서는
+      // 여전히 FK 위반(P2003)이 날 수 있다. 사라진 입력이므로 5xx 로 새지 않게 404 로 매핑한다.
+      if (error.code === 'P2003') {
+        throw new NotFoundException('Disclosure not found');
+      }
       throw error;
     }
   }

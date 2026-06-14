@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { Logger, UnauthorizedException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { AuthService } from './auth.service';
 
@@ -248,5 +248,95 @@ describe('AuthService refresh token rotation (DAR-207)', () => {
     await expect(
       service.refresh(USER_ID, EMAIL, tokens.refreshToken),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+});
+
+/**
+ * DAR-280: 카카오 토큰교환 실패 경로의 로깅 위생.
+ *
+ * - console.* 우회 없이 NestJS Logger 경유로 기록한다.
+ * - 민감정보(앱 키 KAKAO_REST_API_KEY·access_token·refresh_token·인가코드·전체
+ *   페이로드)는 로그에 절대 노출되지 않고, error/error_description/status 만 남는다.
+ * - 인증 실패 동작(UnauthorizedException·메시지)은 불변.
+ */
+describe('AuthService kakaoLogin 로깅 위생 (DAR-280)', () => {
+  const KAKAO_KEY = 'secret_KAKAO_REST_API_KEY'; // createService configService 모킹값
+  const AUTH_CODE = 'super-secret-authorization-code-xyz';
+  const REDIRECT_URI = 'https://app.example.com/callback';
+
+  let logSpy: jest.SpyInstance;
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    // 실제 표준에러 출력 억제 + 호출 인자 캡처.
+    logSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    if (originalFetch) globalThis.fetch = originalFetch;
+  });
+
+  function mockTokenFetchFailure() {
+    originalFetch = globalThis.fetch;
+    // 토큰교환 실패 응답: 카카오 에러필드 + (방어적으로) 토큰필드까지 포함시켜
+    // 전체 페이로드 덤프가 아님을 입증한다.
+    globalThis.fetch = jest.fn(async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({
+        error: 'invalid_grant',
+        error_description: 'authorization code not found',
+        access_token: 'LEAKED_ACCESS_TOKEN',
+        refresh_token: 'LEAKED_REFRESH_TOKEN',
+      }),
+    })) as unknown as typeof globalThis.fetch;
+  }
+
+  it('토큰교환 실패 시 console 이 아니라 Logger.error 경유로 기록한다', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockTokenFetchFailure();
+    const { service } = createService();
+
+    await expect(
+      service.kakaoLogin(AUTH_CODE, REDIRECT_URI),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(consoleSpy).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it('로그에 status/error/error_description 만 남고 민감정보는 미노출', async () => {
+    mockTokenFetchFailure();
+    const { service } = createService();
+
+    await expect(
+      service.kakaoLogin(AUTH_CODE, REDIRECT_URI),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    const [message, meta] = logSpy.mock.calls[0];
+    expect(message).toBe('Kakao token exchange failed');
+    expect(meta).toEqual({
+      status: 401,
+      error: 'invalid_grant',
+      error_description: 'authorization code not found',
+    });
+
+    // 모든 로그 인자를 직렬화해 민감 문자열이 단 한 글자도 섞이지 않음을 검증.
+    const serialized = JSON.stringify(logSpy.mock.calls);
+    expect(serialized).not.toContain(KAKAO_KEY);
+    expect(serialized).not.toContain(AUTH_CODE);
+    expect(serialized).not.toContain('LEAKED_ACCESS_TOKEN');
+    expect(serialized).not.toContain('LEAKED_REFRESH_TOKEN');
+  });
+
+  it('인증 실패 메시지는 불변(카카오 인증에 실패했습니다.)', async () => {
+    mockTokenFetchFailure();
+    const { service } = createService();
+
+    await expect(service.kakaoLogin(AUTH_CODE, REDIRECT_URI)).rejects.toThrow(
+      '카카오 인증에 실패했습니다.',
+    );
   });
 });

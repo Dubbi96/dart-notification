@@ -9,6 +9,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
@@ -26,6 +27,8 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(private readonly authService: AuthService) {}
 
   @Post('signup')
@@ -82,7 +85,7 @@ export class AuthController {
         </body></html>
       `);
     } catch (e) {
-      console.error('[KakaoCallback Error]', e?.message || e);
+      this.logger.error('Kakao callback failed', { error: e?.message || String(e) });
       const errorMsg = e?.message || '알 수 없는 오류';
       const returnUrl = this.extractReturnUrl(state);
       const sep = returnUrl.includes('?') ? '&' : '?';

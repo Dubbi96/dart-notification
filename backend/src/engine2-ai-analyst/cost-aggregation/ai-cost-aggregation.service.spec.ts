@@ -3,12 +3,14 @@ import { AiAnalysisRepository } from '../ports/ai-analysis.repository';
 import { PrismaService } from '../../prisma/prisma.service';
 
 describe('AiCostAggregationService', () => {
-  function makeService(rows: any[]) {
+  function makeService(rows: any[], cacheHitCount = 0) {
     const mockRepo = {
       getUsageSummary: jest.fn().mockResolvedValue(rows),
+      getCacheHitCount: jest.fn().mockResolvedValue(cacheHitCount),
       findAnalysis: jest.fn(),
       saveAnalysis: jest.fn(),
       saveUsage: jest.fn(),
+      saveCacheHit: jest.fn(),
     } as unknown as AiAnalysisRepository;
 
     const mockPrisma = {
@@ -68,5 +70,15 @@ describe('AiCostAggregationService', () => {
     expect(result.l0Ratio).toBe(1);
     expect(result.totalCostUsd).toBe(0);
     expect(result.callCount).toBe(0);
+  });
+
+  it('DAR-241: 캐시히트는 실호출 집계와 분리 — callCount/l0Ratio 불변, cacheHitCount만 별도 노출', async () => {
+    // 실호출 4건 + 캐시히트 7건. cacheHit 행은 getUsageSummary(rows)에 포함되지 않으므로
+    // callCount/비용/l0Ratio 분모는 실호출 4건 기준 그대로다(무오염).
+    const svc = makeService(sampleRows, 7);
+    const result = await svc.getPeriodSummary(new Date(), new Date());
+    expect(result.cacheHitCount).toBe(7);
+    expect(result.callCount).toBe(4); // 캐시히트가 호출 수를 부풀리지 않음
+    expect(result.totalCostUsd).toBeCloseTo(0.0085, 6); // 비용 분모 불변
   });
 });

@@ -34,6 +34,7 @@ describe('AiCostHealthService', () => {
       l3Count: 0,
       l0Ratio: 1,
       byTask: emptyByTask(),
+      cacheHitCount: 0,
       ...over,
     };
   }
@@ -45,6 +46,7 @@ describe('AiCostHealthService', () => {
       l0Ratio: 1,
       costPerDisclosure: 0,
       l0Warning: false,
+      cacheHitCount: 0,
       ...over,
     };
   }

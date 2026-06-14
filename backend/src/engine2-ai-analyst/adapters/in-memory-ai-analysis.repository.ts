@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { AiAnalysisRepository, StoredAnalysis } from '../ports/ai-analysis.repository';
+import {
+  AiAnalysisRepository,
+  CacheHitRecord,
+  StoredAnalysis,
+} from '../ports/ai-analysis.repository';
 import { AiTaskName, AiUsageLogParams } from '../types/ai-analyst.types';
 
 /**
@@ -11,6 +15,8 @@ import { AiTaskName, AiUsageLogParams } from '../types/ai-analyst.types';
 export class InMemoryAiAnalysisRepository extends AiAnalysisRepository {
   private readonly analyses = new Map<string, StoredAnalysis>();
   private readonly usages: Array<AiUsageLogParams & { createdAt: Date }> = [];
+  /** DAR-241: 캐시히트 기록(비용0 재사용). 실호출 usages 와 분리 — getUsageSummary 무오염. */
+  private readonly cacheHits: CacheHitRecord[] = [];
   /** PersonaAnalysis 영속 모사 (rcpNo → resultJson). DAR-78 융합 입력 검증용. */
   private readonly personaViews = new Map<string, unknown>();
 
@@ -37,6 +43,14 @@ export class InMemoryAiAnalysisRepository extends AiAnalysisRepository {
 
   async saveUsage(usage: AiUsageLogParams & { createdAt: Date }): Promise<void> {
     this.usages.push(usage);
+  }
+
+  async saveCacheHit(hit: CacheHitRecord): Promise<void> {
+    this.cacheHits.push(hit);
+  }
+
+  async getCacheHitCount(from: Date, to: Date): Promise<number> {
+    return this.cacheHits.filter(h => h.createdAt >= from && h.createdAt <= to).length;
   }
 
   async getUsageSummary(from: Date, to: Date) {

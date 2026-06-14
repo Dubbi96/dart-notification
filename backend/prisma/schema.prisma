@@ -641,12 +641,16 @@ model AIUsageLog {
   inputTokens  Int // 입력 토큰 수
   outputTokens Int // 출력 토큰 수
   costUsd      Float // 비용 (USD)
+  // DAR-241: 멱등 캐시히트(비용0 재사용) 표식. true 행은 실호출 비용/L0 집계에서 제외하고
+  // 캐시 적중률 관측에만 사용한다 — 재처리에서 AI 활용률 과소보고 방지.
+  cacheHit     Boolean     @default(false)
   createdAt    DateTime    @default(now())
 
   @@index([rcpNo])
   @@index([task])
   @@index([level])
   @@index([createdAt])
+  @@index([cacheHit])
   @@map("ai_usage_logs")
 }
 

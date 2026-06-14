@@ -59,6 +59,9 @@ export interface AiCostMetrics {
   l0Ratio: number; // L0(미사용) 비율 — 70%+ 유지 목표
   costPerDisclosure: number;
   l0Warning: boolean; // true when l0Ratio < 0.7
+  // DAR-241: 멱등 캐시히트 횟수(비용0 재사용). callCount/cost 와 분리 집계 —
+  // 캐시히트는 'AI 호출'이 아니므로 l0Ratio·비용 분모를 오염시키지 않는다.
+  cacheHitCount: number;
 }
 
 export interface AiCostPeriodSummary {
@@ -72,6 +75,8 @@ export interface AiCostPeriodSummary {
   l3Count: number;
   l0Ratio: number;
   byTask: Record<AiTaskName, { costUsd: number; callCount: number }>;
+  // DAR-241: 캐시히트 횟수(비용0 재사용). 실호출 집계와 분리. 0=관측 미발생.
+  cacheHitCount: number;
 }
 
 export interface AiCostLimitStatus {

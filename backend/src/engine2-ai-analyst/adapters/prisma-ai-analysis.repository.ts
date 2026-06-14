@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AiAnalysisRepository, StoredAnalysis } from '../ports/ai-analysis.repository';
+import {
+  AiAnalysisRepository,
+  CacheHitRecord,
+  StoredAnalysis,
+} from '../ports/ai-analysis.repository';
 import { AiTaskName, AiUsageLogParams } from '../types/ai-analyst.types';
 
 /** AiTaskName(TS) → Prisma AiTaskName enum 변환 */
@@ -85,9 +89,36 @@ export class PrismaAiAnalysisRepository extends AiAnalysisRepository {
     });
   }
 
+  /**
+   * DAR-241: 멱등 캐시히트를 cacheHit=true·비용0·토큰0 행으로 기록한다.
+   * getUsageSummary 가 cacheHit=false 로 필터하므로 실호출 비용 집계는 무오염.
+   */
+  async saveCacheHit(hit: CacheHitRecord): Promise<void> {
+    await this.prisma.aIUsageLog.create({
+      data: {
+        rcpNo: hit.rcpNo,
+        task: toPrismaTask(hit.task),
+        level: hit.level as any,
+        model: 'cache',
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: 0,
+        cacheHit: true,
+        createdAt: hit.createdAt,
+      },
+    });
+  }
+
+  async getCacheHitCount(from: Date, to: Date): Promise<number> {
+    return this.prisma.aIUsageLog.count({
+      where: { createdAt: { gte: from, lte: to }, cacheHit: true },
+    });
+  }
+
   async getUsageSummary(from: Date, to: Date) {
     return this.prisma.aIUsageLog.findMany({
-      where: { createdAt: { gte: from, lte: to } },
+      // DAR-241: cacheHit 행은 'AI 호출'이 아니므로 비용·L0 집계에서 제외.
+      where: { createdAt: { gte: from, lte: to }, cacheHit: false },
       select: {
         task: true,
         level: true,

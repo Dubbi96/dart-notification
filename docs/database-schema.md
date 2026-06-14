@@ -1227,9 +1227,12 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 | `inputTokens` | Int | 입력 토큰 수 |
 | `outputTokens` | Int | 출력 토큰 수 |
 | `costUsd` | Float | 비용 (USD) |
+| `cacheHit` | Boolean (default false) | **DAR-241**: 멱등 캐시히트(비용0 재사용) 표식. true 행은 실호출 비용/L0 집계에서 제외하고 적중률 관측에만 사용 |
 | `createdAt` | DateTime | 기록 시각 |
 
-**인덱스**: `rcpNo`, `task`, `level`, `createdAt`
+**인덱스**: `rcpNo`, `task`, `level`, `createdAt`, `cacheHit`
+
+> **DAR-241**: AiAnalystService 의 멱등 캐시히트는 과거 `findAnalysis` 반환 시점에 `logUsage` 전에 즉시 반환되어 AIUsageLog 에 전혀 기록되지 않았다(재처리 시 '비용0 재사용'이 통계에서 소멸 → AI 활용률 과소보고). 이제 캐시히트는 `cacheHit=true · 비용0 · 토큰0` 행으로 경량 기록한다. 실호출 집계(`getUsageSummary`)는 `cacheHit=false` 로 필터해 기존 지표를 보존하고, 적중률은 `getCacheHitCount`(cacheHit=true count)로만 별도 노출한다.
 
 ### 16.2 비용 집계 서비스 (AiCostAggregationService)
 
@@ -1237,10 +1240,11 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 
 | 지표 | 계산식 |
 |---|---|
-| `totalCostUsd` | SUM(costUsd) |
-| `callCount` | COUNT(*) |
-| `l0Ratio` | COUNT(level=L0) / COUNT(*) |
+| `totalCostUsd` | SUM(costUsd) — cacheHit=false 만 |
+| `callCount` | COUNT(*) — cacheHit=false 만 |
+| `l0Ratio` | COUNT(level=L0) / COUNT(*) — cacheHit=false 만 |
 | `costPerDisclosure` | totalCostUsd / DISTINCT(rcpNo) |
+| `cacheHitCount` | **DAR-241**: COUNT(cacheHit=true) — 멱등 캐시 적중률 관측(health/metrics 노출) |
 | `costPerSignal` | totalAiCostKrw / TradingSignal.count |
 | `costPerTrade` | totalAiCostKrw / PaperTrade.count |
 

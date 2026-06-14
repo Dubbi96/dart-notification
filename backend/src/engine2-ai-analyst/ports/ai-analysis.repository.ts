@@ -28,6 +28,14 @@ export abstract class AiAnalysisRepository {
    */
   abstract savePersonaViews(rcpNo: string, resultJson: unknown): Promise<void>;
   abstract saveUsage(usage: AiUsageLogParams & { createdAt: Date }): Promise<void>;
+  /**
+   * DAR-241: 멱등 캐시히트(비용0 재사용)를 경량 기록한다.
+   * 실호출 비용 집계(getUsageSummary)에는 포함되지 않으며, getCacheHitCount 로만 관측한다 —
+   * 캐시히트를 callCount/l0Ratio 분모에 섞으면 비용·L0 지표가 왜곡되기 때문.
+   */
+  abstract saveCacheHit(hit: CacheHitRecord): Promise<void>;
+  /** DAR-241: 기간 내 캐시히트 횟수. health/metrics 의 적중률 관측 소스. */
+  abstract getCacheHitCount(from: Date, to: Date): Promise<number>;
   abstract getUsageSummary(from: Date, to: Date): Promise<Array<{
     task: string;
     level: string;
@@ -36,4 +44,12 @@ export abstract class AiAnalysisRepository {
     outputTokens: number;
     rcpNo: string;
   }>>;
+}
+
+/** DAR-241: 캐시히트 1건 기록 단위(비용·토큰 없음 — 재사용 관측 전용). */
+export interface CacheHitRecord {
+  rcpNo: string;
+  task: AiTaskName;
+  level: AiCostLevel;
+  createdAt: Date;
 }

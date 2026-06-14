@@ -55,6 +55,7 @@ function buildService(
   const repo = new InMemoryAiAnalysisRepository();
   const usageLog = new AiUsageLogService(repo);
   const logSpy = jest.spyOn(usageLog, 'logUsage');
+  const cacheHitSpy = jest.spyOn(usageLog, 'logCacheHit');
   const summaryTask = { run: summaryRunMock } as unknown as SummaryTask;
   const eventTask = { run: eventRunMock } as unknown as EventClassificationTask;
   const personaTask = { run: personaRunMock } as unknown as PersonaInterpretationTask;
@@ -70,7 +71,7 @@ function buildService(
     personaTask,
     thesisTask,
   );
-  return { service, repo, logSpy, enforceLimitMock };
+  return { service, repo, logSpy, cacheHitSpy, enforceLimitMock };
 }
 
 // ── runSummary ──────────────────────────────────────────────────────────────
@@ -91,13 +92,15 @@ describe('AiAnalystService.runSummary', () => {
 
   it('정상 경로: Task 실행 + 결과 저장 + 사용량(비용) 기록', async () => {
     const run = jest.fn().mockResolvedValue(okResult);
-    const { service, repo, logSpy } = buildService(run);
+    const { service, repo, logSpy, cacheHitSpy } = buildService(run);
     const res = await service.runSummary(makeReq());
     expect(res).toEqual(summaryDraft);
     expect(run).toHaveBeenCalledTimes(1);
     expect(await repo.findAnalysis('R001', 'summary')).not.toBeNull();
     expect(logSpy).toHaveBeenCalledTimes(1);
     expect(logSpy.mock.calls[0][0].costUsd).toBeGreaterThan(0);
+    // DAR-241: 첫 호출은 실호출 — 캐시히트 기록 없음.
+    expect(cacheHitSpy).not.toHaveBeenCalled();
   });
 
   it('멱등: 동일 rcpNo 재요청은 캐시 반환, Task 재호출 안 함', async () => {
@@ -107,6 +110,24 @@ describe('AiAnalystService.runSummary', () => {
     const second = await service.runSummary(makeReq());
     expect(second).toEqual(summaryDraft);
     expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('DAR-241: 캐시히트는 logCacheHit로 관측 기록되고 실호출 비용기록은 안 늘어난다', async () => {
+    const run = jest.fn().mockResolvedValue(okResult);
+    const { service, logSpy, cacheHitSpy } = buildService(run);
+    await service.runSummary(makeReq()); // 1회차 = 실호출
+    await service.runSummary(makeReq()); // 2회차 = 캐시히트(재처리 모사)
+    await service.runSummary(makeReq()); // 3회차 = 캐시히트
+    // 실호출 1회 → logUsage 1회(비용 분모 불변).
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    // 캐시히트 2회 → logCacheHit 2회. 저장된 레벨(L2)을 동반해 관측된다.
+    expect(cacheHitSpy).toHaveBeenCalledTimes(2);
+    expect(cacheHitSpy.mock.calls[0][0]).toEqual({
+      rcpNo: 'R001',
+      task: 'summary',
+      level: AiCostLevel.L2,
+    });
   });
 });
 

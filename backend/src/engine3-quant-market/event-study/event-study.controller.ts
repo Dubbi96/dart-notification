@@ -3,6 +3,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiQuery } from '@nestj
 import { EventStudyQueryService } from './event-study-query.service';
 import { EventStudyCalculationService } from './event-study-calculation.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { parsePaginationInt } from '../../common/pagination/parse-pagination';
 
 interface CalculateBody {
   fromDate?: string;
@@ -62,8 +63,9 @@ export class EventStudyController {
     const data = await this.eventStudyQueryService.findObservations({
       bucketKey,
       eventType,
-      limit: limit !== undefined ? Number(limit) : undefined,
-      offset: offset !== undefined ? Number(offset) : undefined,
+      // DAR-273: 쿼리 정수 안전 파싱 — 비숫자/음수 offset → 0, 거대 limit → 상한 100.
+      limit: parsePaginationInt(limit, { default: 20, min: 1, max: 100 }),
+      offset: parsePaginationInt(offset, { default: 0, min: 0 }),
     });
     return { success: true, data };
   }

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/swagger';
 import { SignalsService, SignalSort } from './signals.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { parsePaginationInt } from '../../common/pagination/parse-pagination';
 
 @ApiTags('signals')
 @ApiBearerAuth()
@@ -36,8 +37,9 @@ export class SignalsController {
     const entryReady =
       entryReadyStr === 'true' ? true : entryReadyStr === 'false' ? false : undefined;
     const sort: SignalSort = sortStr === 'score' ? 'score' : 'latest';
-    const page = pageStr ? Number(pageStr) : undefined;
-    const limit = limitStr ? Number(limitStr) : undefined;
+    // DAR-273: 쿼리 정수 안전 파싱 — 비숫자/음수 → 기본값/하한, 거대값 → 상한.
+    const page = parsePaginationInt(pageStr, { default: 1, min: 1 });
+    const limit = parsePaginationInt(limitStr, { default: 20, min: 1, max: 100 });
 
     const result = await this.signalsService.findAll({
       grade,

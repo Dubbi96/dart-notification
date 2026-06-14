@@ -10,6 +10,7 @@ import { FinancialQueryService } from './financial-query.service';
 import { DartReportCode, DartFsDiv } from '../dart-api/dart-api.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../auth/guards/optional-jwt-auth.guard';
+import { parsePaginationInt } from '../../common/pagination/parse-pagination';
 
 // 인증(DAR-96): 쓰기(collect/backfill)는 JwtAuthGuard 로 보호, 읽기 전용 GET /latest 는
 // DAR-54 패턴을 따라 OptionalJwtAuthGuard 로 게스트 열람 허용(종목 상세 펀더멘털 카드 정합).
@@ -55,7 +56,8 @@ export class FinancialsController {
       bsnsYear,
       reprtCode: reprtCode as DartReportCode | undefined,
       fsDiv: fsDiv as DartFsDiv | undefined,
-      limit: limit ? parseInt(limit, 10) : undefined,
+      // DAR-273: 비숫자/음수 → undefined(미지정=무제한, DAR-55 캡 해제 보존), 유효 정수만 통과.
+      limit: parsePaginationInt(limit, {}),
       scope: scope === 'ALL' ? 'ALL' : 'PRIORITY',
       triggeredBy: 'MANUAL',
     });
@@ -96,7 +98,8 @@ export class FinancialsController {
     const result = await this.collection.backfillTimeSeries({
       bsnsYears: years,
       fsDiv: fsDiv as DartFsDiv | undefined,
-      limit: limit ? parseInt(limit, 10) : undefined,
+      // DAR-273: 비숫자/음수 → undefined(미지정=무제한, DAR-55 캡 해제 보존), 유효 정수만 통과.
+      limit: parsePaginationInt(limit, {}),
       scope: scope === 'ALL' ? 'ALL' : 'PRIORITY',
       triggeredBy: 'MANUAL',
     });

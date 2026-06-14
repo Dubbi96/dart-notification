@@ -23,6 +23,7 @@ import { DisclosureEventsService } from './disclosure-events.service';
 import { DisclosureEventResponseDto } from './dto/disclosure-event-response.dto';
 import { BatchExtractResultDto } from './dto/batch-extract.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { parsePaginationInt } from '../../common/pagination/parse-pagination';
 
 @ApiTags('disclosure-events')
 @Controller('disclosure-events')
@@ -45,15 +46,16 @@ export class DisclosureEventsController {
     @Query('corpCode') corpCode?: string,
     @Query('eventType') eventType?: EventType,
     @Query('extractionStatus') extractionStatus?: ExtractionStatus,
-    @Query('page') page = 1,
-    @Query('limit') limit = 20,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     return this.disclosureEventsService.findMany({
       corpCode,
       eventType,
       extractionStatus,
-      page: Number(page),
-      limit: Number(limit),
+      // DAR-273: 쿼리 정수 안전 파싱 — 비숫자/음수 → 기본값/하한, 거대값 → 상한.
+      page: parsePaginationInt(page, { default: 1, min: 1 }),
+      limit: parsePaginationInt(limit, { default: 20, min: 1, max: 100 }),
     });
   }
 

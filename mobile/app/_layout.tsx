@@ -12,6 +12,10 @@ import { OfflineBanner } from '@components/common/OfflineBanner';
 import { useNotificationSetup } from '@hooks/useNotificationSetup';
 import { configureOnlineManager } from '@services/onlineManager';
 
+// DAR-224: 앱 전역 ErrorBoundary. Expo Router가 이 named export 를 감지해
+// 루트 서브트리(모든 화면)의 렌더타임 에러를 격리·폴백 렌더한다 → 프로덕션 백지/크래시 차단.
+export { ErrorFallback as ErrorBoundary } from '@components/common/ErrorFallback';
+
 // DAR-173: React Query onlineManager 를 NetInfo 에 연동(모듈 로드 1회).
 // 단절→복구 시 refetchOnReconnect 로 stale 쿼리 자동 재요청.
 configureOnlineManager();

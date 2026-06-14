@@ -429,16 +429,46 @@ export class DisclosureDocumentsService {
 
   /**
    * 재처리 큐 강제 실행
+   *
+   * DAR-283: getRetryQueue(SELECT) → setImmediate fire-and-forget 사이에는
+   * claim이 없어, 백그라운드 파싱이 30분(스케줄러 간격)을 넘기거나 프로세스
+   * 재시작이 겹치면 다음 틱이 아직 FETCH_FAILED/PARSE_FAILED 인 동일 문서를
+   * 재선택 → 중복 parseDisclosure(DART 재fetch 낭비·retryCount 경합)가 발생했다.
+   * 선택 직후 각 문서를 조건부 updateMany 로 FETCHING(인-플라이트)으로 원자적
+   * claim 한다. 단일 UPDATE ... WHERE 는 DB가 직렬화하므로, 오버랩한 두 실행이
+   * 동일 문서를 보더라도 status 가이드(FETCH_FAILED/PARSE_FAILED)에 한 번만
+   * 매칭되어 정확히 한 쪽만 claim(count===1)하고 다른 쪽은 skip(count===0)한다.
+   * parseDisclosure 가 즉시 FETCHING 으로 전이하던 기존 흐름과 동일한 상태라
+   * 성공/실패 종결 흐름·MAX_RETRY 경계는 불변이다.
    */
   async runRetryQueue(limit = DEFAULT_RETRY_LIMIT): Promise<{ queued: number }> {
-    const retryDocs = await this.getRetryQueue(limit);
-    if (retryDocs.length === 0) return { queued: 0 };
+    const candidates = await this.getRetryQueue(limit);
+    if (candidates.length === 0) return { queued: 0 };
 
-    this.logger.log(`재처리 실행: ${retryDocs.length}건`);
+    // 원자적 claim: 재처리 대상 상태에서 직접 전이에 성공한 문서만 이번 실행의 몫.
+    // 오버랩/재시작으로 경쟁한 다른 실행은 count===0 으로 해당 문서를 건너뛴다.
+    const claimed: DisclosureDocument[] = [];
+    for (const doc of candidates) {
+      const { count } = await this.prisma.disclosureDocument.updateMany({
+        where: {
+          rcpNo: doc.rcpNo,
+          parseStatus: {
+            in: [ParseStatus.FETCH_FAILED, ParseStatus.PARSE_FAILED],
+          },
+          retryCount: { lt: MAX_RETRY },
+        },
+        data: { parseStatus: ParseStatus.FETCHING },
+      });
+      if (count === 1) claimed.push(doc);
+    }
+
+    if (claimed.length === 0) return { queued: 0 };
+
+    this.logger.log(`재처리 실행: ${claimed.length}건 claim`);
 
     // 비동기 처리 (await 없이 실행 — 응답 후 백그라운드)
     setImmediate(async () => {
-      for (const doc of retryDocs) {
+      for (const doc of claimed) {
         try {
           await this.parseDisclosure(doc.rcpNo);
         } catch (error) {
@@ -447,7 +477,7 @@ export class DisclosureDocumentsService {
       }
     });
 
-    return { queued: retryDocs.length };
+    return { queued: claimed.length };
   }
 
   /**

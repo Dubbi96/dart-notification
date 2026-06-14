@@ -1132,6 +1132,20 @@ GET /api/signals/by-corp/:corpCode   (JWT 필수)
 
 `grade`: `STRONG_BUY | BUY | WATCH | NEUTRAL | AVOID | BLOCKED` (모바일 6단계 enum). 신호 없으면 `data: null`.
 
+### 12.2 공시(rcpNo) → 매수 신호 역조회 (DAR-208)
+
+```
+GET /api/signals/by-disclosure/:rcpNo   (JWT 필수)
+```
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `rcpNo` | string | 필수 | DART 접수번호(14자리) |
+
+해당 **공시로 생성된 최신 매수 신호 1건**을 단건 반환한다(공시 → 신호 역링크). 기존엔 신호 → 공시 단방향(`relatedDisclosureRcpNo`)만 존재해, 공시 상세에서 그 공시의 매수 신호로 가는 동선이 끊겨 있었다(intro Slide2 "공시→AI 매수점수" 약속 단절). 응답 형태는 `by-corp`(12.1)와 동일하며, 모바일 공시 상세(`disclosure/[id]`) AI섹션 '이 공시의 매수 신호' 진입 카드가 소비한다. 한 공시에 신호가 여러 건이면 최신(createdAt desc) 1건. 백필 공시 기반 신호는 제외(DAR-129). 신호가 없으면 `data: null` → 카드 미표시.
+
+**Response 200 (신호 있음)**: 12.1과 동일한 배지 형태(`id`·`grade`·`buyScore`·`entryReady`·`relatedDisclosureRcpNo` 등). 신호 없으면 `data: null`.
+
 ## 13. 종목 최신 시세 (Market Data Quote) — DAR-158
 
 적재된 일봉(`StockDailyPrice`)과 KIS 실시간 캐시를 **읽는** 조회 경로. 화면의 가격 배지(현재가·전일대비%·5일 스파크라인)에 종단연결한다. 가격 우선순위: 실시간 캐시 신선 시 `source=REALTIME`, 없으면 최신 일봉 종가 `source=DAILY`. 데이터 없는 종목은 `null`로 흡수(배지 미표시). 점수·체결·하드룰과 무관한 순수 조회(AI 미개입).

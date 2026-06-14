@@ -68,6 +68,25 @@ export function useCompanySignal(corpCode: string | undefined) {
 }
 
 /**
+ * 공시(rcpNo) → 매수 신호 역링크(DAR-208) — 공시 상세 AI섹션 진입 카드용.
+ * 전용 엔드포인트 GET /signals/by-disclosure/:rcpNo 로 해당 공시로 생성된 최신 신호
+ * (등급·점수·id)를 경량 조회한다. 신호가 없으면 data=null → 카드 미표시(빈상태 흡수).
+ * 신호 API는 인증 필요(JWT) — 게스트는 enabled=false로 호출 자체를 막아 401 소음 차단.
+ */
+export function useDisclosureSignal(
+  rcpNo: string | undefined,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: ['signals', 'by-disclosure', rcpNo],
+    queryFn: () => signalService.getSignalByDisclosure(rcpNo!),
+    enabled: (options?.enabled ?? true) && !!rcpNo,
+    retry: 1,
+    staleTime: 60 * 1000,
+  });
+}
+
+/**
  * 등급무관 전체 시그널 탐색(DAR-46) — 무한스크롤(DAR-45 패턴 재사용).
  * grade 미지정 시 전체 등급을 조회하며, 필터/정렬 변경은 queryKey로 새 조회를 트리거한다.
  */

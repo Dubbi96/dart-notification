@@ -406,6 +406,46 @@ export class SignalsService {
     };
   }
 
+  /**
+   * DAR-208: 공시(rcpNo)로 생성된 최신 매수 신호 단건을 조회한다(역링크).
+   * 공시 상세 → 그 공시로 생성된 매수 신호 진입 카드용 경량 응답
+   * (기존엔 신호 → 공시 단방향만 존재, 공시 → 신호 동선이 끊겨 있었다).
+   * - ★DAR-129: 백필(과거 분석 baseline) 공시 기반 신호는 절대 노출하지 않는다(피드와 동일 방어).
+   * - 한 공시에 신호가 여러 건이면 최신(createdAt desc) 1건. 신호가 없으면 null(호출측 미표시).
+   * 응답 형태는 by-corp 배지(findLatestByCorpCode)와 동일하게 맞춘다(모바일 재사용).
+   */
+  async findByDisclosureRcpNo(rcpNo: string) {
+    const s = await this.prisma.tradingSignal.findFirst({
+      where: {
+        rcpNo,
+        disclosure: { isBackfill: false },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        company: {
+          select: { corpCode: true, corpName: true, stockCode: true },
+        },
+      },
+    });
+
+    if (!s) return null;
+
+    return {
+      id: s.id,
+      corpCode: s.corpCode,
+      corpName: s.company?.corpName ?? '',
+      ticker: s.company?.stockCode ?? s.stockCode ?? undefined,
+      eventType: s.eventType,
+      grade: mapGrade(s.signal),
+      buyScore: s.buyScore,
+      entryReady: s.entryReady,
+      summary: s.signalSummary ?? undefined,
+      relatedDisclosureRcpNo: s.rcpNo,
+      expiresAt: s.validUntil?.toISOString() ?? undefined,
+      createdAt: s.createdAt.toISOString(),
+    };
+  }
+
   async findExitSignals() {
     const exitSignals = await this.prisma.exitSignal.findMany({
       orderBy: { createdAt: 'desc' },

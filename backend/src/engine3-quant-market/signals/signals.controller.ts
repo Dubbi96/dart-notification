@@ -69,6 +69,16 @@ export class SignalsController {
     return { success: true, data };
   }
 
+  // DAR-208: 공시(rcpNo)로 생성된 신호 역조회 — ':id'(catch-all)보다 먼저 선언해 라우트 충돌 방지.
+  @Get('by-disclosure/:rcpNo')
+  @ApiOperation({
+    summary: '공시(rcpNo)로 생성된 최신 매수 신호 단건 조회 (역링크, 백필 제외)',
+  })
+  async findByDisclosureRcpNo(@Param('rcpNo') rcpNo: string) {
+    const data = await this.signalsService.findByDisclosureRcpNo(rcpNo);
+    return { success: true, data };
+  }
+
   @Get(':id')
   @ApiOperation({ summary: '매매 신호 상세 조회' })
   async findOne(@Param('id') id: string) {

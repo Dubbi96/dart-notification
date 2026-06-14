@@ -281,6 +281,49 @@ describe('SignalsService — scoreBreakdown sampleN (DAR-34)', () => {
   });
 
   /**
+   * DAR-208: 공시(rcpNo) → 신호 역조회 계약 — 공시 상세 진입 카드용.
+   */
+  describe('findByDisclosureRcpNo', () => {
+    it('rcpNo·백필제외 where + 최신순(createdAt desc)으로 단건 조회한다', async () => {
+      prisma.tradingSignal.findFirst.mockResolvedValue(baseSignal);
+
+      const result = await service.findByDisclosureRcpNo('20240101000001');
+
+      expect(prisma.tradingSignal.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { rcpNo: '20240101000001', disclosure: { isBackfill: false } },
+          orderBy: { createdAt: 'desc' },
+        }),
+      );
+      expect(result).toMatchObject({
+        id: 'sig_1',
+        corpCode: '00126380',
+        corpName: '삼성전자',
+        grade: 'BUY',
+        buyScore: 72,
+        entryReady: true,
+        relatedDisclosureRcpNo: '20240101000001',
+      });
+    });
+
+    it('해당 공시로 생성된 신호가 없으면 null을 반환한다(카드 미표시)', async () => {
+      prisma.tradingSignal.findFirst.mockResolvedValue(null);
+
+      const result = await service.findByDisclosureRcpNo('99999999999999');
+
+      expect(result).toBeNull();
+    });
+
+    it('신호 id를 노출해 신호 상세(/signals/:id) 이동을 가능케 한다', async () => {
+      prisma.tradingSignal.findFirst.mockResolvedValue(baseSignal);
+
+      const result = await service.findByDisclosureRcpNo('20240101000001');
+
+      expect(result?.id).toBe('sig_1');
+    });
+  });
+
+  /**
    * DAR-46: 등급무관 탐색을 위한 findAll 계약 — 전 등급 노출 + sort + eventType 필터.
    */
   describe('findAll — 등급무관 탐색 (DAR-46)', () => {

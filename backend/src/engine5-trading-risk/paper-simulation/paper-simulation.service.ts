@@ -715,32 +715,36 @@ export class PaperSimulationService {
     const equity = PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl + unrealizedPnl;
 
     // 신호 적중률(D+5): 스냅샷 6개(D0~D5) 이상 보유한 포지션의 진입가 대비 D+5 수익률
-    const signalOutcomes: SignalOutcome[] = [];
-    for (const p of [...open, ...closed]) {
-      const snaps = await this.prisma.positionDailySnapshot.findMany({
-        where: { positionId: p.id },
-        orderBy: { snapshotDate: 'asc' },
-        select: { closePrice: true },
-        take: 6,
-      });
+    // DAR-206: 포지션별 findMany(N+1) → positionId in(...) 단일 grouped 쿼리 후 메모리 그룹핑.
+    const allPositions = [...open, ...closed];
+    const snapsByPosition = await this.snapshotsByPosition(
+      allPositions.map((p) => p.id),
+      6,
+    );
+    const signalOutcomes: SignalOutcome[] = allPositions.map((p) => {
+      const snaps = snapsByPosition.get(p.id) ?? [];
       if (snaps.length >= 6 && snaps[5].closePrice && p.entryPrice > 0) {
-        signalOutcomes.push({
+        return {
           d5ReturnPct: ((snaps[5].closePrice - p.entryPrice) / p.entryPrice) * 100,
-        });
-      } else {
-        signalOutcomes.push({ d5ReturnPct: null });
+        };
       }
-    }
+      return { d5ReturnPct: null };
+    });
 
     // Exit 정확도(D+3): 청산 후 3거래일 종가 변화율 (음수면 손절 적중)
+    // DAR-206: 청산 포지션별 closesAfter(N+1) → corpCode in(...) 단일 grouped 쿼리(폴백)/배치 소스.
+    const exitRequests = closed
+      .filter((p): p is typeof p & { closedAt: Date } => p.closedAt != null)
+      .map((p) => ({ corpCode: p.corpCode, afterTradeDate: this.toBasDd(p.closedAt) }));
+    const exitCloses = await this.closesAfterMany(exitRequests, 3);
     const exitOutcomes: ExitOutcome[] = [];
+    let exitIdx = 0;
     for (const p of closed) {
       if (!p.closedAt) {
         exitOutcomes.push({ d3ReturnPct: null });
         continue;
       }
-      const closeDate = this.toBasDd(p.closedAt);
-      const after = await this.closesAfter(p.corpCode, closeDate, 3);
+      const after = exitCloses[exitIdx++];
       const exitPx = p.entryPrice; // 청산 시 currentPrice 가 entry 자리에 없으므로 보수적으로 null 처리
       if (after.length >= 3 && exitPx > 0) {
         exitOutcomes.push({ d3ReturnPct: ((after[2].closePrice - exitPx) / exitPx) * 100 });
@@ -857,6 +861,69 @@ export class PaperSimulationService {
       select: { closePrice: true },
       take,
     });
+  }
+
+  /**
+   * DAR-206: 여러 청산 포지션의 closesAfter 를 N+1 없이 일괄 조회(요청 순서 보존).
+   *   - priceSource 주입: 소스 추상화의 배치 메서드(closesAfterMany)에 위임.
+   *   - 폴백(미주입): corpCode in(...) + tradeDate > 최소 청산일 단일 조회 후 메모리에서
+   *     요청별 afterTradeDate 초과분만 오름차순 take 개로 절단(per-call closesAfter 와 동치).
+   */
+  private async closesAfterMany(
+    requests: Array<{ corpCode: string; afterTradeDate: string }>,
+    take: number,
+  ): Promise<Array<Array<{ closePrice: number }>>> {
+    if (requests.length === 0) return [];
+    if (this.priceSource) return this.priceSource.closesAfterMany(requests, take);
+
+    const corpCodes = [...new Set(requests.map((r) => r.corpCode))];
+    const minAfter = requests.reduce(
+      (m, r) => (r.afterTradeDate < m ? r.afterTradeDate : m),
+      requests[0].afterTradeDate,
+    );
+    const rows = await this.prisma.stockDailyPrice.findMany({
+      where: { corpCode: { in: corpCodes }, tradeDate: { gt: minAfter } },
+      orderBy: [{ corpCode: 'asc' }, { tradeDate: 'asc' }],
+      select: { corpCode: true, tradeDate: true, closePrice: true },
+    });
+    const byCorp = new Map<string, Array<{ tradeDate: string; closePrice: number }>>();
+    for (const row of rows) {
+      const arr = byCorp.get(row.corpCode) ?? [];
+      arr.push({ tradeDate: row.tradeDate, closePrice: row.closePrice });
+      byCorp.set(row.corpCode, arr);
+    }
+    return requests.map((r) =>
+      (byCorp.get(r.corpCode) ?? [])
+        .filter((x) => x.tradeDate > r.afterTradeDate)
+        .slice(0, take)
+        .map((x) => ({ closePrice: x.closePrice })),
+    );
+  }
+
+  /**
+   * DAR-206: 포지션별 일일 스냅샷 앞 take 개(snapshotDate 오름차순)를 단일 grouped 쿼리로 적재.
+   *   positionId in(...) 1회 조회 후 메모리 그룹핑 — positionId 당 앞 take 개만 보존(per-position
+   *   findMany take 와 동치, N+1 제거). 빈 입력은 조회 없이 빈 Map.
+   */
+  private async snapshotsByPosition(
+    positionIds: string[],
+    take: number,
+  ): Promise<Map<string, Array<{ closePrice: number | null }>>> {
+    const grouped = new Map<string, Array<{ closePrice: number | null }>>();
+    if (positionIds.length === 0) return grouped;
+    const rows = await this.prisma.positionDailySnapshot.findMany({
+      where: { positionId: { in: positionIds } },
+      orderBy: [{ positionId: 'asc' }, { snapshotDate: 'asc' }],
+      select: { positionId: true, closePrice: true },
+    });
+    for (const row of rows) {
+      const arr = grouped.get(row.positionId) ?? [];
+      if (arr.length < take) {
+        arr.push({ closePrice: row.closePrice });
+        grouped.set(row.positionId, arr);
+      }
+    }
+    return grouped;
   }
 
   private async latestClose(corpCode: string, tradeDate: string): Promise<number | null> {

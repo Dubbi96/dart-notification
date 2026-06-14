@@ -247,6 +247,56 @@ export class SimulationPriceSourceService {
   }
 
   /**
+   * DAR-206: 여러 청산 포지션의 closesAfter 를 N+1 없이 일괄 조회(요청 순서 보존, 종목별 단일 소스 유지).
+   *   - REAL / SYNTHETIC: 단일 테이블 → corpCode in(...) + tradeDate > 최소 기준일 1회 조회 후 메모리에서
+   *     요청별 afterTradeDate 초과분만 오름차순 take 개로 절단(per-call closesAfter 와 동치).
+   *   - REAL_THEN_SYNTHETIC: 종목별 소스 해석(혼합 방지)이 필요 → 종목 단위 위임(안전 우선).
+   */
+  async closesAfterMany(
+    requests: Array<{ corpCode: string; afterTradeDate: string }>,
+    take: number,
+  ): Promise<Array<Array<{ closePrice: number }>>> {
+    if (requests.length === 0) return [];
+    const mode = this.mode;
+    if (mode === 'REAL_THEN_SYNTHETIC') {
+      return Promise.all(
+        requests.map((r) => this.closesAfter(r.corpCode, r.afterTradeDate, take)),
+      );
+    }
+
+    // REAL 은 realQueryDate 매핑(REAL_THEN_SYNTHETIC 외엔 항등) 후 동일 테이블에서 일괄 조회.
+    const mapped = requests.map((r) => ({
+      corpCode: r.corpCode,
+      queryAfter: mode === 'SYNTHETIC' ? r.afterTradeDate : this.realQueryDate(r.afterTradeDate),
+    }));
+    const corpCodes = [...new Set(mapped.map((r) => r.corpCode))];
+    const minAfter = mapped.reduce(
+      (m, r) => (r.queryAfter < m ? r.queryAfter : m),
+      mapped[0].queryAfter,
+    );
+    const where = { corpCode: { in: corpCodes }, tradeDate: { gt: minAfter } };
+    const orderBy = [{ corpCode: 'asc' as const }, { tradeDate: 'asc' as const }];
+    const select = { corpCode: true, tradeDate: true, closePrice: true };
+    const rows =
+      mode === 'SYNTHETIC'
+        ? await this.prisma.simulatedDailyPrice.findMany({ where, orderBy, select })
+        : await this.prisma.stockDailyPrice.findMany({ where, orderBy, select });
+
+    const byCorp = new Map<string, Array<{ tradeDate: string; closePrice: number }>>();
+    for (const row of rows) {
+      const arr = byCorp.get(row.corpCode) ?? [];
+      arr.push({ tradeDate: row.tradeDate, closePrice: row.closePrice });
+      byCorp.set(row.corpCode, arr);
+    }
+    return mapped.map((r) =>
+      (byCorp.get(r.corpCode) ?? [])
+        .filter((x) => x.tradeDate > r.queryAfter)
+        .slice(0, take)
+        .map((x) => ({ closePrice: x.closePrice })),
+    );
+  }
+
+  /**
    * 한 종목이 어느 소스로 평가될지 결정(종목 단위 단일 소스 — 행 혼합 금지).
    *   - REAL: 항상 실데이터(StockDailyPrice). 조회 없음(회귀 0).
    *   - SYNTHETIC: 항상 합성(SimulatedDailyPrice). 조회 없음.
@@ -407,22 +457,29 @@ export class SimulationPriceSourceService {
     latestRealDate: string | null;
   }> {
     const universe = await this.resolveUniverse(portfolioId);
+    // DAR-206: 종목별 findFirst(N+1) → corpCode in(...) groupBy _max(tradeDate) 단일 조회.
     const uncovered: Array<{ corpCode: string; stockCode: string }> = [];
     let covered = 0;
     let latestRealDate: string | null = null;
-    for (const s of universe) {
-      const row = await this.prisma.stockDailyPrice.findFirst({
-        where: { corpCode: s.corpCode, tradeDate: { lte: asOf } },
-        orderBy: { tradeDate: 'desc' },
-        select: { tradeDate: true },
+    if (universe.length > 0) {
+      const grouped = await this.prisma.stockDailyPrice.groupBy({
+        by: ['corpCode'],
+        where: { corpCode: { in: universe.map((s) => s.corpCode) }, tradeDate: { lte: asOf } },
+        _max: { tradeDate: true },
       });
-      if (row) {
-        covered++;
-        if (latestRealDate === null || row.tradeDate > latestRealDate) {
-          latestRealDate = row.tradeDate;
+      const maxByCorp = new Map<string, string | null>(
+        grouped.map((g) => [g.corpCode, g._max.tradeDate]),
+      );
+      for (const s of universe) {
+        const maxDate = maxByCorp.get(s.corpCode) ?? null;
+        if (maxDate) {
+          covered++;
+          if (latestRealDate === null || maxDate > latestRealDate) {
+            latestRealDate = maxDate;
+          }
+        } else {
+          uncovered.push(s);
         }
-      } else {
-        uncovered.push(s);
       }
     }
     return { total: universe.length, covered, uncovered, latestRealDate };

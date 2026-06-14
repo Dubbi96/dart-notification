@@ -3,6 +3,7 @@ import { SchedulerService } from './scheduler.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DartApiService } from '../dart-api/dart-api.service';
 import { ExpoPushService } from '../../expo-push/expo-push.service';
+import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
 
 /**
  * SchedulerService 단위 테스트
@@ -480,5 +481,98 @@ describe('collectByDate — DAR-129 백필 격리', () => {
     await service.collectByDate('20260601', '20260601', 'MANUAL');
 
     expect(prismaMock.watchList.findMany).toHaveBeenCalled();
+  });
+});
+
+// ════════════════════════════════════════════
+// describe: cleanupExpiredTokens — 실패 관측성 (DAR-232)
+// ════════════════════════════════════════════
+describe('cleanupExpiredTokens — CronRunRecorder 관측성 (DAR-232)', () => {
+  // CronRunLog create/update 를 캡처하는 recorder 전용 prisma 목.
+  function makeRecorderPrisma() {
+    return {
+      cronRunLog: {
+        create: jest.fn().mockResolvedValue({ id: 'run-1' }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    } as unknown as PrismaService;
+  }
+
+  function buildWithRecorder(
+    prismaMock: ReturnType<typeof makePrismaMock>,
+    recorderPrisma: PrismaService,
+  ) {
+    const recorder = new CronRunRecorderService(recorderPrisma);
+    const service = new SchedulerService(
+      prismaMock as unknown as PrismaService,
+      makeDartApiMock() as unknown as DartApiService,
+      makeExpoPushMock() as unknown as ExpoPushService,
+      undefined, // disclosureDocumentsService
+      recorder,
+    );
+    return { service, recorder, recorderPrisma };
+  }
+
+  it('성공 시 CronRunLog 에 SUCCESS·삭제건수를 기록하고 결과를 반환한다', async () => {
+    const prismaMock = makePrismaMock();
+    prismaMock.notificationHistory.deleteMany.mockResolvedValue({ count: 3 });
+    prismaMock.userDevice.deleteMany.mockResolvedValue({ count: 2 });
+    const recorderPrisma = makeRecorderPrisma();
+    const { service } = buildWithRecorder(prismaMock, recorderPrisma);
+
+    const result = await service.cleanupExpiredTokens();
+
+    expect(result).toEqual({ notifications: 3, devices: 2 });
+    // RUNNING 생성 → cleanup.daily 키
+    expect((recorderPrisma.cronRunLog as any).create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ jobKey: 'cleanup.daily', status: 'RUNNING' }),
+      }),
+    );
+    // 종료 기록: SUCCESS·itemCount=5(3+2)
+    expect((recorderPrisma.cronRunLog as any).update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'SUCCESS', itemCount: 5 }),
+      }),
+    );
+  });
+
+  it('정리 실패 시 CronRunLog 에 FAILED 를 남기고 cron 은 throw 없이 흡수한다', async () => {
+    const prismaMock = makePrismaMock();
+    prismaMock.notificationHistory.deleteMany.mockRejectedValue(new Error('db down'));
+    const recorderPrisma = makeRecorderPrisma();
+    const { service } = buildWithRecorder(prismaMock, recorderPrisma);
+
+    // 스케줄 유지: 예외 흡수 후 0건 반환.
+    const result = await service.cleanupExpiredTokens();
+    expect(result).toEqual({ notifications: 0, devices: 0 });
+
+    // 실패가 조용히 삼켜지지 않고 FAILED·errorMessage 로 표면화됨.
+    expect((recorderPrisma.cronRunLog as any).update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'FAILED',
+          errorMessage: 'db down',
+        }),
+      }),
+    );
+  });
+
+  it('recorder 미주입 환경에서도 정리 본업은 수행된다(기록만 생략)', async () => {
+    const prismaMock = makePrismaMock();
+    prismaMock.notificationHistory.deleteMany.mockResolvedValue({ count: 1 });
+    prismaMock.userDevice.deleteMany.mockResolvedValue({ count: 0 });
+    const service = new SchedulerService(
+      prismaMock as unknown as PrismaService,
+      makeDartApiMock() as unknown as DartApiService,
+      makeExpoPushMock() as unknown as ExpoPushService,
+      // disclosureDocumentsService, cronRunRecorder 모두 미주입
+    );
+
+    const result = await service.cleanupExpiredTokens();
+
+    expect(result).toEqual({ notifications: 1, devices: 0 });
+    expect(prismaMock.notificationHistory.deleteMany).toHaveBeenCalled();
+    expect(prismaMock.userDevice.deleteMany).toHaveBeenCalled();
   });
 });

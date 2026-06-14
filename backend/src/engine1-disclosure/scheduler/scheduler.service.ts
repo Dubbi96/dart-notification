@@ -10,6 +10,8 @@ import { ExpoPushMessage } from 'expo-server-sdk';
 import { DisclosureCollectionLog } from '@prisma/client';
 import { DisclosureDocumentsService } from '../disclosure-documents/disclosure-documents.service';
 import { KST_TIMEZONE, formatKstDateCompact } from '../../common/time/kst';
+import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
+import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
 
 @Injectable()
 export class SchedulerService {
@@ -26,6 +28,12 @@ export class SchedulerService {
      */
     @Optional()
     private readonly disclosureDocumentsService?: DisclosureDocumentsService,
+    /**
+     * @Optional: CronHealthModule 미등록 환경(일부 테스트)에서도 동작.
+     * 미주입 시 정리 본업은 그대로 수행하고 CronRunLog 기록만 생략(DAR-232).
+     */
+    @Optional()
+    private readonly cronRunRecorder?: CronRunRecorderService,
   ) {}
 
   /**
@@ -217,12 +225,20 @@ export class SchedulerService {
 
   /**
    * 만료 토큰 및 오래된 알림 정리 - 매일 자정(KST)
+   *
+   * DAR-232: 기존에는 실패를 logger.error 로만 삼켜 dead-token·읽은알림이 조용히
+   * 무한 누적될 수 있었다. 본 작업을 CronRunRecorder 로 감싸 실패를 CronRunLog 에
+   * FAILED 로 남기고(데이터 신선도 안전망에 노출), cron 스케줄은 throw 없이 유지한다.
    */
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT, { timeZone: KST_TIMEZONE })
-  async cleanupExpiredTokens() {
-    this.logger.log('만료 데이터 정리 시작...');
+  async cleanupExpiredTokens(): Promise<{
+    notifications: number;
+    devices: number;
+  }> {
+    // 본업: 예외를 삼키지 않고 던진다 → recorder 가 FAILED 로 기록한 뒤 재던짐.
+    const run = async (): Promise<{ notifications: number; devices: number }> => {
+      this.logger.log('만료 데이터 정리 시작...');
 
-    try {
       const ninetyDaysAgo = new Date();
       ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
@@ -245,8 +261,23 @@ export class SchedulerService {
       this.logger.log(
         `정리 완료 - 알림 ${deletedNotifications.count}개, 디바이스 ${deletedDevices.count}개 삭제`,
       );
+      return {
+        notifications: deletedNotifications.count,
+        devices: deletedDevices.count,
+      };
+    };
+
+    try {
+      if (!this.cronRunRecorder) return await run();
+      // DAR-110/232: 마지막 성공시각/삭제건수 기록(신선도 판정 입력 + 실패 표면화).
+      return await this.cronRunRecorder.record(CRON_JOB_KEYS.CLEANUP_DAILY, run, {
+        countOf: (r) => r.notifications + r.devices,
+      });
     } catch (error) {
+      // recorder 가 FAILED 기록 후 재던진 예외(또는 미주입 시 본업 예외)를 흡수해
+      // cron 스케줄을 유지한다(기존 거동 보존).
       this.logger.error('만료 데이터 정리 실패', error);
+      return { notifications: 0, devices: 0 };
     }
   }
 

@@ -7,6 +7,8 @@
 import { KisRealtimePoller } from './kis-realtime.poller';
 import { KisApiService } from './kis-api.service';
 import { RealtimeQuoteCache } from './realtime-quote.cache';
+import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
 function makePrisma(open: Array<{ corpCode: string; stockCode: string }>, signals: Array<{ corpCode: string; stockCode: string }>) {
   return {
@@ -127,5 +129,93 @@ describe('KisRealtimePoller (DAR-140)', () => {
     // finally 가 락을 해제했으므로 skip 되지 않고 정상 폴링.
     const after = await poller.pollRealtime();
     expect(after).toEqual({ polled: 1, cached: 1 });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// DAR-232: 폴링 실패 관측성 — CronRunRecorder 래핑
+// ─────────────────────────────────────────────────────────────────────────
+describe('KisRealtimePoller — CronRunRecorder 관측성 (DAR-232)', () => {
+  // CronRunLog create/update 캡처용 recorder 전용 prisma 목.
+  function makeRecorderPrisma() {
+    return {
+      cronRunLog: {
+        create: jest.fn().mockResolvedValue({ id: 'run-1' }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    } as unknown as PrismaService;
+  }
+
+  it('키 미설정 no-op 은 기록하지 않는다(분단위 로그 폭주 방지)', async () => {
+    const kis = { isConfigured: false, fetchCurrentPrice: jest.fn() } as unknown as KisApiService;
+    const recorderPrisma = makeRecorderPrisma();
+    const recorder = new CronRunRecorderService(recorderPrisma);
+    const poller = new KisRealtimePoller(
+      makePrisma([], []),
+      kis,
+      new RealtimeQuoteCache(),
+      recorder,
+    );
+
+    const res = await poller.pollRealtime();
+
+    expect(res).toEqual({ polled: 0, cached: 0 });
+    expect((recorderPrisma.cronRunLog as any).create).not.toHaveBeenCalled();
+  });
+
+  it('성공 시 CronRunLog 에 SUCCESS·적재건수(cached)를 기록한다', async () => {
+    const kis = {
+      isConfigured: true,
+      fetchCurrentPrice: jest.fn(async (stockCode: string) => ({
+        stockCode, price: 70000, open: 1, high: 1, low: 1, volume: 100,
+      })),
+    } as unknown as KisApiService;
+    const recorderPrisma = makeRecorderPrisma();
+    const recorder = new CronRunRecorderService(recorderPrisma);
+    const poller = new KisRealtimePoller(
+      makePrisma([{ corpCode: '00126380', stockCode: '005930' }], []),
+      kis,
+      new RealtimeQuoteCache(),
+      recorder,
+    );
+
+    const res = await poller.pollRealtime();
+
+    expect(res).toEqual({ polled: 1, cached: 1 });
+    expect((recorderPrisma.cronRunLog as any).create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ jobKey: 'kis.realtime-poll', status: 'RUNNING' }),
+      }),
+    );
+    expect((recorderPrisma.cronRunLog as any).update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'SUCCESS', itemCount: 1 }),
+      }),
+    );
+  });
+
+  it('폴링 실패 시 CronRunLog 에 FAILED 를 남기고 cron 은 흡수한다', async () => {
+    const kis = {
+      isConfigured: true,
+      fetchCurrentPrice: jest.fn().mockRejectedValue(new Error('boom')),
+    } as unknown as KisApiService;
+    const recorderPrisma = makeRecorderPrisma();
+    const recorder = new CronRunRecorderService(recorderPrisma);
+    const poller = new KisRealtimePoller(
+      makePrisma([{ corpCode: 'c1', stockCode: 's1' }], []),
+      kis,
+      new RealtimeQuoteCache(),
+      recorder,
+    );
+
+    // 스케줄 유지: 흡수 후 {0,0}.
+    await expect(poller.pollRealtime()).resolves.toEqual({ polled: 0, cached: 0 });
+
+    // 실패가 조용히 삼켜지지 않고 FAILED·errorMessage 로 표면화됨.
+    expect((recorderPrisma.cronRunLog as any).update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'FAILED', errorMessage: 'boom' }),
+      }),
+    );
   });
 });

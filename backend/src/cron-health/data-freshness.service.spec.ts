@@ -46,6 +46,19 @@ describe('DataFreshnessService (DAR-110)', () => {
     expect(report.generatedAt).toBe(now.toISOString());
   });
 
+  it('DAR-232: cleanup·KIS 잡이 신선도 안전망 사양에 포함된다', async () => {
+    const cleanup = FRESHNESS_JOB_SPECS.find((s) => s.jobKey === 'cleanup.daily');
+    const kis = FRESHNESS_JOB_SPECS.find((s) => s.jobKey === 'kis.realtime-poll');
+
+    // 두 잡 모두 CronRunLog 기반으로 표면화된다(실패 관측성).
+    expect(cleanup).toBeDefined();
+    expect(cleanup?.source).toBe('CRON_RUN_LOG');
+    expect(kis).toBeDefined();
+    expect(kis?.source).toBe('CRON_RUN_LOG');
+    // KIS 는 장중 폴러 — 장외시간 오탐 방지 위해 WEEKDAY_INTRADAY 윈도.
+    expect(kis?.window).toBe('WEEKDAY_INTRADAY');
+  });
+
   it('CronRunLog 성공 기록이 없으면 해당 잡이 stale 로 표면화된다', async () => {
     const recent = new Date(now.getTime() - 5 * 60_000);
     const prisma = makePrisma({

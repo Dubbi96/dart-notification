@@ -10,6 +10,7 @@ import {
   JOB,
   AiAnalyzeJobData,
   AI_ANALYZE_JOB_OPTIONS,
+  aiAnalyzeJobId,
 } from '../../common/queues/queue.constants';
 import {
   AiReprocessResult,
@@ -260,11 +261,11 @@ export class PipelineIntegrityService {
         confidence: ev.confidence,
         isAiAssisted: ev.isAiAssisted,
       };
-      await this.aiQueue.add(
-        JOB.EVENT_EXTRACTED,
-        payload,
-        AI_ANALYZE_JOB_OPTIONS,
-      );
+      // DAR-230: 이벤트추출 경로와 동일 자연키(ai:<rcpNo>)로 발행해 중복 잡 적재 방지.
+      await this.aiQueue.add(JOB.EVENT_EXTRACTED, payload, {
+        ...AI_ANALYZE_JOB_OPTIONS,
+        jobId: aiAnalyzeJobId(ev.rcpNo),
+      });
       reEnqueued++;
     }
 

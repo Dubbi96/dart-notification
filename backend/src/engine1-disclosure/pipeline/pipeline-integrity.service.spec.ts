@@ -274,7 +274,7 @@ describe('PipelineIntegrityService (DAR-126)', () => {
 
     expect(result).toEqual({ scanned: 1, reEnqueued: 1 });
     expect(queue.add).toHaveBeenCalledTimes(1);
-    const [jobName, payload] = queue.add.mock.calls[0];
+    const [jobName, payload, options] = queue.add.mock.calls[0];
     expect(jobName).toBe(JOB.EVENT_EXTRACTED);
     expect(payload).toMatchObject({
       rcpNo: 'r1',
@@ -284,6 +284,46 @@ describe('PipelineIntegrityService (DAR-126)', () => {
       confidence: 0.9,
       isAiAssisted: false,
     });
+    // DAR-230: 이벤트추출 경로와 동일 자연키 jobId(ai:<rcpNo>)로 발행 → 다경로 중복 적재 방지.
+    expect(options.jobId).toBe('ai:r1');
+  });
+
+  // DAR-230 DoD: 동일 rcpNo 를 다경로(reprocess 반복/드레인)에서 2회 add 해도
+  // BullMQ 의 jobId dedup 으로 큐엔 1건만 적재된다. 실제 BullMQ dedup 규약을
+  // 모사한 FakeBullQueue 로 producer 경로(reprocessMissingAi)를 검증한다.
+  it('DAR-230: 동일 rcpNo 2회 발행 → 큐 1건만 적재(jobId dedup)', async () => {
+    // BullMQ dedup 모사: 동일 jobId 잡이 이미 존재하면 add 를 무시(중복 미적재).
+    const store = new Map<string, unknown>();
+    const fakeQueue = {
+      add: jest.fn(async (_name: string, data: unknown, opts: { jobId?: string }) => {
+        const id = opts?.jobId ?? `auto:${store.size}`;
+        if (!store.has(id)) store.set(id, data);
+      }),
+    };
+    const candidate = {
+      rcpNo: 'r1',
+      corpCode: 'c1',
+      eventType: 'SUPPLY_CONTRACT',
+      polarity: 'POSITIVE',
+      confidence: 0.9,
+      isAiAssisted: false,
+    };
+    const prisma = makePrisma();
+    (prisma.disclosureEvent.findMany as jest.Mock).mockResolvedValue([candidate]);
+    const service = new PipelineIntegrityService(
+      prisma,
+      makeDocs(),
+      makeEvents(),
+      fakeQueue as never,
+    );
+
+    // 다경로 재발행 2회(예: 첫 reprocess 후 드레인/재실행).
+    await service.reprocessMissingAi(10);
+    await service.reprocessMissingAi(10);
+
+    expect(fakeQueue.add).toHaveBeenCalledTimes(2); // producer 는 2회 호출하지만
+    expect(store.size).toBe(1); // ★큐에는 1건만 적재(dedup)
+    expect([...store.keys()]).toEqual(['ai:r1']);
   });
 
   it('큐 미가용(null) 시 재발행은 0(graceful)', async () => {

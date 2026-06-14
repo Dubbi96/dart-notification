@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,25 +15,68 @@ import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { formatDistanceToNow, parse } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import { useWatchlist, useRemoveFromWatchlist } from '@hooks/useWatchlist';
+import { useWatchlist, useRemoveFromWatchlist, useAddToWatchlist } from '@hooks/useWatchlist';
 import { useDialog } from '@components/common/DialogProvider';
 import { SearchOverlay } from '@components/common/SearchOverlay';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { useStockQuotes } from '@hooks/useStockQuotes';
 import { StockPriceBadge } from '@components/common/StockPriceBadge';
+import { useSnackbar } from '@components/common/SnackbarProvider';
+import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
+import { useHaptics } from '@hooks/useHaptics';
+
+import type { WatchlistItem } from '@app-types/user.types';
 
 export default function WatchlistScreen() {
   const { colors, typography: typo } = useTheme();
   const { showDialog } = useDialog();
-  const { data, isLoading, isError, error, refetch } = useWatchlist();
+  const { showSnackbar } = useSnackbar();
+  const haptics = useHaptics();
+  const { data, isLoading, isError, error, refetch, isRefetching } = useWatchlist();
   const removeFromWatchlist = useRemoveFromWatchlist();
+  const addToWatchlist = useAddToWatchlist();
 
   const [searchVisible, setSearchVisible] = useState(false);
 
   const watchlistItems = data?.data ?? [];
   const total = data?.meta?.total ?? 0;
   const limit = data?.meta?.limit ?? 30;
+
+  // DAR-202: 제거 → 성공 스낵바·햅틱·되돌리기(재추가). 공시 저장(disclosure/[id])과 동일한 인터랙션 일관성.
+  const handleRemove = (item: WatchlistItem) => {
+    removeFromWatchlist.mutate(item.id, {
+      onSuccess: () => {
+        haptics.success();
+        showSnackbar(snackbarCopy.watchlistRemoved(item.corpName), {
+          duration: SNACKBAR_DURATION.success,
+          action: {
+            label: '되돌리기',
+            onPress: () =>
+              addToWatchlist.mutate({
+                corpCode: item.corpCode,
+                corpName: item.corpName,
+                stockCode: item.stockCode,
+                market: item.market,
+              }),
+          },
+        });
+      },
+      onError: () => {
+        haptics.warning();
+        showSnackbar(snackbarCopy.watchlistRemoveFailed, { duration: SNACKBAR_DURATION.error });
+      },
+    });
+  };
+
+  // DAR-202: 한도 도달 시 +버튼 dead tap 대신 안내 스낵바.
+  const handleAdd = () => {
+    if (total >= limit) {
+      showSnackbar(snackbarCopy.watchlistLimitReached(limit), { duration: SNACKBAR_DURATION.error });
+      return;
+    }
+    setSearchVisible(true);
+  };
 
   // DAR-158: 관심기업 가격 배지 — 종목코드 일괄 조회(N+1 회피, 단일 in 쿼리).
   const stockCodes = useMemo(
@@ -71,8 +115,9 @@ export default function WatchlistScreen() {
         </Text>
         <TouchableOpacity
           style={styles.headerButton}
-          onPress={() => setSearchVisible(true)}
-          disabled={total >= limit}
+          onPress={handleAdd}
+          accessibilityRole="button"
+          accessibilityLabel={total >= limit ? '관심기업 추가 (한도 도달)' : '관심기업 추가'}
         >
           <Ionicons name="add" size={24} color={total >= limit ? colors.textTertiary : colors.primary} />
         </TouchableOpacity>
@@ -88,6 +133,14 @@ export default function WatchlistScreen() {
         data={watchlistItems}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={refetch}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
         ListEmptyComponent={
           isError ? (
             // 연결 실패 시 빈 화면 대신 사유+재시도(DAR-43 §1).
@@ -142,6 +195,9 @@ export default function WatchlistScreen() {
             <View style={styles.itemActions}>
               <TouchableOpacity
                 style={styles.actionBtn}
+                hitSlop={{ top: spacing.md, bottom: spacing.md, left: spacing.md, right: spacing.md }}
+                accessibilityRole="button"
+                accessibilityLabel={`${item.corpName} 관심목록에서 제거`}
                 onPress={() => {
                   showDialog({
                     title: '관심목록 해제',
@@ -149,7 +205,7 @@ export default function WatchlistScreen() {
                     icon: { name: 'trash-2', color: colors.error },
                     buttons: [
                       { text: '취소', style: 'cancel' },
-                      { text: '해제', style: 'destructive', onPress: () => removeFromWatchlist.mutate(item.id) },
+                      { text: '해제', style: 'destructive', onPress: () => handleRemove(item) },
                     ],
                   });
                 }}
@@ -216,5 +272,11 @@ const styles = StyleSheet.create({
   },
   newBadgeText: { fontWeight: '700' },
   itemActions: { flexDirection: 'row', gap: spacing.md },
-  actionBtn: { padding: spacing.xs },
+  // DAR-202: 삭제 버튼 터치영역 ≥44pt(iOS HIG). padding xs(4pt)로는 미달이라 최소 크기 보장.
+  actionBtn: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

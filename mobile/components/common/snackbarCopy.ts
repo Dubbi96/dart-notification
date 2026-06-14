@@ -11,6 +11,8 @@ export const snackbarCopy = {
   watchlistAdded: (name: string) => `${name}을(를) 관심목록에 추가했어요.`,
   watchlistRemoved: (name: string) => `${name}을(를) 관심목록에서 제거했어요.`,
   watchlistAddFailed: '추가에 실패했어요. 다시 시도해 주세요.',
+  watchlistRemoveFailed: '제거에 실패했어요. 다시 시도해 주세요.',
+  watchlistLimitReached: (limit: number) => `관심 기업은 최대 ${limit}개까지 등록할 수 있어요.`,
   // 공시 저장 / 저장 취소
   disclosureSaved: '공시를 저장했어요.',
   disclosureSaveFailed: '저장에 실패했어요.',

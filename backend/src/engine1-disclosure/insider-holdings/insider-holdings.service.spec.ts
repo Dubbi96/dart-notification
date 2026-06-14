@@ -221,7 +221,7 @@ describe('InsiderHoldingsService', () => {
       expect(arg.skip).toBe(10); // (page2-1)*limit10
       expect(arg.take).toBe(10);
       expect(count).toHaveBeenCalledWith({ where: arg.where });
-      expect(res.meta).toEqual({ page: 2, limit: 10, total: 1 });
+      expect(res.meta).toEqual({ page: 2, limit: 10, total: 1, totalPages: 1 });
     });
 
     it('BigInt(sharesAfter/sharesChange) → number 직렬화 안전 변환', async () => {
@@ -240,7 +240,26 @@ describe('InsiderHoldingsService', () => {
       expect(arg.skip).toBe(0);
       expect(arg.take).toBe(20);
       expect(res.items).toEqual([]);
-      expect(res.meta).toEqual({ page: 1, limit: 20, total: 0 });
+      expect(res.meta).toEqual({ page: 1, limit: 20, total: 0, totalPages: 0 });
+    });
+
+    it('meta.totalPages = ceil(total/limit) — 형제 엔드포인트(disclosures·signals)와 응답 계약 일치', async () => {
+      // total 25, limit 10 → 3페이지(ceil)
+      const { service } = makeReadService([sampleRow], 25);
+      const res = await service.findChanges({ limit: 10 });
+      expect(res.meta).toEqual({
+        page: 1,
+        limit: 10,
+        total: 25,
+        totalPages: 3,
+      });
+    });
+
+    it('total=0 → totalPages=0 (disclosures.service 빈결과 패턴)', async () => {
+      const { service } = makeReadService([], 0);
+      const res = await service.findChanges({ limit: 10 });
+      expect(res.meta.total).toBe(0);
+      expect(res.meta.totalPages).toBe(0);
     });
   });
 });

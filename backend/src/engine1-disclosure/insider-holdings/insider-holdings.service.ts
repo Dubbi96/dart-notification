@@ -73,7 +73,7 @@ export interface InsiderHoldingChangeView {
 
 export interface FindInsiderChangesResult {
   items: InsiderHoldingChangeView[];
-  meta: { page: number; limit: number; total: number };
+  meta: { page: number; limit: number; total: number; totalPages: number };
 }
 
 @Injectable()
@@ -289,7 +289,7 @@ export class InsiderHoldingsService {
         reportReason: r.reportReason,
         reportedAt: r.reportedAt,
       })),
-      meta: { page, limit, total },
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
 

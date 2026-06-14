@@ -146,6 +146,20 @@ export class WatchlistService {
         // (hashtextextended 로 cuid → bigint 키). 다른 사용자는 경합 없이 병렬 진행.
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 0))`;
 
+        // 자연키 FK 정합: corpCode 는 companies(corpCode) 하드 FK 대상이다(schema.prisma).
+        // DTO 는 8자리 형식만 검증하므로 미존재 corpCode 가 들어오면 insert 시 P2003(FK 위반)이
+        // 터지는데, 이는 잘못된 입력이지 서버 오류(5xx)가 아니다. saved-disclosures.create 의
+        // findUnique 선검증과 동일하게 트랜잭션 안에서 존재를 확인해 404 로 매핑한다
+        // (P2002 한도/중복 핸들러와 분리해 의미를 명확히 한다). 락을 먼저 잡은 뒤 검증하므로
+        // 같은 userId 추가 직렬화는 그대로 유지된다.
+        const company = await tx.company.findUnique({
+          where: { corpCode: dto.corpCode },
+          select: { corpCode: true },
+        });
+        if (!company) {
+          throw new NotFoundException('Company not found');
+        }
+
         const count = await tx.watchList.count({ where: { userId } });
         if (count >= MAX_WATCHLIST_COUNT) {
           throw new UnprocessableEntityException(
@@ -164,6 +178,11 @@ export class WatchlistService {
     } catch (error: any) {
       if (error.code === 'P2002') {
         throw new ConflictException('Company already in watchlist');
+      }
+      // 선검증과 insert 사이에 회사 행이 삭제되는 경쟁(TOCTOU)에서는 여전히 FK 위반(P2003)이
+      // 날 수 있다. 잘못된 입력이므로 5xx 로 새지 않게 동일하게 404 로 매핑한다.
+      if (error.code === 'P2003') {
+        throw new NotFoundException('Company not found');
       }
       throw error;
     }

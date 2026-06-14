@@ -254,12 +254,13 @@ describe('DisclosureEventsService', () => {
       expect(result['salesRatio']).toBe(20.0);
     });
 
-    it('PAID_IN_CAPITAL_INCREASE dilutionRate 계산', () => {
+    it('PAID_IN_CAPITAL_INCREASE dilutionRate 계산 (SSOT)', () => {
       const result = service.computeDerivedValues(EventType.PAID_IN_CAPITAL_INCREASE, {
         newShares: 10_000_000,
         existingShares: 50_000_000,
       });
-      expect(result['dilutionRate']).toBe(20.0);
+      // SSOT: 10M / (10M + 50M) * 100 = 16.67%
+      expect(result['dilutionRate']).toBe(16.67);
     });
 
     it('CB_ISSUANCE maxDilutionShares 계산', () => {

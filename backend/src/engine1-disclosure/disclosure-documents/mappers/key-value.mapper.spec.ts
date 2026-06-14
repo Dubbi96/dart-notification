@@ -136,14 +136,14 @@ describe('mapKeyValues - PAID_IN_CAPITAL_INCREASE', () => {
     expect(result.issueMethod).toContain('주주배정');
   });
 
-  it('희석률을 계산해야 한다', () => {
+  it('희석률을 계산해야 한다 (SSOT: 신주/(기존+신주)*100, %)', () => {
     const tables = loadFixtureTables('paid-in-capital.xml');
     const result = mapKeyValues(tables, 'PAID_IN_CAPITAL_INCREASE');
 
     if (result.newShares && result.existingShares) {
       const expected =
-        result.newShares / (result.newShares + result.existingShares);
-      expect(result.dilutionRate).toBeCloseTo(expected, 3);
+        (result.newShares / (result.newShares + result.existingShares)) * 100;
+      expect(result.dilutionRate).toBeCloseTo(expected, 2);
     }
   });
 });

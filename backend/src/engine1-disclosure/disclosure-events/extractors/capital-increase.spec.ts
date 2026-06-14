@@ -17,20 +17,21 @@ function makeParsedJson(overrides: Partial<ParsedJson> = {}): ParsedJson {
 
 describe('capital-increase extract', () => {
   describe('dilutionRate 계산', () => {
-    it('dilutionRate = newShares / existingShares * 100', () => {
+    it('dilutionRate = newShares / (newShares + existingShares) * 100 (SSOT)', () => {
       const parsed = makeParsedJson({
         newShares: 10_000_000,
         existingShares: 50_000_000,
       });
       const result = extract(parsed, '');
-      expect(result.dilutionRate).toBe(20.0);
+      // 10M / (10M + 50M) * 100 = 16.67%
+      expect(result.dilutionRate).toBe(16.67);
     });
 
-    it('rightsFixture 기반 dilutionRate 계산', () => {
+    it('rightsFixture 기반 dilutionRate 계산 (SSOT)', () => {
       const result = extract(rightsFixture as ParsedJson, '유상증자(주주배정)');
       expect(result.newShares).toBe(10_000_000);
       expect(result.existingShares).toBe(50_000_000);
-      expect(result.dilutionRate).toBe(20.0);
+      expect(result.dilutionRate).toBe(16.67);
     });
 
     it('existingShares null → dilutionRate null', () => {

@@ -2,6 +2,7 @@
 // 유상증자 수치 추출 파서 (Rule/정규식 전용, AI 미사용)
 
 import { ParsedJson } from '../../disclosure-documents/types/parsed-json.type';
+import { computeDilutionRate } from '../../disclosure-documents/utils/dilution.util';
 
 export interface CapitalIncreaseData {
   issueType: 'RIGHTS_OFFERING' | 'PUBLIC_OFFERING' | 'THIRD_PARTY' | 'UNKNOWN';
@@ -9,7 +10,7 @@ export interface CapitalIncreaseData {
   purpose: string[];                 // 자금 사용 목적 배열
   newShares: number | null;          // 신주 수
   existingShares: number | null;     // 기존 발행 주식 수
-  dilutionRate: number | null;       // 파생값: newShares / existingShares * 100
+  dilutionRate: number | null;       // 파생값(SSOT): newShares / (newShares + existingShares) * 100, %
   issuePrice: number | null;         // 발행가액 (원/주)
   referencePrice: number | null;     // 기준주가 (원/주)
   discountRate: number | null;       // 파생값: (referencePrice - issuePrice) / referencePrice * 100
@@ -23,7 +24,7 @@ export interface CapitalIncreaseData {
  * parsedJson에서 유상증자 수치를 추출한다.
  *
  * 파생값:
- *   dilutionRate = newShares / existingShares * 100  (분모 0/null → null)
+ *   dilutionRate = newShares / (newShares + existingShares) * 100  (SSOT, %, 분모 0/null → null)
  *   discountRate = (referencePrice - issuePrice) / referencePrice * 100  (분모 0/null → null)
  */
 export function extract(parsedJson: ParsedJson, reportName: string): CapitalIncreaseData {
@@ -44,11 +45,8 @@ export function extract(parsedJson: ParsedJson, reportName: string): CapitalIncr
             : round2(rawDiscount)
         : null;
 
-    // dilutionRate: newShares / existingShares * 100
-    const dilutionRate =
-      newShares !== null && existingShares !== null && existingShares !== 0
-        ? round2((newShares / existingShares) * 100)
-        : null;
+    // dilutionRate: SSOT(DAR-246) — newShares / (newShares + existingShares) * 100, %
+    const dilutionRate = computeDilutionRate(newShares, existingShares);
 
     // issueType: issueMethod 키워드로 분류
     const issueType = inferIssueType(parsedJson.issueMethod ?? null, reportName);

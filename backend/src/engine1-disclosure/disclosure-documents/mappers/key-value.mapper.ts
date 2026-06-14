@@ -4,6 +4,7 @@
 import { Table } from '../types/table.type';
 import { ParsedJson } from '../types/parsed-json.type';
 import { InvestmentEventType } from '../../disclosures/constants/disclosure-types.constant';
+import { computeDilutionRate } from '../utils/dilution.util';
 
 // ─── 라벨 패턴 상수 ──────────────────────────────────────────────────────────
 
@@ -412,13 +413,13 @@ function mapPaidInCapital(
     }
   }
 
-  // 희석률 계산
-  if (result.newShares && result.existingShares) {
-    const total = result.newShares + result.existingShares;
-    if (total > 0) {
-      result.dilutionRate =
-        Math.round((result.newShares / total) * 10000) / 10000;
-    }
+  // 희석률 계산 (SSOT: DAR-246 — 신주/(기존+신주)*100, %)
+  const dilutionRate = computeDilutionRate(
+    result.newShares,
+    result.existingShares,
+  );
+  if (dilutionRate !== null) {
+    result.dilutionRate = dilutionRate;
   }
 
   if (sourceTableIndex !== undefined) {

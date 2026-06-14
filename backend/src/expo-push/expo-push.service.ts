@@ -34,35 +34,44 @@ export class ExpoPushService {
 
   async sendPushNotifications(messages: ExpoPushMessage[]): Promise<ExpoPushTicket[]> {
     const chunks = this.expo.chunkPushNotifications(messages);
-    const tickets: ExpoPushTicket[] = [];
+    // DAR-260: ticket↔message 정합을 평탄 인덱스가 아니라 청크 단위 쌍으로 추적한다.
+    // 한 청크 send 가 throw 하면 그 청크의 ticket 이 평탄 tickets[] 에서 통째로 빠져,
+    // 이후 청크의 tickets[i] 가 엉뚱한 messages[i] 와 짝지어진다 → DeviceNotRegistered
+    // 시 멀쩡한 토큰을 오인 삭제. 각 ticket 을 그 출처 message 와 함께 묶어
+    // 청크 실패가 정합을 깨뜨리지 못하게 한다.
+    const pairs: { ticket: ExpoPushTicket; message: ExpoPushMessage }[] = [];
 
     for (const chunk of chunks) {
       try {
         const ticketChunk = await this.expo.sendPushNotificationsAsync(chunk);
-        tickets.push(...ticketChunk);
+        // Expo SDK 는 ticketChunk[j] 를 chunk[j] 와 동일 순서로 돌려준다.
+        for (let j = 0; j < ticketChunk.length; j++) {
+          pairs.push({ ticket: ticketChunk[j], message: chunk[j] });
+        }
       } catch (error) {
         this.logger.error('Failed to send push notifications', error);
       }
     }
 
     // ticket 단계에서 즉시 감지되는 무효 토큰 처리
-    await this.handleInvalidTickets(tickets, messages);
+    await this.handleInvalidTickets(pairs);
 
     // receipt 확인은 Expo 권장대로 15분 후 처리(durable BullMQ delayed job)
-    await this.scheduleReceiptCheck(tickets, messages);
+    await this.scheduleReceiptCheck(pairs);
 
-    return tickets;
+    return pairs.map((p) => p.ticket);
   }
 
   isValidExpoPushToken(token: string): boolean {
     return Expo.isExpoPushToken(token);
   }
 
-  private async handleInvalidTickets(tickets: ExpoPushTicket[], messages: ExpoPushMessage[]) {
-    for (let i = 0; i < tickets.length; i++) {
-      const ticket = tickets[i];
+  private async handleInvalidTickets(
+    pairs: { ticket: ExpoPushTicket; message: ExpoPushMessage }[],
+  ) {
+    for (const { ticket, message } of pairs) {
       if (ticket.status === 'error' && ticket.details?.error === 'DeviceNotRegistered') {
-        const token = messages[i]?.to as string;
+        const token = message?.to as string;
         if (token) {
           this.logger.warn(`무효 디바이스 토큰 삭제 (ticket): ${token}`);
           await this.devicesService.removeByDeviceToken(token);
@@ -82,14 +91,12 @@ export class ExpoPushService {
    * 폴백한다(graceful degradation — durable 보장은 불가하지만 동작은 유지).
    */
   private async scheduleReceiptCheck(
-    tickets: ExpoPushTicket[],
-    messages: ExpoPushMessage[],
+    pairs: { ticket: ExpoPushTicket; message: ExpoPushMessage }[],
   ): Promise<void> {
     const ticketIds: { id: string; token: string }[] = [];
-    for (let i = 0; i < tickets.length; i++) {
-      const ticket = tickets[i];
+    for (const { ticket, message } of pairs) {
       if (ticket.status === 'ok') {
-        ticketIds.push({ id: ticket.id, token: messages[i]?.to as string });
+        ticketIds.push({ id: ticket.id, token: message?.to as string });
       }
     }
 

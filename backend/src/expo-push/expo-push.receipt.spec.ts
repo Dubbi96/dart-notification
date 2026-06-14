@@ -102,6 +102,77 @@ describe('ExpoPushService — receipt durable화 (DAR-182)', () => {
     });
   });
 
+  // DAR-260 — 청크 send 실패 시 ticket↔message 정합 보존.
+  //
+  // chunkPushNotifications 가 메시지를 여러 청크로 나누고, 한 청크 send 가 throw 하면
+  // 그 청크 ticket 이 통째로 누락된다. 과거엔 ticket 을 평탄 tickets[] 에 누적하고
+  // messages[i] 인덱스로 짝지어, 첫 청크 실패 시 2번째 청크 ticket 이 1번째 청크
+  // 메시지(토큰)와 어긋나 → DeviceNotRegistered 시 엉뚱한 토큰을 삭제했다.
+  // 이제 ticket 을 그 출처 message 와 청크 단위로 쌍지어 추적해 정합을 보존한다.
+  describe('청크 send 실패 시 ticket↔message 정합 (DAR-260)', () => {
+    // ❶ ticket 단계: 첫 청크 send 실패 + 2번째 청크 DeviceNotRegistered →
+    //    삭제 대상은 반드시 2번째 청크의 토큰(dead) 이어야 한다(1번째 청크 live 아님).
+    it('첫 청크 실패 후 2번째 청크 DeviceNotRegistered 는 올바른 토큰(2번째 청크)을 삭제', async () => {
+      const messages = [
+        { to: 'ExponentPushToken[chunkA-live]', body: 'a' },
+        { to: 'ExponentPushToken[chunkB-dead]', body: 'b' },
+      ] as any[];
+      const expo = makeFakeExpo({
+        // 메시지를 메시지당 1개씩 별도 청크로 분할.
+        chunkPushNotifications: jest.fn((m: unknown[]) => m.map((x) => [x])),
+        sendPushNotificationsAsync: jest
+          .fn()
+          // 청크 A(첫 청크): 네트워크 실패 → throw → ticket 누락.
+          .mockRejectedValueOnce(new Error('network down'))
+          // 청크 B(2번째 청크): DeviceNotRegistered ticket 반환.
+          .mockResolvedValueOnce([
+            { status: 'error', details: { error: 'DeviceNotRegistered' } },
+          ]),
+      });
+      const { service, devicesService } = makeService({ queue: null, expo });
+
+      await service.sendPushNotifications(messages);
+
+      // ★정합 보존: 삭제는 2번째 청크의 dead 토큰에만 일어나야 한다.
+      expect(devicesService.removeByDeviceToken).toHaveBeenCalledTimes(1);
+      expect(devicesService.removeByDeviceToken).toHaveBeenCalledWith(
+        'ExponentPushToken[chunkB-dead]',
+      );
+      // 1번째 청크의 멀쩡한 토큰은 절대 삭제되지 않는다(오인삭제 회귀 가드).
+      expect(devicesService.removeByDeviceToken).not.toHaveBeenCalledWith(
+        'ExponentPushToken[chunkA-live]',
+      );
+    });
+
+    // ❷ receipt 단계: 첫 청크 실패 후, 성공한 2번째 청크의 ok ticket 이
+    //    enqueue 되는 payload 의 token 과 올바르게 짝지어져야 한다.
+    it('첫 청크 실패 후 2번째 청크 ok ticket 은 올바른 토큰으로 receipt enqueue', async () => {
+      const queue = { add: jest.fn().mockResolvedValue(undefined) };
+      const messages = [
+        { to: 'ExponentPushToken[chunkA]', body: 'a' },
+        { to: 'ExponentPushToken[chunkB]', body: 'b' },
+      ] as any[];
+      const expo = makeFakeExpo({
+        chunkPushNotifications: jest.fn((m: unknown[]) => m.map((x) => [x])),
+        sendPushNotificationsAsync: jest
+          .fn()
+          .mockRejectedValueOnce(new Error('network down'))
+          .mockResolvedValueOnce([{ status: 'ok', id: 'receipt-B' }]),
+      });
+      const { service } = makeService({ queue, expo });
+
+      await service.sendPushNotifications(messages);
+
+      expect(queue.add).toHaveBeenCalledTimes(1);
+      const [, payload] = queue.add.mock.calls[0];
+      // ★ok ticket(receipt-B)이 2번째 청크 토큰(chunkB)과 짝지어진다 —
+      //   평탄 인덱스였다면 chunkA 토큰으로 어긋났을 케이스.
+      expect(payload).toEqual({
+        ticketIds: [{ id: 'receipt-B', token: 'ExponentPushToken[chunkB]' }],
+      });
+    });
+  });
+
   describe('checkReceipts — dead-token 정리', () => {
     it('receipt 가 DeviceNotRegistered 면 해당 토큰을 UserDevice 에서 삭제', async () => {
       const expo = makeFakeExpo({

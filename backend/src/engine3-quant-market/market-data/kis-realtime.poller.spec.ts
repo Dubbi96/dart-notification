@@ -74,4 +74,58 @@ describe('KisRealtimePoller (DAR-140)', () => {
 
     await expect(poller.pollRealtime()).resolves.toEqual({ polled: 0, cached: 0 });
   });
+
+  // ── DAR-231: 분 경계 초과 시 in-flight 락으로 겹침 차단 ──────────────
+  it('이전 폴링 진행 중이면 다음 cron 은 즉시 skip(KIS 미호출·겹침 차단)', async () => {
+    // fetchCurrentPrice 를 게이트로 보류시켜 1회차를 "진행 중"으로 고정.
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const kis = {
+      isConfigured: true,
+      fetchCurrentPrice: jest.fn(async (stockCode: string) => {
+        await firstGate; // 첫 호출은 게이트 해제까지 보류 → 폴링 진행 중 유지
+        return { stockCode, price: 70000, open: 1, high: 1, low: 1, volume: 100 };
+      }),
+    } as unknown as KisApiService;
+    const cache = new RealtimeQuoteCache();
+    const prisma = makePrisma([{ corpCode: '00126380', stockCode: '005930' }], []);
+    const poller = new KisRealtimePoller(prisma, kis, cache);
+
+    const first = poller.pollRealtime(); // 보류 — 진행 중 상태로 고정
+    await Promise.resolve(); // 첫 호출이 resolveUniverse/fetch await 에 진입하도록 양보
+    await Promise.resolve();
+
+    // 같은 분 경계에서 두 번째 cron 발화 — 락에 의해 즉시 skip 되어야 한다.
+    const overlapped = await poller.pollRealtime();
+    expect(overlapped).toEqual({ polled: 0, cached: 0, skipped: true });
+    expect(kis.fetchCurrentPrice as jest.Mock).toHaveBeenCalledTimes(1); // 겹친 호출은 KIS 미호출
+
+    // 1회차 해제 후 정상 완료 + 락 해제 → 이후 폴링 재개 가능.
+    releaseFirst();
+    await expect(first).resolves.toEqual({ polled: 1, cached: 1 });
+
+    const next = await poller.pollRealtime();
+    expect(next).toEqual({ polled: 1, cached: 1 });
+    expect(kis.fetchCurrentPrice as jest.Mock).toHaveBeenCalledTimes(2); // 락 해제 후 정상 재호출
+  });
+
+  it('폴링 중 throw 로 종료해도 락이 해제되어 다음 분 폴링이 재개된다', async () => {
+    const kis = {
+      isConfigured: true,
+      fetchCurrentPrice: jest
+        .fn()
+        .mockRejectedValueOnce(new Error('boom')) // 1회차: 에러 흡수 경로
+        .mockResolvedValueOnce({ stockCode: 's1', price: 100, open: 1, high: 1, low: 1, volume: 1 }),
+    } as unknown as KisApiService;
+    const cache = new RealtimeQuoteCache();
+    const prisma = makePrisma([{ corpCode: 'c1', stockCode: 's1' }], []);
+    const poller = new KisRealtimePoller(prisma, kis, cache);
+
+    await expect(poller.pollRealtime()).resolves.toEqual({ polled: 0, cached: 0 }); // 에러 흡수
+    // finally 가 락을 해제했으므로 skip 되지 않고 정상 폴링.
+    const after = await poller.pollRealtime();
+    expect(after).toEqual({ polled: 1, cached: 1 });
+  });
 });

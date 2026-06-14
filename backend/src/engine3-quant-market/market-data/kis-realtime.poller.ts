@@ -25,6 +25,12 @@ const POLL_UNIVERSE_CAP = 60;
 export class KisRealtimePoller {
   private readonly logger = new Logger(KisRealtimePoller.name);
 
+  /**
+   * 단일 실행 락 (DAR-231). 60종목 순차 외부호출이 분 경계(60초)를 초과하면 다음 분 cron 이
+   * 겹쳐 KIS rate-limit(초당 제한) 위반·중복부하를 낸다. 진행 중이면 이번 분을 건너뛴다.
+   */
+  private isPolling = false;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly kis: KisApiService,
@@ -33,12 +39,19 @@ export class KisRealtimePoller {
 
   /** 평일 09:00~15:59 매 1분(KST) — 보유/후보 종목 실시간 현재가 폴링. */
   @Cron('*/1 9-15 * * 1-5', { timeZone: KST_TIMEZONE })
-  async pollRealtime(): Promise<{ polled: number; cached: number }> {
+  async pollRealtime(): Promise<{ polled: number; cached: number; skipped?: boolean }> {
     if (!this.kis.isConfigured) {
       // 키 미설정 — 실시간 비활성(모의운용은 일봉/합성으로 평가). 로그 1회성 최소화.
       return { polled: 0, cached: 0 };
     }
 
+    // DAR-231: 이전 폴링이 분 경계를 넘겨 아직 진행 중이면 즉시 건너뜀(겹침·rate-limit 방지).
+    if (this.isPolling) {
+      this.logger.warn('[KIS] 이전 실시간 폴링 진행 중 — 이번 분 건너뜀(겹침 방지)');
+      return { polled: 0, cached: 0, skipped: true };
+    }
+
+    this.isPolling = true;
     try {
       const universe = await this.resolveUniverse();
       let cached = 0;
@@ -64,6 +77,9 @@ export class KisRealtimePoller {
     } catch (e) {
       this.logger.error(`[KIS] 실시간 폴링 오류: ${(e as Error).message}`);
       return { polled: 0, cached: 0 };
+    } finally {
+      // 정상/예외/조기반환 어느 경로든 락 해제 — 다음 분 폴링 보장.
+      this.isPolling = false;
     }
   }
 

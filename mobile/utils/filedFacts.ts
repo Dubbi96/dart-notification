@@ -4,6 +4,8 @@
 //  - 숫자형은 numericValue, 텍스트·날짜형은 value를 사용.
 //  - 미등재 factKey도 값은 그대로 노출(정량 근거 투명화 — 조용히 버리지 않음).
 
+import { formatYmdDots } from '@utils/datetime';
+
 import type { FiledFact } from '@app-types/disclosure.types';
 
 // 표준 factKey → 한국어 라벨(백엔드 normalizer FACT_KEY_MAP 기준).
@@ -91,10 +93,13 @@ function formatKrwCompact(value: number): string {
   return `${value.toLocaleString('ko-KR')}원`;
 }
 
+// fact의 period는 'YYYYMMDD'·'YYYY-MM-DD'·'YYYY.MM.DD' 등 구분자가 섞여 들어오고,
+// 날짜가 아닌 텍스트 period(예: 분기 표기)도 있어 비매칭 시 원문 passthrough가 필요하다.
+// 따라서 구분자 정규화·날짜 판별은 여기서 하고, 점 포맷팅만 공통 헬퍼(DAR-218)에 위임한다.
 function formatDate(raw: string): string {
   const s = raw.trim();
   const m = /^(\d{4})[-.]?(\d{2})[-.]?(\d{2})$/.exec(s);
-  return m ? `${m[1]}.${m[2]}.${m[3]}` : s;
+  return m ? formatYmdDots(`${m[1]}${m[2]}${m[3]}`) : s;
 }
 
 /**

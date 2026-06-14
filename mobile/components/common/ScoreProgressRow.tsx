@@ -3,6 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { ProgressBar } from 'react-native-paper';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
+import { formatSignedScore } from '@utils/numberFormat';
 
 // 점수 기여 1행(기획 §4-1). [라벨] [mini ProgressBar] [부호+점수].
 // 가산(+)은 success, 리스크 패널티(-)는 error. 색상 단독 의미 전달 금지 —
@@ -34,7 +35,9 @@ export function ScoreProgressRow({
   const magnitude = Math.abs(score);
   const max = maxContribution > 0 ? maxContribution : 1;
   const progress = Math.max(0, Math.min(1, magnitude / max));
-  const signed = `${isPenalty ? '-' : '+'}${magnitude}`;
+  // 라벨은 합계(헤더, 정수 추정)와 같은 자릿수로 반올림(DAR-258). ProgressBar 비율은
+  // 원시 크기를 유지해 미세 기여도 시각적으로 반영한다.
+  const signed = formatSignedScore(score);
   const showSample = kind === 'sample' && sampleN !== undefined;
   const sampleText = showSample ? ` (n=${sampleN}건)` : '';
 

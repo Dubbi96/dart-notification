@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { watchlistService } from '@services/watchlist.service';
 import { getDialogRef } from '@components/common/DialogProvider';
 import { palette } from '@theme/colors';
+import { useGuardedMutation } from '@hooks/useGuardedMutation';
 
 import type { PaginationMeta } from '@app-types/api.types';
 import type { WatchlistItem } from '@app-types/user.types';
@@ -30,7 +31,8 @@ export function useWatchlist(options?: { enabled?: boolean }) {
 
 export function useAddToWatchlist() {
   const queryClient = useQueryClient();
-  return useMutation({
+  // DAR-226: 오프라인 차단 — paused mutation 유실로 인한 낙관적 변경의 '조용한 롤백' 방지.
+  return useGuardedMutation(useMutation({
     mutationFn: ({ corpCode, corpName }: AddWatchlistVars) =>
       watchlistService.add(corpCode, corpName),
     // 낙관적 추가: 캐시에 즉시 반영
@@ -71,7 +73,7 @@ export function useAddToWatchlist() {
       }
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY }),
-  });
+  }));
 }
 
 /**
@@ -90,7 +92,8 @@ export function useMarkWatchlistViewed() {
 
 export function useRemoveFromWatchlist() {
   const queryClient = useQueryClient();
-  return useMutation({
+  // DAR-226: 오프라인 차단 — 낙관적 제거 후 paused mutation 유실 → 재시작 시 되살아나는 롤백 방지.
+  return useGuardedMutation(useMutation({
     mutationFn: (id: string) => watchlistService.remove(id),
     // 낙관적 제거: 캐시에서 즉시 제외
     onMutate: async (id: string) => {
@@ -113,5 +116,5 @@ export function useRemoveFromWatchlist() {
       }
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: WATCHLIST_KEY }),
-  });
+  }));
 }

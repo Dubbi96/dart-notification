@@ -32,6 +32,7 @@ import { useDisclosureDetail, useDisclosureEvent } from '@hooks/useDisclosures';
 import { useCheckSaved, useSaveDisclosure, useUnsaveDisclosure } from '@hooks/useSavedDisclosures';
 import { useWatchlist, useAddToWatchlist, useRemoveFromWatchlist } from '@hooks/useWatchlist';
 import { useRequireAuth } from '@hooks/useRequireAuth';
+import { isOfflineMutationBlockedError } from '@utils/offlineMutation';
 import {
   getTypeStyle,
   getTypeLabel,
@@ -89,7 +90,9 @@ export default function DisclosureDetailScreen() {
           duration: SNACKBAR_DURATION.success,
         });
       }
-    } catch {
+    } catch (e) {
+      // DAR-226: 오프라인 차단은 가드가 이미 안내 스낵바를 띄웠으므로 일반 '실패' 메시지로 덮지 않는다.
+      if (isOfflineMutationBlockedError(e)) return;
       showSnackbar(snackbarCopy.watchlistAddFailed, { duration: SNACKBAR_DURATION.error });
     }
   };
@@ -113,7 +116,9 @@ export default function DisclosureDetailScreen() {
         });
       }
       refetchSaved();
-    } catch {
+    } catch (e) {
+      // DAR-226: 오프라인 차단은 가드 스낵바로 안내됨 — 일반 '실패' 메시지로 덮지 않는다.
+      if (isOfflineMutationBlockedError(e)) return;
       showSnackbar(snackbarCopy.disclosureSaveFailed, { duration: SNACKBAR_DURATION.error });
     }
   };

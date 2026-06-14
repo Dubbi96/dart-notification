@@ -50,7 +50,8 @@ function buildService(
   personaRunMock: jest.Mock = jest.fn(),
   thesisRunMock: jest.Mock = jest.fn(),
   // 기본: 한도 미초과(제안 레벨 그대로 통과). 테스트가 강등을 모사할 때 override.
-  enforceLimitMock: jest.Mock = jest.fn(async (lvl: AiCostLevel) => lvl),
+  // DAR-242: enforceLimit은 CostReservation({level, settle})을 반환한다.
+  enforceLimitMock: jest.Mock = jest.fn(async (lvl: AiCostLevel) => ({ level: lvl, settle: jest.fn() })),
 ) {
   const repo = new InMemoryAiAnalysisRepository();
   const usageLog = new AiUsageLogService(repo);
@@ -288,7 +289,7 @@ describe('AiAnalystService — AiCostLimitGuard 한도 강제(DAR-78)', () => {
   it('한도 초과(forced L0) 시 게이트가 L2여도 Summary를 스킵·유료 LLM 미호출(DAR-239: L0 비용0 행 기록)', async () => {
     const run = jest.fn().mockResolvedValue(summaryOk);
     // 한도 초과 → enforceLimit이 어떤 제안 레벨이든 L0으로 강등.
-    const forceL0 = jest.fn(async () => AiCostLevel.L0);
+    const forceL0 = jest.fn(async () => ({ level: AiCostLevel.L0, settle: jest.fn() }));
     const { service, logSpy } = buildService(run, jest.fn(), jest.fn(), jest.fn(), forceL0);
 
     const res = await service.runSummary(makeReq()); // 게이트로는 L2 조건
@@ -306,7 +307,7 @@ describe('AiAnalystService — AiCostLimitGuard 한도 강제(DAR-78)', () => {
 
   it('한도 초과 시 Position Thesis(L3 조건)도 강등되어 스킵된다', async () => {
     const run = jest.fn();
-    const forceL0 = jest.fn(async () => AiCostLevel.L0);
+    const forceL0 = jest.fn(async () => ({ level: AiCostLevel.L0, settle: jest.fn() }));
     const { service } = buildService(jest.fn(), jest.fn(), jest.fn(), run, forceL0);
     const req: PositionThesisRequest = {
       gate: makeGate({ isHolding: true, polarity: 'NEGATIVE' }), // 게이트로는 L3

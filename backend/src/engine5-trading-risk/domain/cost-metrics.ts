@@ -8,7 +8,11 @@ import { CostMetrics, CostMetricsInput } from './paper-trade.types';
  * - costPerDisclosure: AI비용 / 공시수 (공시당 평균 AI비용)
  * - costPerSignal: AI비용 / 신호수
  * - costPerTrade: AI비용 / 거래수
- * - aiCostToNetPnlRatio: AI비용 / 순익 (순익이 0이면 Infinity가 아닌 -1 반환)
+ * - aiCostToNetPnlRatio: AI비용 / 순익 (순익이 0 이하면 측정 불가 → null)
+ *
+ * 규약은 paper-simulation/simulation-metrics.ts 와 통일: 순익이 양수일 때만
+ * 비율이 유의미하다. 손실(음수)·손익 0 구간에서는 비율이 무의미하므로 null.
+ * (과거 -1 센티넬은 "비용=손실 절대값"인 정당한 음수 비율과 충돌해 폐기.)
  */
 export function calculateCostMetrics(input: CostMetricsInput): CostMetrics {
   const safe = (n: number) => (n > 0 ? n : null);
@@ -26,9 +30,9 @@ export function calculateCostMetrics(input: CostMetricsInput): CostMetrics {
     : 0;
 
   const aiCostToNetPnlRatio =
-    input.totalNetPnl !== 0
+    input.totalNetPnl > 0
       ? input.totalAiCostKrw / input.totalNetPnl
-      : -1; // 순익 없음 표시
+      : null; // 순익 0 이하 → 측정 불가
 
   return {
     costPerDisclosure,

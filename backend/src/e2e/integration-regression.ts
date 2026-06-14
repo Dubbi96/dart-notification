@@ -718,7 +718,7 @@ async function main(): Promise<void> {
 
     m.tradingSignalCount = await prisma.tradingSignal.count();
     let costSummary: { totalCostUsd: number; callCount: number; l0Ratio: number } | null = null;
-    let crossMetrics: { aiCostToNetPnlRatio: number; costPerDisclosure: number } | null = null;
+    let crossMetrics: { aiCostToNetPnlRatio: number | null; costPerDisclosure: number } | null = null;
     try {
       const aggRepo = new PrismaAiAnalysisRepository(prisma as unknown as PrismaService);
       const agg = new AiCostAggregationService(aggRepo, prisma as unknown as PrismaService);
@@ -730,7 +730,7 @@ async function main(): Promise<void> {
       crossMetrics = { aiCostToNetPnlRatio: cross.aiCostToNetPnlRatio, costPerDisclosure: cross.costPerDisclosure };
 
       printInfo(`최근 30일 AI 호출: ${summary.callCount}건, 총비용=$${summary.totalCostUsd.toFixed(5)}, L0비율=${(summary.l0Ratio * 100).toFixed(0)}%`);
-      printInfo(`교차비용지표: 공시당비용=${cross.costPerDisclosure.toFixed(2)}원, AI비용/순익=${cross.aiCostToNetPnlRatio === -1 ? '측정불가(순익0)' : cross.aiCostToNetPnlRatio.toFixed(3)}`);
+      printInfo(`교차비용지표: 공시당비용=${cross.costPerDisclosure.toFixed(2)}원, AI비용/순익=${cross.aiCostToNetPnlRatio === null ? '측정불가(순익≤0)' : cross.aiCostToNetPnlRatio.toFixed(3)}`);
       printPass('비용 집계 정상 동작 (DB 집계·순수 연산, AI 미개입)');
       passed++;
     } catch (e: unknown) {
@@ -813,7 +813,7 @@ async function main(): Promise<void> {
     const collPct = (m.collectionRate * 100).toFixed(1);
     record({ id: 'G1', name: '신호 적중률 ≥55% (D+5)', target: '≥55%', measured: '30일+ 운용 데이터 부족', status: 'HOLD', evidence: '캘린더 시간 필요 — 미측정' });
     record({ id: 'G2', name: '모의 누적 수익률 >0%', target: '>0%', measured: '30일+ 모의운용 미충족', status: 'HOLD', evidence: '캘린더 시간 필요 — 미측정' });
-    record({ id: 'G3', name: 'AI비용/모의순익 ≤20%', target: '≤20%', measured: crossMetrics && crossMetrics.aiCostToNetPnlRatio !== -1 ? crossMetrics.aiCostToNetPnlRatio.toFixed(3) : '순익=0·AIUsageLog=0 → 측정 불가', status: 'HOLD', evidence: 'Step 11 — 데이터 부족' });
+    record({ id: 'G3', name: 'AI비용/모의순익 ≤20%', target: '≤20%', measured: crossMetrics && crossMetrics.aiCostToNetPnlRatio !== null ? crossMetrics.aiCostToNetPnlRatio.toFixed(3) : '순익≤0·AIUsageLog=0 → 측정 불가', status: 'HOLD', evidence: 'Step 11 — 데이터 부족' });
     record({ id: 'G4', name: '수집 성공률 ≥95%', target: '≥95%', measured: m.collectionTotal > 0 ? `${collPct}% (${m.collectionOk}/${m.collectionTotal})` : '수집로그 0건', status: m.collectionTotal === 0 ? 'HOLD' : (m.collectionRate >= 0.95 ? 'PASS' : 'PARTIAL'), evidence: 'DisclosureCollectionLog' });
     record({ id: 'G5', name: 'Exit 정확도 ≥50% (D+3)', target: '≥50%', measured: '운용 데이터 부족', status: 'HOLD', evidence: '캘린더 시간 필요 — 미측정' });
     record({ id: 'G6', name: 'AI 금지영역 침범 0', target: '0건', measured: `Engine5 import ${engine5AiHits.length} · 비정상actor ${illegalActors.length} · aiUsed ${aiUsedExitSignals}`, status: auditClean ? 'PASS' : 'HOLD', evidence: 'Step 12 감사' });
@@ -858,7 +858,7 @@ function writeReport(
   crit: Criterion[],
   e2e: { passed: number; failed: number; bugs: string[] },
   cost: { totalCostUsd: number; callCount: number; l0Ratio: number } | null,
-  cross: { aiCostToNetPnlRatio: number; costPerDisclosure: number } | null,
+  cross: { aiCostToNetPnlRatio: number | null; costPerDisclosure: number } | null,
   engine5AiHits: number,
 ): void {
   const features = crit.filter((c) => c.id.startsWith('F'));
@@ -915,7 +915,7 @@ function writeReport(
   if (cost) {
     lines.push(`- 최근 30일 AI 호출: **${cost.callCount}건**, 총 실측 비용: **$${cost.totalCostUsd.toFixed(5)}**, L0(무비용) 비율: ${(cost.l0Ratio * 100).toFixed(0)}%`);
     lines.push(`- 공시당 평균 AI 비용(원): ${cross ? cross.costPerDisclosure.toFixed(2) : 'N/A'}`);
-    lines.push(`- AI비용/모의순익 비율: ${cross && cross.aiCostToNetPnlRatio !== -1 ? cross.aiCostToNetPnlRatio.toFixed(3) : '**측정 불가** — 모의순익 0(누적 운용 전) · AIUsageLog 0건'}`);
+    lines.push(`- AI비용/모의순익 비율: ${cross && cross.aiCostToNetPnlRatio !== null ? cross.aiCostToNetPnlRatio.toFixed(3) : '**측정 불가** — 모의순익 ≤0(누적 운용 전) · AIUsageLog 0건'}`);
   } else {
     lines.push('- 비용 집계 실행 실패(상세는 E2E 로그 참조).');
   }

@@ -61,5 +61,5 @@ export interface CostMetrics {
   costPerDisclosure: number;  // AI비용 / 공시수
   costPerSignal: number;      // AI비용 / 신호수
   costPerTrade: number;       // AI비용 / 거래수
-  aiCostToNetPnlRatio: number; // AI비용 / 순익 비율 (0이면 순익 없음)
+  aiCostToNetPnlRatio: number | null; // AI비용 / 순익 비율 (순익 0 이하면 측정 불가 → null)
 }

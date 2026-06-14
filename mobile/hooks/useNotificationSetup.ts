@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, onlineManager } from '@tanstack/react-query';
 import { useRouter, type Href } from 'expo-router';
 import { useAuthStore } from '@stores/authStore';
 import {
@@ -10,6 +10,7 @@ import {
 } from '@stores/pendingDeepLinkStore';
 import { deviceService } from '@services/device.service';
 import { resolveDeepLink } from '@utils/deeplink';
+import { REGISTER_BACKOFF_MS, shouldRetryOnReconnect } from '@utils/pushTokenRetry';
 
 const PROJECT_ID = 'dbdd30ba-72aa-4f90-ae45-54aa8fd43aa7';
 
@@ -53,32 +54,84 @@ export function useNotificationSetup() {
   const setPendingDeepLink = usePendingDeepLinkStore((s) => s.setPendingDeepLink);
   const consumePendingDeepLink = usePendingDeepLinkStore((s) => s.consumePendingDeepLink);
   const coldStartHandled = useRef(false);
+  // 이번 디바이스에 이미 등록 완료한 토큰(미등록=null). onlineManager 복구 콜백이 중복 등록을
+  // 피하고, 콜드스타트 단절로 미등록이면 복구 후 재시도할지 판정하는 데 쓴다(DAR-225).
+  const registeredTokenRef = useRef<string | null>(null);
 
   // 이미 권한이 있는 경우만 토큰 등록 (권한 요청은 온보딩에서 처리)
+  // DAR-225: 콜드스타트시 네트워크가 잠깐 끊겨 1회 실패하면 deps=[isAuthenticated]만으론
+  // 세션 내내 재실행되지 않아 디바이스가 영구 미등록(푸시 미수신)된다. 해결:
+  //   (1) 등록 실패 시 백오프(REGISTER_BACKOFF_MS)로 1~2회 자동 재시도
+  //   (2) onlineManager(NetInfo 연동, DAR-173) 복구 브로드캐스트 구독 → 미등록이면 재시도
   useEffect(() => {
     if (!isAuthenticated || !Notifications) return;
     const N = Notifications;
 
-    async function registerTokenIfPermitted() {
+    let cancelled = false;
+    let inFlight = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    // 1회 등록 시도. 성공/권한없음/이미등록이면 true(재시도 불필요), 네트워크 등 실패면 throw.
+    async function attemptRegister(): Promise<boolean> {
       const { status } = await N.getPermissionsAsync();
-      if (status !== 'granted') return;
+      if (status !== 'granted') return true; // 권한 없음 — 재시도해도 의미 없음
 
+      const tokenData = await N.getExpoPushTokenAsync({ projectId: PROJECT_ID });
+      const token = tokenData.data;
+
+      if (token === expoPushToken) {
+        registeredTokenRef.current = token; // 이미 서버에 등록된 토큰
+        return true;
+      }
+
+      const platform = Platform.OS === 'ios' ? 'ios' : 'android';
+      await deviceService.register(token, platform);
+      setExpoPushToken(token);
+      registeredTokenRef.current = token;
+      return true;
+    }
+
+    // 즉시 1회 + 실패 시 REGISTER_BACKOFF_MS 순서로 백오프 재시도. 동시 실행(중복 등록) 방지.
+    async function registerWithBackoff() {
+      if (inFlight || cancelled || registeredTokenRef.current) return;
+      inFlight = true;
       try {
-        const tokenData = await N.getExpoPushTokenAsync({ projectId: PROJECT_ID });
-        const token = tokenData.data;
-
-        if (token === expoPushToken) return;
-
-        const platform = Platform.OS === 'ios' ? 'ios' : 'android';
-        await deviceService.register(token, platform);
-        setExpoPushToken(token);
-      } catch (err) {
-        console.warn('푸시 토큰 등록 실패:', err);
+        for (let i = 0; i <= REGISTER_BACKOFF_MS.length; i += 1) {
+          if (cancelled || registeredTokenRef.current) return;
+          if (i > 0) {
+            const delay = REGISTER_BACKOFF_MS[i - 1];
+            await new Promise<void>((resolve) => {
+              const t = setTimeout(resolve, delay);
+              timers.push(t);
+            });
+            if (cancelled || registeredTokenRef.current) return;
+          }
+          try {
+            if (await attemptRegister()) return; // 성공/권한없음/이미등록 — 종료
+          } catch (err) {
+            console.warn('푸시 토큰 등록 실패(재시도 예정):', err);
+          }
+        }
+      } finally {
+        inFlight = false;
       }
     }
 
-    registerTokenIfPermitted();
-  }, [isAuthenticated]);
+    registerWithBackoff();
+
+    // 네트워크 복구 시 아직 미등록이면 재시도(콜드스타트 단절 → 복구 자동 등록).
+    const unsubscribe = onlineManager.subscribe((isOnline) => {
+      if (shouldRetryOnReconnect(isOnline, registeredTokenRef.current)) {
+        registerWithBackoff();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+      unsubscribe();
+    };
+  }, [isAuthenticated, expoPushToken, setExpoPushToken]);
 
   // DAR-216: 포그라운드 푸시 수신 시 미읽음 배지·목록을 즉시 갱신한다.
   // 배지는 React Query 단일원천(useUnreadCount/useNotifications)이므로, 수신 핸들러가

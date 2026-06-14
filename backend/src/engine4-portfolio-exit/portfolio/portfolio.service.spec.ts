@@ -2,9 +2,11 @@
  * portfolio.service.spec.ts
  * - DAR-184: 헤드라인 총수익률(totalPnlPercent) 분모 회귀 (원가 기준)
  * - DAR-171: thesisStatus 데드 삼항 수정 (실제 PositionThesis.status 매핑)
+ * - DAR-219: mddPercent 진짜 MDD(peak-to-trough) 산출 회귀
  */
 
 import { PortfolioService } from './portfolio.service';
+import { computeMaxDrawdownPct } from './mdd.util';
 import type { PrismaService } from '../../prisma/prisma.service';
 
 interface AggSum {
@@ -20,6 +22,33 @@ function makeSummaryService(aggSum: AggSum) {
     },
     position: {
       aggregate: jest.fn().mockResolvedValue({ _sum: aggSum }),
+    },
+  } as unknown as PrismaService;
+
+  return new PortfolioService(prisma);
+}
+
+interface MddSnapshot {
+  totalValue: number;
+  hardRuleBreached?: boolean;
+}
+
+/** 스냅샷 시계열(오름차순)을 주입해 MDD 산출을 검증하기 위한 서비스 팩토리. */
+function makeMddService(snapshots: MddSnapshot[]) {
+  const prisma = {
+    portfolio: {
+      findFirst: jest.fn().mockResolvedValue({
+        maxDailyLossPct: 2.0,
+        riskSnapshots: snapshots.map((s) => ({
+          totalValue: s.totalValue,
+          hardRuleBreached: s.hardRuleBreached ?? false,
+        })),
+      }),
+    },
+    position: {
+      aggregate: jest
+        .fn()
+        .mockResolvedValue({ _sum: { currentValue: 0, unrealizedPnl: 0, entryAmount: 0 } }),
     },
   } as unknown as PrismaService;
 
@@ -143,5 +172,82 @@ describe('PortfolioService thesisStatus 매핑 (DAR-171)', () => {
     await service.findUserPositions('user-1');
     const arg = prisma.position.findMany.mock.calls[0][0];
     expect(arg.include.positionThesis).toEqual({ select: { status: true } });
+  });
+});
+
+/**
+ * DAR-219: mddPercent가 '현재 미실현손익률 클램프'가 아니라 스냅샷 totalValue 시계열의
+ * 진짜 최대낙폭(peak-to-trough)을 반영하는지 검증한다.
+ */
+describe('computeMaxDrawdownPct (DAR-219, 순수)', () => {
+  it('고점→저점→회복: 100→70→105 → -30(과거 최대낙폭 반영)', () => {
+    expect(computeMaxDrawdownPct([100, 70, 105])).toBeCloseTo(-30, 6);
+  });
+
+  it('2개 스냅샷 고점→저점: 100→70 → -30', () => {
+    expect(computeMaxDrawdownPct([100, 70])).toBeCloseTo(-30, 6);
+  });
+
+  it('단조 상승: 100→110→120 → 0(낙폭 없음)', () => {
+    expect(computeMaxDrawdownPct([100, 110, 120])).toBe(0);
+  });
+
+  it('여러 골 중 최대 낙폭 선택: 100→50→80→60 → -50(최신 -40 아님)', () => {
+    expect(computeMaxDrawdownPct([100, 50, 80, 60])).toBeCloseTo(-50, 6);
+  });
+
+  it('빈 시계열·단일점·peak≤0 방어: [] → 0, [100] → 0, [0,0] → 0', () => {
+    expect(computeMaxDrawdownPct([])).toBe(0);
+    expect(computeMaxDrawdownPct([100])).toBe(0);
+    expect(computeMaxDrawdownPct([0, 0])).toBe(0);
+  });
+});
+
+describe('PortfolioService.findPortfolioSummary — mddPercent 진짜 MDD(DAR-219)', () => {
+  it('고점→저점→회복(100→70→105)이면 mddPercent=-30 (기존 클램프식은 0이었다)', async () => {
+    const service = makeMddService([
+      { totalValue: 100 },
+      { totalValue: 70 },
+      { totalValue: 105 },
+    ]);
+    const summary = await service.findPortfolioSummary('user-1');
+    expect(summary.mddPercent).toBeCloseTo(-30, 6);
+  });
+
+  it('스냅샷 totalValue 시계열을 오름차순으로 조회한다(peak-to-trough 전제)', async () => {
+    const prisma = {
+      portfolio: {
+        findFirst: jest.fn().mockResolvedValue({
+          maxDailyLossPct: 2.0,
+          riskSnapshots: [{ totalValue: 100, hardRuleBreached: false }],
+        }),
+      },
+      position: {
+        aggregate: jest
+          .fn()
+          .mockResolvedValue({ _sum: { currentValue: 0, unrealizedPnl: 0, entryAmount: 0 } }),
+      },
+    } as unknown as PrismaService;
+    const service = new PortfolioService(prisma);
+    await service.findPortfolioSummary('user-1');
+    const arg = (prisma.portfolio.findFirst as jest.Mock).mock.calls[0][0];
+    expect(arg.include.riskSnapshots.orderBy).toEqual({ snapshotDate: 'asc' });
+  });
+
+  it('mddBreached는 최신(마지막) 스냅샷의 hardRuleBreached를 쓴다', async () => {
+    const service = makeMddService([
+      { totalValue: 100, hardRuleBreached: false },
+      { totalValue: 70, hardRuleBreached: true },
+    ]);
+    const summary = await service.findPortfolioSummary('user-1');
+    expect(summary.mddBreached).toBe(true);
+    expect(summary.mddPercent).toBeCloseTo(-30, 6);
+  });
+
+  it('스냅샷이 없으면 mddPercent=undefined·mddBreached=false', async () => {
+    const service = makeMddService([]);
+    const summary = await service.findPortfolioSummary('user-1');
+    expect(summary.mddPercent).toBeUndefined();
+    expect(summary.mddBreached).toBe(false);
   });
 });

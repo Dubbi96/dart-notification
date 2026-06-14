@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { mapThesisStatus } from './thesis-status.util';
+import { computeMaxDrawdownPct } from './mdd.util';
 
 /**
  * 최신 포트폴리오 리스크 스냅샷 읽기 응답.
@@ -59,7 +60,12 @@ export class PortfolioService {
     const portfolio = await this.prisma.portfolio.findFirst({
       where: { userId, isActive: true },
       include: {
-        riskSnapshots: { orderBy: { snapshotDate: 'desc' }, take: 1 },
+        // MDD는 peak-to-trough라 단일 스냅샷으로 못 구한다. totalValue 시계열 전체를
+        // 시간 오름차순으로 받아 누적 최고점 대비 최대 낙폭을 계산한다(DAR-219).
+        riskSnapshots: {
+          orderBy: { snapshotDate: 'asc' },
+          select: { totalValue: true, hardRuleBreached: true },
+        },
       },
     });
 
@@ -75,15 +81,19 @@ export class PortfolioService {
     const totalCost = agg._sum.entryAmount ?? 0;
     const totalPnlPercent = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
 
-    const latestSnapshot = portfolio?.riskSnapshots?.[0];
+    const snapshots = portfolio?.riskSnapshots ?? [];
+    const latestSnapshot = snapshots[snapshots.length - 1];
 
     return {
       totalValue,
       totalPnl,
       totalPnlPercent,
-      mddPercent: latestSnapshot?.unrealizedPnlPct !== undefined
-        ? Math.min(latestSnapshot.unrealizedPnlPct, 0)
-        : undefined,
+      // 진짜 MDD: 스냅샷 totalValue 시계열의 누적 최고점 대비 최대 낙폭(≤0).
+      // 한때 -30%까지 빠졌다 회복해도 -30%를 반영한다(기존 클램프식의 과소표시 해소).
+      mddPercent:
+        snapshots.length > 0
+          ? computeMaxDrawdownPct(snapshots.map((s) => s.totalValue))
+          : undefined,
       dailyLossLimitRemaining: portfolio?.maxDailyLossPct ?? undefined,
       mddBreached: latestSnapshot?.hardRuleBreached ?? false,
     };

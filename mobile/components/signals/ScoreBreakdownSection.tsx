@@ -4,6 +4,7 @@ import { Surface } from 'react-native-paper';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScoreProgressRow } from '@components/common/ScoreProgressRow';
+import { isScoreSumMismatch } from '@utils/numberFormat';
 
 // Score 근거 분해 섹션(기획 §4-2). 7개 가산 요소 + 리스크 패널티 + 표본수 동등 노출.
 // 과신 역설 차단: 리스크 패널티는 항상 마지막에, 표본수(n)는 양수 기여와 동등 비중으로 표시.
@@ -41,11 +42,13 @@ export function ScoreBreakdownSection({ items, totalScore }: ScoreBreakdownSecti
     return aPenalty - bPenalty;
   });
 
-  const sum = items.reduce((acc, i) => acc + i.score, 0);
-  if (__DEV__ && sum !== totalScore) {
+  // 합계 정합 검사는 헤더(정수 추정)와 같은 자릿수로 반올림 비교(DAR-258).
+  // 소수 기여(예: 7.5) 누적의 부동소수 오차로 경고가 오발화하던 문제 차단.
+  if (__DEV__ && isScoreSumMismatch(items, totalScore)) {
+    const sum = items.reduce((acc, i) => acc + i.score, 0);
     // eslint-disable-next-line no-console
     console.warn(
-      `[ScoreBreakdownSection] 합계(${sum}) ≠ 헤더 점수(${totalScore}). 가산식 정합성 확인 필요.`,
+      `[ScoreBreakdownSection] 합계(${Math.round(sum)}) ≠ 헤더 점수(${totalScore}). 가산식 정합성 확인 필요.`,
     );
   }
 

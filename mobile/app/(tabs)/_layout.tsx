@@ -2,8 +2,10 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
-import { useNotificationStore } from '@stores/notificationStore';
+import { useAuthStore } from '@stores/authStore';
+import { useUnreadCount } from '@hooks/useNotifications';
 import { usePositions } from '@hooks/usePortfolio';
+import { formatUnreadBadge } from '@utils/unreadBadge';
 
 // 5탭 IA: 홈 / 알림 / 신호 / 포트폴리오 / 설정.
 // 신호·포트폴리오는 신규(M6/M7). 신규 탭은 Feather 아이콘(zap/briefcase).
@@ -12,7 +14,11 @@ import { usePositions } from '@hooks/usePortfolio';
 
 export default function TabLayout() {
   const { colors } = useTheme();
-  const unreadCount = useNotificationStore((s) => s.unreadCount);
+  // DAR-216: 탭 배지도 React Query 단일원천에서 직접 구독(Zustand 복제 제거).
+  // 비로그인은 /notifications 401이므로 enabled로 차단 → 배지 미표시.
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const { data: unreadCount = 0 } = useUnreadCount({ enabled: isAuthenticated });
+  const unreadBadge = formatUnreadBadge(unreadCount);
 
   // 포트폴리오 배지: VIOLATED 포지션 수. 데이터/엔드포인트 미존재 시 0 → 배지 미표시.
   const { data: positions } = usePositions();
@@ -54,7 +60,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="notifications-outline" size={size} color={color} />
           ),
-          tabBarBadge: unreadCount > 0 ? (unreadCount > 99 ? '99+' : unreadCount) : undefined,
+          tabBarBadge: unreadBadge,
           tabBarBadgeStyle: {
             backgroundColor: colors.error,
             fontSize: 11,

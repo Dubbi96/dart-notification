@@ -17,6 +17,7 @@ import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
 import { typography } from '@theme/typography';
 import { verticalHitSlopForHeight } from '@utils/touchTarget';
+import { formatUnreadBadge } from '@utils/unreadBadge';
 import { GlassCard } from '@components/common/GlassCard';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
@@ -29,7 +30,7 @@ import { DisclosureFeedCard } from '@components/home/DisclosureFeedCard';
 import { useDisclosures } from '@hooks/useDisclosures';
 import { useWatchlist } from '@hooks/useWatchlist';
 import { useSavedDisclosures } from '@hooks/useSavedDisclosures';
-import { useNotifications } from '@hooks/useNotifications';
+import { useUnreadCount } from '@hooks/useNotifications';
 import { useRequireAuth } from '@hooks/useRequireAuth';
 import { useAuthStore } from '@stores/authStore';
 
@@ -121,8 +122,9 @@ export default function HomeScreen() {
       ? EM_DASH
       : String(savedCount);
 
-  const { data: notifData } = useNotifications({ enabled: isAuthenticated });
-  const unreadCount = notifData?.pages[0]?.meta.unreadCount ?? 0;
+  // DAR-216: 탭 배지와 동일한 단일원천(useUnreadCount)을 구독 → 두 배지가 항상 일치.
+  const { data: unreadCount = 0 } = useUnreadCount({ enabled: isAuthenticated });
+  const unreadBadge = formatUnreadBadge(unreadCount);
 
   // DAR-107: 가상화 콜백 안정화(인라인 함수 제거). 카드는 React.memo(DisclosureFeedCard).
   const renderDisclosureItem = useCallback(
@@ -312,11 +314,9 @@ export default function HomeScreen() {
                   <Ionicons name="notifications-outline" size={22} color={palette.white} />
                 </View>
               </GlassCard>
-              {unreadCount > 0 && (
+              {unreadBadge && (
                 <View style={styles.notifBadge}>
-                  <Text style={styles.notifBadgeText}>
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </Text>
+                  <Text style={styles.notifBadgeText}>{unreadBadge}</Text>
                 </View>
               )}
             </TouchableOpacity>

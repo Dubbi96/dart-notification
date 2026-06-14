@@ -106,6 +106,8 @@ export class PositionThesisService {
     if (signal.lossRiskScore > 0) reasons.push('lossRisk');
     if (signal.thesisBreakScore > 0) reasons.push('thesisBreak');
     if (signal.chartBreakScore > 0) reasons.push('chartBreak');
+    if (signal.disclosureRiskScore > 0) reasons.push('disclosureRisk');
+    if (signal.overweightScore > 0) reasons.push('overweight');
     if (signal.timeExceededScore > 0) reasons.push('timeExceeded');
 
     return {

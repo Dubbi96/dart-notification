@@ -230,7 +230,12 @@ export default function DisclosuresScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={8}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="뒤로 가기"
+        >
           <Ionicons name="chevron-back" size={26} color={colors.text} />
         </TouchableOpacity>
         <Text style={[typo.h3, { color: colors.text, marginLeft: spacing.sm }]}>전체 공시</Text>
@@ -261,7 +266,12 @@ export default function DisclosuresScreen() {
         />
 
         {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => handleSearchChange('')} hitSlop={8}>
+          <TouchableOpacity
+            onPress={() => handleSearchChange('')}
+            hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+            accessibilityRole="button"
+            accessibilityLabel="검색어 지우기"
+          >
             <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
           </TouchableOpacity>
         )}

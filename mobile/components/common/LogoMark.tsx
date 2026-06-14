@@ -26,7 +26,15 @@ export function LogoMark({ size = 160 }: LogoMarkProps) {
         <Text style={[typo.h1, styles.title]}>공시</Text>
         <Text style={[typo.h1, styles.titleAccent]}>온</Text>
       </View>
-      <Svg width={cardWidth} height={cardHeight} viewBox="0 42 512 280">
+      {/* 장식용 알림카드 일러스트 — 앱 식별 정보는 위 '공시온' 텍스트가 전달하므로
+          스크린리더에는 노출하지 않는다(의미없는 SVG 도형 낭독 방지). */}
+      <Svg
+        width={cardWidth}
+        height={cardHeight}
+        viewBox="0 42 512 280"
+        accessible={false}
+        importantForAccessibility="no-hide-descendants"
+      >
         {/* Notification card 1 */}
         <Path
           d="M446 250H66C52.7452 250 42 260.745 42 274V341C42 354.255 52.7452 365 66 365H446C459.255 365 470 354.255 470 341V274C470 260.745 459.255 250 446 250Z"

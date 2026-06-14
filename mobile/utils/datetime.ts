@@ -6,8 +6,14 @@
 import { formatDistanceToNow } from 'date-fns';
 import { ko } from 'date-fns/locale';
 
-/** ISO 시각 → '2분 전' 같은 상대 표현(한국어). 입력은 유효한 시각 문자열로 가정. */
+/**
+ * ISO 시각 → '2분 전' 같은 상대 표현(한국어). 입력은 유효한 시각 문자열로 가정.
+ * 소비처는 전부 항상-과거 이벤트(서버 설정 시각)인데, 서버>기기 클럭 스큐 시
+ * 미래 시각이 들어오면 addSuffix 가 'N초 후'·'N분 후' 같은 무의미 표기를 만든다(DAR-290).
+ * 현재 이후(now 포함) 시각은 '방금'으로 정직화하고, 과거만 기존 경로로 표기한다.
+ */
 export function relativeTime(iso: string): string {
+  if (new Date(iso).getTime() >= Date.now()) return '방금';
   return formatDistanceToNow(new Date(iso), { addSuffix: true, locale: ko });
 }
 

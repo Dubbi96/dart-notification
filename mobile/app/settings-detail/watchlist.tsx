@@ -68,7 +68,12 @@ const WatchlistRow = React.memo(function WatchlistRow({
     >
       <View style={styles.itemContent}>
         <View style={styles.nameRow}>
-          <Text style={[typo.bodyMedium, { color: colors.text }]}>{item.corpName}</Text>
+          <Text
+            style={[typo.bodyMedium, styles.nameText, { color: colors.text }]}
+            numberOfLines={1}
+          >
+            {item.corpName}
+          </Text>
           {(item.newDisclosureCount ?? 0) > 0 && (
             <View
               style={[styles.newBadge, { backgroundColor: colors.primary }]}
@@ -314,6 +319,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     flexWrap: 'wrap',
   },
+  nameText: { flex: 1 },
   newBadge: {
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,

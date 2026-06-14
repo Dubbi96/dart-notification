@@ -54,7 +54,10 @@ function DisclosureFeedCardComponent({ item }: DisclosureFeedCardProps) {
         >
           {item.reportName}
         </Text>
-        <Text style={[typo.caption, styles.corpName, { color: colors.textSecondary }]}>
+        <Text
+          style={[typo.caption, styles.corpName, { color: colors.textSecondary }]}
+          numberOfLines={1}
+        >
           {item.corpName}
         </Text>
       </Card>

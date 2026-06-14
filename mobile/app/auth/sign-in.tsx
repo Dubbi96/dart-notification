@@ -23,6 +23,7 @@ import LogoCards from '@/assets/logo/logo-cards.svg';
 import kakaoLoginImage from '../../assets/kakao_login_large_wide.png';
 import { useAuthStore } from '@stores/authStore';
 import { api, API_BASE_URL } from '@services/api';
+import { createMountGuard, type TimerHandle } from '@utils/mountGuard';
 
 // 카카오 REST API 키 — mobile/.env 의 EXPO_PUBLIC_KAKAO_REST_API_KEY 로 주입 (백엔드 KAKAO_REST_API_KEY 와 동일 앱)
 const KAKAO_REST_API_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY || '';
@@ -35,16 +36,26 @@ export default function SignInScreen() {
   const [hasLoggedInBefore, setHasLoggedInBefore] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { setAuth } = useAuthStore();
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollingRef = useRef<TimerHandle | null>(null);
+  // 언마운트 후 setState·콜백·타이머 누수 차단(DAR-228). 렌더 간 안정적인 단일 인스턴스.
+  const guardRef = useRef<ReturnType<typeof createMountGuard> | null>(null);
+  if (guardRef.current === null) {
+    guardRef.current = createMountGuard();
+  }
+  const guard = guardRef.current;
 
   useEffect(() => {
     SecureStore.getItemAsync('hasLoggedIn').then((value) => {
-      if (value === 'true') setHasLoggedInBefore(true);
+      guard.run(() => {
+        if (value === 'true') setHasLoggedInBefore(true);
+      });
     });
     return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
+      // 마운트 플래그를 내리고 등록된 interval·timeout 을 일괄 해제.
+      guard.cleanup();
+      pollingRef.current = null;
     };
-  }, []);
+  }, [guard]);
 
   // 게스트(둘러보기) 진입 — 로그인 실패/미진입 시 공시 둘러보기 동선(DAR-43 §2).
   const goGuest = () => {
@@ -67,20 +78,23 @@ export default function SignInScreen() {
 
   const pollForResult = (state: string) => {
     let attempts = 0;
-    pollingRef.current = setInterval(async () => {
+    // guard.setInterval: 매 tick 은 마운트 상태에서만 실행되고, 언마운트 cleanup 시 자동 해제된다.
+    pollingRef.current = guard.setInterval(async () => {
       attempts++;
 
       // 인라인 핸들러/딥링크가 이미 결과를 소비해 인증을 마쳤으면 폴링을 중단한다.
       // (백엔드 결과는 1회성이라 중복 조회는 success:false → 불필요한 타임아웃 실패 다이얼로그 유발)
       if (useAuthStore.getState().isAuthenticated) {
-        if (pollingRef.current) clearInterval(pollingRef.current);
+        guard.clearTimer(pollingRef.current);
+        pollingRef.current = null;
         setIsLoading(false);
         return;
       }
 
       if (attempts > 60) {
         // 60초 타임아웃 — 서버 연결/카카오 redirect_uri 등록을 점검하도록 안내.
-        if (pollingRef.current) clearInterval(pollingRef.current);
+        guard.clearTimer(pollingRef.current);
+        pollingRef.current = null;
         setIsLoading(false);
         showKakaoFailure(
           '로그인 응답을 받지 못했습니다(60초 초과). 서버 연결 상태와 카카오 redirect_uri 등록을 확인해 주세요.',
@@ -91,7 +105,10 @@ export default function SignInScreen() {
       try {
         const { data } = await api.get(`/auth/kakao/result?state=${encodeURIComponent(state)}`);
         if (data.success && data.data) {
-          if (pollingRef.current) clearInterval(pollingRef.current);
+          guard.clearTimer(pollingRef.current);
+          pollingRef.current = null;
+          // await 해소가 언마운트 후 도착하면 setState·네비게이션을 중단한다(DAR-228).
+          if (!guard.isMounted()) return;
 
           const { user, tokens, isNewUser } = data.data;
           setAuth(user, tokens.accessToken, tokens.refreshToken);
@@ -142,9 +159,13 @@ export default function SignInScreen() {
         const rawErr = parsed.queryParams?.error;
         const kakaoErr = Array.isArray(rawErr) ? rawErr[0] : rawErr;
         if (kakaoErr) {
-          if (pollingRef.current) clearInterval(pollingRef.current);
-          setIsLoading(false);
-          showKakaoFailure(decodeURIComponent(kakaoErr));
+          guard.clearTimer(pollingRef.current);
+          pollingRef.current = null;
+          // 브라우저 세션 종료가 언마운트 후 해소될 수 있으므로 가드한다(DAR-228).
+          guard.run(() => {
+            setIsLoading(false);
+            showKakaoFailure(decodeURIComponent(kakaoErr));
+          });
           return;
         }
         try {
@@ -152,7 +173,9 @@ export default function SignInScreen() {
             `/auth/kakao/result?state=${encodeURIComponent(state)}`,
           );
           if (data?.success && data?.data) {
-            if (pollingRef.current) clearInterval(pollingRef.current);
+            guard.clearTimer(pollingRef.current);
+            pollingRef.current = null;
+            if (!guard.isMounted()) return;
             const { user, tokens, isNewUser } = data.data;
             setAuth(user, tokens.accessToken, tokens.refreshToken);
             SecureStore.setItemAsync('hasLoggedIn', 'true');
@@ -165,18 +188,23 @@ export default function SignInScreen() {
         }
       }
 
-      // 취소/실패 — 폴링이 아직 결과 못 받았으면 잠시 더 대기 후 정리
-      setTimeout(() => {
+      // 취소/실패 — 폴링이 아직 결과 못 받았으면 잠시 더 대기 후 정리.
+      // guard.setTimeout: 콜백은 마운트 상태에서만 실행되고, 언마운트 cleanup 시 자동 해제된다(DAR-228).
+      guard.setTimeout(() => {
         if (pollingRef.current) {
-          clearInterval(pollingRef.current);
+          guard.clearTimer(pollingRef.current);
           pollingRef.current = null;
         }
         setIsLoading(false);
       }, 5000);
     } catch (e) {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      setIsLoading(false);
-      showKakaoFailure('카카오 로그인 중 문제가 발생했습니다. 네트워크 연결을 확인해 주세요.');
+      guard.clearTimer(pollingRef.current);
+      pollingRef.current = null;
+      // 외부 await throw 가 언마운트 후 도착할 수 있으므로 가드한다(DAR-228).
+      guard.run(() => {
+        setIsLoading(false);
+        showKakaoFailure('카카오 로그인 중 문제가 발생했습니다. 네트워크 연결을 확인해 주세요.');
+      });
     }
   };
 

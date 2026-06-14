@@ -17,6 +17,7 @@ import { Card } from '@components/common/Card';
 import { CollapsibleCard } from '@components/common/CollapsibleCard';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { LoadingState, EmptyState, ApiErrorState } from '@components/common/StateView';
+import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { PhilosophyFitBreakdown } from '@components/philosophy/PhilosophyFitBreakdown';
 import { PhilosophyStatStrip } from '@components/philosophy/PhilosophyStatStrip';
 import { sourceTypeLabel } from '@components/philosophy/metricFormat';
@@ -79,7 +80,7 @@ export default function PhilosophyDetailScreen() {
         {isError ? (
           <ApiErrorState error={error} title="철학을 불러오지 못했습니다." onRetry={refetch} />
         ) : (
-          <EmptyState icon="book-open" title="철학을 찾을 수 없습니다." />
+          <EmptyState {...emptyStateCopy.philosophyNotFound} />
         )}
       </Shell>
     );

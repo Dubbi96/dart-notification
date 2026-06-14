@@ -229,7 +229,7 @@ export default function PortfolioScreen() {
         }
         ListEmptyComponent={
           paper?.started ? (
-            <EmptyState icon="activity" title="아직 실행된 모의투자 신호가 없습니다." />
+            <EmptyState {...emptyStateCopy.paperTradingNoSignalsEmpty} />
           ) : (
             <EmptyState
               {...emptyStateCopy.paperTradingEmpty}

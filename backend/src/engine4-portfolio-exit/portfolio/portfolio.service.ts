@@ -70,7 +70,12 @@ export class PortfolioService {
     });
 
     const agg = await this.prisma.position.aggregate({
-      where: { portfolio: { userId }, status: 'OPEN' },
+      // 분자·분모 모집단 동기화(DAR-247): Prisma _sum은 컬럼별로 null을 건너뛴다.
+      // 시세 미반영(미가격) 포지션은 currentValue/unrealizedPnl이 null이라 분자(손익 합)에는
+      // 빠지지만 entryAmount는 non-null이라 분모(원가 합)에는 잡혀, 수익률이 0쪽으로
+      // 체계적으로 희석(과소표시)된다. currentValue가 산출된 '가격 반영' 포지션만 집계해
+      // totalValue·totalPnl·totalCost를 같은 모집단으로 맞춘다.
+      where: { portfolio: { userId }, status: 'OPEN', currentValue: { not: null } },
       _sum: { currentValue: true, unrealizedPnl: true, entryAmount: true },
     });
 

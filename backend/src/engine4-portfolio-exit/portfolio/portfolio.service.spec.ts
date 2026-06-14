@@ -101,6 +101,73 @@ describe('PortfolioService.findPortfolioSummary — 총수익률 분모(DAR-184)
 });
 
 /**
+ * DAR-247: 혼합 모집단(가격 반영 + 시세 미반영) 모집단 동기화.
+ * Prisma _sum은 컬럼별 null skip이라, 시세 미반영(currentValue/unrealizedPnl null) 포지션이
+ * 분모(entryAmount)에만 잡혀 수익률을 0쪽으로 희석(과소표시)하던 버그.
+ * aggregate where가 priced 포지션(currentValue not null)만 집계해 분자·분모를 동기화해야 한다.
+ */
+describe('PortfolioService.findPortfolioSummary — 혼합 모집단 동기화(DAR-247)', () => {
+  // 실제 행: priced(원가100→평가110·손익+10) + unpriced(시세 미반영, entryAmount만 100).
+  const ROWS = [
+    { currentValue: 110, unrealizedPnl: 10, entryAmount: 100 },
+    { currentValue: null, unrealizedPnl: null, entryAmount: 100 },
+  ];
+
+  /** Prisma _sum 의미론(컬럼별 null skip, 행 없으면 null) + where 필터를 모사한다. */
+  function makeMixedPopulationService() {
+    const aggregate = jest.fn().mockImplementation((args: any) => {
+      const pricedOnly = args?.where?.currentValue?.not === null;
+      const rows = pricedOnly ? ROWS.filter((r) => r.currentValue !== null) : ROWS;
+      const sumCol = (key: 'currentValue' | 'unrealizedPnl' | 'entryAmount') => {
+        const vals = rows
+          .map((r) => r[key])
+          .filter((v): v is number => v !== null && v !== undefined);
+        return vals.length ? vals.reduce((a, b) => a + b, 0) : null;
+      };
+      return Promise.resolve({
+        _sum: {
+          currentValue: sumCol('currentValue'),
+          unrealizedPnl: sumCol('unrealizedPnl'),
+          entryAmount: sumCol('entryAmount'),
+        },
+      });
+    });
+
+    const prisma = {
+      portfolio: { findFirst: jest.fn().mockResolvedValue({ riskSnapshots: [] }) },
+      position: { aggregate },
+    } as unknown as PrismaService;
+
+    return { service: new PortfolioService(prisma), aggregate };
+  }
+
+  it('priced 포지션만 집계 → +10% (unpriced 원가 희석으로 +5% 아님)', async () => {
+    const { service } = makeMixedPopulationService();
+    const summary = await service.findPortfolioSummary('user-1');
+
+    // 분자=priced 손익 10, 분모=priced 원가 100 → +10%.
+    expect(summary.totalPnl).toBe(10);
+    expect(summary.totalPnlPercent).toBeCloseTo(10, 6);
+    // 버그(unpriced 원가까지 분모 200)였다면 +5%로 절반 과소표시됐을 것.
+    expect(summary.totalPnlPercent).not.toBeCloseTo(5, 3);
+    // totalValue도 priced 모집단(110)으로 일관.
+    expect(summary.totalValue).toBe(110);
+  });
+
+  it('aggregate where에 priced 필터(currentValue not null)를 적용한다', async () => {
+    const { service, aggregate } = makeMixedPopulationService();
+    await service.findPortfolioSummary('user-1');
+
+    const arg = aggregate.mock.calls[0][0];
+    expect(arg.where).toMatchObject({
+      portfolio: { userId: 'user-1' },
+      status: 'OPEN',
+      currentValue: { not: null },
+    });
+  });
+});
+
+/**
  * DAR-171: thesisStatus 데드 삼항(양 분기 모두 'ACTIVE') 수정 검증.
  * 실제 PositionThesis.status(DB) → 화면용 ThesisStatus 매핑이 응답에 반영되는지 확인한다.
  */

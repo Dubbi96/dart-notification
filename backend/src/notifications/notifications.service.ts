@@ -65,6 +65,18 @@ export class NotificationsService {
     return { notification, created: true };
   }
 
+  /**
+   * DAR-259: 푸시 발송 실패 시 직전 createNotificationIfAbsent 로 만든 인박스 행을 롤백한다.
+   *
+   * 인박스 행이 사라지면 다음 폴링의 createNotificationIfAbsent 가 다시 created=true 로
+   * 재생성 → 푸시 재발송된다(발송 성공분은 created=false 로 스킵돼 중복 0). 즉 인박스를
+   * '푸시 발송의 멱등 권위'로 쓰되, 발송이 끝까지 실패한 건만 권위를 되돌려 재발송 기회를
+   * 남긴다. deleteMany 라 이미 사라진 행(동시 폴링 등)이어도 throw 하지 않는다(멱등 롤백).
+   */
+  async rollbackNotification(id: string): Promise<void> {
+    await this.prisma.notificationHistory.deleteMany({ where: { id } });
+  }
+
   async findAll(userId: string, query: QueryNotificationDto) {
     const { page = 1, limit = 20, isRead, type } = query;
 

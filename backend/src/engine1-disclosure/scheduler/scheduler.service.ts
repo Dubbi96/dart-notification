@@ -7,7 +7,8 @@ import {
 } from '../dart-api/dart-api.service';
 import { ExpoPushService } from '../../expo-push/expo-push.service';
 import { ExpoPushMessage } from 'expo-server-sdk';
-import { DisclosureCollectionLog } from '@prisma/client';
+import { DisclosureCollectionLog, NotificationType } from '@prisma/client';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { DisclosureDocumentsService } from '../disclosure-documents/disclosure-documents.service';
 import { KST_TIMEZONE, formatKstDateCompact } from '../../common/time/kst';
 import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
@@ -22,6 +23,7 @@ export class SchedulerService {
     private readonly prisma: PrismaService,
     private readonly dartApiService: DartApiService,
     private readonly expoPushService: ExpoPushService,
+    private readonly notifications: NotificationsService,
     /**
      * @Optional: DisclosureDocumentsModule이 등록되지 않은 환경(테스트 등)에서도
      * SchedulerService가 정상 동작하도록 Optional 처리
@@ -420,55 +422,65 @@ export class SchedulerService {
       }
     }
 
-    // 알림 히스토리 생성 + 푸시 발송
-    const pushMessages: ExpoPushMessage[] = [];
+    // 알림 인박스 생성 + 푸시 발송 — (user, 공시) 단위로 멱등·재시도를 묶는다(DAR-259).
+    //
+    //  ① createNotificationIfAbsent.created=false → 이미 통지(인박스 존재) → 푸시 스킵(중복 0).
+    //  ② created=true 후 발송 실패 → 방금 만든 인박스를 롤백 → 다음 폴링서 재생성·재발송.
+    //
+    // 종전: 인박스를 개별 커밋한 뒤 루프 '밖'에서 1회 일괄 발송이라, cron 직접 호출(BullMQ
+    // 재시도 부재) 경로에서 sendPushNotifications 가 throw 하면 인박스만 남고 다음 폴링은
+    // 멱등 가드(exists)로 스킵 → 핵심 공시 알림이 영구 미발송됐다. 인박스를 '푸시 발송의
+    // 멱등 권위'로 승격하고 발송 실패 시에만 권위를 되돌려 재발송 기회를 남긴다(SIGNAL/EXIT
+    // NotifyConsumer 와 동일한 created-플래그 멱등 모델).
+    let sentCount = 0;
 
     for (const [, userData] of userDisclosureMap) {
       for (const disclosure of userData.disclosures) {
         const disclosureRcpNo = disclosure.rcept_no;
+        const title = `${disclosure.corp_name} 새 공시`;
+        const body = disclosure.report_nm;
 
         // 중복 알림 방지 — DAR-84: (userId, type, refId) 멱등키. 공시는 refId=rcpNo
-        const exists = await this.prisma.notificationHistory.findUnique({
-          where: {
-            userId_type_refId: {
-              userId: userData.userId,
-              type: 'DISCLOSURE',
-              refId: disclosureRcpNo,
-            },
-          },
-        });
-
-        if (exists) continue;
-
-        // NotificationHistory 생성 — 다형 인박스 필드 동봉(공시 타입)
-        await this.prisma.notificationHistory.create({
-          data: {
+        const { notification, created } =
+          await this.notifications.createNotificationIfAbsent({
             userId: userData.userId,
-            type: 'DISCLOSURE',
+            type: NotificationType.DISCLOSURE,
             refId: disclosureRcpNo,
-            disclosureRcpNo,
-            title: `${disclosure.corp_name} 새 공시`,
-            body: disclosure.report_nm,
+            title,
+            body,
             deepLink: `/disclosure/${disclosureRcpNo}`,
-          },
-        });
-
-        // 푸시 메시지 생성
-        for (const token of userData.pushTokens) {
-          pushMessages.push({
-            to: token,
-            title: `${disclosure.corp_name} 새 공시`,
-            body: disclosure.report_nm,
-            data: { disclosureRcpNo },
+            disclosureRcpNo,
           });
+
+        // 이미 통지된 (user, 공시) — 인박스가 푸시 멱등 권위. 재발송 금지(중복 0).
+        if (!created) continue;
+
+        // 발송 가능한 토큰이 없으면 인박스만 남긴다(보낼 곳이 없어 롤백·재발송이 무의미).
+        if (userData.pushTokens.length === 0) continue;
+
+        const pushMessages: ExpoPushMessage[] = userData.pushTokens.map((token) => ({
+          to: token,
+          title,
+          body,
+          data: { disclosureRcpNo },
+        }));
+
+        try {
+          await this.expoPushService.sendPushNotifications(pushMessages);
+          sentCount += pushMessages.length;
+        } catch (error) {
+          // 발송 실패 → 방금 만든 인박스 롤백 → 다음 폴링서 재발송(영구 누락 방지).
+          await this.notifications.rollbackNotification(notification.id);
+          this.logger.error(
+            `푸시 발송 실패 — 인박스 롤백(재폴링서 재발송): user=${userData.userId} rcpNo=${disclosureRcpNo}`,
+            error as Error,
+          );
         }
       }
     }
 
-    // 푸시 발송
-    if (pushMessages.length > 0) {
-      await this.expoPushService.sendPushNotifications(pushMessages);
-      this.logger.log(`${pushMessages.length}개 푸시 알림 발송`);
+    if (sentCount > 0) {
+      this.logger.log(`${sentCount}개 푸시 알림 발송`);
     }
   }
 

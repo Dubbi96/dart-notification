@@ -3,6 +3,8 @@ import { SchedulerService } from './scheduler.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DartApiService } from '../dart-api/dart-api.service';
 import { ExpoPushService } from '../../expo-push/expo-push.service';
+import { ExpoPushMessage } from 'expo-server-sdk';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
 import { DisclosureDocumentsService } from '../disclosure-documents/disclosure-documents.service';
 
@@ -68,6 +70,16 @@ const makeExpoPushMock = () => ({
   isValidExpoPushToken: jest.fn().mockReturnValue(false),
 });
 
+// DAR-259: 인박스 멱등 권위. 기본은 항상 신규(created=true) 발급, 롤백은 no-op.
+let notifSeq = 0;
+const makeNotificationsMock = () => ({
+  createNotificationIfAbsent: jest.fn(async (input: { refId: string }) => ({
+    notification: { id: `notif-${++notifSeq}`, refId: input.refId },
+    created: true,
+  })),
+  rollbackNotification: jest.fn().mockResolvedValue(undefined),
+});
+
 // ────────────────────────────────────────────
 // 테스트 모듈 빌더
 // ────────────────────────────────────────────
@@ -75,6 +87,7 @@ async function buildModule(
   prismaMock: ReturnType<typeof makePrismaMock>,
   dartApiMock: ReturnType<typeof makeDartApiMock>,
   expoPushMock: ReturnType<typeof makeExpoPushMock>,
+  notificationsMock: ReturnType<typeof makeNotificationsMock> = makeNotificationsMock(),
 ) {
   const module: TestingModule = await Test.createTestingModule({
     providers: [
@@ -82,6 +95,7 @@ async function buildModule(
       { provide: PrismaService, useValue: prismaMock },
       { provide: DartApiService, useValue: dartApiMock },
       { provide: ExpoPushService, useValue: expoPushMock },
+      { provide: NotificationsService, useValue: notificationsMock },
     ],
   }).compile();
 
@@ -508,6 +522,7 @@ describe('cleanupExpiredTokens — CronRunRecorder 관측성 (DAR-232)', () => {
       prismaMock as unknown as PrismaService,
       makeDartApiMock() as unknown as DartApiService,
       makeExpoPushMock() as unknown as ExpoPushService,
+      makeNotificationsMock() as unknown as NotificationsService,
       undefined, // disclosureDocumentsService
       recorder,
     );
@@ -567,6 +582,7 @@ describe('cleanupExpiredTokens — CronRunRecorder 관측성 (DAR-232)', () => {
       prismaMock as unknown as PrismaService,
       makeDartApiMock() as unknown as DartApiService,
       makeExpoPushMock() as unknown as ExpoPushService,
+      makeNotificationsMock() as unknown as NotificationsService,
       // disclosureDocumentsService, cronRunRecorder 모두 미주입
     );
 
@@ -607,6 +623,7 @@ describe('collectByDate — DAR-233 파싱 큐 enqueue 신뢰성', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: DartApiService, useValue: dartApiMock },
         { provide: ExpoPushService, useValue: makeExpoPushMock() },
+        { provide: NotificationsService, useValue: makeNotificationsMock() },
         { provide: DisclosureDocumentsService, useValue: docsMock },
       ],
     }).compile();
@@ -687,5 +704,159 @@ describe('collectByDate — DAR-233 파싱 큐 enqueue 신뢰성', () => {
     });
 
     expect(docsMock.enqueueParsing).toHaveBeenCalledWith(['RCP2026D233']);
+  });
+});
+
+// ════════════════════════════════════════════
+// describe: matchAndNotify — DAR-259 푸시 멱등·재시도 게이트
+//
+// 종전엔 인박스 행을 개별 커밋한 뒤 루프 '밖'에서 1회 일괄 발송 → cron 직접 호출(BullMQ
+// 재시도 부재)에서 sendPushNotifications 가 실패하면 인박스만 남고 다음 폴링은 멱등
+// 가드로 스킵 → 핵심 공시 알림 영구 미발송. 이제 인박스 생성과 발송을 (user,공시) 단위로
+// 묶어, 발송 실패분은 인박스 롤백 → 재폴링서 재발송, 성공분은 created=false 로 재발송
+// 스킵(중복 0)을 보장한다.
+// ════════════════════════════════════════════
+describe('matchAndNotify — DAR-259 푸시 멱등·재시도 게이트', () => {
+  const VALID_TOKEN = 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]';
+
+  const makeItem = (rcptNo: string) => ({
+    corp_code: 'CORP-X',
+    corp_name: '테스트기업',
+    stock_code: '000001',
+    corp_cls: 'Y',
+    report_nm: '주요사항보고',
+    rcept_no: rcptNo,
+    flr_nm: '테스트기업',
+    rcept_dt: '20260614',
+    rm: '',
+  });
+
+  // (userId|refId) 단위로 인박스 존재를 추적하는 상태형 멱등 권위 페이크.
+  // 실제 NotificationsService.createNotificationIfAbsent/rollbackNotification 의 계약
+  // (unique 키 멱등 + 롤백 시 재생성 가능)을 결정론적으로 재현한다.
+  function makeStatefulNotifications() {
+    const inbox = new Set<string>();
+    return {
+      inbox,
+      createNotificationIfAbsent: jest.fn(
+        async (input: { userId: string; refId: string }) => {
+          const key = `${input.userId}|${input.refId}`;
+          if (inbox.has(key)) {
+            return { notification: { id: key }, created: false };
+          }
+          inbox.add(key);
+          return { notification: { id: key }, created: true };
+        },
+      ),
+      rollbackNotification: jest.fn(async (id: string) => {
+        inbox.delete(id);
+      }),
+    };
+  }
+
+  const rcpOf = (messages: ExpoPushMessage[]) =>
+    (messages[0]?.data as { disclosureRcpNo?: string })?.disclosureRcpNo;
+
+  let prismaMock: ReturnType<typeof makePrismaMock>;
+  let dartApiMock: ReturnType<typeof makeDartApiMock>;
+  let expoPushMock: ReturnType<typeof makeExpoPushMock>;
+  let notif: ReturnType<typeof makeStatefulNotifications>;
+  let service: SchedulerService;
+
+  beforeEach(async () => {
+    prismaMock = makePrismaMock();
+    dartApiMock = makeDartApiMock();
+    expoPushMock = makeExpoPushMock();
+    expoPushMock.isValidExpoPushToken.mockReturnValue(true);
+    notif = makeStatefulNotifications();
+
+    prismaMock.watchList.findMany.mockResolvedValue([
+      {
+        corpCode: 'CORP-X',
+        user: {
+          id: 'user-1',
+          notificationSettings: { isEnabled: true, disclosureTypes: [], keywords: [] },
+          devices: [{ deviceToken: VALID_TOKEN }],
+        },
+      },
+    ]);
+
+    service = await buildModule(
+      prismaMock,
+      dartApiMock,
+      expoPushMock,
+      notif as unknown as ReturnType<typeof makeNotificationsMock>,
+    );
+  });
+
+  // 비공개 matchAndNotify 직접 구동(수집 파이프라인 의존 없이 알림 경로만 검증)
+  const run = (items: ReturnType<typeof makeItem>[]) =>
+    (
+      service as unknown as { matchAndNotify: (i: unknown[]) => Promise<void> }
+    ).matchAndNotify(items);
+
+  it('발송 실패분은 인박스를 롤백하고 성공분은 인박스를 유지한다 (1차 폴링)', async () => {
+    expoPushMock.sendPushNotifications.mockImplementation(
+      async (messages: ExpoPushMessage[]) => {
+        if (rcpOf(messages) === 'RCP-B') throw new Error('expo 503');
+        return [];
+      },
+    );
+
+    await run([makeItem('RCP-A'), makeItem('RCP-B')]);
+
+    // 두 건 모두 신규 인박스 발급 시도
+    expect(notif.createNotificationIfAbsent).toHaveBeenCalledTimes(2);
+    // 실패한 RCP-B 만 롤백, 성공한 RCP-A 는 유지
+    expect(notif.rollbackNotification).toHaveBeenCalledTimes(1);
+    expect(notif.rollbackNotification).toHaveBeenCalledWith('user-1|RCP-B');
+    expect(notif.inbox.has('user-1|RCP-A')).toBe(true);
+    expect(notif.inbox.has('user-1|RCP-B')).toBe(false);
+  });
+
+  it('★재폴링: 성공분(RCP-A) 중복 발송 0 · 미발송분(RCP-B) 재발송 (DoD)', async () => {
+    let failB = true;
+    expoPushMock.sendPushNotifications.mockImplementation(
+      async (messages: ExpoPushMessage[]) => {
+        if (rcpOf(messages) === 'RCP-B' && failB) throw new Error('expo 503');
+        return [];
+      },
+    );
+
+    // 1차 폴링 — B 실패 → 인박스 롤백
+    await run([makeItem('RCP-A'), makeItem('RCP-B')]);
+    expoPushMock.sendPushNotifications.mockClear();
+    failB = false; // 2차에는 B 정상 발송
+
+    // 2차 폴링 — 동일 두 공시 재유입(멱등 폴링)
+    await run([makeItem('RCP-A'), makeItem('RCP-B')]);
+
+    const sentRcps = expoPushMock.sendPushNotifications.mock.calls.map((c) =>
+      rcpOf(c[0] as ExpoPushMessage[]),
+    );
+    // RCP-A 는 이미 통지(인박스 존재) → 재발송 0(중복 0)
+    expect(sentRcps).not.toContain('RCP-A');
+    // RCP-B 는 1차 롤백분 → 정확히 1회 재발송
+    expect(sentRcps).toEqual(['RCP-B']);
+    expect(notif.inbox.has('user-1|RCP-B')).toBe(true);
+  });
+
+  it('이미 통지된 공시는 created=false → 푸시 미발송·롤백 없음 (중복 0)', async () => {
+    await run([makeItem('RCP-A')]); // 1차 정상 발송
+    expoPushMock.sendPushNotifications.mockClear();
+    notif.rollbackNotification.mockClear();
+
+    await run([makeItem('RCP-A')]); // 2차 동일 공시 재유입
+
+    expect(expoPushMock.sendPushNotifications).not.toHaveBeenCalled();
+    expect(notif.rollbackNotification).not.toHaveBeenCalled();
+  });
+
+  it('회귀: 발송 전건 성공 시 롤백 없이 인박스 전건 유지', async () => {
+    await run([makeItem('RCP-A'), makeItem('RCP-B')]);
+
+    expect(notif.rollbackNotification).not.toHaveBeenCalled();
+    expect(notif.inbox.size).toBe(2);
+    expect(expoPushMock.sendPushNotifications).toHaveBeenCalledTimes(2);
   });
 });

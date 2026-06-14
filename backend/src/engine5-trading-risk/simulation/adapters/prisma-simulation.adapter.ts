@@ -140,16 +140,28 @@ export class PrismaSimulationAdapter implements ISimulationPort {
       where: { portfolioId },
       select: { id: true, entryPrice: true },
     });
-    const samples: HitRateSample[] = [];
-    for (const p of positions) {
-      if (p.entryPrice <= 0) continue;
-      const snaps = await this.prisma.positionDailySnapshot.findMany({
-        where: { positionId: p.id },
-        orderBy: { snapshotDate: 'asc' },
-        select: { closePrice: true },
-        take: horizonDays + 1,
+    // DAR-206: 포지션별 스냅샷 findMany(N+1) → positionId in(...) 단일 조회 후 메모리 그룹핑.
+    const eligible = positions.filter((p) => p.entryPrice > 0);
+    const take = horizonDays + 1;
+    const snapsByPosition = new Map<string, Array<number | null>>();
+    if (eligible.length > 0) {
+      const rows = await this.prisma.positionDailySnapshot.findMany({
+        where: { positionId: { in: eligible.map((p) => p.id) } },
+        orderBy: [{ positionId: 'asc' }, { snapshotDate: 'asc' }],
+        select: { positionId: true, closePrice: true },
       });
-      const dn = snaps.length >= horizonDays + 1 ? snaps[horizonDays].closePrice : null;
+      for (const row of rows) {
+        const arr = snapsByPosition.get(row.positionId) ?? [];
+        if (arr.length < take) {
+          arr.push(row.closePrice);
+          snapsByPosition.set(row.positionId, arr);
+        }
+      }
+    }
+    const samples: HitRateSample[] = [];
+    for (const p of eligible) {
+      const snaps = snapsByPosition.get(p.id) ?? [];
+      const dn = snaps.length >= take ? snaps[horizonDays] : null;
       if (dn !== null && dn !== undefined) {
         samples.push({ returnPct: ((dn - p.entryPrice) / p.entryPrice) * 100 });
       }
@@ -167,19 +179,42 @@ export class PrismaSimulationAdapter implements ISimulationPort {
       where: { portfolioId, status: 'CLOSED', closedAt: { not: null } },
       select: { corpCode: true, currentPrice: true, closedAt: true },
     });
+    // DAR-206: 청산 포지션별 stockDailyPrice findMany(N+1) → corpCode in(...) 단일 조회 후 메모리 그룹핑.
+    const eligible = closed
+      .filter((p) => p.currentPrice != null && p.currentPrice > 0 && p.closedAt != null)
+      .map((p) => ({
+        priceAtExit: p.currentPrice as number,
+        closeDate: this.toBasDd(p.closedAt as Date),
+        corpCode: p.corpCode,
+      }));
     const samples: ExitAccuracySample[] = [];
-    for (const p of closed) {
-      const priceAtExit = p.currentPrice;
-      if (!priceAtExit || priceAtExit <= 0 || !p.closedAt) continue;
-      const closeDate = this.toBasDd(p.closedAt);
-      const after = await this.prisma.stockDailyPrice.findMany({
-        where: { corpCode: p.corpCode, tradeDate: { gt: closeDate } },
-        orderBy: { tradeDate: 'asc' },
-        select: { closePrice: true },
-        take: horizonDays,
-      });
+    if (eligible.length === 0) return samples;
+
+    const corpCodes = [...new Set(eligible.map((e) => e.corpCode))];
+    const minAfter = eligible.reduce(
+      (m, e) => (e.closeDate < m ? e.closeDate : m),
+      eligible[0].closeDate,
+    );
+    const rows = await this.prisma.stockDailyPrice.findMany({
+      where: { corpCode: { in: corpCodes }, tradeDate: { gt: minAfter } },
+      orderBy: [{ corpCode: 'asc' }, { tradeDate: 'asc' }],
+      select: { corpCode: true, tradeDate: true, closePrice: true },
+    });
+    const byCorp = new Map<string, Array<{ tradeDate: string; closePrice: number }>>();
+    for (const row of rows) {
+      const arr = byCorp.get(row.corpCode) ?? [];
+      arr.push({ tradeDate: row.tradeDate, closePrice: row.closePrice });
+      byCorp.set(row.corpCode, arr);
+    }
+    for (const e of eligible) {
+      const after = (byCorp.get(e.corpCode) ?? [])
+        .filter((x) => x.tradeDate > e.closeDate)
+        .slice(0, horizonDays);
       if (after.length >= horizonDays) {
-        samples.push({ priceAtExit, priceAfterHorizon: after[horizonDays - 1].closePrice });
+        samples.push({
+          priceAtExit: e.priceAtExit,
+          priceAfterHorizon: after[horizonDays - 1].closePrice,
+        });
       }
     }
     return samples;

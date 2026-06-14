@@ -22,6 +22,7 @@ function makePrismaMock() {
     stockDailyPrice: {
       findFirst: jest.fn(),
       findMany: jest.fn(),
+      groupBy: jest.fn(),
     },
     position: { findMany: jest.fn() },
     tradingSignal: { findMany: jest.fn() },
@@ -425,11 +426,10 @@ describe('SimulationPriceSourceService — REAL_THEN_SYNTHETIC 하이브리드(D
         { corpCode: 'B', stockCode: '000002' },
       ]);
       (prisma.tradingSignal.findMany as AnyFn).mockResolvedValue([]);
-      // A 는 실데이터 있음(20251230), B 는 없음
-      (prisma.stockDailyPrice.findFirst as AnyFn).mockImplementation(
-        async ({ where }: { where: { corpCode: string } }) =>
-          where.corpCode === 'A' ? { tradeDate: '20251230' } : null,
-      );
+      // A 는 실데이터 있음(20251230), B 는 없음 — DAR-206: groupBy _max(tradeDate) 단일 조회.
+      (prisma.stockDailyPrice.groupBy as AnyFn).mockResolvedValue([
+        { corpCode: 'A', _max: { tradeDate: '20251230' } },
+      ]);
       const svc = makeService(prisma);
       const cov = await svc.realCoverage('20251231');
       expect(cov.total).toBe(2);

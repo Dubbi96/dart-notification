@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Banner } from 'react-native-paper';
@@ -17,7 +18,9 @@ import { useSignalAccuracy } from '@hooks/useSignalAccuracy';
 import { useCalibration } from '@hooks/useCalibration';
 import { getEventTypeLabel } from '@utils/disclosureType';
 import { formatReturnPct, formatWinRate, returnColor } from '@utils/numberFormat';
+import { refreshKeysForReportTab } from '@utils/reportRefresh';
 
+import type { ReportTab } from '@utils/reportRefresh';
 import type { TradeRationale, TradeScorecard } from '@app-types/trade-rationale.types';
 
 // 포트폴리오 성과 리포트(L3) — DAR-120.
@@ -26,7 +29,7 @@ import type { TradeRationale, TradeScorecard } from '@app-types/trade-rationale.
 // 보정권고 3탭으로 미룬다(progressive disclosure). 표본<30·미유의는 '데이터 한계' 배지로
 // 정직 노출(과신방지). 테마토큰만(하드코딩 색상 0)·면책·접근성·빈/로딩/에러 처리.
 
-type ReportTab = 'performance' | 'precision' | 'calibration';
+// ReportTab(탭 키) 타입은 @utils/reportRefresh 단일 소스(탭별 refetch 매핑과 동일 출처).
 
 // 신호 정밀도 '데이터 한계' 표본 임계 — 스펙 6장(표본<30 OR 미유의).
 const DATA_LIMIT_SAMPLE = 30;
@@ -357,9 +360,26 @@ function TabBar({ active, onChange }: { active: ReportTab; onChange: (t: ReportT
 
 export default function TradeHistoryScreen() {
   const { colors, typography: typo } = useTheme();
+  const queryClient = useQueryClient();
   const query = useTradeHistory();
   const equityQuery = useSimulationEquityCurve();
   const [activeTab, setActiveTab] = useState<ReportTab>('performance');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // 당겨 새로고침: 활성 탭이 실제로 그리는 쿼리들을 함께 refetch(DAR-210).
+  // 정밀도·보정 탭은 독립 useQuery라 trade-history.refetch 만으로는 stale → 탭별 키 매핑으로 일괄 갱신.
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all(
+        refreshKeysForReportTab(activeTab).map((queryKey) =>
+          queryClient.refetchQueries({ queryKey, exact: true }),
+        ),
+      );
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [activeTab, queryClient]);
 
   const renderTrade = useCallback(
     ({ item }: { item: TradeRationale }) => <TradeCard item={item} />,
@@ -449,8 +469,8 @@ export default function TradeHistoryScreen() {
           keyExtractor={(item) => item.positionId}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          refreshing={query.isRefetching}
-          onRefresh={query.refetch}
+          refreshing={isRefreshing}
+          onRefresh={handleRefresh}
           ListHeaderComponent={header}
           ListEmptyComponent={
             activeTab === 'performance' ? (

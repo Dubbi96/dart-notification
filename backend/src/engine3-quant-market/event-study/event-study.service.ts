@@ -135,7 +135,17 @@ export class EventStudyService {
     const arD5s = ars.map(a => a.cumulativeAR['d5'] ?? 0);
     const arD20s = ars.map(a => a.cumulativeAR['d20'] ?? 0);
 
-    // t-검정 (D+1 CAR 기준)
+    // t-검정 (D+1 CAR 기준) — 지평 의도 (DAR-221)
+    // isSignificant 는 "D+1 즉각반응(announcement effect) 이 통계적으로 존재하는가"를
+    // 검정하여 **버킷 신뢰도 게이트**로 쓴다. 점수(getEventStudyScore)는 D+5 누적
+    // (avgArD5·upProbD5)을 쓰므로 게이트 지평(D+1)과 점수 지평(D+5)이 다르다.
+    // 이는 의도된 설계다(docs/roadmap/phase-09-event-study.md §4-4 aggregateBucket):
+    //   - D+1 즉각반응은 이후 무관한 뉴스에 가장 덜 오염되어 "이 이벤트 유형이
+    //     시장을 실제로 움직이는가(신호 vs 노이즈)"를 가장 깨끗하게 판별한다.
+    //   - D+5 누적은 드리프트의 크기·방향(점수 본체)을 담는다.
+    // 알려진 트레이드오프: D+1 무유의·D+5 유의 버킷은 0점 게이트되고, 반대로
+    // D+1만 유의한 노이즈가 통과할 수 있다. D+5 게이트(tStatistic(arD5s))로의 정렬은
+    // announcement-effect 의미를 잃으므로 채택하지 않았다.
     const tStat = tStatistic(arD1s);
     const pVal = tDistPValue(tStat, n - 1);
     const varD1 = variance(arD1s);
@@ -181,6 +191,8 @@ export class EventStudyService {
    * - crashProbD5 기여: max -5
    */
   getEventStudyScore(result: AggregatedResult | null): number {
+    // 게이트=D+1 유의성(즉각반응 신뢰도), 점수=D+5 누적 — 지평 불일치는 의도된 설계.
+    // 상세 근거는 aggregate() 의 t-검정 주석(DAR-221) 참조.
     if (!result || !result.isSignificant || result.status === 'INSUFFICIENT') return 0;
 
     let score = 0;

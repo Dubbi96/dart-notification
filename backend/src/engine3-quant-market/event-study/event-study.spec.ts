@@ -796,4 +796,98 @@ describe('EventStudyService', () => {
       expect(score).toBe(-20);
     });
   });
+
+  // ───────────────────────────────────────────────────────────────
+  // DAR-221: 유의성 게이트(D+1) vs 점수(D+5) 지평 불일치 — 의도 고정(lock)
+  //
+  // 의도된 설계: isSignificant 는 D+1 즉각반응 t-검정(버킷 신뢰도 게이트),
+  // 점수는 D+5 누적(avgArD5·upProbD5). 두 지평이 다름을 회귀로 고정한다.
+  // 누군가 게이트를 tStatistic(arD5s)로 "정렬"하면 아래 테스트가 깨진다.
+  // ───────────────────────────────────────────────────────────────
+  describe('DAR-221 — 유의성 지평(D+1) vs 점수 지평(D+5)', () => {
+    /** 41일(D-20~D+20, index20=D0) 가격배열로 관측치 생성. */
+    function makeObs(idx: number, prices41: number[]): EventObservationInput {
+      const toWindows = (arr: number[]): PriceWindow[] =>
+        arr.map((price, i) => {
+          const d = new Date(2025, 0, 3 + i);
+          const y = d.getFullYear().toString();
+          const mo = (d.getMonth() + 1).toString().padStart(2, '0');
+          const da = d.getDate().toString().padStart(2, '0');
+          return { date: `${y}${mo}${da}`, closePrice: price };
+        });
+      return {
+        eventId: `evt-${idx}`,
+        rcpNo: `rcp-${idx}`,
+        corpCode: `corp-${idx % 10}`,
+        stockCode: `stock-${idx % 10}`,
+        eventType: 'SUPPLY_CONTRACT',
+        bucketKey: 'SUPPLY_CONTRACT__ratio_5to20',
+        d0Date: '20250123', // index 20 from 2025-01-03
+        stockPrices: toWindows(prices41),
+        marketPrices: toWindows(Array(41).fill(100)), // 시장 flat → AR = 종목수익률
+      };
+    }
+
+    const aggOf = (obs: EventObservationInput[]) =>
+      service.aggregate({
+        eventType: 'SUPPLY_CONTRACT',
+        bucketKey: 'SUPPLY_CONTRACT__ratio_5to20',
+        marketType: 'ALL',
+        observations: obs,
+        dataFromDate: '20250101',
+        dataToDate: '20250630',
+      });
+
+    it('유의성·tStat·pValue 는 D+1 CAR에만 의존 — D+5 궤적이 달라도 불변', () => {
+      // 양 세트 모두 index21(D+1)=105 → d1 AR=+5 동일. 이후 궤적만 다름.
+      const upPrices = [...Array(21).fill(100), 105, 112, 120, 128, ...Array(16).fill(128)];
+      // index21(D+1)=105 → d1=+5. 이후 상승 → cumD5 大 양수.
+      const downPrices = [...Array(21).fill(100), 105, 100, 96, 92, ...Array(16).fill(92)];
+      // index21(D+1)=105 → d1=+5 (동일). 이후 하락 → cumD5 음수.
+
+      const setA = Array.from({ length: 35 }, (_, i) => makeObs(i, upPrices));
+      const setB = Array.from({ length: 35 }, (_, i) => makeObs(i, downPrices));
+      const a = aggOf(setA);
+      const b = aggOf(setB);
+
+      // D+1 AR 이 양 세트 동일 → t-통계·p-값·유의성 비트단위 동일
+      expect(a.avgArD1).toBeCloseTo(b.avgArD1, 6);
+      expect(a.tStatistic).toBe(b.tStatistic);
+      expect(a.pValue).toBe(b.pValue);
+      expect(a.isSignificant).toBe(b.isSignificant);
+
+      // 하지만 점수 본체(D+5)는 명확히 다름 → 게이트≠점수 지평
+      expect(a.avgArD5).not.toBeCloseTo(b.avgArD5, 1);
+      expect(a.avgArD5).toBeGreaterThan(0);
+      expect(b.avgArD5).toBeLessThan(0);
+    });
+
+    it('알려진 트레이드오프: D+1 무유의면 강한 D+5 양(+) 드리프트도 0점 게이트', () => {
+      // D+1 AR 이 ±10 으로 갈려 평균 0 → t≈0 → 무유의. 단, D+5 누적은 전부 양수.
+      const upD1 = [...Array(21).fill(100), 110, ...Array(19).fill(110)]; // d1=+10, cumD5≈+10
+      const downD1 = [...Array(21).fill(100), 90, 110, ...Array(18).fill(110)]; // d1=-10,d2≈+22 → cumD5≈+12
+      const obs = Array.from({ length: 36 }, (_, i) =>
+        makeObs(i, i % 2 === 0 ? upD1 : downD1),
+      );
+      const agg = aggOf(obs);
+
+      expect(agg.status).toBe('READY');
+      expect(agg.avgArD1).toBeCloseTo(0, 6); // ±10 상쇄
+      expect(agg.isSignificant).toBe(false); // D+1 무유의
+      expect(agg.avgArD5).toBeGreaterThan(5); // D+5 는 강한 양의 드리프트
+      expect(agg.upProbD5).toBeCloseTo(1, 6); // 전 관측 D+5 상승
+      // 게이트가 D+1 유의성이므로, D+5 가 아무리 좋아도 점수 0
+      expect(service.getEventStudyScore(agg)).toBe(0);
+    });
+
+    it('대조군: D+1 유의(전 관측 동일 +5)면 D+5 점수가 정상 반영', () => {
+      const sig = [...Array(21).fill(100), 105, 108, 110, 112, ...Array(16).fill(112)];
+      const obs = Array.from({ length: 35 }, (_, i) => makeObs(i, sig));
+      const agg = aggOf(obs);
+
+      expect(agg.isSignificant).toBe(true); // D+1 +5 zero-variance → t=Inf
+      expect(agg.avgArD5).toBeGreaterThan(0);
+      expect(service.getEventStudyScore(agg)).toBeGreaterThan(0); // 게이트 통과 → D+5 점수
+    });
+  });
 });

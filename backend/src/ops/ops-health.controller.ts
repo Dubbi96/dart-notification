@@ -5,6 +5,7 @@ import {
   HealthCheckService,
 } from '@nestjs/terminus';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { PrismaHealthIndicator } from './indicators/prisma-health.indicator';
 import { RedisHealthIndicator } from './indicators/redis-health.indicator';
 import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.indicator';
@@ -18,8 +19,15 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
  * ★외부키 readiness 는 키 존재/형식 확인 수준(실호출·쿼터 소모 0).
  * ★인증 미적용(probe 는 인증 불가) — 비밀값 미노출(도달성 boolean·키 구성여부만).
  *   운영/내부용 — 프로덕션 노출 범위는 게이트웨이/네트워크에서 제한 권장.
+ *
+ * ★@SkipThrottle (DAR-254) — k8s/LB liveness·readiness 프로브는 동일 IP에서
+ *   분당 수십~수백회 호출되어 전역 ThrottlerModule(60req/min) 버킷을 소진,
+ *   429 → 컨테이너 unhealthy 오판 → 재시작 루프를 유발한다. 프로브 경로는
+ *   throttle 대상에서 제외(일반 API throttle 은 유지). 인증·외부호출 없는
+ *   read-only 도달성 점검이라 throttle 면제의 보안 영향 없음.
  */
 @ApiTags('Ops')
+@SkipThrottle()
 @Controller()
 export class OpsHealthController {
   constructor(

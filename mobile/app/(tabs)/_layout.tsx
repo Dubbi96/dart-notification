@@ -7,6 +7,10 @@ import { useUnreadCount } from '@hooks/useNotifications';
 import { usePositions } from '@hooks/usePortfolio';
 import { formatUnreadBadge } from '@utils/unreadBadge';
 
+// DAR-224: 탭 셸 ErrorBoundary. 탭 내부 화면의 렌더 에러가 셸/하단탭까지
+// 무너뜨리지 않도록 (tabs) 서브트리에서 한 번 더 격리한다(루트 폴백 UI 재사용).
+export { ErrorFallback as ErrorBoundary } from '@components/common/ErrorFallback';
+
 // 5탭 IA: 홈 / 알림 / 신호 / 포트폴리오 / 설정.
 // 신호·포트폴리오는 신규(M6/M7). 신규 탭은 Feather 아이콘(zap/briefcase).
 // DAR-106: notifications 탭은 통합 인박스(공시/신호/청산/논리훼손)라 라벨 '알림'으로 정정.

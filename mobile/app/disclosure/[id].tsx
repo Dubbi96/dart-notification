@@ -23,6 +23,7 @@ import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
 import { DisclosureAiAnalysisSection } from '@components/disclosure/DisclosureAiAnalysisSection';
+import { DisclosureSignalLink } from '@components/disclosure/DisclosureSignalLink';
 import { DisclosureFiledFactsSection } from '@components/disclosure/DisclosureFiledFactsSection';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
@@ -350,6 +351,10 @@ export default function DisclosureDetailScreen() {
 
         {/* AI 심층 분석(Engine2) — 요약·Persona 해석·Position Thesis 실연동 (DAR-102) */}
         <DisclosureAiAnalysisSection rcpNo={disclosure.rcpNo} />
+
+        {/* 공시 → 매수 신호 역링크(DAR-208) — 그 공시로 생성된 신호가 있을 때만 진입 카드 노출.
+            게스트(미인증)는 신호 API 401이므로 호출 자체를 막는다. */}
+        <DisclosureSignalLink rcpNo={disclosure.rcpNo} enabled={isAuthenticated} />
 
         {/* Action Buttons */}
         <Button

@@ -59,4 +59,14 @@ export const signalService = {
     api
       .get<ApiResponse<CompanySignalBadge | null>>(`/signals/by-corp/${corpCode}`)
       .then((r) => r.data.data),
+
+  /**
+   * 공시(rcpNo)로 생성된 최신 매수 신호 단건(DAR-208) — 공시 상세 → 신호 역링크용.
+   * 공시 → 신호 동선(intro Slide2의 "공시→AI 매수점수" 약속)을 복원한다.
+   * 해당 공시 신호가 없으면 data=null → 진입 카드 미표시(빈상태 흡수).
+   */
+  getSignalByDisclosure: (rcpNo: string) =>
+    api
+      .get<ApiResponse<CompanySignalBadge | null>>(`/signals/by-disclosure/${rcpNo}`)
+      .then((r) => r.data.data),
 };

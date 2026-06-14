@@ -18,7 +18,7 @@ import {
   PORTFOLIO_TABS,
   pickLiveEmptyState,
   type PortfolioSubTab,
-} from '../app/(tabs)/portfolio/tabs';
+} from '../utils/portfolioTabs';
 
 let failures = 0;
 let total = 0;

@@ -26,13 +26,11 @@ import {
 } from '@hooks/usePortfolio';
 import { pnlColor, formatPnlPercent } from '@utils/signalDisplay';
 import { dedupeByStock } from '@utils/dedupe';
+import { PORTFOLIO_TABS, pickLiveEmptyState } from '@utils/portfolioTabs';
 
 import type { Position } from '@app-types/portfolio.types';
 import type { SortKey } from '@components/portfolio/PositionSearchBar';
-
-import { PORTFOLIO_TABS, pickLiveEmptyState } from './tabs';
-
-import type { PortfolioSubTab } from './tabs';
+import type { PortfolioSubTab } from '@utils/portfolioTabs';
 
 // VIOLATED/EXPIRED 포지션을 리스트 최상단으로 고정하는 정렬 우선순위.
 const STATUS_ORDER: Record<Position['thesisStatus'], number> = {

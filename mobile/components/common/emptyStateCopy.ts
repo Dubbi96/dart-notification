@@ -104,6 +104,16 @@ export const emptyStateCopy = {
     title: '모의투자를 시작하면 AI 신호 기반 가상 주문이 진행돼요',
     actionLabel: '시작하기',
   },
+  // 모의투자 (시작했으나 실행된 신호 0)
+  paperTradingNoSignalsEmpty: {
+    icon: 'activity',
+    title: '아직 실행된 모의투자 신호가 없어요',
+  },
+  // 투자거장 철학 (id 미존재 — 에러 아님)
+  philosophyNotFound: {
+    icon: 'book-open',
+    title: '해당 거장 철학을 찾을 수 없어요',
+  },
 } satisfies Record<string, EmptyStateCopy>;
 
 export type EmptyStateKey = keyof typeof emptyStateCopy;

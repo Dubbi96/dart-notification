@@ -36,13 +36,20 @@ import { PersonaTradingModule } from './engine5-trading-risk/paper-simulation/pe
 import { CollectionStatusModule } from './collection-status/collection-status.module';
 import { CronHealthModule } from './cron-health/cron-health.module';
 import { OpsModule } from './ops/ops.module';
+import {
+  envValidationSchema,
+  envValidationOptions,
+} from './config/env.validation';
 
 @Module({
   imports: [
     // Global configuration
+    // DAR-253: 필수 env 누락/오타를 부팅 시점에 fail-fast 로 차단(validationSchema).
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
+      validationSchema: envValidationSchema,
+      validationOptions: envValidationOptions,
     }),
 
     // BullMQ — Redis 연결 전역 설정 (Engine 간 이벤트 큐)

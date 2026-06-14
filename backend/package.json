@@ -49,6 +49,7 @@
     "expo-server-sdk": "^3.7.0",
     "fast-xml-parser": "^5.4.2",
     "helmet": "^7.0.0",
+    "joi": "^18.2.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.0",
     "prisma": "^5.22.0",

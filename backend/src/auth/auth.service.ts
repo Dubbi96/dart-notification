@@ -2,6 +2,7 @@ import {
   Injectable,
   ConflictException,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -25,6 +26,8 @@ function hashRefreshToken(token: string): string {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   // Temporary in-memory store for OAuth results (state → result)
   private authResults = new Map<string, { data: any; expiresAt: number }>();
 
@@ -138,8 +141,13 @@ export class AuthService {
 
     const tokenData = await tokenResponse.json();
     if (!tokenResponse.ok) {
-      console.error('[Kakao Token Error]', JSON.stringify(tokenData));
-      console.error('[Kakao Token Request]', { client_id: this.configService.get<string>('KAKAO_REST_API_KEY'), redirect_uri: redirectUri, code: code.substring(0, 10) + '...' });
+      // 민감정보(앱 키·access_token·refresh_token·인가코드·전체 페이로드) 로그 금지.
+      // 카카오 error/error_description 코드와 HTTP status 만 기록한다.
+      this.logger.error('Kakao token exchange failed', {
+        status: tokenResponse.status,
+        error: tokenData?.error,
+        error_description: tokenData?.error_description,
+      });
       throw new UnauthorizedException('카카오 인증에 실패했습니다.');
     }
 

@@ -26,6 +26,7 @@ import { StockPriceBadge } from '@components/common/StockPriceBadge';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { useHaptics } from '@hooks/useHaptics';
+import { josa } from '@utils/josa';
 
 import type { WatchlistItem } from '@app-types/user.types';
 import type { StockQuote } from '@app-types/market-quote.types';
@@ -177,7 +178,7 @@ export default function WatchlistScreen() {
     (item: WatchlistItem) => {
       showDialog({
         title: '관심목록 해제',
-        message: `${item.corpName}을(를) 관심목록에서 제거할까요?`,
+        message: `${item.corpName}${josa(item.corpName, '을/를')} 관심목록에서 제거할까요?`,
         icon: { name: 'trash-2', color: colors.error },
         buttons: [
           { text: '취소', style: 'cancel' },

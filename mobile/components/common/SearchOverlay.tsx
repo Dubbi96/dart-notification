@@ -28,6 +28,8 @@ import {
 } from '@hooks/useWatchlist';
 import { useRecentSearches } from '@hooks/useRecentSearches';
 import { useSnackbar } from '@components/common/SnackbarProvider';
+import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
+import { josa } from '@utils/josa';
 
 import type { HitSlop } from '@utils/touchTarget';
 import type { Company, WatchlistItem } from '@app-types/user.types';
@@ -132,8 +134,8 @@ export function SearchOverlay({ visible, onClose }: Props) {
         },
       );
       haptics.success();
-      showSnackbar(`${company.corpName}을(를) 관심목록에 추가했어요.`, {
-        duration: 2500,
+      showSnackbar(snackbarCopy.watchlistAdded(company.corpName), {
+        duration: SNACKBAR_DURATION.success,
         action: { label: '실행 취소', onPress: () => undoAdd(company.corpCode) },
       });
     },
@@ -146,8 +148,8 @@ export function SearchOverlay({ visible, onClose }: Props) {
       if (!item) return;
       removeFromWatchlist.mutate(item.id);
       haptics.success();
-      showSnackbar(`${company.corpName}을(를) 관심목록에서 제거했어요.`, {
-        duration: 2500,
+      showSnackbar(snackbarCopy.watchlistRemoved(company.corpName), {
+        duration: SNACKBAR_DURATION.success,
         action: {
           label: '실행 취소',
           onPress: () =>
@@ -290,7 +292,7 @@ export function SearchOverlay({ visible, onClose }: Props) {
                 { color: colors.textTertiary, marginTop: spacing.xs, textAlign: 'center' },
               ]}
             >
-              {`"${term}"을(를) 다시 확인하거나\n종목코드 6자리로 검색해 보세요.`}
+              {`"${term}"${josa(term, '을/를')} 다시 확인하거나\n종목코드 6자리로 검색해 보세요.`}
             </Text>
           </View>
         }

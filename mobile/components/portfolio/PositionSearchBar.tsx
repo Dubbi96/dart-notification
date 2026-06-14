@@ -58,6 +58,9 @@ export function PositionSearchBar({ value, onChangeText, sortKey, onSortChange }
               compact
               mode={selected ? 'flat' : 'outlined'}
               onPress={makeSortHandler(opt.key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              accessibilityLabel={`${opt.label} 정렬`}
               style={[
                 styles.sortChip,
                 selected && { backgroundColor: colors.primary },

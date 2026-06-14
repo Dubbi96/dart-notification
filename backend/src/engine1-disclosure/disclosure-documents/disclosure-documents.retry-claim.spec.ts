@@ -167,4 +167,18 @@ describe('DisclosureDocumentsService.runRetryQueue claim (DAR-283)', () => {
     expect(prisma.disclosureDocument.updateMany).not.toHaveBeenCalled();
     expect(parseSpy).not.toHaveBeenCalled();
   });
+
+  // DAR-288: getRetryQueue 가 rawText(200KB)·parsedJson 등 대용량 컬럼을 행마다
+  // over-fetch 하지 않도록 select 로 rcpNo 만 조회하는지 보증한다.
+  it('getRetryQueue 는 select: { rcpNo: true } 로 over-fetch 없이 조회한다', async () => {
+    store.set('R1', makeDoc('R1', ParseStatus.FETCH_FAILED));
+
+    await service.getRetryQueue(20);
+
+    expect(prisma.disclosureDocument.findMany).toHaveBeenCalledTimes(1);
+    const [findArgs] = prisma.disclosureDocument.findMany.mock.calls[0] as [
+      { select?: Record<string, boolean> },
+    ];
+    expect(findArgs.select).toEqual({ rcpNo: true });
+  });
 });

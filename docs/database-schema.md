@@ -125,6 +125,22 @@ model UserDevice {
   @@map("user_devices")
 }
 
+// DAR-207: refresh 토큰 회전/무효화용 세션 추적
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique // refresh JWT 의 SHA-256 해시 (원문 비저장)
+  expiresAt DateTime  // 발급 + 90d
+  revokedAt DateTime? // null = 유효
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
 // ====================================
 // 기업 마스터
 // ====================================
@@ -276,6 +292,29 @@ model NotificationHistory {
 **특징**:
 - 한 사용자가 여러 디바이스를 가질 수 있음
 - 토큰 만료 시 재등록
+
+### 3.2b RefreshTokens (refresh_tokens) — DAR-207 신규
+
+**목적**: 발급된 refresh 토큰의 무효화·회전(rotation)을 위한 세션 추적. 무상태 JWT만으로는 로그아웃·탈취 시 90일간 폐기가 불가능했던 문제(보안)를 해소.
+
+| 컬럼명 | 타입 | 설명 | 제약 조건 |
+|--------|------|------|----------|
+| id | String | 토큰 행 고유 ID | PK, cuid() |
+| userId | String | 사용자 ID | FK -> users.id (onDelete: Cascade) |
+| tokenHash | String | refresh JWT 의 SHA-256 해시 (원문 비저장) | UNIQUE, NOT NULL |
+| expiresAt | DateTime | refresh JWT 만료 시각 (발급 + 90d) | NOT NULL |
+| revokedAt | DateTime? | 회전·로그아웃으로 폐기된 시각 (null = 유효) | nullable |
+| createdAt | DateTime | 발급일시 | default: now() |
+
+**인덱스**:
+- `userId` (사용자 세션 일괄 폐기)
+- `tokenHash` (제시 토큰 조회)
+
+**특징·정책**:
+- 토큰 발급(signup/login/kakao/refresh)마다 한 행을 생성하고 해시만 저장(원문 미보관).
+- `/auth/refresh`: 제시된 토큰의 해시를 조회 → 미등록/타 사용자/만료/폐기 시 401. 통과 시 해당 행을 revoke 하고 새 토큰 발급(회전).
+- 폐기된 토큰의 재사용 감지 시(reuse detection) 해당 사용자의 모든 유효 세션을 폐기.
+- `/auth/logout`: 해당 사용자의 모든 유효 refresh 토큰을 폐기 → 이후 동일 토큰으로 갱신 불가.
 
 ### 3.3 Company
 

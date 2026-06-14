@@ -6,10 +6,22 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { DevicesService } from '../devices/devices.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+
+// refresh JWT 만료(90d)와 동일. DB 행의 expiresAt 계산에 사용.
+const REFRESH_TOKEN_TTL_DAYS = 90;
+const REFRESH_TOKEN_TTL_MS = REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000;
+
+// refresh 토큰 원문은 저장하지 않고 SHA-256 해시만 보관한다.
+// 토큰 자체가 고엔트로피(서명된 JWT)이므로 단방향 해시로 충분하며,
+// 유니크 인덱스 조회가 가능해 bcrypt 대비 검증 비용이 낮다.
+function hashRefreshToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
 
 @Injectable()
 export class AuthService {
@@ -206,30 +218,84 @@ export class AuthService {
     return this.configService.get<string>('API_BASE_URL') || 'http://localhost:3000/api';
   }
 
-  async refresh(userId: string, email: string) {
-    const tokens = await this.generateTokens(userId, email);
-    return tokens;
+  /**
+   * 제시된 refresh 토큰을 DB 저장 해시와 대조해 검증하고 회전(rotation)한다.
+   * - 미등록/타 사용자 토큰 → 401
+   * - 이미 폐기(회전·로그아웃)된 토큰 재사용 → 탈취 정황으로 보고 해당 사용자의
+   *   모든 유효 세션을 폐기한 뒤 401 (reuse detection)
+   * - 만료된 토큰 → 401
+   * 통과 시 기존 토큰을 폐기(revoke)하고 새 토큰 쌍을 발급한다.
+   */
+  async refresh(userId: string, email: string, refreshToken: string) {
+    const tokenHash = hashRefreshToken(refreshToken);
+    const stored = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
+    });
+
+    if (!stored || stored.userId !== userId) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    if (stored.revokedAt) {
+      // 이미 폐기된 토큰의 재사용 = 회전 이후의 구토큰/탈취 정황.
+      // 방어적으로 해당 사용자의 모든 유효 세션을 폐기한다.
+      await this.revokeAllForUser(userId);
+      throw new UnauthorizedException('Refresh token reuse detected');
+    }
+
+    if (stored.expiresAt.getTime() <= Date.now()) {
+      throw new UnauthorizedException('Refresh token expired');
+    }
+
+    // 회전: 사용된 토큰을 즉시 폐기하고 새 토큰을 발급한다.
+    await this.prisma.refreshToken.update({
+      where: { id: stored.id },
+      data: { revokedAt: new Date() },
+    });
+
+    return this.generateTokens(userId, email);
   }
 
   async logout(userId: string, deviceToken?: string) {
     if (deviceToken) {
       await this.devicesService.removeByToken(userId, deviceToken);
     }
+    // 로그아웃 시 해당 사용자의 모든 유효 refresh 토큰을 폐기한다.
+    // 이후 동일 refresh 로 /auth/refresh 호출 시 401.
+    await this.revokeAllForUser(userId);
+  }
+
+  private async revokeAllForUser(userId: string) {
+    await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
   }
 
   private async generateTokens(userId: string, email: string) {
     const payload = { sub: userId, email };
+    // refresh 토큰마다 고유 jti 를 부여해 동일 초 발급에도 토큰(=해시)이 충돌하지 않게 한다.
+    const refreshPayload = { ...payload, jti: randomUUID() };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
         secret: this.configService.get<string>('JWT_SECRET'),
         expiresIn: '15m',
       }),
-      this.jwtService.signAsync(payload, {
+      this.jwtService.signAsync(refreshPayload, {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
         expiresIn: '90d',
       }),
     ]);
+
+    // 발급된 refresh 토큰의 해시를 영속화해 회전·폐기를 가능하게 한다.
+    await this.prisma.refreshToken.create({
+      data: {
+        userId,
+        tokenHash: hashRefreshToken(refreshToken),
+        expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+      },
+    });
 
     return {
       accessToken,

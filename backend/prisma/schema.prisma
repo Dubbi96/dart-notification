@@ -30,10 +30,30 @@ model User {
   notificationSettings NotificationSettings?
   notificationHistory  NotificationHistory[]
   portfolios           Portfolio[]
+  refreshTokens        RefreshToken[]
 
   @@unique([provider, providerId])
   @@index([email])
   @@map("users")
+}
+
+// 발급된 refresh 토큰의 해시를 보관해 취소·회전(rotation)을 가능하게 한다.
+// 무상태 JWT만으로는 로그아웃/탈취 시 90일간 폐기가 불가능하므로, 발급마다 한 행을
+// 만들고 refresh 시 일치 검증 후 회전(이전 행 revoke)한다.
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique // refresh JWT 의 SHA-256 해시 (원문 비저장)
+  expiresAt DateTime // refresh JWT 만료 시각 (발급 + 90d)
+  revokedAt DateTime? // 회전·로그아웃으로 폐기된 시각 (null = 유효)
+  createdAt DateTime  @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
 }
 
 model UserDevice {

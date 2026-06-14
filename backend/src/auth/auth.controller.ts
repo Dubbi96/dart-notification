@@ -135,7 +135,11 @@ export class AuthController {
   @UseGuards(JwtRefreshGuard)
   @ApiOperation({ summary: '토큰 갱신' })
   async refresh(@Body() dto: RefreshTokenDto, @Req() req: any) {
-    const result = await this.authService.refresh(req.user.id, req.user.email);
+    const result = await this.authService.refresh(
+      req.user.id,
+      req.user.email,
+      dto.refreshToken,
+    );
     return { success: true, data: result };
   }
 

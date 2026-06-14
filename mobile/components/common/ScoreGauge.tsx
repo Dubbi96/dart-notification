@@ -11,6 +11,7 @@ import {
   BUY_SCORE_CUTS,
   EXIT_SCORE_CUTS,
 } from '@utils/signalDisplay';
+import { SIGNAL_TERMS } from '@utils/signalTerms';
 
 // 점수 게이지(기획 §3·§5·§11). RN Paper ProgressBar 위에 등급 밴드 컷 틱 + 현재값 노브를
 // 얹어 "78점이 어느 등급 구간인지" 시각화한다. 색상 단독 금지 — 숫자·캡션 병행.
@@ -44,7 +45,7 @@ export function ScoreGauge({
   const { colors, typography: typo } = useTheme();
   const clamped = Math.max(0, Math.min(100, score));
   const color = kind === 'exit' ? exitScoreColor(clamped, colors) : buyScoreColor(clamped, colors);
-  const title = kind === 'exit' ? 'Exit Score' : 'Buy Score';
+  const title = kind === 'exit' ? SIGNAL_TERMS.exitScore : SIGNAL_TERMS.buyScore;
   const cuts = kind === 'exit' ? EXIT_SCORE_CUTS : BUY_SCORE_CUTS;
   const nextGap = nextCutGap(clamped, kind);
 

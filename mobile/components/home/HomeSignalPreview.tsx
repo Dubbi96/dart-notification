@@ -14,6 +14,7 @@ import { SkeletonCard } from '@components/common/SkeletonCard';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { guestPromptCopy } from '@components/common/guestPromptCopy';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
+import { SIGNAL_TERMS, buildSignalCardA11yLabel } from '@utils/signalTerms';
 import { curateBuySignals } from '@utils/signalCuration';
 import { useBuySignals } from '@hooks/useSignals';
 
@@ -58,9 +59,12 @@ function SignalPreviewCard({ signal, onPress }: SignalPreviewCardProps) {
       onPress={handlePress}
       accessibilityRole="button"
       // 카드 그룹핑(§8-1): 카드를 단일 단위로 읽어 내부 중복 읽기 방지.
-      accessibilityLabel={`${signal.corpName} 매수 신호, Buy Score ${signal.buyScore}점, ${gradeLabel(
-        signal.grade,
-      )}`}
+      // 용어 위계 L2 고정(DAR-217): 카드 a11y는 SSOT 빌더로 '매수 신호'+'Buy Score' 일관.
+      accessibilityLabel={buildSignalCardA11yLabel({
+        corpName: signal.corpName,
+        buyScore: signal.buyScore,
+        gradeText: gradeLabel(signal.grade),
+      })}
       accessibilityActions={[{ name: 'activate', label: '신호 상세 보기' }]}
       onAccessibilityAction={(event) => {
         if (event.nativeEvent.actionName === 'activate') handlePress();
@@ -115,7 +119,7 @@ function LockedCard({ onPress }: { onPress: () => void }) {
       activeOpacity={0.85}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel="로그인하고 상위 매수 신호 전체 보기"
+      accessibilityLabel={`로그인하고 상위 ${SIGNAL_TERMS.card} 전체 보기`}
     >
       <Surface
         elevation={1}
@@ -124,7 +128,7 @@ function LockedCard({ onPress }: { onPress: () => void }) {
         <View style={[styles.lockOverlay, { backgroundColor: colors.overlay }]}>
           <Feather name="lock" size={22} color={colors.surface} />
           <Text style={[typo.captionMedium, styles.lockText, { color: colors.surface }]}>
-            로그인하고{'\n'}상위 매수 신호 전체 보기
+            로그인하고{'\n'}상위 {SIGNAL_TERMS.card} 전체 보기
           </Text>
         </View>
       </Surface>
@@ -170,14 +174,17 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
   const Heading = (
     <View style={styles.heading}>
       <View style={styles.headingText}>
-        <Text style={[typo.bodyMedium, { color: colors.text }]}>오늘의 투자판단</Text>
-        <Text style={[typo.small, { color: colors.textSecondary }]}>공시에서 찾은 상위 매수 신호 (참고)</Text>
+        {/* L1 우산 헤더(DAR-217): 화면/섹션 헤더는 '투자판단', 부제는 콘텐츠 어휘 '매수 신호'. */}
+        <Text style={[typo.bodyMedium, { color: colors.text }]}>{SIGNAL_TERMS.homeHeader}</Text>
+        <Text style={[typo.small, { color: colors.textSecondary }]}>
+          공시에서 찾은 상위 {SIGNAL_TERMS.card} (참고)
+        </Text>
       </View>
       <TouchableOpacity
         onPress={handleExplore}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         accessibilityRole="button"
-        accessibilityLabel="매수 신호 전체보기"
+        accessibilityLabel={`${SIGNAL_TERMS.card} 전체보기`}
       >
         <Text style={[typo.captionMedium, { color: colors.primary }]}>전체보기</Text>
       </TouchableOpacity>
@@ -192,7 +199,7 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
       <View
         style={styles.skeletonRow}
         accessibilityRole="progressbar"
-        accessibilityLabel="투자판단 프리뷰 불러오는 중"
+        accessibilityLabel={`${SIGNAL_TERMS.screenHeader} 프리뷰 불러오는 중`}
       >
         {[0, 1].map((i) => (
           <View key={i} style={styles.skeletonCard}>
@@ -214,7 +221,7 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
       <ApiErrorState
         error={error}
         onRetry={refetch}
-        title="투자판단을 불러오지 못했습니다"
+        title={`${SIGNAL_TERMS.screenHeader}을 불러오지 못했습니다`}
         description="잠시 후 다시 시도해 주세요."
       />
     );

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AiCostGateService } from './cost-gate/ai-cost-gate.service';
-import { AiCostLimitGuardService } from './cost-gate/ai-cost-limit-guard.service';
+import { AiCostLimitGuardService, CostReservation } from './cost-gate/ai-cost-limit-guard.service';
 import { AiUsageLogService } from './usage-log/ai-usage-log.service';
 import { AiAnalysisRepository } from './ports/ai-analysis.repository';
 import { SummaryTask, SummaryTaskInput, DisclosureSummaryDraft } from './tasks/summary.task';
@@ -75,8 +75,11 @@ export class AiAnalystService {
   /**
    * 게이트 레벨을 산출하고 일/월 비용 한도를 강제 적용한다(DAR-78).
    * 한도 초과 시 AiCostLimitGuard가 L0으로 강등 → 유료 호출 차단.
+   *
+   * DAR-242: 동시성 보호를 위해 한도 가드가 유료 호출 슬롯을 원자적으로 예약한다.
+   * 반환된 CostReservation.settle()을 호출 완료 후 반드시 호출해야 한다(각 run* 메서드의 finally).
    */
-  private async resolveLevel(gate: AiGateInput): Promise<AiCostLevel> {
+  private async resolveLevel(gate: AiGateInput): Promise<CostReservation> {
     const proposed = this.gate.evaluateGate(gate);
     return this.limitGuard.enforceLimit(proposed);
   }
@@ -138,40 +141,45 @@ export class AiAnalystService {
       return cached.resultJson as DisclosureSummaryDraft;
     }
 
-    const level = await this.resolveLevel(req.gate);
-    if (level === AiCostLevel.L0) {
-      this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} L0 — 분석 스킵`);
-      // DAR-239: L0(룰 기반·AI 미사용) 게이트 결정도 비용0 행으로 AIUsageLog에 기록한다.
-      // runSummary는 공시당 1회 호출되는 진입 게이트이므로 이 1행이 곧 '공시당 게이트 평가'다
-      // (하위 Persona/Thesis 스킵은 비L0 공시에서 중복 발생하므로 일부러 기록하지 않는다 — 분모 왜곡 방지).
-      // 미기록 시 AIUsageLog의 L0 분자가 영구 0 → l0Ratio 구조적 0 → 회귀 게이트(L0≥70%) 거짓 발화.
-      await this.usageLog.logUsage({
+    const reservation = await this.resolveLevel(req.gate);
+    const level = reservation.level;
+    try {
+      if (level === AiCostLevel.L0) {
+        this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} L0 — 분석 스킵`);
+        // DAR-239: L0(룰 기반·AI 미사용) 게이트 결정도 비용0 행으로 AIUsageLog에 기록한다.
+        // runSummary는 공시당 1회 호출되는 진입 게이트이므로 이 1행이 곧 '공시당 게이트 평가'다
+        // (하위 Persona/Thesis 스킵은 비L0 공시에서 중복 발생하므로 일부러 기록하지 않는다 — 분모 왜곡 방지).
+        // 미기록 시 AIUsageLog의 L0 분자가 영구 0 → l0Ratio 구조적 0 → 회귀 게이트(L0≥70%) 거짓 발화.
+        await this.usageLog.logUsage({
+          rcpNo,
+          task: 'summary',
+          level: AiCostLevel.L0,
+          model: '-',
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+        });
+        return null;
+      }
+
+      const { result, usage } = await this.runTask(rcpNo, 'summary', level, () =>
+        this.summaryTask.run(req.input),
+      );
+
+      await this.repo.saveAnalysis({
         rcpNo,
         task: 'summary',
-        level: AiCostLevel.L0,
-        model: '-',
-        inputTokens: 0,
-        outputTokens: 0,
-        costUsd: 0,
+        level,
+        resultJson: result,
+        createdAt: new Date(),
       });
-      return null;
+
+      await this.logTaskUsage(rcpNo, 'summary', level, usage);
+
+      return result;
+    } finally {
+      reservation.settle();
     }
-
-    const { result, usage } = await this.runTask(rcpNo, 'summary', level, () =>
-      this.summaryTask.run(req.input),
-    );
-
-    await this.repo.saveAnalysis({
-      rcpNo,
-      task: 'summary',
-      level,
-      resultJson: result,
-      createdAt: new Date(),
-    });
-
-    await this.logTaskUsage(rcpNo, 'summary', level, usage);
-
-    return result;
   }
 
   /**
@@ -190,29 +198,34 @@ export class AiAnalystService {
       return cached.resultJson as EventClassificationDraft;
     }
 
-    const level = await this.resolveLevel(req.gate);
-    if (level === AiCostLevel.L0) {
-      this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} L0 — event-classification 스킵`);
-      // DAR-239: 게이트 평가(L0 분자)는 진입 게이트 runSummary에서만 1행 기록한다.
-      // 보조 Task 스킵까지 기록하면 동일 공시가 여러 행으로 중복 집계돼 l0Ratio 분모가 왜곡된다.
-      return null;
+    const reservation = await this.resolveLevel(req.gate);
+    const level = reservation.level;
+    try {
+      if (level === AiCostLevel.L0) {
+        this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} L0 — event-classification 스킵`);
+        // DAR-239: 게이트 평가(L0 분자)는 진입 게이트 runSummary에서만 1행 기록한다.
+        // 보조 Task 스킵까지 기록하면 동일 공시가 여러 행으로 중복 집계돼 l0Ratio 분모가 왜곡된다.
+        return null;
+      }
+
+      const { result, usage } = await this.runTask(rcpNo, 'event-classification', level, () =>
+        this.eventClassificationTask.run(req.input),
+      );
+
+      await this.repo.saveAnalysis({
+        rcpNo,
+        task: 'event-classification',
+        level,
+        resultJson: result,
+        createdAt: new Date(),
+      });
+
+      await this.logTaskUsage(rcpNo, 'event-classification', level, usage);
+
+      return result;
+    } finally {
+      reservation.settle();
     }
-
-    const { result, usage } = await this.runTask(rcpNo, 'event-classification', level, () =>
-      this.eventClassificationTask.run(req.input),
-    );
-
-    await this.repo.saveAnalysis({
-      rcpNo,
-      task: 'event-classification',
-      level,
-      resultJson: result,
-      createdAt: new Date(),
-    });
-
-    await this.logTaskUsage(rcpNo, 'event-classification', level, usage);
-
-    return result;
   }
 
   /**
@@ -231,31 +244,36 @@ export class AiAnalystService {
       return cached.resultJson as PersonaAnalysisDraft[];
     }
 
-    const level = await this.resolveLevel(req.gate);
-    if (level === AiCostLevel.L0 || level === AiCostLevel.L1) {
-      this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} ${level} — persona-interpretation 스킵`);
-      // DAR-239: 진입 게이트(runSummary)에서만 게이트 결정을 기록한다(분모 왜곡 방지). 여기선 기록하지 않는다.
-      return null;
+    const reservation = await this.resolveLevel(req.gate);
+    const level = reservation.level;
+    try {
+      if (level === AiCostLevel.L0 || level === AiCostLevel.L1) {
+        this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} ${level} — persona-interpretation 스킵`);
+        // DAR-239: 진입 게이트(runSummary)에서만 게이트 결정을 기록한다(분모 왜곡 방지). 여기선 기록하지 않는다.
+        return null;
+      }
+
+      const { result, usage } = await this.runTask(rcpNo, 'persona-interpretation', level, () =>
+        this.personaInterpretationTask.run(req.input),
+      );
+
+      await this.repo.saveAnalysis({
+        rcpNo,
+        task: 'persona-interpretation',
+        level,
+        resultJson: result,
+        createdAt: new Date(),
+      });
+
+      // DAR-78: PersonaAnalysis 테이블에도 영속 — DAR-72 P-C 융합 엔진의 personaViews 입력 소스.
+      await this.repo.savePersonaViews(rcpNo, result);
+
+      await this.logTaskUsage(rcpNo, 'persona-interpretation', level, usage);
+
+      return result;
+    } finally {
+      reservation.settle();
     }
-
-    const { result, usage } = await this.runTask(rcpNo, 'persona-interpretation', level, () =>
-      this.personaInterpretationTask.run(req.input),
-    );
-
-    await this.repo.saveAnalysis({
-      rcpNo,
-      task: 'persona-interpretation',
-      level,
-      resultJson: result,
-      createdAt: new Date(),
-    });
-
-    // DAR-78: PersonaAnalysis 테이블에도 영속 — DAR-72 P-C 융합 엔진의 personaViews 입력 소스.
-    await this.repo.savePersonaViews(rcpNo, result);
-
-    await this.logTaskUsage(rcpNo, 'persona-interpretation', level, usage);
-
-    return result;
   }
 
   /**
@@ -272,27 +290,32 @@ export class AiAnalystService {
       return cached.resultJson as PositionThesisDraft;
     }
 
-    const level = await this.resolveLevel(req.gate);
-    if (level !== AiCostLevel.L3) {
-      this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} ${level} — position-thesis 스킵(L3 전용)`);
-      // DAR-239: 진입 게이트(runSummary)에서만 게이트 결정을 기록한다(분모 왜곡 방지). 여기선 기록하지 않는다.
-      return null;
+    const reservation = await this.resolveLevel(req.gate);
+    const level = reservation.level;
+    try {
+      if (level !== AiCostLevel.L3) {
+        this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} ${level} — position-thesis 스킵(L3 전용)`);
+        // DAR-239: 진입 게이트(runSummary)에서만 게이트 결정을 기록한다(분모 왜곡 방지). 여기선 기록하지 않는다.
+        return null;
+      }
+
+      const { result, usage } = await this.runTask(rcpNo, 'position-thesis', level, () =>
+        this.positionThesisTask.run(req.input),
+      );
+
+      await this.repo.saveAnalysis({
+        rcpNo,
+        task: 'position-thesis',
+        level,
+        resultJson: result,
+        createdAt: new Date(),
+      });
+
+      await this.logTaskUsage(rcpNo, 'position-thesis', level, usage);
+
+      return result;
+    } finally {
+      reservation.settle();
     }
-
-    const { result, usage } = await this.runTask(rcpNo, 'position-thesis', level, () =>
-      this.positionThesisTask.run(req.input),
-    );
-
-    await this.repo.saveAnalysis({
-      rcpNo,
-      task: 'position-thesis',
-      level,
-      resultJson: result,
-      createdAt: new Date(),
-    });
-
-    await this.logTaskUsage(rcpNo, 'position-thesis', level, usage);
-
-    return result;
   }
 }

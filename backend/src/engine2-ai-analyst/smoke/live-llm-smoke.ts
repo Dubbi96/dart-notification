@@ -165,7 +165,7 @@ async function main(): Promise<void> {
   const usageLog = new AiUsageLogService(repo);
   // 스모크는 게이트/Task 실측이 목적 — 한도 가드는 pass-through 스텁(DB 비의존).
   const limitGuard = {
-    enforceLimit: async (lvl: AiCostLevel) => lvl,
+    enforceLimit: async (lvl: AiCostLevel) => ({ level: lvl, settle: () => {} }),
   } as unknown as AiCostLimitGuardService;
   const service = new AiAnalystService(gate, limitGuard, repo, usageLog, summaryTask, eventTask, personaTask, positionTask);
 

@@ -269,7 +269,7 @@ async function main(): Promise<void> {
       const usageLog = new AiUsageLogService(repo);
       // 회귀 스모크는 게이트/Task 흐름 검증이 목적 — 한도 가드는 pass-through 스텁.
       const limitGuard = {
-        enforceLimit: async (lvl: AiCostLevel) => lvl,
+        enforceLimit: async (lvl: AiCostLevel) => ({ level: lvl, settle: () => {} }),
       } as unknown as AiCostLimitGuardService;
       const service = new AiAnalystService(gate, limitGuard, repo, usageLog, summaryTask, eventClassTask, personaTask, positionTask);
 

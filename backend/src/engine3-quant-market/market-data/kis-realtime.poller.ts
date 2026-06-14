@@ -1,9 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KisApiService } from './kis-api.service';
 import { RealtimeQuoteCache } from './realtime-quote.cache';
 import { KST_TIMEZONE } from '../../common/time/kst';
+import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
+import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
 
 /** 1회 폴링 종목 상한(호출 제한 가드). */
 const POLL_UNIVERSE_CAP = 60;
@@ -18,6 +20,14 @@ const POLL_UNIVERSE_CAP = 60;
  * ★throw 금지: cron 스케줄 유지를 위해 예외 흡수.
  * ★정직: 적재 가격은 실제 시장 실시간가(REALTIME). 환경 시계(2026)와 실제 시각 괴리는
  *   fetchedAtMs(실 wall-clock)로 드러나며, 소비측이 신선도로 게이트한다.
+ *
+ * ★DAR-231: 60종목 순차 KIS 호출이 분 경계(60초)를 초과하면 다음 분 cron 이 겹쳐
+ *   rate-limit 위반·중복부하를 낸다. isPolling 단일 실행 락으로 겹침을 차단한다.
+ *
+ * ★DAR-232: 기존에는 폴링 실패를 logger.error 로만 삼켜 '장중 시세가 조용히 멈춤'을
+ *   인지할 수 없었다. CronRunRecorder 로 감싸 실패를 CronRunLog 에 FAILED 로 남기고
+ *   (신선도 안전망에 노출), cron 스케줄은 throw 없이 유지한다. 키 미설정 no-op 은
+ *   기록하지 않는다(미설정 환경의 분단위 로그 폭주 방지).
  *
  * AI 금지영역: 시세 수집은 순수 HTTP/캐시. 체결·주문수량·하드룰과 무관.
  */
@@ -35,13 +45,19 @@ export class KisRealtimePoller {
     private readonly prisma: PrismaService,
     private readonly kis: KisApiService,
     private readonly cache: RealtimeQuoteCache,
+    /**
+     * @Optional: CronHealthModule 미등록 환경(일부 테스트)에서도 동작.
+     * 미주입 시 폴링 본업은 그대로 수행하고 CronRunLog 기록만 생략(DAR-232).
+     */
+    @Optional()
+    private readonly cronRunRecorder?: CronRunRecorderService,
   ) {}
 
   /** 평일 09:00~15:59 매 1분(KST) — 보유/후보 종목 실시간 현재가 폴링. */
   @Cron('*/1 9-15 * * 1-5', { timeZone: KST_TIMEZONE })
   async pollRealtime(): Promise<{ polled: number; cached: number; skipped?: boolean }> {
     if (!this.kis.isConfigured) {
-      // 키 미설정 — 실시간 비활성(모의운용은 일봉/합성으로 평가). 로그 1회성 최소화.
+      // 키 미설정 — 실시간 비활성(모의운용은 일봉/합성으로 평가). 기록 없이 no-op.
       return { polled: 0, cached: 0 };
     }
 
@@ -52,7 +68,9 @@ export class KisRealtimePoller {
     }
 
     this.isPolling = true;
-    try {
+
+    // 본업: 예외를 삼키지 않고 던진다 → recorder 가 FAILED 로 기록한 뒤 재던짐.
+    const run = async (): Promise<{ polled: number; cached: number }> => {
       const universe = await this.resolveUniverse();
       let cached = 0;
       for (const { corpCode, stockCode } of universe) {
@@ -74,7 +92,17 @@ export class KisRealtimePoller {
         this.logger.log(`[KIS] 실시간 현재가 폴링 stocks=${universe.length} cached=${cached}`);
       }
       return { polled: universe.length, cached };
+    };
+
+    try {
+      if (!this.cronRunRecorder) return await run();
+      // DAR-110/232: 마지막 성공시각/적재건수 기록(신선도 판정 입력 + 실패 표면화).
+      return await this.cronRunRecorder.record(CRON_JOB_KEYS.KIS_REALTIME, run, {
+        countOf: (r) => r.cached,
+      });
     } catch (e) {
+      // recorder 가 FAILED 기록 후 재던진 예외(또는 미주입 시 본업 예외)를 흡수해
+      // cron 스케줄을 유지한다(기존 거동 보존).
       this.logger.error(`[KIS] 실시간 폴링 오류: ${(e as Error).message}`);
       return { polled: 0, cached: 0 };
     } finally {

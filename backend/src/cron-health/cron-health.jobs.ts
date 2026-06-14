@@ -14,6 +14,9 @@ export const CRON_JOB_KEYS = {
   PARSE_RETRY: 'parse.retry',
   PIPELINE_DRAIN: 'pipeline.drain',
   EVENT_STUDY_CALC: 'event-study.calculate',
+  // DAR-232: 그간 CronRunRecorder 로 감싸지지 않아 실패가 로그로만 삼켜지던 경량 크론.
+  CLEANUP_DAILY: 'cleanup.daily', // 자정 만료 토큰/알림 정리
+  KIS_REALTIME: 'kis.realtime-poll', // 장중 실시간 현재가 폴링
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -105,5 +108,26 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: 14_400, // 10일 — 주간 카덴스 + 한 주 누락까지 흡수(DAR-134)
     cadence: '주간(토) 04:00',
+  },
+  {
+    // DAR-232: 자정 정리 실패는 dead-token·읽은알림 무한 누적으로 번질 수 있어
+    // 안전망에 노출한다. 매일 가동(주말 포함) — 하루 누락(48h)까지 허용.
+    jobKey: CRON_JOB_KEYS.CLEANUP_DAILY,
+    label: '만료 토큰·알림 정리',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: 2_880, // 48시간 — 매일 자정, 하루 누락까지 허용
+    cadence: '매일 자정',
+  },
+  {
+    // DAR-232: 장중 분단위 폴러. 16:00~18:30(폴링 종료~윈도 끝) 공백을 흡수하도록
+    // 임계를 넉넉히(3h) 잡아 장중 무가동만 stale 로 표면화. 키 미설정 시엔 기록 자체가
+    // 없으므로(폴러가 no-op) 운영 중 종목 폴링이 멈춘 경우만 잡힌다.
+    jobKey: CRON_JOB_KEYS.KIS_REALTIME,
+    label: 'KIS 실시간 현재가 폴링',
+    source: 'CRON_RUN_LOG',
+    window: 'WEEKDAY_INTRADAY',
+    staleAfterMinutes: 180, // 3시간 — 폴링 종료(15:59)~윈도 끝(18:30) 공백 흡수
+    cadence: '평일 09:00~15:59 / 1분 간격',
   },
 ];

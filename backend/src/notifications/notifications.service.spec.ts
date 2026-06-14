@@ -217,4 +217,96 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
       });
     });
   });
+
+  // ─── DAR-289: 페이지네이션 tie-break ─────────────────────────────────────────
+  // sentAt 이 배치 발송으로 동값일 때, 유니크 tie-break(id) 없이는 동값 행 순서가
+  // 미결정되어 페이지 경계에서 중복/누락이 난다. fake findMany 로 그 불안정성을 모델링.
+  describe('findAll — 페이지네이션 tie-break (DAR-289)', () => {
+    const sameTs = new Date('2026-06-15T00:00:00.000Z');
+    const rows = [
+      { id: 'n1', userId: 'u1', sentAt: sameTs },
+      { id: 'n2', userId: 'u1', sentAt: sameTs },
+      { id: 'n3', userId: 'u1', sentAt: sameTs },
+      { id: 'n4', userId: 'u1', sentAt: sameTs },
+    ];
+
+    let callSeq = 0;
+    const cmpBy =
+      (orderBy: Array<Record<string, 'asc' | 'desc'>>) =>
+      (a: Record<string, unknown>, b: Record<string, unknown>): number => {
+        for (const o of orderBy) {
+          const field = Object.keys(o)[0];
+          const dir = o[field];
+          const av = a[field] as string | Date;
+          const bv = b[field] as string | Date;
+          const c = av < bv ? -1 : av > bv ? 1 : 0;
+          if (c !== 0) return dir === 'desc' ? -c : c;
+        }
+        return 0;
+      };
+    const unstableFindMany = (orderBy: any, skip = 0, take?: number) => {
+      const cmp = cmpBy(Array.isArray(orderBy) ? orderBy : [orderBy]);
+      const sorted = [...rows].sort(cmp);
+      const seq = callSeq++;
+      const groups: Array<Array<Record<string, unknown>>> = [];
+      for (const r of sorted) {
+        const last = groups[groups.length - 1];
+        if (last && cmp(last[0], r) === 0) last.push(r);
+        else groups.push([r]);
+      }
+      const flat = groups.flatMap((g) => {
+        if (g.length <= 1) return g;
+        const off = seq % g.length;
+        return [...g.slice(off), ...g.slice(0, off)];
+      });
+      return flat.slice(skip, take == null ? undefined : skip + take);
+    };
+
+    const wire = (prisma: ReturnType<typeof makePrismaMock>) => {
+      prisma.notificationHistory.findMany.mockImplementation(
+        ({ orderBy, skip, take }: any) =>
+          Promise.resolve(unstableFindMany(orderBy, skip, take)),
+      );
+      prisma.notificationHistory.count.mockResolvedValue(rows.length);
+      prisma.notificationHistory.groupBy.mockResolvedValue([]);
+    };
+
+    it('동값 sentAt 다건에서 2페이지 연속 조회 시 union=전체·교집합=0', async () => {
+      const { service, prisma } = buildService();
+      callSeq = 0;
+      wire(prisma);
+
+      const p1 = await service.findAll('u1', { page: 1, limit: 2 } as any);
+      const p2 = await service.findAll('u1', { page: 2, limit: 2 } as any);
+
+      const ids1 = p1.items.map((n: any) => n.id);
+      const ids2 = p2.items.map((n: any) => n.id);
+      const union = new Set([...ids1, ...ids2]);
+      const intersection = ids1.filter((id: string) => ids2.includes(id));
+
+      expect(union.size).toBe(rows.length);
+      expect(intersection).toHaveLength(0);
+    });
+
+    it('서비스는 유니크 tie-break(id)를 orderBy 마지막에 전달한다', async () => {
+      const { service, prisma } = buildService();
+      callSeq = 0;
+      wire(prisma);
+
+      await service.findAll('u1', { page: 1, limit: 2 } as any);
+      const passed = prisma.notificationHistory.findMany.mock.calls[0][0].orderBy;
+      expect(passed).toEqual([{ sentAt: 'desc' }, { id: 'desc' }]);
+    });
+
+    it('대조군: tie-break 없는 단일 키 정렬은 동일 fake 에서 중복/누락이 발생한다', () => {
+      callSeq = 0;
+      const single = [{ sentAt: 'desc' as const }];
+      const page1 = unstableFindMany(single, 0, 2).map((n) => n.id as string);
+      const page2 = unstableFindMany(single, 2, 2).map((n) => n.id as string);
+      const union = new Set([...page1, ...page2]);
+      const intersection = page1.filter((id) => page2.includes(id));
+      expect(union.size).toBeLessThan(rows.length);
+      expect(intersection.length).toBeGreaterThan(0);
+    });
+  });
 });

@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Bell } from 'phosphor-react-native';
+import { Bell, ChartLineUp, Briefcase } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { getNotifications } from '@utils/notifications';
 import { useTheme } from '@theme';
@@ -21,6 +21,7 @@ import { usePopularCompanies } from '@hooks/useCompanySearch';
 import { useAuthStore } from '@stores/authStore';
 import { deviceService } from '@services/device.service';
 import { notificationSettingsService } from '@services/notification-settings.service';
+import { ONBOARDING_TOTAL_STEPS, onboardingExitRoute } from '@utils/onboardingFlow';
 
 const PROJECT_ID = 'dbdd30ba-72aa-4f90-ae45-54aa8fd43aa7';
 
@@ -80,8 +81,8 @@ export default function OnboardingScreen() {
       console.warn('푸시 알림 설정 실패:', err);
     } finally {
       setIsSubmitting(false);
-      completeOnboarding();
-      router.replace('/(tabs)/home');
+      // DAR-209: 곧장 완료하지 않고 신호·포트폴리오 가치 단계로 이어간다.
+      setStep(3);
     }
   };
 
@@ -91,9 +92,78 @@ export default function OnboardingScreen() {
     } catch {
       // 실패해도 진행
     }
-    completeOnboarding();
-    router.replace('/(tabs)/home');
+    setStep(3);
   };
+
+  // Step 3(DAR-209): 가치 안내 종료 — '신호 보러 가기' 또는 '홈으로'.
+  const handleFinish = (exit: 'signals' | 'home') => {
+    completeOnboarding();
+    router.replace(onboardingExitRoute(exit));
+  };
+
+  // Step 3(DAR-209): 신호·포트폴리오 가치 안내 — intro 캐러셀이 약속한
+  // AI 투자판단·거장 철학을 가입 직후 핵심 탭과 연결한다.
+  if (step === 3) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.content}>
+          <View style={[styles.stepIndicator, { backgroundColor: colors.primaryLight }]}>
+            <Text style={[typo.captionMedium, { color: colors.primary }]}>
+              3단계 / {ONBOARDING_TOTAL_STEPS}
+            </Text>
+          </View>
+
+          <Text style={[typo.h1, { color: colors.text, marginTop: spacing.lg }]}>
+            이제 투자 판단까지{'\n'}받아보세요
+          </Text>
+          <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.sm }]}>
+            공시 알림에서 끝나지 않아요. 신호와 포트폴리오로{'\n'}매수·매도 판단을 도와드려요.
+          </Text>
+
+          <View style={styles.valueList}>
+            <ValueCard
+              icon={<ChartLineUp size={28} color={colors.primary} weight="duotone" />}
+              title="신호 — AI 매수 판단"
+              description="공시가 뜨면 거장 4인의 투자 철학 기준으로 AI가 매수 점수를 매겨요."
+              colors={colors}
+              typo={typo}
+            />
+            <ValueCard
+              icon={<Briefcase size={28} color={colors.primary} weight="duotone" />}
+              title="포트폴리오 — 보유 종목 추적"
+              description="관심 종목을 담아 수익률과 매도 신호를 한눈에 확인해요."
+              colors={colors}
+              typo={typo}
+            />
+          </View>
+
+          <View style={[styles.disclaimerMini, { backgroundColor: colors.surfaceSecondary }]}>
+            <Ionicons name="information-circle-outline" size={14} color={colors.textTertiary} />
+            <Text style={[typo.small, styles.disclaimerText, { color: colors.textTertiary }]}>
+              AI 점수는 참고 정보예요 · 투자자문이 아닙니다
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.footer}>
+          <Button
+            title="신호 보러 가기"
+            onPress={() => handleFinish('signals')}
+            fullWidth
+            size="lg"
+          />
+          <TouchableOpacity
+            style={styles.skipButton}
+            onPress={() => handleFinish('home')}
+            accessibilityRole="button"
+            accessibilityLabel="홈으로 이동"
+          >
+            <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>홈으로 가기</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   // Step 2: 푸시 알림 동의
   if (step === 2) {
@@ -101,7 +171,9 @@ export default function OnboardingScreen() {
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.content}>
           <View style={[styles.stepIndicator, { backgroundColor: colors.primaryLight }]}>
-            <Text style={[typo.captionMedium, { color: colors.primary }]}>2단계 / 2</Text>
+            <Text style={[typo.captionMedium, { color: colors.primary }]}>
+              2단계 / {ONBOARDING_TOTAL_STEPS}
+            </Text>
           </View>
 
           <Text style={[typo.h1, { color: colors.text, marginTop: spacing.lg }]}>
@@ -167,7 +239,9 @@ export default function OnboardingScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.content}>
         <View style={[styles.stepIndicator, { backgroundColor: colors.primaryLight }]}>
-          <Text style={[typo.captionMedium, { color: colors.primary }]}>1단계 / 2</Text>
+          <Text style={[typo.captionMedium, { color: colors.primary }]}>
+            1단계 / {ONBOARDING_TOTAL_STEPS}
+          </Text>
         </View>
 
         <Text style={[typo.h1, { color: colors.text, marginTop: spacing.lg }]}>
@@ -251,6 +325,31 @@ function FeatureItem({ icon, text, colors, typo }: {
   );
 }
 
+// Step 3(DAR-209) 가치 카드 — 신호/포트폴리오 핵심 가치를 사실 기반으로 안내.
+function ValueCard({ icon, title, description, colors, typo }: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  colors: ReturnType<typeof useTheme>['colors'];
+  typo: ReturnType<typeof useTheme>['typography'];
+}) {
+  return (
+    <View
+      style={[styles.valueCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+      accessibilityRole="summary"
+      accessibilityLabel={`${title}. ${description}`}
+    >
+      <View style={[styles.valueIcon, { backgroundColor: colors.primaryLight }]}>{icon}</View>
+      <View style={styles.valueText}>
+        <Text style={[typo.bodyMedium, { color: colors.text }]}>{title}</Text>
+        <Text style={[typo.caption, styles.valueDesc, { color: colors.textSecondary }]}>
+          {description}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -315,6 +414,42 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  valueList: {
+    marginTop: spacing['2xl'],
+    gap: spacing.md,
+  },
+  valueCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: spacing.base,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+  },
+  valueIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  valueText: {
+    flex: 1,
+    marginLeft: spacing.md,
+  },
+  valueDesc: {
+    marginTop: 2,
+  },
+  disclaimerText: {
+    flex: 1,
+  },
+  disclaimerMini: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+    marginTop: spacing.xl,
   },
   footer: {
     paddingHorizontal: spacing.xl,

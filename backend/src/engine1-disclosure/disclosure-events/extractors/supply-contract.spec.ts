@@ -112,7 +112,7 @@ describe('supply-contract extract', () => {
       expect(result.counterpartyType).toBe('FOREIGN');
     });
 
-    it('한글만 → UNKNOWN', () => {
+    it('한글만(비대기업·비외국) → UNKNOWN', () => {
       const parsed = makeParsedJson({ counterparty: '국내주식회사' });
       const result = extract(parsed, '');
       expect(result.counterpartyType).toBe('UNKNOWN');
@@ -121,6 +121,44 @@ describe('supply-contract extract', () => {
     it('거래상대방 없으면 UNKNOWN', () => {
       const result = extract(makeParsedJson(), '');
       expect(result.counterpartyType).toBe('UNKNOWN');
+    });
+
+    // DAR-248: DOMESTIC_LARGE 도달 가능성 확보 (대기업집단 키워드 매칭)
+    describe('DOMESTIC_LARGE 분류 (국내 대기업군)', () => {
+      it.each([
+        ['삼성전자(주)'],
+        ['에스케이하이닉스'],
+        ['현대자동차주식회사'],
+        ['주식회사 카카오'],
+        ['포스코홀딩스'],
+        ['엘지화학'],
+      ])('%s → DOMESTIC_LARGE', (counterparty) => {
+        const result = extract(makeParsedJson({ counterparty }), '');
+        expect(result.counterpartyType).toBe('DOMESTIC_LARGE');
+      });
+
+      it('대기업 키워드는 영문/외국 키워드보다 우선', () => {
+        const result = extract(makeParsedJson({ counterparty: '삼성디스플레이' }), '');
+        expect(result.counterpartyType).toBe('DOMESTIC_LARGE');
+      });
+    });
+
+    // DAR-248: 외국법인 한글약칭 보강 (기존엔 UNKNOWN으로 FOREIGN 누락)
+    describe('FOREIGN 분류 (외국법인 한글약칭)', () => {
+      it.each([['구글'], ['엔비디아'], ['도요타'], ['지멘스']])(
+        '%s → FOREIGN',
+        (counterparty) => {
+          const result = extract(makeParsedJson({ counterparty }), '');
+          expect(result.counterpartyType).toBe('FOREIGN');
+        },
+      );
+    });
+
+    // DAR-248: DOMESTIC_SME는 enum에서 제거됨 (이름만으로 신뢰 분류 불가)
+    it('국내 비대기업(중소·중견 추정)도 SME가 아닌 UNKNOWN으로 분류', () => {
+      const result = extract(makeParsedJson({ counterparty: '한빛정밀공업' }), '');
+      expect(result.counterpartyType).toBe('UNKNOWN');
+      expect(result.counterpartyType).not.toBe('DOMESTIC_SME' as never);
     });
   });
 

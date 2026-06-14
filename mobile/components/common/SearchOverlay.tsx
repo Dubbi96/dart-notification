@@ -16,7 +16,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, sizing } from '@theme/spacing';
 import { useDebounce } from '@hooks/useDebounce';
 import { useHaptics } from '@hooks/useHaptics';
 import { useCompanySearch, usePopularCompanies, shouldSearch } from '@hooks/useCompanySearch';
@@ -29,9 +29,23 @@ import {
 import { useRecentSearches } from '@hooks/useRecentSearches';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 
+import type { HitSlop } from '@utils/touchTarget';
 import type { Company, WatchlistItem } from '@app-types/user.types';
 
 const MAX_WATCHLIST_COUNT = 30;
+
+// 아이콘 전용 X 버튼의 유효 터치 영역을 sizing.minTouchTarget(44pt)까지 확장(DAR-146 규약·DAR-267).
+// 칩처럼 텍스트 좌우 패딩으로 가로폭이 이미 확보되는 컨트롤과 달리, 아이콘만 있는 X 버튼은
+// 시각 크기가 가로·세로 모두 44pt에 못 미치므로 4방향 대칭으로 보정한다.
+function symmetricHitSlopForIcon(iconSize: number): HitSlop {
+  const pad = Math.max(0, Math.ceil((sizing.minTouchTarget - iconSize) / 2));
+  return { top: pad, bottom: pad, left: pad, right: pad };
+}
+
+// 최근 검색 개별 삭제(Feather 'x' size 14) → 14 + 15*2 = 44pt
+const RECENT_DELETE_HIT_SLOP = symmetricHitSlopForIcon(14);
+// 입력 초기화(Feather 'x-circle' size 18) → 18 + 13*2 = 44pt
+const CLEAR_INPUT_HIT_SLOP = symmetricHitSlopForIcon(18);
 
 interface Props {
   visible: boolean;
@@ -315,7 +329,7 @@ export function SearchOverlay({ visible, onClose }: Props) {
                       <Text style={[typo.small, { color: colors.text }]}>{c.corpName}</Text>
                       <TouchableOpacity
                         onPress={() => removeRecent(c.corpCode)}
-                        hitSlop={8}
+                        hitSlop={RECENT_DELETE_HIT_SLOP}
                         accessibilityRole="button"
                         accessibilityLabel={`${c.corpName} 최근 검색에서 삭제`}
                       >
@@ -367,7 +381,7 @@ export function SearchOverlay({ visible, onClose }: Props) {
               {query.length > 0 ? (
                 <TouchableOpacity
                   onPress={() => setQuery('')}
-                  hitSlop={8}
+                  hitSlop={CLEAR_INPUT_HIT_SLOP}
                   accessibilityRole="button"
                   accessibilityLabel="검색어 지우기"
                 >

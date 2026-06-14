@@ -12,7 +12,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { parse, format } from 'date-fns';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
@@ -21,6 +20,7 @@ import { SkeletonList } from '@components/common/SkeletonCard';
 import { useDebounce } from '@hooks/useDebounce';
 import { useUnifiedSearch, shouldUnifiedSearch } from '@hooks/useUnifiedSearch';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
+import { formatYmdDots } from '@utils/datetime';
 
 import type { Company } from '@app-types/user.types';
 import type { Disclosure } from '@app-types/disclosure.types';
@@ -34,14 +34,6 @@ function marketLabel(market: string | null): string {
   if (market === 'KOSPI') return '코스피';
   if (market === 'KOSDAQ') return '코스닥';
   return '';
-}
-
-function formatRcpDt(rcpDt: string): string {
-  try {
-    return format(parse(rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd');
-  } catch {
-    return rcpDt;
-  }
 }
 
 export default function UnifiedSearchScreen() {
@@ -157,7 +149,7 @@ export default function UnifiedSearchScreen() {
                 </Text>
               </View>
               <Text style={[typo.small, { color: colors.textTertiary }]}>
-                {formatRcpDt(d.rcpDt)}
+                {formatYmdDots(d.rcpDt)}
               </Text>
             </View>
             <Text style={[typo.bodyMedium, { color: colors.text, marginTop: spacing.sm }]} numberOfLines={2}>

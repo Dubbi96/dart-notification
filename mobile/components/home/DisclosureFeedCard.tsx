@@ -1,11 +1,11 @@
 import React, { useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
-import { parse, format } from 'date-fns';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
+import { formatYmdDots } from '@utils/datetime';
 
 import type { Disclosure } from '@app-types/disclosure.types';
 
@@ -33,7 +33,7 @@ function DisclosureFeedCardComponent({ item }: DisclosureFeedCardProps) {
   );
 
   const formattedDate = useMemo(
-    () => format(parse(item.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd'),
+    () => formatYmdDots(item.rcpDt),
     [item.rcpDt],
   );
 

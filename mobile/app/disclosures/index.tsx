@@ -33,7 +33,7 @@ import { useRequireAuth } from '@hooks/useRequireAuth';
 import { useAuthStore } from '@stores/authStore';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { getHighRiskInfo } from '@utils/disclosureRisk';
-import { parse, format } from 'date-fns';
+import { formatYmdDots } from '@utils/datetime';
 
 // 칩 시각 높이(접근성 hitSlop 계산 기준). 시각 크기는 유지하고 유효 터치 영역만 44pt로 확장한다.
 const FILTER_CHIP_HEIGHT = 34;
@@ -62,7 +62,7 @@ function DisclosureRowBase({ item, onPress, onPressCompany }: DisclosureRowProps
   // 고위험 5종(거래정지·상폐위험·감사의견·소송·계약해지)은 보고서명으로 1차 식별해 강조.
   const risk = useMemo(() => getHighRiskInfo(item.reportName), [item.reportName]);
   const formattedDate = useMemo(
-    () => format(parse(item.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd'),
+    () => formatYmdDots(item.rcpDt),
     [item.rcpDt],
   );
   const cardStyle = useMemo(

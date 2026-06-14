@@ -24,7 +24,7 @@ import {
 } from '@hooks/useSavedDisclosures';
 import { useHaptics } from '@hooks/useHaptics';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
-import { parse, format } from 'date-fns';
+import { formatYmdDots } from '@utils/datetime';
 
 interface SavedDisclosureItem {
   id: string;
@@ -91,7 +91,7 @@ export default function SavedDisclosuresScreen() {
               {item.corpName}
             </Text>
             <Text style={[typo.caption, { color: colors.textTertiary }]}>
-              {format(parse(item.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd')}
+              {formatYmdDots(item.rcpDt)}
             </Text>
           </View>
         </Card>

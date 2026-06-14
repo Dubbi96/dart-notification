@@ -5,6 +5,7 @@ import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { useEventStudyObservations } from '@hooks/useEventStudy';
 import { formatReturnPct, returnColor } from '@utils/numberFormat';
+import { formatYmdDots } from '@utils/datetime';
 
 import type { EventStudyObservation } from '@app-types/signal.types';
 
@@ -13,11 +14,6 @@ interface Props {
   bucketKey: string;
   /** 버킷 표본 수 (토글 라벨 '표본 N건 보기' 표기용) */
   sampleCount: number;
-}
-
-function formatYmd(ymd: string): string {
-  if (!ymd || ymd.length !== 8) return ymd || '-';
-  return `${ymd.slice(0, 4)}.${ymd.slice(4, 6)}.${ymd.slice(6, 8)}`;
 }
 
 /**
@@ -54,13 +50,13 @@ export function EventStudyObservationsDrilldown({ bucketKey, sampleCount }: Prop
         <View
           style={[styles.obsRow, { borderBottomColor: colors.border }]}
           accessible
-          accessibilityLabel={`${title}, 이벤트일 ${formatYmd(item.d0Date)}, D+5 초과수익 ${formatReturnPct(item.carD5)}`}
+          accessibilityLabel={`${title}, 이벤트일 ${formatYmdDots(item.d0Date)}, D+5 초과수익 ${formatReturnPct(item.carD5)}`}
         >
           <View style={styles.obsMain}>
             <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
               {title}
             </Text>
-            <Text style={[typo.small, { color: colors.textTertiary }]}>{formatYmd(item.d0Date)}</Text>
+            <Text style={[typo.small, { color: colors.textTertiary }]}>{formatYmdDots(item.d0Date)}</Text>
           </View>
           <View style={styles.obsCar}>
             <Text style={[typo.small, { color: colors.textTertiary }]}>D+5 초과</Text>

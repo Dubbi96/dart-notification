@@ -12,6 +12,18 @@ export function relativeTime(iso: string): string {
 }
 
 /**
+ * 'YYYYMMDD'(8자리 숫자) → 'YYYY.MM.DD'. 단일 소스(DAR-218).
+ * 종전엔 collection-status·company 상세·EventStudy 드릴다운이 각자
+ * slice(0,4)/slice(4,6)/slice(6,8)로 같은 포맷을 재구현했고, 8자리 미만·null
+ * 처리가 제각각이었다(원문 passthrough vs '-' vs '기록 없음'). 여기로 통일한다.
+ * 8자리 숫자가 아니거나 null/undefined면 일관되게 '-' 폴백.
+ */
+export function formatYmdDots(ymd: string | null | undefined): string {
+  if (!ymd || !/^\d{8}$/.test(ymd)) return '-';
+  return `${ymd.slice(0, 4)}.${ymd.slice(4, 6)}.${ymd.slice(6, 8)}`;
+}
+
+/**
  * 상대시간 + 폴백 래퍼. null·빈문자열·파싱불가 시 fallback(기본 '기록 없음')을 반환한다.
  * 결측 데이터를 '방금'처럼 오인하게 만들지 않기 위한 정직 폴백.
  */

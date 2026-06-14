@@ -7,7 +7,7 @@ import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
 import { useCollectionStatus } from '@hooks/useCollectionStatus';
-import { relativeTimeOrFallback } from '@utils/datetime';
+import { relativeTimeOrFallback, formatYmdDots } from '@utils/datetime';
 import type {
   CollectionMaturity,
   CollectionRunStatus,
@@ -41,12 +41,6 @@ function maturityColor(
 
 function formatStatus(status: CollectionRunStatus): string {
   return status ? STATUS_LABEL[status] : '–';
-}
-
-// YYYYMMDD → 'YYYY.MM.DD'. 형식이 다르면 원문 반환.
-function formatTradeDate(yyyymmdd: string | null): string {
-  if (!yyyymmdd || yyyymmdd.length !== 8) return yyyymmdd ?? '기록 없음';
-  return `${yyyymmdd.slice(0, 4)}.${yyyymmdd.slice(4, 6)}.${yyyymmdd.slice(6, 8)}`;
 }
 
 function MaturityBadge({ maturity }: { maturity: CollectionMaturity }) {
@@ -201,7 +195,7 @@ export default function CollectionStatusScreen() {
             metricLabel="백필 종목"
             maturity={data.indicator.maturity}
             rows={[
-              { label: '최근 거래일', value: formatTradeDate(data.indicator.latestTradeDate) },
+              { label: '최근 거래일', value: formatYmdDots(data.indicator.latestTradeDate) },
               { label: '최근 수집', value: relativeTimeOrFallback(data.indicator.lastCollectedAt) },
               { label: '수집 상태', value: formatStatus(data.indicator.lastStatus) },
             ]}

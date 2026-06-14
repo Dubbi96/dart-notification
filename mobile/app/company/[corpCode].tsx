@@ -29,6 +29,7 @@ import { useCompanySignal } from '@hooks/useSignals';
 import { gradeColor, gradeLabel } from '@utils/signalDisplay';
 import { formatReturnPct, returnColor } from '@utils/numberFormat';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
+import { formatYmdDots } from '@utils/datetime';
 import { parse, format } from 'date-fns';
 import { LoadingState, EmptyState, ErrorState, ApiErrorState } from '@components/common/StateView';
 import { DetailSkeleton } from '@components/common/DetailSkeleton';
@@ -62,11 +63,6 @@ const COMPANY_TABS: { value: CompanyTab; label: string; a11y: string }[] = [
   { value: 'stats', label: '통계', a11y: 'Event Study 통계 탭' },
   { value: 'philosophy', label: '적합도', a11y: '거장별 철학 적합도 탭' },
 ];
-
-function formatEstDate(estDate: string | null): string {
-  if (!estDate || estDate.length !== 8) return '-';
-  return `${estDate.slice(0, 4)}.${estDate.slice(4, 6)}.${estDate.slice(6, 8)}`;
-}
 
 const MARKET_LABELS: Record<string, string> = {
   LISTED: '상장',
@@ -609,7 +605,7 @@ export default function CompanyDetailScreen() {
                   <InfoRow icon="briefcase" label="업종코드" value={overview.industryCode} colors={colors} typo={typo} />
                 )}
                 {overview.estDate && (
-                  <InfoRow icon="calendar" label="설립일" value={formatEstDate(overview.estDate)} colors={colors} typo={typo} />
+                  <InfoRow icon="calendar" label="설립일" value={formatYmdDots(overview.estDate)} colors={colors} typo={typo} />
                 )}
                 {overview.accMonth && (
                   <InfoRow icon="clock" label="결산월" value={`${overview.accMonth}월`} colors={colors} typo={typo} />

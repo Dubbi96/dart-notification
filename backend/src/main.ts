@@ -1,11 +1,21 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { resolveCorsOrigin } from './common/config/cors-origin';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // DAR-252: graceful shutdown.
+  // SIGTERM/SIGINT(재배포·스케일다운) 시 Nest 의 OnModuleDestroy/OnApplicationShutdown 훅을 발화시킨다.
+  // → PrismaService.onModuleDestroy 가 $disconnect 로 DB 좀비 커넥션을 정리하고,
+  //   @nestjs/bullmq 가 worker.close() 로 in-flight job 절단 없이 워커를 정리한다.
+  //   (이 호출이 없으면 위 훅들이 영원히 미발화 → 재배포마다 누수.)
+  app.enableShutdownHooks();
 
   // DAR-114: ETag/조건부요청(304) 비활성화.
   // Express는 기본으로 응답에 ETag를 붙인다. 모바일(React Native/OkHttp)이 재요청 시
@@ -31,9 +41,12 @@ async function bootstrap() {
     }),
   );
 
-  // CORS
+  // CORS (DAR-252)
+  // 개발은 모든 origin 반영(편의). 운영은 CORS_ALLOWED_ORIGINS(콤마구분) 화이트리스트만 허용한다.
+  // origin: true(전체 반영) + credentials 조합은 운영에서 임의 사이트의 credentialed
+  // cross-origin 요청을 허용하는 표면이므로 prod 에서는 명시 origin 만 반영한다.
   app.enableCors({
-    origin: true,
+    origin: resolveCorsOrigin(isProd, process.env.CORS_ALLOWED_ORIGINS),
     credentials: true,
   });
 
@@ -49,6 +62,13 @@ async function bootstrap() {
     }),
   );
 
+  // DAR-252: 전역 예외 필터 + 요청 로깅 인터셉터 등록.
+  // 구현은 돼 있었으나 등록이 0건이라 dead code 였다.
+  //  - AllExceptionsFilter: 모든 에러 응답을 {success:false,error:{code,message}} 표준포맷으로 정규화.
+  //  - LoggingInterceptor: 모든 요청을 `METHOD url status - Nms` 액세스 로그로 관측.
+  app.useGlobalFilters(new AllExceptionsFilter());
+  app.useGlobalInterceptors(new LoggingInterceptor());
+
   // Swagger
   const config = new DocumentBuilder()
     .setTitle('DART Notification API')
@@ -61,7 +81,8 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
-  console.log(`Application is running on: http://localhost:${port}`);
-  console.log(`Swagger docs: http://localhost:${port}/api/docs`);
+  const logger = new Logger('Bootstrap');
+  logger.log(`Application is running on: http://localhost:${port}`);
+  logger.log(`Swagger docs: http://localhost:${port}/api/docs`);
 }
 bootstrap();

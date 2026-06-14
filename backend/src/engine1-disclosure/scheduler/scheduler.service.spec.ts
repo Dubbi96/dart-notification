@@ -3,6 +3,7 @@ import { SchedulerService } from './scheduler.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DartApiService } from '../dart-api/dart-api.service';
 import { ExpoPushService } from '../../expo-push/expo-push.service';
+import { DisclosureDocumentsService } from '../disclosure-documents/disclosure-documents.service';
 
 /**
  * SchedulerService 단위 테스트
@@ -480,5 +481,117 @@ describe('collectByDate — DAR-129 백필 격리', () => {
     await service.collectByDate('20260601', '20260601', 'MANUAL');
 
     expect(prismaMock.watchList.findMany).toHaveBeenCalled();
+  });
+});
+
+// ════════════════════════════════════════════
+// describe: DAR-233 파싱 큐 등록 실패 → 수집로그 PARTIAL
+// (setImmediate fire-and-forget 제거 → await 경로 + 실패 시 부분실패 노출)
+// ════════════════════════════════════════════
+describe('collectByDate — DAR-233 파싱 큐 enqueue 신뢰성', () => {
+  const fakeItem = {
+    corp_code: 'CORP001',
+    corp_name: '테스트기업',
+    stock_code: '000001',
+    corp_cls: 'Y',
+    report_nm: '주요사항보고',
+    rcept_no: 'RCP2026D233',
+    flr_nm: '테스트기업',
+    rcept_dt: '20260601',
+    rm: '',
+  };
+
+  let service: SchedulerService;
+  let prismaMock: ReturnType<typeof makePrismaMock>;
+  let dartApiMock: ReturnType<typeof makeDartApiMock>;
+  let docsMock: { enqueueParsing: jest.Mock };
+
+  async function buildWithDocs() {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        SchedulerService,
+        { provide: PrismaService, useValue: prismaMock },
+        { provide: DartApiService, useValue: dartApiMock },
+        { provide: ExpoPushService, useValue: makeExpoPushMock() },
+        { provide: DisclosureDocumentsService, useValue: docsMock },
+      ],
+    }).compile();
+    return module.get<SchedulerService>(SchedulerService);
+  }
+
+  beforeEach(async () => {
+    prismaMock = makePrismaMock();
+    dartApiMock = makeDartApiMock();
+    docsMock = { enqueueParsing: jest.fn().mockResolvedValue(undefined) };
+
+    dartApiMock.getAllDisclosures.mockResolvedValue([fakeItem]);
+    prismaMock.disclosure.findMany.mockResolvedValue([]);
+    prismaMock.disclosure.createMany.mockResolvedValue({ count: 1 });
+    service = await buildWithDocs();
+  });
+
+  it('파싱 큐 등록은 await 경로로 신규 rcpNo와 함께 호출된다 (정상)', async () => {
+    const result = await service.collectByDate('20260601', '20260601', 'CRON');
+
+    // setImmediate 타이밍에 의존하지 않고 동기적으로 호출이 끝나 있어야 한다
+    expect(docsMock.enqueueParsing).toHaveBeenCalledWith(['RCP2026D233']);
+    expect(result).toEqual({ saved: 1, total: 1 });
+  });
+
+  it('파싱 큐 등록 성공 시 SUCCESS·failedCount=0으로 마감한다 (대조군)', async () => {
+    await service.collectByDate('20260601', '20260601', 'CRON');
+
+    expect(prismaMock.disclosureCollectionLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'SUCCESS',
+          newCount: 1,
+          failedCount: 0,
+        }),
+      }),
+    );
+  });
+
+  it('★파싱 큐 등록 실패 시 PARTIAL·failedCount로 부분실패가 수집상태에 드러난다', async () => {
+    docsMock.enqueueParsing.mockRejectedValue(new Error('큐 등록 실패'));
+
+    // 큐 실패는 throw되지 않아야 한다(수집 자체는 성공 마감, 상태만 PARTIAL)
+    const result = await service.collectByDate('20260601', '20260601', 'CRON');
+
+    expect(result).toEqual({ saved: 1, total: 1 });
+    expect(prismaMock.disclosureCollectionLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'PARTIAL',
+          newCount: 1,
+          failedCount: 1, // 신규 저장 1건이 파싱 미등록 → 드레인 복구 대상
+        }),
+      }),
+    );
+  });
+
+  it('파싱 큐 실패 + 알림 실패가 함께 failedCount에 합산된다', async () => {
+    docsMock.enqueueParsing.mockRejectedValue(new Error('큐 등록 실패'));
+    prismaMock.watchList.findMany.mockRejectedValue(new Error('DB 오류'));
+
+    await service.collectByDate('20260601', '20260601', 'CRON');
+
+    expect(prismaMock.disclosureCollectionLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'PARTIAL',
+          // 파싱 실패 1 + 알림 실패 1 = 2 (부분실패 합산)
+          failedCount: 2,
+        }),
+      }),
+    );
+  });
+
+  it('백필 모드에서도 파싱 큐 등록은 수행된다 (회귀: 분석 baseline)', async () => {
+    await service.collectByDate('20230601', '20230601', 'MANUAL', {
+      isBackfill: true,
+    });
+
+    expect(docsMock.enqueueParsing).toHaveBeenCalledWith(['RCP2026D233']);
   });
 });

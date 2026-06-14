@@ -127,15 +127,23 @@ export class SchedulerService {
       );
 
       // M1 연결점: 신규 저장된 공시 rcpNo를 파싱 큐에 등록
+      // DAR-233: 기존 setImmediate fire-and-forget는 콜백 실패를 logger.error로만
+      // 삼키고, CollectionLog는 이미 SUCCESS로 마감돼 "파싱 미등록"이 수집상태에
+      // 드러나지 않았다(드레인 복구가 지연되면 신규 공시가 영영 미파싱).
+      // → await 경로로 옮기되, 실패 시 해당 건수를 failedCount로 반영해
+      //   상태를 PARTIAL로 마감한다(PipelineDrainScheduler.backfillMissingDocuments
+      //   복구 대상임을 수집상태에 명시).
+      let parseEnqueueFailedCount = 0;
       if (this.disclosureDocumentsService && newDisclosures.length > 0) {
         const newRcpNos = newDisclosures.map((d) => d.rcept_no);
-        setImmediate(async () => {
-          try {
-            await this.disclosureDocumentsService!.enqueueParsing(newRcpNos);
-          } catch (enqueueError) {
-            this.logger.error('파싱 큐 등록 오류', enqueueError);
-          }
-        });
+        try {
+          await this.disclosureDocumentsService.enqueueParsing(newRcpNos);
+        } catch (enqueueError) {
+          this.logger.error('파싱 큐 등록 오류', enqueueError);
+          // 큐 등록 실패분은 파싱 미등록 상태 — 최소 실패건수로 신규 저장 전체를
+          // 반영한다(부분실패가 수집상태에 드러나도록 / 드레인 backfill 복구 대상).
+          parseEnqueueFailedCount = newRcpNos.length;
+        }
       }
 
       // 알림 매칭 및 발송 — 오류 시 failedCount 증가, throw하지 않음
@@ -152,7 +160,9 @@ export class SchedulerService {
       }
 
       const skippedFinal = fetchedCount - newCount;
-      const finalStatus = failedCount > 0 ? 'PARTIAL' : 'SUCCESS';
+      // 파싱 큐 등록 실패분을 합산 — 알림 실패와 함께 부분실패 메트릭에 반영(DAR-233)
+      const failedTotal = failedCount + parseEnqueueFailedCount;
+      const finalStatus = failedTotal > 0 ? 'PARTIAL' : 'SUCCESS';
 
       // ③-b SUCCESS / PARTIAL 로 갱신
       await this.prisma.disclosureCollectionLog.update({
@@ -162,7 +172,7 @@ export class SchedulerService {
           fetchedCount,
           newCount,
           skippedCount: skippedFinal,
-          failedCount,
+          failedCount: failedTotal,
           status: finalStatus,
         },
       });

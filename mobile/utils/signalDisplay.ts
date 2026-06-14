@@ -182,3 +182,28 @@ export function pnlColor(pnlPercent: number, colors: ThemeColors): string {
 export function formatPnlPercent(pnlPercent: number): string {
   return formatReturnPct(pnlPercent, { digits: 1 });
 }
+
+/**
+ * 스파크라인(최근 종가 시계열) 추세 색상 — 첫→마지막 종가 부호로 산정(DAR-256).
+ * 당일 등락률 색(`pnlColor`)을 5일 추세 라인에 그대로 입히면 '오늘 +/5일 -' 종목에서
+ * 우하향 라인이 상승색으로 칠해져 색=의미 정직계약을 위반한다. 라인의 기울기와 색을
+ * 일치시키기 위해 추세(마지막 - 처음)의 부호로 색을 정한다.
+ * 점 2개 미만이거나 양끝이 같으면 중립(textSecondary, returnColor 보합 규칙과 동일).
+ */
+export function sparklineTrendColor(values: number[], colors: ThemeColors): string {
+  if (values.length < 2) return colors.textSecondary;
+  return returnColor(values[values.length - 1] - values[0], colors);
+}
+
+/**
+ * 스파크라인 추세 방향 한국어 레이블(DAR-256) — 색 단독 의미 금지 규칙에 따라
+ * 라인 색·기울기를 낭독(접근성)으로도 전달하기 위한 동반 레이블.
+ * 점 2개 미만이면 빈 문자열(추세 없음).
+ */
+export function sparklineTrendLabel(values: number[]): string {
+  if (values.length < 2) return '';
+  const delta = values[values.length - 1] - values[0];
+  if (delta > 0) return '상승';
+  if (delta < 0) return '하락';
+  return '횡보';
+}

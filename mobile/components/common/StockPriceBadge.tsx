@@ -9,12 +9,14 @@ import {
 import Svg, { Polyline } from 'react-native-svg';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
-import { pnlColor } from '@utils/signalDisplay';
+import { pnlColor, sparklineTrendColor, sparklineTrendLabel } from '@utils/signalDisplay';
 
 import type { StockQuote } from '@app-types/market-quote.types';
 
 // 종목 가격 배지(DAR-158) — 현재가 + 전일대비%(색+부호) + 미니 스파크라인.
 // 정직 계약: 색 단독 의미 금지(부호 병행). 데이터 없으면 null 반환(배지 미표시, 빈상태 흡수).
+// 색=의미 정합(DAR-256): %텍스트 색=당일 등락, 스파크라인 색=5일 추세(첫→마지막).
+//   서로 다른 의미라 색이 다를 수 있고(오늘 +/5일 -), 각 색은 자기 지표와 일치한다.
 // 깜빡임/펄스 금지·테마 토큰만(하드코딩 색상 0)·react-native-svg(기존 의존성)만 사용.
 
 const SPARK_WIDTH = 48;
@@ -80,10 +82,15 @@ export function StockPriceBadge({ quote, showSparkline = true, style }: StockPri
   const directionWord = pct === null ? '' : pct > 0 ? '상승' : pct < 0 ? '하락' : '보합';
 
   const canSpark = showSparkline && quote.sparkline.length >= 2;
+  // 스파크라인 색은 5일 추세(첫→마지막)로 산정 — 당일 등락률 색(changeColor)을 그대로
+  // 입히면 '오늘 +/5일 -' 종목의 우하향 라인이 상승색이 되어 색=의미 계약 위반(DAR-256).
+  const sparkColor = sparklineTrendColor(quote.sparkline, colors);
+  const trendWord = canSpark ? sparklineTrendLabel(quote.sparkline) : '';
 
   const a11y =
     `현재가 ${quote.price.toLocaleString('ko-KR')}원` +
-    (pct !== null ? `, 전일대비 ${Math.abs(pct).toFixed(2)}퍼센트 ${directionWord}` : '');
+    (pct !== null ? `, 전일대비 ${Math.abs(pct).toFixed(2)}퍼센트 ${directionWord}` : '') +
+    (trendWord ? `, 최근 추세 ${trendWord}` : '');
 
   return (
     <View
@@ -92,7 +99,7 @@ export function StockPriceBadge({ quote, showSparkline = true, style }: StockPri
       accessibilityLabel={a11y}
     >
       {canSpark && (
-        <MiniSparkline values={quote.sparkline} color={changeColor} />
+        <MiniSparkline values={quote.sparkline} color={sparkColor} />
       )}
       <Text style={[typo.bodyMedium, { color: colors.text }]}>{priceText}</Text>
       {pctText ? (

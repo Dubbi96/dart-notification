@@ -1,12 +1,12 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SegmentedButtons } from 'react-native-paper';
-import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
 import { Card } from '@components/common/Card';
+import { ScreenHeader } from '@components/common/ScreenHeader';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { DetailSkeleton } from '@components/common/DetailSkeleton';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
@@ -209,24 +209,11 @@ export default function EventStatsScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          hitSlop={8}
-          style={styles.backButton}
-          accessibilityRole="button"
-          accessibilityLabel="뒤로 가기"
-        >
-          <Feather name="chevron-left" size={26} color={colors.text} />
-        </TouchableOpacity>
-        <View style={styles.headerTitle}>
-          <Text style={[typo.h3, { color: colors.text }]}>이벤트 통계</Text>
-          <Text style={[typo.small, { color: colors.textSecondary }]}>
-            어떤 공시 유형이 실제 초과수익을 냈는가
-          </Text>
-        </View>
-        <View style={styles.backButton} />
-      </View>
+      <ScreenHeader
+        title="이벤트 통계"
+        subtitle="어떤 공시 유형이 실제 초과수익을 냈는가"
+        onBack={() => router.back()}
+      />
 
       <View style={styles.tabs}>
         <SegmentedButtons
@@ -248,23 +235,6 @@ export default function EventStatsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    flex: 1,
-    alignItems: 'center',
   },
   tabs: {
     paddingHorizontal: spacing.lg,

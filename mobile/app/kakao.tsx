@@ -58,8 +58,8 @@ export default function KakaoCallback() {
       try {
         const { data } = await api.get(`/auth/kakao/result?state=${encodeURIComponent(state)}`);
         if (data?.success && data?.data) {
-          const { user, tokens, isNewUser } = data.data;
-          setAuth(user, tokens.accessToken, tokens.refreshToken);
+          const { tokens, isNewUser } = data.data;
+          setAuth(tokens.accessToken, tokens.refreshToken);
           SecureStore.setItemAsync('hasLoggedIn', 'true').catch(() => {});
           settleToHome(isNewUser);
           return;

@@ -32,7 +32,7 @@ import { useWatchlist } from '@hooks/useWatchlist';
 import { useSavedDisclosures } from '@hooks/useSavedDisclosures';
 import { useUnreadCount } from '@hooks/useNotifications';
 import { useRequireAuth } from '@hooks/useRequireAuth';
-import { useAuthStore } from '@stores/authStore';
+import { useMe } from '@hooks/useAuth';
 
 import type { Disclosure } from '@app-types/disclosure.types';
 
@@ -54,7 +54,8 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { colors, typography: typo } = useTheme();
   const { isAuthenticated, requireAuth } = useRequireAuth();
-  const userName = useAuthStore((s) => s.user?.name);
+  // 서버 User SSOT = useMe().data (authStore 복제 제거, DAR-262). 미인증 시 쿼리 비활성→undefined.
+  const userName = useMe().data?.name;
 
   // DAR-181: 같은 탭 재탭 시 피드 최상단 복귀(iOS 표준 인터랙션). RN Navigation useScrollToTop.
   const listRef = useRef<FlatList<Disclosure>>(null);

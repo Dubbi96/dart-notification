@@ -263,6 +263,8 @@ export default function DisclosuresScreen() {
           onFocus={() => setSearchFocused(true)}
           onBlur={() => setSearchFocused(false)}
           returnKeyType="search"
+          autoCapitalize="none"
+          autoCorrect={false}
         />
 
         {searchQuery.length > 0 && (

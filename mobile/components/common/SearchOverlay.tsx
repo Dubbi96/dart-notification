@@ -377,6 +377,8 @@ export function SearchOverlay({ visible, onClose }: Props) {
                 onChangeText={setQuery}
                 autoFocus
                 returnKeyType="search"
+                autoCapitalize="none"
+                autoCorrect={false}
                 accessibilityLabel="관심 기업 검색"
                 accessibilityHint="종목명 또는 종목코드 6자리로 검색하세요"
               />

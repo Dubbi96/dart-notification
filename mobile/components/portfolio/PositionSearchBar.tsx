@@ -43,6 +43,9 @@ export function PositionSearchBar({ value, onChangeText, sortKey, onSortChange }
           placeholder="종목명·티커 검색"
           placeholderTextColor={colors.textSecondary}
           style={[typo.bodyMedium, styles.input, { color: colors.text }]}
+          returnKeyType="search"
+          autoCapitalize="none"
+          autoCorrect={false}
         />
       </View>
 

@@ -13,7 +13,12 @@
 // 인메모리 Prisma 가짜는 findAll 이 실제로 호출하는 세 쿼리만 충실히 구현한다:
 //   1) watchList.findMany({ where:{userId}, orderBy, include:{company} })
 //   2) disclosure.groupBy({ by:['corpCode'], where:{corpCode:{in}}, _max:{rcpDt} })
-//   3) disclosure.count({ where:{corpCode, rcpNo:{gt: cursor}} })
+//   3) $queryRaw(VALUES (corpCode,cursor)... LEFT JOIN disclosures GROUP BY corpCode)  ← DAR-214
+//
+// DAR-214: 항목당 disclosure.count(N+1) → (corpCode,커서) VALUES 조인 단일 grouped 쿼리(N→1).
+// 같은 술어(rcpNo > cursor)라 배지 수치는 기존과 동일해야 한다 — 아래 단정이 값 동치를 증명한다.
+// $queryRaw 가짜는 Prisma.sql 의 .values([corp1,cursor1,corp2,cursor2,...])를 쌍으로 읽어
+// 실 쿼리와 동일한 그룹 count 의미를 재현한다.
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { WatchlistService } from './watchlist.service';
@@ -32,6 +37,22 @@ type WatchRow = {
 
 function makeMockPrisma(watch: WatchRow[], disclosures: DiscRow[]) {
   const prisma: any = {
+    // DAR-214: findAll 의 grouped count 단일 raw 쿼리 재현.
+    // Prisma.sql 은 보간값을 .values 에 [corp1, cursor1, corp2, cursor2, ...] 순으로 담는다.
+    // 쌍으로 끊어 각 corpCode 의 (rcpNo > cursor) 신규 공시 수를 그룹별로 집계해 반환한다.
+    $queryRaw: async (sql: { values: unknown[] }) => {
+      const vals = sql.values;
+      const rows: { corpCode: string; count: number }[] = [];
+      for (let i = 0; i + 1 < vals.length; i += 2) {
+        const corpCode = vals[i] as string;
+        const cursor = vals[i + 1] as string;
+        const count = disclosures.filter(
+          (d) => d.corpCode === corpCode && d.rcpNo > cursor,
+        ).length;
+        rows.push({ corpCode, count });
+      }
+      return rows;
+    },
     watchList: {
       findMany: async ({ where }: { where: { userId: string } }) =>
         watch
@@ -72,14 +93,6 @@ function makeMockPrisma(watch: WatchRow[], disclosures: DiscRow[]) {
           _max: { rcpDt },
         }));
       },
-      count: async ({
-        where,
-      }: {
-        where: { corpCode: string; rcpNo: { gt: string } };
-      }) =>
-        disclosures.filter(
-          (d) => d.corpCode === where.corpCode && d.rcpNo > where.rcpNo.gt,
-        ).length,
       aggregate: async ({ where }: { where: { corpCode: string } }) => {
         let max: string | null = null;
         for (const d of disclosures) {
@@ -203,5 +216,55 @@ describe('WatchlistService.findAll — DAR-185 같은 날 unread 집계', () => 
     const res = await service.findAll(USER);
     expect(res.items).toHaveLength(0);
     expect(res.total).toBe(0);
+  });
+
+  it('★ DAR-214: 여러 종목·서로 다른 커서를 단일 grouped 쿼리로 정확히 집계(0건 종목 포함)', async () => {
+    const CORP_A = '00126380'; // 삼성전자 — 커서 이후 신규 2건
+    const CORP_B = '00164779'; // SK하이닉스 — 신규 1건
+    const CORP_C = '00401731'; // 종목 C — 공시 0건(LEFT JOIN → 0 폴백)
+    const watch: WatchRow[] = [
+      {
+        id: 'wA',
+        userId: USER,
+        corpCode: CORP_A,
+        corpName: '삼성전자',
+        createdAt,
+        lastViewedAt: null,
+        lastViewedRcpNo: '20260612000100', // 커서
+      },
+      {
+        id: 'wB',
+        userId: USER,
+        corpCode: CORP_B,
+        corpName: 'SK하이닉스',
+        createdAt,
+        lastViewedAt: null,
+        lastViewedRcpNo: '20260612000500', // 다른 커서
+      },
+      {
+        id: 'wC',
+        userId: USER,
+        corpCode: CORP_C,
+        corpName: '종목C',
+        createdAt,
+        lastViewedAt: null,
+        lastViewedRcpNo: '20260612000000',
+      },
+    ];
+    const disclosures: DiscRow[] = [
+      { corpCode: CORP_A, rcpNo: '20260612000100', rcpDt: '20260612' }, // = 커서 → 제외
+      { corpCode: CORP_A, rcpNo: '20260612000205', rcpDt: '20260612' }, // 신규
+      { corpCode: CORP_A, rcpNo: '20260612000301', rcpDt: '20260612' }, // 신규
+      { corpCode: CORP_B, rcpNo: '20260612000400', rcpDt: '20260612' }, // < 커서 → 제외
+      { corpCode: CORP_B, rcpNo: '20260612000777', rcpDt: '20260612' }, // 신규
+      // CORP_C 공시 없음 → 0
+    ];
+    const service = await buildService(makeMockPrisma(watch, disclosures));
+    const res = await service.findAll(USER);
+
+    const byCorp = new Map(res.items.map((i) => [i.corpCode, i.newDisclosureCount]));
+    expect(byCorp.get(CORP_A)).toBe(2);
+    expect(byCorp.get(CORP_B)).toBe(1);
+    expect(byCorp.get(CORP_C)).toBe(0); // 공시 0건도 항목 누락 없이 0
   });
 });

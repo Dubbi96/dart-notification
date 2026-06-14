@@ -3,6 +3,7 @@ import {
   resolveCursor,
   isNewByCursor,
   countNewByCursor,
+  newCountMapFromGrouped,
 } from './watchlist.util';
 
 describe('watchlist.util (DAR-185 신규 공시 카운트 — rcpNo 커서)', () => {
@@ -106,6 +107,31 @@ describe('watchlist.util (DAR-185 신규 공시 카운트 — rcpNo 커서)', ()
       expect(
         countNewByCursor(['20260612000400', '20260612000100'], cursor),
       ).toBe(0);
+    });
+  });
+
+  describe('newCountMapFromGrouped (DAR-214 grouped count 결과 매핑)', () => {
+    it('corpCode → count Map 으로 정규화한다', () => {
+      const map = newCountMapFromGrouped([
+        { corpCode: 'A', count: 2 },
+        { corpCode: 'B', count: 0 },
+      ]);
+      expect(map.get('A')).toBe(2);
+      expect(map.get('B')).toBe(0);
+    });
+
+    it('COUNT 가 bigint 로 와도 number 로 변환한다', () => {
+      const map = newCountMapFromGrouped([
+        { corpCode: 'A', count: BigInt(5) },
+      ]);
+      expect(map.get('A')).toBe(5);
+      expect(typeof map.get('A')).toBe('number');
+    });
+
+    it('빈 결과는 빈 Map (호출부에서 ?? 0 폴백)', () => {
+      const map = newCountMapFromGrouped([]);
+      expect(map.size).toBe(0);
+      expect(map.get('Z') ?? 0).toBe(0);
     });
   });
 });

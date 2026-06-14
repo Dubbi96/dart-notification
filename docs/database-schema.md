@@ -228,6 +228,7 @@ model Disclosure {
   @@index([disclosureType])
   @@index([createdAt]) // 최근 공시 조회용
   @@index([isBackfill]) // DAR-129: 신호생성·신호피드 백필 제외 필터 조회용
+  @@index([corpCode, rcpNo]) // DAR-214: 워치리스트 신규 공시 grouped count(corpCode + rcpNo>커서) 조인용
   @@map("disclosures")
 }
 

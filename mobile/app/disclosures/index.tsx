@@ -41,6 +41,109 @@ const SUB_FILTER_CHIP_HEIGHT = 30;
 const FILTER_CHIP_HIT_SLOP = verticalHitSlopForHeight(FILTER_CHIP_HEIGHT);
 const SUB_FILTER_CHIP_HIT_SLOP = verticalHitSlopForHeight(SUB_FILTER_CHIP_HEIGHT);
 
+// rcpNo는 14자리 자연키로 모든 공시에서 고유 → 안정적 keyExtractor(모듈 상수로 참조 고정).
+const keyExtractor = (item: Disclosure) => item.rcpNo;
+
+interface DisclosureRowProps {
+  item: Disclosure;
+  onPress: (rcpNo: string) => void;
+  onPressCompany: (corpCode: string) => void;
+}
+
+// React.memo 행 분리(DAR-215): 검색입력·필터토글 등 부모 리렌더 시 props(item·핸들러)가
+// 불변이면 보이는 행도 재렌더되지 않게 한다. 고위험/타입스타일/날짜포맷은 useMemo로 행 내부 1회만.
+function DisclosureRowBase({ item, onPress, onPressCompany }: DisclosureRowProps) {
+  const { colors, typography: typo, isDark } = useTheme();
+
+  const typeStyle = useMemo(
+    () => getTypeStyle(item.disclosureType, isDark),
+    [item.disclosureType, isDark],
+  );
+  // 고위험 5종(거래정지·상폐위험·감사의견·소송·계약해지)은 보고서명으로 1차 식별해 강조.
+  const risk = useMemo(() => getHighRiskInfo(item.reportName), [item.reportName]);
+  const formattedDate = useMemo(
+    () => format(parse(item.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd'),
+    [item.rcpDt],
+  );
+  const cardStyle = useMemo(
+    () =>
+      risk
+        ? { ...styles.card, borderLeftWidth: 3, borderLeftColor: colors.error }
+        : styles.card,
+    [risk, colors.error],
+  );
+
+  const handlePress = useCallback(() => onPress(item.rcpNo), [onPress, item.rcpNo]);
+  const handlePressCompany = useCallback(() => {
+    if (item.corpCode) onPressCompany(item.corpCode);
+  }, [onPressCompany, item.corpCode]);
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={handlePress}
+      accessibilityRole="button"
+      accessibilityLabel={
+        risk
+          ? `고위험 공시 ${risk.label}. ${item.corpName} ${item.reportName}`
+          : `${item.corpName} ${item.reportName}`
+      }
+    >
+      <Card style={cardStyle} variant="elevated">
+        <View style={styles.cardHeader}>
+          <View style={styles.badgeRow}>
+            <View style={[styles.typeBadge, { backgroundColor: typeStyle.bg }]}>
+              <Text style={[typo.small, { color: typeStyle.text, fontWeight: '600' }]}>
+                {getTypeLabel(item.disclosureType)}
+              </Text>
+            </View>
+            {risk && (
+              <View style={[styles.riskBadge, { backgroundColor: colors.errorSurface }]}>
+                <Ionicons name="warning" size={11} color={colors.error} />
+                <Text style={[typo.small, { color: colors.error, fontWeight: '700' }]}>
+                  {risk.label}
+                </Text>
+              </View>
+            )}
+          </View>
+          <Text style={[typo.small, { color: colors.textSecondary }]}>{formattedDate}</Text>
+        </View>
+        <Text
+          style={[
+            typo.bodyMedium,
+            { color: risk ? colors.error : colors.text, marginTop: spacing.sm },
+          ]}
+          numberOfLines={2}
+        >
+          {item.reportName}
+        </Text>
+        {/* 기업명 보조 탭 — 종목 허브 1탭 직행. 카드 본 탭(공시 상세)과 분리(DAR-155). */}
+        {item.corpCode ? (
+          <TouchableOpacity
+            style={styles.corpLink}
+            onPress={handlePressCompany}
+            activeOpacity={0.6}
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 12 }}
+            accessibilityRole="link"
+            accessibilityLabel={`${item.corpName} 기업 정보 보기`}
+          >
+            <Text style={[typo.caption, { color: colors.primary }]} numberOfLines={1}>
+              {item.corpName}
+            </Text>
+            <Ionicons name="chevron-forward" size={13} color={colors.primary} />
+          </TouchableOpacity>
+        ) : (
+          <Text style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+            {item.corpName}
+          </Text>
+        )}
+      </Card>
+    </TouchableOpacity>
+  );
+}
+
+const DisclosureRow = React.memo(DisclosureRowBase);
+
 export default function DisclosuresScreen() {
   const { colors, typography: typo, isDark } = useTheme();
   const { isAuthenticated, requireAuth } = useRequireAuth();
@@ -99,80 +202,29 @@ export default function DisclosuresScreen() {
     setActiveFilter(filter);
   };
 
-  const renderItem = ({ item }: { item: Disclosure }) => {
-    const typeStyle = getTypeStyle(item.disclosureType, isDark);
-    // 고위험 5종(거래정지·상폐위험·감사의견·소송·계약해지)은 보고서명으로 1차 식별해 강조.
-    const risk = getHighRiskInfo(item.reportName);
-    return (
-      <TouchableOpacity
-        activeOpacity={0.7}
-        onPress={() => router.push(`/disclosure/${item.rcpNo}`)}
-        accessibilityRole="button"
-        accessibilityLabel={
-          risk
-            ? `고위험 공시 ${risk.label}. ${item.corpName} ${item.reportName}`
-            : `${item.corpName} ${item.reportName}`
-        }
-      >
-        <Card
-          style={
-            risk
-              ? { ...styles.card, borderLeftWidth: 3, borderLeftColor: colors.error }
-              : styles.card
-          }
-          variant="elevated"
-        >
-          <View style={styles.cardHeader}>
-            <View style={styles.badgeRow}>
-              <View style={[styles.typeBadge, { backgroundColor: typeStyle.bg }]}>
-                <Text style={[typo.small, { color: typeStyle.text, fontWeight: '600' }]}>
-                  {getTypeLabel(item.disclosureType)}
-                </Text>
-              </View>
-              {risk && (
-                <View style={[styles.riskBadge, { backgroundColor: colors.errorSurface }]}>
-                  <Ionicons name="warning" size={11} color={colors.error} />
-                  <Text style={[typo.small, { color: colors.error, fontWeight: '700' }]}>
-                    {risk.label}
-                  </Text>
-                </View>
-              )}
-            </View>
-            <Text style={[typo.small, { color: colors.textSecondary }]}>{format(parse(item.rcpDt, 'yyyyMMdd', new Date()), 'yyyy.MM.dd')}</Text>
-          </View>
-          <Text
-            style={[
-              typo.bodyMedium,
-              { color: risk ? colors.error : colors.text, marginTop: spacing.sm },
-            ]}
-            numberOfLines={2}
-          >
-            {item.reportName}
-          </Text>
-          {/* 기업명 보조 탭 — 종목 허브 1탭 직행. 카드 본 탭(공시 상세)과 분리(DAR-155). */}
-          {item.corpCode ? (
-            <TouchableOpacity
-              style={styles.corpLink}
-              onPress={() => router.push(`/company/${item.corpCode}`)}
-              activeOpacity={0.6}
-              hitSlop={{ top: 8, bottom: 8, left: 4, right: 12 }}
-              accessibilityRole="link"
-              accessibilityLabel={`${item.corpName} 기업 정보 보기`}
-            >
-              <Text style={[typo.caption, { color: colors.primary }]} numberOfLines={1}>
-                {item.corpName}
-              </Text>
-              <Ionicons name="chevron-forward" size={13} color={colors.primary} />
-            </TouchableOpacity>
-          ) : (
-            <Text style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
-              {item.corpName}
-            </Text>
-          )}
-        </Card>
-      </TouchableOpacity>
-    );
-  };
+  const handleItemPress = useCallback((rcpNo: string) => {
+    router.push(`/disclosure/${rcpNo}`);
+  }, []);
+  const handleCompanyPress = useCallback((corpCode: string) => {
+    router.push(`/company/${corpCode}`);
+  }, []);
+
+  const renderItem = useCallback(
+    ({ item }: { item: Disclosure }) => (
+      <DisclosureRow item={item} onPress={handleItemPress} onPressCompany={handleCompanyPress} />
+    ),
+    [handleItemPress, handleCompanyPress],
+  );
+
+  const handleEndReached = useCallback(() => {
+    if (activeQuery.hasNextPage && !activeQuery.isFetchingNextPage) {
+      activeQuery.fetchNextPage();
+    }
+  }, [activeQuery]);
+
+  const handleRefresh = useCallback(() => {
+    activeQuery.refetch();
+  }, [activeQuery]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -419,21 +471,17 @@ export default function DisclosuresScreen() {
         <FlatList
           data={items}
           renderItem={renderItem}
-          keyExtractor={(item) => item.rcpNo}
+          keyExtractor={keyExtractor}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           initialNumToRender={10}
           maxToRenderPerBatch={10}
           windowSize={11}
           removeClippedSubviews
-          onEndReached={() => {
-            if (activeQuery.hasNextPage && !activeQuery.isFetchingNextPage) {
-              activeQuery.fetchNextPage();
-            }
-          }}
+          onEndReached={handleEndReached}
           onEndReachedThreshold={0.4}
           refreshing={activeQuery.isRefetching && !activeQuery.isFetchingNextPage}
-          onRefresh={activeQuery.refetch}
+          onRefresh={handleRefresh}
           ListFooterComponent={
             <InfiniteListFooter
               isFetchingNextPage={activeQuery.isFetchingNextPage}

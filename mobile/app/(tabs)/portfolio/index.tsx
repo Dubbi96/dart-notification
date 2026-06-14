@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import { View, Text, FlatList, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { SegmentedButtons, Surface, Banner } from 'react-native-paper';
+import { Surface, Banner } from 'react-native-paper';
 import { router, useScrollToTop } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
@@ -30,7 +30,9 @@ import { dedupeByStock } from '@utils/dedupe';
 import type { Position } from '@app-types/portfolio.types';
 import type { SortKey } from '@components/portfolio/PositionSearchBar';
 
-type SubTab = 'live' | 'paper' | 'sim' | 'persona' | 'style';
+import { PORTFOLIO_TABS, pickLiveEmptyState } from './tabs';
+
+import type { PortfolioSubTab } from './tabs';
 
 // VIOLATED/EXPIRED 포지션을 리스트 최상단으로 고정하는 정렬 우선순위.
 const STATUS_ORDER: Record<Position['thesisStatus'], number> = {
@@ -42,7 +44,7 @@ const STATUS_ORDER: Record<Position['thesisStatus'], number> = {
 
 export default function PortfolioScreen() {
   const { colors, typography: typo } = useTheme();
-  const [subTab, setSubTab] = useState<SubTab>('live');
+  const [subTab, setSubTab] = useState<PortfolioSubTab>('live');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('urgency');
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -157,13 +159,15 @@ export default function PortfolioScreen() {
           </View>
         }
         ListEmptyComponent={
-          positionsQuery.data?.length === 0 ? (
+          // DAR-212: 실전은 실제 주문 엔드포인트가 없어(Engine5 게이트) 항상 빈 상태일 수 있다.
+          // 매수 유도 CTA 대신 '준비 중'을 정직하게 안내하고, 지금 쓸 수 있는 '내 모의'로 보낸다.
+          pickLiveEmptyState(positionsQuery.data?.length ?? 0) === 'preparing' ? (
             <EmptyState
-              icon="briefcase"
-              title="아직 보유 종목이 없어요"
-              description="신호 탭에서 매수 신호를 확인해 보세요"
-              actionLabel="신호 보러 가기"
-              onAction={() => router.push('/(tabs)/signals')}
+              icon="clock"
+              title="실전 거래는 준비 중이에요"
+              description="실제 주문 기능은 아직 제공되지 않아요. 지금은 '내 모의' 탭에서 전략을 미리 확인해 보세요."
+              actionLabel="내 모의 보기"
+              onAction={() => setSubTab('paper')}
             />
           ) : (
             <EmptyState
@@ -255,18 +259,44 @@ export default function PortfolioScreen() {
         />
       ) : (
         <>
+          {/* DAR-212: 5분할 SegmentedButtons는 역할 라벨이 잘려(개념 과밀) 가로 스크롤 칩 행으로
+              노출한다(DAR-156 종목상세 패턴 재사용). '내 모의'/'시스템 모의'로 주체를 구분. */}
           <View style={styles.tabs}>
-            <SegmentedButtons
-              value={subTab}
-              onValueChange={(v) => setSubTab(v as SubTab)}
-              buttons={[
-                { value: 'live', label: '실전', icon: 'wallet' },
-                { value: 'paper', label: '모의', icon: 'flask' },
-                { value: 'sim', label: '모의운용', icon: 'chart-line' },
-                { value: 'persona', label: '페르소나', icon: 'account-group' },
-                { value: 'style', label: '스타일', icon: 'podium' },
-              ]}
-            />
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.tabScrollContent}
+            >
+              {PORTFOLIO_TABS.map((tab) => {
+                const isActive = subTab === tab.value;
+                return (
+                  <TouchableOpacity
+                    key={tab.value}
+                    style={[
+                      styles.tabChip,
+                      isActive
+                        ? { backgroundColor: colors.primary, borderColor: colors.primary }
+                        : { backgroundColor: colors.surface, borderColor: colors.borderLight },
+                    ]}
+                    onPress={() => setSubTab(tab.value)}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: isActive }}
+                    accessibilityLabel={tab.a11y}
+                  >
+                    <Text
+                      style={[
+                        typo.captionMedium,
+                        { color: isActive ? colors.primaryForeground : colors.textSecondary },
+                      ]}
+                    >
+                      {tab.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
 
           <View style={styles.body}>
@@ -296,8 +326,22 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   tabs: {
-    paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
+  },
+  tabScrollContent: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
+  tabChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    minHeight: 36,
   },
   body: {
     flex: 1,

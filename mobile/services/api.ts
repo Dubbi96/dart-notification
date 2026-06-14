@@ -38,7 +38,8 @@ async function performTokenRefresh(refreshToken: string): Promise<string> {
   });
   const refreshData = data.data;
   // 인터셉터 실행 시점의 최신 store 액션을 사용(클로저 캡처 stale 회피).
-  useAuthStore.getState().setAuth(refreshData.user, refreshData.accessToken, refreshData.refreshToken);
+  // 토큰 회전은 같은 사용자 세션이므로 updateTokens(캐시 보존). setAuth 는 로그인 전용(캐시 비움, DAR-262).
+  useAuthStore.getState().updateTokens(refreshData.accessToken, refreshData.refreshToken);
   return refreshData.accessToken;
 }
 

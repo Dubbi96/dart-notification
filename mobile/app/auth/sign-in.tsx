@@ -110,8 +110,8 @@ export default function SignInScreen() {
           // await 해소가 언마운트 후 도착하면 setState·네비게이션을 중단한다(DAR-228).
           if (!guard.isMounted()) return;
 
-          const { user, tokens, isNewUser } = data.data;
-          setAuth(user, tokens.accessToken, tokens.refreshToken);
+          const { tokens, isNewUser } = data.data;
+          setAuth(tokens.accessToken, tokens.refreshToken);
           SecureStore.setItemAsync('hasLoggedIn', 'true');
           setIsLoading(false);
 
@@ -176,8 +176,8 @@ export default function SignInScreen() {
             guard.clearTimer(pollingRef.current);
             pollingRef.current = null;
             if (!guard.isMounted()) return;
-            const { user, tokens, isNewUser } = data.data;
-            setAuth(user, tokens.accessToken, tokens.refreshToken);
+            const { tokens, isNewUser } = data.data;
+            setAuth(tokens.accessToken, tokens.refreshToken);
             SecureStore.setItemAsync('hasLoggedIn', 'true');
             setIsLoading(false);
             router.replace(isNewUser ? '/onboarding' : '/(tabs)/home');

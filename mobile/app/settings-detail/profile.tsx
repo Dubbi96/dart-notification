@@ -15,7 +15,7 @@ import { spacing } from '@theme/spacing';
 import { Input } from '@components/common/Input';
 import { Button } from '@components/common/Button';
 import { useDialog } from '@components/common/DialogProvider';
-import { useAuthStore } from '@stores/authStore';
+import { useMe } from '@hooks/useAuth';
 import { api } from '@services/api';
 
 interface ProfileForm {
@@ -25,11 +25,14 @@ interface ProfileForm {
 export default function ProfileScreen() {
   const { colors, typography: typo } = useTheme();
   const { showDialog } = useDialog();
-  const { user } = useAuthStore();
+  // 서버 User SSOT = useMe().data (authStore 복제 제거, DAR-262).
+  const { data: user } = useMe();
   const [isSaving, setIsSaving] = useState(false);
 
+  // useMe().data 는 비동기 로드 → 콜드 캐시/딥링크 진입 시 마운트 시점엔 비어 있을 수 있다.
+  // `values` 로 데이터 도착 시 이름을 반영하고, 동일 데이터 refetch 는 구조적 공유로 편집을 보존한다.
   const { control, handleSubmit, formState: { isDirty } } = useForm<ProfileForm>({
-    defaultValues: { name: user?.name || '' },
+    values: { name: user?.name ?? '' },
   });
 
   const onSubmit = async (data: ProfileForm) => {

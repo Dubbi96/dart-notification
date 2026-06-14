@@ -3,8 +3,9 @@ import { View, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { PaperProvider } from 'react-native-paper';
+import { queryClient } from '@services/queryClient';
 import { ThemeContext, getTheme, useAppColorScheme, useTextScale, getPaperTheme } from '@theme';
 import { SnackbarProvider } from '@components/common/SnackbarProvider';
 import { DialogProvider } from '@components/common/DialogProvider';
@@ -19,15 +20,6 @@ export { ErrorFallback as ErrorBoundary } from '@components/common/ErrorFallback
 // DAR-173: React Query onlineManager 를 NetInfo 에 연동(모듈 로드 1회).
 // 단절→복구 시 refetchOnReconnect 로 stale 쿼리 자동 재요청.
 configureOnlineManager();
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 2,
-      staleTime: 1000 * 60 * 5, // 5 minutes
-    },
-  },
-});
 
 function AppContent() {
   const colorScheme = useAppColorScheme();

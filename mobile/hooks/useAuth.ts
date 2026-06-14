@@ -9,7 +9,7 @@ export function useKakaoLogin() {
   return useMutation({
     mutationFn: authService.kakaoLogin,
     onSuccess: (data) => {
-      setAuth(data.user, data.tokens.accessToken, data.tokens.refreshToken);
+      setAuth(data.tokens.accessToken, data.tokens.refreshToken);
       SecureStore.setItemAsync('hasLoggedIn', 'true');
       if (data.isNewUser) {
         router.replace('/onboarding');
@@ -21,16 +21,14 @@ export function useKakaoLogin() {
 }
 
 export function useMe() {
-  const { isAuthenticated, setAuth, clearAuth, accessToken, refreshToken } = useAuthStore();
+  const { isAuthenticated, clearAuth } = useAuthStore();
   return useQuery({
     queryKey: ['users', 'me'],
+    // 순수 조회: 서버 User 는 이 쿼리의 data 가 SSOT. 토큰 변동이 없으므로 setAuth 로
+    // 토큰을 재기록(불필요한 SecureStore I/O)하거나 authStore 에 복제하지 않는다(DAR-262).
     queryFn: async () => {
       try {
-        const data = await authService.getMe();
-        if (data && accessToken && refreshToken) {
-          setAuth(data, accessToken, refreshToken);
-        }
-        return data;
+        return await authService.getMe();
       } catch (err) {
         const status = (err as { response?: { status?: number } })?.response?.status;
         if (status === 401 || status === 403) {

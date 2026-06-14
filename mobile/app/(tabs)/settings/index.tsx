@@ -64,11 +64,12 @@ function MenuItem({ icon, title, subtitle, onPress, badgeCount, showChevron = tr
 
 export default function SettingsScreen() {
   const { colors, typography: typo } = useTheme();
-  const { user, isAuthenticated } = useAuthStore();
+  const { isAuthenticated } = useAuthStore();
   const { colorSchemeOverride, setColorScheme, textScaleOverride, setTextScaleOverride } =
     useSettingsStore();
   const { mutate: logout } = useLogout();
-  const { refetch: refetchMe } = useMe();
+  // 서버 User SSOT = useMe().data (authStore 복제 제거, DAR-262).
+  const { data: user, refetch: refetchMe } = useMe();
   const insets = useSafeAreaInsets();
   const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
   const watchlistCount = watchlistData?.meta?.total ?? 0;

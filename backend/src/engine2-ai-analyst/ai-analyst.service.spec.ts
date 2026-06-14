@@ -346,3 +346,54 @@ describe('AiAnalystService.runPositionThesis', () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 });
+
+// ── DAR-244: 모델 단가표 미매칭 경보 ─────────────────────────────────────────
+
+describe('[DAR-244] AiAnalystService 미등록 모델 단가 경보', () => {
+  function summaryReqFor(rcpNo: string): SummaryRequest {
+    return {
+      gate: makeGate(),
+      input: { rcpNo, eventType: 'SUPPLY_CONTRACT', keyMetrics: { amount: 100 }, excerpt: '본문' },
+    };
+  }
+  const resultFor = (model: string): TaskRunResult<DisclosureSummaryDraft> => ({
+    result: summaryDraft,
+    usage: { model, inputTokens: 500, outputTokens: 200 },
+  });
+
+  it('미등록 모델(o4-mini)이면 비용은 폴백 기록되고 warn 1회 노출', async () => {
+    const run = jest.fn().mockResolvedValue(resultFor('o4-mini'));
+    const { service, logSpy } = buildService(run);
+    const warnSpy = jest.spyOn((service as unknown as { logger: { warn: jest.Mock } }).logger, 'warn');
+
+    await service.runSummary(summaryReqFor('R001'));
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy.mock.calls[0][0].costUsd).toBeGreaterThan(0); // DEFAULT_PRICE 폴백 비용
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0][0]).toContain('o4-mini');
+    expect(warnSpy.mock.calls[0][0]).toContain('DAR-244');
+  });
+
+  it('동일 미등록 모델 반복 호출은 모델당 1회만 경보(로그 폭주 방지)', async () => {
+    const run = jest.fn().mockResolvedValue(resultFor('o4-mini'));
+    const { service } = buildService(run);
+    const warnSpy = jest.spyOn((service as unknown as { logger: { warn: jest.Mock } }).logger, 'warn');
+
+    await service.runSummary(summaryReqFor('R001'));
+    await service.runSummary(summaryReqFor('R002'));
+
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('등록 모델(gpt-4o-mini)은 경보하지 않음(회귀 보존)', async () => {
+    const run = jest.fn().mockResolvedValue(resultFor('gpt-4o-mini'));
+    const { service } = buildService(run);
+    const warnSpy = jest.spyOn((service as unknown as { logger: { warn: jest.Mock } }).logger, 'warn');
+
+    await service.runSummary(summaryReqFor('R001'));
+
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+});

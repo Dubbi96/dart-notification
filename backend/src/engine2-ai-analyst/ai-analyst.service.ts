@@ -19,8 +19,8 @@ import {
   PositionThesisInput,
   PositionThesisDraft,
 } from './tasks/position-thesis.task';
-import { estimateCostUsd } from './pricing/estimate-cost';
-import { AiCostLevel, AiGateInput } from './types/ai-analyst.types';
+import { estimateCostUsd, isPricedModel } from './pricing/estimate-cost';
+import { AiCostLevel, AiGateInput, TaskUsage } from './types/ai-analyst.types';
 
 export interface SummaryRequest {
   gate: AiGateInput;
@@ -53,6 +53,8 @@ export interface PositionThesisRequest {
 @Injectable()
 export class AiAnalystService {
   private readonly logger = new Logger(AiAnalystService.name);
+  /** 단가표 미매칭으로 경보한 모델명(프로세스 단위 1회 경보 — 로그 폭주 방지). DAR-244. */
+  private readonly unpricedModelsWarned = new Set<string>();
 
   constructor(
     private readonly gate: AiCostGateService,
@@ -72,6 +74,26 @@ export class AiAnalystService {
   private async resolveLevel(gate: AiGateInput): Promise<AiCostLevel> {
     const proposed = this.gate.evaluateGate(gate);
     return this.limitGuard.enforceLimit(proposed);
+  }
+
+  /**
+   * 추정비용을 계산하되, 모델 단가표 미매칭(DEFAULT_PRICE 조용한 폴백)을 경보한다(DAR-244).
+   * 미매칭 추정비용은 실청구와 달라 AIUsageLog·한도가드 정확도를 직접 떨어뜨리므로
+   * 모델당 1회 warn으로 노출한다. estimate-cost.ts PRICE_PER_1K 갱신이 필요하다는 신호.
+   */
+  private costUsdFor(usage: TaskUsage): number {
+    if (!isPricedModel(usage.model)) {
+      const model = usage.model && usage.model.length > 0 ? usage.model : '(unset)';
+      if (!this.unpricedModelsWarned.has(model)) {
+        this.unpricedModelsWarned.add(model);
+        this.logger.warn(
+          `[AiAnalyst] 미등록 모델 단가 — model="${model}" PRICE_PER_1K 미매칭 → DEFAULT_PRICE 폴백. ` +
+            `추정비용이 실청구와 달라 AIUsageLog·비용 한도집계가 부정확할 수 있음(DAR-244). ` +
+            `pricing/estimate-cost.ts PRICE_PER_1K에 해당 모델 단가 추가 필요.`,
+        );
+      }
+    }
+    return estimateCostUsd(usage);
   }
 
   /**
@@ -111,7 +133,7 @@ export class AiAnalystService {
       model: usage.model,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
-      costUsd: estimateCostUsd(usage),
+      costUsd: this.costUsdFor(usage),
     });
 
     return result;
@@ -156,7 +178,7 @@ export class AiAnalystService {
       model: usage.model,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
-      costUsd: estimateCostUsd(usage),
+      costUsd: this.costUsdFor(usage),
     });
 
     return result;
@@ -204,7 +226,7 @@ export class AiAnalystService {
       model: usage.model,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
-      costUsd: estimateCostUsd(usage),
+      costUsd: this.costUsdFor(usage),
     });
 
     return result;
@@ -247,7 +269,7 @@ export class AiAnalystService {
       model: usage.model,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
-      costUsd: estimateCostUsd(usage),
+      costUsd: this.costUsdFor(usage),
     });
 
     return result;

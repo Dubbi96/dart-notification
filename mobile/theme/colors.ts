@@ -39,6 +39,14 @@ export const palette = {
   // Semantic
   white: '#FFFFFF',
   black: '#000000',
+
+  // White alpha — 컬러 그라데이션 히어로/스낵바 등 '컬러 표면 위' 전경 전용 (DAR-269)
+  whiteAlpha90: 'rgba(255, 255, 255, 0.9)',
+  whiteAlpha80: 'rgba(255, 255, 255, 0.8)',
+  whiteAlpha70: 'rgba(255, 255, 255, 0.7)',
+  whiteAlpha50: 'rgba(255, 255, 255, 0.5)',
+  whiteAlpha25: 'rgba(255, 255, 255, 0.25)',
+  whiteAlpha20: 'rgba(255, 255, 255, 0.2)',
   red400: '#F87171',
   red500: '#EF4444',
   red600: '#DC2626',
@@ -80,6 +88,20 @@ export const lightColors = {
   // Card (Paychain style gradient card area)
   cardGradientStart: palette.teal500,
   cardGradientEnd: palette.teal800,
+
+  // On-color — 컬러 그라데이션 히어로/카드 위 흰색 전경 (DAR-269)
+  // 배경 그라데이션이 라이트/다크 모두 진한 컬러이므로 두 모드 동일 값.
+  onColor: palette.white,
+  onColorStrong: palette.whiteAlpha90,
+  onColorMuted: palette.whiteAlpha80,
+  onColorSubtle: palette.whiteAlpha70,
+  onColorFaint: palette.whiteAlpha50,
+  hairlineOnColor: palette.whiteAlpha25,
+  avatarOnColor: palette.whiteAlpha20,
+
+  // Snackbar (컬러 표면 토스트 — DAR-269)
+  snackbarBackground: palette.gray800,
+  snackbarText: palette.white,
 
   // Status
   success: palette.green600,
@@ -140,6 +162,20 @@ export const darkColors = {
   // Card
   cardGradientStart: '#1A3A5C',
   cardGradientEnd: palette.navy900,
+
+  // On-color — 컬러 그라데이션 히어로/카드 위 흰색 전경 (DAR-269)
+  // 라이트와 동일 값(배경이 양모드 모두 진한 컬러 그라데이션이라 흰색 전경 유지).
+  onColor: palette.white,
+  onColorStrong: palette.whiteAlpha90,
+  onColorMuted: palette.whiteAlpha80,
+  onColorSubtle: palette.whiteAlpha70,
+  onColorFaint: palette.whiteAlpha50,
+  hairlineOnColor: palette.whiteAlpha25,
+  avatarOnColor: palette.whiteAlpha20,
+
+  // Snackbar (컬러 표면 토스트 — DAR-269): 기존 다크 배경(#282E58=navy600) 유지
+  snackbarBackground: palette.navy600,
+  snackbarText: palette.white,
 
   // Status
   success: palette.green400,

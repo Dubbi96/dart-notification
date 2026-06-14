@@ -121,12 +121,12 @@ export default function SettingsScreen() {
         {isAuthenticated ? (
           <>
             <View style={styles.profileInfo}>
-              <View style={[styles.avatar, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+              <View style={[styles.avatar, { backgroundColor: colors.avatarOnColor }]}>
                 <Ionicons name="person" size={32} color={palette.white} />
               </View>
               <View style={styles.profileText}>
                 <Text style={[typo.h3, { color: palette.white }]}>{user?.name || '사용자'}</Text>
-                <Text style={[typo.caption, { color: 'rgba(255,255,255,0.7)' }]}>
+                <Text style={[typo.caption, { color: colors.onColorSubtle }]}>
                   {user?.email?.includes('@kakao.user') ? '카카오 로그인' : user?.email || '-'}
                 </Text>
               </View>
@@ -144,18 +144,18 @@ export default function SettingsScreen() {
                     <Text style={[typo.captionMedium, { color: palette.white }]}>
                       Pro로 업그레이드
                     </Text>
-                    <Text style={[typo.small, { color: 'rgba(255,255,255,0.8)' }]}>
+                    <Text style={[typo.small, { color: colors.onColorMuted }]}>
                       무제한 관심기업 & 고급 필터
                     </Text>
                   </View>
-                  <Ionicons name="arrow-forward-circle" size={28} color="rgba(255,255,255,0.9)" />
+                  <Ionicons name="arrow-forward-circle" size={28} color={colors.onColorStrong} />
                 </View>
               </GlassCard>
             </TouchableOpacity>
           </>
         ) : (
           <View style={styles.profileInfo}>
-            <View style={[styles.avatar, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+            <View style={[styles.avatar, { backgroundColor: colors.avatarOnColor }]}>
               <Ionicons name="person" size={32} color={palette.white} />
             </View>
             <View style={styles.profileText}>
@@ -164,7 +164,7 @@ export default function SettingsScreen() {
                 useAuthStore.getState().clearAuth();
                 router.push('/auth/sign-in');
               }}>
-                <Text style={[typo.caption, { color: 'rgba(255,255,255,0.9)', textDecorationLine: 'underline' }]}>
+                <Text style={[typo.caption, { color: colors.onColorStrong, textDecorationLine: 'underline' }]}>
                   로그인하기
                 </Text>
               </TouchableOpacity>

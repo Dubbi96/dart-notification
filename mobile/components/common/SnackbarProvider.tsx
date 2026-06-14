@@ -30,7 +30,7 @@ export function useSnackbar() {
 }
 
 export function SnackbarProvider({ children }: { children: React.ReactNode }) {
-  const { colors, typography: typo, isDark } = useTheme();
+  const { colors, typography: typo } = useTheme();
   const [visible, setVisible] = useState(false);
   const [message, setMessage] = useState('');
   const [duration, setDuration] = useState(2500);
@@ -45,7 +45,7 @@ export function SnackbarProvider({ children }: { children: React.ReactNode }) {
     requestAnimationFrame(() => setVisible(true));
   }, []);
 
-  const snackbarBg = isDark ? '#282E58' : '#1F2937';
+  const snackbarBg = colors.snackbarBackground;
 
   return (
     <SnackbarContext.Provider value={{ showSnackbar }}>
@@ -69,8 +69,8 @@ export function SnackbarProvider({ children }: { children: React.ReactNode }) {
         }
       >
         <View style={styles.content}>
-          <Feather name="info" size={16} color="#FFFFFF" />
-          <Text style={[typo.body, styles.message]}>{message}</Text>
+          <Feather name="info" size={16} color={colors.snackbarText} />
+          <Text style={[typo.body, styles.message, { color: colors.snackbarText }]}>{message}</Text>
         </View>
       </Snackbar>
     </SnackbarContext.Provider>
@@ -87,7 +87,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   message: {
-    color: '#FFFFFF',
     flexShrink: 1,
   },
 });

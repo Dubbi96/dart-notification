@@ -276,13 +276,13 @@ export default function HomeScreen() {
       >
         <View style={styles.headerTop}>
           <View>
-            <Text style={[typo.small, { color: 'rgba(255,255,255,0.5)' }]}>실시간 DART 공시 알리미</Text>
-            <Text style={[typo.h2, { color: '#FFFFFF', marginTop: 2 }]}>{userName ? `${userName} 님` : '공시온'}</Text>
+            <Text style={[typo.small, { color: colors.onColorFaint }]}>실시간 DART 공시 알리미</Text>
+            <Text style={[typo.h2, { color: colors.onColor, marginTop: 2 }]}>{userName ? `${userName} 님` : '공시온'}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
               {(() => { const { text, Icon } = getGreeting(); return (
                 <>
-                  <Text style={[typo.caption, { color: 'rgba(255,255,255,0.7)' }]}>{text}</Text>
-                  <Icon size={16} color="rgba(255,255,255,0.7)" weight="duotone" />
+                  <Text style={[typo.caption, { color: colors.onColorSubtle }]}>{text}</Text>
+                  <Icon size={16} color={colors.onColorSubtle} weight="duotone" />
                 </>
               ); })()}
             </View>
@@ -316,7 +316,7 @@ export default function HomeScreen() {
                 </View>
               </GlassCard>
               {unreadBadge && (
-                <View style={styles.notifBadge}>
+                <View style={[styles.notifBadge, { backgroundColor: colors.error }]}>
                   <Text style={styles.notifBadgeText}>{unreadBadge}</Text>
                 </View>
               )}
@@ -337,22 +337,22 @@ export default function HomeScreen() {
                   : `오늘의 공시 ${totalCount}건, 공시 목록 열기`
               }
             >
-              <Text style={[typo.h2, { color: '#FFFFFF' }]}>{disclosuresCountDisplay}</Text>
-              <Text style={[typo.small, { color: 'rgba(255,255,255,0.8)' }]}>오늘의 공시</Text>
+              <Text style={[typo.h2, { color: colors.onColor }]}>{disclosuresCountDisplay}</Text>
+              <Text style={[typo.small, { color: colors.onColorMuted }]}>오늘의 공시</Text>
             </TouchableOpacity>
-            <View style={[styles.summaryDivider, { backgroundColor: 'rgba(255,255,255,0.25)' }]} />
+            <View style={[styles.summaryDivider, { backgroundColor: colors.hairlineOnColor }]} />
             <TouchableOpacity style={styles.summaryItem} onPress={() => {
               if (requireAuth()) router.push('/settings-detail/watchlist');
             }}>
-              <Text style={[typo.h2, { color: '#FFFFFF' }]}>{watchlistCountDisplay}</Text>
-              <Text style={[typo.small, { color: 'rgba(255,255,255,0.8)' }]}>관심 기업</Text>
+              <Text style={[typo.h2, { color: colors.onColor }]}>{watchlistCountDisplay}</Text>
+              <Text style={[typo.small, { color: colors.onColorMuted }]}>관심 기업</Text>
             </TouchableOpacity>
-            <View style={[styles.summaryDivider, { backgroundColor: 'rgba(255,255,255,0.25)' }]} />
+            <View style={[styles.summaryDivider, { backgroundColor: colors.hairlineOnColor }]} />
             <TouchableOpacity style={styles.summaryItem} onPress={() => {
               if (requireAuth()) router.push('/settings-detail/saved-disclosures');
             }}>
-              <Text style={[typo.h2, { color: '#FFFFFF' }]}>{savedCountDisplay}</Text>
-              <Text style={[typo.small, { color: 'rgba(255,255,255,0.8)' }]}>저장된 공시</Text>
+              <Text style={[typo.h2, { color: colors.onColor }]}>{savedCountDisplay}</Text>
+              <Text style={[typo.small, { color: colors.onColorMuted }]}>저장된 공시</Text>
             </TouchableOpacity>
           </View>
         </GlassCard>
@@ -499,13 +499,12 @@ const styles = StyleSheet.create({
     minWidth: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: '#FF3B30',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 4,
   },
   notifBadgeText: {
-    color: '#FFFFFF',
+    color: palette.white,
     fontSize: 11,
     fontWeight: '700',
     lineHeight: 14,

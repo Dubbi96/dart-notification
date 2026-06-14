@@ -6,7 +6,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Share,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Chip } from 'react-native-paper';
@@ -18,6 +17,7 @@ import { Card } from '@components/common/Card';
 import { Button } from '@components/common/Button';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { ApiErrorState, EmptyState } from '@components/common/StateView';
+import { DetailSkeleton } from '@components/common/DetailSkeleton';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
@@ -142,9 +142,10 @@ export default function DisclosureDetailScreen() {
           <View style={styles.headerButton} />
         </View>
         {isLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={colors.primary} />
-          </View>
+          // DAR-147 정렬: 중앙 스피너 대신 상세 레이아웃 매칭 스켈레톤(배지·제목 / 정보 카드 / AI 분석).
+          <DetailSkeleton
+            cards={[{ chip: true, lines: 2 }, { lines: 5 }, { chip: true, lines: 4 }]}
+          />
         ) : isError ? (
           <ApiErrorState
             error={error}
@@ -410,11 +411,6 @@ export default function DisclosureDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',

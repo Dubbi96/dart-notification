@@ -1,6 +1,7 @@
 import { SummaryTask, SummaryTaskInput } from './summary.task';
 import { LlmClient, LlmResult } from '../llm/llm-client';
 import { JsonOutputValidationError } from '../validation/json-output.validator';
+import { TaskParseFailureError } from '../types/ai-analyst.types';
 
 const input: SummaryTaskInput = {
   rcpNo: 'R001',
@@ -32,8 +33,11 @@ describe('SummaryTask.run', () => {
     expect(usage.inputTokens).toBe(100);
   });
 
-  it('잘못된 JSON 응답이면 검증 예외', async () => {
+  it('잘못된 JSON 응답이면 usage 보존 예외(DAR-240) — 토큰 비용 누락 방지', async () => {
     const task = new SummaryTask(llmReturning('이것은 JSON이 아님'));
-    await expect(task.run(input)).rejects.toBeInstanceOf(JsonOutputValidationError);
+    const err = await task.run(input).catch((e) => e);
+    expect(err).toBeInstanceOf(TaskParseFailureError);
+    expect(err.usage).toEqual({ model: 'gpt-4o-mini', inputTokens: 100, outputTokens: 50 });
+    expect(err.parseCause).toBeInstanceOf(JsonOutputValidationError);
   });
 });

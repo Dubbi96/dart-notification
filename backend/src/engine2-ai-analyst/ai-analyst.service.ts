@@ -20,7 +20,14 @@ import {
   PositionThesisDraft,
 } from './tasks/position-thesis.task';
 import { estimateCostUsd } from './pricing/estimate-cost';
-import { AiCostLevel, AiGateInput } from './types/ai-analyst.types';
+import {
+  AiCostLevel,
+  AiGateInput,
+  AiTaskName,
+  TaskRunResult,
+  TaskUsage,
+  TaskParseFailureError,
+} from './types/ai-analyst.types';
 
 export interface SummaryRequest {
   gate: AiGateInput;
@@ -74,6 +81,49 @@ export class AiAnalystService {
     return this.limitGuard.enforceLimit(proposed);
   }
 
+  /** 사용량(토큰) → AIUsageLog 영속. 비용은 토큰 발생 시점이 결정한다. */
+  private async logTaskUsage(
+    rcpNo: string,
+    task: AiTaskName,
+    level: AiCostLevel,
+    usage: TaskUsage,
+  ): Promise<void> {
+    await this.usageLog.logUsage({
+      rcpNo,
+      task,
+      level,
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      costUsd: estimateCostUsd(usage),
+    });
+  }
+
+  /**
+   * Task 실행 래퍼(DAR-240).
+   * LLM 호출은 성공(토큰 청구됨)했으나 JSON 파싱/검증이 실패하면(TaskParseFailureError)
+   * 이미 발생한 토큰 비용을 AIUsageLog에 **먼저** 기록한 뒤 실패를 그대로 위로 전파한다.
+   * → 유료 호출 성공인데 비용 0 누락(AIUsageLog 누락·한도가드 과소집계) 방지.
+   */
+  private async runTask<T>(
+    rcpNo: string,
+    task: AiTaskName,
+    level: AiCostLevel,
+    run: () => Promise<TaskRunResult<T>>,
+  ): Promise<TaskRunResult<T>> {
+    try {
+      return await run();
+    } catch (err) {
+      if (err instanceof TaskParseFailureError) {
+        this.logger.warn(
+          `[AiAnalyst] rcpNo=${rcpNo} task=${task} 파싱 실패 — usage 보존 기록 후 전파`,
+        );
+        await this.logTaskUsage(rcpNo, task, level, err.usage);
+      }
+      throw err;
+    }
+  }
+
   /**
    * 공시 요약(L2). 게이트가 L0면 분석을 건너뛰고 null 반환(AI 미호출).
    * 동일 rcpNo+task 재요청은 캐시를 반환(멱등).
@@ -107,7 +157,9 @@ export class AiAnalystService {
       return null;
     }
 
-    const { result, usage } = await this.summaryTask.run(req.input);
+    const { result, usage } = await this.runTask(rcpNo, 'summary', level, () =>
+      this.summaryTask.run(req.input),
+    );
 
     await this.repo.saveAnalysis({
       rcpNo,
@@ -117,15 +169,7 @@ export class AiAnalystService {
       createdAt: new Date(),
     });
 
-    await this.usageLog.logUsage({
-      rcpNo,
-      task: 'summary',
-      level,
-      model: usage.model,
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      costUsd: estimateCostUsd(usage),
-    });
+    await this.logTaskUsage(rcpNo, 'summary', level, usage);
 
     return result;
   }
@@ -154,7 +198,9 @@ export class AiAnalystService {
       return null;
     }
 
-    const { result, usage } = await this.eventClassificationTask.run(req.input);
+    const { result, usage } = await this.runTask(rcpNo, 'event-classification', level, () =>
+      this.eventClassificationTask.run(req.input),
+    );
 
     await this.repo.saveAnalysis({
       rcpNo,
@@ -164,15 +210,7 @@ export class AiAnalystService {
       createdAt: new Date(),
     });
 
-    await this.usageLog.logUsage({
-      rcpNo,
-      task: 'event-classification',
-      level,
-      model: usage.model,
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      costUsd: estimateCostUsd(usage),
-    });
+    await this.logTaskUsage(rcpNo, 'event-classification', level, usage);
 
     return result;
   }
@@ -200,7 +238,9 @@ export class AiAnalystService {
       return null;
     }
 
-    const { result, usage } = await this.personaInterpretationTask.run(req.input);
+    const { result, usage } = await this.runTask(rcpNo, 'persona-interpretation', level, () =>
+      this.personaInterpretationTask.run(req.input),
+    );
 
     await this.repo.saveAnalysis({
       rcpNo,
@@ -213,15 +253,7 @@ export class AiAnalystService {
     // DAR-78: PersonaAnalysis 테이블에도 영속 — DAR-72 P-C 융합 엔진의 personaViews 입력 소스.
     await this.repo.savePersonaViews(rcpNo, result);
 
-    await this.usageLog.logUsage({
-      rcpNo,
-      task: 'persona-interpretation',
-      level,
-      model: usage.model,
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      costUsd: estimateCostUsd(usage),
-    });
+    await this.logTaskUsage(rcpNo, 'persona-interpretation', level, usage);
 
     return result;
   }
@@ -247,7 +279,9 @@ export class AiAnalystService {
       return null;
     }
 
-    const { result, usage } = await this.positionThesisTask.run(req.input);
+    const { result, usage } = await this.runTask(rcpNo, 'position-thesis', level, () =>
+      this.positionThesisTask.run(req.input),
+    );
 
     await this.repo.saveAnalysis({
       rcpNo,
@@ -257,15 +291,7 @@ export class AiAnalystService {
       createdAt: new Date(),
     });
 
-    await this.usageLog.logUsage({
-      rcpNo,
-      task: 'position-thesis',
-      level,
-      model: usage.model,
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      costUsd: estimateCostUsd(usage),
-    });
+    await this.logTaskUsage(rcpNo, 'position-thesis', level, usage);
 
     return result;
   }

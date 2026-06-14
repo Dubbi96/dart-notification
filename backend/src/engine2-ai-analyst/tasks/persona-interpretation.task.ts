@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { TaskRunResult } from '../types/ai-analyst.types';
+import { TaskRunResult, TaskParseFailureError } from '../types/ai-analyst.types';
 import { LlmClient } from '../llm/llm-client';
 import { OutputSchema, parseAndValidateArray, JsonOutputValidationError } from '../validation/json-output.validator';
 import { DisclosureSummaryDraft } from './summary.task';
@@ -84,11 +84,15 @@ export class PersonaInterpretationTask {
       maxOutputTokens: 600,
     });
 
-    const result = parsePersonaArray(res.text);
+    // 토큰은 이미 청구됨 — 파싱 실패 시에도 usage를 보존해 비용 누락을 막는다(DAR-240).
+    const usage = { model: res.model, inputTokens: res.inputTokens, outputTokens: res.outputTokens };
+    let result: PersonaAnalysisDraft[];
+    try {
+      result = parsePersonaArray(res.text);
+    } catch (err) {
+      throw new TaskParseFailureError(usage, err);
+    }
 
-    return {
-      result,
-      usage: { model: res.model, inputTokens: res.inputTokens, outputTokens: res.outputTokens },
-    };
+    return { result, usage };
   }
 }

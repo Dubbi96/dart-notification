@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Polarity, TaskRunResult } from '../types/ai-analyst.types';
+import { Polarity, TaskRunResult, TaskParseFailureError } from '../types/ai-analyst.types';
 import { LlmClient } from '../llm/llm-client';
 import { OutputSchema, parseAndValidate } from '../validation/json-output.validator';
 import { buildExcerpt, formatKeyMetrics } from '../input/build-minimal-input';
@@ -52,10 +52,14 @@ export class SummaryTask {
       maxOutputTokens: 800,
     });
 
-    const result = parseAndValidate<DisclosureSummaryDraft>(res.text, OUTPUT_SCHEMA);
-    return {
-      result,
-      usage: { model: res.model, inputTokens: res.inputTokens, outputTokens: res.outputTokens },
-    };
+    // 토큰은 이미 청구됨 — 파싱 실패 시에도 usage를 보존해 비용 누락을 막는다(DAR-240).
+    const usage = { model: res.model, inputTokens: res.inputTokens, outputTokens: res.outputTokens };
+    let result: DisclosureSummaryDraft;
+    try {
+      result = parseAndValidate<DisclosureSummaryDraft>(res.text, OUTPUT_SCHEMA);
+    } catch (err) {
+      throw new TaskParseFailureError(usage, err);
+    }
+    return { result, usage };
   }
 }

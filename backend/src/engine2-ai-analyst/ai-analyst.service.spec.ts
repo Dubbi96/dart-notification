@@ -90,6 +90,25 @@ describe('AiAnalystService.runSummary', () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it('DAR-239: L0 게이트 결정도 비용0 AIUsageLog 행으로 기록(유료 LLM은 미호출)', async () => {
+    const run = jest.fn();
+    const { service, repo, logSpy } = buildService(run);
+    const res = await service.runSummary(makeReq({ isManagementStock: true }));
+    expect(res).toBeNull();
+    expect(run).not.toHaveBeenCalled(); // 유료 LLM 미호출
+    // 진입 게이트가 L0 결정을 기록 → l0Ratio 분자 확보(미기록 시 구조적 0).
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy.mock.calls[0][0]).toMatchObject({
+      level: AiCostLevel.L0,
+      task: 'summary',
+      costUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    // 분석 결과(DisclosureAnalysis)는 저장하지 않는다(AI 미사용).
+    expect(await repo.findAnalysis('R001', 'summary')).toBeNull();
+  });
+
   it('정상 경로: Task 실행 + 결과 저장 + 사용량(비용) 기록', async () => {
     const run = jest.fn().mockResolvedValue(okResult);
     const { service, repo, logSpy, cacheHitSpy } = buildService(run);
@@ -246,7 +265,7 @@ describe('AiAnalystService — AiCostLimitGuard 한도 강제(DAR-78)', () => {
     usage: { model: 'gpt-4o-mini', inputTokens: 500, outputTokens: 200 },
   };
 
-  it('한도 초과(forced L0) 시 게이트가 L2여도 Summary를 스킵하고 LLM·사용량 기록 0', async () => {
+  it('한도 초과(forced L0) 시 게이트가 L2여도 Summary를 스킵·유료 LLM 미호출(DAR-239: L0 비용0 행 기록)', async () => {
     const run = jest.fn().mockResolvedValue(summaryOk);
     // 한도 초과 → enforceLimit이 어떤 제안 레벨이든 L0으로 강등.
     const forceL0 = jest.fn(async () => AiCostLevel.L0);
@@ -255,8 +274,14 @@ describe('AiAnalystService — AiCostLimitGuard 한도 강제(DAR-78)', () => {
     const res = await service.runSummary(makeReq()); // 게이트로는 L2 조건
     expect(res).toBeNull();
     expect(run).not.toHaveBeenCalled(); // 유료 LLM 미호출
-    expect(logSpy).not.toHaveBeenCalled(); // AIUsageLog 미기록
     expect(forceL0).toHaveBeenCalledWith(AiCostLevel.L2); // 제안 레벨(L2)에 한도 적용
+    // DAR-239: 강등된 L0 결정도 비용0 행으로 기록돼야 l0Ratio가 게이트 분포를 반영한다.
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy.mock.calls[0][0]).toMatchObject({
+      level: AiCostLevel.L0,
+      task: 'summary',
+      costUsd: 0,
+    });
   });
 
   it('한도 초과 시 Position Thesis(L3 조건)도 강등되어 스킵된다', async () => {

@@ -40,7 +40,11 @@ export class AiCostAggregationService {
     const l1Count = rows.filter(r => r.level === 'L1').length;
     const l2Count = rows.filter(r => r.level === 'L2').length;
     const l3Count = rows.filter(r => r.level === 'L3').length;
-    const l0Ratio = rows.length > 0 ? l0Count / rows.length : 1;
+    // DAR-239: l0Ratio 분모는 행 수가 아니라 '공시(게이트 평가) 수'다. 비L0 공시는 task당 다중 행을
+    // 남기므로(예: summary+persona) 행 기준 분모는 L0 비율을 왜곡한다. L0 행은 진입 게이트(runSummary)에서
+    // 공시당 1행만 기록되고 해당 공시는 다른 행이 없으므로 l0Count는 L0 공시 수와 1:1.
+    const disclosureCount = new Set(rows.map(r => r.rcpNo)).size;
+    const l0Ratio = disclosureCount > 0 ? l0Count / disclosureCount : 1;
 
     const byTask = {} as Record<AiTaskName, { costUsd: number; callCount: number }>;
     for (const taskName of this.taskNames) {

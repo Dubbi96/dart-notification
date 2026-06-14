@@ -42,8 +42,12 @@ export class AiUsageLogService {
     const totalCostUsd = rows.reduce((s, r) => s + r.costUsd, 0);
     const callCount = rows.length;
     const l0Count = rows.filter(r => r.level === 'L0').length;
-    const l0Ratio = callCount > 0 ? l0Count / callCount : 1;
     const disclosureCount = new Set(rows.map(r => r.rcpNo)).size;
+    // DAR-239: l0Ratio 분모는 'AIUsageLog 행'이 아니라 '게이트 평가(=공시) 수'다.
+    // 비L0 공시는 task당 다중 행(summary/persona/thesis)을 남기므로 행 기준 분모는 L0 비율을 구조적으로
+    // 축소 왜곡한다. L0 행은 진입 게이트(runSummary)에서 공시당 1행만 기록되고 그 공시는 다른 행이 없으므로
+    // l0Count는 L0 공시 수와 1:1 → l0Count/공시수 = 실제 게이트(공시 단위) L0 분포.
+    const l0Ratio = disclosureCount > 0 ? l0Count / disclosureCount : 1;
     const costPerDisclosure = disclosureCount > 0 ? totalCostUsd / disclosureCount : 0;
     const cacheHitCount = await this.repo.getCacheHitCount(from, to);
     return {

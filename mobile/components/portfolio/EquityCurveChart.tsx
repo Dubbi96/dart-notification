@@ -4,6 +4,7 @@ import Svg, { Polyline, Line, Circle } from 'react-native-svg';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
 import { pnlColor } from '@utils/signalDisplay';
+import { formatReturnPct } from '@utils/numberFormat';
 
 import type { EquityCurvePoint } from '@app-types/simulation.types';
 
@@ -19,10 +20,6 @@ const PADDING = { top: spacing.md, right: spacing.md, bottom: spacing.md, left: 
 function shortDate(yyyymmdd: string): string {
   if (yyyymmdd.length !== 8) return yyyymmdd;
   return `${Number(yyyymmdd.slice(4, 6))}/${Number(yyyymmdd.slice(6, 8))}`;
-}
-
-function formatReturnPct(pct: number): string {
-  return `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
 }
 
 interface EquityCurveChartProps {
@@ -82,7 +79,7 @@ export function EquityCurveChart({ points, initialCapital }: EquityCurveChartPro
           accessibilityRole="text"
           accessibilityLabel={`${shortDate(active.snapshotDate)} 모의 평가금액 ${Math.round(
             active.totalValue,
-          ).toLocaleString('ko-KR')}원, 초기원금 대비 ${formatReturnPct(active.returnPct)}`}
+          ).toLocaleString('ko-KR')}원, 초기원금 대비 ${formatReturnPct(active.returnPct, { digits: 2 })}`}
         >
           <Text style={[typo.small, { color: colors.textSecondary }]}>
             {shortDate(active.snapshotDate)}
@@ -91,7 +88,7 @@ export function EquityCurveChart({ points, initialCapital }: EquityCurveChartPro
             {Math.round(active.totalValue).toLocaleString('ko-KR')}원
           </Text>
           <Text style={[typo.small, { color: pnlColor(active.returnPct, colors) }]}>
-            {formatReturnPct(active.returnPct)}
+            {formatReturnPct(active.returnPct, { digits: 2 })}
           </Text>
         </View>
       ) : null}

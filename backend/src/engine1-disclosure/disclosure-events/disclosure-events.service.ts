@@ -7,6 +7,7 @@ import { Queue } from 'bullmq';
 import { DisclosureEvent, EventType, ExtractionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ParsedJson } from '../disclosure-documents/types/parsed-json.type';
+import { computeDilutionRate } from '../disclosure-documents/utils/dilution.util';
 import { classifyEventType } from './extractors/event-classifier';
 import { extractEventData } from './extractors/index';
 import { QUEUE, JOB, AiAnalyzeJobData, AI_ANALYZE_JOB_OPTIONS, aiAnalyzeJobId } from '../../common/queues/queue.constants';
@@ -429,8 +430,10 @@ export class DisclosureEventsService {
           const existingShares = raw['existingShares'] as number | null;
           const referencePrice = raw['referencePrice'] as number | null;
           const issuePrice = raw['issuePrice'] as number | null;
-          if (newShares && existingShares && existingShares !== 0) {
-            result['dilutionRate'] = round2((newShares / existingShares) * 100);
+          // dilutionRate: SSOT(DAR-246) — newShares / (newShares + existingShares) * 100, %
+          const dilutionRate = computeDilutionRate(newShares, existingShares);
+          if (dilutionRate !== null) {
+            result['dilutionRate'] = dilutionRate;
           }
           if (referencePrice && issuePrice && referencePrice !== 0) {
             result['discountRate'] = round2(

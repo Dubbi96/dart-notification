@@ -23,8 +23,22 @@ function createFakePrisma() {
   const rows = new Map<string, FakeRefreshRow>();
   let seq = 0;
 
-  return {
+  const client: any = {
     rows,
+    // 인터랙티브 트랜잭션 모사: 콜백 시작 전 rows 스냅샷을 떠 두고,
+    // 콜백이 throw 하면 스냅샷으로 되돌려(rollback) 원자성을 재현한다.
+    $transaction: jest.fn(async (fn: (tx: any) => Promise<any>) => {
+      const snapshot = new Map(
+        [...rows.entries()].map(([k, v]) => [k, { ...v }] as const),
+      );
+      try {
+        return await fn(client);
+      } catch (e) {
+        rows.clear();
+        for (const [k, v] of snapshot) rows.set(k, v);
+        throw e;
+      }
+    }),
     refreshToken: {
       create: jest.fn(async ({ data }: any) => {
         const row: FakeRefreshRow = {
@@ -63,6 +77,8 @@ function createFakePrisma() {
       }),
     },
   };
+
+  return client;
 }
 
 function createService() {
@@ -124,6 +140,36 @@ describe('AuthService refresh token rotation (DAR-207)', () => {
     expect(prisma.rows.size).toBe(2);
     const active = [...prisma.rows.values()].filter((r) => r.revokedAt === null);
     expect(active).toHaveLength(1);
+  });
+
+  it('DAR-279: 회전 중 신규 토큰 create 가 실패하면 구토큰 폐기까지 롤백되어 유효하게 남는다 (원자성)', async () => {
+    const { service, prisma } = createService();
+    const first = await (service as any).generateTokens(USER_ID, EMAIL);
+    const oldHash = createHash('sha256').update(first.refreshToken).digest('hex');
+
+    // 신규 토큰 영속화(create) 강제 실패 주입: DB 순단·제약·커넥션 드롭 모사.
+    (prisma.refreshToken.create as jest.Mock).mockImplementationOnce(async () => {
+      throw new Error('injected create failure (e.g. connection drop)');
+    });
+
+    await expect(
+      service.refresh(USER_ID, EMAIL, first.refreshToken),
+    ).rejects.toThrow('injected create failure');
+
+    // 트랜잭션 롤백으로 구토큰의 revokedAt 은 되돌아가 유효(미폐기) 상태여야 한다.
+    const oldRow = [...prisma.rows.values()].find((r) => r.tokenHash === oldHash)!;
+    expect(oldRow.revokedAt).toBeNull();
+    // 신규 행은 생성되지 않았고, 활성 토큰은 여전히 구토큰 1개.
+    expect(prisma.rows.size).toBe(1);
+    const active = [...prisma.rows.values()].filter((r) => r.revokedAt === null);
+    expect(active).toHaveLength(1);
+
+    // 핵심 회귀 방지: 일시적 DB 오류가 강제 로그아웃으로 번지지 않는다.
+    // 구토큰으로 재시도하면 reuse-detection(전 세션 폐기)이 아니라 정상 회전된다.
+    const retried = await service.refresh(USER_ID, EMAIL, first.refreshToken);
+    expect(retried.refreshToken).not.toBe(first.refreshToken);
+    const activeAfter = [...prisma.rows.values()].filter((r) => r.revokedAt === null);
+    expect(activeAfter).toHaveLength(1);
   });
 
   it('회전 후 구토큰을 재사용하면 401이며 사용자의 모든 세션을 폐기한다 (reuse detection)', async () => {

@@ -247,13 +247,23 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token expired');
     }
 
-    // 회전: 사용된 토큰을 즉시 폐기하고 새 토큰을 발급한다.
-    await this.prisma.refreshToken.update({
-      where: { id: stored.id },
-      data: { revokedAt: new Date() },
+    // 회전: 사용된 토큰 폐기와 새 토큰 영속화를 하나의 트랜잭션으로 원자화한다.
+    // JWT 서명(비DB)은 트랜잭션 밖에서 먼저 끝내 트랜잭션 구간을 최소화하고,
+    // create(신규) 실패 시 update(폐기)까지 롤백되어 구토큰이 유효하게 남는다.
+    // (비원자적이면 폐기만 성공·발급 실패 시 강제 로그아웃, 이후 구토큰 재사용이
+    //  reuse-detection 으로 오인되어 전 세션이 폐기되는 증폭까지 발생한다.)
+    const tokens = await this.signTokens(userId, email);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.refreshToken.update({
+        where: { id: stored.id },
+        data: { revokedAt: new Date() },
+      });
+      await tx.refreshToken.create({
+        data: this.buildRefreshTokenData(userId, tokens.refreshToken),
+      });
     });
 
-    return this.generateTokens(userId, email);
+    return tokens;
   }
 
   async logout(userId: string, deviceToken?: string) {
@@ -272,7 +282,12 @@ export class AuthService {
     });
   }
 
-  private async generateTokens(userId: string, email: string) {
+  /**
+   * JWT(access/refresh) 서명만 수행한다(DB 미접촉).
+   * refresh 토큰의 영속화는 호출부가 책임진다 — 단일 발급(signup/login/kakao)은
+   * generateTokens 가, 회전(refresh)은 폐기와 묶은 $transaction 이 담당한다.
+   */
+  private async signTokens(userId: string, email: string) {
     const payload = { sub: userId, email };
     // refresh 토큰마다 고유 jti 를 부여해 동일 초 발급에도 토큰(=해시)이 충돌하지 않게 한다.
     const refreshPayload = { ...payload, jti: randomUUID() };
@@ -288,19 +303,28 @@ export class AuthService {
       }),
     ]);
 
-    // 발급된 refresh 토큰의 해시를 영속화해 회전·폐기를 가능하게 한다.
-    await this.prisma.refreshToken.create({
-      data: {
-        userId,
-        tokenHash: hashRefreshToken(refreshToken),
-        expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
-      },
-    });
-
     return {
       accessToken,
       refreshToken,
       expiresIn: 900,
     };
+  }
+
+  // 발급된 refresh 토큰을 영속화하기 위한 create 입력. 원문은 저장하지 않고 해시만 보관.
+  private buildRefreshTokenData(userId: string, refreshToken: string) {
+    return {
+      userId,
+      tokenHash: hashRefreshToken(refreshToken),
+      expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+    };
+  }
+
+  // 단일 발급 경로(선행 폐기 없음): 서명 후 곧바로 영속화한다.
+  private async generateTokens(userId: string, email: string) {
+    const tokens = await this.signTokens(userId, email);
+    await this.prisma.refreshToken.create({
+      data: this.buildRefreshTokenData(userId, tokens.refreshToken),
+    });
+    return tokens;
   }
 }

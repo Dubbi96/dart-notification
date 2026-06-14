@@ -216,6 +216,7 @@ model Disclosure {
   @@index([createdAt]) // 최근 공시 조회용
   @@index([isBackfill]) // DAR-129: 신호생성·신호피드 백필 제외 필터 조회용
   @@index([corpCode, rcpNo]) // DAR-214: 워치리스트 신규 공시 grouped count(corpCode + rcpNo>커서) 조인용
+  @@index([corpCode, rcpDt, rcpNo]) // DAR-276: 기업상세 공시목록 where{corpCode}+orderBy[rcpDt desc,rcpNo desc] 필터+정렬 커버(메모리정렬 해소)
   @@map("disclosures")
 }
 
@@ -482,6 +483,7 @@ model DisclosureEvent {
   @@index([extractionStatus])
   @@index([extractedAt])
   @@index([isAmendment])
+  @@index([corpCode, extractedAt]) // DAR-276: 기업별 이벤트목록 where{corpCode}+orderBy{extractedAt desc} 필터+정렬 커버(메모리정렬 해소)
   @@map("disclosure_events")
 }
 

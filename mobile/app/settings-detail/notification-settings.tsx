@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Switch, Checkbox, Divider } from 'react-native-paper';
@@ -19,6 +21,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Button } from '@components/common/Button';
+import { ApiErrorState } from '@components/common/StateView';
 import { useDialog } from '@components/common/DialogProvider';
 import { useNotificationSettings, useUpdateNotificationSettings } from '@hooks/useNotificationSettings';
 import { useDisclosureTypes } from '@hooks/useDisclosureTypes';
@@ -49,7 +52,7 @@ const SIGNAL_PUSH_TOGGLES: {
 export default function NotificationSettingsScreen() {
   const { colors, typography: typo } = useTheme();
   const { showDialog } = useDialog();
-  const { data: settings, isLoading } = useNotificationSettings();
+  const { data: settings, isLoading, isError, error, refetch } = useNotificationSettings();
   const { data: disclosureTypes = [] } = useDisclosureTypes();
   const updateSettings = useUpdateNotificationSettings();
 
@@ -95,6 +98,8 @@ export default function NotificationSettingsScreen() {
   };
 
   const onSubmit = (data: NotificationSettingsForm) => {
+    // 로드 실패/미완료 상태에서는 폼이 기본값이므로 저장 시 서버 설정을 덮어쓸 수 있어 차단.
+    if (!settings) return;
     updateSettings.mutate(
       {
         disclosureTypes: data.disclosureTypes,
@@ -119,15 +124,7 @@ export default function NotificationSettingsScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={[styles.header, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
-            <Ionicons name="chevron-back" size={26} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}>
-            알림 설정
-          </Text>
-          <View style={styles.headerButton} />
-        </View>
+        <ScreenHeader onBack={() => router.back()} colors={colors} typo={typo} />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
@@ -135,17 +132,25 @@ export default function NotificationSettingsScreen() {
     );
   }
 
+  // 로드 실패 시 폼(기본값)을 보여주면 저장 시 서버 설정을 기본값으로 덮어써 데이터가 유실됨.
+  // 폼 대신 에러뷰+재시도를 노출해 사용자 설정을 보호한다.
+  if (isError) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <ScreenHeader onBack={() => router.back()} colors={colors} typo={typo} />
+        <ApiErrorState
+          error={error}
+          onRetry={refetch}
+          title="알림 설정을 불러오지 못했습니다"
+          description="저장 시 설정이 초기화될 수 있어 화면을 막았습니다. 잠시 후 다시 시도해 주세요."
+        />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={handleBack} style={styles.headerButton}>
-          <Ionicons name="chevron-back" size={26} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}>
-          알림 설정
-        </Text>
-        <View style={styles.headerButton} />
-      </View>
+      <ScreenHeader onBack={handleBack} colors={colors} typo={typo} />
 
       <KeyboardAvoidingView
         style={styles.container}
@@ -164,16 +169,13 @@ export default function NotificationSettingsScreen() {
           control={control}
           name="isEnabled"
           render={({ field: { onChange, value } }) => (
-            <View style={[styles.toggleRow, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
-              <View>
-                <Text style={[typo.bodyMedium, { color: colors.text }]}>새 공시 알림 받기</Text>
-              </View>
-              <Switch
-                value={value}
-                onValueChange={onChange}
-                color={colors.primary}
-              />
-            </View>
+            <AccessibleToggleRow
+              label="새 공시 알림 받기"
+              value={value}
+              onChange={onChange}
+              colors={colors}
+              typo={typo}
+            />
           )}
         />
 
@@ -195,20 +197,15 @@ export default function NotificationSettingsScreen() {
                 control={control}
                 name={toggle.name}
                 render={({ field: { onChange, value } }) => (
-                  <View
-                    style={[
-                      styles.toggleRow,
-                      { backgroundColor: colors.surface, borderColor: colors.borderLight, marginBottom: spacing.sm },
-                    ]}
-                  >
-                    <View style={styles.typeContent}>
-                      <Text style={[typo.bodyMedium, { color: colors.text }]}>{toggle.label}</Text>
-                      <Text style={[typo.small, { color: colors.textSecondary }]}>
-                        {toggle.description}
-                      </Text>
-                    </View>
-                    <Switch value={value} onValueChange={onChange} color={colors.primary} />
-                  </View>
+                  <AccessibleToggleRow
+                    label={toggle.label}
+                    description={toggle.description}
+                    value={value}
+                    onChange={onChange}
+                    colors={colors}
+                    typo={typo}
+                    style={{ marginBottom: spacing.sm }}
+                  />
                 )}
               />
             ))}
@@ -249,6 +246,12 @@ export default function NotificationSettingsScreen() {
                           ]}
                           onPress={toggleType}
                           activeOpacity={0.7}
+                          accessible
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: isSelected }}
+                          accessibilityLabel={
+                            type.description ? `${type.label}, ${type.description}` : type.label
+                          }
                         >
                           <View style={styles.typeContent}>
                             <Text style={[typo.bodyMedium, { color: colors.text }]}>{type.label}</Text>
@@ -298,12 +301,88 @@ export default function NotificationSettingsScreen() {
           fullWidth
           size="lg"
           loading={updateSettings.isPending}
-          disabled={!isDirty}
+          disabled={!isDirty || !settings}
           style={{ marginTop: spacing.xl }}
         />
       </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+type ThemeColors = ReturnType<typeof useTheme>['colors'];
+type ThemeTypography = ReturnType<typeof useTheme>['typography'];
+
+// 로딩/에러/폼 3개 상태가 공유하는 헤더(뒤로가기 + 제목). 중복 제거 + 동선 일관성.
+function ScreenHeader({
+  onBack,
+  colors,
+  typo,
+}: {
+  onBack: () => void;
+  colors: ThemeColors;
+  typo: ThemeTypography;
+}) {
+  return (
+    <View style={[styles.header, { borderBottomColor: colors.border }]}>
+      <TouchableOpacity
+        onPress={onBack}
+        style={styles.headerButton}
+        accessibilityRole="button"
+        accessibilityLabel="뒤로 가기"
+      >
+        <Ionicons name="chevron-back" size={26} color={colors.text} />
+      </TouchableOpacity>
+      <Text style={[typo.h3, styles.headerTitle, { color: colors.text }]}>알림 설정</Text>
+      <View style={styles.headerButton} />
+    </View>
+  );
+}
+
+interface AccessibleToggleRowProps {
+  label: string;
+  description?: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
+  colors: ThemeColors;
+  typo: ThemeTypography;
+  style?: StyleProp<ViewStyle>;
+}
+
+// 스위치 행 전체를 단일 접근 단위로 묶는다(라벨/설명 합성 + role=switch + state.checked).
+// 스크린리더가 '무엇에 대한 스위치인지/켜짐·꺼짐'을 한 번에 읽도록 한다.
+function AccessibleToggleRow({
+  label,
+  description,
+  value,
+  onChange,
+  colors,
+  typo,
+  style,
+}: AccessibleToggleRowProps) {
+  return (
+    <TouchableOpacity
+      style={[styles.toggleRow, { backgroundColor: colors.surface, borderColor: colors.borderLight }, style]}
+      onPress={() => onChange(!value)}
+      activeOpacity={0.7}
+      accessible
+      accessibilityRole="switch"
+      accessibilityState={{ checked: value }}
+      accessibilityLabel={description ? `${label}, ${description}` : label}
+    >
+      <View style={styles.typeContent}>
+        <Text style={[typo.bodyMedium, { color: colors.text }]}>{label}</Text>
+        {description ? (
+          <Text style={[typo.small, { color: colors.textSecondary }]}>{description}</Text>
+        ) : null}
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onChange}
+        color={colors.primary}
+        importantForAccessibility="no-hide-descendants"
+      />
+    </TouchableOpacity>
   );
 }
 
@@ -438,6 +517,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.sm,
     width: 56,
+  },
+  headerTitle: {
+    flex: 1,
+    textAlign: 'center',
   },
   content: {
     padding: spacing.lg,

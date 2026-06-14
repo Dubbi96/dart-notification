@@ -220,6 +220,9 @@ export default function SignInScreen() {
             activeOpacity={0.8}
             disabled={isLoading}
             style={styles.kakaoButton}
+            accessibilityRole="button"
+            accessibilityLabel="카카오로 로그인"
+            accessibilityState={{ disabled: isLoading }}
           >
             {isLoading ? (
               <ActivityIndicator size="small" color={palette.gray900} />

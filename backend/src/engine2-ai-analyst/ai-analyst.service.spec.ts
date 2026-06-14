@@ -9,7 +9,7 @@ import { AiCostGateService } from './cost-gate/ai-cost-gate.service';
 import { AiCostLimitGuardService } from './cost-gate/ai-cost-limit-guard.service';
 import { AiUsageLogService } from './usage-log/ai-usage-log.service';
 import { InMemoryAiAnalysisRepository } from './adapters/in-memory-ai-analysis.repository';
-import { AiCostLevel } from './types/ai-analyst.types';
+import { AiCostLevel, TaskParseFailureError } from './types/ai-analyst.types';
 import { SummaryTask } from './tasks/summary.task';
 import { EventClassificationTask } from './tasks/event-classification.task';
 import { PersonaInterpretationTask } from './tasks/persona-interpretation.task';
@@ -128,6 +128,26 @@ describe('AiAnalystService.runSummary', () => {
       task: 'summary',
       level: AiCostLevel.L2,
     });
+  });
+
+  it('DAR-240: LLM 성공+파싱 실패 시 usage 1회 기록 후 예외 전파(비용 누락 0)', async () => {
+    const usage = { model: 'gpt-4o-mini', inputTokens: 500, outputTokens: 200 };
+    const run = jest.fn().mockRejectedValue(new TaskParseFailureError(usage, new Error('파싱 실패')));
+    const { service, repo, logSpy } = buildService(run);
+
+    await expect(service.runSummary(makeReq())).rejects.toBeInstanceOf(TaskParseFailureError);
+
+    // 토큰은 청구됨 → AIUsageLog 기록 정확히 1회, 비용 > 0
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy.mock.calls[0][0]).toMatchObject({
+      rcpNo: 'R001',
+      task: 'summary',
+      inputTokens: 500,
+      outputTokens: 200,
+    });
+    expect(logSpy.mock.calls[0][0].costUsd).toBeGreaterThan(0);
+    // 결과는 없으므로 분석 결과는 저장되지 않음
+    expect(await repo.findAnalysis('R001', 'summary')).toBeNull();
   });
 });
 

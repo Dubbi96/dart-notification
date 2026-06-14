@@ -144,6 +144,21 @@ export interface TaskUsage {
   outputTokens: number;
 }
 
+/**
+ * LLM 호출은 성공(토큰 청구됨)했으나 JSON 파싱/검증에 실패한 경우.
+ * 이미 발생한 usage를 보존해 오케스트레이터가 비용을 먼저 기록(AIUsageLog 누락 0)한 뒤
+ * 실패를 그대로 위로 전파할 수 있게 한다(DAR-240). 비용 기록은 토큰 발생 시점이 결정한다.
+ */
+export class TaskParseFailureError extends Error {
+  constructor(
+    readonly usage: TaskUsage,
+    readonly parseCause: unknown,
+  ) {
+    super(parseCause instanceof Error ? parseCause.message : 'Task 결과 파싱 실패');
+    this.name = 'TaskParseFailureError';
+  }
+}
+
 /** AI Task 실행 결과 — 검증된 산출물 + 사용량(비용 기록) */
 export interface TaskRunResult<T> {
   result: T;

@@ -1,17 +1,13 @@
-import { useEffect } from 'react';
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { notificationService } from '@services/notification.service';
-import { useNotificationStore } from '@stores/notificationStore';
 
 import type { NotificationType } from '@app-types/notification.types';
 
 // DAR-161: type 필터를 queryKey에 포함해 세그먼트 전환 시 캐시를 분리한다.
-// type 미지정(전체)일 때 unreadCount/unreadByType(둘 다 사용자 전체 기준)로 탭 배지를 동기화.
 export function useNotifications(options?: { enabled?: boolean; type?: NotificationType }) {
-  const setUnreadCount = useNotificationStore((s) => s.setUnreadCount);
   const type = options?.type;
 
-  const query = useInfiniteQuery({
+  return useInfiniteQuery({
     queryKey: ['notifications', type ?? 'ALL'],
     queryFn: ({ pageParam = 1 }) => notificationService.getList(pageParam, 20, type),
     getNextPageParam: (lastPage) => {
@@ -21,14 +17,19 @@ export function useNotifications(options?: { enabled?: boolean; type?: Notificat
     initialPageParam: 1,
     enabled: options?.enabled ?? true,
   });
+}
 
-  useEffect(() => {
-    // unreadCount는 타입 필터와 무관하게 사용자 전체 미읽음 → 어떤 세그먼트에서든 탭 배지 일관.
-    const count = query.data?.pages[0]?.meta.unreadCount ?? 0;
-    setUnreadCount(count);
-  }, [query.data]);
-
-  return query;
+// DAR-216: 미읽음 건수 단일 진실원천(React Query). 탭 배지(_layout)와 홈 헤더 배지가
+// 이 경량 쿼리(page=1, limit=1)를 직접 구독한다 — Zustand 복제 금지(CLAUDE.md).
+// queryKey가 ['notifications'] 접두사를 공유하므로 markAsRead/markAllAsRead 및 푸시 수신 시
+// invalidateQueries(['notifications'])로 목록·배지가 함께 갱신돼 항상 일치한다.
+export function useUnreadCount(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ['notifications', 'unread-count'],
+    queryFn: () => notificationService.getList(1, 1),
+    select: (res) => res.meta.unreadCount ?? 0,
+    enabled: options?.enabled ?? true,
+  });
 }
 
 export function useMarkAsRead() {

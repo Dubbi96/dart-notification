@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter, type Href } from 'expo-router';
 import { useAuthStore } from '@stores/authStore';
 import {
@@ -43,6 +44,7 @@ if (!pushUnsupported) {
 
 export function useNotificationSetup() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const onboardingCompleted = useAuthStore((s) => s.onboardingCompleted);
   const expoPushToken = useAuthStore((s) => s.expoPushToken);
@@ -78,12 +80,26 @@ export function useNotificationSetup() {
     registerTokenIfPermitted();
   }, [isAuthenticated]);
 
+  // DAR-216: 포그라운드 푸시 수신 시 미읽음 배지·목록을 즉시 갱신한다.
+  // 배지는 React Query 단일원천(useUnreadCount/useNotifications)이므로, 수신 핸들러가
+  // ['notifications'] 프리픽스를 invalidate 하면 어느 탭에 있든 탭 배지·홈 헤더 배지가 함께 갱신된다.
+  useEffect(() => {
+    if (!Notifications) return;
+    const subscription = Notifications.addNotificationReceivedListener(() => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    });
+
+    return () => subscription.remove();
+  }, [queryClient]);
+
   // 알림 탭 → 범용 딥링크 라우팅 (앱 포그라운드/백그라운드 진입)
   // data.deepLink(화이트리스트 검증) 우선, 없으면 data.disclosureRcpNo 공시 폴백
+  // 탭 진입은 읽음 상태/목록을 바꿀 수 있으므로 배지도 함께 무효화한다.
   useEffect(() => {
     if (!Notifications) return;
     const subscription = Notifications.addNotificationResponseReceivedListener(
       (response) => {
+        queryClient.invalidateQueries({ queryKey: ['notifications'] });
         const data = response.notification.request.content.data;
         const target = resolveDeepLink(data);
         if (target) {
@@ -93,7 +109,7 @@ export function useNotificationSetup() {
     );
 
     return () => subscription.remove();
-  }, [router]);
+  }, [router, queryClient]);
 
   // 콜드스타트: 앱 종료 상태에서 알림 탭으로 열린 경우 (DAR-154)
   // 즉시 push 하지 않는다 — 인증/하이드레이션/온보딩 게이트와 경쟁하면 비로그인 상태로

@@ -88,7 +88,7 @@ export function MarketRegimeCard({ regime, personas, dataLimited }: MarketRegime
         </View>
       ) : (
         <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
-          현재 장에 뚜렷이 앞서는 persona가 없습니다 — 비교 후 직접 선택하세요.
+          현재 장에 뚜렷이 앞서는 persona가 없습니다 — 비교 후 강조 기준을 골라보세요.
         </Text>
       )}
 

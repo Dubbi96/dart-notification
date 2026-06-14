@@ -73,7 +73,6 @@ function AppContent() {
             <Stack.Screen name="philosophy/index" />
             <Stack.Screen name="philosophy/[id]" />
             <Stack.Screen name="event-stats/index" />
-            <Stack.Screen name="persona/index" />
             <Stack.Screen name="legal/terms" />
             <Stack.Screen name="legal/privacy" />
           </Stack>

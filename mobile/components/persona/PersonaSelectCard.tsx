@@ -9,11 +9,12 @@ import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import type { PhilosophyStyle } from '@app-types/style-comparison.types';
 import type { PersonaOverviewRow } from '@app-types/persona.types';
 
-import { ARCHETYPE_DESC, formatSignedPct } from './personaDisplay';
+import { ARCHETYPE_DESC, formatSignedPct, PERSONA_EMPHASIS } from './personaDisplay';
 
-// 자동매매 persona 선택 카드 — DAR-131 (P-D).
-// 거장 철학 1종: 스타일·아키타입 설명·성과 수치·현재 장 적합도·추천/선택 배지를 한 카드로.
-// 탭하면 선택(영속). ★ 신뢰: 과신 카피 금지·표본<30 DataLimitBadge·'참고' 전제. 색 단독 의미 금지(아이콘+평문).
+// persona 비교 강조 카드 — DAR-131 / DAR-205 어휘 약화.
+// 거장 철학 1종: 스타일·아키타입 설명·성과 수치·현재 장 적합도·추천/강조 배지를 한 카드로.
+// 탭하면 비교 화면에서 강조(영속). ★ DAR-205: '선택→결과 반영'은 오약속(소비처가 전부 표시용
+// 하이라이트) → '비교 강조' 어휘로 약화. ★ 신뢰: 과신 카피 금지·표본<30 DataLimitBadge·'참고' 전제.
 //
 // DAR-195 정보위계: '현재 장 적합도'가 결정 동인 → hero(크게/굵게)로 승격.
 // 누적수익·신호 적중률·MDD는 '성과 자세히' 접기(progressive disclosure, DecisionHubTab
@@ -74,7 +75,7 @@ function PersonaSelectCardBase({ row, selected, onSelect }: PersonaSelectCardPro
       onPress={handlePress}
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      accessibilityLabel={`${perf.label} persona 선택. ${row.archetype}. 현재 장 적합도 ${fitScore}점. 누적수익 ${formatSignedPct(sc.cumulativeReturnPct)}. 신호 적중률 ${Math.round(g.hitRatePct)}퍼센트 표본 ${g.hitRateSampleSize}건.${row.recommended ? ' 현재 장 추천.' : ''}${selected ? ' 선택됨.' : ''}`}
+      accessibilityLabel={`${perf.label} persona ${PERSONA_EMPHASIS.a11yAction}. ${row.archetype}. 현재 장 적합도 ${fitScore}점. 누적수익 ${formatSignedPct(sc.cumulativeReturnPct)}. 신호 적중률 ${Math.round(g.hitRatePct)}퍼센트 표본 ${g.hitRateSampleSize}건.${row.recommended ? ' 현재 장 추천.' : ''}${selected ? ` ${PERSONA_EMPHASIS.a11yEmphasized}.` : ''}`}
     >
       <Surface
         elevation={selected ? 2 : 1}
@@ -155,7 +156,7 @@ function PersonaSelectCardBase({ row, selected, onSelect }: PersonaSelectCardPro
           <View style={[styles.selectedBar, { backgroundColor: colors.primaryLight }]}>
             <Feather name="bookmark" size={12} color={colors.primary} />
             <Text style={[typo.small, { color: colors.primary, marginLeft: spacing.xs, fontWeight: '600' }]}>
-              선택한 모의운용 persona
+              {PERSONA_EMPHASIS.emphasizedBar}
             </Text>
           </View>
         ) : null}

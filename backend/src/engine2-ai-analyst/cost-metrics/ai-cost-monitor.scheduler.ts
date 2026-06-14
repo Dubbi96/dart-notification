@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { KST_TIMEZONE } from '../../common/time/kst';
 import { AiCostHealthService } from './ai-cost-health.service';
 import { AiCostHealthSnapshot } from '../types/ai-analyst.types';
 
@@ -16,8 +17,8 @@ export class AiCostMonitorScheduler {
 
   constructor(private readonly health: AiCostHealthService) {}
 
-  /** 매일 09:00 — 전일까지 누적 비용 상시 가드 */
-  @Cron('0 9 * * *')
+  /** 매일 09:00(KST) — 전일까지 누적 비용 상시 가드 */
+  @Cron('0 9 * * *', { timeZone: KST_TIMEZONE })
   async runDaily(): Promise<AiCostHealthSnapshot> {
     const snapshot = await this.health.getHealth();
     this.logger.log(

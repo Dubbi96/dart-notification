@@ -6,6 +6,7 @@ import {
 } from './event-study-calculation.service';
 import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
 import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
+import { KST_TIMEZONE } from '../../common/time/kst';
 
 /**
  * EventStudyCalculationScheduler — DAR-134 (신호 등급 전부 WATCH 근본 보정)
@@ -37,8 +38,8 @@ export class EventStudyCalculationScheduler {
     @Optional() private readonly recorder?: CronRunRecorderService,
   ) {}
 
-  /** 주간 토요일 04:00 — Event Study baseline 전체 재산출(off-hours·저부하). */
-  @Cron('0 4 * * 6')
+  /** 주간 토요일 04:00(KST) — Event Study baseline 전체 재산출(off-hours·저부하). */
+  @Cron('0 4 * * 6', { timeZone: KST_TIMEZONE })
   async calculateWeekly(): Promise<void> {
     this.logger.log('[EventStudy] 주간 baseline 산출 스케줄러 실행');
 

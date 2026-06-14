@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KisApiService } from './kis-api.service';
 import { RealtimeQuoteCache } from './realtime-quote.cache';
+import { KST_TIMEZONE } from '../../common/time/kst';
 
 /** 1회 폴링 종목 상한(호출 제한 가드). */
 const POLL_UNIVERSE_CAP = 60;
@@ -30,8 +31,8 @@ export class KisRealtimePoller {
     private readonly cache: RealtimeQuoteCache,
   ) {}
 
-  /** 평일 09:00~15:59 매 1분 — 보유/후보 종목 실시간 현재가 폴링. */
-  @Cron('*/1 9-15 * * 1-5')
+  /** 평일 09:00~15:59 매 1분(KST) — 보유/후보 종목 실시간 현재가 폴링. */
+  @Cron('*/1 9-15 * * 1-5', { timeZone: KST_TIMEZONE })
   async pollRealtime(): Promise<{ polled: number; cached: number }> {
     if (!this.kis.isConfigured) {
       // 키 미설정 — 실시간 비활성(모의운용은 일봉/합성으로 평가). 로그 1회성 최소화.

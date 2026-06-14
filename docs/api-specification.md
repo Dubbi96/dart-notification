@@ -1146,6 +1146,73 @@ GET /api/signals/by-disclosure/:rcpNo   (JWT 필수)
 
 **Response 200 (신호 있음)**: 12.1과 동일한 배지 형태(`id`·`grade`·`buyScore`·`entryReady`·`relatedDisclosureRcpNo` 등). 신호 없으면 `data: null`.
 
+### 12.3 매매 신호 목록 조회 (필터·페이지네이션)
+
+```
+GET /api/signals   (JWT 필수)
+```
+
+신호 피드의 기본 조회 경로. 필터·정렬·페이지네이션으로 매매 신호를 **목록** 반환한다.
+백필(과거 분석 baseline) 공시 기반 신호는 항상 제외(피드 방어, DAR-129). 홈 '오늘의 투자판단'·신호 탭이
+`grade=STRONG_BUY,BUY&sort=score`로 소비한다(DAR-193).
+
+| 쿼리 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `grade` | string | 선택 | 신호 등급 (`STRONG_BUY`\|`BUY`\|`WATCH`\|`NEUTRAL`\|`AVOID`\|`BLOCKED`). 콤마로 다중 지정 가능: `"STRONG_BUY,BUY"` |
+| `personaType` | string | 선택 | 페르소나 유형 (`GROWTH`\|`VALUE`\|`MOMENTUM`\|`EVENT_DRIVEN`) |
+| `eventType` | string | 선택 | 공시 이벤트 유형 (`SUPPLY_CONTRACT` 등) |
+| `entryReady` | boolean | 선택 | 진입 준비 여부 (`true`/`false`) |
+| `sort` | string | 선택 | 정렬 (`score`: 점수 내림차순 \| `latest`: 최신순, 기본 `latest`). `score`는 동점 시 최신순으로 안정화 |
+| `page` | number | 선택 | 페이지 번호 (기본 1) |
+| `limit` | number | 선택 | 페이지당 항목 수 (기본 20) |
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "sig_xxx",
+      "corpCode": "00126380",
+      "corpName": "삼성전자",
+      "ticker": "005930",
+      "eventType": "SUPPLY_CONTRACT",
+      "grade": "BUY",
+      "buyScore": 72,
+      "summary": "…",
+      "entryConditions": [
+        { "id": "met_0", "label": "…", "required": true, "met": true },
+        { "id": "unmet_0", "label": "…", "required": true, "met": false }
+      ],
+      "riskFlags": [
+        { "id": "risk_0", "label": "…", "severity": "medium" }
+      ],
+      "blockedReason": null,
+      "scoreBreakdown": [],
+      "relatedDisclosureRcpNo": "20240101000001",
+      "expiresAt": "2024-01-10T00:00:00.000Z",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "meta": { "page": 1, "limit": 20, "total": 137, "totalPages": 7 }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `data[]` | object | 신호 목록(각 항목은 12.1 단건과 동일 배지 + 진입조건·리스크·점수분해) |
+| `data[].grade` | string | 모바일 6단계 enum (위 `grade` 쿼리와 동일 값) |
+| `data[].ticker` | string\|undefined | 종목코드(6자리). 없으면 생략 |
+| `data[].entryConditions[]` | object | 진입 조건 (`id`·`label`·`required`·`met`) |
+| `data[].riskFlags[]` | object | 리스크 플래그 (`id`·`label`·`severity`) |
+| `data[].scoreBreakdown[]` | object | 점수 구성 항목별 분해(표본수 포함) |
+| `meta.page` / `meta.limit` | number | 적용된 페이지 파라미터 |
+| `meta.total` | number | 필터 조건 전체 신호 수 |
+| `meta.totalPages` | number | `ceil(total / limit)` |
+
+> 동일 컨트롤러에는 청산 신호 목록 `GET /api/signals/exit`(JWT 필수)와 신호 상세 `GET /api/signals/:id`(JWT 필수)도 있다.
+
 ## 13. 종목 최신 시세 (Market Data Quote) — DAR-158
 
 적재된 일봉(`StockDailyPrice`)과 KIS 실시간 캐시를 **읽는** 조회 경로. 화면의 가격 배지(현재가·전일대비%·5일 스파크라인)에 종단연결한다. 가격 우선순위: 실시간 캐시 신선 시 `source=REALTIME`, 없으면 최신 일봉 종가 `source=DAILY`. 데이터 없는 종목은 `null`로 흡수(배지 미표시). 점수·체결·하드룰과 무관한 순수 조회(AI 미개입).
@@ -1347,7 +1414,34 @@ GET /api/event-study/:bucketKey/observations   (JWT 필수)
 > 관측치 모델은 `marketType`이 없어 시장 무관 풀(= `ALL` 버킷과 동일 표본)이다. 빈 버킷이면 `items: []`.
 > 관측치는 `POST /api/event-study/calculate` 산출 시 영속된다(스키마 변경 없음, 기존 `EventStudyObservation` 모델 사용).
 
+### 16.3 기업별 이벤트 스터디 통계 (DAR-190)
+
+```
+GET /api/companies/:corpCode/event-study   (OptionalJwt — 게스트 열람)
+```
+
+종목 상세 화면 "통계" 탭이 소비한다. `EventStudyResult`는 **시장 전체 집계**라 `corpCode` 차원이 없으므로,
+이 기업이 제출한 공시 유형(`DisclosureEvent.eventType` distinct)을 먼저 구하고, **그 유형들의 시장 전체
+이벤트 스터디 결과**를 반환한다(= 16.1 버킷 통계를 기업 보유 유형으로 필터링한 부분집합). 시장 전체 통계라
+비민감 데이터 → 게스트 열람 허용(메서드 단위 `OptionalJwt`, 시세 API와 동일 패턴).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `corpCode` (path) | string | 필수 | 기업 고유번호(8자리) |
+| `eventType` | string | 선택 | 이벤트 유형 필터(기업 보유 유형과의 교집합으로 제한) |
+| `marketType` | string | 선택 | 시장 유형 (`KOSPI` / `KOSDAQ` / `ALL`, 기본 `ALL`) |
+
+**응답** (`data`: `EventStudyResult` 배열, 16.1 버킷 통계와 동일 형태)
+
+```jsonc
+{ "success": true, "data": [ /* (eventType, bucketKey, marketType) 버킷 통계 … */ ] }
+```
+
+> 기업이 제출한 공시 이벤트가 없거나(`eventType` 교집합 공집합 포함), 매칭되는 `READY` 결과가 없으면
+> `data: []`(빈상태). 최신 `calculatedAt` 내림차순 최대 50건. 라우트는 Companies 컨트롤러 소속이지만
+> 결과 형태가 16.1과 동일해 본 섹션에 함께 둔다.
+
 ---
 
-**작성일**: 2026-06-12
-**버전**: 1.8 (EventStudy 버킷 관측치 드릴다운 API 추가 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)
+**작성일**: 2026-06-14
+**버전**: 1.9 (매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)

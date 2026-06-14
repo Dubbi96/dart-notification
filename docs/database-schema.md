@@ -1315,5 +1315,5 @@ DART 정형 엔드포인트 2종을 수집·정규화한 행. 미공개 펀더�
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-06-07
-**버전**: 2.3 (DAR-87: Engine1 InsiderHoldingChange + EventType 지분변동 3종 추가)
+**최종 수정일**: 2026-06-14
+**버전**: 2.3 (DAR-87: Engine1 InsiderHoldingChange + EventType 지분변동 3종 추가; 본문은 refresh_tokens·WatchList.lastViewedRcpNo·Disclosure[corpCode,rcpNo] 인덱스까지 이미 반영 — DAR-222 날짜 동기화)

@@ -61,61 +61,16 @@ export class KrxMarketDataScheduler {
     try {
       this.logger.log(`[KRX] 일봉 수집 시작 basDd=${basDd} [${triggeredBy}]`);
 
-      // stockCode → corpCode 매핑 (DB 1회 조회)
-      const companies = await this.prisma.company.findMany({
-        where: { stockCode: { not: null } },
-        select: { corpCode: true, stockCode: true },
-      });
-      const corpCodeByStockCode = new Map<string, string>(
-        companies
-          .filter((c): c is { corpCode: string; stockCode: string } => c.stockCode !== null)
-          .map((c) => [c.stockCode, c.corpCode]),
-      );
-
-      // KOSPI + KOSDAQ 전종목 일봉 2회 호출 (종목당 N회 → 시장당 1회)
-      const [kospiRows, kosdaqRows] = await Promise.all([
-        this.krx.fetchStockDaily(basDd),
-        this.krx.fetchKosqdaqDaily(basDd),
-      ]);
-      const allRows = [...kospiRows, ...kosdaqRows];
-
-      for (const row of allRows) {
-        if (!row.stockCode || row.closePrice === 0) {
-          skipped++;
-          continue;
-        }
-        const corpCode = corpCodeByStockCode.get(row.stockCode);
-        if (!corpCode) {
-          skipped++;
-          continue;
-        }
-
-        await this.prisma.stockDailyPrice.upsert({
-          where: {
-            stockCode_tradeDate: { stockCode: row.stockCode, tradeDate: basDd },
-          },
-          create: {
-            corpCode,
-            stockCode: row.stockCode,
-            tradeDate: basDd,
-            openPrice: row.openPrice,
-            highPrice: row.highPrice,
-            lowPrice: row.lowPrice,
-            closePrice: row.closePrice,
-            volume: BigInt(row.volume),
-            tradingValue: BigInt(row.tradingValue),
-          },
-          update: {
-            openPrice: row.openPrice,
-            highPrice: row.highPrice,
-            lowPrice: row.lowPrice,
-            closePrice: row.closePrice,
-            volume: BigInt(row.volume),
-            tradingValue: BigInt(row.tradingValue),
-          },
-        });
-        saved++;
-      }
+      // DAR-234: 백필 경로(collectDailyPricesBulkForDate)와 동일한 createMany 단일 적재로 통일.
+      // createMany 는 단일 INSERT … ON CONFLICT DO NOTHING 으로 전종목을 원자적으로 적재 —
+      // 행당 순차 upsert 의 부분커밋(중간 실패 시 일부 종목만 적재) 위험을 제거하고,
+      // 다운스트림(signal-generation 19:00 · paper-simulation 19:30)이 부분 데이터로 도는 창을 닫는다.
+      // EOD 종가는 마감 후 불변이므로 skipDuplicates(이미 적재된 (stockCode, tradeDate) 무시)가
+      // 멱등 — 중단 후 재실행해도 무손상(누락 행만 신규 삽입).
+      const corpCodeByStockCode = await this.loadCorpCodeMap();
+      const result = await this.collectDailyPricesBulkForDate(basDd, corpCodeByStockCode);
+      saved = result.saved;
+      skipped = result.skipped;
 
       this.logger.log(`[KRX] 일봉 수집 완료 saved=${saved} skipped=${skipped}`);
       return { saved, skipped };

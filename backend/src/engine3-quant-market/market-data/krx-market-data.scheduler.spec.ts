@@ -39,7 +39,15 @@ function makePrisma(): jest.Mocked<PrismaService> {
       ]),
       count: jest.fn().mockResolvedValue(2),
     },
-    stockDailyPrice: { upsert: jest.fn().mockResolvedValue({}) },
+    stockDailyPrice: {
+      upsert: jest.fn().mockResolvedValue({}),
+      // DAR-234: EOD 일봉은 createMany 단일 적재로 통일. count = 신규 삽입 행수.
+      createMany: jest
+        .fn()
+        .mockImplementation(({ data }: { data: unknown[] }) =>
+          Promise.resolve({ count: data.length }),
+        ),
+    },
     marketIndex: { upsert: jest.fn().mockResolvedValue({}) },
     stockStatus: { upsert: jest.fn().mockResolvedValue({}) },
     marketDataCollectionLog: {
@@ -64,7 +72,7 @@ describe('KrxMarketDataScheduler.collectDailyPricesForDate', () => {
     tradingValue: 1_057_500_000_000,
   };
 
-  it('정상 수집 — API 2회(KOSPI+KOSDAQ) 호출, 매칭 종목 upsert', async () => {
+  it('정상 수집 — API 2회(KOSPI+KOSDAQ) 호출, 매칭 종목 createMany 단일 원자 적재', async () => {
     const sampleRow2: KrxStockDailyRow = { ...sampleRow, stockCode: '000660', isuAbbrv: 'SK하이닉스' };
     const krx = makeKrxApi({
       fetchStockDaily: jest.fn().mockResolvedValue([sampleRow]),
@@ -78,7 +86,31 @@ describe('KrxMarketDataScheduler.collectDailyPricesForDate', () => {
     expect(result.saved).toBe(2);
     expect(krx.fetchStockDaily).toHaveBeenCalledTimes(1); // 전종목 1회
     expect(krx.fetchKosqdaqDaily).toHaveBeenCalledTimes(1);
-    expect(prisma.stockDailyPrice.upsert).toHaveBeenCalledTimes(2);
+    // DAR-234: 행당 순차 upsert(N회) → createMany 단일 호출(원자적, 부분커밋 없음)
+    expect(prisma.stockDailyPrice.upsert).not.toHaveBeenCalled();
+    expect(prisma.stockDailyPrice.createMany).toHaveBeenCalledTimes(1);
+    const arg = (prisma.stockDailyPrice.createMany as jest.Mock).mock.calls[0][0];
+    expect(arg.skipDuplicates).toBe(true); // 멱등 — 이미 적재된 (stockCode,tradeDate) 무시
+    expect(arg.data).toHaveLength(2);
+  });
+
+  it('중단 후 재실행 멱등 — 이미 적재된 행은 skipDuplicates 로 무시(saved=신규삽입만, 무손상)', async () => {
+    const sampleRow2: KrxStockDailyRow = { ...sampleRow, stockCode: '000660', isuAbbrv: 'SK하이닉스' };
+    const krx = makeKrxApi({
+      fetchStockDaily: jest.fn().mockResolvedValue([sampleRow]),
+      fetchKosqdaqDaily: jest.fn().mockResolvedValue([sampleRow2]),
+    });
+    const prisma = makePrisma();
+    // 1차 실행에서 2건 모두 이미 커밋된 상태를 재현 — createMany 가 중복 0건 삽입 반환.
+    (prisma.stockDailyPrice.createMany as jest.Mock).mockResolvedValue({ count: 0 });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.collectDailyPricesForDate('20260604', 'CRON');
+
+    // 재실행해도 오류 없이 멱등 완료 — 신규 삽입 0건, 다운스트림 데이터 무손상.
+    expect(result.message).toBeUndefined();
+    expect(result.saved).toBe(0);
+    expect(prisma.stockDailyPrice.createMany).toHaveBeenCalledTimes(1);
   });
 
   it('주말이면 수집 스킵하고 0 반환', async () => {
@@ -89,7 +121,7 @@ describe('KrxMarketDataScheduler.collectDailyPricesForDate', () => {
     const result = await scheduler.collectDailyPricesForDate('20260606', 'CRON');
 
     expect(result.message).toBe('주말 스킵');
-    expect(prisma.stockDailyPrice.upsert).not.toHaveBeenCalled();
+    expect(prisma.stockDailyPrice.createMany).not.toHaveBeenCalled();
   });
 
   it('중복 실행 시 두 번째 호출은 즉시 반환', async () => {
@@ -99,8 +131,8 @@ describe('KrxMarketDataScheduler.collectDailyPricesForDate', () => {
     const prisma = makePrisma();
 
     let resolveFirst!: () => void;
-    const firstPromise = new Promise<void>((r) => (resolveFirst = r));
-    (prisma.stockDailyPrice.upsert as jest.Mock).mockImplementation(() => firstPromise);
+    const firstPromise = new Promise<{ count: number }>((r) => (resolveFirst = () => r({ count: 1 })));
+    (prisma.stockDailyPrice.createMany as jest.Mock).mockImplementation(() => firstPromise);
 
     const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
     const first = scheduler.collectDailyPricesForDate('20260604', 'CRON');

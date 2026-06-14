@@ -8,6 +8,7 @@ import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
+import { ScreenHeader } from '@components/common/ScreenHeader';
 import { SignalAccuracySection } from '@components/portfolio/SignalAccuracySection';
 import { CalibrationSection } from '@components/portfolio/CalibrationSection';
 import { PerformanceSparkline } from '@components/portfolio/PerformanceSparkline';
@@ -419,19 +420,7 @@ export default function TradeHistoryScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          hitSlop={8}
-          style={styles.backButton}
-          accessibilityRole="button"
-          accessibilityLabel="뒤로 가기"
-        >
-          <Feather name="chevron-left" size={26} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[typo.h3, { color: colors.text }]}>성과 리포트</Text>
-        <View style={styles.backButton} />
-      </View>
+      <ScreenHeader title="성과 리포트" onBack={() => router.back()} />
 
       {query.isLoading ? (
         <LoadingState message="매매 기록을 불러오는 중..." />
@@ -469,15 +458,6 @@ export default function TradeHistoryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-  },
-  backButton: { width: 40, alignItems: 'flex-start' },
   listContent: { padding: spacing.lg, gap: spacing.md, flexGrow: 1 },
   headerBox: { gap: spacing.md },
   banner: { borderRadius: radius.md },

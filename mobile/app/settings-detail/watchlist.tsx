@@ -18,6 +18,7 @@ import { ko } from 'date-fns/locale';
 import { useWatchlist, useRemoveFromWatchlist, useAddToWatchlist } from '@hooks/useWatchlist';
 import { useDialog } from '@components/common/DialogProvider';
 import { SearchOverlay } from '@components/common/SearchOverlay';
+import { ScreenHeader } from '@components/common/ScreenHeader';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { useStockQuotes } from '@hooks/useStockQuotes';
@@ -88,15 +89,7 @@ export default function WatchlistScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={[styles.header, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
-            <Ionicons name="chevron-back" size={26} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}>
-            관심목록
-          </Text>
-          <View style={styles.headerButton} />
-        </View>
+        <ScreenHeader title="관심목록" onBack={() => router.back()} />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
@@ -106,22 +99,20 @@ export default function WatchlistScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
-          <Ionicons name="chevron-back" size={26} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}>
-          관심목록
-        </Text>
-        <TouchableOpacity
-          style={styles.headerButton}
-          onPress={handleAdd}
-          accessibilityRole="button"
-          accessibilityLabel={total >= limit ? '관심기업 추가 (한도 도달)' : '관심기업 추가'}
-        >
-          <Ionicons name="add" size={24} color={total >= limit ? colors.textTertiary : colors.primary} />
-        </TouchableOpacity>
-      </View>
+      <ScreenHeader
+        title="관심목록"
+        onBack={() => router.back()}
+        rightSlot={
+          <TouchableOpacity
+            style={styles.headerAction}
+            onPress={handleAdd}
+            accessibilityRole="button"
+            accessibilityLabel={total >= limit ? '관심기업 추가 (한도 도달)' : '관심기업 추가'}
+          >
+            <Ionicons name="add" size={24} color={total >= limit ? colors.textTertiary : colors.primary} />
+          </TouchableOpacity>
+        }
+      />
 
       <View style={styles.counter}>
         <Text style={[typo.caption, { color: colors.textSecondary }]}>
@@ -232,15 +223,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-  },
-  headerButton: {
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.sm,
+  headerAction: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
   },
   counter: {
     paddingHorizontal: spacing.lg,

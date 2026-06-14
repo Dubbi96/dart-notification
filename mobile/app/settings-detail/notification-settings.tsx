@@ -14,13 +14,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Switch, Checkbox, Divider } from 'react-native-paper';
-import { Ionicons } from '@expo/vector-icons';
 import { X } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { useForm, Controller } from 'react-hook-form';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Button } from '@components/common/Button';
+import { ScreenHeader } from '@components/common/ScreenHeader';
 import { ApiErrorState } from '@components/common/StateView';
 import { useDialog } from '@components/common/DialogProvider';
 import { useNotificationSettings, useUpdateNotificationSettings } from '@hooks/useNotificationSettings';
@@ -124,7 +124,7 @@ export default function NotificationSettingsScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <ScreenHeader onBack={() => router.back()} colors={colors} typo={typo} />
+        <ScreenHeader title="알림 설정" onBack={() => router.back()} />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
@@ -137,7 +137,7 @@ export default function NotificationSettingsScreen() {
   if (isError) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <ScreenHeader onBack={() => router.back()} colors={colors} typo={typo} />
+        <ScreenHeader title="알림 설정" onBack={() => router.back()} />
         <ApiErrorState
           error={error}
           onRetry={refetch}
@@ -150,7 +150,7 @@ export default function NotificationSettingsScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScreenHeader onBack={handleBack} colors={colors} typo={typo} />
+      <ScreenHeader title="알림 설정" onBack={handleBack} />
 
       <KeyboardAvoidingView
         style={styles.container}
@@ -312,32 +312,6 @@ export default function NotificationSettingsScreen() {
 
 type ThemeColors = ReturnType<typeof useTheme>['colors'];
 type ThemeTypography = ReturnType<typeof useTheme>['typography'];
-
-// 로딩/에러/폼 3개 상태가 공유하는 헤더(뒤로가기 + 제목). 중복 제거 + 동선 일관성.
-function ScreenHeader({
-  onBack,
-  colors,
-  typo,
-}: {
-  onBack: () => void;
-  colors: ThemeColors;
-  typo: ThemeTypography;
-}) {
-  return (
-    <View style={[styles.header, { borderBottomColor: colors.border }]}>
-      <TouchableOpacity
-        onPress={onBack}
-        style={styles.headerButton}
-        accessibilityRole="button"
-        accessibilityLabel="뒤로 가기"
-      >
-        <Ionicons name="chevron-back" size={26} color={colors.text} />
-      </TouchableOpacity>
-      <Text style={[typo.h3, styles.headerTitle, { color: colors.text }]}>알림 설정</Text>
-      <View style={styles.headerButton} />
-    </View>
-  );
-}
 
 interface AccessibleToggleRowProps {
   label: string;
@@ -506,21 +480,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-  },
-  headerButton: {
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.sm,
-    width: 56,
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
   },
   content: {
     padding: spacing.lg,

@@ -151,7 +151,11 @@ describe('DisclosureEventsService', () => {
       expect(mockAiQueue.add).toHaveBeenCalledWith(
         JOB.EVENT_EXTRACTED,
         expect.objectContaining({ rcpNo: '20240601000001' }),
-        AI_ANALYZE_JOB_OPTIONS,
+        // DAR-230: 기존 정책 옵션 + 자연키 jobId(ai:<rcpNo>) 둘 다 적용.
+        expect.objectContaining({
+          ...AI_ANALYZE_JOB_OPTIONS,
+          jobId: 'ai:20240601000001',
+        }),
       );
       // 정책 값 명세: 3회 재시도·exponential backoff·실패 잡 보존(영구 소멸 방지).
       expect(AI_ANALYZE_JOB_OPTIONS.attempts).toBe(3);

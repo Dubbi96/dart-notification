@@ -143,3 +143,52 @@ export type NotifyJobData =
   | NotifySignalJobData
   | NotifyExitJobData
   | NotifyThesisViolatedJobData;
+
+// ─── DAR-230: 자연키 기반 dedup jobId ───────────────────────────────────────
+//
+// 배경: AI_ANALYZE/NOTIFY/EXPO_RECEIPT 큐가 .add(name,data,options) 3-arg 로만
+// 발행돼 jobId 가 없었다. AI 잡은 최소 3경로(이벤트추출 직후·reprocessMissingAi·
+// 드레인)에서 같은 rcpNo 로 발행될 수 있고, jobId 가 없으면 BullMQ 가 매번 별개
+// 잡을 적재한다. consumer 멱등 캐시가 LLM 비용은 막아도 큐에는 중복이 누적돼
+// 워커 처리량·removeOnFail 보존 슬롯·Redis 메모리를 잠식한다.
+//
+// 해결: 자연키로 결정론적 jobId 를 부여한다. BullMQ 는 동일 jobId 의 잡이 큐에
+// 이미 존재(대기·활성·지연·보존된 실패/완료)하면 add 를 무시(중복 미적재)하므로
+// 다경로 재발행에도 큐 1건만 유지된다. removeOnComplete:true 인 happy-path 는
+// 완료 즉시 잡이 제거돼 정당한 재처리(reprocess)를 막지 않는다.
+
+/** AI_ANALYZE 잡 dedup jobId — 자연키 rcpNo 기반(`ai:<rcpNo>`). */
+export const aiAnalyzeJobId = (rcpNo: string): string => `ai:${rcpNo}`;
+
+/**
+ * NOTIFY 잡 dedup jobId — 잡 유형별 자연키 기반.
+ *  - SIGNAL          → `sig:<signalId>`
+ *  - EXIT            → `exit:<positionId>`
+ *  - THESIS_VIOLATED → `thesis:<positionThesisId>`
+ * 매핑 불가한 잡 이름이면 undefined(=jobId 미부여, 종전 동작 유지).
+ */
+export function notifyJobId(
+  jobName: string,
+  data: NotifyJobData,
+): string | undefined {
+  switch (jobName) {
+    case NOTIFY_JOB.SIGNAL:
+      return `sig:${(data as NotifySignalJobData).signalId}`;
+    case NOTIFY_JOB.EXIT:
+      return `exit:${(data as NotifyExitJobData).positionId}`;
+    case NOTIFY_JOB.THESIS_VIOLATED:
+      return `thesis:${(data as NotifyThesisViolatedJobData).positionThesisId}`;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * EXPO_RECEIPT 잡 dedup jobId — 배치 첫 ticketId 기반(`rcpt:<ticketId>`).
+ * ticketId 는 Expo 가 발급하는 전역 고유값이라 배치별 안정 자연키가 된다.
+ * 호출부는 ticketIds 비어있을 때 enqueue 자체를 건너뛰지만, 순수 함수로서
+ * 빈 배열도 안전하게 처리한다(`rcpt:empty`).
+ */
+export const expoReceiptJobId = (
+  ticketIds: { id: string }[],
+): string => `rcpt:${ticketIds[0]?.id ?? 'empty'}`;

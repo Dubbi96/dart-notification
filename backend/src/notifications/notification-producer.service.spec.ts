@@ -15,9 +15,23 @@ describe('NotificationProducerService (DAR-85)', () => {
     await svc.enqueueSignal({ signalId: 's1', corpCode: 'c1', grade: 'STRONG_BUY' });
 
     expect(queue.add).toHaveBeenCalledTimes(1);
-    const [jobName, data] = queue.add.mock.calls[0];
+    const [jobName, data, options] = queue.add.mock.calls[0];
     expect(jobName).toBe(NOTIFY_JOB.SIGNAL);
     expect(data).toMatchObject({ signalId: 's1', corpCode: 'c1', grade: 'STRONG_BUY' });
+    // DAR-230: signalId 자연키 jobId 로 다경로 재발행 중복 적재 차단.
+    expect(options.jobId).toBe('sig:s1');
+  });
+
+  it('DAR-230: 잡 유형별 자연키 jobId 부여(sig:/exit:/thesis:)', async () => {
+    const queue = makeQueue();
+    const svc = new NotificationProducerService(queue as any);
+    await svc.enqueueSignal({ signalId: 's1', corpCode: 'c1' });
+    await svc.enqueueExit({ positionId: 'p1', corpCode: 'c1' });
+    await svc.enqueueThesisViolated({ positionThesisId: 't1', corpCode: 'c1' });
+
+    expect(queue.add.mock.calls[0][2].jobId).toBe('sig:s1');
+    expect(queue.add.mock.calls[1][2].jobId).toBe('exit:p1');
+    expect(queue.add.mock.calls[2][2].jobId).toBe('thesis:t1');
   });
 
   it('enqueueExit / enqueueThesisViolated → 각 잡 이름으로 add', async () => {

@@ -91,6 +91,19 @@ export class AiAnalystService {
     const level = await this.resolveLevel(req.gate);
     if (level === AiCostLevel.L0) {
       this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} L0 — 분석 스킵`);
+      // DAR-239: L0(룰 기반·AI 미사용) 게이트 결정도 비용0 행으로 AIUsageLog에 기록한다.
+      // runSummary는 공시당 1회 호출되는 진입 게이트이므로 이 1행이 곧 '공시당 게이트 평가'다
+      // (하위 Persona/Thesis 스킵은 비L0 공시에서 중복 발생하므로 일부러 기록하지 않는다 — 분모 왜곡 방지).
+      // 미기록 시 AIUsageLog의 L0 분자가 영구 0 → l0Ratio 구조적 0 → 회귀 게이트(L0≥70%) 거짓 발화.
+      await this.usageLog.logUsage({
+        rcpNo,
+        task: 'summary',
+        level: AiCostLevel.L0,
+        model: '-',
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: 0,
+      });
       return null;
     }
 
@@ -136,6 +149,8 @@ export class AiAnalystService {
     const level = await this.resolveLevel(req.gate);
     if (level === AiCostLevel.L0) {
       this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} L0 — event-classification 스킵`);
+      // DAR-239: 게이트 평가(L0 분자)는 진입 게이트 runSummary에서만 1행 기록한다.
+      // 보조 Task 스킵까지 기록하면 동일 공시가 여러 행으로 중복 집계돼 l0Ratio 분모가 왜곡된다.
       return null;
     }
 
@@ -181,6 +196,7 @@ export class AiAnalystService {
     const level = await this.resolveLevel(req.gate);
     if (level === AiCostLevel.L0 || level === AiCostLevel.L1) {
       this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} ${level} — persona-interpretation 스킵`);
+      // DAR-239: 진입 게이트(runSummary)에서만 게이트 결정을 기록한다(분모 왜곡 방지). 여기선 기록하지 않는다.
       return null;
     }
 
@@ -227,6 +243,7 @@ export class AiAnalystService {
     const level = await this.resolveLevel(req.gate);
     if (level !== AiCostLevel.L3) {
       this.logger.debug(`[AiAnalyst] rcpNo=${rcpNo} ${level} — position-thesis 스킵(L3 전용)`);
+      // DAR-239: 진입 게이트(runSummary)에서만 게이트 결정을 기록한다(분모 왜곡 방지). 여기선 기록하지 않는다.
       return null;
     }
 

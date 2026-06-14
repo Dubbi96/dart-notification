@@ -1,6 +1,7 @@
 import { AiUsageLogService } from './ai-usage-log.service';
 import { InMemoryAiAnalysisRepository } from '../adapters/in-memory-ai-analysis.repository';
 import { AiCostLevel } from '../types/ai-analyst.types';
+import { AiAnalysisRepository } from '../ports/ai-analysis.repository';
 
 /**
  * DAR-241: 멱등 캐시히트(비용0 재사용)가 비용 관측성에 노출되는지 검증한다.
@@ -70,5 +71,56 @@ describe('AiUsageLogService — DAR-241 캐시히트 관측', () => {
     });
     const metrics = await service.getCostMetrics(FROM, TO);
     expect(metrics.cacheHitCount).toBe(0);
+  });
+});
+
+/**
+ * DAR-239: l0Ratio가 'AIUsageLog 행' 분모가 아니라 '게이트 평가(=공시) 수' 분모로 산출돼
+ * 실제 게이트 분포를 반영하는지 검증. L0 행 미기록 시 분자 구조적 0(회귀 게이트 거짓발화) 회귀 방지.
+ */
+describe('AiUsageLogService.getCostMetrics — l0Ratio (DAR-239)', () => {
+  function makeService(rows: any[]) {
+    const repo = {
+      getUsageSummary: jest.fn().mockResolvedValue(rows),
+      getCacheHitCount: jest.fn().mockResolvedValue(0),
+      saveUsage: jest.fn(),
+      saveCacheHit: jest.fn(),
+      findAnalysis: jest.fn(),
+      saveAnalysis: jest.fn(),
+    } as unknown as AiAnalysisRepository;
+    return new AiUsageLogService(repo);
+  }
+
+  it('L0 행이 없으면(버그 재현) l0Ratio=0 — 회귀 게이트 상시 거짓발화', async () => {
+    const rows = [
+      { task: 'summary', level: 'L2', costUsd: 0.002, inputTokens: 200, outputTokens: 80, rcpNo: 'A001' },
+      { task: 'persona_interpretation', level: 'L2', costUsd: 0.003, inputTokens: 300, outputTokens: 120, rcpNo: 'A001' },
+    ];
+    const m = await makeService(rows).getCostMetrics(new Date(), new Date());
+    expect(m.l0Ratio).toBe(0);
+    expect(m.l0Warning).toBe(true);
+  });
+
+  it('L0 게이트 결정이 기록되면 l0Ratio가 공시 단위 분포를 반영(행 다중성에 불변)', async () => {
+    // 비L0 공시 A001(2행: summary+persona) + L0 공시 7건 = 공시 8건 중 L0 7건 → 0.875.
+    const l0 = Array.from({ length: 7 }, (_, i) => ({
+      task: 'summary', level: 'L0', costUsd: 0, inputTokens: 0, outputTokens: 0, rcpNo: `B0${i}`,
+    }));
+    const rows = [
+      { task: 'summary', level: 'L2', costUsd: 0.002, inputTokens: 200, outputTokens: 80, rcpNo: 'A001' },
+      { task: 'persona_interpretation', level: 'L2', costUsd: 0.003, inputTokens: 300, outputTokens: 120, rcpNo: 'A001' },
+      ...l0,
+    ];
+    const m = await makeService(rows).getCostMetrics(new Date(), new Date());
+    expect(m.l0Ratio).toBeCloseTo(7 / 8, 6); // 행 분모(9)였다면 7/9로 왜곡
+    expect(m.l0Warning).toBe(false); // 0.875 ≥ 0.7
+    // 비용/공시 분모도 공시 단위 — L0(무비용) 공시 포함.
+    expect(m.costPerDisclosure).toBeCloseTo(0.005 / 8, 6);
+  });
+
+  it('표본 0건: l0Ratio=1 (graceful)', async () => {
+    const m = await makeService([]).getCostMetrics(new Date(), new Date());
+    expect(m.l0Ratio).toBe(1);
+    expect(m.l0Warning).toBe(false);
   });
 });

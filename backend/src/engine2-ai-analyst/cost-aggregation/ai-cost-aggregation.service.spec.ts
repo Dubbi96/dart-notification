@@ -58,10 +58,27 @@ describe('AiCostAggregationService', () => {
     expect(result.byTask['position-thesis'].callCount).toBe(1);
   });
 
-  it('L0 비율 계산: L0 6건 포함 시 60% L0', async () => {
+  it('DAR-239: l0Ratio 분모는 행 수가 아닌 공시(게이트 평가) 수 — A001 다중 행 중복 미집계', async () => {
+    // sampleRows: 공시 A001(summary+event 2행)·A002·A003 = 비L0 공시 3건 + L0 공시 6건(B000~B005).
+    // 행 수 분모(10)는 A001 중복으로 L0 비율을 6/10=60%로 축소 왜곡한다.
+    // 공시 수 분모(9)가 실제 게이트 분포 → 6/9≈66.7%.
     const svc = makeService([...sampleRows, ...l0Rows]);
     const result = await svc.getPeriodSummary(new Date(), new Date());
-    expect(result.l0Ratio).toBeCloseTo(6 / 10, 4);
+    expect(result.l0Ratio).toBeCloseTo(6 / 9, 4);
+    expect(result.l0Count).toBe(6);
+  });
+
+  it('DAR-239: L0 게이트 결정이 기록되면 l0Ratio가 게이트 분포를 반영(미기록 시 구조적 0)', async () => {
+    // 회귀게이트 거짓발화의 핵심: L0 행이 0이면 l0Ratio=0/공시수=0(threshold 0.7 상시 위반).
+    const noL0 = makeService([...sampleRows]); // L0 행 없음(버그 재현)
+    expect((await noL0.getPeriodSummary(new Date(), new Date())).l0Ratio).toBe(0);
+
+    // L0 7건 + 비L0 공시 3건 = 공시 10건 중 L0 7건 → 정확히 0.7.
+    const sevenL0 = Array.from({ length: 7 }, (_, i) => ({
+      task: 'summary', level: 'L0', costUsd: 0, inputTokens: 0, outputTokens: 0, rcpNo: `C0${i}`,
+    }));
+    const withL0 = makeService([...sampleRows, ...sevenL0]);
+    expect((await withL0.getPeriodSummary(new Date(), new Date())).l0Ratio).toBeCloseTo(0.7, 6);
   });
 
   it('빈 데이터: l0Ratio=1, totalCostUsd=0', async () => {

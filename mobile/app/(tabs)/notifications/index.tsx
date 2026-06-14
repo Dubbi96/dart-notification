@@ -15,6 +15,7 @@ import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { useAuthStore } from '@stores/authStore';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
+import { SkeletonList } from '@components/common/SkeletonCard';
 import { GuestPrompt } from '@components/common/GuestPrompt';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { guestPromptCopy } from '@components/common/guestPromptCopy';
@@ -277,9 +278,8 @@ export default function NotificationsScreen() {
           <Text style={[typo.h2, { color: colors.text }]}>알림</Text>
           <View />
         </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
+        {/* DAR-147 정렬: 중앙 스피너 대신 알림 카드 리스트 자리 스켈레톤(disclosures/signals와 일관). */}
+        <SkeletonList variant="disclosure" />
       </SafeAreaView>
     );
   }
@@ -403,11 +403,6 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   footerLoading: {
     paddingVertical: spacing.lg,

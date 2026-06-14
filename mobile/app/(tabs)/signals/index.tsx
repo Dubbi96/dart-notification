@@ -51,6 +51,11 @@ export default function SignalsScreen() {
     setFeedTab('buy');
   }, []);
 
+  // DAR-227: SegmentedButtons onValueChange를 안정 참조로 고정(매 렌더 새 함수 금지).
+  const handleFeedTabChange = useCallback((v: string) => {
+    setFeedTab(v as FeedTab);
+  }, []);
+
   // 상단 진입점 배너(투자거장·이벤트통계) — 추천 슬롯보다 아래 위계(§3-d). 위험 없으면 추천을 밀어내지 않음.
   const metaBanners = useMemo(
     () => (
@@ -91,56 +96,71 @@ export default function SignalsScreen() {
     [colors, typo],
   );
 
-  // 매수 탐색 화면 상단(L1 큐레이션 → L2 검색 → 피드 입구 토글 → 메타 배너).
-  // SegmentedButtons는 큐레이션·검색 아래 위계로 하향(§3-b).
-  const buyHeader = (
-    <View>
-      {/* L1: 오늘 주목할 신호 큐레이션(§3-a) — 최상단 1순위 */}
-      <CurationSlot onExplore={handleExplore} />
+  // DAR-227: 헤더 서브트리를 조각별로 메모이즈해 타이핑(search 변경)에도 참조 동일성 유지.
+  // 검색 입력만 search에 의존해 리렌더하고, CurationSlot·SegmentedButtons는 동일 엘리먼트
+  // 참조라 React가 재조정을 건너뛴다(매 렌더 헤더 변수 재생성으로 인한 서브트리 리렌더 제거).
+  const curationSlot = useMemo(() => <CurationSlot onExplore={handleExplore} />, [handleExplore]);
 
-      {/* L2: 종목 검색(§3-b) */}
-      <SignalSearchInput value={search} onChangeText={setSearch} />
+  const searchInput = useMemo(
+    () => <SignalSearchInput value={search} onChangeText={setSearch} />,
+    [search],
+  );
 
-      {/* 전체 피드 입구(매수/매도) — 위계 하향 */}
+  // 전체 피드 입구(매수/매도) — feedTab에만 의존(search 무관)해 타이핑 시 리렌더 0.
+  const feedToggle = useMemo(
+    () => (
       <View style={styles.feedToggle}>
         <SegmentedButtons
           value={feedTab}
-          onValueChange={(v) => setFeedTab(v as FeedTab)}
+          onValueChange={handleFeedTabChange}
           buttons={[
             { value: 'buy', label: '매수 탐색', icon: 'trending-up' },
             { value: 'sell', label: '매도', icon: 'trending-down' },
           ]}
         />
       </View>
+    ),
+    [feedTab, handleFeedTabChange],
+  );
 
-      {/* 메타 배너(투자거장·이벤트통계) — 추천보다 아래 위계 */}
-      {metaBanners}
+  // 매수 탐색 화면 상단(L1 큐레이션 → L2 검색 → 피드 입구 토글 → 메타 배너).
+  // SegmentedButtons는 큐레이션·검색 아래 위계로 하향(§3-b).
+  const buyHeader = useMemo(
+    () => (
+      <View>
+        {/* L1: 오늘 주목할 신호 큐레이션(§3-a) — 최상단 1순위 */}
+        {curationSlot}
 
-      <View style={styles.sectionLabel}>
-        <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>전체 신호 탐색</Text>
+        {/* L2: 종목 검색(§3-b) */}
+        {searchInput}
+
+        {/* 전체 피드 입구(매수/매도) — 위계 하향 */}
+        {feedToggle}
+
+        {/* 메타 배너(투자거장·이벤트통계) — 추천보다 아래 위계 */}
+        {metaBanners}
+
+        <View style={styles.sectionLabel}>
+          <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>전체 신호 탐색</Text>
+        </View>
       </View>
-    </View>
+    ),
+    [curationSlot, searchInput, feedToggle, metaBanners, typo, colors],
   );
 
   // 매도 피드도 큐레이션·검색·토글을 상단에 유지해 동선 일관성 확보.
-  const sellHeader = (
-    <View>
-      <CurationSlot onExplore={handleExplore} />
-      <SignalSearchInput value={search} onChangeText={setSearch} />
-      <View style={styles.feedToggle}>
-        <SegmentedButtons
-          value={feedTab}
-          onValueChange={(v) => setFeedTab(v as FeedTab)}
-          buttons={[
-            { value: 'buy', label: '매수 탐색', icon: 'trending-up' },
-            { value: 'sell', label: '매도', icon: 'trending-down' },
-          ]}
-        />
+  const sellHeader = useMemo(
+    () => (
+      <View>
+        {curationSlot}
+        {searchInput}
+        {feedToggle}
+        <View style={styles.sectionLabel}>
+          <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>전체 매도 신호</Text>
+        </View>
       </View>
-      <View style={styles.sectionLabel}>
-        <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>전체 매도 신호</Text>
-      </View>
-    </View>
+    ),
+    [curationSlot, searchInput, feedToggle, typo, colors],
   );
 
   const renderBody = () => {

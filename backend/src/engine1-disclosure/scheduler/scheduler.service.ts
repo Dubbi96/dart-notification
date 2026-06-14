@@ -9,6 +9,7 @@ import { ExpoPushService } from '../../expo-push/expo-push.service';
 import { ExpoPushMessage } from 'expo-server-sdk';
 import { DisclosureCollectionLog } from '@prisma/client';
 import { DisclosureDocumentsService } from '../disclosure-documents/disclosure-documents.service';
+import { KST_TIMEZONE, formatKstDateCompact } from '../../common/time/kst';
 
 @Injectable()
 export class SchedulerService {
@@ -28,9 +29,9 @@ export class SchedulerService {
   ) {}
 
   /**
-   * 공시 수집 - 평일 08:00~18:00 10분 간격
+   * 공시 수집 - 평일 08:00~18:00 10분 간격(KST)
    */
-  @Cron('*/10 8-17 * * 1-5')
+  @Cron('*/10 8-17 * * 1-5', { timeZone: KST_TIMEZONE })
   async collectDisclosures() {
     const today = this.formatDate(new Date());
     return this.collectByDate(today, today, 'CRON');
@@ -205,19 +206,19 @@ export class SchedulerService {
   }
 
   /**
-   * 공시 수집 - 평일 장외시간(06~07, 18~22) 1시간 간격
+   * 공시 수집 - 평일 장외시간(06~07, 18~22, KST) 1시간 간격
    * 이른 아침/저녁 공시 대비
    */
-  @Cron('0 6-7,18-22 * * 1-5')
+  @Cron('0 6-7,18-22 * * 1-5', { timeZone: KST_TIMEZONE })
   async collectDisclosuresOffHours() {
     // collectDisclosures가 'CRON' 전달하므로 변경 없음
     await this.collectDisclosures();
   }
 
   /**
-   * 만료 토큰 및 오래된 알림 정리 - 매일 자정
+   * 만료 토큰 및 오래된 알림 정리 - 매일 자정(KST)
    */
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT, { timeZone: KST_TIMEZONE })
   async cleanupExpiredTokens() {
     this.logger.log('만료 데이터 정리 시작...');
 
@@ -430,10 +431,8 @@ export class SchedulerService {
     }
   }
 
+  /** YYYYMMDD(KST 거래일). 시스템 TZ 무관 — UTC 새벽 전일 반환 방지(DAR-199). */
   private formatDate(date: Date): string {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    return `${y}${m}${d}`;
+    return formatKstDateCompact(date);
   }
 }

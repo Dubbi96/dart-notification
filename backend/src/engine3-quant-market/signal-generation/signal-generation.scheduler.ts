@@ -16,6 +16,7 @@ import {
 } from './signal-generation.service';
 import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
 import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
+import { KST_TIMEZONE } from '../../common/time/kst';
 
 @Injectable()
 export class SignalGenerationScheduler {
@@ -27,8 +28,8 @@ export class SignalGenerationScheduler {
     @Optional() private readonly recorder?: CronRunRecorderService,
   ) {}
 
-  /** 평일 19:00 — 누락 신호 생성 (시세수집 18:30 이후·paper-sim 19:30 이전) */
-  @Cron('0 19 * * 1-5')
+  /** 평일 19:00(KST) — 누락 신호 생성 (시세수집 18:30 이후·paper-sim 19:30 이전) */
+  @Cron('0 19 * * 1-5', { timeZone: KST_TIMEZONE })
   async generateDaily(): Promise<SignalGenerationSummary> {
     this.logger.log('[SignalGen] Cron 19:00 트리거');
     const run = () => this.signalGen.generateMissingSignals('CRON');

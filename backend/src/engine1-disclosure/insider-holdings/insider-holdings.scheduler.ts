@@ -10,6 +10,7 @@ import {
 } from './insider-holdings.service';
 import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
 import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
+import { KST_TIMEZONE } from '../../common/time/kst';
 
 type DailyCollectResult =
   | CollectInsiderResult
@@ -27,10 +28,10 @@ export class InsiderHoldingsScheduler {
   ) {}
 
   /**
-   * 일 1회 우선종목 지분변동 수집 — 매일 03:30 (장 시작 전, 저호출 시간대).
+   * 일 1회 우선종목 지분변동 수집 — 매일 03:30(KST) (장 시작 전, 저호출 시간대).
    * DART 호출량 증가 대비 단일 실행 락 + 종목 간 레이트리밋(service 내부).
    */
-  @Cron('30 3 * * *')
+  @Cron('30 3 * * *', { timeZone: KST_TIMEZONE })
   async dailyCollect(): Promise<DailyCollectResult> {
     const run = async (): Promise<DailyCollectResult> => {
       if (this.isRunning) {

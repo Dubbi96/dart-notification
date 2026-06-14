@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { KrxApiService, KrxApiUnavailableError } from './krx-api.service';
 import { DartStockStatusService, DerivedStockStatus } from './dart-stock-status.service';
 import type { Prisma } from '@prisma/client';
+import { KST_TIMEZONE } from '../../common/time/kst';
 
 /**
  * KRX 시세 일괄 수집 Cron 스케줄러.
@@ -28,8 +29,8 @@ export class KrxMarketDataScheduler {
     private readonly dartStockStatus: DartStockStatusService,
   ) {}
 
-  /** 평일 18:30 — 일봉 수집 */
-  @Cron('30 18 * * 1-5')
+  /** 평일 18:30(KST) — 일봉 수집 */
+  @Cron('30 18 * * 1-5', { timeZone: KST_TIMEZONE })
   async collectDailyPrices(): Promise<{ saved: number; skipped: number; message?: string }> {
     return this.collectDailyPricesForDate(this.krx.formatDate(new Date()), 'CRON');
   }
@@ -130,8 +131,8 @@ export class KrxMarketDataScheduler {
     }
   }
 
-  /** 평일 18:45 — 시장지수 수집 */
-  @Cron('45 18 * * 1-5')
+  /** 평일 18:45(KST) — 시장지수 수집 */
+  @Cron('45 18 * * 1-5', { timeZone: KST_TIMEZONE })
   async collectMarketIndices(): Promise<{ saved: number; message?: string }> {
     return this.collectMarketIndicesForDate(this.krx.formatDate(new Date()), 'CRON');
   }
@@ -203,8 +204,8 @@ export class KrxMarketDataScheduler {
     }
   }
 
-  /** 평일 08:50 — 종목상태 수집 (장 시작 전) */
-  @Cron('50 8 * * 1-5')
+  /** 평일 08:50(KST) — 종목상태 수집 (장 시작 전) */
+  @Cron('50 8 * * 1-5', { timeZone: KST_TIMEZONE })
   async collectStockStatuses(): Promise<{ processed: number; message?: string }> {
     return this.collectStockStatusesForDate(this.krx.formatDate(new Date()), 'CRON');
   }

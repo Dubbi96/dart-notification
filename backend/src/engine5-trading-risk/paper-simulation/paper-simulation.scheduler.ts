@@ -10,6 +10,7 @@ import { Cron } from '@nestjs/schedule';
 import { PaperSimulationService, DailyCycleResult } from './paper-simulation.service';
 import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
 import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
+import { KST_TIMEZONE, formatKstDateCompact } from '../../common/time/kst';
 
 @Injectable()
 export class PaperSimulationScheduler {
@@ -21,8 +22,8 @@ export class PaperSimulationScheduler {
     @Optional() private readonly recorder?: CronRunRecorderService,
   ) {}
 
-  /** 평일 19:30 — KRX 일봉(18:30)·지수(18:45) 수집 이후 모의운용 1사이클 */
-  @Cron('30 19 * * 1-5')
+  /** 평일 19:30(KST) — KRX 일봉(18:30)·지수(18:45) 수집 이후 모의운용 1사이클 */
+  @Cron('30 19 * * 1-5', { timeZone: KST_TIMEZONE })
   async runDaily(): Promise<DailyCycleResult> {
     const tradeDate = this.todayBasDd();
     this.logger.log(`[PaperSim][Cron] 일일 모의운용 실행 tradeDate=${tradeDate}`);
@@ -34,11 +35,8 @@ export class PaperSimulationScheduler {
     });
   }
 
+  /** 오늘 거래일 YYYYMMDD(KST). 시스템 TZ 무관 — UTC 새벽 전일 반환 방지(DAR-199). */
   private todayBasDd(): string {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}${m}${day}`;
+    return formatKstDateCompact(new Date());
   }
 }

@@ -16,7 +16,10 @@ RUN npm run build
 # ------- production -------
 FROM node:20-alpine
 
-RUN apk add --no-cache openssl
+# tzdata + TZ: 컨테이너 기본 TZ(UTC) 고정 해소(DAR-199). @Cron의 timeZone 옵션이
+# 1차 방어선이나, 시스템 TZ도 KST로 고정해 Date 로컬 메서드·로그·보조 코드까지 일관.
+RUN apk add --no-cache openssl tzdata
+ENV TZ=Asia/Seoul
 
 WORKDIR /app
 

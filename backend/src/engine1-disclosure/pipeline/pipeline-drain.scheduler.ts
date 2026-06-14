@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { PipelineIntegrityService } from './pipeline-integrity.service';
 import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
 import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
+import { KST_TIMEZONE } from '../../common/time/kst';
 
 /** 1회 드레인 단계별 처리 상한. */
 const DRAIN_BATCH = 100;
@@ -31,8 +32,8 @@ export class PipelineDrainScheduler {
     @Optional() private readonly recorder?: CronRunRecorderService,
   ) {}
 
-  /** 매 15분 폐루프 드레인. */
-  @Cron('*/15 * * * *')
+  /** 매 15분 폐루프 드레인. (간격형이라 TZ 무관이나 KST 명시로 의도 고정) */
+  @Cron('*/15 * * * *', { timeZone: KST_TIMEZONE })
   async drainPipeline(): Promise<void> {
     this.logger.log('파이프라인 폐루프 드레인 스케줄러 실행');
 

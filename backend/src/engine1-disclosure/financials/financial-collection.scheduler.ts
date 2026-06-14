@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { KST_TIMEZONE, kstYear, kstMonth } from '../../common/time/kst';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   FinancialCollectionService,
@@ -35,7 +36,7 @@ export class FinancialCollectionScheduler {
    * 주간 전종목 벌크 수집 — 매주 월요일 04:00 (장 시작 전, 저호출 시간대).
    * scope:'ALL' + 분기 시계열 전체. 대량 호출이라 주 1회로 제한.
    */
-  @Cron('0 4 * * 1')
+  @Cron('0 4 * * 1', { timeZone: KST_TIMEZONE })
   async weeklyBulkCollect(): Promise<BackfillTimeSeriesResult | { skipped: true; reason: string }> {
     return this.runBulk('CRON');
   }
@@ -44,7 +45,7 @@ export class FinancialCollectionScheduler {
    * 실적시즌 가중 수집 — 평일 05:00, 단 마감월(3·5·8·11)에만 실행.
    * 신규 정기보고서가 몰리는 시기에 일 단위로 최신 재무를 빠르게 반영.
    */
-  @Cron('0 5 * * 1-5')
+  @Cron('0 5 * * 1-5', { timeZone: KST_TIMEZONE })
   async earningsSeasonCollect(
     now: Date = new Date(),
   ): Promise<BackfillTimeSeriesResult | { skipped: true; reason: string }> {
@@ -58,7 +59,7 @@ export class FinancialCollectionScheduler {
    * 정기보고서 공시 EVENT 재수집 — 6시간 간격으로 신규 REGULAR 공시 종목을 분기 백필.
    * 정기보고서(사업·반기·분기) 발생 시 해당 종목 재무를 즉시 갱신한다.
    */
-  @Cron('0 */6 * * *')
+  @Cron('0 */6 * * *', { timeZone: KST_TIMEZONE })
   async periodicReportEvent(
     now: Date = new Date(),
   ): Promise<
@@ -86,8 +87,8 @@ export class FinancialCollectionScheduler {
     this.isRunning = true;
     try {
       this.logger.log(`정기보고서 EVENT 재수집 — ${corpCodes.length}개 종목`);
-      // 당해·전년 분기 시계열 백필 (자연키 멱등).
-      const year = now.getFullYear();
+      // 당해·전년 분기 시계열 백필 (자연키 멱등). KST 기준 연도(시스템 TZ 무관).
+      const year = kstYear(now);
       return await this.collection.backfillTimeSeries({
         bsnsYears: [String(year), String(year - 1)],
         corpCodes,
@@ -127,10 +128,11 @@ export class FinancialCollectionScheduler {
   /** 마감월 기준 수집 대상 사업연도 — 정기보고서가 직전 회계연도/분기 기준이므로 전년도 우선. */
   private resolveBsnsYear(now: Date): number {
     // 사업보고서는 직전 연도 마감(3월 제출) → 안정적으로 전년도를 대상으로 잡는다.
-    return now.getFullYear() - 1;
+    return kstYear(now) - 1;
   }
 
   private isEarningsSeason(now: Date): boolean {
-    return FinancialCollectionScheduler.EARNINGS_SEASON_MONTHS.has(now.getMonth() + 1);
+    // KST 기준 월(시스템 TZ 무관) — UTC 새벽 월경계 오판 방지.
+    return FinancialCollectionScheduler.EARNINGS_SEASON_MONTHS.has(kstMonth(now));
   }
 }

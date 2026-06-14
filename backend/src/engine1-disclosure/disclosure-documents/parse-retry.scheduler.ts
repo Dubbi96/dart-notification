@@ -6,6 +6,7 @@ import { Cron } from '@nestjs/schedule';
 import { DisclosureDocumentsService } from './disclosure-documents.service';
 import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
 import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
+import { KST_TIMEZONE } from '../../common/time/kst';
 
 /** 1회 재처리 최대 건수 */
 const MAX_RETRY_BATCH = 20;
@@ -23,8 +24,9 @@ export class ParseRetryScheduler {
   /**
    * 매 30분마다 파싱 실패 건 재처리
    * FETCH_FAILED / PARSE_FAILED 상태이고 retryCount < MAX_RETRY(3)인 건 대상
+   * (간격형이라 TZ 무관이나 KST 명시로 의도 고정)
    */
-  @Cron('*/30 * * * *')
+  @Cron('*/30 * * * *', { timeZone: KST_TIMEZONE })
   async retryFailedDocuments(): Promise<void> {
     this.logger.log('파싱 실패 건 재처리 스케줄러 실행');
 

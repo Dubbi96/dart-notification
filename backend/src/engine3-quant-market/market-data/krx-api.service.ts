@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import axiosRetry from 'axios-retry';
+import { formatKstDateCompact } from '../../common/time/kst';
 
 /**
  * KRX_API_KEY 미설정 또는 오프라인 시 throw.
@@ -307,12 +308,9 @@ export class KrxApiService {
     );
   }
 
-  /** Date → YYYYMMDD */
+  /** Date → YYYYMMDD(KST 거래일). 시스템 TZ 무관 — UTC 새벽 전일 반환 방지(DAR-199). */
   formatDate(date: Date): string {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    return `${y}${m}${d}`;
+    return formatKstDateCompact(date);
   }
 
   private parseNum(raw: string): number {

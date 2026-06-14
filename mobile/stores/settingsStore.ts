@@ -23,6 +23,9 @@ interface SettingsState {
   setColorScheme: (scheme: ColorScheme | 'system') => void;
   textScaleOverride: TextScaleOverride;
   setTextScaleOverride: (scale: TextScaleOverride) => void;
+  /** Pro 출시 알림 사전 신청 여부(DAR-204). 결제 미구현 동안 로컬에만 보관. */
+  proWaitlistOptIn: boolean;
+  setProWaitlistOptIn: (optIn: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -32,6 +35,8 @@ export const useSettingsStore = create<SettingsState>()(
       setColorScheme: (scheme) => set({ colorSchemeOverride: scheme }),
       textScaleOverride: null,
       setTextScaleOverride: (scale) => set({ textScaleOverride: scale }),
+      proWaitlistOptIn: false,
+      setProWaitlistOptIn: (optIn) => set({ proWaitlistOptIn: optIn }),
     }),
     {
       name: 'settings-storage',

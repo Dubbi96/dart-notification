@@ -435,6 +435,11 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.sm,
+    // DAR-317: 칩이 라벨의 타이트한 lineHeight(20) 줄 상자에만 맞춰 auto-height(≈36~38)되면
+    // radius.full 라운드 클립 경계가 그 상자 밖으로 그려지는 한글 받침 글리프를 잘라낸다
+    // (리스트 본문은 같은 captionMedium 토큰이라도 column 레이아웃이라 잘리지 않음).
+    // 글리프가 클립 경계 안에 들도록 최소 높이를 확보(에뮬 1.0x/1.5x 받침 온전 실측).
+    minHeight: 40,
     borderRadius: radius.full,
     borderWidth: 1,
   },

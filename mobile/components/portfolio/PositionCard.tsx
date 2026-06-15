@@ -2,7 +2,7 @@ import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface, Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
 import {
@@ -44,6 +44,8 @@ function PositionCardBase({ position, onPress }: PositionCardProps) {
             <Chip
               compact
               mode="flat"
+              // DAR-298: 고정 높이 상태칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
               style={[styles.statusChip, { backgroundColor: colors.surfaceSecondary }]}
               textStyle={[typo.small, { color: statusColor, fontWeight: '700' }]}
             >
@@ -85,7 +87,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   statusChip: {
-    height: 24,
+    // DAR-298: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
+    minHeight: 24,
   },
   right: {
     flexDirection: 'row',

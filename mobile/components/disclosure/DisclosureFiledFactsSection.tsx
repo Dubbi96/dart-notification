@@ -6,6 +6,7 @@ import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ApiErrorState } from '@components/common/StateView';
 import { useDisclosureFiledFacts } from '@hooks/useDisclosures';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { factLabel, formatFiledFactValue } from '@utils/filedFacts';
 
 import type { FiledFact } from '@app-types/disclosure.types';
@@ -16,10 +17,17 @@ import type { FiledFact } from '@app-types/disclosure.types';
 //  - 3상태: 로딩(스켈레톤)·에러(ApiErrorState+재시도)·빈(추출 fact 없음 정직 안내).
 //  - 많을 때 FlatList로 렌더. 테마 토큰만 사용(하드코딩 색상 0). 읽기 전용.
 
-/** 스켈레톤용 pulse (DisclosureAiAnalysisSection 패턴 — opacity 0.4→1→0.4, 1.5s). */
+/** 스켈레톤용 pulse (DisclosureAiAnalysisSection 패턴 — opacity 0.4→1→0.4, 1.5s). reduce-motion 시 정적화. */
 function usePulse() {
   const [opacity] = useState(() => new Animated.Value(0.4));
+  // 접근성 '동작 줄이기' 시 연속 펄스를 멈추고 정적 표면 고정(§11, ScoreGauge 가드 패턴).
+  const reducedMotion = useReducedMotion();
   useEffect(() => {
+    if (reducedMotion) {
+      opacity.setValue(1);
+      return;
+    }
+    opacity.setValue(0.4);
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, { toValue: 1, duration: 750, useNativeDriver: true }),
@@ -28,7 +36,7 @@ function usePulse() {
     );
     loop.start();
     return () => loop.stop();
-  }, [opacity]);
+  }, [opacity, reducedMotion]);
   return opacity;
 }
 

@@ -117,12 +117,14 @@ export function TodayCheckSlot({ positions, onPress }: TodayCheckSlotProps) {
   return (
     <View style={styles.container}>
       <View style={styles.sectionHeader}>
-        <Text style={[typo.bodyMedium, { color: colors.text }]}>오늘 점검할 포지션</Text>
+        <Text style={[typo.bodyMedium, styles.sectionTitle, { color: colors.text }]} numberOfLines={1}>
+          오늘 점검할 포지션
+        </Text>
         <Chip
           compact
           mode="flat"
           style={[styles.criterionChip, { backgroundColor: colors.surfaceSecondary }]}
-          textStyle={[typo.small, { color: colors.textSecondary }]}
+          textStyle={[typo.small, styles.criterionChipText, { color: colors.textSecondary }]}
         >
           Exit Score 순
         </Chip>
@@ -148,9 +150,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: spacing.sm,
+    gap: spacing.sm,
+  },
+  sectionTitle: {
+    flexShrink: 1,
   },
   criterionChip: {
-    height: 24,
+    minHeight: 24,
+    flexShrink: 0,
+  },
+  criterionChipText: {
+    flexShrink: 0,
   },
   listContent: {
     gap: spacing.sm,

@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
 
@@ -80,6 +80,7 @@ function FusionRow({ fusion }: FusionRowProps) {
             mode="flat"
             style={[styles.personaChip, { backgroundColor: colors.surfaceSecondary }]}
             textStyle={[typo.small, { color: colors.textSecondary }]}
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
           >
             {`AI ${PERSONA_LABEL[fusion.mappedPersona]}`}
           </Chip>

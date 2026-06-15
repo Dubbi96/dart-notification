@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import { View, Text, FlatList, StyleSheet, type ListRenderItem } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { LoadingState, EmptyState, ErrorState } from '@components/common/StateView';
@@ -76,7 +76,11 @@ const InsiderRow = React.memo(function InsiderRow({ item }: { item: InsiderHoldi
           style={[styles.sourceBadge, { backgroundColor: colors.surfaceSecondary }]}
           accessibilityLabel={`출처: ${SOURCE_LABEL[item.source] ?? item.source}`}
         >
-          <Text style={[typo.small, { color: colors.textSecondary, fontWeight: '600' }]}>
+          <Text
+            style={[typo.small, { color: colors.textSecondary, fontWeight: '600' }]}
+            numberOfLines={1}
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          >
             {SOURCE_LABEL[item.source] ?? item.source}
           </Text>
         </View>
@@ -91,7 +95,11 @@ const InsiderRow = React.memo(function InsiderRow({ item }: { item: InsiderHoldi
         </Text>
         <View style={styles.tradeTag} accessibilityLabel={`매매 방향: ${ts.label}`}>
           <Feather name={ts.icon} size={14} color={toneColor} />
-          <Text style={[typo.captionMedium, { color: toneColor, marginLeft: spacing.xs }]}>
+          <Text
+            style={[typo.captionMedium, { color: toneColor, marginLeft: spacing.xs }]}
+            numberOfLines={1}
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          >
             {ts.label}
           </Text>
         </View>

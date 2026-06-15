@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { CollapsibleCard } from '@components/common/CollapsibleCard';
@@ -149,7 +149,11 @@ function PhilosophyHeader({
       {/* 리스크 성향 — 1줄 칩(서술 카드 제거) */}
       <View style={[styles.riskChip, { backgroundColor: colors.surfaceSecondary }]}>
         <Feather name="shield" size={14} color={colors.primary} />
-        <Text style={[typo.caption, { color: colors.textSecondary }, styles.riskText]} numberOfLines={2}>
+        <Text
+          style={[typo.caption, { color: colors.textSecondary }, styles.riskText]}
+          numberOfLines={2}
+          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        >
           {philosophy.riskProfile}
         </Text>
       </View>

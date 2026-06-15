@@ -231,5 +231,95 @@ for (const f of signalsFiles) {
   ok('disclosures/index: filterChip minHeight', minHeightOnly(src, 'filterChip'));
 }
 
+// ───────────────────────── (D) DAR-308 — DAR-305 스윕 누락 칩 완성 ─────────────────────────
+// DAR-305 가 닿지 못한 칩/배지(알림 세그먼트·거래 필터·신호 탐색 필터·기업 탭/배지 등)에
+// 동일 패턴(고정 height→minHeight · 칩 라벨 Text 캡 + numberOfLines={1})을 적용해 회귀 차단.
+console.log('\n── (D) DAR-308 누락 칩 스윕 ──');
+
+// (D1) captionMedium(14/20) 라벨 클리핑 모델 — 알림 세그먼트칩 라벨 토큰.
+// small(12/16)과 동일하게 캡 1.3 이면 1.3~1.5x 전 구간 미클립(14*1.3=18.2 ≤ 20).
+{
+  const baseFont = 14;
+  const lineBox = 20;
+  const beforeRepro = textClips(baseFont, lineBox, 1.5, null); // 14*1.5=21 > 20 → 캡 없으면 클립
+  let afterOk = true;
+  for (const s of [1.3, 1.4, 1.5]) if (textClips(baseFont, lineBox, s, MAX_CHIP_FONT_SCALE)) afterOk = false;
+  const normalSame = textClips(baseFont, lineBox, 1.0, null) === textClips(baseFont, lineBox, 1.0, MAX_CHIP_FONT_SCALE);
+  ok('captionMedium 칩 라벨 — 수정전 1.5x 클립 재현(21>20)', beforeRepro);
+  ok('captionMedium 칩 라벨 — 캡 1.3 적용 시 1.3~1.5x 미클립', afterOk);
+  ok('captionMedium 칩 라벨 — 평시 1.0x 불변', normalSame);
+}
+
+// (D2) 알림 세그먼트칩 — 라벨 캡 + numberOfLines={1}(고정 height 없음·padding 성장).
+{
+  const src = read('app/(tabs)/notifications/index.tsx');
+  ok('notifications: segmentChip 고정 height 없음(padding 성장)', styleBlock(src, 'segmentChip') != null && !/height:/.test(styleBlock(src, 'segmentChip') as string));
+  ok('notifications: 세그먼트 라벨 캡', capCount(src) >= 1);
+  ok('notifications: 세그먼트 라벨 numberOfLines={1}', /\{segment\.label\}/.test(src) && /numberOfLines=\{1\}/.test(src));
+}
+
+// (D3) 신호 탐색 필터/정렬 칩 — 고정 height→minHeight + 라벨 캡.
+{
+  const src = read('components/signals/SignalExplorer.tsx');
+  ok('SignalExplorer: import', capImport.test(src));
+  ok('SignalExplorer: chip minHeight', minHeightOnly(src, 'chip'));
+  ok('SignalExplorer: sortChip minHeight', minHeightOnly(src, 'sortChip'));
+  ok('SignalExplorer: filterToggle minHeight', minHeightOnly(src, 'filterToggle'));
+  ok('SignalExplorer: 라벨 캡 ≥3(필터/정렬/토글)', capCount(src) >= 3);
+}
+
+// (D4) 공시→신호 링크 등급칩(Paper Chip) — 고정 height→minHeight.
+{
+  const src = read('components/disclosure/DisclosureSignalLink.tsx');
+  ok('DisclosureSignalLink: gradeChip minHeight(Paper Chip)', minHeightOnly(src, 'gradeChip'));
+}
+
+// (D5) 거래(포트폴리오) 탭 필터칩 — 라벨 캡(minHeight 기존).
+{
+  const src = read('app/(tabs)/portfolio/index.tsx');
+  ok('portfolio: import', capImport.test(src));
+  ok('portfolio: tabChip 라벨 캡', capCount(src) >= 1);
+}
+
+// (D6) 신호 정확도 세그먼트(등급별/이벤트별) — 라벨 캡.
+{
+  const src = read('components/portfolio/SignalAccuracySection.tsx');
+  ok('SignalAccuracySection: import', capImport.test(src));
+  ok('SignalAccuracySection: 세그먼트 라벨 캡', capCount(src) >= 1);
+}
+
+// (D7) 기업 상세 — 탭칩/진입칩/시장배지/등급칩 라벨 캡.
+{
+  const src = read('app/company/[corpCode].tsx');
+  ok('company/[corpCode]: import', capImport.test(src));
+  ok('company/[corpCode]: 칩/배지 라벨 캡 ≥4', capCount(src) >= 4);
+}
+
+// (D8) 내부자 보유 탭 — 출처배지/거래태그 라벨 캡.
+{
+  const src = read('components/company/InsiderHoldingsTab.tsx');
+  ok('InsiderHoldingsTab: import', capImport.test(src));
+  ok('InsiderHoldingsTab: 배지/태그 라벨 캡 ≥2', capCount(src) >= 2);
+}
+
+// (D9) 그 외 잔존 칩/배지 — 라벨 캡 일괄.
+const dar308CapFiles: { path: string; min: number }[] = [
+  { path: 'components/company/DecisionHubTab.tsx', min: 1 },
+  { path: 'components/company/PersonaPhilosophyFusionList.tsx', min: 1 },
+  { path: 'components/company/EventStudyObservationsDrilldown.tsx', min: 1 },
+  { path: 'components/company/FundamentalsTab.tsx', min: 1 },
+  { path: 'components/persona/MarketRegimeCard.tsx', min: 1 },
+  { path: 'components/persona/PersonaSelectCard.tsx', min: 1 },
+  { path: 'components/common/DataLimitBadge.tsx', min: 1 },
+  { path: 'components/philosophy/PhilosophyFitBreakdown.tsx', min: 1 },
+  { path: 'app/settings-detail/ai-cost.tsx', min: 1 },
+  { path: 'app/philosophy/[id].tsx', min: 1 },
+];
+for (const f of dar308CapFiles) {
+  const src = read(f.path);
+  ok(`${f.path}: import`, capImport.test(src));
+  ok(`${f.path}: 라벨 캡 ≥${f.min}`, capCount(src) >= f.min);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

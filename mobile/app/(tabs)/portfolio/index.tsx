@@ -3,7 +3,7 @@ import { View, Text, FlatList, ScrollView, TouchableOpacity, StyleSheet } from '
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Banner } from 'react-native-paper';
 import { router, useScrollToTop } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { PositionCard } from '@components/portfolio/PositionCard';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
@@ -284,6 +284,8 @@ export default function PortfolioScreen() {
                     accessibilityLabel={tab.a11y}
                   >
                     <Text
+                      numberOfLines={1}
+                      maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                       style={[
                         typo.captionMedium,
                         { color: isActive ? colors.primaryForeground : colors.textSecondary },

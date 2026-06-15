@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { getEventTypeLabel } from '@utils/disclosureType';
 import { formatReturnPct, formatWinRate, returnColor } from '@utils/numberFormat';
@@ -128,6 +128,8 @@ export function SignalAccuracySection() {
               accessibilityLabel={d === 'grade' ? '등급별 보기' : '이벤트별 보기'}
             >
               <Text
+                numberOfLines={1}
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                 style={[typo.small, { color: active ? colors.text : colors.textSecondary, fontWeight: active ? '600' : '400' }]}
               >
                 {d === 'grade' ? '등급별' : '이벤트별'}

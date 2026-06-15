@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { LoadingState, EmptyState, ErrorState } from '@components/common/StateView';
@@ -80,7 +80,10 @@ function GrowthChip({ value }: { value: number | null }) {
       accessibilityLabel={`전년 대비 ${up ? '증가' : '감소'} ${Math.abs(value).toFixed(1)}%`}
     >
       <Feather name={up ? 'trending-up' : 'trending-down'} size={12} color={color} />
-      <Text style={[typo.small, { color, marginLeft: 2, fontWeight: '600' }]}>
+      <Text
+        style={[typo.small, { color, marginLeft: 2, fontWeight: '600' }]}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+      >
         {sign}
         {value.toFixed(1)}% YoY
       </Text>

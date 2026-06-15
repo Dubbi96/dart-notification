@@ -76,6 +76,8 @@ export default function SavedDisclosuresScreen() {
             <TouchableOpacity
               hitSlop={8}
               onPress={() => handleRemove(item.id, item.rcpNo)}
+              accessibilityRole="button"
+              accessibilityLabel="저장 해제"
             >
               <Ionicons name="bookmark" size={20} color={colors.primary} />
             </TouchableOpacity>

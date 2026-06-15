@@ -17,6 +17,11 @@ import { LoginDto } from './dto/login.dto';
 const REFRESH_TOKEN_TTL_DAYS = 90;
 const REFRESH_TOKEN_TTL_MS = REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000;
 
+// 카카오 OAuth 외부 호출 상한(ms). Node native fetch 는 기본 타임아웃이 없어
+// 카카오 API hang 시 로그인 요청이 무기한 매달리므로 AbortSignal.timeout 으로 상한을 둔다.
+// 정본 외부 호출 타임아웃(dart-api 30s·llm 60s)보다 짧게 — 로그인은 사용자 대면 동기 경로.
+const KAKAO_FETCH_TIMEOUT_MS = 10_000;
+
 // refresh 토큰 원문은 저장하지 않고 SHA-256 해시만 보관한다.
 // 토큰 자체가 고엔트로피(서명된 JWT)이므로 단방향 해시로 충분하며,
 // 유니크 인덱스 조회가 가능해 bcrypt 대비 검증 비용이 낮다.
@@ -125,19 +130,50 @@ export class AuthService {
     };
   }
 
+  /**
+   * 카카오 OAuth fetch 래퍼. 타임아웃(AbortSignal.timeout)·네트워크 장애 등
+   * fetch 자체가 throw 하는 경우를 잡아 기존 실패 경로(UnauthorizedException)로 매핑한다.
+   * 카카오 API hang 시 무기한 대기 대신 KAKAO_FETCH_TIMEOUT_MS 후 상한 처리.
+   * 정상 응답(ok/!ok 분기)은 호출부가 그대로 처리하므로 동작 불변.
+   */
+  private async kakaoFetch(
+    url: string,
+    init: RequestInit,
+    failureMessage: string,
+  ): Promise<Response> {
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(KAKAO_FETCH_TIMEOUT_MS),
+      });
+    } catch (error) {
+      // 민감정보 미노출: 요청 호스트와 에러 이름(TimeoutError/AbortError 등)만 기록.
+      this.logger.error('Kakao request failed', {
+        host: new URL(url).host,
+        error: (error as Error)?.name,
+      });
+      throw new UnauthorizedException(failureMessage);
+    }
+  }
+
   async kakaoLogin(code: string, redirectUri: string) {
     // 1. Exchange code for access token
-    const tokenResponse = await fetch('https://kauth.kakao.com/oauth/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        client_id: this.configService.get<string>('KAKAO_REST_API_KEY') || '',
-        client_secret: this.configService.get<string>('KAKAO_CLIENT_SECRET') || '',
-        redirect_uri: redirectUri,
-        code,
-      }),
-    });
+    const tokenResponse = await this.kakaoFetch(
+      'https://kauth.kakao.com/oauth/token',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'authorization_code',
+          client_id: this.configService.get<string>('KAKAO_REST_API_KEY') || '',
+          client_secret:
+            this.configService.get<string>('KAKAO_CLIENT_SECRET') || '',
+          redirect_uri: redirectUri,
+          code,
+        }),
+      },
+      '카카오 인증에 실패했습니다.',
+    );
 
     const tokenData = await tokenResponse.json();
     if (!tokenResponse.ok) {
@@ -152,9 +188,13 @@ export class AuthService {
     }
 
     // 2. Get user info from Kakao
-    const userResponse = await fetch('https://kapi.kakao.com/v2/user/me', {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
-    });
+    const userResponse = await this.kakaoFetch(
+      'https://kapi.kakao.com/v2/user/me',
+      {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      },
+      '카카오 사용자 정보를 가져올 수 없습니다.',
+    );
 
     const kakaoUser = await userResponse.json();
     if (!userResponse.ok) {

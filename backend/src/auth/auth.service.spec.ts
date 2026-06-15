@@ -340,3 +340,132 @@ describe('AuthService kakaoLogin 로깅 위생 (DAR-280)', () => {
     );
   });
 });
+
+/**
+ * DAR-297: 카카오 OAuth fetch 타임아웃.
+ *
+ * Node native fetch 는 기본 타임아웃이 없어 카카오 API hang 시 로그인 요청이
+ * 무기한 매달린다. 두 fetch(토큰교환·유저정보) 에 AbortSignal.timeout 을 적용하고,
+ * 타임아웃/네트워크 throw 를 기존 실패 경로(UnauthorizedException)로 매핑한다.
+ * 정상 응답 동작은 불변.
+ */
+describe('AuthService kakaoLogin fetch 타임아웃 (DAR-297)', () => {
+  const AUTH_CODE = 'auth-code-xyz';
+  const REDIRECT_URI = 'https://app.example.com/callback';
+
+  let originalFetch: typeof globalThis.fetch;
+  let logSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    // kakaoFetch 실패 경로의 Logger.error 출력 억제.
+    logSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    logSpy.mockRestore();
+  });
+
+  // AbortSignal.timeout 초과 시 fetch 가 던지는 것과 동일한 형태의 에러.
+  function timeoutError(): Error {
+    const err = new Error('The operation timed out');
+    err.name = 'TimeoutError';
+    return err;
+  }
+
+  function okJson(body: unknown) {
+    return { ok: true, status: 200, json: async () => body };
+  }
+
+  it('토큰교환 fetch 가 타임아웃하면 UnauthorizedException(카카오 인증 실패)으로 매핑', async () => {
+    const fetchMock = jest.fn(async () => {
+      throw timeoutError();
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const { service } = createService();
+
+    await expect(service.kakaoLogin(AUTH_CODE, REDIRECT_URI)).rejects.toThrow(
+      '카카오 인증에 실패했습니다.',
+    );
+    await expect(
+      service.kakaoLogin(AUTH_CODE, REDIRECT_URI),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    // 첫 fetch 가 signal: AbortSignal 로 호출됐는지(=타임아웃 적용) 입증.
+    const init = (fetchMock.mock.calls[0] as any[])[1] as RequestInit;
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('유저정보 fetch 가 타임아웃하면 UnauthorizedException(사용자 정보)으로 매핑', async () => {
+    // 1번째(토큰) 호출은 성공, 2번째(유저정보) 호출만 타임아웃.
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockImplementationOnce(async () => {
+        throw timeoutError();
+      });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const { service } = createService();
+
+    await expect(service.kakaoLogin(AUTH_CODE, REDIRECT_URI)).rejects.toThrow(
+      '카카오 사용자 정보를 가져올 수 없습니다.',
+    );
+
+    // 유저정보 fetch 에도 AbortSignal 이 적용됐는지 입증.
+    const init = (fetchMock.mock.calls[1] as any[])[1] as RequestInit;
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('정상 응답 경로는 타임아웃 적용 후에도 불변(회귀)', async () => {
+    const KAKAO_ID = 987654321;
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce(
+        okJson({
+          id: KAKAO_ID,
+          kakao_account: {
+            email: 'kakao@user.com',
+            profile: { nickname: '카카오닉' },
+          },
+        }),
+      );
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    // 성공 경로에 필요한 user/watchList 모델을 가짜 prisma 에 보강.
+    const { service, prisma } = createService();
+    const createdUser = {
+      id: 'kakao_user_1',
+      email: 'kakao@user.com',
+      name: '카카오닉',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    };
+    prisma.user = {
+      findFirst: jest.fn(async () => null),
+      create: jest.fn(async () => createdUser),
+      update: jest.fn(async () => createdUser),
+    };
+    prisma.watchList = { count: jest.fn(async () => 0) };
+
+    const result = await service.kakaoLogin(AUTH_CODE, REDIRECT_URI);
+
+    expect(result.user).toEqual({
+      id: createdUser.id,
+      email: createdUser.email,
+      name: createdUser.name,
+      createdAt: createdUser.createdAt,
+    });
+    expect(result.isNewUser).toBe(true);
+    expect(result.tokens.accessToken).toBe('access_kakao_user_1');
+    // 두 fetch 모두 AbortSignal(타임아웃) 과 함께 호출됐다.
+    expect(((fetchMock.mock.calls[0] as any[])[1] as RequestInit).signal).toBeInstanceOf(
+      AbortSignal,
+    );
+    expect(((fetchMock.mock.calls[1] as any[])[1] as RequestInit).signal).toBeInstanceOf(
+      AbortSignal,
+    );
+  });
+});

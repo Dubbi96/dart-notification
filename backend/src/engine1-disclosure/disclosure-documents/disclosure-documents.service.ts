@@ -237,8 +237,10 @@ export class DisclosureDocumentsService {
 
         // diff 계산
         if (originalRcpNo) {
+          // computeAmendmentDiff 는 parsedJson 만 사용 — rawText(200KB) over-fetch 방지
           const originalDoc = await this.prisma.disclosureDocument.findUnique({
             where: { rcpNo: originalRcpNo },
+            select: { parsedJson: true },
           });
           if (originalDoc?.parsedJson) {
             amendmentDiff = computeAmendmentDiff(

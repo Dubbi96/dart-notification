@@ -18,6 +18,7 @@ import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { LoadingState, ErrorState } from '@components/common/StateView';
 import { usePositionThesis } from '@hooks/usePortfolio';
 import { getBreachConditionLabel } from '@utils/breachConditionLabel';
+import { formatExitRulePct } from '@utils/numberFormat';
 import { thesisStatusColor, thesisStatusLabel } from '@utils/signalDisplay';
 
 import type { ThesisCondition } from '@app-types/portfolio.types';
@@ -176,19 +177,19 @@ export default function ThesisScreen() {
                 <View style={styles.ruleItem}>
                   <Text style={[typo.small, { color: colors.textSecondary }]}>손절</Text>
                   <Text style={[typo.bodyMedium, { color: colors.error }]}>
-                    -{thesis.exitRules.stopLossPercent}%
+                    {formatExitRulePct(thesis.exitRules.stopLossPercent, 'loss')}
                   </Text>
                 </View>
                 <View style={styles.ruleItem}>
                   <Text style={[typo.small, { color: colors.textSecondary }]}>분할익절</Text>
                   <Text style={[typo.bodyMedium, { color: colors.success }]}>
-                    +{thesis.exitRules.takeProfitPercent}%
+                    {formatExitRulePct(thesis.exitRules.takeProfitPercent, 'gain')}
                   </Text>
                 </View>
                 <View style={styles.ruleItem}>
                   <Text style={[typo.small, { color: colors.textSecondary }]}>트레일링</Text>
                   <Text style={[typo.bodyMedium, { color: colors.text }]}>
-                    고점 -{thesis.exitRules.trailingStopPercent}%
+                    고점 {formatExitRulePct(thesis.exitRules.trailingStopPercent, 'loss')}
                   </Text>
                 </View>
                 <View style={styles.ruleItem}>

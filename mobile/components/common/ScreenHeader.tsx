@@ -52,7 +52,11 @@ export function ScreenHeader({
         ) : null}
       </View>
       <View style={styles.titleBox}>
-        <Text style={[typo.h3, styles.title, { color: colors.text }]} numberOfLines={1}>
+        <Text
+          style={[typo.h3, styles.title, { color: colors.text }]}
+          numberOfLines={1}
+          accessibilityRole="header"
+        >
           {title}
         </Text>
         {subtitle ? (

@@ -5,9 +5,21 @@
 import type { ThemeColors } from '@theme';
 
 /**
+ * 표시 자릿수로 반올림하고 음수영점(-0)을 양수영점(0)으로 정규화한다(DAR-312).
+ * 예: roundToDisplay(-0.04, 1) → 0 (`(-0.04).toFixed(1)` 는 "-0.0" 이라 -0 으로 파싱됨).
+ * 부호/색 결정 전에 이 값을 쓰면 "반올림 후 0" 에 마이너스 부호·손실색이 붙지 않는다.
+ * `-0 === 0` 이 true 이므로 0 비교로 -0/+0 을 함께 잡아 양수영점으로 되돌린다.
+ */
+function roundToDisplay(value: number, digits: number): number {
+  const rounded = Number(value.toFixed(digits));
+  return rounded === 0 ? 0 : rounded;
+}
+
+/**
  * 수익률(%) 표기 — 부호 포함, 자릿수 통일(기본 1자리).
  * - 입력은 이미 퍼센트 단위(예: 12.3 → "+12.3%"). 비율(0~1)이 아님.
  * - 양수만 '+' 부호, 0/음수는 부호 없음(음수는 toFixed의 '-'가 붙는다).
+ * - 반올림 후 0(예: -0.04 → -0.0)은 부호 없는 0 으로 표기(DAR-312 음수영점 가드).
  * - null/undefined/NaN 은 '—'(데이터 없음).
  */
 export function formatReturnPct(
@@ -16,8 +28,9 @@ export function formatReturnPct(
 ): string {
   if (value === null || value === undefined || Number.isNaN(value)) return '—';
   const digits = opts?.digits ?? 1;
-  const sign = value > 0 ? '+' : '';
-  return `${sign}${value.toFixed(digits)}%`;
+  const display = roundToDisplay(value, digits);
+  const sign = display > 0 ? '+' : '';
+  return `${sign}${display.toFixed(digits)}%`;
 }
 
 /**
@@ -64,9 +77,18 @@ export function isScoreSumMismatch(
  * 부호→색 단일 규칙: 양수 success / 음수 error / 보합(0) textSecondary.
  * 보합(0%)에 textTertiary(≈2.5:1, 거의 안 보임)를 쓰지 않고 AA 가독성의
  * textSecondary 를 사용한다(DAR-148). 방향 단서는 호출부 아이콘/부호가 병행.
+ *
+ * 표시 자릿수(기본 1)로 반올림한 부호로 색을 정해 표기 문자열과 일치시킨다(DAR-312).
+ * 예: -0.04 는 "0.0%" 로 표기되므로 손실색(error)이 아니라 보합색(textSecondary).
+ * `digits` 는 호출부 표기 자릿수와 맞춘다(2자리 표기면 { digits: 2 }).
  */
-export function returnColor(value: number, colors: ThemeColors): string {
-  if (value > 0) return colors.success;
-  if (value < 0) return colors.error;
+export function returnColor(
+  value: number,
+  colors: ThemeColors,
+  opts?: { digits?: number },
+): string {
+  const display = roundToDisplay(value, opts?.digits ?? 1);
+  if (display > 0) return colors.success;
+  if (display < 0) return colors.error;
   return colors.textSecondary;
 }

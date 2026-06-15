@@ -65,23 +65,27 @@ export default function DisclosureViewerScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
+      {/* Header — DAR-316: '첨부'성 원문 뷰어도 앱 표준 좌상단 < 복귀 어포던스로 통일
+          (DAR-294/295/303). 우상단 X(모달 닫기) 패턴을 제거해 전 상세/첨부 화면과 위치·형태 일관. */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <Text
-          style={[typo.bodyMedium, styles.headerTitle, { color: colors.text }]}
-          numberOfLines={1}
-        >
-          {title ?? '공시 원문'}
-        </Text>
         <TouchableOpacity
           onPress={() => router.back()}
           style={styles.headerButton}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           accessibilityRole="button"
-          accessibilityLabel="닫기"
+          accessibilityLabel="뒤로 가기"
         >
-          <Ionicons name="close" size={24} color={colors.text} />
+          <Ionicons name="chevron-back" size={26} color={colors.text} />
         </TouchableOpacity>
+        <Text
+          style={[typo.bodyMedium, styles.headerTitle, { color: colors.text }]}
+          numberOfLines={1}
+          accessibilityRole="header"
+        >
+          {title ?? '공시 원문'}
+        </Text>
+        {/* 좌측 < 버튼과 대칭을 맞춰 제목을 중앙 정렬로 유지하는 우측 스페이서. */}
+        <View style={styles.headerButton} />
       </View>
 
       {/* WebView */}
@@ -139,7 +143,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     flex: 1,
-    paddingLeft: spacing.base,
+    textAlign: 'center',
   },
   headerButton: {
     paddingHorizontal: spacing.base,

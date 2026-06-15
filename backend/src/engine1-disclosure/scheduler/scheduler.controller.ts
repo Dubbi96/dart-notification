@@ -7,6 +7,7 @@ import {
 } from '@nestjs/swagger';
 import { SchedulerService } from './scheduler.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { CollectRangeDto } from './dto/collect-range.dto';
 
 @ApiTags('Scheduler')
 @ApiBearerAuth()
@@ -19,11 +20,12 @@ export class SchedulerController {
   @ApiOperation({ summary: '공시 수동 수집 (날짜 지정)' })
   @ApiQuery({ name: 'bgnDe', required: true, description: 'YYYYMMDD' })
   @ApiQuery({ name: 'endDe', required: true, description: 'YYYYMMDD' })
-  async collect(
-    @Query('bgnDe') bgnDe: string,
-    @Query('endDe') endDe: string,
-  ) {
-    const result = await this.schedulerService.collectByDate(bgnDe, endDe, 'MANUAL');
+  async collect(@Query() query: CollectRangeDto) {
+    const result = await this.schedulerService.collectByDate(
+      query.bgnDe,
+      query.endDe,
+      'MANUAL',
+    );
     return { success: true, data: result };
   }
 

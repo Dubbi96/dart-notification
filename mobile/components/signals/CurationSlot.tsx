@@ -5,10 +5,11 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
-import { CuratedSignalCard, CURATED_CARD_WIDTH } from '@components/signals/CuratedSignalCard';
+import { CuratedSignalCard } from '@components/signals/CuratedSignalCard';
 import { ApiErrorState } from '@components/common/StateView';
 import { SkeletonCard } from '@components/common/SkeletonCard';
 import { useBuySignals } from '@hooks/useSignals';
+import { useCarouselCardWidth } from '@hooks/useCarouselCardWidth';
 import { curateBuySignals, CURATION_CRITERIA_LABEL } from '@utils/signalCuration';
 
 import type { TradingSignal } from '@app-types/signal.types';
@@ -25,6 +26,8 @@ interface CurationSlotProps {
 function CurationSlotBase({ onExplore }: CurationSlotProps) {
   const { colors, typography: typo } = useTheme();
   const { data, isLoading, isError, error, refetch } = useBuySignals();
+  // 화면 폭 반응형 카드 폭/스냅 간격(DAR-301).
+  const { cardWidth, snapToInterval } = useCarouselCardWidth();
 
   // 공용 큐레이션: 매수등급만 점수 내림차순 상위 N(가짜 BUY 금지).
   const topSignals = useMemo(() => curateBuySignals(data), [data]);
@@ -35,9 +38,9 @@ function CurationSlotBase({ onExplore }: CurationSlotProps) {
 
   const renderCard = useCallback(
     ({ item }: { item: TradingSignal }) => (
-      <CuratedSignalCard signal={item} onPress={handleCardPress} />
+      <CuratedSignalCard signal={item} onPress={handleCardPress} cardWidth={cardWidth} />
     ),
-    [handleCardPress],
+    [handleCardPress, cardWidth],
   );
 
   const heading = (
@@ -63,7 +66,7 @@ function CurationSlotBase({ onExplore }: CurationSlotProps) {
         accessibilityLabel="주목할 신호 불러오는 중"
       >
         {[0, 1].map((i) => (
-          <View key={i} style={styles.skeletonCard}>
+          <View key={i} style={[styles.skeletonCard, { width: cardWidth }]}>
             <SkeletonCard variant="buyScore" />
           </View>
         ))}
@@ -112,6 +115,10 @@ function CurationSlotBase({ onExplore }: CurationSlotProps) {
         keyExtractor={(item) => item.id}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.carousel}
+        // 카드 단위 스냅(DAR-301) — 카드폭 + gap 기준으로 멈춰 peek 정렬 일관.
+        snapToInterval={snapToInterval}
+        snapToAlignment="start"
+        decelerationRate="fast"
       />
     );
   }
@@ -125,7 +132,6 @@ function CurationSlotBase({ onExplore }: CurationSlotProps) {
 }
 
 export const CurationSlot = React.memo(CurationSlotBase);
-export { CURATED_CARD_WIDTH };
 
 const styles = StyleSheet.create({
   container: {
@@ -151,7 +157,7 @@ const styles = StyleSheet.create({
     paddingLeft: spacing.lg,
   },
   skeletonCard: {
-    width: CURATED_CARD_WIDTH,
+    // 폭은 인라인 주입(DAR-301) — 카드와 동일 반응형 폭.
     marginRight: spacing.md,
   },
   emptyCard: {

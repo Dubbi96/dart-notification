@@ -17,6 +17,7 @@ import { spacing, radius } from '@theme/spacing';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { LoadingState, ErrorState } from '@components/common/StateView';
 import { usePositionThesis } from '@hooks/usePortfolio';
+import { getBreachConditionLabel } from '@utils/breachConditionLabel';
 import { thesisStatusColor, thesisStatusLabel } from '@utils/signalDisplay';
 
 import type { ThesisCondition } from '@app-types/portfolio.types';
@@ -30,6 +31,9 @@ function ConditionRow({ item, isViolation }: { item: ThesisCondition; isViolatio
 
   const iconColor = isViolated ? colors.error : colors.success;
   const rowColor = isViolated ? colors.error : colors.text;
+  // 훼손 조건 label 은 백엔드가 enum 원문(PRICE_BELOW 등)을 그대로 내려보내므로
+  // 표시 직전 한국어 라벨로 치환한다(DAR-314). 진입 논리 label 은 이미 한국어.
+  const displayLabel = isViolation ? getBreachConditionLabel(item.label) : item.label;
   return (
     <View style={styles.conditionRow}>
       <Feather
@@ -38,12 +42,12 @@ function ConditionRow({ item, isViolation }: { item: ThesisCondition; isViolatio
         color={isViolated ? iconColor : colors.textTertiary}
         accessibilityLabel={
           isViolation
-            ? `훼손 조건 ${item.violated ? '위반' : '미위반'}: ${item.label}`
-            : `진입 논리 충족: ${item.label}`
+            ? `훼손 조건 ${item.violated ? '위반' : '미위반'}: ${displayLabel}`
+            : `진입 논리 충족: ${displayLabel}`
         }
       />
       <Text style={[typo.small, { color: isViolated ? rowColor : colors.textSecondary, flex: 1 }]}>
-        {item.label}
+        {displayLabel}
         {isViolated ? ' ← 위반' : ''}
       </Text>
     </View>

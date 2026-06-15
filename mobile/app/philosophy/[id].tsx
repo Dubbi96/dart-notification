@@ -21,6 +21,7 @@ import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { PhilosophyFitBreakdown } from '@components/philosophy/PhilosophyFitBreakdown';
 import { PhilosophyStatStrip } from '@components/philosophy/PhilosophyStatStrip';
 import { sourceTypeLabel } from '@components/philosophy/metricFormat';
+import { getStyleTagLabel } from '@utils/styleTagLabel';
 import { usePhilosophies, usePhilosophyFit } from '@hooks/usePhilosophies';
 import { useWatchlist } from '@hooks/useWatchlist';
 import { usePopularCompanies } from '@hooks/useCompanySearch';
@@ -138,7 +139,7 @@ function PhilosophyHeader({
       <View style={styles.tagRow}>
         {philosophy.styleTags.map((tag) => (
           <View key={tag} style={[styles.tag, { backgroundColor: colors.primaryLight }]}>
-            <Text style={[typo.small, { color: colors.primaryDark }, styles.tagText]}>{tag}</Text>
+            <Text style={[typo.small, { color: colors.primaryDark }, styles.tagText]}>{getStyleTagLabel(tag)}</Text>
           </View>
         ))}
       </View>

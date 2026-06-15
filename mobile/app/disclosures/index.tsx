@@ -238,7 +238,12 @@ export default function DisclosuresScreen() {
         >
           <Ionicons name="chevron-back" size={26} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[typo.h3, { color: colors.text, marginLeft: spacing.sm }]}>전체 공시</Text>
+        <Text
+          style={[typo.h3, { color: colors.text, marginLeft: spacing.sm }]}
+          accessibilityRole="header"
+        >
+          전체 공시
+        </Text>
         <View style={{ flex: 1 }} />
         <Text style={[typo.caption, { color: colors.textSecondary }]}>
           {totalCount.toLocaleString()}건

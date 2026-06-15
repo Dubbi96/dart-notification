@@ -17,6 +17,7 @@ import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
 import { SIGNAL_TERMS, buildSignalCardA11yLabel } from '@utils/signalTerms';
 import { curateBuySignals } from '@utils/signalCuration';
 import { useBuySignals } from '@hooks/useSignals';
+import { useCarouselCardWidth } from '@hooks/useCarouselCardWidth';
 
 import type { TradingSignal } from '@app-types/signal.types';
 
@@ -27,7 +28,6 @@ import type { TradingSignal } from '@app-types/signal.types';
 // '점수순 탐색' 빈 상태로 안내한다. 게스트는 1건 미리보기 + 잠금 오버레이.
 
 const MAX_PREVIEW = 3;
-const CARD_WIDTH = 264;
 const EXPLORE_ROUTE = '/(tabs)/signals' as const;
 
 interface HomeSignalPreviewProps {
@@ -46,9 +46,11 @@ function representativeSampleN(signal: TradingSignal): number | undefined {
 interface SignalPreviewCardProps {
   signal: TradingSignal;
   onPress: (signal: TradingSignal) => void;
+  /** 화면 폭 반응형 카드 폭(DAR-301). */
+  cardWidth: number;
 }
 
-function SignalPreviewCard({ signal, onPress }: SignalPreviewCardProps) {
+function SignalPreviewCard({ signal, onPress, cardWidth }: SignalPreviewCardProps) {
   const { colors, typography: typo } = useTheme();
   const sampleN = representativeSampleN(signal);
   const handlePress = useCallback(() => onPress(signal), [onPress, signal]);
@@ -73,7 +75,7 @@ function SignalPreviewCard({ signal, onPress }: SignalPreviewCardProps) {
       <Surface
         elevation={2}
         importantForAccessibility="no-hide-descendants"
-        style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        style={[styles.card, { width: cardWidth, backgroundColor: colors.surface, borderColor: colors.border }]}
       >
         <View style={styles.cardHeader}>
           <Text style={[typo.bodyMedium, { color: colors.text, flex: 1 }]} numberOfLines={1}>
@@ -112,7 +114,7 @@ function SignalPreviewCard({ signal, onPress }: SignalPreviewCardProps) {
 }
 
 /** 게스트 잠금 카드(§3) — 상위 신호 전체는 로그인 후 열람. overlay 토큰 스크림. */
-function LockedCard({ onPress }: { onPress: () => void }) {
+function LockedCard({ onPress, cardWidth }: { onPress: () => void; cardWidth: number }) {
   const { colors, typography: typo } = useTheme();
   return (
     <TouchableOpacity
@@ -123,7 +125,11 @@ function LockedCard({ onPress }: { onPress: () => void }) {
     >
       <Surface
         elevation={1}
-        style={[styles.card, styles.lockedCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        style={[
+          styles.card,
+          styles.lockedCard,
+          { width: cardWidth, backgroundColor: colors.surface, borderColor: colors.border },
+        ]}
       >
         <View style={[styles.lockOverlay, { backgroundColor: colors.overlay }]}>
           <Feather name="lock" size={22} color={colors.surface} />
@@ -139,6 +145,8 @@ function LockedCard({ onPress }: { onPress: () => void }) {
 export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
   const { colors, typography: typo } = useTheme();
   const { data, isLoading, isError, error, refetch } = useBuySignals();
+  // 화면 폭 반응형 카드 폭/스냅 간격(DAR-301).
+  const { cardWidth, snapToInterval } = useCarouselCardWidth();
 
   // 가짜 BUY 금지(§2): 매수등급만 점수 내림차순 상위 N(공용 큐레이션 util). WATCH 이하 미노출.
   const topSignals = useMemo(() => curateBuySignals(data, MAX_PREVIEW), [data]);
@@ -166,9 +174,9 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
 
   const renderCard = useCallback(
     ({ item }: { item: TradingSignal }) => (
-      <SignalPreviewCard signal={item} onPress={handleCardPress} />
+      <SignalPreviewCard signal={item} onPress={handleCardPress} cardWidth={cardWidth} />
     ),
-    [handleCardPress],
+    [handleCardPress, cardWidth],
   );
 
   const Heading = (
@@ -202,7 +210,7 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
         accessibilityLabel={`${SIGNAL_TERMS.screenHeader} 프리뷰 불러오는 중`}
       >
         {[0, 1].map((i) => (
-          <View key={i} style={styles.skeletonCard}>
+          <View key={i} style={[styles.skeletonCard, { width: cardWidth }]}>
             <SkeletonCard variant="buyScore" />
           </View>
         ))}
@@ -263,7 +271,11 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
         keyExtractor={(item) => item.id}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.carousel}
-        ListFooterComponent={showLockedCard ? <LockedCard onPress={handleSignIn} /> : null}
+        // 카드 단위 스냅(DAR-301) — 카드폭 + gap 기준으로 멈춰 peek 정렬 일관.
+        snapToInterval={snapToInterval}
+        snapToAlignment="start"
+        decelerationRate="fast"
+        ListFooterComponent={showLockedCard ? <LockedCard onPress={handleSignIn} cardWidth={cardWidth} /> : null}
       />
     );
   }
@@ -299,7 +311,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   card: {
-    width: CARD_WIDTH,
+    // 폭은 useCarouselCardWidth 로 인라인 주입(DAR-301, 화면 폭 반응형).
     borderRadius: radius.lg,
     borderWidth: 1,
     padding: spacing.base,
@@ -345,7 +357,7 @@ const styles = StyleSheet.create({
     paddingLeft: spacing.lg,
   },
   skeletonCard: {
-    width: CARD_WIDTH,
+    // 폭은 인라인 주입(DAR-301) — 카드와 동일 반응형 폭.
     marginRight: spacing.md,
   },
   emptyCard: {

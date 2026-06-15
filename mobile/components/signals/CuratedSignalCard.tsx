@@ -20,14 +20,14 @@ import type { TradingSignal } from '@app-types/signal.types';
 // + 추천 이유 1줄(scoreOneLiner) + RiskStatusBadges(위험 즉시 노출, §6).
 // 정보 과잉 제거(§3-d): 진입조건·AI요약 3줄·riskFlags는 카드에 싣지 않는다(전체는 /signals/[id]).
 
-const CARD_WIDTH = 272;
-
 interface CuratedSignalCardProps {
   signal: TradingSignal;
   onPress: (signal: TradingSignal) => void;
+  /** 화면 폭 반응형 카드 폭(DAR-301). */
+  cardWidth: number;
 }
 
-function CuratedSignalCardBase({ signal, onPress }: CuratedSignalCardProps) {
+function CuratedSignalCardBase({ signal, onPress, cardWidth }: CuratedSignalCardProps) {
   const { colors, typography: typo } = useTheme();
   const isBlocked = signal.grade === 'BLOCKED';
   const handlePress = useCallback(() => onPress(signal), [onPress, signal]);
@@ -58,7 +58,7 @@ function CuratedSignalCardBase({ signal, onPress }: CuratedSignalCardProps) {
       <Surface
         elevation={2}
         importantForAccessibility="no-hide-descendants"
-        style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        style={[styles.card, { width: cardWidth, backgroundColor: colors.surface, borderColor: colors.border }]}
       >
         <View style={styles.headerRow}>
           <Text style={[typo.bodyMedium, { color: colors.text, flex: 1 }]} numberOfLines={1}>
@@ -120,11 +120,10 @@ function CuratedSignalCardBase({ signal, onPress }: CuratedSignalCardProps) {
 }
 
 export const CuratedSignalCard = React.memo(CuratedSignalCardBase);
-export const CURATED_CARD_WIDTH = CARD_WIDTH;
 
 const styles = StyleSheet.create({
   card: {
-    width: CARD_WIDTH,
+    // 폭은 useCarouselCardWidth 로 인라인 주입(DAR-301, 화면 폭 반응형).
     borderRadius: radius.lg,
     borderWidth: 1,
     padding: spacing.base,

@@ -108,8 +108,22 @@ export default function SignalDetailScreen() {
   }
 
   if (isError) {
+    // 로딩/없음 분기와 동일하게 좌상단 < 뒤로가기 헤더를 유지(DAR-311) — push 상세는 GNB가 없어
+    // 헤더의 back이 유일한 복귀 동선이다. 그 아래 ErrorState를 배치해 세 상태 헤더 일관.
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="뒤로 가기"
+          >
+            <Feather name="arrow-left" size={22} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={[typo.h3, { color: colors.text, flex: 1, marginLeft: spacing.md }]}>
+            매수 후보 상세
+          </Text>
+        </View>
         <ErrorState title="신호를 불러오지 못했습니다." onRetry={refetch} />
       </SafeAreaView>
     );
@@ -118,7 +132,7 @@ export default function SignalDetailScreen() {
   if (!signal) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-        <View style={styles.header}>
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <TouchableOpacity
             onPress={() => router.back()}
             accessibilityRole="button"

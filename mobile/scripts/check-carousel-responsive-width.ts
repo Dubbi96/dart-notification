@@ -103,9 +103,10 @@ check('Home: snapToAlignment start + decelerationRate fast', /snapToAlignment="s
 check('CurationSlot: snapToInterval 적용', /snapToInterval=\{snapToInterval\}/.test(curationSlot));
 check('CurationSlot: snapToAlignment start + decelerationRate fast', /snapToAlignment="start"/.test(curationSlot) && /decelerationRate="fast"/.test(curationSlot));
 
-// 카루셀 레이아웃 계약(좌우 패딩 lg, gap md) 유지 — 정렬 일관.
-check('Home: carousel paddingHorizontal lg + gap md 유지', /carousel:\s*\{[^}]*paddingHorizontal:\s*spacing\.lg[^}]*gap:\s*spacing\.md/s.test(home));
-check('CurationSlot: carousel paddingHorizontal lg + gap md 유지', /carousel:\s*\{[^}]*paddingHorizontal:\s*spacing\.lg[^}]*gap:\s*spacing\.md/s.test(curationSlot));
+// 카루셀 레이아웃 계약(좌측 정렬 기준 좌우 패딩 lg) 유지 — 정렬 일관.
+// DAR-319: 카드 간격은 contentContainer gap 이 아니라 카드 marginRight 로 적용(아래 별도 체크).
+check('Home: carousel paddingHorizontal lg 유지', /carousel:\s*\{[^}]*paddingHorizontal:\s*spacing\.lg/s.test(home));
+check('CurationSlot: carousel paddingHorizontal lg 유지', /carousel:\s*\{[^}]*paddingHorizontal:\s*spacing\.lg/s.test(curationSlot));
 
 console.log(`\n결과: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

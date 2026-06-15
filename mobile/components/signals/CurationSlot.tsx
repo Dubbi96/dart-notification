@@ -149,8 +149,9 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   carousel: {
+    // DAR-319: 카드 간격은 각 카드(CuratedSignalCard)의 marginRight 로 적용(스켈레톤과 동일).
+    // contentContainer gap 은 Android Fabric 가로 FlatList 에서 미적용될 수 있어 비의존.
     paddingHorizontal: spacing.lg,
-    gap: spacing.md,
   },
   skeletonRow: {
     flexDirection: 'row',

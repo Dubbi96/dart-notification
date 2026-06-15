@@ -18,6 +18,7 @@ import { SIGNAL_TERMS, buildSignalCardA11yLabel } from '@utils/signalTerms';
 import { curateBuySignals } from '@utils/signalCuration';
 import { useBuySignals } from '@hooks/useSignals';
 import { useCarouselCardWidth } from '@hooks/useCarouselCardWidth';
+import { CAROUSEL_GAP } from '@utils/carouselMetrics';
 
 import type { TradingSignal } from '@app-types/signal.types';
 
@@ -59,6 +60,9 @@ function SignalPreviewCard({ signal, onPress, cardWidth }: SignalPreviewCardProp
     <TouchableOpacity
       activeOpacity={0.85}
       onPress={handlePress}
+      // DAR-319: 카드 간격을 carousel gap 대신 카드 marginRight 로 결정론 적용(스켈레톤과 동일,
+      // Android Fabric gap 미적용 대비 크로스플랫폼 일관).
+      style={styles.cardTouchable}
       accessibilityRole="button"
       // 카드 그룹핑(§8-1): 카드를 단일 단위로 읽어 내부 중복 읽기 방지.
       // 용어 위계 L2 고정(DAR-217): 카드 a11y는 SSOT 빌더로 '매수 신호'+'Buy Score' 일관.
@@ -312,8 +316,13 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   carousel: {
+    // DAR-319: 카드 간격은 각 카드의 marginRight 로 적용(스켈레톤과 동일 방식).
+    // contentContainer gap 은 Android Fabric 가로 FlatList 에서 미적용될 수 있어 비의존.
     paddingHorizontal: spacing.lg,
-    gap: spacing.md,
+  },
+  cardTouchable: {
+    // DAR-319: 카드 단위 간격(= snapToInterval - cardWidth). carousel gap 비의존(크로스플랫폼).
+    marginRight: CAROUSEL_GAP,
   },
   card: {
     // 폭은 useCarouselCardWidth 로 인라인 주입(DAR-301, 화면 폭 반응형).

@@ -34,6 +34,24 @@ export function formatReturnPct(
 }
 
 /**
+ * 청산 룰 임계값 표기(DAR-318) — 손절/익절/트레일링처럼 "방향 부호(-/+) + 양수 크기 %".
+ * 백엔드는 임계를 양수 크기(예: 손절 8, 익절 25, 트레일링 5)로 주고 화면이 방향 부호를 붙인다.
+ * 값이 0(미설정/임계 없음)이면 부호를 떼어 "-0%"·"+0%" 음수·양수영점을 막는다(DAR-312 음수영점 가드의 룰 표기판).
+ * 0 이 아닌 값은 기존 표기(원시 자릿수)를 그대로 보존한다 — 백엔드 룰 값 미접촉, 표시만 교정.
+ * @param magnitude 임계 크기(양수 %). null/undefined/NaN 은 '—'(데이터 없음).
+ * @param direction 'loss'(-) | 'gain'(+) — magnitude 0 이면 무시되고 부호 없는 "0%".
+ */
+export function formatExitRulePct(
+  magnitude: number | null | undefined,
+  direction: 'loss' | 'gain',
+): string {
+  if (magnitude === null || magnitude === undefined || Number.isNaN(magnitude)) return '—';
+  if (magnitude === 0) return '0%'; // -0 === 0 이라 음수영점도 함께 양수영점으로 흡수
+  const sign = direction === 'gain' ? '+' : '-';
+  return `${sign}${Math.abs(magnitude)}%`;
+}
+
+/**
  * 승률 표기 — 비율(0~1)을 정수 %로. null/undefined 는 fallback(기본 '—').
  * 일부 화면은 '표본 부족' 등 도메인 카피를 fallback 으로 넘긴다.
  */

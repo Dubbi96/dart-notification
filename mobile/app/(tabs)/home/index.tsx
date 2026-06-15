@@ -12,7 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { MoonStars, Sun, CloudSun, Moon } from 'phosphor-react-native';
 import { router, useScrollToTop } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
 import { typography } from '@theme/typography';
@@ -176,6 +176,9 @@ export default function HomeScreen() {
                   typo.captionMedium,
                   { color: feedTab === 'all' ? colors.primaryForeground : colors.textSecondary },
                 ]}
+                // DAR-305: 큰 글꼴서 세그먼트 라벨 단어 중간 줄바꿈·행 오버플로 방지(한 줄 보장 + 보조 캡).
+                numberOfLines={1}
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
               >
                 전체 공시
               </Text>
@@ -203,6 +206,9 @@ export default function HomeScreen() {
                     typo.captionMedium,
                     { color: feedTab === 'watchlist' ? colors.primaryForeground : colors.textSecondary },
                   ]}
+                  // DAR-305: 큰 글꼴서 세그먼트 라벨 단어 중간 줄바꿈·행 오버플로 방지(한 줄 보장 + 보조 캡).
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                 >
                   관심 기업
                 </Text>
@@ -223,7 +229,10 @@ export default function HomeScreen() {
             accessibilityLabel={isWatchlistFeed ? '관심 기업 공시 전체보기 (필터)' : '공시 전체보기 (필터)'}
           >
             <Feather name="sliders" size={13} color={colors.primary} style={{ marginRight: 4 }} />
-            <Text style={[typo.captionMedium, { color: colors.primary }]}>전체보기</Text>
+            {/* DAR-305: '전체보기' 액션 라벨 — 큰 글꼴서 단어 중간 줄바꿈 방지(한 줄 보장 + 보조 캡). */}
+            <Text style={[typo.captionMedium, { color: colors.primary }]} numberOfLines={1} maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}>
+              전체보기
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -317,7 +326,10 @@ export default function HomeScreen() {
               </GlassCard>
               {unreadBadge && (
                 <View style={[styles.notifBadge, { backgroundColor: colors.error }]}>
-                  <Text style={styles.notifBadgeText}>{unreadBadge}</Text>
+                  {/* DAR-305: 고정 원형 배지 — OS 글꼴 확대 시 숫자 세로 클리핑 방지 배율 상한(DAR-174 정본). */}
+                  <Text style={styles.notifBadgeText} maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}>
+                    {unreadBadge}
+                  </Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -463,6 +475,9 @@ const styles = StyleSheet.create({
   segmentControl: {
     flexDirection: 'row',
     gap: spacing.sm,
+    // DAR-305: 큰 글꼴서 행 넘침 시 좌측 세그먼트군이 먼저 양보(우측 '전체보기' 보호). 평시 불변(넘침 없으면 무효).
+    flexShrink: 1,
+    minWidth: 0,
   },
   segmentTab: {
     flexDirection: 'row',
@@ -470,6 +485,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.sm,
     borderRadius: radius.full,
+    // DAR-305: 세그먼트군 축소가 탭까지 전파되도록(라벨 numberOfLines 와 함께 말줄임). 평시 불변.
+    flexShrink: 1,
+    minWidth: 0,
   },
   browseButton: {
     flexDirection: 'row',
@@ -478,6 +496,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
     borderWidth: 1,
+    // DAR-305: '전체보기' 액션 버튼은 압축/밀림 금지(항상 노출).
+    flexShrink: 0,
   },
   listContent: {
     paddingTop: spacing.md,

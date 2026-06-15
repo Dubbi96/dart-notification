@@ -12,7 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Divider } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
 import { GlassCard } from '@components/common/GlassCard';
@@ -53,7 +53,13 @@ function MenuItem({ icon, title, subtitle, onPress, badgeCount, showChevron = tr
       <View style={styles.menuRight}>
         {badgeCount != null && badgeCount > 0 && (
           <View style={[styles.badge, { backgroundColor: colors.primary }]}>
-            <Text style={[typo.small, { color: colors.primaryForeground, fontWeight: '600' }]}>{badgeCount}</Text>
+            {/* DAR-305: 고정 원형 배지 — OS 글꼴 확대 시 숫자 세로 클리핑 방지 배율 상한(DAR-174 정본). */}
+            <Text
+              style={[typo.small, { color: colors.primaryForeground, fontWeight: '600' }]}
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+            >
+              {badgeCount}
+            </Text>
           </View>
         )}
         {showChevron && <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />}

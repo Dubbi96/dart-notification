@@ -579,7 +579,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
-    height: SUB_FILTER_CHIP_HEIGHT,
+    // DAR-305: 고정 height → minHeight. 큰 글꼴서 칩이 늘어나 라벨 받침이 잘리지 않는다(평시 동일·가로 스크롤 행).
+    minHeight: SUB_FILTER_CHIP_HEIGHT,
     gap: spacing.xs,
   },
   subFilterDivider: {
@@ -594,7 +595,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radius.full,
-    height: FILTER_CHIP_HEIGHT,
+    // DAR-305: 고정 height → minHeight. 큰 글꼴서 칩이 늘어나 라벨 받침이 잘리지 않는다(평시 동일·가로 스크롤 행).
+    minHeight: FILTER_CHIP_HEIGHT,
     gap: spacing.xs,
   },
   chipDot: {

@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface, Chip } from 'react-native-paper';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { SignalMiniGauge } from '@components/signals/SignalMiniGauge';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
@@ -47,6 +47,8 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
               <Chip
                 compact
                 mode="flat"
+                // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                 style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
                 textStyle={[typo.small, { color: colors.textSecondary }]}
               >
@@ -60,6 +62,8 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
           <Chip
             compact
             mode="flat"
+            // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
             style={[styles.gradeChip, { backgroundColor: colors.surfaceSecondary }]}
             textStyle={[typo.small, { color: gradeColor(signal.grade, colors), fontWeight: '700' }]}
           >
@@ -103,14 +107,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   eventChip: {
-    height: 26,
+    // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
+    minHeight: 26,
     // DAR-191: 긴 이벤트 라벨이 같은 행 기업명(flex:1)을 짓눌러 "삼…"으로 축약하던 문제 수정.
     // flexShrink로 칩이 먼저 양보하고, maxWidth(행의 ~50%)로 칩 라벨이 대신 잘리게(기업명 우선).
     flexShrink: 1,
     maxWidth: '50%',
   },
   gradeChip: {
-    height: 26,
+    // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
+    minHeight: 26,
   },
   gaugeWrap: {
     marginTop: spacing.md,

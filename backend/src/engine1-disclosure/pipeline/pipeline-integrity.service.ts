@@ -4,6 +4,8 @@ import { Queue } from 'bullmq';
 import { ExtractionStatus, ParseStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DisclosureDocumentsService } from '../disclosure-documents/disclosure-documents.service';
+// DAR-293: 파싱 재시도 캡 SSOT — disclosure-documents.service와 공유(발산 방지)
+import { PARSE_MAX_RETRY } from '../disclosure-documents/disclosure-documents.constants';
 import { DisclosureEventsService } from '../disclosure-events/disclosure-events.service';
 import {
   QUEUE,
@@ -21,8 +23,6 @@ import {
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 
-/** DisclosureDocumentsService.MAX_RETRY 와 동일(파싱 재처리 상한). 재처리 가능 판정용. */
-const PARSE_MAX_RETRY = 3;
 /** 폐루프 1회 backfill 시 단계별 처리 상한(과도 부하 방지). */
 const DEFAULT_DRAIN_LIMIT = 100;
 /** AI 재발행(수동) 1회 상한. */

@@ -26,9 +26,10 @@ import { AmendmentDiff } from './types/amendment-diff.type';
 // M2 체이닝: @Optional() 주입 — DisclosureEventsService가 미배포 상태에서도 M1 파이프라인 무중단 동작
 // 순환 참조 방지: disclosure-events 모듈이 disclosure-documents 모듈을 import하지 않음
 import type { DisclosureEventsService } from '../disclosure-events/disclosure-events.service';
+// DAR-293: 파싱 재시도 캡 SSOT — pipeline-integrity.service와 공유(발산 방지)
+import { PARSE_MAX_RETRY as MAX_RETRY } from './disclosure-documents.constants';
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
-const MAX_RETRY = 3;
 const MAX_RAWTEXT_LENGTH = 200_000;  // 200KB 상한
 const MAX_LAST_ERROR_LENGTH = 500;
 const BATCH_CONCURRENCY = 5;

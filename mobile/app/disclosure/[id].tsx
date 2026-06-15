@@ -136,7 +136,10 @@ export default function DisclosureDetailScreen() {
           >
             <Ionicons name="chevron-back" size={26} color={colors.text} />
           </TouchableOpacity>
-          <Text style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}>
+          <Text
+            style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}
+            accessibilityRole="header"
+          >
             공시 상세
           </Text>
           <View style={styles.headerButton} />
@@ -194,7 +197,10 @@ export default function DisclosureDetailScreen() {
         >
           <Ionicons name="chevron-back" size={26} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}>
+        <Text
+          style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}
+          accessibilityRole="header"
+        >
           공시 상세
         </Text>
         <View style={styles.headerActions}>

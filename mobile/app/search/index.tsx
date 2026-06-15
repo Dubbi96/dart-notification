@@ -219,7 +219,12 @@ export default function UnifiedSearchScreen() {
           >
             <Ionicons name="chevron-back" size={26} color={colors.text} />
           </TouchableOpacity>
-          <Text style={[typo.h3, { color: colors.text, marginLeft: spacing.sm }]}>통합 검색</Text>
+          <Text
+            style={[typo.h3, { color: colors.text, marginLeft: spacing.sm }]}
+            accessibilityRole="header"
+          >
+            통합 검색
+          </Text>
         </View>
 
         {/* Search Bar */}

@@ -365,7 +365,13 @@ export default function AiCostScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={8} style={styles.backButton}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          hitSlop={8}
+          style={styles.backButton}
+          accessibilityRole="button"
+          accessibilityLabel="뒤로 가기"
+        >
           <Feather name="chevron-left" size={26} color={colors.text} />
         </TouchableOpacity>
         <Text style={[typo.h3, { color: colors.text }]}>AI 비용</Text>

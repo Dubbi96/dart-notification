@@ -42,21 +42,9 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
         style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
       >
         <View style={styles.headerRow}>
-          <View style={styles.headerLeft}>
-            {signal.eventType ? (
-              <Chip
-                compact
-                mode="flat"
-                style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
-                textStyle={[typo.small, { color: colors.textSecondary }]}
-              >
-                {getEventTypeLabel(signal.eventType)}
-              </Chip>
-            ) : null}
-            <Text style={[typo.bodyMedium, { color: colors.text, flex: 1 }]} numberOfLines={1}>
-              {signal.corpName}
-            </Text>
-          </View>
+          <Text style={[typo.bodyMedium, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+            {signal.corpName}
+          </Text>
           <Chip
             compact
             mode="flat"
@@ -66,6 +54,22 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
             {gradeLabel(signal.grade)}
           </Chip>
         </View>
+
+        {signal.eventType ? (
+          // DAR-307: 이벤트 칩을 기업명과 별도 행으로 분리. 칩 라벨 길이가 달라도
+          // 기업명이 항상 헤더 행 첫 자식(좌측 고정 x)에서 시작해 리스트가 가지런하다.
+          // (CuratedSignalCard 와 동일 패턴 — DAR-191 의 같은 행 짓눌림도 구조적으로 제거.)
+          <View style={styles.metaRow}>
+            <Chip
+              compact
+              mode="flat"
+              style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
+              textStyle={[typo.small, { color: colors.textSecondary }]}
+            >
+              {getEventTypeLabel(signal.eventType)}
+            </Chip>
+          </View>
+        ) : null}
 
         <View style={styles.gaugeWrap}>
           <SignalMiniGauge score={signal.buyScore} />
@@ -96,18 +100,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
-  headerLeft: {
+  metaRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    flex: 1,
+    marginTop: spacing.xs,
   },
   eventChip: {
     height: 26,
-    // DAR-191: 긴 이벤트 라벨이 같은 행 기업명(flex:1)을 짓눌러 "삼…"으로 축약하던 문제 수정.
-    // flexShrink로 칩이 먼저 양보하고, maxWidth(행의 ~50%)로 칩 라벨이 대신 잘리게(기업명 우선).
-    flexShrink: 1,
-    maxWidth: '50%',
+    // 별도 행 단독 배치 — 행 폭에 맞춰 내용폭으로 자연 정렬(기업명 정렬에 영향 없음).
+    alignSelf: 'flex-start',
   },
   gradeChip: {
     height: 26,

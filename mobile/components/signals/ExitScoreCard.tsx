@@ -67,7 +67,7 @@ function ExitScoreCardBase({ signal, onPress }: ExitScoreCardProps) {
       accessibilityLabel={`${signal.corpName} 매도 신호, Exit Score ${signal.exitScore}, ${exitActionLabel(
         signal.action,
       )}${riskSummary ? `, ${riskSummary}` : ''}`}
-      accessibilityActions={[{ name: 'activate', label: '신호 상세 보기' }]}
+      accessibilityActions={[{ name: 'activate', label: '기업 정보 보기' }]}
       onAccessibilityAction={(event) => {
         if (event.nativeEvent.actionName === 'activate') handlePress();
       }}

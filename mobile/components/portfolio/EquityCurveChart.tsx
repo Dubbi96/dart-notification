@@ -87,7 +87,7 @@ export function EquityCurveChart({ points, initialCapital }: EquityCurveChartPro
           <Text style={[typo.captionMedium, { color: colors.text }]}>
             {Math.round(active.totalValue).toLocaleString('ko-KR')}원
           </Text>
-          <Text style={[typo.small, { color: pnlColor(active.returnPct, colors) }]}>
+          <Text style={[typo.small, { color: pnlColor(active.returnPct, colors, { digits: 2 }) }]}>
             {formatReturnPct(active.returnPct, { digits: 2 })}
           </Text>
         </View>

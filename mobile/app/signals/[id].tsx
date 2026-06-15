@@ -11,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Chip, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
@@ -215,6 +215,8 @@ export default function SignalDetailScreen() {
             <Chip
               compact
               mode="flat"
+              // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
               style={[styles.gradeChip, { backgroundColor: colors.surfaceSecondary }]}
               textStyle={[typo.small, { color: gradeColor(signal.grade, colors), fontWeight: '700' }]}
             >
@@ -369,7 +371,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
-  gradeChip: { height: 26 },
+  // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
+  gradeChip: { minHeight: 26 },
   scoreRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -11,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Chip } from 'react-native-paper';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { Button } from '@components/common/Button';
@@ -269,11 +269,19 @@ export default function DisclosureDetailScreen() {
               onPress={row.onPress}
               disabled={!row.onPress}
             >
-              <Text style={[typo.caption, { color: colors.textSecondary }]}>{row.label}</Text>
-              <Text style={[typo.captionMedium, { color: row.onPress ? colors.primary : colors.text }]}>
-                {row.value}
-                {row.onPress ? ' ›' : ''}
-              </Text>
+              <Text style={[typo.caption, styles.infoLabel, { color: colors.textSecondary }]}>{row.label}</Text>
+              {/* DAR-305: 큰 글꼴서 긴 값(기업명 등)이 우측 ›를 화면 밖으로 밀지 않도록 값만 한 줄 말줄임, ›는 분리해 유지. */}
+              <View style={styles.infoValueWrap}>
+                <Text
+                  style={[typo.captionMedium, styles.infoValue, { color: row.onPress ? colors.primary : colors.text }]}
+                  numberOfLines={1}
+                >
+                  {row.value}
+                </Text>
+                {row.onPress ? (
+                  <Text style={[typo.captionMedium, styles.infoChevron, { color: colors.primary }]}>{' ›'}</Text>
+                ) : null}
+              </View>
             </TouchableOpacity>
           ))}
         </Card>
@@ -312,6 +320,8 @@ export default function DisclosureDetailScreen() {
               <Chip
                 compact
                 mode="flat"
+                // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                 style={[styles.aiChip, { backgroundColor: colors.surfaceSecondary }]}
                 textStyle={[typo.small, { color: colors.text }]}
               >
@@ -462,6 +472,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.md,
   },
+  // DAR-305: 라벨은 고정폭 유지, 값 묶음은 줄어들며 우측 정렬·말줄임(큰 글꼴 오버플로 방지). 평시 동일.
+  infoLabel: {
+    flexShrink: 0,
+  },
+  infoValueWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+  },
+  infoValue: {
+    flexShrink: 1,
+    textAlign: 'right',
+  },
+  infoChevron: {
+    flexShrink: 0,
+  },
   aiSection: {
     marginTop: spacing.xl,
     borderRadius: radius.lg,
@@ -489,7 +515,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   aiChip: {
-    height: 24,
+    // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
+    minHeight: 24,
   },
   keyFigures: {
     marginTop: spacing.sm,

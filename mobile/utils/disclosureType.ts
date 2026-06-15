@@ -75,11 +75,16 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   TRADING_SUSPENSION: '거래정지',
   DELISTING_RISK: '상장폐지 위험',
   AUDIT_RISK_RESOLVED: '감사 리스크 해소',
+  // ── 지분변동 3종(DAR-87) — raw enum 노출 방지(DAR-306) ──
+  INSIDER_BUY: '내부자 매수',
+  INSIDER_SELL: '내부자 매도',
+  MAJOR_HOLDER_5PCT: '5% 대량보유',
   OTHER: '기타',
 };
 
 export function getEventTypeLabel(eventType: string): string {
-  return EVENT_TYPE_LABEL[eventType] ?? eventType;
+  // 미매핑(향후 enum 추가 등)은 raw enum 대신 안전 기본 라벨로 — DAR-306.
+  return EVENT_TYPE_LABEL[eventType] ?? EVENT_TYPE_LABEL.OTHER;
 }
 
 // AI 극성 평문 매핑(DAR-31 §3-2). '(참고)' 꼬리표 강제 — 단정 표현 금지.
@@ -89,8 +94,10 @@ export const POLARITY_LABEL: Record<string, string> = {
   NEGATIVE: '악재 성격 (참고)',
   MIXED: '복합 성격 (참고)',
   NEUTRAL: '중립 성격 (참고)',
+  UNKNOWN: '미분류 (참고)',
 };
 
 export function getPolarityLabel(polarity: string): string {
-  return POLARITY_LABEL[polarity] ?? polarity;
+  // 미매핑(향후 값 추가 등)은 raw enum 대신 안전 기본 라벨로 — DAR-306.
+  return POLARITY_LABEL[polarity] ?? POLARITY_LABEL.UNKNOWN;
 }

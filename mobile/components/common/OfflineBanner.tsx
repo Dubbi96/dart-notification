@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
 import { useNetworkStatus } from '@hooks/useNetworkStatus';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 
 // DAR-173: 전역 오프라인 인지 배너. 네트워크 단절 시 상단에서 슬라이드인.
 // 단절을 무표식으로 두면 캐시 옛값을 '정상'으로 오인 → colors.warning(Surface) 배너로 명시.
@@ -17,8 +18,15 @@ export function OfflineBanner() {
   const insets = useSafeAreaInsets();
   // lazy init: 컴포넌트 수명 동안 안정적인 단일 Animated.Value(SkeletonCard 패턴, ref 접근 회피).
   const [anim] = useState(() => new Animated.Value(0));
+  // 접근성 '동작 줄이기' 시 슬라이드/페이드 생략하고 즉시 표시/숨김(§11 모션 폴백, ScoreGauge 패턴).
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    if (reducedMotion) {
+      // duration 없이 최종 상태로 스냅 — 등장/퇴장 모션 제거, 표시 여부는 동일.
+      anim.setValue(isOffline ? 1 : 0);
+      return;
+    }
     const animation = Animated.timing(anim, {
       toValue: isOffline ? 1 : 0,
       duration: 220,
@@ -26,7 +34,7 @@ export function OfflineBanner() {
     });
     animation.start();
     return () => animation.stop();
-  }, [isOffline, anim]);
+  }, [isOffline, anim, reducedMotion]);
 
   return (
     <Animated.View

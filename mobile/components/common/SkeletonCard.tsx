@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Animated, type DimensionValue } from 'react-native';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 
 // 스켈레톤 공통 컴포넌트 — 기획 ux-detail-plan.md §2-1, §2-3.
 // 레이아웃 구조가 예측 가능한 리스트·카드(공시 피드/신호 피드/포트폴리오)에 사용.
@@ -10,14 +11,24 @@ import { spacing, radius } from '@theme/spacing';
 type SkeletonVariant = 'disclosure' | 'buyScore';
 
 const PULSE_DURATION = 750; // 0.4→1, 1→0.4 각 750ms = 1.5s 1사이클
+// reduce-motion 시 펄스 루프를 멈추고 고정하는 정적 표면 불투명도(ScoreGauge 가드 패턴 정렬).
+const STATIC_OPACITY = 1;
 
 // 단일 pulse Animated.Value를 제공하는 공통 훅.
 // 상세 화면 스켈레톤(DetailSkeleton)이 동일한 펄스 타이밍을 재사용하도록 export.
 export function useSkeletonPulse() {
   // lazy init: 컴포넌트 수명 동안 안정적인 단일 Animated.Value 보관
   const [opacity] = useState(() => new Animated.Value(0.4));
+  // 접근성 '동작 줄이기' 시 연속 펄스를 정적화(§11 모션 폴백, ScoreGauge와 동일 패턴).
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
+    if (reducedMotion) {
+      // 루프 중지·정적 표면. reduce-motion 토글에도 effect 재실행으로 즉시 반영.
+      opacity.setValue(STATIC_OPACITY);
+      return;
+    }
+    opacity.setValue(0.4);
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, {
@@ -34,7 +45,7 @@ export function useSkeletonPulse() {
     );
     loop.start();
     return () => loop.stop();
-  }, [opacity]);
+  }, [opacity, reducedMotion]);
 
   return opacity;
 }

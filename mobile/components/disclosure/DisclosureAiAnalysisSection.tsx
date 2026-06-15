@@ -8,6 +8,7 @@ import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { ApiErrorState } from '@components/common/StateView';
 import { useDisclosureAnalysis } from '@hooks/useDisclosures';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 import { getPolarityLabel } from '@utils/disclosureType';
 
 import type {
@@ -41,10 +42,17 @@ function polarityColor(
   return colors.textSecondary;
 }
 
-/** 스켈레톤용 pulse (SkeletonCard 패턴 — opacity 0.4→1→0.4, 1.5s). */
+/** 스켈레톤용 pulse (SkeletonCard 패턴 — opacity 0.4→1→0.4, 1.5s). reduce-motion 시 정적화. */
 function usePulse() {
   const [opacity] = useState(() => new Animated.Value(0.4));
+  // 접근성 '동작 줄이기' 시 연속 펄스를 멈추고 정적 표면 고정(§11, ScoreGauge 가드 패턴).
+  const reducedMotion = useReducedMotion();
   useEffect(() => {
+    if (reducedMotion) {
+      opacity.setValue(1);
+      return;
+    }
+    opacity.setValue(0.4);
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, { toValue: 1, duration: 750, useNativeDriver: true }),
@@ -53,7 +61,7 @@ function usePulse() {
     );
     loop.start();
     return () => loop.stop();
-  }, [opacity]);
+  }, [opacity, reducedMotion]);
   return opacity;
 }
 

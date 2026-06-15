@@ -10,6 +10,7 @@ import { EmptyState, ErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { EquityCurveChart } from '@components/portfolio/EquityCurveChart';
 import { useSimulationStatus, useSimulationEquityCurve } from '@hooks/useSimulationStatus';
+import { formatYmdDots } from '@utils/datetime';
 import { dedupeByStock } from '@utils/dedupe';
 
 import type { SimPosition, SimulationMetrics } from '@app-types/simulation.types';
@@ -207,7 +208,7 @@ function SummaryHeader({
         </View>
         <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
           초기 가상원금 {initialCapital.toLocaleString('ko-KR')}원
-          {latestSnapshotDate ? `  ·  기준일 ${latestSnapshotDate}` : ''}
+          {latestSnapshotDate ? `  ·  기준일 ${formatYmdDots(latestSnapshotDate)}` : ''}
         </Text>
       </Surface>
 

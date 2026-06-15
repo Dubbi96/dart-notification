@@ -216,6 +216,7 @@ export default function EventStatsScreen() {
       />
 
       <View style={styles.tabs}>
+        {/* DAR-308: SegmentedButtons 라벨은 전역 allowFontScaling=false(DAR-304) 정책으로 비율 보존 — per-Text 캡 미적용. */}
         <SegmentedButtons
           value={marketType}
           onValueChange={(v) => setMarketType(v as MarketType)}

@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { DataLimitBadge } from '@components/common/DataLimitBadge';
 
@@ -29,7 +29,13 @@ function RegimeChip({ label }: { label: string }) {
   const { colors, typography: typo } = useTheme();
   return (
     <View style={[styles.chip, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-      <Text style={[typo.small, { color: colors.textSecondary }]}>{label}</Text>
+      <Text
+        numberOfLines={1}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        style={[typo.small, { color: colors.textSecondary }]}
+      >
+        {label}
+      </Text>
     </View>
   );
 }

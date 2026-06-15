@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { Chip } from 'react-native-paper';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { useCompanyDetail } from '@hooks/useCompanyDetail';
@@ -485,7 +485,11 @@ export default function CompanyDetailScreen() {
               style={[styles.marketBadge, { backgroundColor: colors.successSurface }]}
               accessibilityLabel={`시장: ${marketLabel}`}
             >
-              <Text style={[typo.small, { color: colors.success, fontWeight: '600' }]}>
+              <Text
+                style={[typo.small, { color: colors.success, fontWeight: '600' }]}
+                numberOfLines={1}
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+              >
                 {marketLabel}
               </Text>
             </View>
@@ -568,6 +572,8 @@ export default function CompanyDetailScreen() {
                     typo.captionMedium,
                     { color: isActive ? colors.primaryForeground : colors.textSecondary },
                   ]}
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                 >
                   {tab.label}
                 </Text>
@@ -818,7 +824,13 @@ function CompanySignalBadgeRow({ corpCode }: { corpCode: string }) {
       <View
         style={[styles.gradeChip, { backgroundColor: color + '22', borderColor: color }]}
       >
-        <Text style={[typo.small, { color, fontWeight: '700' }]}>{label}</Text>
+        <Text
+          style={[typo.small, { color, fontWeight: '700' }]}
+          numberOfLines={1}
+          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        >
+          {label}
+        </Text>
       </View>
       <Text
         style={[typo.bodyMedium, { color: colors.text, fontWeight: '700', marginLeft: spacing.sm }]}
@@ -828,7 +840,11 @@ function CompanySignalBadgeRow({ corpCode }: { corpCode: string }) {
       {data.entryReady && (
         <View style={[styles.entryReadyChip, { backgroundColor: colors.successSurface }]}>
           <Feather name="check-circle" size={12} color={colors.success} />
-          <Text style={[typo.small, { color: colors.success, fontWeight: '600', marginLeft: 4 }]}>
+          <Text
+            style={[typo.small, { color: colors.success, fontWeight: '600', marginLeft: 4 }]}
+            numberOfLines={1}
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          >
             진입 준비
           </Text>
         </View>

@@ -89,6 +89,7 @@ function TypeSegmentChipBase({ segment, active, unread, onSelect }: TypeSegmentC
     >
       <Text
         // DAR-298: 고정 lineHeight 칩 라벨 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+        numberOfLines={1}
         maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
         style={[
           typo.captionMedium,

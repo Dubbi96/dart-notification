@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 
 // 데이터 한계 배지 통일 컴포넌트(DAR-121, 신뢰 원칙 §6).
@@ -35,7 +35,11 @@ export function DataLimitBadge({ sampleCount, style }: DataLimitBadgeProps) {
       accessibilityLabel={a11y}
     >
       <Feather name="alert-triangle" size={11} color={colors.warning} />
-      <Text style={[typo.small, { color: colors.warning, marginLeft: spacing.xs, fontWeight: '600' }]}>
+      <Text
+        numberOfLines={1}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        style={[typo.small, { color: colors.warning, marginLeft: spacing.xs, fontWeight: '600' }]}
+      >
         {label}
       </Text>
     </View>

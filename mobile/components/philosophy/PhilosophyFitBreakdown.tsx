@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { SignalMiniGauge } from '@components/signals/SignalMiniGauge';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
@@ -134,7 +134,9 @@ function SummaryChip({
   return (
     <View style={styles.summaryChip}>
       <Feather name={icon} size={13} color={color} />
-      <Text style={[typo.small, { color }]}>{label}</Text>
+      <Text numberOfLines={1} maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE} style={[typo.small, { color }]}>
+        {label}
+      </Text>
     </View>
   );
 }

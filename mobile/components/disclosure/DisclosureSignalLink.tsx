@@ -91,5 +91,5 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
   },
-  gradeChip: { height: 26 },
+  gradeChip: { minHeight: 26 },
 });

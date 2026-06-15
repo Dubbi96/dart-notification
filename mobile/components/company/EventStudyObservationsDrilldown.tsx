@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { useEventStudyObservations } from '@hooks/useEventStudy';
 import { formatReturnPct, returnColor } from '@utils/numberFormat';
@@ -83,7 +83,11 @@ export function EventStudyObservationsDrilldown({ bucketKey, sampleCount }: Prop
         accessibilityLabel={`표본 ${total}건 보기 — 이 통계를 구성한 개별 공시 목록`}
       >
         <Feather name="list" size={16} color={colors.primary} />
-        <Text style={[typo.bodyMedium, { color: colors.primary, flex: 1, marginLeft: spacing.sm }]}>
+        <Text
+          style={[typo.bodyMedium, { color: colors.primary, flex: 1, marginLeft: spacing.sm }]}
+          numberOfLines={1}
+          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        >
           표본 {total.toLocaleString('ko-KR')}건 보기
         </Text>
         <Feather name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textSecondary} />

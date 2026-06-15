@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-nati
 import { Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { LoadingState, EmptyState, ErrorState } from '@components/common/StateView';
@@ -190,6 +190,7 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
                 mode="flat"
                 style={[styles.chip, { backgroundColor: colors.surfaceSecondary }]}
                 textStyle={[typo.small, { color: colors.textSecondary }]}
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
               >
                 {getTypeLabel(latestDisclosure.disclosureType)}
               </Chip>

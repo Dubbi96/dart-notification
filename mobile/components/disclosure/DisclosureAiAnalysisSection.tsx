@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
 import { Surface, Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
@@ -281,6 +281,8 @@ export function DisclosureAiAnalysisSection({ rcpNo }: { rcpNo: string }) {
                 <Chip
                   compact
                   mode="flat"
+                  // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+                  maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                   style={[styles.personaChip, { backgroundColor: colors.surfaceSecondary }]}
                   textStyle={[typo.small, { color: colors.text }]}
                 >
@@ -310,6 +312,8 @@ export function DisclosureAiAnalysisSection({ rcpNo }: { rcpNo: string }) {
             <Chip
               compact
               mode="outlined"
+              // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
               style={[styles.refChip, { borderColor: colors.border, backgroundColor: colors.surface }]}
               textStyle={[typo.small, { color: colors.textSecondary }]}
             >
@@ -403,9 +407,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   personaChip: {
-    height: 24,
+    // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
+    minHeight: 24,
   },
   refChip: {
-    height: 24,
+    // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
+    minHeight: 24,
   },
 });

@@ -12,7 +12,7 @@ import { Surface, Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { ErrorState } from '@components/common/StateView';
@@ -129,10 +129,15 @@ export default function PositionDetailScreen() {
           {/* 헤더 */}
           <Surface elevation={1} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.titleRow}>
-              <Text style={[typo.h2, { color: colors.text, flex: 1 }]}>{position.corpName}</Text>
+              {/* DAR-305: 큰 글꼴서 기업명이 다중 줄로 팽창해 상태칩을 밀지 않도록 한 줄 말줄임. */}
+              <Text style={[typo.h2, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+                {position.corpName}
+              </Text>
               <Chip
                 compact
                 mode="flat"
+                // DAR-305: OS 글꼴 확대 시 상태칩 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                 style={{ backgroundColor: colors.surfaceSecondary }}
                 textStyle={[typo.small, { color: thesisStatusColor(position.thesisStatus, colors), fontWeight: '700' }]}
                 accessibilityLabel={`Thesis 상태: ${thesisStatusLabel(position.thesisStatus)}`}

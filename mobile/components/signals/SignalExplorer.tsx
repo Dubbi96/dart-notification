@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { SignalExploreCard } from '@components/signals/SignalExploreCard';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
@@ -77,6 +77,8 @@ function FilterChipRow<T extends string | undefined>({
               accessibilityLabel={`${label} ${opt.label}${isActive ? ', 선택됨' : ''}`}
             >
               <Text
+                numberOfLines={1}
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                 style={[
                   typo.small,
                   {
@@ -207,6 +209,8 @@ export function SignalExplorer({ searchQuery = '', ListHeaderComponent, listRef 
               color={activeFilterCount > 0 ? colors.primaryDark : colors.textSecondary}
             />
             <Text
+              numberOfLines={1}
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
               style={[
                 typo.small,
                 {
@@ -258,6 +262,8 @@ export function SignalExplorer({ searchQuery = '', ListHeaderComponent, listRef 
                   color={isActive ? colors.primaryDark : colors.textTertiary}
                 />
                 <Text
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                   style={[
                     typo.small,
                     {
@@ -399,7 +405,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radius.full,
-    height: 34,
+    minHeight: 34,
   },
   sortRow: {
     flexDirection: 'row',
@@ -421,7 +427,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: radius.full,
     borderWidth: 1,
-    height: 32,
+    minHeight: 32,
     gap: spacing.xs,
   },
   filterBadge: {
@@ -457,7 +463,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
-    height: 30,
+    minHeight: 30,
     gap: spacing.xs,
   },
   listContent: {

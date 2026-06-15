@@ -2,7 +2,7 @@ import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface, Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { RiskStatusBadges, summarizeRiskStatus } from '@components/common/RiskStatusBadges';
 import { ScoreGauge } from '@components/common/ScoreGauge';
@@ -67,6 +67,8 @@ function CuratedSignalCardBase({ signal, onPress, cardWidth }: CuratedSignalCard
           <Chip
             compact
             mode="flat"
+            // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
             style={[styles.gradeChip, { backgroundColor: colors.surfaceSecondary }]}
             textStyle={[typo.small, { color: gradeColor(signal.grade, colors), fontWeight: '700' }]}
           >
@@ -80,6 +82,8 @@ function CuratedSignalCardBase({ signal, onPress, cardWidth }: CuratedSignalCard
             <Chip
               compact
               mode="flat"
+              // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
               style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
               textStyle={[typo.small, { color: colors.textSecondary }]}
             >
@@ -139,10 +143,12 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   eventChip: {
-    height: 26,
+    // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
+    minHeight: 26,
   },
   gradeChip: {
-    height: 26,
+    // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
+    minHeight: 26,
   },
   riskBadges: {
     marginTop: spacing.sm,

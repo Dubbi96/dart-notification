@@ -9,7 +9,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { LoadingState, ErrorState, EmptyState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
@@ -67,7 +67,11 @@ function AcceptanceBadge({ ok, label }: { ok: boolean; label: string }) {
       accessibilityLabel={`${label} ${ok ? '충족' : '위반'}`}
     >
       <Feather name={ok ? 'check-circle' : 'alert-triangle'} size={13} color={fg} />
-      <Text style={[typo.caption, { color: fg, marginLeft: spacing.xs }]}>
+      <Text
+        numberOfLines={1}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        style={[typo.caption, { color: fg, marginLeft: spacing.xs }]}
+      >
         {label} {ok ? 'OK' : '위반'}
       </Text>
     </View>
@@ -198,7 +202,13 @@ function LevelDistribution({ summary }: { summary: AiCostPeriodSummary }) {
           style={[styles.levelChip, { backgroundColor: colors.borderLight }]}
           accessibilityLabel={`${lv.label} ${lv.count}건`}
         >
-          <Text style={[typo.small, { color: colors.textSecondary }]}>{lv.label}</Text>
+          <Text
+            numberOfLines={1}
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+            style={[typo.small, { color: colors.textSecondary }]}
+          >
+            {lv.label}
+          </Text>
           <Text style={[typo.caption, { color: colors.text }]}>{lv.count}</Text>
         </View>
       ))}

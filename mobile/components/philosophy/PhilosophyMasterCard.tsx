@@ -6,6 +6,7 @@ import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { ProvenanceBar, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { PhilosophyStatStrip } from '@components/philosophy/PhilosophyStatStrip';
+import { getStyleTagLabel } from '@utils/styleTagLabel';
 import type { Philosophy } from '@app-types/philosophy.types';
 import { sourceTypeLabel } from './metricFormat';
 
@@ -51,7 +52,7 @@ function PhilosophyMasterCardBase({ philosophy, onPress }: PhilosophyMasterCardP
         <View style={styles.tagRow}>
           {philosophy.styleTags.map((tag) => (
             <View key={tag} style={[styles.tag, { backgroundColor: colors.primaryLight }]}>
-              <Text style={[typo.small, { color: colors.primaryDark }, styles.tagText]}>{tag}</Text>
+              <Text style={[typo.small, { color: colors.primaryDark }, styles.tagText]}>{getStyleTagLabel(tag)}</Text>
             </View>
           ))}
         </View>

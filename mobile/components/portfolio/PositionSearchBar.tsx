@@ -2,7 +2,7 @@ import React, { useCallback } from 'react';
 import { View, TextInput, StyleSheet } from 'react-native';
 import { Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 
 export type SortKey = 'pnl' | 'urgency' | 'weight';
@@ -57,6 +57,8 @@ export function PositionSearchBar({ value, onChangeText, sortKey, onSortChange }
               key={opt.key}
               compact
               mode={selected ? 'flat' : 'outlined'}
+              // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
               onPress={makeSortHandler(opt.key)}
               accessibilityRole="button"
               accessibilityState={{ selected }}
@@ -101,6 +103,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   sortChip: {
-    height: 28,
+    // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
+    minHeight: 28,
   },
 });

@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { CollapsibleCard } from '@components/common/CollapsibleCard';
@@ -21,6 +21,7 @@ import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { PhilosophyFitBreakdown } from '@components/philosophy/PhilosophyFitBreakdown';
 import { PhilosophyStatStrip } from '@components/philosophy/PhilosophyStatStrip';
 import { sourceTypeLabel } from '@components/philosophy/metricFormat';
+import { getStyleTagLabel } from '@utils/styleTagLabel';
 import { usePhilosophies, usePhilosophyFit } from '@hooks/usePhilosophies';
 import { useWatchlist } from '@hooks/useWatchlist';
 import { usePopularCompanies } from '@hooks/useCompanySearch';
@@ -138,7 +139,7 @@ function PhilosophyHeader({
       <View style={styles.tagRow}>
         {philosophy.styleTags.map((tag) => (
           <View key={tag} style={[styles.tag, { backgroundColor: colors.primaryLight }]}>
-            <Text style={[typo.small, { color: colors.primaryDark }, styles.tagText]}>{tag}</Text>
+            <Text style={[typo.small, { color: colors.primaryDark }, styles.tagText]}>{getStyleTagLabel(tag)}</Text>
           </View>
         ))}
       </View>
@@ -149,7 +150,11 @@ function PhilosophyHeader({
       {/* 리스크 성향 — 1줄 칩(서술 카드 제거) */}
       <View style={[styles.riskChip, { backgroundColor: colors.surfaceSecondary }]}>
         <Feather name="shield" size={14} color={colors.primary} />
-        <Text style={[typo.caption, { color: colors.textSecondary }, styles.riskText]} numberOfLines={2}>
+        <Text
+          style={[typo.caption, { color: colors.textSecondary }, styles.riskText]}
+          numberOfLines={2}
+          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        >
           {philosophy.riskProfile}
         </Text>
       </View>

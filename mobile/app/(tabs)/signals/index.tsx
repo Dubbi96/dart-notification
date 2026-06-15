@@ -37,8 +37,12 @@ export default function SignalsScreen() {
 
   const exitQuery = useExitSignals();
 
+  // DAR-310: 매도 신호는 보유 종목 기반이며 ExitSignal.id는 매수 상세(/signals/[id],
+  // useSignalDetail) 키가 아니라 그 라우트에서 항상 isError가 났다. ExitSignal에는
+  // positionId가 없어 포지션 상세로도 못 가므로, corpCode로 기업 허브(위험 배지·신호·
+  // 공시·통계)로 보낸다 — 매도 판단에 필요한 정보를 모두 담은 유효 라우트.
   const handleExitPress = useCallback((signal: ExitSignal) => {
-    router.push(`/signals/${signal.id}`);
+    router.push(`/company/${signal.corpCode}`);
   }, []);
 
   const renderExit = useCallback(

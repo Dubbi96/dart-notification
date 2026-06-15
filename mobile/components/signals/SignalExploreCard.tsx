@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface, Chip } from 'react-native-paper';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { SignalMiniGauge } from '@components/signals/SignalMiniGauge';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
@@ -48,6 +48,8 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
           <Chip
             compact
             mode="flat"
+            // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
             style={[styles.gradeChip, { backgroundColor: colors.surfaceSecondary }]}
             textStyle={[typo.small, { color: gradeColor(signal.grade, colors), fontWeight: '700' }]}
           >
@@ -63,6 +65,8 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
             <Chip
               compact
               mode="flat"
+              // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
               style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
               textStyle={[typo.small, { color: colors.textSecondary }]}
             >
@@ -105,12 +109,14 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   eventChip: {
-    height: 26,
-    // 별도 행 단독 배치 — 행 폭에 맞춰 내용폭으로 자연 정렬(기업명 정렬에 영향 없음).
+    // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
+    minHeight: 26,
+    // DAR-307: 별도 행 단독 배치 — 행 폭에 맞춰 내용폭으로 자연 정렬(기업명 정렬에 영향 없음).
     alignSelf: 'flex-start',
   },
   gradeChip: {
-    height: 26,
+    // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
+    minHeight: 26,
   },
   gaugeWrap: {
     marginTop: spacing.md,

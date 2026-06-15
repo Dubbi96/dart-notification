@@ -173,9 +173,14 @@ export function thesisStatusLabel(status: ThesisStatus): string {
 /**
  * 손익률 색상 — 부호→색 단일 규칙 `returnColor`의 손익 도메인 별칭(DAR-177).
  * 양수 success / 음수 error / 보합 textSecondary(AA, DAR-148).
+ * `opts.digits` 는 표기 자릿수와 맞춘다(기본 1) — 반올림 후 0 은 보합색(DAR-312).
  */
-export function pnlColor(pnlPercent: number, colors: ThemeColors): string {
-  return returnColor(pnlPercent, colors);
+export function pnlColor(
+  pnlPercent: number,
+  colors: ThemeColors,
+  opts?: { digits?: number },
+): string {
+  return returnColor(pnlPercent, colors, opts);
 }
 
 /** +/- 부호를 포함한 손익률 포맷 — 정본 `formatReturnPct`(자릿수 1) 별칭. */

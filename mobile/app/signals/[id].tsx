@@ -11,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Chip, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
@@ -108,8 +108,22 @@ export default function SignalDetailScreen() {
   }
 
   if (isError) {
+    // 로딩/없음 분기와 동일하게 좌상단 < 뒤로가기 헤더를 유지(DAR-311) — push 상세는 GNB가 없어
+    // 헤더의 back이 유일한 복귀 동선이다. 그 아래 ErrorState를 배치해 세 상태 헤더 일관.
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="뒤로 가기"
+          >
+            <Feather name="arrow-left" size={22} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={[typo.h3, { color: colors.text, flex: 1, marginLeft: spacing.md }]}>
+            매수 후보 상세
+          </Text>
+        </View>
         <ErrorState title="신호를 불러오지 못했습니다." onRetry={refetch} />
       </SafeAreaView>
     );
@@ -118,7 +132,7 @@ export default function SignalDetailScreen() {
   if (!signal) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-        <View style={styles.header}>
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <TouchableOpacity
             onPress={() => router.back()}
             accessibilityRole="button"
@@ -215,6 +229,8 @@ export default function SignalDetailScreen() {
             <Chip
               compact
               mode="flat"
+              // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
               style={[styles.gradeChip, { backgroundColor: colors.surfaceSecondary }]}
               textStyle={[typo.small, { color: gradeColor(signal.grade, colors), fontWeight: '700' }]}
             >
@@ -369,7 +385,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
-  gradeChip: { height: 26 },
+  // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
+  gradeChip: { minHeight: 26 },
   scoreRow: {
     flexDirection: 'row',
     alignItems: 'center',

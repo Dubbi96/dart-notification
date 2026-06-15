@@ -2,7 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { DataLimitBadge } from '@components/common/DataLimitBadge';
 
@@ -49,7 +49,11 @@ function RecommendedBadge() {
       accessibilityLabel="현재 장 추천 persona"
     >
       <Feather name="star" size={11} color={colors.success} />
-      <Text style={[typo.small, { color: colors.success, marginLeft: spacing.xs / 2, fontWeight: '600' }]}>
+      <Text
+        numberOfLines={1}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        style={[typo.small, { color: colors.success, marginLeft: spacing.xs / 2, fontWeight: '600' }]}
+      >
         현재 장 추천
       </Text>
     </View>
@@ -93,7 +97,13 @@ function PersonaSelectCardBase({ row, selected, onSelect }: PersonaSelectCardPro
             <View style={styles.titleRow}>
               <Text style={[typo.bodyMedium, { color: colors.text }]}>{perf.label}</Text>
               <View style={[styles.archChip, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-                <Text style={[typo.small, { color: colors.textSecondary }]}>{row.archetype}</Text>
+                <Text
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                  style={[typo.small, { color: colors.textSecondary }]}
+                >
+                  {row.archetype}
+                </Text>
               </View>
             </View>
             <Text style={[typo.small, { color: colors.textTertiary, marginTop: 2 }]}>{archetypeDesc}</Text>

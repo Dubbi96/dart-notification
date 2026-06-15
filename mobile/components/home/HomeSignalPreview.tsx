@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native
 import { Surface, Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
@@ -84,6 +84,8 @@ function SignalPreviewCard({ signal, onPress, cardWidth }: SignalPreviewCardProp
           <Chip
             compact
             mode="flat"
+            // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
             style={[styles.gradeChip, { backgroundColor: colors.surfaceSecondary }]}
             textStyle={[typo.small, { color: gradeColor(signal.grade, colors), fontWeight: '700' }]}
           >
@@ -194,7 +196,10 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
         accessibilityRole="button"
         accessibilityLabel={`${SIGNAL_TERMS.card} 전체보기`}
       >
-        <Text style={[typo.captionMedium, { color: colors.primary }]}>전체보기</Text>
+        {/* DAR-305: '전체보기' 액션 라벨 — 큰 글꼴서 단어 중간 줄바꿈 방지(한 줄 보장 + 보조 캡). */}
+        <Text style={[typo.captionMedium, { color: colors.primary }]} numberOfLines={1} maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}>
+          전체보기
+        </Text>
       </TouchableOpacity>
     </View>
   );
@@ -323,7 +328,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   gradeChip: {
-    height: 26,
+    // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
+    minHeight: 26,
   },
   gaugeWrap: {
     marginTop: spacing.md,

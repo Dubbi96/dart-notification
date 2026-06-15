@@ -79,8 +79,10 @@ export class DisclosureEventsService {
       }
 
       // Step 2: DisclosureDocument 조회 (parsedJson 필수)
+      // rawText(@db.Text, 최대 200KB)는 미사용 — 사용 컬럼만 select 하여 over-fetch 방지
       const doc = await this.prisma.disclosureDocument.findUnique({
         where: { rcpNo },
+        select: { parsedJson: true, isAmendment: true, originalRcpNo: true },
       });
       if (!doc || !doc.parsedJson) {
         return this.upsertFailed(rcpNo, disclosure.corpCode, 'NO_PARSED_DOC');

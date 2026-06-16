@@ -57,7 +57,8 @@ let pass = 0;
 let fail = 0;
 const log = (ok: boolean, msg: string) => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${msg}`);
-  ok ? pass++ : fail++;
+  if (ok) pass++;
+  else fail++;
 };
 
 for (const t of TARGETS) {

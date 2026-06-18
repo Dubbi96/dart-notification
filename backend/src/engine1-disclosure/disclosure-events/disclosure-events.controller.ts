@@ -100,9 +100,10 @@ export class DisclosureEventsController {
   @ApiOperation({ summary: '미처리 이벤트 일괄 추출' })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 100 })
   @ApiResponse({ status: 200, type: BatchExtractResultDto })
-  async batch(@Query('limit') limit = 100): Promise<BatchExtractResultDto> {
+  async batch(@Query('limit') limit?: string): Promise<BatchExtractResultDto> {
     return this.disclosureEventsService.processPendingDisclosures(
-      Number(limit),
+      // DAR-336: findMany 패턴 정렬 — 비숫자/음수 → 기본값/하한, 거대값 → 상한(서비스 MAX_BATCH_LIMIT=500).
+      parsePaginationInt(limit, { default: 100, min: 1, max: 500 }),
     ) as unknown as BatchExtractResultDto;
   }
 
@@ -121,8 +122,11 @@ export class DisclosureEventsController {
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 100 })
   @ApiResponse({ status: 200, description: '재추출 결과 { scanned, reclassified, durationMs }' })
   async reprocess(
-    @Query('limit') limit = 100,
+    @Query('limit') limit?: string,
   ): Promise<{ scanned: number; reclassified: number; durationMs: number }> {
-    return this.disclosureEventsService.reprocessForNewExtractors(Number(limit));
+    // DAR-336: batch와 동일 정본 정렬 — NaN/음수/무상한 미발생, 상한 500(서비스 MAX_BATCH_LIMIT).
+    return this.disclosureEventsService.reprocessForNewExtractors(
+      parsePaginationInt(limit, { default: 100, min: 1, max: 500 }),
+    );
   }
 }

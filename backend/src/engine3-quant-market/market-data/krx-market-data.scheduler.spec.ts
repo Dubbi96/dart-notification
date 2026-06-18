@@ -498,6 +498,78 @@ describe('KrxMarketDataScheduler.syncCompanyMarkets', () => {
     expect(result.scanned).toBe(1);
     expect(result.updated).toBe(1);
   });
+
+  // E3 blocker: isu_base_info 빈응답(구독 미포함 의심) 시 일봉 엔드포인트로 시장 도출 폴백
+  it('isu_base_info 빈응답 시 일봉 엔드포인트(stk/ksq_bydd_trd)로 시장 도출 폴백 (source=daily)', async () => {
+    const krx = makeKrxApi({
+      // 기준정보 빈응답 (현재 운영 실측 상황)
+      fetchStkIsuBaseInfo: jest.fn().mockResolvedValue([]),
+      fetchKsqIsuBaseInfo: jest.fn().mockResolvedValue([]),
+      // 일봉은 정상 — 엔드포인트가 곧 시장구분 (stk=KOSPI, ksq=KOSDAQ)
+      fetchStockDaily: jest
+        .fn()
+        .mockResolvedValue([{ stockCode: '005930', isuAbbrv: '삼성전자', closePrice: 70000 }]),
+      fetchKosqdaqDaily: jest
+        .fn()
+        .mockResolvedValue([{ stockCode: '035720', isuAbbrv: '카카오게임즈', closePrice: 20000 }]),
+    });
+    const prisma = makePrisma();
+    (prisma.company.findMany as jest.Mock).mockResolvedValue([
+      { corpCode: 'A005930', stockCode: '005930', market: 'LISTED' },
+      { corpCode: 'A035720', stockCode: '035720', market: null },
+    ]);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.syncCompanyMarkets('20260604', 'MANUAL');
+
+    expect(krx.fetchStockDaily).toHaveBeenCalledWith('20260604');
+    expect(krx.fetchKosqdaqDaily).toHaveBeenCalledWith('20260604');
+    expect(result.source).toBe('daily');
+    expect(result.updated).toBe(2);
+    expect(prisma.company.update).toHaveBeenCalledWith({
+      where: { corpCode: 'A005930' },
+      data: { market: 'KOSPI' },
+    });
+    expect(prisma.company.update).toHaveBeenCalledWith({
+      where: { corpCode: 'A035720' },
+      data: { market: 'KOSDAQ' },
+    });
+  });
+
+  it('기준정보·일봉 모두 빈응답 — source=none, 갱신 없음', async () => {
+    const krx = makeKrxApi({
+      fetchStkIsuBaseInfo: jest.fn().mockResolvedValue([]),
+      fetchKsqIsuBaseInfo: jest.fn().mockResolvedValue([]),
+      fetchStockDaily: jest.fn().mockResolvedValue([]),
+      fetchKosqdaqDaily: jest.fn().mockResolvedValue([]),
+    });
+    const prisma = makePrisma();
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.syncCompanyMarkets('20260604', 'MANUAL');
+
+    expect(result.source).toBe('none');
+    expect(result.message).toBe('기준정보 없음');
+    expect(prisma.company.findMany).not.toHaveBeenCalled();
+  });
+
+  it('isu_base_info 정상 응답이면 일봉 폴백을 호출하지 않는다 (source=isu_base_info)', async () => {
+    const krx = makeKrxApi({
+      fetchStkIsuBaseInfo: jest.fn().mockResolvedValue(stkBase),
+      fetchKsqIsuBaseInfo: jest.fn().mockResolvedValue(ksqBase),
+    });
+    const prisma = makePrisma();
+    (prisma.company.findMany as jest.Mock).mockResolvedValue([
+      { corpCode: 'A005930', stockCode: '005930', market: 'LISTED' },
+    ]);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.syncCompanyMarkets('20260604', 'MANUAL');
+
+    expect(result.source).toBe('isu_base_info');
+    expect(krx.fetchStockDaily).not.toHaveBeenCalled();
+    expect(krx.fetchKosqdaqDaily).not.toHaveBeenCalled();
+  });
 });
 
 // ─── KrxApiService 단위 ──────────────────────────────────────────────────────

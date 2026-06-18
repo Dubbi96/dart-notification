@@ -25,7 +25,7 @@ import {
   AggregatedResult,
 } from './event-study.service';
 import { calcD0 } from './utils/d0-calculator';
-import { deriveBucketKeyForEvent } from './utils/bucket-classifier';
+import { deriveBucketKeyForEvent, COARSE_BUCKET_KEY } from './utils/bucket-classifier';
 import { PriceWindow } from './utils/abnormal-return';
 import {
   IStockPricePort,
@@ -73,6 +73,8 @@ export interface EventStudyCalcSummary {
   groupsAggregated: number;
   readyCount: number;
   insufficientCount: number;
+  /** 부모(coarse) 풀링으로 산출된 그룹 수 (DAR-325). fine 버킷이 ≥2종일 때만 생성. */
+  coarseGroupsAggregated: number;
 }
 
 /** DisclosureEvent + 조인 결과의 산출용 슬림 표현 */
@@ -213,6 +215,7 @@ export class EventStudyCalculationService {
       groupsAggregated: 0,
       readyCount: 0,
       insufficientCount: 0,
+      coarseGroupsAggregated: 0,
     };
 
     // 영속 대상 개별 관측치(이벤트당 1건, 시장 그룹과 무관). DAR-166 드릴다운 표본.
@@ -228,6 +231,25 @@ export class EventStudyCalculationService {
         groups.set(key, g);
       }
       g.observations.push(obs);
+    };
+
+    // DAR-325: 부모(coarse) 풀링 — (eventType::marketType) 단위로 suffix 무시하고
+    //   원시 관측치를 합친다. fine 버킷이 소표본일 때 부모가 n≥30 유의에 도달하도록.
+    //   distinctBuckets 가 2종 이상일 때만 부모를 산출(단일 fine 버킷이면 부모=fine 으로
+    //   중복일 뿐 더 강한 증거가 아니므로 생략 → 기존 동질버킷 경로 회귀 0).
+    const coarseGroups = new Map<
+      string,
+      { eventType: string; marketType: string; observations: EventObservationInput[]; distinctBuckets: Set<string> }
+    >();
+    const addToCoarse = (marketType: string, obs: EventObservationInput) => {
+      const key = `${obs.eventType}::${marketType}`;
+      let g = coarseGroups.get(key);
+      if (!g) {
+        g = { eventType: obs.eventType, marketType, observations: [], distinctBuckets: new Set() };
+        coarseGroups.set(key, g);
+      }
+      g.observations.push(obs);
+      g.distinctBuckets.add(obs.bucketKey);
     };
 
     for (const row of rows) {
@@ -261,6 +283,8 @@ export class EventStudyCalculationService {
       builtObs.push(obs); // 영속용(이벤트당 1건)
       addToGroup(row.market, obs); // KOSPI / KOSDAQ
       addToGroup('ALL', obs); // 시장 미상 폴백·교차시장 풀링
+      addToCoarse(row.market, obs); // 부모(coarse): 시장별 suffix 무시 풀링
+      addToCoarse('ALL', obs); // 부모(coarse): 교차시장 suffix 무시 풀링
     }
 
     // 개별 관측치 영속(드릴다운 표본 투명성). 멱등: 동일 eventId 선삭제 후 재적재.
@@ -282,10 +306,32 @@ export class EventStudyCalculationService {
       else summary.insufficientCount++;
     }
 
+    // DAR-325: 부모(coarse) 버킷 산출 — fine 버킷이 2종 이상인 (eventType, marketType)
+    //   에 한해 suffix 무시하고 원시 관측치를 합쳐 D±N 윈도우를 재계산한다. 같은 통계
+    //   파이프라인(aggregate)을 쓰므로 n≥30 → READY·t검정, [10,30) → PRELIMINARY.
+    for (const g of coarseGroups.values()) {
+      if (g.distinctBuckets.size < 2) continue; // 단일 fine 버킷이면 부모=fine, 중복 생략
+      const dates = g.observations.map(o => o.d0Date).sort();
+      const agg = this.engine.aggregate({
+        eventType: g.eventType,
+        bucketKey: COARSE_BUCKET_KEY,
+        marketType: g.marketType,
+        observations: g.observations,
+        dataFromDate: dates[0],
+        dataToDate: dates[dates.length - 1],
+      });
+      await this.persist(agg);
+      summary.groupsAggregated++;
+      summary.coarseGroupsAggregated++;
+      if (agg.status === 'READY') summary.readyCount++;
+      else summary.insufficientCount++;
+    }
+
     this.logger.log(
       `Event Study 산출 완료: scanned=${summary.eventsScanned} obs=${summary.observationsBuilt} ` +
         `persisted=${summary.observationsPersisted} ` +
-        `groups=${summary.groupsAggregated} ready=${summary.readyCount} insufficient=${summary.insufficientCount}`,
+        `groups=${summary.groupsAggregated} (coarse=${summary.coarseGroupsAggregated}) ` +
+        `ready=${summary.readyCount} insufficient=${summary.insufficientCount}`,
     );
     return summary;
   }

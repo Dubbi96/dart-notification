@@ -339,6 +339,57 @@ describe('EventStudyCalculationService.run()', () => {
     expect(byMarket.get('ALL')!.status).toBe('READY'); // 35 ≥ 30
   });
 
+  // ── DAR-325: 부모(coarse) 버킷 풀링 ──────────────────────────────
+  it('fine 버킷 2종이 각자 소표본이면 부모(coarse)가 원시 풀링으로 READY 도달', async () => {
+    // 같은 (SUPPLY_CONTRACT, KOSPI) 안에서 fine 버킷 2종으로 분산:
+    //   ratio_5to20 15건(PRELIMINARY) + ratio_gte20 20건(PRELIMINARY) = 부모 35건(READY)
+    const fine5to20 = Array.from({ length: 15 }, (_, i) => makeDbEvent(i));
+    const fineGte20 = Array.from({ length: 20 }, (_, i) => ({
+      ...makeDbEvent(200 + i),
+      // contractAmount/recentSales = 0.3 ≥ 0.20 → SUPPLY_CONTRACT__ratio_gte20
+      extractedData: { contractAmount: 3_000_000_000, recentSalesAmount: 10_000_000_000 },
+    }));
+    const { service, upserts } = buildService([...fine5to20, ...fineGte20]);
+
+    const summary = await service.run();
+
+    expect(summary.observationsBuilt).toBe(35);
+    // 부모 그룹: KOSPI::__ALL__, ALL::__ALL__ = 2 (단일 시장이지만 ALL 폴백도 부모 생성)
+    expect(summary.coarseGroupsAggregated).toBe(2);
+
+    const byKey = new Map(
+      upserts.map(u => [`${u.create.marketType}::${u.create.bucketKey}`, u.create]),
+    );
+    // fine 버킷은 각자 소표본 → PRELIMINARY (덮어쓰기 없음)
+    expect(byKey.get('KOSPI::SUPPLY_CONTRACT__ratio_5to20')!.sampleCount).toBe(15);
+    expect(byKey.get('KOSPI::SUPPLY_CONTRACT__ratio_5to20')!.status).toBe('PRELIMINARY');
+    expect(byKey.get('KOSPI::SUPPLY_CONTRACT__ratio_gte20')!.sampleCount).toBe(20);
+    expect(byKey.get('KOSPI::SUPPLY_CONTRACT__ratio_gte20')!.status).toBe('PRELIMINARY');
+
+    // 부모(coarse): suffix 무시 원시 풀링 35건 → READY·t검정 산출
+    const coarseKospi = byKey.get('KOSPI::__ALL__')!;
+    expect(coarseKospi.sampleCount).toBe(35);
+    expect(coarseKospi.status).toBe('READY');
+    expect(coarseKospi.eventType).toBe('SUPPLY_CONTRACT');
+    expect(coarseKospi.tStatistic).not.toBeNull(); // 통계 실제 계산
+    const coarseAll = byKey.get('ALL::__ALL__')!;
+    expect(coarseAll.sampleCount).toBe(35);
+    expect(coarseAll.status).toBe('READY');
+    // 자연키 upsert 가 부모 bucketKey 를 쓴다
+    expect(coarseKospi.eventType).toBe('SUPPLY_CONTRACT');
+  });
+
+  it('단일 fine 버킷이면 부모(coarse)를 생성하지 않는다 (중복 증거 방지·DAR-325)', async () => {
+    // 전부 같은 fine 버킷(ratio_5to20) → 부모=fine 으로 동일 표본 중복일 뿐이라 생략
+    const events = Array.from({ length: 35 }, (_, i) => makeDbEvent(i));
+    const { service, upserts } = buildService(events);
+
+    const summary = await service.run();
+
+    expect(summary.coarseGroupsAggregated).toBe(0);
+    expect(upserts.every(u => u.create.bucketKey !== '__ALL__')).toBe(true);
+  });
+
   it('skips events with no stockCode/market (unlisted) and missing price data', async () => {
     const events = [
       ...Array.from({ length: 3 }, (_, i) => makeDbEvent(i)),

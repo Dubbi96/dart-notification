@@ -21,6 +21,16 @@ export interface EventExtractedData {
 }
 
 /**
+ * 부모(coarse) 풀링 버킷의 특수 bucketKey (DAR-325).
+ *
+ * fine 버킷(`{EVENT_TYPE}__{suffix}`)이 영영 소표본일 때, 같은 (eventType, marketType)
+ * 의 **원시 이벤트를 suffix 무시하고 합쳐** D±N 윈도우를 재계산한 부모 버킷을 이 키로
+ * 나란히 영속한다. fine 키 형식(`__{suffix}`)과 충돌하지 않는 예약값.
+ * 산출(event-study-calculation)과 조회(signal-generation resolveEventStudy)가 공유한다.
+ */
+export const COARSE_BUCKET_KEY = '__ALL__';
+
+/**
  * 이벤트 타입과 추출 데이터를 기반으로 버킷 키를 반환한다.
  *
  * 버킷 키 형식: `{EVENT_TYPE}__{suffix}`

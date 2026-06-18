@@ -404,6 +404,8 @@ describe('SignalGenerationService (DAR-41)', () => {
         upProbD5: over.upProbD5 ?? 0.5,
         crashProbD5: over.crashProbD5 ?? 0.0,
         sampleCount: over.sampleCount ?? 100,
+        // DAR-324/325: tier 인식 래더가 status 로 fine/coarse READY·PRELIM 을 가른다.
+        status: over.status ?? 'READY',
       };
     }
 
@@ -470,6 +472,145 @@ describe('SignalGenerationService (DAR-41)', () => {
       });
       await makeService(prisma).generateMissingSignals('MANUAL');
       expect(created[0].scoreBreakdown.historicalEvent).toBe(0);
+    });
+  });
+
+  // ── DAR-325: 부모(coarse) 버킷 tier 인식 래더 ──────────────────────
+  describe('resolveEventStudy tier 래더 (DAR-325)', () => {
+    const ET = 'SHARE_BUYBACK';
+    const MKT = 'KOSPI';
+    // SHARE_BUYBACK + extractedData {} → 'SHARE_BUYBACK__ratio_lt1'
+    const FINE = 'SHARE_BUYBACK__ratio_lt1';
+    const COARSE = '__ALL__';
+
+    function stat(over: Partial<any> = {}) {
+      return {
+        avgArD5: over.avgArD5 ?? 5,
+        isSignificant: over.isSignificant ?? true,
+        upProbD5: over.upProbD5 ?? 0.5,
+        crashProbD5: over.crashProbD5 ?? 0,
+        sampleCount: over.sampleCount ?? 40,
+        status: over.status ?? 'READY',
+      };
+    }
+
+    function resolve(
+      bucketEntries: [string, any][],
+      aggEntries: [string, any][] = [],
+    ) {
+      const { prisma } = buildPrisma({ events: [], pricedStockCodes: [] });
+      const service: any = makeService(prisma);
+      const maps = { bucket: new Map(bucketEntries), agg: new Map(aggEntries) };
+      return service.resolveEventStudy(
+        maps,
+        { eventType: ET, isAmendment: false, extractedData: {} },
+        MKT,
+      );
+    }
+
+    it('(a) fine 소표본·coarse 충분 → coarse READY 선택', () => {
+      const r = resolve([
+        [`${ET}::${MKT}::${FINE}`, stat({ status: 'PRELIMINARY', sampleCount: 12 })],
+        [`${ET}::${MKT}::${COARSE}`, stat({ status: 'READY', sampleCount: 45 })],
+      ]);
+      expect(r.esrTier).toBe('COARSE_READY');
+      expect(r.sampleCount).toBe(45);
+    });
+
+    it('(b) fine READY 존재 → fine 우선(coarse 로 덮어쓰지 않음)', () => {
+      const r = resolve([
+        [`${ET}::${MKT}::${FINE}`, stat({ status: 'READY', sampleCount: 35, avgArD5: 7 })],
+        [`${ET}::${MKT}::${COARSE}`, stat({ status: 'READY', sampleCount: 90, avgArD5: 2 })],
+      ]);
+      expect(r.esrTier).toBe('FINE_READY');
+      expect(r.avgArD5).toBe(7); // fine 통계가 쓰인다
+    });
+
+    it('coarse READY 없으면 fine PRELIM > coarse PRELIM', () => {
+      const r = resolve([
+        [`${ET}::${MKT}::${FINE}`, stat({ status: 'PRELIMINARY', sampleCount: 20 })],
+        [`${ET}::${MKT}::${COARSE}`, stat({ status: 'PRELIMINARY', sampleCount: 25 })],
+      ]);
+      expect(r.esrTier).toBe('FINE_PRELIM');
+    });
+
+    it('fine 없고 coarse PRELIM 만 → coarse PRELIM', () => {
+      const r = resolve([
+        [`${ET}::${MKT}::${COARSE}`, stat({ status: 'PRELIMINARY', sampleCount: 18 })],
+      ]);
+      expect(r.esrTier).toBe('COARSE_PRELIM');
+    });
+
+    it('(c) fine·coarse 모두 미달 → 기존 agg 폴백 유지', () => {
+      const r = resolve([], [[`${ET}::${MKT}`, stat({ sampleCount: 60 })]]);
+      expect(r.esrTier).toBe('AGG');
+    });
+
+    it('within-market 전무 → ALL 폴백(fine→coarse→agg 순)', () => {
+      expect(resolve([[`${ET}::ALL::${FINE}`, stat()]]).esrTier).toBe('ALL_FINE');
+      expect(resolve([[`${ET}::ALL::${COARSE}`, stat()]]).esrTier).toBe('ALL_COARSE');
+      expect(resolve([], [[`${ET}::ALL`, stat()]]).esrTier).toBe('ALL_AGG');
+    });
+
+    it('완전 미스 → null (결측 처리)', () => {
+      expect(resolve([])).toBeNull();
+    });
+
+    it('맵 캐시 값 불변 — esrTier 는 반환 사본에만 부여', () => {
+      const cached = stat({ status: 'READY' });
+      const r = resolve([[`${ET}::${MKT}::${FINE}`, cached]]);
+      expect(r.esrTier).toBe('FINE_READY');
+      expect((cached as any).esrTier).toBeUndefined();
+    });
+  });
+
+  // ── DAR-325 게이트 (d): 부모 풀링 단독으로 BUY 격상 금지 ──────────
+  describe('부모(coarse) 풀링은 단독으로 미분류 신호를 BUY 로 격상시키지 않는다 (DAR-325)', () => {
+    // CB_ISSUANCE(base -40)·NEUTRAL: 공시이벤트/persona 가 낮아 baseline 은 BUY 미만.
+    //   coarse READY 의 강한 양(+) historicalEvent(가중 ~9%)만으로는 임계(60)를 못 넘는다.
+    const cbEvent = () =>
+      makeEvent({
+        rcpNo: '20260101000099',
+        eventType: 'CB_ISSUANCE',
+        polarity: 'NEUTRAL',
+        extractedData: {},
+      });
+
+    function buyTier(dist: Record<string, number>) {
+      return (dist.BUY_CANDIDATE ?? 0) + (dist.STRONG_BUY_CANDIDATE ?? 0);
+    }
+
+    it('coarse 단독(fine 결측)으로는 BUY-tier 가 baseline 대비 늘지 않는다', async () => {
+      // baseline: ESR 전무
+      const base = await makeService(
+        buildPrisma({ events: [cbEvent()], pricedStockCodes: ['000100'] }).prisma,
+      ).generateMissingSignals('MANUAL');
+
+      // coarse 단독 READY 양(+) ESR 주입 (fine 버킷은 없음)
+      const withCoarse = await makeService(
+        buildPrisma({
+          events: [cbEvent()],
+          pricedStockCodes: ['000100'],
+          esrRows: [
+            {
+              eventType: 'CB_ISSUANCE',
+              marketType: 'KOSPI',
+              bucketKey: '__ALL__',
+              avgArD5: 8,
+              isSignificant: true,
+              upProbD5: 0.7,
+              crashProbD5: 0,
+              sampleCount: 45,
+              status: 'READY',
+            },
+          ],
+        }).prisma,
+      ).generateMissingSignals('MANUAL');
+
+      // 부모 풀링이 단독으로 어떤 persona 도 BUY 로 격상시키지 않는다
+      expect(buyTier(base.gradeDist)).toBe(0);
+      expect(buyTier(withCoarse.gradeDist)).toBe(0);
+      expect(withCoarse.gradeDist.STRONG_BUY_CANDIDATE ?? 0).toBe(0);
     });
   });
 

@@ -20,6 +20,7 @@ describe('EventStudyCalculationScheduler (DAR-134)', () => {
     groupsAggregated: 12,
     readyCount: 7,
     insufficientCount: 5,
+    coarseGroupsAggregated: 2,
   };
 
   function makeCalc(impl?: () => Promise<EventStudyCalcSummary>) {

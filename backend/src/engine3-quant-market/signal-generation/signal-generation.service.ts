@@ -27,7 +27,7 @@ import {
   FundamentalFiledFactInput,
 } from '../buy-signal/scoring/fundamental.scorer';
 import { derivePersonaViews, ImpactMagnitude } from './persona-view.rule';
-import { deriveBucketKeyForEvent } from '../event-study/utils/bucket-classifier';
+import { deriveBucketKeyForEvent, COARSE_BUCKET_KEY } from '../event-study/utils/bucket-classifier';
 import { SignalAccuracyService } from '../backtest/signal-accuracy.service';
 import {
   gradeCoefficientMap,
@@ -88,6 +88,37 @@ interface EventStudyStats {
   upProbD5: number;
   crashProbD5: number;
   sampleCount: number;
+  /** 영속 tier (READY/PRELIMINARY). 래더가 fine·coarse 우선순위 판정에 사용 (DAR-324/325). */
+  status?: 'READY' | 'PRELIMINARY';
+  /**
+   * 어느 tier 로 해석됐는지 라벨 (DAR-325). 신호 가독성·향후 UI('표본 45건, 시장 전체') 표기용.
+   * resolveEventStudy 가 선택 시점에 부여(맵 캐시 값은 불변, 반환 사본에만 설정).
+   */
+  esrTier?: EsrTier;
+}
+
+/**
+ * Event Study 해석 tier 라벨 (DAR-325).
+ * - FINE_READY    : 정밀 버킷 n≥30 (가장 구체적·강한 증거)
+ * - COARSE_READY  : 부모 풀링 n≥30 (suffix 무시·시장 내)
+ * - FINE_PRELIM   : 정밀 버킷 n∈[10,30)
+ * - COARSE_PRELIM : 부모 풀링 n∈[10,30)
+ * - AGG           : 기존 (eventType::marketType) 버킷 표본가중 평균 폴백
+ * - ALL_FINE / ALL_COARSE / ALL_AGG : 교차시장(ALL) 폴백
+ */
+type EsrTier =
+  | 'FINE_READY'
+  | 'COARSE_READY'
+  | 'FINE_PRELIM'
+  | 'COARSE_PRELIM'
+  | 'AGG'
+  | 'ALL_FINE'
+  | 'ALL_COARSE'
+  | 'ALL_AGG';
+
+/** 선택된 tier 라벨을 사본에 부여(맵 캐시 값 불변 보존) (DAR-325). */
+function tagTier(stats: EventStudyStats, tier: EsrTier): EventStudyStats {
+  return { ...stats, esrTier: tier };
 }
 
 /**
@@ -468,6 +499,7 @@ export class SignalGenerationService {
         upProbD5: true,
         crashProbD5: true,
         sampleCount: true,
+        status: true,
       },
     });
 
@@ -482,8 +514,13 @@ export class SignalGenerationService {
         upProbD5: r.upProbD5,
         crashProbD5: r.crashProbD5,
         sampleCount: r.sampleCount,
+        status: r.status === 'READY' ? 'READY' : 'PRELIMINARY',
       };
       bucket.set(`${r.eventType}::${r.marketType}::${r.bucketKey}`, stats);
+      // DAR-325: 부모(coarse) 행은 fine 버킷의 원시 이벤트를 풀링한 것이라 agg(표본가중
+      //   평균)에 다시 넣으면 동일 이벤트가 이중 계수된다 → agg 누적에서 제외.
+      //   (coarse 는 bucket 맵에만 적재해 래더가 직접 조회한다.)
+      if (r.bucketKey === COARSE_BUCKET_KEY) continue;
       const gk = `${r.eventType}::${r.marketType}`;
       const arr = groups.get(gk);
       if (arr) arr.push(stats);
@@ -519,14 +556,22 @@ export class SignalGenerationService {
   }
 
   /**
-   * 이벤트의 bucketKey 를 도출해 EventStudy 통계를 해석한다 (DAR-70).
+   * 이벤트의 bucketKey 를 도출해 EventStudy 통계를 해석한다 (DAR-70 → DAR-324/325).
    *
-   * 우선순위:
-   *   1. `${eventType}::${marketType}::${bucketKey}` — 정밀 버킷 매칭
-   *   2. `${eventType}::${marketType}` — 시장 내 버킷 표본가중 평균 폴백
-   *   3. `${eventType}::ALL::${bucketKey}` — 전시장 동일 버킷
-   *   4. `${eventType}::ALL` — 전시장 평균
-   *   5. null — 미산출(historical-event 결측 처리)
+   * tier 인식 래더 — "가장 구체적이면서 충분히 강한 증거" 우선:
+   *   1. fine READY        `${et}::${mkt}::${bucketKey}` (n≥30)        → FINE_READY
+   *   2. coarse READY      `${et}::${mkt}::__ALL__`       (부모 풀링 n≥30) → COARSE_READY
+   *   3. fine PRELIMINARY  `${et}::${mkt}::${bucketKey}` (n∈[10,30))    → FINE_PRELIM
+   *   4. coarse PRELIMINARY `${et}::${mkt}::__ALL__`      (부모 풀링 n∈[10,30)) → COARSE_PRELIM
+   *   5. agg               `${et}::${mkt}` 표본가중 평균 폴백             → AGG
+   *   6. fine(ALL)         `${et}::ALL::${bucketKey}`                    → ALL_FINE
+   *   7. coarse(ALL)       `${et}::ALL::__ALL__`                          → ALL_COARSE
+   *   8. agg(ALL)          `${et}::ALL`                                   → ALL_AGG
+   *   9. null — 미산출(historical-event 결측 처리)
+   *
+   * 부모(coarse)가 fine READY 를 덮어쓰지 않는다(1>2). fine 이 PRELIMINARY 일 뿐이고
+   * 부모가 READY 면 부모를 택해(2>3) 통계적으로 더 강한 증거를 쓴다. 둘 다 미달이면
+   * 기존 agg/ALL 폴백을 유지(5~8).
    */
   private resolveEventStudy(
     maps: EventStudyMaps,
@@ -534,13 +579,26 @@ export class SignalGenerationService {
     marketType: string,
   ): EventStudyStats | null {
     const bucketKey = this.deriveBucketKey(ev);
-    return (
-      maps.bucket.get(`${ev.eventType}::${marketType}::${bucketKey}`) ??
-      maps.agg.get(`${ev.eventType}::${marketType}`) ??
-      maps.bucket.get(`${ev.eventType}::ALL::${bucketKey}`) ??
-      maps.agg.get(`${ev.eventType}::ALL`) ??
-      null
-    );
+    const et = ev.eventType;
+    const fine = maps.bucket.get(`${et}::${marketType}::${bucketKey}`);
+    const coarse = maps.bucket.get(`${et}::${marketType}::${COARSE_BUCKET_KEY}`);
+
+    if (fine?.status === 'READY') return tagTier(fine, 'FINE_READY');
+    if (coarse?.status === 'READY') return tagTier(coarse, 'COARSE_READY');
+    if (fine?.status === 'PRELIMINARY') return tagTier(fine, 'FINE_PRELIM');
+    if (coarse?.status === 'PRELIMINARY') return tagTier(coarse, 'COARSE_PRELIM');
+
+    const agg = maps.agg.get(`${et}::${marketType}`);
+    if (agg) return tagTier(agg, 'AGG');
+
+    const allFine = maps.bucket.get(`${et}::ALL::${bucketKey}`);
+    if (allFine) return tagTier(allFine, 'ALL_FINE');
+    const allCoarse = maps.bucket.get(`${et}::ALL::${COARSE_BUCKET_KEY}`);
+    if (allCoarse) return tagTier(allCoarse, 'ALL_COARSE');
+    const allAgg = maps.agg.get(`${et}::ALL`);
+    if (allAgg) return tagTier(allAgg, 'ALL_AGG');
+
+    return null;
   }
 
   /**

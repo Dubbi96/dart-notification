@@ -277,6 +277,39 @@ describe('DAR-134 진단: Buy Score 분포·버킷 기여·결측 분석', () =>
       );
     });
 
+    it('(DAR-325) 부모(coarse READY)가 소표본 fine(PRELIM)보다 강하되 단독 BUY 격상은 없다', () => {
+      // 시나리오: fine 버킷이 n=12 PRELIMINARY 로 머무는 동안, 같은 (eventType,marketType)
+      //   원시 풀링한 부모가 n=45 READY 에 도달. 래더는 coarse READY 를 택해(통계적으로 더
+      //   강한 증거) historicalEvent 를 덜 감쇠된 값으로 반영한다 — 그래도 보조신호(가중 ~9%)
+      //   라 미분류(OTHER) 공시를 단독으로 BUY 임계(60)로 끌어올리지 못한다.
+      const baseP = buildParams('OTHER', 'UNKNOWN', {}, LIVE);
+      const sameStats = { avgArD5: 6, isSignificant: true, upProbD5: 0.62, crashProbD5: 0.05 };
+      const finePrelim = service.computeBuyScore({
+        ...baseP,
+        historicalEvent: { ...sameStats, sampleCount: 12 }, // fine PRELIMINARY (감쇠)
+      });
+      const coarseReady = service.computeBuyScore({
+        ...baseP,
+        historicalEvent: { ...sameStats, sampleCount: 45 }, // 부모 READY (무감쇠)
+      });
+
+      // 더 강한 증거: 부모 READY 의 historicalEvent 기여 > 소표본 fine PRELIM
+      expect(coarseReady.scoreBreakdown.historicalEvent).toBeGreaterThan(
+        finePrelim.scoreBreakdown.historicalEvent,
+      );
+      // 게이트 (d): 부모 풀링 단독으로 미분류 신호를 BUY 로 격상시키지 않는다.
+      expect(coarseReady.buyScore).toBeLessThan(SIGNAL_GRADE_THRESHOLDS.BUY_CANDIDATE);
+      expect(coarseReady.signal).not.toBe('BUY_CANDIDATE');
+      expect(coarseReady.signal).not.toBe('STRONG_BUY_CANDIDATE');
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `\n[DAR-325] historicalEvent 기여: fine PRELIM(n=12)=${finePrelim.scoreBreakdown.historicalEvent} ` +
+          `< coarse READY(n=45)=${coarseReady.scoreBreakdown.historicalEvent} ` +
+          `| coarse buyScore=${coarseReady.buyScore} ${coarseReady.signal} (BUY 미격상)`,
+      );
+    });
+
     it('(c) 전버킷 가용 시 재정규화가 기존 가중치를 비트단위 보존(회귀 0)', () => {
       const allAvailable = (Object.keys(BUY_SCORE_WEIGHTS) as BucketKey[]).reduce(
         (acc, k) => ((acc[k] = true), acc),

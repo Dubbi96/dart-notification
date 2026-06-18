@@ -331,8 +331,10 @@ describe('EventStudyCalculationService.run()', () => {
     expect(summary.groupsAggregated).toBe(3);
     const byMarket = new Map(upserts.map(u => [u.create.marketType, u.create]));
     expect(byMarket.get('KOSPI')!.sampleCount).toBe(18);
-    expect(byMarket.get('KOSPI')!.status).toBe('INSUFFICIENT'); // 18 < 30
+    // DAR-324: 10 ≤ 18 < 30 → PRELIMINARY(점진 반영). 통계는 실제 계산되어 영속.
+    expect(byMarket.get('KOSPI')!.status).toBe('PRELIMINARY');
     expect(byMarket.get('KOSDAQ')!.sampleCount).toBe(17);
+    expect(byMarket.get('KOSDAQ')!.status).toBe('PRELIMINARY'); // 10 ≤ 17 < 30
     expect(byMarket.get('ALL')!.sampleCount).toBe(35);
     expect(byMarket.get('ALL')!.status).toBe('READY'); // 35 ≥ 30
   });

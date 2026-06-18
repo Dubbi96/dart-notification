@@ -98,9 +98,10 @@ describe('scoreHistoricalEvent (DAR-70)', () => {
       // base=70, trust=0.3 → 21
       expect(scoreHistoricalEvent({ avgArD5: 5, sampleCount: 5 })).toBe(21);
     });
-    it('표본 적음(<30)은 0.6배', () => {
-      // base=70, trust=0.6 → 42
-      expect(scoreHistoricalEvent({ avgArD5: 5, sampleCount: 20 })).toBe(42);
+    it('표본 적음(PRELIMINARY n=20)은 램프 감쇠 ≈0.65배 (DAR-324)', () => {
+      // DAR-324: [10,30) 단조 램프 0.3→1.0. n=20 → 0.3+0.7*0.5 ≈ 0.65.
+      // base=70, trust≈0.65 → round(70*0.65)=45 (부동소수 0.6499… → 45.499… → 45)
+      expect(scoreHistoricalEvent({ avgArD5: 5, sampleCount: 20 })).toBe(45);
     });
     it('표본 충분(>=30)은 감쇠 없음', () => {
       expect(scoreHistoricalEvent({ avgArD5: 5, sampleCount: 100 })).toBe(70);
@@ -148,6 +149,46 @@ describe('scoreHistoricalEvent (DAR-70)', () => {
         sampleCount: 8,
       });
       expect(strong).toBeGreaterThan(weak);
+    });
+  });
+
+  // ─── DAR-324: PRELIMINARY tier 점진 반영(단조·상한·과신금지) ───
+  describe('DAR-324: 소표본 점진 반영 — 단조 상승 + READY 상한', () => {
+    /** 동일 통계, 표본만 변화 — PRELIMINARY 구간 감쇠가 n에 단조 증가하는지 본다. */
+    const at = (sampleCount: number, isSignificant = false): number =>
+      scoreHistoricalEvent({ avgArD5: 5, isSignificant, sampleCount });
+
+    it('(a) n=10 PRELIMINARY 영향은 매우 작다 (강한 감쇠)', () => {
+      // n=10 무유의: trust = 0.2(무유의) × 0.3(램프 하한) = 0.06 → base 70 → round(4.2)=4
+      expect(at(10)).toBe(4);
+      // READY 동일통계(유의·n≥30) 대비 현저히 작다.
+      expect(at(10)).toBeLessThan(scoreHistoricalEvent({ avgArD5: 5, isSignificant: true, sampleCount: 100 }));
+    });
+
+    it('(b) 표본이 클수록 점수가 단조 증가한다 (스냅 제거)', () => {
+      const series = [10, 12, 15, 18, 20, 24, 28, 29].map((n) => at(n, true));
+      for (let i = 1; i < series.length; i++) {
+        expect(series[i]).toBeGreaterThanOrEqual(series[i - 1]);
+      }
+      // 최소→최대 사이에 실제 상승이 존재(평탄하지 않음)
+      expect(series[series.length - 1]).toBeGreaterThan(series[0]);
+    });
+
+    it('(b) PRELIMINARY 는 항상 READY(n≥30 유의) 이하다 (상한·인플레이션 방지)', () => {
+      const ready = scoreHistoricalEvent({ avgArD5: 5, isSignificant: true, sampleCount: 30 });
+      // 가장 유리한 PRELIMINARY(n=29, 유의)도 READY 미만(n=29 램프 0.965<1)
+      expect(at(29, true)).toBeLessThan(ready);
+      for (const n of [10, 15, 20, 25, 29]) {
+        expect(at(n, true)).toBeLessThanOrEqual(ready);
+      }
+    });
+
+    it('(d) READY 경로(n≥30) 점수는 불변 — 감쇠 없음 (회귀 0)', () => {
+      // 유의·표본충분 → base 그대로 70 (DAR-70 기존 동작)
+      expect(scoreHistoricalEvent({ avgArD5: 5, isSignificant: true, sampleCount: 30 })).toBe(70);
+      expect(scoreHistoricalEvent({ avgArD5: 5, isSignificant: true, sampleCount: 100 })).toBe(70);
+      // 음수 신호도 동일하게 base 보존
+      expect(scoreHistoricalEvent({ avgArD5: -5, isSignificant: true, sampleCount: 50 })).toBe(-70);
     });
   });
 });

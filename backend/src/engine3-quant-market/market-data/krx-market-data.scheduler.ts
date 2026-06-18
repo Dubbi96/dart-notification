@@ -345,20 +345,23 @@ export class KrxMarketDataScheduler {
    * @returns scanned(stockCode 보유 회사수)·updated(시장값 갱신)·unmatched(기준정보 미존재)
    */
   async syncCompanyMarkets(
-    basDd: string,
+    basDd?: string,
     triggeredBy: 'CRON' | 'MANUAL' = 'MANUAL',
   ): Promise<{ scanned: number; updated: number; unmatched: number; message?: string }> {
-    const date = this.krx.parseDate(basDd);
+    // DAR-329: basDd 미전달(수동 컨트롤러 body {}) 시 현재 거래일로 기본값 — parseDate(undefined)
+    // 크래시(500) 방지. 크론 경로는 항상 formatDate(new Date())를 넘기므로 동작 불변.
+    const effectiveBasDd = basDd ?? this.krx.formatDate(new Date());
+    const date = this.krx.parseDate(effectiveBasDd);
     if (this.krx.isWeekend(date)) {
       return { scanned: 0, updated: 0, unmatched: 0, message: '주말 스킵' };
     }
 
     try {
-      this.logger.log(`[KRX] 시장분류 동기화 시작 basDd=${basDd} [${triggeredBy}]`);
+      this.logger.log(`[KRX] 시장분류 동기화 시작 basDd=${effectiveBasDd} [${triggeredBy}]`);
 
       const [stk, ksq] = await Promise.all([
-        this.krx.fetchStkIsuBaseInfo(basDd),
-        this.krx.fetchKsqIsuBaseInfo(basDd),
+        this.krx.fetchStkIsuBaseInfo(effectiveBasDd),
+        this.krx.fetchKsqIsuBaseInfo(effectiveBasDd),
       ]);
 
       // stockCode → 'KOSPI' | 'KOSDAQ' (KONEX·빈코드 제외 — 시장지수 매핑 불가)

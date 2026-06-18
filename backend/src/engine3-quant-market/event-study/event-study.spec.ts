@@ -8,7 +8,13 @@ import { mean, stdDev, tStatistic, tDistPValue, variance } from './utils/statist
 import { calcD0, isKRXTradingDay, nextTradingDay } from './utils/d0-calculator';
 import { classifyBucket } from './utils/bucket-classifier';
 import { calcAR, calcDailyReturn, PriceWindow } from './utils/abnormal-return';
-import { EventStudyService, MIN_SAMPLE_SIZE, EventObservationInput } from './event-study.service';
+import {
+  EventStudyService,
+  MIN_SAMPLE_SIZE,
+  PRELIMINARY_MIN_SAMPLE_SIZE,
+  EventObservationInput,
+  AggregatedResult,
+} from './event-study.service';
 
 // ─────────────────────────────────────────────────────────────────
 // 1. statistics.ts
@@ -550,7 +556,7 @@ describe('EventStudyService', () => {
     service = new EventStudyService();
   });
 
-  describe('aggregate() — INSUFFICIENT (n < 30)', () => {
+  describe('aggregate() — INSUFFICIENT (n < 10)', () => {
     it('should return status=INSUFFICIENT for n=5', () => {
       const observations = Array.from({ length: 5 }, (_, i) => makeObservation(i));
       const result = service.aggregate({
@@ -568,6 +574,45 @@ describe('EventStudyService', () => {
       expect(result.pValue).toBeNull();
       expect(result.sampleCount).toBe(5);
       expect(result.avgArD1).toBe(0);
+    });
+  });
+
+  // ─── DAR-324: PRELIMINARY tier (10 ≤ n < 30) — 점진 반영 ───
+  describe('aggregate() — PRELIMINARY (10 ≤ n < 30)', () => {
+    const aggOf = (count: number): AggregatedResult => {
+      const observations = Array.from({ length: count }, (_, i) => makeObservation(i));
+      return service.aggregate({
+        eventType: 'SUPPLY_CONTRACT',
+        bucketKey: 'SUPPLY_CONTRACT__ratio_5to20',
+        marketType: 'ALL',
+        observations,
+        dataFromDate: '20250101',
+        dataToDate: '20250630',
+      });
+    };
+
+    it('n=10 (하한 경계) → PRELIMINARY (INSUFFICIENT 아님)', () => {
+      expect(aggOf(PRELIMINARY_MIN_SAMPLE_SIZE).status).toBe('PRELIMINARY');
+    });
+
+    it('n=9 (하한 미만) → INSUFFICIENT (순수 노이즈 차단)', () => {
+      const r = aggOf(PRELIMINARY_MIN_SAMPLE_SIZE - 1);
+      expect(r.status).toBe('INSUFFICIENT');
+      expect(r.avgArD1).toBe(0); // 통계 미계산(0)
+    });
+
+    it('n=29 (상한 경계) → PRELIMINARY, n=30 → READY (스냅 제거)', () => {
+      expect(aggOf(MIN_SAMPLE_SIZE - 1).status).toBe('PRELIMINARY');
+      expect(aggOf(MIN_SAMPLE_SIZE).status).toBe('READY');
+    });
+
+    it('PRELIMINARY 도 통계를 실제 계산한다 (0으로 만들지 않음)', () => {
+      const r = aggOf(15);
+      // 균일 +5% fixture → avgArD1 ≈ 5, t·p 계산됨(0 아님)
+      expect(r.avgArD1).toBeCloseTo(5, 3);
+      expect(r.tStatistic).not.toBeNull();
+      expect(r.pValue).not.toBeNull();
+      expect(r.upProbD5).toBeCloseTo(1, 5);
     });
   });
 
@@ -794,6 +839,78 @@ describe('EventStudyService', () => {
       expect(score).toBeGreaterThanOrEqual(-20);
       expect(score).toBeLessThanOrEqual(20);
       expect(score).toBe(-20);
+    });
+
+    // ─── DAR-324: PRELIMINARY tier 점진 반영 검증 게이트 ───
+    /** avgArD5=6·upProbD5=0.7 → raw 점수 15(=+10+5). status·sampleCount·유의성만 바꿔가며 본다. */
+    const mockResult = (
+      over: Partial<AggregatedResult> & Pick<AggregatedResult, 'status' | 'sampleCount' | 'isSignificant'>,
+    ): AggregatedResult => ({
+      eventType: 'SUPPLY_CONTRACT',
+      bucketKey: 'test',
+      marketType: 'ALL',
+      tStatistic: 2.0,
+      pValue: 0.04,
+      variance: 1.0,
+      avgReturnD1: 6, avgReturnD3: 8, avgReturnD5: 6, avgReturnD20: 10,
+      avgArD1: 6, avgArD3: 8, avgArD5: 6, avgArD20: 10,
+      upProbD5: 0.7, crashProbD5: 0.05,
+      avgMaxDrawdown: 5, avgVolumeRatioD1: 2.0, avgVolumeRatioD3: 1.5,
+      dataFromDate: '20250101', dataToDate: '20250630',
+      ...over,
+    });
+
+    const RAW = 15; // avgArD5=6(≥5 → +10) + upProbD5=0.7(≥0.65 → +5)
+
+    it('(a) n=10 PRELIMINARY 무유의는 영향이 매우 작다 (감쇠)', () => {
+      // trust = 0.2(무유의) × 0.3(램프 하한) = 0.06 → 15 × 0.06 = 0.9
+      const s = service.getEventStudyScore(mockResult({ status: 'PRELIMINARY', sampleCount: 10, isSignificant: false }));
+      expect(s).toBeCloseTo(0.9, 6);
+      expect(Math.abs(s)).toBeLessThan(1);
+    });
+
+    it('(a) PRELIMINARY 는 비유의여도 0점이 아니다 (READY 비유의 게이트와 구분)', () => {
+      const prelim = service.getEventStudyScore(mockResult({ status: 'PRELIMINARY', sampleCount: 20, isSignificant: false }));
+      const readyNonSig = service.getEventStudyScore(mockResult({ status: 'READY', sampleCount: 35, isSignificant: false }));
+      expect(prelim).toBeGreaterThan(0); // 점진 반영(감쇠된 양수)
+      expect(readyNonSig).toBe(0); // READY 비유의는 여전히 게이트 0
+    });
+
+    it('(b) 표본이 클수록 점수가 단조 증가한다 (스냅 제거)', () => {
+      const series = [10, 14, 18, 22, 26, 29].map((n) =>
+        service.getEventStudyScore(mockResult({ status: 'PRELIMINARY', sampleCount: n, isSignificant: true })),
+      );
+      for (let i = 1; i < series.length; i++) {
+        expect(series[i]).toBeGreaterThan(series[i - 1]);
+      }
+    });
+
+    it('(b) PRELIMINARY 는 항상 READY(완전 반영)보다 작거나 같다 (상한)', () => {
+      const ready = service.getEventStudyScore(mockResult({ status: 'READY', sampleCount: 30, isSignificant: true }));
+      expect(ready).toBe(RAW); // READY 는 raw 그대로(감쇠 없음)
+      for (const n of [10, 15, 20, 25, 29]) {
+        const prelim = service.getEventStudyScore(mockResult({ status: 'PRELIMINARY', sampleCount: n, isSignificant: true }));
+        expect(prelim).toBeLessThan(ready); // n<30 램프 <1 → 엄격히 작다
+      }
+    });
+
+    it('(c) n<10 은 INSUFFICIENT → 여전히 0 (차단)', () => {
+      const r = service.aggregate({
+        eventType: 'SUPPLY_CONTRACT',
+        bucketKey: 'SUPPLY_CONTRACT__ratio_5to20',
+        marketType: 'ALL',
+        observations: Array.from({ length: 9 }, (_, i) => makeObservation(i)),
+        dataFromDate: '20250101',
+        dataToDate: '20250630',
+      });
+      expect(r.status).toBe('INSUFFICIENT');
+      expect(service.getEventStudyScore(r)).toBe(0);
+    });
+
+    it('(d) READY 경로 점수는 불변 (회귀 0)', () => {
+      // 유의·READY → raw 그대로(감쇠 미적용)
+      expect(service.getEventStudyScore(mockResult({ status: 'READY', sampleCount: 30, isSignificant: true }))).toBe(RAW);
+      expect(service.getEventStudyScore(mockResult({ status: 'READY', sampleCount: 100, isSignificant: true }))).toBe(RAW);
     });
   });
 

@@ -454,7 +454,11 @@ export class SignalGenerationService {
    */
   private async loadEventStudyMap(): Promise<EventStudyMaps> {
     const rows = await this.prisma.eventStudyResult.findMany({
-      where: { status: 'READY' },
+      // DAR-324: READY(n≥30) 에 더해 PRELIMINARY(n∈[10,30)) 도 적재해 소표본을 점진 반영한다.
+      // PRELIMINARY 행은 통계가 실제 계산되어 있고, historical-event.scorer 가 sampleCount·
+      // isSignificant 로 강한 신뢰 감쇠를 적용하므로 과신 없이 0→완전반영으로 단조 상승한다.
+      // INSUFFICIENT(n<10) 은 여전히 미적재(순수 노이즈 차단).
+      where: { status: { in: ['READY', 'PRELIMINARY'] } },
       select: {
         eventType: true,
         marketType: true,

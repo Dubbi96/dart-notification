@@ -10,8 +10,10 @@
  * 2. 성숙 이벤트만: D+20 전향 거래일이 확보된(=시장반응이 다 나온) 공시만 표본에 넣는다.
  *    아직 D+20 미경과인 최신 공시는 자동 제외 → 라이브 신호가 통계로 새지 않는다.
  * 3. 버킷 키 일관성: signal-generation 조회와 동일한 deriveBucketKeyForEvent 를 사용한다.
- * 4. 표본<30 → status='INSUFFICIENT' 로도 영속(데이터한계 표식). loadEventStudyMap·
- *    GET(default) 은 READY 만 읽으므로 Buy Score 오염 없음.
+ * 4. 표본 tier 영속(DAR-324): n<10 → INSUFFICIENT(통계 0·데이터한계 표식),
+ *    10≤n<30 → PRELIMINARY(통계 실제 계산·점진 반영), n≥30 → READY. aggregate() 가 tier 판정.
+ *    loadEventStudyMap 은 READY+PRELIMINARY 를 읽되 스코어러가 소표본을 강하게 감쇠해 과신 없음.
+ *    GET(default) 은 여전히 READY 만 읽는다.
  *
  * 트리거: 수동(POST /event-study/calculate). cron 미등록 — 이중집행/자율실행 방지.
  */

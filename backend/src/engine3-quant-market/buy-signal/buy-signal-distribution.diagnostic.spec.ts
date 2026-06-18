@@ -244,6 +244,39 @@ describe('DAR-134 진단: Buy Score 분포·버킷 기여·결측 분석', () =>
       expect(r.omittedBuckets).not.toContain('personaFit');
     });
 
+    it('(DAR-324) 소표본 PRELIMINARY 는 점진 반영되되 단독으로 BUY 로 격상시키지 않는다', () => {
+      // historicalEvent 동일 통계(avgArD5=8·upProb 0.7·유의)에 표본만 바꿔
+      // PRELIMINARY(n=10) → READY(n=45) 로 갈 때 기여가 단조 상승함을 본다(스냅 제거).
+      const baseP = buildParams('OTHER', 'UNKNOWN', {}, LIVE);
+      const withHist = (sampleCount: number) => ({
+        ...baseP,
+        historicalEvent: { avgArD5: 8, isSignificant: true, upProbD5: 0.7, crashProbD5: 0.05, sampleCount },
+      });
+
+      const prelim = service.computeBuyScore(withHist(10)); // PRELIMINARY 하한
+      const prelimMid = service.computeBuyScore(withHist(25)); // PRELIMINARY 상단
+      const ready = service.computeBuyScore(withHist(45)); // READY 완전 반영
+
+      // 점진성: 표본↑ → historicalEvent 기여 단조 상승, 그러나 READY 가 상한.
+      expect(prelim.scoreBreakdown.historicalEvent).toBeLessThan(prelimMid.scoreBreakdown.historicalEvent);
+      expect(prelimMid.scoreBreakdown.historicalEvent).toBeLessThanOrEqual(ready.scoreBreakdown.historicalEvent);
+
+      // ★인플레이션 방지: 미분류(OTHER·UNKNOWN) 공시는 강한 PRELIMINARY 과거성과가 붙어도
+      //   historicalEvent 단일 버킷(가중 ~9%)만으로 BUY 임계(60)를 넘지 못한다.
+      expect(prelim.buyScore).toBeLessThan(SIGNAL_GRADE_THRESHOLDS.BUY_CANDIDATE);
+      expect(prelim.signal).not.toBe('BUY_CANDIDATE');
+      expect(prelim.signal).not.toBe('STRONG_BUY_CANDIDATE');
+      // READY 완전 반영조차 단독으로는 BUY 못 넘김(설계상 보조신호) → 점진 반영이 과신을 만들지 않음.
+      expect(ready.buyScore).toBeLessThan(SIGNAL_GRADE_THRESHOLDS.BUY_CANDIDATE);
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `\n[DAR-324] historicalEvent 기여: PRELIM(n=10)=${prelim.scoreBreakdown.historicalEvent} ` +
+          `< PRELIM(n=25)=${prelimMid.scoreBreakdown.historicalEvent} ≤ READY(n=45)=${ready.scoreBreakdown.historicalEvent} ` +
+          `| buyScore PRELIM(n=10)=${prelim.buyScore} ${prelim.signal} (BUY 미격상)`,
+      );
+    });
+
     it('(c) 전버킷 가용 시 재정규화가 기존 가중치를 비트단위 보존(회귀 0)', () => {
       const allAvailable = (Object.keys(BUY_SCORE_WEIGHTS) as BucketKey[]).reduce(
         (acc, k) => ((acc[k] = true), acc),

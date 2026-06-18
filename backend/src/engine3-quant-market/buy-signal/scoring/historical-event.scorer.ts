@@ -17,6 +17,9 @@
 /** Event Study 집계가 유의성 판단에 쓰는 최소 표본 수 (event-study.service.MIN_SAMPLE_SIZE 와 동일) */
 const MIN_SAMPLE_SIZE = 30;
 
+/** PRELIMINARY(점진 반영) 하한 (event-study.service.PRELIMINARY_MIN_SAMPLE_SIZE 와 동일) */
+const PRELIMINARY_MIN_SAMPLE_SIZE = 10;
+
 export interface HistoricalEventInput {
   /** D+5 평균 초과수익 (%). Phase 9 미완료·결측 시 null → 0점 + 결측 처리 */
   avgArD5: number | null;
@@ -81,8 +84,18 @@ export function scoreHistoricalEvent(input: HistoricalEventInput): number {
   let trust = 1;
   if (input.isSignificant === false) trust *= 0.2; // p≥0.05 → 강한 감쇠
   if (input.sampleCount !== undefined) {
-    if (input.sampleCount < 10) trust *= 0.3;
-    else if (input.sampleCount < MIN_SAMPLE_SIZE) trust *= 0.6;
+    // DAR-324: 소표본 신뢰 감쇠를 단조 상승 램프로 교체(스냅 제거).
+    //   n<10            → ×0.3 (순수 노이즈 — 로더가 INSUFFICIENT 로 미적재하나 직접호출 방어)
+    //   10 ≤ n < 30     → 0.3→1.0 선형 단조 상승 (PRELIMINARY tier; n=29 ≈ 0.965 < 1)
+    //   n ≥ 30          → 감쇠 없음(READY 불변·회귀 0)
+    // 표본이 늘수록 감쇠가 약해져 영향이 정직하게 커지되, 항상 READY 미만에 머문다.
+    const n = input.sampleCount;
+    if (n < PRELIMINARY_MIN_SAMPLE_SIZE) {
+      trust *= 0.3;
+    } else if (n < MIN_SAMPLE_SIZE) {
+      const ramp = (n - PRELIMINARY_MIN_SAMPLE_SIZE) / (MIN_SAMPLE_SIZE - PRELIMINARY_MIN_SAMPLE_SIZE);
+      trust *= 0.3 + 0.7 * ramp;
+    }
   }
   score *= trust;
 

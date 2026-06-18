@@ -10,8 +10,16 @@ import { Injectable } from '@nestjs/common';
 import { mean, variance, tStatistic, tDistPValue } from './utils/statistics';
 import { calcAR, PriceWindow, ARResult } from './utils/abnormal-return';
 
-/** 통계적 유의성 판단을 위한 최소 표본 수 */
+/** READY(완전 반영) 게이트 — 통계적 유의성 판단을 위한 최소 표본 수 */
 export const MIN_SAMPLE_SIZE = 30;
+
+/**
+ * PRELIMINARY(점진 반영) 하한 — 이 미만은 순수 노이즈로 보고 차단(INSUFFICIENT).
+ * n ∈ [PRELIMINARY_MIN_SAMPLE_SIZE, MIN_SAMPLE_SIZE) 구간은 통계를 **실제로 계산**하되
+ * status='PRELIMINARY' 로 표기하고, 스코어러가 강한 신뢰 감쇠를 적용한다(DAR-324).
+ * 표본이 10→30 으로 늘며 영향이 0에서 단조적으로 커져 '풀가중 스냅'을 제거한다.
+ */
+export const PRELIMINARY_MIN_SAMPLE_SIZE = 10;
 
 // ─── Input / Output 인터페이스 ────────────────────────────────────
 
@@ -42,7 +50,7 @@ export interface AggregatedResult {
   eventType: string;
   bucketKey: string;
   marketType: string;
-  status: 'READY' | 'INSUFFICIENT';
+  status: 'READY' | 'PRELIMINARY' | 'INSUFFICIENT';
   sampleCount: number;
   isSignificant: boolean;
   tStatistic: number | null;
@@ -85,8 +93,10 @@ export class EventStudyService {
   /**
    * 다수 이벤트 관측치를 집계하여 버킷 단위 통계를 생성한다.
    *
-   * - n < MIN_SAMPLE_SIZE → status='INSUFFICIENT', 모든 수치 0
-   * - n >= MIN_SAMPLE_SIZE → t-검정·AR·상승확률 등 계산
+   * - n < PRELIMINARY_MIN_SAMPLE_SIZE → status='INSUFFICIENT', 모든 수치 0 (순수 노이즈 차단)
+   * - PRELIMINARY_MIN_SAMPLE_SIZE ≤ n < MIN_SAMPLE_SIZE → 통계 실제 계산 + status='PRELIMINARY'
+   *   (소표본이라 isSignificant 는 대개 false; 스코어러가 신뢰 감쇠로 과신 방지)
+   * - n >= MIN_SAMPLE_SIZE → t-검정·AR·상승확률 등 계산, status='READY'
    */
   aggregate(input: EventStudyAggregateInput): AggregatedResult {
     const { eventType, bucketKey, marketType, observations, dataFromDate, dataToDate } = input;
@@ -101,8 +111,8 @@ export class EventStudyService {
       dataToDate,
     };
 
-    // 표본 부족
-    if (n < MIN_SAMPLE_SIZE) {
+    // 표본 부족(순수 노이즈) — 통계 미계산, 모든 수치 0
+    if (n < PRELIMINARY_MIN_SAMPLE_SIZE) {
       return {
         ...base,
         status: 'INSUFFICIENT',
@@ -150,9 +160,11 @@ export class EventStudyService {
     const pVal = tDistPValue(tStat, n - 1);
     const varD1 = variance(arD1s);
 
+    // n>=30 → READY(완전 반영), 10≤n<30 → PRELIMINARY(점진 반영·감쇠).
+    // 어느 tier든 통계는 동일하게 실제 계산한다(0으로 만들지 않음).
     return {
       ...base,
-      status: 'READY',
+      status: n >= MIN_SAMPLE_SIZE ? 'READY' : 'PRELIMINARY',
       isSignificant: pVal < 0.05,
       tStatistic: tStat,
       pValue: pVal,
@@ -185,7 +197,9 @@ export class EventStudyService {
    * Event Study 결과를 매수 점수 (-20 ~ +20)로 변환한다.
    * Phase 6 연결용 인터페이스.
    *
-   * - INSUFFICIENT 또는 비유의: 0점
+   * - INSUFFICIENT(n<10): 0점 (순수 노이즈 차단)
+   * - READY 비유의: 0점 (D+1 유의성 게이트 — 불변)
+   * - PRELIMINARY(n∈[10,30)): D+5 점수를 실제 계산하되 신뢰 감쇠 적용(과신 방지·DAR-324)
    * - avgArD5 기여: max 10, min -10
    * - upProbD5 기여: max 5, min -5
    * - crashProbD5 기여: max -5
@@ -193,7 +207,9 @@ export class EventStudyService {
   getEventStudyScore(result: AggregatedResult | null): number {
     // 게이트=D+1 유의성(즉각반응 신뢰도), 점수=D+5 누적 — 지평 불일치는 의도된 설계.
     // 상세 근거는 aggregate() 의 t-검정 주석(DAR-221) 참조.
-    if (!result || !result.isSignificant || result.status === 'INSUFFICIENT') return 0;
+    if (!result || result.status === 'INSUFFICIENT') return 0;
+    // READY 경로 비유의 게이트는 불변(회귀 0): D+1 유의성 없으면 0점.
+    if (result.status === 'READY' && !result.isSignificant) return 0;
 
     let score = 0;
 
@@ -212,6 +228,32 @@ export class EventStudyService {
     // 급락 확률 패널티
     if (result.crashProbD5 >= 0.20) score -= 5;
 
-    return Math.max(-20, Math.min(20, score));
+    score = Math.max(-20, Math.min(20, score));
+
+    // PRELIMINARY(소표본): 신뢰 감쇠로 과신 방지 — 표본이 클수록 단조 상승하되
+    // 항상 READY(완전 반영) 미만에 머문다(스냅 제거·인플레이션 방지).
+    if (result.status === 'PRELIMINARY') {
+      score *= preliminaryTrust(result.isSignificant, result.sampleCount);
+    }
+
+    return score;
   }
+}
+
+/**
+ * PRELIMINARY tier 신뢰 감쇠 계수 (0~1, DAR-324).
+ *
+ *  - isSignificant=false → ×0.2 (통계적 무의미 — 강한 감쇠, 과신 방지)
+ *  - sampleCount: 10→30 으로 늘며 0.3→1.0 선형 단조 상승. n<30 이므로 항상 <1
+ *    (n=29 ≈ 0.965) → READY(계수 1.0)보다 항상 작다.
+ *
+ * historical-event.scorer 의 신뢰 감쇠와 동일한 형태(SSOT 의도)로 맞춰
+ * 두 스코어링 경로의 점진성·상한 보장이 일치하도록 한다.
+ */
+export function preliminaryTrust(isSignificant: boolean, sampleCount: number): number {
+  const sig = isSignificant ? 1 : 0.2;
+  const span = MIN_SAMPLE_SIZE - PRELIMINARY_MIN_SAMPLE_SIZE; // 20
+  const ramp = (sampleCount - PRELIMINARY_MIN_SAMPLE_SIZE) / span; // n=10→0, n=30→1
+  const sampleTrust = 0.3 + 0.7 * Math.max(0, Math.min(1, ramp)); // [0.3, 1.0)
+  return sig * sampleTrust;
 }

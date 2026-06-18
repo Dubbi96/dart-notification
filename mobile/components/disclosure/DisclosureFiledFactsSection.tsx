@@ -1,12 +1,12 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Animated, FlatList, type ListRenderItem } from 'react-native';
+import React, { useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, type ListRenderItem } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ApiErrorState } from '@components/common/StateView';
+import { SkeletonBar, useSkeletonPulse } from '@components/common/SkeletonCard';
 import { useDisclosureFiledFacts } from '@hooks/useDisclosures';
-import { useReducedMotion } from '@hooks/useReducedMotion';
 import { factLabel, formatFiledFactValue } from '@utils/filedFacts';
 
 import type { FiledFact } from '@app-types/disclosure.types';
@@ -16,29 +16,6 @@ import type { FiledFact } from '@app-types/disclosure.types';
 //    신호·AI 분석의 정량 근거를 화면에서 투명하게 보여준다(여태 모바일 노출 0).
 //  - 3상태: 로딩(스켈레톤)·에러(ApiErrorState+재시도)·빈(추출 fact 없음 정직 안내).
 //  - 많을 때 FlatList로 렌더. 테마 토큰만 사용(하드코딩 색상 0). 읽기 전용.
-
-/** 스켈레톤용 pulse (DisclosureAiAnalysisSection 패턴 — opacity 0.4→1→0.4, 1.5s). reduce-motion 시 정적화. */
-function usePulse() {
-  const [opacity] = useState(() => new Animated.Value(0.4));
-  // 접근성 '동작 줄이기' 시 연속 펄스를 멈추고 정적 표면 고정(§11, ScoreGauge 가드 패턴).
-  const reducedMotion = useReducedMotion();
-  useEffect(() => {
-    if (reducedMotion) {
-      opacity.setValue(1);
-      return;
-    }
-    opacity.setValue(0.4);
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 750, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.4, duration: 750, useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [opacity, reducedMotion]);
-  return opacity;
-}
 
 function SectionFrame({ children }: { children: React.ReactNode }) {
   const { colors, typography: typo } = useTheme();
@@ -66,22 +43,19 @@ function SectionFrame({ children }: { children: React.ReactNode }) {
 }
 
 function LoadingSkeleton() {
-  const { colors } = useTheme();
-  const opacity = usePulse();
-  const row = (key: string) => (
-    <Animated.View
-      key={key}
-      style={[
-        styles.skeletonRow,
-        { opacity, backgroundColor: colors.surfaceSecondary },
-      ]}
-    />
-  );
+  // 공용 펄스 훅(useSkeletonPulse)·외부 opacity 주입형 SkeletonBar 재사용 — 정본과 모션 일치(DAR-333).
+  const opacity = useSkeletonPulse();
   return (
     <View accessibilityRole="progressbar" accessibilityLabel="본문 핵심 수치 불러오는 중">
-      {row('s1')}
-      {row('s2')}
-      {row('s3')}
+      {['s1', 's2', 's3'].map((key) => (
+        <SkeletonBar
+          key={key}
+          width="100%"
+          height={16}
+          opacity={opacity}
+          style={{ marginTop: spacing.sm }}
+        />
+      ))}
     </View>
   );
 }
@@ -207,11 +181,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: spacing.sm,
     borderBottomWidth: 1,
-  },
-  skeletonRow: {
-    height: 16,
-    marginTop: spacing.sm,
-    borderRadius: radius.sm,
   },
   factLabel: {
     flex: 1,

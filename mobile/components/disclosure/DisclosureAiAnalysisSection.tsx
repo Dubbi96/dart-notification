@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Animated } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
 import { Surface, Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
@@ -7,8 +7,8 @@ import { spacing, radius } from '@theme/spacing';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { ApiErrorState } from '@components/common/StateView';
+import { SkeletonBar, useSkeletonPulse } from '@components/common/SkeletonCard';
 import { useDisclosureAnalysis } from '@hooks/useDisclosures';
-import { useReducedMotion } from '@hooks/useReducedMotion';
 import { getPolarityLabel } from '@utils/disclosureType';
 
 import type {
@@ -42,29 +42,6 @@ function polarityColor(
   return colors.textSecondary;
 }
 
-/** 스켈레톤용 pulse (SkeletonCard 패턴 — opacity 0.4→1→0.4, 1.5s). reduce-motion 시 정적화. */
-function usePulse() {
-  const [opacity] = useState(() => new Animated.Value(0.4));
-  // 접근성 '동작 줄이기' 시 연속 펄스를 멈추고 정적 표면 고정(§11, ScoreGauge 가드 패턴).
-  const reducedMotion = useReducedMotion();
-  useEffect(() => {
-    if (reducedMotion) {
-      opacity.setValue(1);
-      return;
-    }
-    opacity.setValue(0.4);
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 750, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.4, duration: 750, useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [opacity, reducedMotion]);
-  return opacity;
-}
-
 function SectionFrame({ children }: { children: React.ReactNode }) {
   const { colors, typography: typo } = useTheme();
   return (
@@ -91,19 +68,10 @@ function SectionFrame({ children }: { children: React.ReactNode }) {
 }
 
 function LoadingSkeleton() {
-  const { colors } = useTheme();
-  const opacity = usePulse();
-  const bar = (width: number | `${number}%`, mt: number = spacing.xs) => (
-    <Animated.View
-      style={{
-        width,
-        height: 12,
-        opacity,
-        marginTop: mt,
-        backgroundColor: colors.surfaceSecondary,
-        borderRadius: radius.sm,
-      }}
-    />
+  // 공용 펄스 훅(useSkeletonPulse)·외부 opacity 주입형 SkeletonBar 재사용 — 정본과 모션 일치(DAR-333).
+  const opacity = useSkeletonPulse();
+  const bar = (key: string, width: `${number}%`, mt: number = spacing.xs) => (
+    <SkeletonBar key={key} width={width} height={12} opacity={opacity} style={{ marginTop: mt }} />
   );
   return (
     <View
@@ -111,10 +79,10 @@ function LoadingSkeleton() {
       accessibilityRole="progressbar"
       accessibilityLabel="AI 분석 불러오는 중"
     >
-      {bar('40%', spacing.sm)}
-      {bar('100%')}
-      {bar('90%')}
-      {bar('60%')}
+      {bar('b1', '40%', spacing.sm)}
+      {bar('b2', '100%')}
+      {bar('b3', '90%')}
+      {bar('b4', '60%')}
     </View>
   );
 }

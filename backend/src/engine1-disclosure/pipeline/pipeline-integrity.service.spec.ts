@@ -284,8 +284,8 @@ describe('PipelineIntegrityService (DAR-126)', () => {
       confidence: 0.9,
       isAiAssisted: false,
     });
-    // DAR-230: 이벤트추출 경로와 동일 자연키 jobId(ai:<rcpNo>)로 발행 → 다경로 중복 적재 방지.
-    expect(options.jobId).toBe('ai:r1');
+    // DAR-230: 이벤트추출 경로와 동일 자연키 jobId(ai-<rcpNo>)로 발행 → 다경로 중복 적재 방지.
+    expect(options.jobId).toBe('ai-r1');
   });
 
   // DAR-230 DoD: 동일 rcpNo 를 다경로(reprocess 반복/드레인)에서 2회 add 해도
@@ -323,7 +323,7 @@ describe('PipelineIntegrityService (DAR-126)', () => {
 
     expect(fakeQueue.add).toHaveBeenCalledTimes(2); // producer 는 2회 호출하지만
     expect(store.size).toBe(1); // ★큐에는 1건만 적재(dedup)
-    expect([...store.keys()]).toEqual(['ai:r1']);
+    expect([...store.keys()]).toEqual(['ai-r1']);
   });
 
   it('큐 미가용(null) 시 재발행은 0(graceful)', async () => {

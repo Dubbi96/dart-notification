@@ -347,7 +347,13 @@ export class KrxMarketDataScheduler {
   async syncCompanyMarkets(
     basDd?: string,
     triggeredBy: 'CRON' | 'MANUAL' = 'MANUAL',
-  ): Promise<{ scanned: number; updated: number; unmatched: number; message?: string }> {
+  ): Promise<{
+    scanned: number;
+    updated: number;
+    unmatched: number;
+    source?: 'BASE_INFO' | 'DAILY_FALLBACK';
+    message?: string;
+  }> {
     // DAR-329: basDd 미전달(수동 컨트롤러 body {}) 시 현재 거래일로 기본값 — parseDate(undefined)
     // 크래시(500) 방지. 크론 경로는 항상 formatDate(new Date())를 넘기므로 동작 불변.
     const effectiveBasDd = basDd ?? this.krx.formatDate(new Date());
@@ -365,16 +371,35 @@ export class KrxMarketDataScheduler {
       ]);
 
       // stockCode → 'KOSPI' | 'KOSDAQ' (KONEX·빈코드 제외 — 시장지수 매핑 불가)
-      const marketByStockCode = new Map<string, 'KOSPI' | 'KOSDAQ'>();
-      for (const info of [...stk, ...ksq]) {
-        if (!info.stockCode) continue;
-        if (info.marketType !== 'KOSPI' && info.marketType !== 'KOSDAQ') continue;
-        marketByStockCode.set(info.stockCode, info.marketType);
+      let source: 'BASE_INFO' | 'DAILY_FALLBACK' = 'BASE_INFO';
+      const marketByStockCode = this.buildMarketMap([...stk, ...ksq]);
+
+      // DAR-330: stk/ksq_isu_base_info 가 빈 응답이면(구독 게이트 또는 엔드포인트 미연동
+      // 의심 — 일별매매정보는 정상 동작) 대체 소스로 일별매매정보(stk/ksq_bydd_trd)에서
+      // 시장분류를 도출한다. 동일 인증·베이스URL·파싱을 공유하므로 base_info 불가 환경에서도
+      // company.market 백필이 가능하다. 출처는 로그·리턴(source)에 명시한다.
+      if (marketByStockCode.size === 0) {
+        this.logger.warn(
+          `[KRX] 시장분류 — isu_base_info 0행(stk=${stk.length} ksq=${ksq.length}). ` +
+            `일별매매정보(stk/ksq_bydd_trd) 폴백으로 시장분류 도출 시도 ` +
+            `(base_info 구독 미포함 또는 미연동 의심).`,
+        );
+        const fallback = await this.krx.fetchMarketClassificationFallback(effectiveBasDd);
+        for (const [code, market] of this.buildMarketMap(fallback)) {
+          marketByStockCode.set(code, market);
+        }
+        source = 'DAILY_FALLBACK';
+        this.logger.warn(
+          `[KRX] 시장분류 폴백 결과 — 일별매매정보 기준 분류 ${marketByStockCode.size}종목 ` +
+            `(출처=DAILY_FALLBACK).`,
+        );
       }
 
       if (marketByStockCode.size === 0) {
-        this.logger.warn('[KRX] 시장분류 동기화 — 기준정보 0행(휴장·미설정), 갱신 없음');
-        return { scanned: 0, updated: 0, unmatched: 0, message: '기준정보 없음' };
+        this.logger.warn(
+          '[KRX] 시장분류 동기화 — 기준정보·일별매매정보 모두 0행(휴장·미설정), 갱신 없음',
+        );
+        return { scanned: 0, updated: 0, unmatched: 0, source, message: '기준정보 없음' };
       }
 
       const companies = await this.prisma.company.findMany({
@@ -400,9 +425,10 @@ export class KrxMarketDataScheduler {
       }
 
       this.logger.log(
-        `[KRX] 시장분류 동기화 완료 scanned=${companies.length} updated=${updated} unmatched=${unmatched}`,
+        `[KRX] 시장분류 동기화 완료 scanned=${companies.length} updated=${updated} ` +
+          `unmatched=${unmatched} source=${source}`,
       );
-      return { scanned: companies.length, updated, unmatched };
+      return { scanned: companies.length, updated, unmatched, source };
     } catch (e) {
       if (e instanceof KrxApiUnavailableError) {
         this.logger.warn(`[KRX] API 키 미설정 — 시장분류 동기화 스킵: ${(e as Error).message}`);
@@ -411,6 +437,22 @@ export class KrxMarketDataScheduler {
       this.logger.error(`[KRX] 시장분류 동기화 오류: ${(e as Error).message}`);
       return { scanned: 0, updated: 0, unmatched: 0, message: (e as Error).message };
     }
+  }
+
+  /**
+   * 기준정보/일별매매 행 배열에서 stockCode → 'KOSPI' | 'KOSDAQ' 맵을 만든다 (DAR-330).
+   * KONEX·빈 코드는 제외(시장지수 매핑 불가) — base_info·폴백 양쪽이 공유하는 분류 규칙.
+   */
+  private buildMarketMap(
+    infos: { stockCode: string; marketType: 'KOSPI' | 'KOSDAQ' | 'KONEX' }[],
+  ): Map<string, 'KOSPI' | 'KOSDAQ'> {
+    const map = new Map<string, 'KOSPI' | 'KOSDAQ'>();
+    for (const info of infos) {
+      if (!info.stockCode) continue;
+      if (info.marketType !== 'KOSPI' && info.marketType !== 'KOSDAQ') continue;
+      map.set(info.stockCode, info.marketType);
+    }
+    return map;
   }
 
   /**

@@ -65,6 +65,8 @@ export function Input({ label, error, containerStyle, style, secureTextEntry, ..
             onPress={() => setHidden((v) => !v)}
             style={styles.eyeButton}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={hidden ? '비밀번호 표시' : '비밀번호 숨기기'}
           >
             <Feather
               name={hidden ? 'eye-off' : 'eye'}

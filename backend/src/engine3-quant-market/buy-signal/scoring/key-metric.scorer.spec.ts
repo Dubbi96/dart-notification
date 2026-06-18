@@ -1,6 +1,10 @@
 // 회귀 안전망 (DAR-127): 핵심 수치 점수(C2) 이벤트 타입·임계값별 단조 매핑 고정.
 // 순수 Rule — DB/AI 미개입. 신호 도메인 취약점(임계값 회귀) 방어.
-import { scoreKeyMetric } from './key-metric.scorer';
+import {
+  scoreKeyMetric,
+  hasKeyMetricRule,
+  KEY_METRIC_RULE_EVENT_TYPES,
+} from './key-metric.scorer';
 
 describe('scoreKeyMetric (DAR-127 회귀 안전망)', () => {
   describe('SUPPLY_CONTRACT — salesRatio 단조 가점', () => {
@@ -146,6 +150,45 @@ describe('scoreKeyMetric (DAR-127 회귀 안전망)', () => {
           extractedData: { surpriseRate: 'abc' as unknown as number },
         }),
       ).toBe(10);
+    });
+  });
+
+  // ─── DAR-321: hasKeyMetricRule 순수 헬퍼 (가용 판정용) ───
+  describe('hasKeyMetricRule (DAR-321 — 규칙 멤버십 ↔ 채점 default 정합)', () => {
+    const RULE_TYPES = [
+      'SUPPLY_CONTRACT',
+      'SHARE_CANCELLATION',
+      'DIVIDEND_INCREASE',
+      'PAID_IN_CAPITAL_INCREASE',
+      'CB_ISSUANCE',
+      'EARNINGS_SURPRISE',
+    ];
+    const UNMODELED_TYPES = [
+      'SHARE_BUYBACK',
+      'MAJOR_SHAREHOLDER_CHANGE',
+      'OTHER',
+      'UNKNOWN_EVENT',
+      'EARNINGS_SHOCK',
+    ];
+
+    it('규칙 집합 멤버는 true', () => {
+      for (const t of RULE_TYPES) expect(hasKeyMetricRule(t)).toBe(true);
+    });
+
+    it('미모델(규칙 없음) 이벤트는 false', () => {
+      for (const t of UNMODELED_TYPES) expect(hasKeyMetricRule(t)).toBe(false);
+    });
+
+    it('parity: 규칙 멤버는 비-default 점수를 낼 수 있고, 비멤버는 항상 default 0', () => {
+      // 비멤버 이벤트는 어떤 extractedData 라도 scoreKeyMetric default→0.
+      for (const t of UNMODELED_TYPES) {
+        expect(KEY_METRIC_RULE_EVENT_TYPES.has(t)).toBe(false);
+        expect(scoreKeyMetric({ eventType: t, extractedData: { salesRatio: 35, surpriseRate: 30 } })).toBe(0);
+      }
+      // 규칙 멤버는 멤버십과 집합이 일치.
+      for (const t of RULE_TYPES) {
+        expect(KEY_METRIC_RULE_EVENT_TYPES.has(t)).toBe(true);
+      }
     });
   });
 });

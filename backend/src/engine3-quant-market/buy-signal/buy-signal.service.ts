@@ -151,6 +151,8 @@ export class BuySignalService {
       personaFit: params.personaFitInput,
       insider,
       fundamental,
+      // DAR-321: keyMetric 규칙 존재 여부(eventType)로 미모델 이벤트의 0 을 분모에서 제외.
+      keyMetric: params.keyMetric,
     });
 
     // 하드 차단 → BLOCKED 즉시 반환

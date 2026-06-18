@@ -198,6 +198,8 @@ describe('detectBucketAvailability()', () => {
       personaViews: [{ persona: 'GROWTH', view: 'POSITIVE' }],
       userPersona: 'GROWTH',
     },
+    // DAR-321: keyMetric 가용 판정은 eventType 의 규칙 존재 여부로 결정.
+    keyMetric: { eventType: 'SUPPLY_CONTRACT', extractedData: { salesRatio: 35 } },
     insider: {
       trades: [
         {
@@ -401,5 +403,58 @@ describe('detectBucketAvailability()', () => {
       },
     });
     expect(a.fundamental).toBe(true);
+  });
+
+  // ─── DAR-321: 미모델 이벤트 keyMetric / UNKNOWN polarity personaFit omit ───
+
+  it('DAR-321: keyMetric 규칙 있는 이벤트(중립/저점이어도) → keyMetric 가용 유지', () => {
+    // 규칙은 있으나 값이 저점(salesRatio<1 → score 0)인 경우: "실제 평가" → 분모 유지.
+    const a = detectBucketAvailability({
+      ...fullInput,
+      keyMetric: { eventType: 'SUPPLY_CONTRACT', extractedData: { salesRatio: 0.5 } },
+    });
+    expect(a.keyMetric).toBe(true);
+  });
+
+  it('DAR-321: keyMetric 규칙 없는 미모델 이벤트(default→0) → keyMetric 결측(omit)', () => {
+    // SHARE_BUYBACK·MAJOR_SHAREHOLDER_CHANGE·OTHER 등은 scoreKeyMetric default→0("미채점").
+    for (const eventType of ['SHARE_BUYBACK', 'MAJOR_SHAREHOLDER_CHANGE', 'OTHER']) {
+      const a = detectBucketAvailability({
+        ...fullInput,
+        keyMetric: { eventType, extractedData: {} },
+      });
+      expect(a.keyMetric).toBe(false);
+    }
+  });
+
+  it('DAR-321: UNKNOWN polarity → 전 persona NEUTRAL → personaFit 결측(omit)', () => {
+    // persona-view.rule 은 polarity UNKNOWN 시 4 persona 전부 NEUTRAL 을 부여(정보 없음).
+    const a = detectBucketAvailability({
+      ...fullInput,
+      personaFit: {
+        personaViews: [
+          { persona: 'GROWTH', view: 'NEUTRAL' },
+          { persona: 'VALUE', view: 'NEUTRAL' },
+          { persona: 'MOMENTUM', view: 'NEUTRAL' },
+          { persona: 'EVENT_DRIVEN', view: 'NEUTRAL' },
+        ],
+        userPersona: 'GROWTH',
+      },
+    });
+    expect(a.personaFit).toBe(false);
+  });
+
+  it('DAR-321: 사용자 persona 만 NEUTRAL·타 persona 비중립 → 실제 중립 판정 → personaFit 가용 유지', () => {
+    const a = detectBucketAvailability({
+      ...fullInput,
+      personaFit: {
+        personaViews: [
+          { persona: 'GROWTH', view: 'NEUTRAL' },
+          { persona: 'VALUE', view: 'POSITIVE' },
+        ],
+        userPersona: 'GROWTH',
+      },
+    });
+    expect(a.personaFit).toBe(true);
   });
 });

@@ -20,6 +20,7 @@ import { MarketSectorInput } from './market-sector.scorer';
 import { PersonaFitInput } from './persona-fit.scorer';
 import { InsiderInput } from './insider.scorer';
 import { FundamentalInput, hasFundamentalData } from './fundamental.scorer';
+import { KeyMetricInput, hasKeyMetricRule } from './key-metric.scorer';
 
 export type BucketKey =
   | 'disclosureEvent'
@@ -43,6 +44,23 @@ export interface BucketAvailabilityInput {
   personaFit: PersonaFitInput;
   insider: InsiderInput;
   fundamental: FundamentalInput;
+  /** DAR-321: keyMetric 채점 규칙 존재 여부 판별용(eventType). 점수 산출엔 무관. */
+  keyMetric: KeyMetricInput;
+}
+
+/**
+ * personaFit 가 방향 정보를 담고 있는지 판별 (DAR-321).
+ *
+ * persona-view.rule 은 polarity 가 UNKNOWN 이면 4 persona 전부에 NEUTRAL 을 부여한다
+ * (= 방향 정보 없음). 한 persona 라도 비중립 view(POSITIVE/WATCH/NEGATIVE)가 있으면
+ * 실제 방향 판단이 존재하므로 가용 유지. 전부 NEUTRAL(또는 비어있음)이면 scorePersonaFit 의
+ * 0 은 "정보 없음" 기본값이므로 재정규화 분모에서 제외(omit)한다.
+ *
+ * 주의: 사용자 persona 만 NEUTRAL 이고 다른 persona 가 비중립이면 "실제 중립 판정"이므로
+ * 가용 유지(some 가 true) — 사용자에겐 0점이되 분모엔 정당히 남는다.
+ */
+function hasInformativePersonaView(input: PersonaFitInput): boolean {
+  return input.personaViews.some((v) => v.view !== 'NEUTRAL');
 }
 
 /**
@@ -87,10 +105,13 @@ export function detectBucketAvailability(
   return {
     // 공시 이벤트는 시그널의 트리거 자체 → 항상 존재.
     disclosureEvent: true,
-    // 핵심 수치는 공시에서 추출 → 공시가 있는 한 존재(빈 추출은 "결측"이 아닌 실제 중립).
-    keyMetric: true,
-    // persona 적합도: AI Phase 4 의 personaViews 가 있어야 평가 가능.
-    personaFit: input.personaFit.personaViews.length > 0,
+    // DAR-321: 핵심 수치는 "규칙이 있고 값이 중립/저점"이면 실제 평가(가용 유지)지만,
+    // 규칙 자체가 없는(미모델) 이벤트의 default→0 은 "데이터 없음"이므로 분모에서 제외.
+    // (insider/fundamental 의 기존 omit 패턴과 동일. scoreKeyMetric 로직은 불변.)
+    keyMetric: hasKeyMetricRule(input.keyMetric.eventType),
+    // DAR-321: persona 적합도 — polarity UNKNOWN 으로 전 persona NEUTRAL=0("정보 없음")이면
+    // 분모에서 제외. 한 persona 라도 비중립 view 가 있으면 방향 정보 존재 → 가용 유지.
+    personaFit: hasInformativePersonaView(input.personaFit),
     // 과거 유사 공시 성과: EventStudyResult 미산출 시 avgArD5=null.
     historicalEvent: input.historicalEvent.avgArD5 != null,
     chart: chartAvailable,

@@ -100,10 +100,12 @@ export class MarketDataController {
   @ApiQuery({
     name: 'basDd',
     required: false,
-    description: '기준일 YYYYMMDD (미전달 시 현재 거래일 사용 — DAR-329)',
+    description:
+      '기준일 YYYYMMDD (미전달 시 최신 가용 거래일 사용 — DAR-331: 시스템 시계가 실 KRX 데이터에 선행하므로 StockDailyPrice 최신일 우선)',
   })
   async syncCompanyMarkets(@Query('basDd') basDd?: string) {
-    // DAR-329: basDd 미전달 시 scheduler 가 현재 거래일로 기본값 처리 (parseDate(undefined) 500 방지).
+    // DAR-329: basDd 미전달 시 parseDate(undefined) 500 방지.
+    // DAR-331: scheduler 가 미전달 시 '최신 가용 거래일'(StockDailyPrice 최신 tradeDate)로 해석.
     const result = await this.scheduler.syncCompanyMarkets(basDd, 'MANUAL');
     return { success: true, data: result };
   }

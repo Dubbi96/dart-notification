@@ -49,6 +49,8 @@ function makePrisma(): jest.Mocked<PrismaService> {
         .mockImplementation(({ data }: { data: unknown[] }) =>
           Promise.resolve({ count: data.length }),
         ),
+      // DAR-331: 최신 가용 거래일 해석용. 기본 null(저장소 비어있음 → today 폴백).
+      findFirst: jest.fn().mockResolvedValue(null),
     },
     marketIndex: { upsert: jest.fn().mockResolvedValue({}) },
     stockStatus: { upsert: jest.fn().mockResolvedValue({}) },
@@ -594,6 +596,105 @@ describe('KrxMarketDataScheduler.syncCompanyMarkets', () => {
     expect(result.message).toBe('기준정보 없음');
     expect(result.source).toBe('DAILY_FALLBACK'); // 폴백을 시도했음을 명시
     expect(prisma.company.findMany).not.toHaveBeenCalled();
+  });
+});
+
+// ─── resolveLatestAvailableTradeDate (DAR-331) ───────────────────────────────
+
+describe('KrxMarketDataScheduler.resolveLatestAvailableTradeDate', () => {
+  it('명시 basDd 가 있으면 그대로 사용한다(우선순위 1) — DB 미조회', async () => {
+    const krx = makeKrxApi();
+    const prisma = makePrisma();
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.resolveLatestAvailableTradeDate('20260610');
+
+    expect(result).toBe('20260610');
+    expect(prisma.stockDailyPrice.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('명시 없으면 StockDailyPrice 최신 tradeDate 를 사용한다(우선순위 2, 시계 선행 보정)', async () => {
+    // today(formatDate mock)=20260619 인데 저장소 최신일=20260605 → 최신 가용일 사용
+    const krx = makeKrxApi({ formatDate: jest.fn().mockReturnValue('20260619') });
+    const prisma = makePrisma();
+    (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue({ tradeDate: '20260605' });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.resolveLatestAvailableTradeDate(undefined);
+
+    expect(result).toBe('20260605');
+    expect(prisma.stockDailyPrice.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { tradeDate: 'desc' } }),
+    );
+  });
+
+  it('저장소가 비어있으면 today 로 폴백한다(우선순위 3)', async () => {
+    const krx = makeKrxApi({ formatDate: jest.fn().mockReturnValue('20260619') });
+    const prisma = makePrisma();
+    (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue(null);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.resolveLatestAvailableTradeDate();
+
+    expect(result).toBe('20260619');
+  });
+
+  it('저장소 최신일이 today 보다 미래면(비정상) today 로 클램프한다', async () => {
+    const krx = makeKrxApi({ formatDate: jest.fn().mockReturnValue('20260619') });
+    const prisma = makePrisma();
+    (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue({ tradeDate: '20260625' });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.resolveLatestAvailableTradeDate();
+
+    expect(result).toBe('20260619');
+  });
+
+  it('today 가 주말이면 직전 평일(금)로 클램프한다 (저장소 빈 부트스트랩 경로)', async () => {
+    // 실제 날짜 산술로 클램프 검증: today=20260620(토) → 20260619(금)
+    const realFormat = (d: Date) =>
+      `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(
+        d.getDate(),
+      ).padStart(2, '0')}`;
+    const krx = makeKrxApi({
+      isWeekend: jest.fn((d: Date) => d.getDay() === 0 || d.getDay() === 6),
+      parseDate: jest.fn(
+        (s: string) =>
+          new Date(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8))),
+      ),
+      formatDate: jest
+        .fn()
+        .mockReturnValueOnce('20260620') // formatDate(new Date()) = 토요일
+        .mockImplementation((d: Date) => realFormat(d)),
+    });
+    const prisma = makePrisma();
+    (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue(null);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.resolveLatestAvailableTradeDate();
+
+    expect(result).toBe('20260619');
+  });
+
+  it('syncCompanyMarkets(basDd 미전달) → 최신 가용 거래일로 base_info 조회', async () => {
+    const krx = makeKrxApi({
+      formatDate: jest.fn().mockReturnValue('20260619'),
+      parseDate: jest.fn().mockReturnValue(new Date('2026-06-05')), // 평일
+      fetchStkIsuBaseInfo: jest
+        .fn()
+        .mockResolvedValue([{ stockCode: '005930', stockName: '삼성전자', marketType: 'KOSPI' }]),
+    });
+    const prisma = makePrisma();
+    (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue({ tradeDate: '20260605' });
+    (prisma.company.findMany as jest.Mock).mockResolvedValue([
+      { corpCode: 'A005930', stockCode: '005930', market: 'LISTED' },
+    ]);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.syncCompanyMarkets(undefined, 'CRON');
+
+    expect(krx.fetchStkIsuBaseInfo).toHaveBeenCalledWith('20260605'); // today 아님
+    expect(result.updated).toBe(1);
   });
 });
 

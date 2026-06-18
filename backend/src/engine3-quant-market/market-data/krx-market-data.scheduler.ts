@@ -33,7 +33,7 @@ export class KrxMarketDataScheduler {
   /** 평일 18:30(KST) — 일봉 수집 */
   @Cron('30 18 * * 1-5', { timeZone: KST_TIMEZONE })
   async collectDailyPrices(): Promise<{ saved: number; skipped: number; message?: string }> {
-    return this.collectDailyPricesForDate(this.krx.formatDate(new Date()), 'CRON');
+    return this.collectDailyPricesForDate(await this.resolveLatestAvailableTradeDate(), 'CRON');
   }
 
   /**
@@ -90,7 +90,7 @@ export class KrxMarketDataScheduler {
   /** 평일 18:45(KST) — 시장지수 수집 */
   @Cron('45 18 * * 1-5', { timeZone: KST_TIMEZONE })
   async collectMarketIndices(): Promise<{ saved: number; message?: string }> {
-    return this.collectMarketIndicesForDate(this.krx.formatDate(new Date()), 'CRON');
+    return this.collectMarketIndicesForDate(await this.resolveLatestAvailableTradeDate(), 'CRON');
   }
 
   async collectMarketIndicesForDate(
@@ -171,13 +171,13 @@ export class KrxMarketDataScheduler {
     unmatched: number;
     message?: string;
   }> {
-    return this.syncCompanyMarkets(this.krx.formatDate(new Date()), 'CRON');
+    return this.syncCompanyMarkets(await this.resolveLatestAvailableTradeDate(), 'CRON');
   }
 
   /** 평일 08:50(KST) — 종목상태 수집 (장 시작 전) */
   @Cron('50 8 * * 1-5', { timeZone: KST_TIMEZONE })
   async collectStockStatuses(): Promise<{ processed: number; message?: string }> {
-    return this.collectStockStatusesForDate(this.krx.formatDate(new Date()), 'CRON');
+    return this.collectStockStatusesForDate(await this.resolveLatestAvailableTradeDate(), 'CRON');
   }
 
   async collectStockStatusesForDate(
@@ -354,9 +354,11 @@ export class KrxMarketDataScheduler {
     source?: 'BASE_INFO' | 'DAILY_FALLBACK';
     message?: string;
   }> {
-    // DAR-329: basDd 미전달(수동 컨트롤러 body {}) 시 현재 거래일로 기본값 — parseDate(undefined)
-    // 크래시(500) 방지. 크론 경로는 항상 formatDate(new Date())를 넘기므로 동작 불변.
-    const effectiveBasDd = basDd ?? this.krx.formatDate(new Date());
+    // DAR-329: basDd 미전달(수동 컨트롤러 body {}) 시 parseDate(undefined) 크래시(500) 방지.
+    // DAR-331: 기본값을 today 대신 '최신 가용 거래일'로 해석 — 시스템 시계가 실제 KRX 데이터
+    // 가용일보다 앞선 환경에서 today 를 조회하면 빈 응답(0건)이 되므로, StockDailyPrice 최신
+    // tradeDate(우리 저장소가 가용으로 확인한 날)를 우선 사용한다(명시 basDd 가 항상 우선).
+    const effectiveBasDd = await this.resolveLatestAvailableTradeDate(basDd);
     const date = this.krx.parseDate(effectiveBasDd);
     if (this.krx.isWeekend(date)) {
       return { scanned: 0, updated: 0, unmatched: 0, message: '주말 스킵' };
@@ -530,6 +532,66 @@ export class KrxMarketDataScheduler {
   // ─────────────────────────────────────────────────────────────────────────
   // DAR-50: 히스토리컬 일봉 백필
   // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * 기본 기준일을 '최신 가용 거래일'로 해석한다 (DAR-331).
+   *
+   * 배경(실측 2026-06-19): 이 제품의 시스템 시계(today=20260619)가 실제 KRX 데이터
+   * 가용일(최신 20260605)보다 앞서 있다. 그래서 크론·수동 기본값이 today 면 KRX 가
+   * 데이터를 주지 않는 미래일을 조회해 무인 실행이 매번 0건이 된다. 명시
+   * `?basDd=20260605` 로 호출하면 정상 동작함이 확인됨.
+   *
+   * 우선순위:
+   *   (a) 명시 basDd(8자리 YYYYMMDD) — 호출자 의도 우선, 그대로 사용.
+   *   (b) StockDailyPrice 최신 tradeDate — 우리 저장소가 '가용'으로 확인한 최신 거래일.
+   *   (c) today(주말이면 직전 평일로 클램프) — 저장소가 비었을 때의 부트스트랩 폴백.
+   *
+   * 미래일 클램프: (b)가 today 보다 미래면(비정상) today 로 클램프.
+   *
+   * 정직성: 임의 데이터 생성이 아니라 '시계가 실데이터보다 앞선' 환경 보정이며,
+   * 시계 선행이 감지되면(latest < today) WARN 로그로 사용 기준일과 한계를 명시한다.
+   *
+   * @param explicitBasDd 호출자가 지정한 기준일(있으면 우선)
+   */
+  async resolveLatestAvailableTradeDate(explicitBasDd?: string): Promise<string> {
+    if (explicitBasDd && /^[0-9]{8}$/.test(explicitBasDd)) {
+      return explicitBasDd;
+    }
+
+    const todayClamped = this.clampToLastWeekday(this.krx.formatDate(new Date()));
+
+    const latest = await this.prisma.stockDailyPrice.findFirst({
+      orderBy: { tradeDate: 'desc' },
+      select: { tradeDate: true },
+    });
+    if (!latest?.tradeDate) {
+      // 저장소가 비어있음(부트스트랩) — today 로 시도.
+      return todayClamped;
+    }
+
+    // 저장소 최신일이 today 보다 미래면(비정상) today 로 클램프.
+    if (latest.tradeDate > todayClamped) {
+      return todayClamped;
+    }
+
+    // 시계 선행 감지 — 최신 가용 거래일 사용을 명시(YYYYMMDD 문자열 사전식 비교 = 날짜순).
+    if (latest.tradeDate < todayClamped) {
+      this.logger.warn(
+        `[KRX] 기준일 해석 — today(${todayClamped})가 저장소 최신 거래일(${latest.tradeDate})보다 ` +
+          `앞섬(시스템 시계가 실 KRX 데이터에 선행). 최신 가용 거래일 ${latest.tradeDate} 사용.`,
+      );
+    }
+    return latest.tradeDate;
+  }
+
+  /** YYYYMMDD 가 주말이면 직전 평일(금요일)로 클램프한다 (DAR-331). */
+  private clampToLastWeekday(yyyymmdd: string): string {
+    const d = this.krx.parseDate(yyyymmdd);
+    while (this.krx.isWeekend(d)) {
+      d.setDate(d.getDate() - 1);
+    }
+    return this.krx.formatDate(d);
+  }
 
   /** stockCode → corpCode 매핑 (DB 1회 로드) */
   private async loadCorpCodeMap(): Promise<Map<string, string>> {

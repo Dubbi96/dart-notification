@@ -417,13 +417,24 @@ describe('detectBucketAvailability()', () => {
   });
 
   it('DAR-321: keyMetric 규칙 없는 미모델 이벤트(default→0) → keyMetric 결측(omit)', () => {
-    // SHARE_BUYBACK·MAJOR_SHAREHOLDER_CHANGE·OTHER 등은 scoreKeyMetric default→0("미채점").
-    for (const eventType of ['SHARE_BUYBACK', 'MAJOR_SHAREHOLDER_CHANGE', 'OTHER']) {
+    // DAR-322 이후에도 여전히 규칙 없는 타입(OTHER·BW_ISSUANCE·EARNINGS_SHOCK)은 default→0("미채점").
+    for (const eventType of ['OTHER', 'BW_ISSUANCE', 'EARNINGS_SHOCK']) {
       const a = detectBucketAvailability({
         ...fullInput,
         keyMetric: { eventType, extractedData: {} },
       });
       expect(a.keyMetric).toBe(false);
+    }
+  });
+
+  it('DAR-322: omit→실평가 승격된 3종(SHARE_BUYBACK·THIRD_PARTY_ALLOTMENT·MAJOR_SHAREHOLDER_CHANGE)은 keyMetric 가용', () => {
+    // 규칙이 생겼으므로 extractedData 가 비어도(저점 0) "실제 평가" → 분모 유지(omit 아님).
+    for (const eventType of ['SHARE_BUYBACK', 'THIRD_PARTY_ALLOTMENT', 'MAJOR_SHAREHOLDER_CHANGE']) {
+      const a = detectBucketAvailability({
+        ...fullInput,
+        keyMetric: { eventType, extractedData: {} },
+      });
+      expect(a.keyMetric).toBe(true);
     }
   });
 

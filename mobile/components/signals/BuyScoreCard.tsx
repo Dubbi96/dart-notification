@@ -6,6 +6,7 @@ import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { RiskStatusBadges, summarizeRiskStatus } from '@components/common/RiskStatusBadges';
 import { ScoreGauge } from '@components/common/ScoreGauge';
+import { SignalFreshnessBadge } from '@components/signals/SignalFreshnessBadge';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
 import { buildSignalCardA11yLabel } from '@utils/signalTerms';
@@ -145,6 +146,13 @@ function BuyScoreCardBase({ signal, onPress }: BuyScoreCardProps) {
                 ) : null}
               </View>
             ) : null}
+
+            {/* DAR-326: 신선도 배지 — 만료/오래됨만 노출(신선 신호엔 미표시) */}
+            <SignalFreshnessBadge
+              createdAt={signal.createdAt}
+              expiresAt={signal.expiresAt}
+              style={styles.freshness}
+            />
           </>
         )}
       </Surface>
@@ -199,6 +207,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: spacing.md,
+    marginTop: spacing.sm,
+  },
+  freshness: {
     marginTop: spacing.sm,
   },
   metaItem: {

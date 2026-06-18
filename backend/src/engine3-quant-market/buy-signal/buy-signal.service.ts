@@ -49,6 +49,10 @@ import {
   detectBucketAvailability,
   renormalizeWeights,
 } from './scoring/bucket-renormalization';
+import {
+  SuppressionReason,
+  deriveSuppressionReason,
+} from './suppression-reason';
 
 export type SignalGrade =
   | 'STRONG_BUY_CANDIDATE'
@@ -112,6 +116,12 @@ export interface BuySignalResult {
   dataAvailability: BucketAvailability;
   /** 결측으로 가중치 재정규화에서 제외된 버킷 목록 (DAR-49) */
   omittedBuckets: BucketKey[];
+  /**
+   * DAR-323: '왜 강한 신호가 아닌지' 사유 enum(가독성·정직성).
+   * BUY 이상·BLOCKED 는 null. WATCH/NEUTRAL/AVOID 는 omittedBuckets·등급에서 도출.
+   * 점수 산식 불변 — 순수 표시용 파생.
+   */
+  suppressionReason: SuppressionReason | null;
   signalSummary?: string;
   blockedReason?: string;
   validUntil?: Date;
@@ -187,6 +197,8 @@ export class BuySignalService {
         omittedBuckets: (Object.keys(availability) as BucketKey[]).filter(
           (k) => !availability[k],
         ),
+        // DAR-323: 하드 차단은 blockedReason 이 전담 → suppressionReason 미부여.
+        suppressionReason: null,
         blockedReason: '거래정지·관리종목·투자주의·이상급등·차단 이벤트 타입',
         signalSummary: params.signalSummary,
         validUntil: params.validUntil,
@@ -254,6 +266,8 @@ export class BuySignalService {
       riskFactors,
       dataAvailability: availability,
       omittedBuckets,
+      // DAR-323: 점수 도출 후 등급·omittedBuckets 로 억제 사유 파생(산식 불변).
+      suppressionReason: deriveSuppressionReason(signal, omittedBuckets).reason,
       signalSummary: params.signalSummary,
       validUntil: params.validUntil,
       computedAt: new Date(),

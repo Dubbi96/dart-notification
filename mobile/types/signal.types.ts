@@ -14,6 +14,18 @@ export type SignalGrade =
 /** 신호 정렬(DAR-46): 점수 내림차순 / 최신순 */
 export type SignalSort = 'score' | 'latest';
 
+/**
+ * '왜 강한 신호가 아닌지' 억제 사유 enum(DAR-323) — 백엔드 buy-signal 도출값과 1:1.
+ * BUY 이상·BLOCKED 는 백엔드가 null → undefined 로 미노출(배지 미표시).
+ * 표시 라벨은 utils/suppressionReasonLabel.ts 가 소유(DAR-306/313/314 라벨맵 패턴).
+ */
+export type SuppressionReason =
+  | 'EVENT_STUDY_DARK'
+  | 'INDICATORS_MISSING'
+  | 'UNMODELED_EVENT'
+  | 'NO_POLARITY'
+  | 'GENUINELY_NEUTRAL';
+
 export type ExitAction = 'HOLD' | 'WATCH' | 'REDUCE' | 'EXIT' | 'BLOCK_REBUY';
 
 /** 진입 조건(필수/선택, 충족 여부) */
@@ -63,6 +75,11 @@ export interface TradingSignal {
   riskFlags: RiskFlag[];
   /** BLOCKED 신호의 차단 사유 */
   blockedReason?: string;
+  /**
+   * DAR-323: '왜 강한 신호가 아닌지' 억제 사유 enum. BUY 이상·BLOCKED 는 미존재(undefined).
+   * 존재 시 신호 상세에서 '근거 부족'/'정직하게 약함'을 구분하는 배지로 노출.
+   */
+  suppressionReason?: SuppressionReason;
   scoreBreakdown?: BuyScoreComponent[];
   relatedDisclosureRcpNo?: string;
   /** ISO 8601 — 신호 만료 시각 */

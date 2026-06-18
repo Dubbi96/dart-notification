@@ -31,6 +31,7 @@ import {
   scoreOneLiner,
 } from '@utils/signalDisplay';
 import { RISK_CONTEXT_NOTE } from '@utils/copy';
+import { getSuppressionReasonBadge } from '@utils/suppressionReasonLabel';
 
 import type { EntryCondition, RiskFlag } from '@app-types/signal.types';
 
@@ -70,6 +71,32 @@ function RiskFlagRow({ flag }: { flag: RiskFlag }) {
     <View style={styles.riskRow}>
       <Feather name="alert-triangle" size={14} color={color} />
       <Text style={[typo.small, { color, flex: 1 }]}>{flag.label}</Text>
+    </View>
+  );
+}
+
+// DAR-323: '왜 강한 신호가 아닌지' 억제 사유 배지. 백엔드가 BUY 이상·BLOCKED 에
+// suppressionReason 을 null 로 내려 호출부에서 미렌더 → BUY 이상엔 배지 미표시.
+// NEUTRAL/WATCH 가 '판정'처럼 읽히는 것을 막고 '근거 부족'/'정직하게 약함'을 구분한다.
+function SuppressionReasonBadge({ reason }: { reason: string }) {
+  const { colors, typography: typo } = useTheme();
+  const { label, icon } = getSuppressionReasonBadge(reason);
+  return (
+    <View
+      style={[
+        styles.suppressionBadge,
+        { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+      ]}
+      accessibilityRole="text"
+      accessibilityLabel={`강한 신호가 아닌 사유: ${label}`}
+    >
+      <Feather name={icon} size={14} color={colors.textSecondary} />
+      <Text
+        style={[typo.small, { color: colors.textSecondary, flex: 1 }]}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+      >
+        {label}
+      </Text>
     </View>
   );
 }
@@ -269,6 +296,12 @@ export default function SignalDetailScreen() {
           ticker={signal.ticker}
         />
 
+        {/* DAR-323: 억제 사유 배지 — Score 근거 섹션 상단. BUY 이상·BLOCKED 는 백엔드가
+            suppressionReason 을 미제공(undefined)하므로 자동 미표시. */}
+        {signal.suppressionReason ? (
+          <SuppressionReasonBadge reason={signal.suppressionReason} />
+        ) : null}
+
         {/* Score 근거 분해(P0-C) — HeaderSection 직후. scoreBreakdown 미연동 시 graceful null */}
         {signal.scoreBreakdown && signal.scoreBreakdown.length > 0 ? (
           <ScoreBreakdownSection
@@ -387,6 +420,16 @@ const styles = StyleSheet.create({
   },
   // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
   gradeChip: { minHeight: 26 },
+  // DAR-323: 억제 사유 배지 — 라인 형태(아이콘+라벨). 큰 글꼴서도 줄바꿈 허용(고정 height 없음).
+  suppressionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
   scoreRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -292,6 +292,8 @@ export class SignalsService {
         severity: 'medium' as const,
       })),
       blockedReason: s.blockedReason ?? undefined,
+      // DAR-323: '왜 강한 신호가 아닌지' 억제 사유 enum(BUY 이상·BLOCKED 는 null→undefined).
+      suppressionReason: s.suppressionReason ?? undefined,
       scoreBreakdown: mapScoreBreakdown(
         s.scoreBreakdown,
         buildSampleNByKey(s.eventType, sampleCountByEventType),
@@ -359,6 +361,8 @@ export class SignalsService {
         severity: 'medium' as const,
       })),
       blockedReason: s.blockedReason ?? undefined,
+      // DAR-323: '왜 강한 신호가 아닌지' 억제 사유 enum(BUY 이상·BLOCKED 는 null→undefined).
+      suppressionReason: s.suppressionReason ?? undefined,
       scoreBreakdown: mapScoreBreakdown(
         s.scoreBreakdown,
         buildSampleNByKey(s.eventType, sampleCountByEventType),

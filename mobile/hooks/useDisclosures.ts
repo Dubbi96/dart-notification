@@ -43,6 +43,7 @@ export function useDisclosureDetail(rcpNo: string) {
     queryKey: ['disclosure', rcpNo],
     queryFn: () => disclosureService.getDetail(rcpNo),
     enabled: !!rcpNo,
+    staleTime: 1000 * 60 * 30, // 30분 — rcpNo 공시 상세는 발행 후 사실상 불변, 재진입 시 불필요 재요청 방지(기업메타 정책 정렬)
   });
 }
 
@@ -53,6 +54,7 @@ export function useDisclosureEvent(rcpNo: string) {
     queryFn: () => disclosureService.getEvent(rcpNo),
     enabled: !!rcpNo,
     retry: false,
+    staleTime: 1000 * 60 * 30, // 30분 — rcpNo 단건 이벤트 분석은 사실상 불변, 재진입 시 불필요 재요청 방지(기업메타 정책 정렬)
   });
 }
 
@@ -62,6 +64,8 @@ export function useDisclosureAnalysis(rcpNo: string) {
     queryFn: () => disclosureService.getAnalysis(rcpNo),
     enabled: !!rcpNo,
     retry: false,
+    // 30분 — rcpNo 단건 AI 요약은 사실상 불변. 재처리 후 갱신은 invalidate 경로로 즉시 반영되므로 staleTime은 자동 refetch만 억제(기업메타 정책 정렬)
+    staleTime: 1000 * 60 * 30,
   });
 }
 
@@ -72,5 +76,6 @@ export function useDisclosureFiledFacts(rcpNo: string) {
     queryFn: () => disclosureService.getFiledFacts(rcpNo),
     enabled: !!rcpNo,
     retry: false,
+    staleTime: 1000 * 60 * 30, // 30분 — rcpNo 본문 정량 fact는 발행 후 불변, 재진입 시 불필요 재요청 방지(기업메타 정책 정렬)
   });
 }

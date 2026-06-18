@@ -126,6 +126,95 @@ describe('scoreKeyMetric (DAR-127 회귀 안전망)', () => {
     });
   });
 
+  // ─── DAR-322: 신규 3종 catalyst 임계·경계·방향 ───
+
+  describe('SHARE_BUYBACK — buybackRatioToSales 단조 가점(호재)', () => {
+    it.each([
+      [10, 100],
+      [12, 100],
+      [5, 80],
+      [7, 80],
+      [2, 60],
+      [3, 60],
+      [1, 40],
+      [1.5, 40],
+      [0.2, 20],
+      [0.5, 20],
+      [0.1, 0], // 경계 미만 → 0(BUY 격상 안 됨)
+      [0, 0],
+    ])('buybackRatioToSales=%p → %p', (ratio, expected) => {
+      const score = scoreKeyMetric({
+        eventType: 'SHARE_BUYBACK',
+        extractedData: { buybackRatioToSales: ratio },
+      });
+      expect(score).toBe(expected);
+      expect(score).toBeGreaterThanOrEqual(0); // 호재 → 음수 없음
+    });
+
+    it('규모 필드 결측 → 0(미미한 자사주는 BUY로 격상되지 않음)', () => {
+      expect(scoreKeyMetric({ eventType: 'SHARE_BUYBACK', extractedData: {} })).toBe(0);
+    });
+  });
+
+  describe('THIRD_PARTY_ALLOTMENT — dilutionRate 단조 감점(희석·악재, 조건부 하한 0)', () => {
+    it.each([
+      [30, -100],
+      [40, -100],
+      [20, -80],
+      [25, -80],
+      [10, -60],
+      [15, -60],
+      [5, -40],
+      [7, -40],
+      [1, -20],
+      [3, -20],
+      [0.5, 0], // 희석 미미/전략적 3자배정 → 조건부 0(자동 감점 안 함)
+      [0, 0],
+    ])('dilutionRate=%p → %p', (dr, expected) => {
+      const score = scoreKeyMetric({
+        eventType: 'THIRD_PARTY_ALLOTMENT',
+        extractedData: { dilutionRate: dr },
+      });
+      expect(score).toBe(expected);
+      expect(score).toBeLessThanOrEqual(0); // 희석성 → 양수 없음
+    });
+
+    it('희석률 결측 → 0(조건부)', () => {
+      expect(scoreKeyMetric({ eventType: 'THIRD_PARTY_ALLOTMENT', extractedData: {} })).toBe(0);
+    });
+  });
+
+  describe('MAJOR_SHAREHOLDER_CHANGE — ownershipRatio 보수적 양(+), 상한 +50·하한 0', () => {
+    // 주의: keyMetric extractedData 에는 ratioChange(delta)가 없다 — 추출기가 산출하는 정량 필드는
+    //       ownershipRatio(변경 후 지분율)뿐이라 이를 사용(신규 추출/배선 금지 제약).
+    it.each([
+      [50, 50],
+      [80, 50], // MIXED 방향 불확실 → STRONG 영역 미진입(상한 +50)
+      [30, 35],
+      [45, 35],
+      [15, 20],
+      [29, 20],
+      [14.9, 0], // 경계 미만 → 0(BUY 격상 안 됨)
+      [0, 0],
+    ])('ownershipRatio=%p → %p', (ratio, expected) => {
+      const score = scoreKeyMetric({
+        eventType: 'MAJOR_SHAREHOLDER_CHANGE',
+        extractedData: { ownershipRatio: ratio },
+      });
+      expect(score).toBe(expected);
+      expect(score).toBeGreaterThanOrEqual(0); // 음수 없음
+      expect(score).toBeLessThanOrEqual(50); // 보수적 상한
+    });
+
+    it('ratioChange 는 keyMetric 입력에 없음 → ownershipRatio 결측이면 0(조용한 false 양성 방지)', () => {
+      // ratioChange 만 주어져도 무시되고 0(해당 필드는 insider scorer 전용).
+      expect(
+        scoreKeyMetric({ eventType: 'MAJOR_SHAREHOLDER_CHANGE', extractedData: { ratioChange: 9 } }),
+      ).toBe(0);
+      expect(scoreKeyMetric({ eventType: 'MAJOR_SHAREHOLDER_CHANGE', extractedData: {} })).toBe(0);
+    });
+  });
+
   describe('결측·미지원 처리', () => {
     it('미지원 eventType → 0(중립)', () => {
       expect(scoreKeyMetric({ eventType: 'UNKNOWN_EVENT', extractedData: {} })).toBe(0);
@@ -162,13 +251,17 @@ describe('scoreKeyMetric (DAR-127 회귀 안전망)', () => {
       'PAID_IN_CAPITAL_INCREASE',
       'CB_ISSUANCE',
       'EARNINGS_SURPRISE',
-    ];
-    const UNMODELED_TYPES = [
+      // DAR-322: omit→실평가 승격된 3종.
       'SHARE_BUYBACK',
+      'THIRD_PARTY_ALLOTMENT',
       'MAJOR_SHAREHOLDER_CHANGE',
+    ];
+    // DAR-322 이후에도 여전히 규칙 없는(default→0) 타입만 남긴다.
+    const UNMODELED_TYPES = [
       'OTHER',
       'UNKNOWN_EVENT',
       'EARNINGS_SHOCK',
+      'BW_ISSUANCE',
     ];
 
     it('규칙 집합 멤버는 true', () => {

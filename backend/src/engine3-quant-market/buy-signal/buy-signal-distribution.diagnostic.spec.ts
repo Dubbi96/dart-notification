@@ -15,8 +15,9 @@
  *   - personaViews: persona-view.rule.ts 가 (eventType,polarity,impact) 로 파생.
  *                   UNKNOWN polarity → 4 persona 전부 NEUTRAL(0). ← 항상 length>0 이라
  *                   '가용'으로 취급되어 0점이 분모를 차지(희석).
- *   - keyMetric: 룰 없는 이벤트타입(SHARE_BUYBACK·MAJOR_SHAREHOLDER_CHANGE·OTHER…)은
- *                default→0. ← 역시 항상 '가용'으로 취급되어 0점이 분모를 차지(희석).
+ *   - keyMetric: 룰 없는 이벤트타입(OTHER·BW_ISSUANCE…)은 default→0. ← 역시 항상 '가용'으로
+ *                취급되어 0점이 분모를 차지(희석). (DAR-322: SHARE_BUYBACK·THIRD_PARTY_ALLOTMENT·
+ *                MAJOR_SHAREHOLDER_CHANGE 는 실평가 규칙으로 승격되어 더 이상 미모델 아님.)
  *   - historicalEvent: EventStudyResult 성숙(D+20)+표본≥30 필요 → 대부분 결측(omit).
  *   - chart/volume/market: 지표 산출 여부에 따라 가용/결측.
  */
@@ -126,7 +127,7 @@ describe('DAR-134 진단: Buy Score 분포·버킷 기여·결측 분석', () =>
       { label: 'SUPPLY_CONTRACT salesRatio=12 (중)', eventType: 'SUPPLY_CONTRACT', polarity: 'POSITIVE', extracted: { salesRatio: 12 } },
       { label: 'EARNINGS_SURPRISE surprise=20', eventType: 'EARNINGS_SURPRISE', polarity: 'POSITIVE', extracted: { surpriseRate: 20 } },
       { label: 'SHARE_CANCELLATION ratio=4', eventType: 'SHARE_CANCELLATION', polarity: 'POSITIVE', extracted: { cancellationRatio: 4 } },
-      { label: 'SHARE_BUYBACK (keyMetric 룰無)', eventType: 'SHARE_BUYBACK', polarity: 'POSITIVE', extracted: {} },
+      { label: 'SHARE_BUYBACK ratio=6 (DAR-322 실평가)', eventType: 'SHARE_BUYBACK', polarity: 'POSITIVE', extracted: { buybackRatioToSales: 6 } },
       { label: 'DIVIDEND_INCREASE yoy=30', eventType: 'DIVIDEND_INCREASE', polarity: 'POSITIVE', extracted: { yoyDividendGrowth: 30 } },
       { label: 'OTHER (미분류·UNKNOWN, base 0)', eventType: 'OTHER', polarity: 'UNKNOWN', extracted: {} },
     ];
@@ -177,8 +178,10 @@ describe('DAR-134 진단: Buy Score 분포·버킷 기여·결측 분석', () =>
       return Math.round(Math.max(-100, Math.min(100, sum)));
     };
 
-    it('(a) 미모델 이벤트(SHARE_BUYBACK)는 keyMetric omit → 구조적 0희석에서 회복', () => {
-      const r = service.computeBuyScore(buildParams('SHARE_BUYBACK', 'POSITIVE', {}, LIVE));
+    it('(a) 미모델 이벤트(BW_ISSUANCE, 여전히 룰無)는 keyMetric omit → 구조적 0희석에서 회복', () => {
+      // DAR-322 로 SHARE_BUYBACK 이 실평가로 승격되었으므로, A1 의 omit 동작은 여전히 미모델인
+      // 타입(BW_ISSUANCE)으로 계속 증명한다. polarity 는 양(+)으로 두어 회복 효과를 격리.
+      const r = service.computeBuyScore(buildParams('BW_ISSUANCE', 'POSITIVE', {}, LIVE));
       // 미채점(룰無) 0 은 이제 분모에서 제외된다.
       expect(r.scoreBreakdown.keyMetric).toBe(0);
       expect(r.omittedBuckets).toContain('keyMetric');
@@ -189,7 +192,37 @@ describe('DAR-134 진단: Buy Score 분포·버킷 기여·결측 분석', () =>
       const diluted = scoreFrom(r.scoreBreakdown as Record<BucketKey, number>, dilutedAvail);
       expect(r.buyScore).toBeGreaterThan(diluted);
       // eslint-disable-next-line no-console
-      console.log(`\n[DAR-321 a] SHARE_BUYBACK → ${r.buyScore} ${r.signal} (omit keyMetric; diluted=${diluted}, omitted=${r.omittedBuckets.join(',')})`);
+      console.log(`\n[DAR-321 a] BW_ISSUANCE → ${r.buyScore} ${r.signal} (omit keyMetric; diluted=${diluted}, omitted=${r.omittedBuckets.join(',')})`);
+    });
+
+    it('(DAR-322) SHARE_BUYBACK 은 이제 keyMetric 실점수 보유 → omit 아님(분모 유지)', () => {
+      // omit→실평가 승격: 규모(buybackRatioToSales) 충분 → keyMetric 양(+) 실점수, 가용 유지.
+      const r = service.computeBuyScore(buildParams('SHARE_BUYBACK', 'POSITIVE', { buybackRatioToSales: 6 }, LIVE));
+      expect(r.scoreBreakdown.keyMetric).toBe(80); // ratio≥5 → 80
+      expect(r.omittedBuckets).not.toContain('keyMetric');
+      expect(r.dataAvailability.keyMetric).toBe(true);
+      // eslint-disable-next-line no-console
+      console.log(`\n[DAR-322] SHARE_BUYBACK ratio=6 → keyMetric=${r.scoreBreakdown.keyMetric}, ${r.buyScore} ${r.signal}`);
+    });
+
+    it('(DAR-322) THIRD_PARTY_ALLOTMENT 희석은 음수 keyMetric → 인플레이션 방지(분모 유지)', () => {
+      const r = service.computeBuyScore(buildParams('THIRD_PARTY_ALLOTMENT', 'NEGATIVE', { dilutionRate: 25 }, LIVE));
+      expect(r.scoreBreakdown.keyMetric).toBe(-80); // dr≥20 → -80
+      expect(r.omittedBuckets).not.toContain('keyMetric');
+      expect(r.dataAvailability.keyMetric).toBe(true);
+    });
+
+    it('(DAR-322) 임계 미달 magnitude 는 BUY 로 격상되지 않는다(보수성 증명)', () => {
+      // 자사주 취득이지만 규모 미미(ratio=0.1 → keyMetric 0). 실평가(분모 유지)지만 점수가 낮아
+      // 전체 buyScore 가 BUY 임계 미만에 머문다.
+      const r = service.computeBuyScore(buildParams('SHARE_BUYBACK', 'POSITIVE', { buybackRatioToSales: 0.1 }, LIVE));
+      expect(r.scoreBreakdown.keyMetric).toBe(0);
+      expect(r.dataAvailability.keyMetric).toBe(true); // 규칙 있음 → 실평가(omit 아님)
+      expect(r.buyScore).toBeLessThan(SIGNAL_GRADE_THRESHOLDS.BUY_CANDIDATE);
+      expect(r.signal).not.toBe('BUY_CANDIDATE');
+      expect(r.signal).not.toBe('STRONG_BUY_CANDIDATE');
+      // eslint-disable-next-line no-console
+      console.log(`\n[DAR-322 보수성] SHARE_BUYBACK ratio=0.1 → ${r.buyScore} ${r.signal} (BUY 격상 안 됨)`);
     });
 
     it('(a) UNKNOWN polarity(OTHER) personaViews 전부 NEUTRAL → personaFit omit', () => {

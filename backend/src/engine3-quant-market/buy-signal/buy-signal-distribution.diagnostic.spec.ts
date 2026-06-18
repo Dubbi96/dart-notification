@@ -22,7 +22,15 @@
  */
 
 import { BuySignalService, BuyScoreParams } from './buy-signal.service';
-import { SIGNAL_GRADE_THRESHOLDS } from './config/buy-signal.config';
+import {
+  SIGNAL_GRADE_THRESHOLDS,
+  BUY_SCORE_WEIGHTS,
+} from './config/buy-signal.config';
+import {
+  renormalizeWeights,
+  BucketAvailability,
+  BucketKey,
+} from './scoring/bucket-renormalization';
 
 type Avail = {
   eventStudy: boolean;
@@ -156,15 +164,67 @@ describe('DAR-134 진단: Buy Score 분포·버킷 기여·결측 분석', () =>
     expect(mid.dataAvailability.chart).toBe(false);
   });
 
-  it('희석 측정: keyMetric 룰無 이벤트의 0점이 분모를 차지해 강한 공시를 끌어내림', () => {
-    // SHARE_BUYBACK(base 65, 강한 양+)인데 keyMetric 룰이 없어 keyMetric=0.
-    // 현재: keyMetric '가용'(true) → 0점이 ~0.18 가중치를 점유(희석).
-    const r = service.computeBuyScore(buildParams('SHARE_BUYBACK', 'POSITIVE', {}, LIVE));
-    const b = r.scoreBreakdown;
-    // keyMetric 기여가 0인데 omitted 에 없음 = 희석 증거.
-    expect(b.keyMetric).toBe(0);
-    expect(r.omittedBuckets).not.toContain('keyMetric');
-    // eslint-disable-next-line no-console
-    console.log(`\n[DILUTION] SHARE_BUYBACK POSITIVE → ${r.buyScore} ${r.signal} (keyMetric=0 이 분모 점유, omitted=${r.omittedBuckets.join(',')})`);
+  // ─── DAR-321 검증 게이트: 양방향 정직성(디플레이션 교정 ∧ 인플레이션 방지) ───
+  describe('DAR-321: 미모델 keyMetric / UNKNOWN personaFit 분모 omit', () => {
+    /** breakdown·availability 로 weightedSum 을 재현(penalty=0 전제) → buyScore 역산. */
+    const scoreFrom = (
+      breakdown: Record<BucketKey, number>,
+      availability: BucketAvailability,
+    ): number => {
+      const { effectiveWeights } = renormalizeWeights({ ...BUY_SCORE_WEIGHTS }, availability);
+      const keys = Object.keys(effectiveWeights) as BucketKey[];
+      const sum = keys.reduce((s, k) => s + effectiveWeights[k] * breakdown[k], 0);
+      return Math.round(Math.max(-100, Math.min(100, sum)));
+    };
+
+    it('(a) 미모델 이벤트(SHARE_BUYBACK)는 keyMetric omit → 구조적 0희석에서 회복', () => {
+      const r = service.computeBuyScore(buildParams('SHARE_BUYBACK', 'POSITIVE', {}, LIVE));
+      // 미채점(룰無) 0 은 이제 분모에서 제외된다.
+      expect(r.scoreBreakdown.keyMetric).toBe(0);
+      expect(r.omittedBuckets).toContain('keyMetric');
+      expect(r.dataAvailability.keyMetric).toBe(false);
+
+      // 회복 증명: keyMetric 을 분모에 강제로 끼운 반사실(diluted) 점수보다 실제 점수가 높다.
+      const dilutedAvail: BucketAvailability = { ...r.dataAvailability, keyMetric: true };
+      const diluted = scoreFrom(r.scoreBreakdown as Record<BucketKey, number>, dilutedAvail);
+      expect(r.buyScore).toBeGreaterThan(diluted);
+      // eslint-disable-next-line no-console
+      console.log(`\n[DAR-321 a] SHARE_BUYBACK → ${r.buyScore} ${r.signal} (omit keyMetric; diluted=${diluted}, omitted=${r.omittedBuckets.join(',')})`);
+    });
+
+    it('(a) UNKNOWN polarity(OTHER) personaViews 전부 NEUTRAL → personaFit omit', () => {
+      const r = service.computeBuyScore(buildParams('OTHER', 'UNKNOWN', {}, LIVE));
+      // OTHER → keyMetric 룰無, UNKNOWN → persona 전부 NEUTRAL: 둘 다 omit.
+      expect(r.omittedBuckets).toContain('keyMetric');
+      expect(r.omittedBuckets).toContain('personaFit');
+      // 그럼에도 disclosureEvent(미분류 base 0)가 분모에 남아 OTHER 를 거짓 BUY 로 띄우지 않는다.
+      expect(r.buyScore).toBeLessThan(SIGNAL_GRADE_THRESHOLDS.BUY_CANDIDATE);
+    });
+
+    it('(b) 규칙 있는 실제 저점 이벤트(SUPPLY_CONTRACT salesRatio<1)는 keyMetric 유지 → 분모 불변', () => {
+      // 규칙은 있고 값이 저점(score 0)인 경우: "실제 평가" → 분모에서 빼지 않는다(인플레이션 방지).
+      const r = service.computeBuyScore(buildParams('SUPPLY_CONTRACT', 'POSITIVE', { salesRatio: 0.5 }, LIVE));
+      expect(r.scoreBreakdown.keyMetric).toBe(0);
+      expect(r.omittedBuckets).not.toContain('keyMetric');
+      expect(r.dataAvailability.keyMetric).toBe(true);
+      // persona POSITIVE(비중립) → personaFit 도 유지.
+      expect(r.omittedBuckets).not.toContain('personaFit');
+    });
+
+    it('(c) 전버킷 가용 시 재정규화가 기존 가중치를 비트단위 보존(회귀 0)', () => {
+      const allAvailable = (Object.keys(BUY_SCORE_WEIGHTS) as BucketKey[]).reduce(
+        (acc, k) => ((acc[k] = true), acc),
+        {} as BucketAvailability,
+      );
+      const { effectiveWeights, omittedBuckets } = renormalizeWeights(
+        { ...BUY_SCORE_WEIGHTS },
+        allAvailable,
+      );
+      expect(omittedBuckets).toEqual([]);
+      for (const k of Object.keys(BUY_SCORE_WEIGHTS) as BucketKey[]) {
+        // 부동소수 재나눗셈 없이 원본 가중치를 그대로 반환해야 한다.
+        expect(Object.is(effectiveWeights[k], BUY_SCORE_WEIGHTS[k])).toBe(true);
+      }
+    });
   });
 });

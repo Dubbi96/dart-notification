@@ -19,6 +19,36 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+/**
+ * key-metric 채점 규칙이 정의된 이벤트 타입 집합 (SSOT).
+ *
+ * 아래 scoreKeyMetric 의 switch case 집합과 1:1 정합을 유지한다(둘 중 하나만 바뀌면
+ * key-metric.scorer.spec 의 parity 단언이 깨지도록 묶었다). 이 집합 밖의 이벤트는
+ * scoreKeyMetric 이 default → 0("미채점") 을 반환한다.
+ */
+export const KEY_METRIC_RULE_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'SUPPLY_CONTRACT',
+  'SHARE_CANCELLATION',
+  'DIVIDEND_INCREASE',
+  'PAID_IN_CAPITAL_INCREASE',
+  'CB_ISSUANCE',
+  'EARNINGS_SURPRISE',
+]);
+
+/**
+ * 이벤트 타입에 key-metric 채점 규칙이 존재하는지 판별하는 순수 헬퍼 (DAR-321).
+ *
+ * 구분의 핵심:
+ *  - 규칙이 있는 이벤트의 중립/저점 0 → "실제 평가" → 재정규화 분모 유지가 타당.
+ *  - 규칙 자체가 없는(default → 0, "미채점") 이벤트의 0 → "데이터 없음" 기본값 →
+ *    분모에서 제외(omit)해야 한다(insider/fundamental 의 기존 omit 패턴과 동일).
+ *
+ * 스코어 로직(scoreKeyMetric) 자체는 불변. 이 헬퍼는 가용 판정 전용.
+ */
+export function hasKeyMetricRule(eventType: string): boolean {
+  return KEY_METRIC_RULE_EVENT_TYPES.has(eventType);
+}
+
 export function scoreKeyMetric(input: KeyMetricInput): number {
   const m = input.extractedData;
 

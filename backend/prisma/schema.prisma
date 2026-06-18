@@ -956,6 +956,11 @@ model TradingSignal {
   // 차단 사유 (signal=BLOCKED 시)
   blockedReason String?
 
+  // DAR-323: '왜 강한 신호가 아닌지' 억제 사유 enum 문자열(가독성·정직성).
+  // EVENT_STUDY_DARK | INDICATORS_MISSING | UNMODELED_EVENT | NO_POLARITY | GENUINELY_NEUTRAL
+  // BUY 이상·BLOCKED·기존 행 = null. 점수 산식 무관(순수 파생 표시값).
+  suppressionReason String?
+
   // 유효 시간
   validUntil DateTime?
 

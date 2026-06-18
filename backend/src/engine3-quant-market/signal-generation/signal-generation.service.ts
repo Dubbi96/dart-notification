@@ -915,6 +915,8 @@ export class SignalGenerationService {
       riskFactors: r.riskFactors,
       signalSummary: r.signalSummary ?? null,
       blockedReason: r.blockedReason ?? null,
+      // DAR-323: '왜 강한 신호가 아닌지' 억제 사유 enum 영속(scoreBreakdown 옆).
+      suppressionReason: r.suppressionReason ?? null,
       validUntil: r.validUntil ?? null,
     };
   }
@@ -939,6 +941,8 @@ export class SignalGenerationService {
       riskFactors: r.riskFactors,
       signalSummary: r.signalSummary ?? null,
       blockedReason: r.blockedReason ?? null,
+      // DAR-323: 재채점 시에도 억제 사유 재반영(omittedBuckets·등급 변동 추종).
+      suppressionReason: r.suppressionReason ?? null,
       validUntil: r.validUntil ?? null,
     };
   }

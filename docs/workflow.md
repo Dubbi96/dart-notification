@@ -589,6 +589,19 @@ KrxMarketDataScheduler.collectStockStatusesForDate()
      StockStatus.upsert(stockCode) — 거래정지/관리/투자주의/이상급등 플래그
 ```
 
+### 5.3a 시장분류 동기화 (월요일 08:40, DAR-328)
+
+```
+KrxMarketDataScheduler.syncCompanyMarkets()
+  └─ KrxApiService.fetchStkIsuBaseInfo + fetchKsqIsuBaseInfo (KOSPI/KOSDAQ 기준정보)
+     Company.update(market: KOSPI|KOSDAQ) — 멱등(이미 정확하면 스킵), KONEX·미상 제외
+```
+
+- 배경: `company.market` 이 일반값(`'LISTED'`)·null 이면 EventStudy 가 시장지수(0001/1001)에
+  매핑하지 못해 관측 0건(`noStockOrMarket`) → 공시↔주가 상관분석 차단. KRX 기준정보의
+  시장구분을 정본으로 백필해 해소한다(AI 미개입 순수 데이터 정합).
+- 주 1회 Cron + `collectAll()` EOD 배치에 포함(forward 매퍼). 수동: `POST /market-data/sync-company-markets?basDd=YYYYMMDD`.
+
 ### 5.4 KRX API 에러 처리
 
 | 상황 | 처리 |
@@ -603,7 +616,9 @@ KrxMarketDataScheduler.collectStockStatusesForDate()
 
 ```
 POST /market-data/collect/all?basDd=YYYYMMDD
-  → collectAll() — 일봉+지수+종목상태 병렬 + MarketDataCollectionLog 기록
+  → collectAll() — 일봉+지수+종목상태+시장분류 병렬 + MarketDataCollectionLog 기록
+POST /market-data/sync-company-markets?basDd=YYYYMMDD
+  → syncCompanyMarkets() — company.market 을 KOSPI/KOSDAQ 로 백필(멱등, DAR-328)
 GET  /market-data/collection-logs?tradeDate=YYYYMMDD
   → MarketDataCollectionLog 조회 (최근 20건)
 ```

@@ -413,4 +413,37 @@ describe('EventStudyCalculationService.run()', () => {
     // 표본 2 → INSUFFICIENT 2그룹
     expect(upserts.every(u => u.create.status === 'INSUFFICIENT')).toBe(true);
   });
+
+  // DAR-328: company.market 이 지수코드(0001/1001)에 매핑되는 KOSPI/KOSDAQ 여야
+  // 관측이 만들어진다. 'LISTED' 같은 일반값은 INDEX_CODE_BY_MARKET 매핑이 없어
+  // noStockOrMarket 으로 스킵된다 — 시장분류 백필이 관측 0건 차단을 해소함을 증명.
+  it("'LISTED' 시장값은 noStockOrMarket 으로 스킵되지만, KOSPI/KOSDAQ 로 분류된 회사는 관측을 만든다 (DAR-328)", async () => {
+    // 동일 종목/이벤트를 'LISTED' 로 두면 관측 0건(현 장애 재현)
+    const listed = Array.from({ length: 35 }, (_, i) => makeDbEvent(i, 'LISTED'));
+    const { service: svcListed } = buildService(listed);
+    const listedSummary = await svcListed.run();
+    expect(listedSummary.eventsScanned).toBe(35);
+    expect(listedSummary.skipped.noStockOrMarket).toBe(35);
+    expect(listedSummary.observationsBuilt).toBe(0);
+
+    // 같은 데이터를 KOSPI 로 분류하면 관측이 만들어지고 READY/INSUFFICIENT 결과가 생성된다
+    const classified = Array.from({ length: 35 }, (_, i) => makeDbEvent(i, 'KOSPI'));
+    const { service: svcKospi, upserts } = buildService(classified);
+    const kospiSummary = await svcKospi.run();
+    expect(kospiSummary.skipped.noStockOrMarket).toBe(0);
+    expect(kospiSummary.observationsBuilt).toBe(35);
+    expect(upserts.length).toBeGreaterThan(0);
+    expect(upserts.some(u => u.create.marketType === 'KOSPI')).toBe(true);
+  });
+
+  it('KOSDAQ 로 분류된 회사도 KOSDAQ 지수(1001)에 매핑되어 관측을 만든다 (DAR-328)', async () => {
+    const events = Array.from({ length: 35 }, (_, i) => makeDbEvent(i, 'KOSDAQ'));
+    const { service, upserts } = buildService(events);
+
+    const summary = await service.run();
+
+    expect(summary.skipped.noStockOrMarket).toBe(0);
+    expect(summary.observationsBuilt).toBe(35);
+    expect(upserts.some(u => u.create.marketType === 'KOSDAQ')).toBe(true);
+  });
 });

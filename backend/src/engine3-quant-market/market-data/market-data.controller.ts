@@ -92,6 +92,17 @@ export class MarketDataController {
     return { success: true, data: result };
   }
 
+  @Post('sync-company-markets')
+  @ApiOperation({
+    summary:
+      'KRX 기준정보로 company.market 을 KOSPI/KOSDAQ 로 분류·백필 (DAR-328, 멱등) — EventStudy noStockOrMarket 스킵 해소',
+  })
+  @ApiQuery({ name: 'basDd', required: true, description: '기준일 YYYYMMDD' })
+  async syncCompanyMarkets(@Query('basDd') basDd: string) {
+    const result = await this.scheduler.syncCompanyMarkets(basDd, 'MANUAL');
+    return { success: true, data: result };
+  }
+
   @Post('backfill/daily')
   @ApiOperation({
     summary: 'KRX 히스토리컬 일봉 백필 (과거 N거래일, 멱등)',

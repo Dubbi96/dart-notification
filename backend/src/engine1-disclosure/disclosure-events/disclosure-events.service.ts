@@ -198,7 +198,7 @@ export class DisclosureEventsService {
         // BullMQ가 attempts·exponential backoff로 재시도하고, 소진된 잡은
         // removeOnFail 보존분으로 남아 ai-cost health에 관측된다(잡 영구 소멸 방지).
         // consumer 측 rcpNo+task 멱등 캐시로 재시도 시 중복 LLM 비용 위험은 낮다.
-        // DAR-230: 자연키 jobId(ai:<rcpNo>)로 다경로 재발행(reprocess·드레인) 중복 적재 차단.
+        // DAR-230: 자연키 jobId(ai-<rcpNo>)로 다경로 재발행(reprocess·드레인) 중복 적재 차단.
         await this.aiQueue.add(JOB.EVENT_EXTRACTED, payload, {
           ...AI_ANALYZE_JOB_OPTIONS,
           jobId: aiAnalyzeJobId(rcpNo),

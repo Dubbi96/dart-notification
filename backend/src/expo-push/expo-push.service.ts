@@ -106,7 +106,7 @@ export class ExpoPushService {
     if (this.receiptQueue) {
       try {
         const payload: ExpoReceiptJobData = { ticketIds };
-        // DAR-230: 배치 첫 ticketId 자연키(rcpt:<ticketId>)로 동일 배치 중복 적재 방지.
+        // DAR-230: 배치 첫 ticketId 자연키(rcpt-<ticketId>)로 동일 배치 중복 적재 방지.
         await this.receiptQueue.add(EXPO_RECEIPT_JOB.CHECK, payload, {
           ...EXPO_RECEIPT_JOB_OPTIONS,
           delay: EXPO_RECEIPT_CHECK_DELAY_MS,

@@ -157,14 +157,19 @@ export type NotifyJobData =
 // 다경로 재발행에도 큐 1건만 유지된다. removeOnComplete:true 인 happy-path 는
 // 완료 즉시 잡이 제거돼 정당한 재처리(reprocess)를 막지 않는다.
 
-/** AI_ANALYZE 잡 dedup jobId — 자연키 rcpNo 기반(`ai:<rcpNo>`). */
-export const aiAnalyzeJobId = (rcpNo: string): string => `ai:${rcpNo}`;
+// 구분자는 '-' 를 쓴다. BullMQ 4+/Redis 는 custom jobId 에 ':' 를 허용하지 않아
+// (`Error: Custom Id cannot contain :`) ':' 를 쓰면 add 자체가 throw 돼 잡이
+// 적재되지 않는다(이벤트추출→AI→신호→알림 파이프라인 전면 실패). '-' 는 안전
+// 문자이며, 접두사·자연키가 그대로라 dedup 결정성(동일 키→동일 jobId)은 보존된다.
+
+/** AI_ANALYZE 잡 dedup jobId — 자연키 rcpNo 기반(`ai-<rcpNo>`). */
+export const aiAnalyzeJobId = (rcpNo: string): string => `ai-${rcpNo}`;
 
 /**
  * NOTIFY 잡 dedup jobId — 잡 유형별 자연키 기반.
- *  - SIGNAL          → `sig:<signalId>`
- *  - EXIT            → `exit:<positionId>`
- *  - THESIS_VIOLATED → `thesis:<positionThesisId>`
+ *  - SIGNAL          → `sig-<signalId>`
+ *  - EXIT            → `exit-<positionId>`
+ *  - THESIS_VIOLATED → `thesis-<positionThesisId>`
  * 매핑 불가한 잡 이름이면 undefined(=jobId 미부여, 종전 동작 유지).
  */
 export function notifyJobId(
@@ -173,22 +178,22 @@ export function notifyJobId(
 ): string | undefined {
   switch (jobName) {
     case NOTIFY_JOB.SIGNAL:
-      return `sig:${(data as NotifySignalJobData).signalId}`;
+      return `sig-${(data as NotifySignalJobData).signalId}`;
     case NOTIFY_JOB.EXIT:
-      return `exit:${(data as NotifyExitJobData).positionId}`;
+      return `exit-${(data as NotifyExitJobData).positionId}`;
     case NOTIFY_JOB.THESIS_VIOLATED:
-      return `thesis:${(data as NotifyThesisViolatedJobData).positionThesisId}`;
+      return `thesis-${(data as NotifyThesisViolatedJobData).positionThesisId}`;
     default:
       return undefined;
   }
 }
 
 /**
- * EXPO_RECEIPT 잡 dedup jobId — 배치 첫 ticketId 기반(`rcpt:<ticketId>`).
+ * EXPO_RECEIPT 잡 dedup jobId — 배치 첫 ticketId 기반(`rcpt-<ticketId>`).
  * ticketId 는 Expo 가 발급하는 전역 고유값이라 배치별 안정 자연키가 된다.
  * 호출부는 ticketIds 비어있을 때 enqueue 자체를 건너뛰지만, 순수 함수로서
- * 빈 배열도 안전하게 처리한다(`rcpt:empty`).
+ * 빈 배열도 안전하게 처리한다(`rcpt-empty`).
  */
 export const expoReceiptJobId = (
   ticketIds: { id: string }[],
-): string => `rcpt:${ticketIds[0]?.id ?? 'empty'}`;
+): string => `rcpt-${ticketIds[0]?.id ?? 'empty'}`;

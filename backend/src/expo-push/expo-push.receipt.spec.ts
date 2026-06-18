@@ -66,7 +66,7 @@ describe('ExpoPushService — receipt durable화 (DAR-182)', () => {
       expect(options.delay).toBe(EXPO_RECEIPT_CHECK_DELAY_MS);
       expect(options.attempts).toBe(3);
       // DAR-230: 배치 첫 ticketId 자연키 jobId 로 동일 배치 중복 적재 차단.
-      expect(options.jobId).toBe('rcpt:receipt-1');
+      expect(options.jobId).toBe('rcpt-receipt-1');
     });
 
     it('status:ok ticket 이 없으면 잡을 enqueue 하지 않음(회귀)', async () => {

@@ -58,7 +58,7 @@ export class NotificationProducerService {
         // 동일 잡 재시도 안전: consumer 측 멱등(isNotified / NotificationHistory unique)
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 },
-        // DAR-230: 잡 유형별 자연키 jobId(sig:/exit:/thesis:)로 다경로 재발행 중복 적재 방지.
+        // DAR-230: 잡 유형별 자연키 jobId(sig-/exit-/thesis-)로 다경로 재발행 중복 적재 방지.
         jobId: notifyJobId(jobName, data),
       });
       this.logger.debug(`NOTIFY enqueue: ${jobName}`);

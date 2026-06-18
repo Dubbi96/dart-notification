@@ -282,14 +282,16 @@ export function SimulationStatusSection() {
   const status = query.data;
 
   // DAR-122: 종목당 1카드(데이터 레벨 중복 보조 방어선). keyExtractor에 index를 쓰면
-  // 중복이 '정상 렌더'되어 오히려 눈에 보이므로, 디듑 후 안정 키(stockCode/corpCode)만 사용.
+  // 중복이 '정상 렌더'되어 오히려 눈에 보이므로, 디듑 후 안정 키만 사용.
+  // DAR-335: 디듑 보장키와 keyExtractor를 corpCode로 일치(서로 다른 corpCode가 동일
+  // stockCode를 가질 때의 키 충돌 위험 제거). corpCode는 포지션 자연 FK로 항상 존재.
   const positions = dedupeByStock(status?.positions ?? [], (item) => item.corpCode);
 
   return (
     <FlatList
       data={positions}
       renderItem={renderPosition}
-      keyExtractor={(item) => item.stockCode || item.corpCode}
+      keyExtractor={(item) => item.corpCode}
       contentContainerStyle={styles.listContent}
       showsVerticalScrollIndicator={false}
       refreshing={query.isRefetching}

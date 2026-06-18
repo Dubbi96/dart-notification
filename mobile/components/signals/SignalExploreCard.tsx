@@ -4,6 +4,7 @@ import { Surface, Chip } from 'react-native-paper';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { SignalMiniGauge } from '@components/signals/SignalMiniGauge';
+import { SignalFreshnessBadge } from '@components/signals/SignalFreshnessBadge';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
 import { getEventTypeLabel } from '@utils/disclosureType';
 
@@ -85,6 +86,13 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
         >
           {rationale}
         </Text>
+
+        {/* DAR-326: 신선도 배지 — 만료/오래됨만 노출(신선 신호엔 미표시) */}
+        <SignalFreshnessBadge
+          createdAt={signal.createdAt}
+          expiresAt={signal.expiresAt}
+          style={styles.freshness}
+        />
       </Surface>
     </TouchableOpacity>
   );
@@ -120,5 +128,8 @@ const styles = StyleSheet.create({
   },
   gaugeWrap: {
     marginTop: spacing.md,
+  },
+  freshness: {
+    marginTop: spacing.sm,
   },
 });

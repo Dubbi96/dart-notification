@@ -18,6 +18,7 @@ import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { ScoreBreakdownSection } from '@components/signals/ScoreBreakdownSection';
+import { SignalFreshnessBadge } from '@components/signals/SignalFreshnessBadge';
 import { CompanyHubLink } from '@components/company/CompanyHubLink';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
 import { isDataLimited } from '@utils/dataLimit';
@@ -280,6 +281,14 @@ export default function SignalDetailScreen() {
             statusText={gradeLabel(signal.grade)}
             oneLiner={scoreOneLiner(signal.buyScore, signal.grade)}
           />
+          {/* DAR-326: 점수 게이지 하단 신선도 배지 — 생성시점 스냅샷 점수가
+              급변 후에도 유효해 보이는 구식 전제 방지. 신선 신호엔 미표시. */}
+          <SignalFreshnessBadge
+            createdAt={signal.createdAt}
+            expiresAt={signal.expiresAt}
+            variant="detail"
+            style={styles.freshnessBadge}
+          />
           {evidenceSampleN !== undefined ? (
             <EvidenceMeta
               sample={{ n: evidenceSampleN, unit: '건' }}
@@ -436,6 +445,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   gaugeEvidence: {
+    marginTop: spacing.sm,
+  },
+  freshnessBadge: {
     marginTop: spacing.sm,
   },
   card: {

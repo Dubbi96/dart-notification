@@ -7,6 +7,7 @@ import { spacing, radius } from '@theme/spacing';
 import { CAROUSEL_GAP } from '@utils/carouselMetrics';
 import { RiskStatusBadges, summarizeRiskStatus } from '@components/common/RiskStatusBadges';
 import { ScoreGauge } from '@components/common/ScoreGauge';
+import { SignalFreshnessBadge } from '@components/signals/SignalFreshnessBadge';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
 import { useStockQuotes } from '@hooks/useStockQuotes';
 import { StockPriceBadge } from '@components/common/StockPriceBadge';
@@ -121,6 +122,12 @@ function CuratedSignalCardBase({ signal, onPress, cardWidth }: CuratedSignalCard
               oneLiner={scoreOneLiner(signal.buyScore, signal.grade)}
               accessibilityHidden
             />
+            {/* DAR-326: 신선도 배지 — 만료/오래됨만 노출(신선 신호엔 미표시) */}
+            <SignalFreshnessBadge
+              createdAt={signal.createdAt}
+              expiresAt={signal.expiresAt}
+              style={styles.freshness}
+            />
           </View>
         )}
       </Surface>
@@ -167,6 +174,9 @@ const styles = StyleSheet.create({
   },
   gaugeWrap: {
     marginTop: spacing.md,
+  },
+  freshness: {
+    marginTop: spacing.sm,
   },
   blockedBox: {
     flexDirection: 'row',

@@ -4,6 +4,7 @@ import { Surface, Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
+import { CAROUSEL_GAP } from '@utils/carouselMetrics';
 import { RiskStatusBadges, summarizeRiskStatus } from '@components/common/RiskStatusBadges';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
@@ -42,6 +43,10 @@ function CuratedSignalCardBase({ signal, onPress, cardWidth }: CuratedSignalCard
     <TouchableOpacity
       activeOpacity={0.85}
       onPress={handlePress}
+      // DAR-319: 카드 간 간격을 carousel contentContainer 의 gap 대신 각 카드 marginRight 로
+      // 결정론 적용(스켈레톤과 동일 방식). Android RN0.85 Fabric 가로 FlatList 의
+      // contentContainerStyle gap 미적용 시 카드가 붙어/겹쳐 보이는 문제 방지.
+      style={styles.cardTouchable}
       accessibilityRole="button"
       // 용어 위계 L2 고정(DAR-217): 카드 a11y는 SSOT 빌더로 '매수 신호'+'Buy Score' 일관.
       accessibilityLabel={buildSignalCardA11yLabel({
@@ -126,6 +131,10 @@ function CuratedSignalCardBase({ signal, onPress, cardWidth }: CuratedSignalCard
 export const CuratedSignalCard = React.memo(CuratedSignalCardBase);
 
 const styles = StyleSheet.create({
+  cardTouchable: {
+    // DAR-319: 카드 단위 간격(= snapToInterval - cardWidth). carousel gap 비의존(크로스플랫폼).
+    marginRight: CAROUSEL_GAP,
+  },
   card: {
     // 폭은 useCarouselCardWidth 로 인라인 주입(DAR-301, 화면 폭 반응형).
     borderRadius: radius.lg,

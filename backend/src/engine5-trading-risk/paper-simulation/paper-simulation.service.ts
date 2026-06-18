@@ -707,7 +707,15 @@ export class PaperSimulationService {
     });
     const closed = await this.prisma.position.findMany({
       where: { portfolioId, status: 'CLOSED' },
-      select: { id: true, entryPrice: true, quantity: true, unrealizedPnl: true, closedAt: true, corpCode: true },
+      select: {
+        id: true,
+        entryPrice: true,
+        currentPrice: true,
+        quantity: true,
+        unrealizedPnl: true,
+        closedAt: true,
+        corpCode: true,
+      },
     });
 
     const unrealizedPnl = open.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
@@ -745,7 +753,10 @@ export class PaperSimulationService {
         continue;
       }
       const after = exitCloses[exitIdx++];
-      const exitPx = p.entryPrice; // 청산 시 currentPrice 가 entry 자리에 없으므로 보수적으로 null 처리
+      // Exit Accuracy 는 '내가 청산한 가격 대비 이후 더 떨어졌나(=청산이 옳았나)'를 측정해야 한다.
+      // CLOSED 포지션은 청산 시 currentPrice=청산가(sellPrice)로 저장된다(위 closePositions 참조).
+      // 청산가 우선, 결측 시에만 보수적으로 entryPrice 폴백.
+      const exitPx = p.currentPrice ?? p.entryPrice;
       if (after.length >= 3 && exitPx > 0) {
         exitOutcomes.push({ d3ReturnPct: ((after[2].closePrice - exitPx) / exitPx) * 100 });
       } else {

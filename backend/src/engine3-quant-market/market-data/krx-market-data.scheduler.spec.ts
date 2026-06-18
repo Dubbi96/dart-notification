@@ -23,6 +23,7 @@ function makeKrxApi(overrides: Partial<KrxApiService> = {}): jest.Mocked<KrxApiS
     fetchStockStatus: jest.fn().mockResolvedValue([]),
     fetchStkIsuBaseInfo: jest.fn().mockResolvedValue([]),
     fetchKsqIsuBaseInfo: jest.fn().mockResolvedValue([]),
+    fetchMarketClassificationFallback: jest.fn().mockResolvedValue([]),
     isWeekend: jest.fn().mockReturnValue(false),
     parseDate: jest.fn().mockReturnValue(new Date('2026-06-04')),
     formatDate: jest.fn().mockReturnValue('20260604'),
@@ -498,6 +499,102 @@ describe('KrxMarketDataScheduler.syncCompanyMarkets', () => {
     expect(result.scanned).toBe(1);
     expect(result.updated).toBe(1);
   });
+
+  // ─── DAR-330: isu_base_info 빈 응답 → 일별매매정보 폴백 ────────────────────
+  it('base_info 정상 응답 시 폴백을 호출하지 않고 source=BASE_INFO 로 백필한다', async () => {
+    const krx = makeKrxApi({
+      fetchStkIsuBaseInfo: jest.fn().mockResolvedValue(stkBase),
+      fetchKsqIsuBaseInfo: jest.fn().mockResolvedValue(ksqBase),
+    });
+    const prisma = makePrisma();
+    (prisma.company.findMany as jest.Mock).mockResolvedValue([
+      { corpCode: 'A005930', stockCode: '005930', market: 'LISTED' },
+    ]);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.syncCompanyMarkets('20260604', 'MANUAL');
+
+    expect(result.source).toBe('BASE_INFO');
+    expect(result.updated).toBe(1);
+    expect(krx.fetchMarketClassificationFallback).not.toHaveBeenCalled();
+  });
+
+  it('base_info 빈 응답이면 일별매매정보(stk/ksq_bydd_trd) 폴백으로 시장분류를 백필한다 (source=DAILY_FALLBACK)', async () => {
+    const krx = makeKrxApi({
+      // isu_base_info 는 (DAR-330 실측처럼) 빈 응답
+      fetchStkIsuBaseInfo: jest.fn().mockResolvedValue([]),
+      fetchKsqIsuBaseInfo: jest.fn().mockResolvedValue([]),
+      // 일별매매정보 폴백은 정상 — KOSPI/KOSDAQ 분류 반환
+      fetchMarketClassificationFallback: jest.fn().mockResolvedValue([
+        { stockCode: '005930', stockName: '삼성전자', marketType: 'KOSPI' },
+        { stockCode: '035720', stockName: '카카오게임즈', marketType: 'KOSDAQ' },
+      ]),
+    });
+    const prisma = makePrisma();
+    (prisma.company.findMany as jest.Mock).mockResolvedValue([
+      { corpCode: 'A005930', stockCode: '005930', market: 'LISTED' },
+      { corpCode: 'A035720', stockCode: '035720', market: null },
+    ]);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.syncCompanyMarkets('20260604', 'MANUAL');
+
+    expect(krx.fetchMarketClassificationFallback).toHaveBeenCalledWith('20260604');
+    expect(result.source).toBe('DAILY_FALLBACK');
+    expect(result.scanned).toBe(2);
+    expect(result.updated).toBe(2); // 폴백 분류로 KOSPI/KOSDAQ 백필
+    expect(result.unmatched).toBe(0);
+    expect(prisma.company.update).toHaveBeenCalledWith({
+      where: { corpCode: 'A005930' },
+      data: { market: 'KOSPI' },
+    });
+    expect(prisma.company.update).toHaveBeenCalledWith({
+      where: { corpCode: 'A035720' },
+      data: { market: 'KOSDAQ' },
+    });
+  });
+
+  it('폴백 분류의 KONEX·빈코드는 제외하고 KOSPI/KOSDAQ 만 백필한다', async () => {
+    const krx = makeKrxApi({
+      fetchStkIsuBaseInfo: jest.fn().mockResolvedValue([]),
+      fetchKsqIsuBaseInfo: jest.fn().mockResolvedValue([]),
+      fetchMarketClassificationFallback: jest.fn().mockResolvedValue([
+        { stockCode: '005930', stockName: '삼성전자', marketType: 'KOSPI' },
+        { stockCode: '900110', stockName: '코넥스사', marketType: 'KONEX' },
+        { stockCode: '', stockName: '빈코드', marketType: 'KOSPI' },
+      ]),
+    });
+    const prisma = makePrisma();
+    (prisma.company.findMany as jest.Mock).mockResolvedValue([
+      { corpCode: 'A005930', stockCode: '005930', market: 'LISTED' },
+      { corpCode: 'A900110', stockCode: '900110', market: 'LISTED' },
+    ]);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.syncCompanyMarkets('20260604', 'MANUAL');
+
+    expect(result.source).toBe('DAILY_FALLBACK');
+    expect(result.updated).toBe(1); // 005930만
+    expect(result.unmatched).toBe(1); // KONEX(900110)
+    expect(prisma.company.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('base_info·일별매매정보 모두 0행이면 폴백 시도 후에도 갱신 없음(기준정보 없음)', async () => {
+    const krx = makeKrxApi({
+      fetchStkIsuBaseInfo: jest.fn().mockResolvedValue([]),
+      fetchKsqIsuBaseInfo: jest.fn().mockResolvedValue([]),
+      fetchMarketClassificationFallback: jest.fn().mockResolvedValue([]),
+    });
+    const prisma = makePrisma();
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.syncCompanyMarkets('20260604', 'CRON');
+
+    expect(krx.fetchMarketClassificationFallback).toHaveBeenCalledWith('20260604');
+    expect(result.message).toBe('기준정보 없음');
+    expect(result.source).toBe('DAILY_FALLBACK'); // 폴백을 시도했음을 명시
+    expect(prisma.company.findMany).not.toHaveBeenCalled();
+  });
 });
 
 // ─── KrxApiService 단위 ──────────────────────────────────────────────────────
@@ -694,5 +791,39 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
     expect(statuses).toHaveLength(2);
     expect(statuses[0].stockCode).toBe('005930');
     expect(statuses[1].stockCode).toBe('035720');
+  });
+
+  // DAR-330: isu_base_info 불가 시 일별매매정보(stk/ksq_bydd_trd)에서 시장분류 도출
+  it('fetchMarketClassificationFallback — stk_bydd_trd→KOSPI, ksq_bydd_trd→KOSDAQ 로 분류', async () => {
+    const axiosGet = jest
+      .fn()
+      // stk_bydd_trd (KOSPI)
+      .mockResolvedValueOnce({
+        data: {
+          OutBlock_1: [
+            { ISU_CD: '005930', ISU_NM: '삼성전자', TDD_CLSPRC: '70,500' },
+            { ISU_CD: '000660', ISU_NM: 'SK하이닉스', TDD_CLSPRC: '180,000' },
+          ],
+        },
+      })
+      // ksq_bydd_trd (KOSDAQ)
+      .mockResolvedValueOnce({
+        data: { OutBlock_1: [{ ISU_CD: '035720', ISU_NM: '카카오', TDD_CLSPRC: '45,500' }] },
+      });
+    const krx = makeRealKrxWithAxiosMock(axiosGet);
+
+    const result = await krx.fetchMarketClassificationFallback('20260604');
+
+    const calledUrls: string[] = axiosGet.mock.calls.map((c: any[]) => c[0] as string);
+    expect(calledUrls.some((u) => u.includes('/sto/stk_bydd_trd'))).toBe(true);
+    expect(calledUrls.some((u) => u.includes('/sto/ksq_bydd_trd'))).toBe(true);
+    // isu_base_info 엔드포인트는 사용하지 않음 — 빈 응답 회피가 목적
+    expect(calledUrls.some((u) => u.includes('isu_base_info'))).toBe(false);
+
+    expect(result).toHaveLength(3);
+    const kospi = result.filter((r: KrxStockBaseInfo) => r.marketType === 'KOSPI');
+    const kosdaq = result.filter((r: KrxStockBaseInfo) => r.marketType === 'KOSDAQ');
+    expect(kospi.map((r: KrxStockBaseInfo) => r.stockCode).sort()).toEqual(['000660', '005930']);
+    expect(kosdaq.map((r: KrxStockBaseInfo) => r.stockCode)).toEqual(['035720']);
   });
 });

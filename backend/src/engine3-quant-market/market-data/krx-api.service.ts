@@ -265,6 +265,40 @@ export class KrxApiService {
   }
 
   /**
+   * 시장분류(KOSPI/KOSDAQ) 폴백 소스 — 일별매매정보(stk/ksq_bydd_trd)에서 도출 (DAR-330).
+   *
+   * 배경: stk/ksq_isu_base_info 가 (날짜 무관) 빈 응답을 반환하는 환경에서도
+   * 일별매매정보 엔드포인트(stk_bydd_trd·ksq_bydd_trd)는 정상 동작이 입증되었다
+   * (StockDailyPrice 수백만 행 적재). 동일 AUTH_KEY·베이스URL·파싱 경로를 공유하므로
+   * 이를 시장분류 대체 소스로 사용한다.
+   *
+   * 분류 근거: 두 엔드포인트가 시장별로 분리되어 있으므로 "어느 엔드포인트에서
+   * 반환되었는가"가 곧 시장구분이다. stk_bydd_trd → KOSPI, ksq_bydd_trd → KOSDAQ.
+   * (KONEX 는 별도 엔드포인트가 없어 분류 대상 아님 — 기존 값 보존.)
+   *
+   * 반환 형식은 fetchStkIsuBaseInfo / fetchKsqIsuBaseInfo 와 동일(KrxStockBaseInfo[])
+   * 이므로 호출부(syncCompanyMarkets)에서 동일 매핑 로직으로 처리할 수 있다.
+   *
+   * @param basDd 기준일 (YYYYMMDD)
+   */
+  async fetchMarketClassificationFallback(basDd: string): Promise<KrxStockBaseInfo[]> {
+    const [kospiRows, kosdaqRows] = await Promise.all([
+      this.fetchStockDaily(basDd),
+      this.fetchKosqdaqDaily(basDd),
+    ]);
+
+    const toBaseInfo = (
+      rows: KrxStockDailyRow[],
+      marketType: 'KOSPI' | 'KOSDAQ',
+    ): KrxStockBaseInfo[] =>
+      rows
+        .filter((r) => r.stockCode)
+        .map((r) => ({ stockCode: r.stockCode, stockName: r.isuAbbrv, marketType }));
+
+    return [...toBaseInfo(kospiRows, 'KOSPI'), ...toBaseInfo(kosdaqRows, 'KOSDAQ')];
+  }
+
+  /**
    * 종목 상태 수집.
    * isu_mrktact_info(404 확인) → stk_isu_base_info + ksq_isu_base_info로 교체.
    * 거래정지·관리종목 필드는 실응답 확인 후 매핑 예정 (TODO 참조).

@@ -474,6 +474,30 @@ describe('KrxMarketDataScheduler.syncCompanyMarkets', () => {
     expect(result.message).toBe('기준정보 없음');
     expect(prisma.company.findMany).not.toHaveBeenCalled();
   });
+
+  // DAR-329: 수동 컨트롤러(body {}) → basDd undefined 시 현재 거래일 기본값 사용·크래시 없음
+  it('basDd 미전달(undefined) 시 현재 거래일(formatDate)로 기본값 — 크래시 없이 동작', async () => {
+    const krx = makeKrxApi({
+      formatDate: jest.fn().mockReturnValue('20260619'),
+      parseDate: jest.fn().mockReturnValue(new Date('2026-06-19')), // 금요일(평일)
+      fetchStkIsuBaseInfo: jest.fn().mockResolvedValue(stkBase),
+      fetchKsqIsuBaseInfo: jest.fn().mockResolvedValue(ksqBase),
+    });
+    const prisma = makePrisma();
+    (prisma.company.findMany as jest.Mock).mockResolvedValue([
+      { corpCode: 'A005930', stockCode: '005930', market: 'LISTED' },
+    ]);
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    // 컨트롤러가 basDd 없이 호출하는 시나리오
+    const result = await scheduler.syncCompanyMarkets(undefined, 'MANUAL');
+
+    expect(krx.formatDate).toHaveBeenCalled(); // 기본 거래일 산출
+    expect(krx.parseDate).toHaveBeenCalledWith('20260619'); // 기본값을 가드 통과
+    expect(krx.fetchStkIsuBaseInfo).toHaveBeenCalledWith('20260619');
+    expect(result.scanned).toBe(1);
+    expect(result.updated).toBe(1);
+  });
 });
 
 // ─── KrxApiService 단위 ──────────────────────────────────────────────────────
@@ -494,6 +518,22 @@ describe('KrxApiService 유틸리티', () => {
     const krx = new RealKrx(new ConfigService({}));
     const original = '20260604';
     expect(krx.formatDate(krx.parseDate(original))).toBe(original);
+  });
+
+  // DAR-329: parseDate(undefined) 가 `.slice` TypeError(500) 대신 명확한 에러로 거절
+  it('parseDate: undefined/빈문자/형식불량 입력은 명확한 에러로 거절 (slice 크래시 방지)', () => {
+    const { ConfigService } = require('@nestjs/config');
+    const { KrxApiService: RealKrx } = require('./krx-api.service');
+    const krx = new RealKrx(new ConfigService({}));
+    expect(() => krx.parseDate(undefined as unknown as string)).toThrow(/8자리 YYYYMMDD/);
+    expect(() => krx.parseDate('')).toThrow(/8자리 YYYYMMDD/);
+    expect(() => krx.parseDate('2026-06-04')).toThrow(/8자리 YYYYMMDD/);
+    expect(() => krx.parseDate('2026604')).toThrow(/8자리 YYYYMMDD/); // 7자리
+    // 정상 8자리는 그대로 파싱
+    const d = krx.parseDate('20260604');
+    expect(d.getFullYear()).toBe(2026);
+    expect(d.getMonth()).toBe(5); // 0-base 6월
+    expect(d.getDate()).toBe(4);
   });
 
   it('KRX_API_KEY 미설정 시 fetchStockDaily → KrxApiUnavailableError', async () => {

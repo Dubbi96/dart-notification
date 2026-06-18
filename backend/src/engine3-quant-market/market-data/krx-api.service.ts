@@ -299,8 +299,19 @@ export class KrxApiService {
     return day === 0 || day === 6;
   }
 
-  /** YYYYMMDD 포맷 → Date */
+  /**
+   * YYYYMMDD 포맷 → Date
+   *
+   * DAR-329: undefined/빈문자/형식불량 입력은 `.slice` 크래시(TypeError) 대신 명확한
+   * 에러로 거절한다 — 호출부(수동 컨트롤러 등)가 기준일을 누락하면 8자리 숫자 기본값을
+   * 먼저 채워 넘기도록 강제하기 위함.
+   */
   parseDate(yyyymmdd: string): Date {
+    if (typeof yyyymmdd !== 'string' || !/^[0-9]{8}$/.test(yyyymmdd)) {
+      throw new Error(
+        `[KRX] parseDate: 기준일은 8자리 YYYYMMDD 문자열이어야 합니다 (받음: ${JSON.stringify(yyyymmdd)})`,
+      );
+    }
     return new Date(
       parseInt(yyyymmdd.slice(0, 4)),
       parseInt(yyyymmdd.slice(4, 6)) - 1,

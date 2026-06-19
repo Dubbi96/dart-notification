@@ -117,4 +117,38 @@ describe('extractEventData — DAR-71 고위험 5종 배선', () => {
     expect(data).toEqual({});
     expect(confidence).toBe(0.0);
   });
+
+  // DAR-340: 유상증자 필수 수치(newShares·fundingAmount) 전부 부재 FAILED 회수
+  describe('DAR-340 PAID_IN_CAPITAL_INCREASE 부분 confidence(0.70) 회수', () => {
+    it('docType=PAID_IN_CAPITAL_INCREASE + 수치 전부 부재 → 0.0 아닌 0.70 (NEEDS_REVIEW 경로)', () => {
+      const parsed = { docType: 'PAID_IN_CAPITAL_INCREASE', rawTableCount: 1, keyValueSource: 'table_0' } as ParsedJson;
+      const { data, confidence } = extractEventData(
+        EventType.PAID_IN_CAPITAL_INCREASE,
+        parsed,
+        '주요사항보고서(유상증자결정)',
+      );
+      expect(data.newShares).toBeNull();
+      expect(data.fundingAmount).toBeNull();
+      expect(data.partialFieldsPresent).toBe(true);
+      expect(confidence).toBe(0.7);
+    });
+
+    it('THIRD_PARTY_ALLOTMENT도 동일 회수', () => {
+      const parsed = { docType: 'THIRD_PARTY_ALLOTMENT', rawTableCount: 1, keyValueSource: 'table_0' } as ParsedJson;
+      const { confidence } = extractEventData(EventType.THIRD_PARTY_ALLOTMENT, parsed, '유상증자(제3자배정)');
+      expect(confidence).toBe(0.7);
+    });
+
+    it('newShares만 존재(부분필드) → 0.75 (회수 floor보다 위, 기존 보간 유지)', () => {
+      const parsed = { docType: 'PAID_IN_CAPITAL_INCREASE', rawTableCount: 1, keyValueSource: 'table_0', newShares: 1_000 } as ParsedJson;
+      const { confidence } = extractEventData(EventType.PAID_IN_CAPITAL_INCREASE, parsed, '유상증자');
+      expect(confidence).toBe(0.75);
+    });
+
+    it('음성 대조군: 단서 전무(docType=OTHER, 수치·발행방식 부재) → 0.0 유지 (FAILED 천장 보존)', () => {
+      const parsed = { docType: 'OTHER', rawTableCount: 0, keyValueSource: 'none' } as ParsedJson;
+      const { confidence } = extractEventData(EventType.PAID_IN_CAPITAL_INCREASE, parsed, '');
+      expect(confidence).toBe(0.0);
+    });
+  });
 });

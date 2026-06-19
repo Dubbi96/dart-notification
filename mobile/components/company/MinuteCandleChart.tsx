@@ -38,8 +38,18 @@ function won(v: number): string {
   return `${Math.round(v).toLocaleString('ko-KR')}원`;
 }
 
+/** 서버 조회 ISO 시각 → 'HH:MM' (환경시계 괴리 고지 보조). 파싱 불가면 빈 문자열. */
+function asOfClock(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 interface MinuteCandleChartProps {
   candles: MinuteCandle[];
+  /** 서버가 KIS 를 조회한 시각(ISO). 있으면 정직 라벨에 '서버 조회 HH:MM' 병기. */
+  asOf?: string;
   isLoading?: boolean;
   isError?: boolean;
   onRetry?: () => void;
@@ -47,6 +57,7 @@ interface MinuteCandleChartProps {
 
 export function MinuteCandleChart({
   candles,
+  asOf,
   isLoading = false,
   isError = false,
   onRetry,
@@ -153,6 +164,7 @@ export function MinuteCandleChart({
         <Feather name="activity" size={12} color={colors.textTertiary} />
         <Text style={[typo.small, { color: colors.textTertiary, marginLeft: spacing.xs, flex: 1 }]}>
           실시간 분봉(실제 시장) · 실제 거래 시각 기준이라 앱 환경 시계와 다를 수 있어요
+          {asOfClock(asOf ?? '') ? ` (서버 조회 ${asOfClock(asOf ?? '')})` : ''}
         </Text>
       </View>
 

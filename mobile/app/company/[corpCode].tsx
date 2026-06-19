@@ -320,6 +320,7 @@ export default function CompanyDetailScreen() {
   // DAR-354: 당일 분봉(인트라데이) — 현재가 헤더 아래 차트. 장중에만 1분 폴링.
   const {
     candles: minuteCandles,
+    asOf: minuteCandlesAsOf,
     isLoading: isLoadingMinuteCandles,
     isError: isMinuteCandlesError,
     refetch: refetchMinuteCandles,
@@ -558,6 +559,7 @@ export default function CompanyDetailScreen() {
             <Text style={[typo.h3, { color: colors.text, marginBottom: spacing.sm }]}>분봉 차트</Text>
             <MinuteCandleChart
               candles={minuteCandles}
+              asOf={minuteCandlesAsOf}
               isLoading={isLoadingMinuteCandles}
               isError={isMinuteCandlesError}
               onRetry={() => {

@@ -1,5 +1,5 @@
 import type { ApiResponse } from '@app-types/api.types';
-import type { MinuteCandle, StockQuoteMap } from '@app-types/market-quote.types';
+import type { MinuteCandlesResult, StockQuoteMap } from '@app-types/market-quote.types';
 
 import { api } from './api';
 
@@ -20,16 +20,18 @@ export const marketQuoteService = {
   },
 
   /**
-   * 단일 종목 당일 분봉(인트라데이) 조회 (DAR-354, read-only). 백엔드 분봉 엔드포인트와 연결.
-   * 6자리 코드가 아니면 네트워크 호출 없이 빈 배열. 데이터 없거나 장 시작 전이면 빈 배열.
-   * 응답은 오래된→최신 순(시각 오름차순)을 가정한다.
+   * 단일 종목 당일 분봉(인트라데이) 조회 (DAR-354, read-only). 백엔드 GET /market-data/minute-candles
+   * (DAR-352) 와 1:1. 응답 MinuteCandlesResult: candles(시각 오름차순)+source+asOf(환경시계 괴리 고지용).
+   * 6자리 코드가 아니면 네트워크 호출 없이 UNAVAILABLE 빈 결과. 미가용 시 candles 빈 배열 graceful.
    */
-  getMinuteCandles: (stockCode: string): Promise<MinuteCandle[]> => {
-    if (!/^\d{6}$/.test(stockCode)) return Promise.resolve([]);
+  getMinuteCandles: (stockCode: string): Promise<MinuteCandlesResult> => {
+    if (!/^\d{6}$/.test(stockCode)) {
+      return Promise.resolve({ stockCode, source: 'UNAVAILABLE', asOf: '', candles: [] });
+    }
     return api
-      .get<ApiResponse<MinuteCandle[]>>('/market-data/minute-candles', {
+      .get<ApiResponse<MinuteCandlesResult>>('/market-data/minute-candles', {
         params: { stockCode },
       })
-      .then((r) => r.data.data ?? []);
+      .then((r) => r.data.data);
   },
 };

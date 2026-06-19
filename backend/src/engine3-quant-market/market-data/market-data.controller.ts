@@ -17,6 +17,7 @@ import { StockQuoteService } from './stock-quote.service';
 import { MarketDataService } from './market-data.service';
 import { CandleHistoryService } from './candle-history.service';
 import { CANDLE_RESOLUTIONS, CandleQueryError } from './candle-query';
+import { StockMinutePriceCollector } from './stock-minute-price.collector';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../auth/guards/optional-jwt-auth.guard';
 
@@ -30,6 +31,7 @@ export class MarketDataController {
     private readonly stockQuote: StockQuoteService,
     private readonly marketData: MarketDataService,
     private readonly candleHistory: CandleHistoryService,
+    private readonly minuteCollector: StockMinutePriceCollector,
   ) {}
 
   // 가격 배지 종단연결(DAR-158): 읽기 전용 시세 조회는 게스트 열람 허용(DAR-99 패턴).
@@ -61,19 +63,31 @@ export class MarketDataController {
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({
     summary:
-      '종목 당일 분봉 조회 — KIS 실시간 분봉(시간 오름차순). 미가용(키미설정·장마감·실패) 시 빈 배열 graceful (게스트 열람, DAR-352)',
+      '종목 분봉 조회 — 당일 KIS 실시간(시간 오름차순) 우선, 미가용 시 저장분(StockMinutePrice) 폴백. ' +
+      'tradeDate 지정 시 해당 거래일 저장분 서빙(과거 분봉은 저장분만 — KIS 미제공). ' +
+      '미가용 시 빈 배열 graceful (게스트 열람, DAR-352·DAR-377)',
   })
   @ApiQuery({
     name: 'stockCode',
     required: true,
     description: '종목코드 6자리 (예: 005930). 형식 위반·데이터 없음 시 candles 빈 배열.',
   })
-  async getMinuteCandles(@Query('stockCode') stockCode?: string) {
-    const data = await this.stockQuote.getMinuteCandles(stockCode ?? '');
+  @ApiQuery({
+    name: 'tradeDate',
+    required: false,
+    description:
+      '거래일 YYYYMMDD (예: 20260620). 지정 시 저장분(StockMinutePrice)에서 해당일 분봉 서빙. ' +
+      '미지정 시 당일 KIS 실시간 우선·저장 최근일 폴백. ★과거 분봉은 수집 시작일부터의 저장분만 존재.',
+  })
+  async getMinuteCandles(
+    @Query('stockCode') stockCode?: string,
+    @Query('tradeDate') tradeDate?: string,
+  ) {
+    const data = await this.stockQuote.getMinuteCandles(stockCode ?? '', { tradeDate });
     return { success: true, data };
   }
 
-  // 구간 캔들 조회(DAR-378): TimescaleDB 하이퍼테이블(분봉) + 연속집계(5m/15m/1d)에서
+  // 구간 캔들 조회(DAR-378·DAR-381): TimescaleDB 하이퍼테이블(분봉) + 연속집계(5m/15m/1d)에서
   // from~to 구간 + 해상도 + 페이지네이션 + 서버측 다운샘플로 반환한다. 모바일에 원본 분봉
   // 대량 전송 금지 — limit 으로 다운샘플 상한 강제. minute-candles(당일 KIS 실시간) 와 달리
   // 적재된 시계열을 구간 조회한다. ★정직: source/asOf 로 출처·조회시각 고지(미적용 시 UNAVAILABLE).
@@ -82,7 +96,7 @@ export class MarketDataController {
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({
     summary:
-      '구간 캔들 조회 — TimescaleDB 분봉 하이퍼테이블/연속집계(1m·5m·15m·1d), from~to+해상도+페이지네이션 서버측 다운샘플 (게스트 열람, DAR-378)',
+      '구간 캔들 조회 — TimescaleDB 분봉 하이퍼테이블/연속집계(1m·5m·15m·1d), from~to+해상도+페이지네이션 서버측 다운샘플 (게스트 열람, DAR-381)',
   })
   @ApiQuery({ name: 'stockCode', required: true, description: '종목코드 6자리 (예: 005930)' })
   @ApiQuery({
@@ -130,6 +144,36 @@ export class MarketDataController {
       }
       throw err;
     }
+  }
+
+  // 분봉 수동 수집(DAR-377·DAR-381): cron(장중 10분 간격) 외에 단발 수집을 트리거한다. 우선순위 상위
+  // 종목의 당일 분봉을 KIS 에서 받아 StockMinutePrice(TimescaleDB 하이퍼테이블)에 멱등 적재하고
+  // 커버리지 리포트를 반환한다. ★KIS 일일 쿼터·레이트리밋 가드(cap·스로틀) 내에서 동작.
+  @Post('collect/minute-prices')
+  @ApiOperation({
+    summary:
+      '분봉 수동 수집 — 우선순위 상위 종목 당일 분봉을 StockMinutePrice(하이퍼테이블)에 멱등 적재 + 커버리지 리포트 (DAR-381)',
+  })
+  @ApiQuery({
+    name: 'cap',
+    required: false,
+    description: '수집 상한 종목 수(KIS 쿼터 가드). 미지정 시 기본(env KIS_MINUTE_COLLECT_CAP→100).',
+  })
+  @ApiQuery({
+    name: 'tradeDate',
+    required: false,
+    description: '적재 거래일 YYYYMMDD 강제(미지정 시 KRX 실 가용 거래일로 해석).',
+  })
+  async collectMinutePrices(
+    @Query('cap') cap?: string,
+    @Query('tradeDate') tradeDate?: string,
+  ) {
+    const parsedCap = cap ? parseInt(cap, 10) : undefined;
+    const result = await this.minuteCollector.collectOnce({
+      cap: Number.isFinite(parsedCap) && (parsedCap as number) > 0 ? parsedCap : undefined,
+      tradeDate: tradeDate || undefined,
+    });
+    return { success: true, data: result };
   }
 
   /**

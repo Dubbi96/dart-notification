@@ -1,7 +1,9 @@
--- DAR-378: TimescaleDB 도입 — 분봉 하이퍼테이블·압축·연속집계·보존정책 (대규모 시계열 효율화)
--- ★A(일봉)·B(분봉) 데이터 축적이 이 기반 위에 적재되도록 선행하는 저장 엔진 마이그레이션이다.
+-- DAR-381: 분봉(#333 수집) + TimescaleDB(#334) 통합 — stock_minute_prices 를 ts 하이퍼테이블
+--          단일 스키마로 일원화. #333(tradeDate/time 문자열 일반 테이블)과 #334(ts 하이퍼테이블)의
+--          동일 테이블 충돌·동일 타임스탬프 마이그레이션 충돌을 '단일 정렬된 마이그레이션 체인'으로 해소.
+-- 순서: ①CREATE EXTENSION → ②CREATE TABLE(ts 포함) → ③create_hypertable(7일) → ④압축 → ⑤연속집계 → ⑥보존.
 --
--- ⚠️ create-only — DB 운영 반영(prisma migrate deploy)은 휴먼 승인 사항이다.
+-- ⚠️ create-only — DB 운영 반영(prisma migrate deploy)은 휴먼 승인 사항이다(guard 훅 휴먼 게이트).
 --    에이전트 자동 적용 금지. TimescaleDB 이미지 교체·확장 활성화도 사용자 적용 단계다
 --    (docker-compose.dev.yml 이 timescale/timescaledb 이미지를 사용해야 CREATE EXTENSION 성공).
 --    node_modules add 금지.
@@ -24,6 +26,7 @@ CREATE TABLE "stock_minute_prices" (
     "corpCode" TEXT NOT NULL,
     "stockCode" TEXT NOT NULL,
     "ts" TIMESTAMP(3) NOT NULL,
+    "tradeDate" TEXT,
     "openPrice" INTEGER NOT NULL,
     "highPrice" INTEGER NOT NULL,
     "lowPrice" INTEGER NOT NULL,
@@ -41,6 +44,9 @@ CREATE INDEX "stock_minute_prices_corpCode_idx" ON "stock_minute_prices"("corpCo
 
 -- CreateIndex
 CREATE INDEX "stock_minute_prices_ts_idx" ON "stock_minute_prices"("ts");
+
+-- CreateIndex (특정 종목·특정일 분봉 전체 조회 — legacy minute-candles 폴백·보존정책 운영)
+CREATE INDEX "stock_minute_prices_stockCode_tradeDate_idx" ON "stock_minute_prices"("stockCode", "tradeDate");
 
 -- AddForeignKey (자연키 corpCode → companies, prisma CLAUDE.md 자연키 정합)
 ALTER TABLE "stock_minute_prices" ADD CONSTRAINT "stock_minute_prices_corpCode_fkey" FOREIGN KEY ("corpCode") REFERENCES "companies"("corpCode") ON DELETE RESTRICT ON UPDATE CASCADE;

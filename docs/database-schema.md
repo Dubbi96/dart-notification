@@ -569,14 +569,18 @@ model StockDailyPrice {
 }
 ```
 
-### 7.1c StockMinutePrice (stock_minute_prices) — DAR-378 ★TimescaleDB 하이퍼테이블
+### 7.1a StockMinutePrice (stock_minute_prices) — DAR-381 ★TimescaleDB 하이퍼테이블 (통합: DAR-377+DAR-378)
 
-분봉 OHLCV 시세. 대규모 시계열(수억 행)을 효율 저장하기 위해 **TimescaleDB 하이퍼테이블**로
-운용한다. 데이터 축적 A(일봉)·B(분봉)가 이 기반 위에 적재되도록 선행한다.
+장중 분봉 OHLCV 시세. 대규모 시계열(수억 행)을 효율 저장하기 위해 **TimescaleDB 하이퍼테이블**로
+운용한다(DAR-381 = #333 수집 + #334 TimescaleDB 단일 스키마 통합).
 
-★파티션 키 = `ts`(거래 분의 instant, UTC `TIMESTAMP`). TimescaleDB 는 모든 UNIQUE/PK 인덱스에
-파티션 컬럼을 포함하도록 요구하므로 대리키 cuid 를 두지 않고 **복합 PK `@@id([stockCode, ts])`**
-를 자연키로 쓴다(이슈의 `@@unique([stockCode, ts])` 의도를 PK 로 충족). `chunk_time_interval = 7 days`.
+★**forward-only(불가침 정직 고지)**: KIS 는 '당일 분봉'만 제공한다(과거 분봉 미제공). 따라서 분봉은
+**과거 소급 백필이 원천 불가**하며 수집 시작일부터 매일 누적한다(`StockMinutePriceCollector`).
+시작일 이전 분봉은 존재하지 않는다 — 이 한계는 수집 로그·문서에 명시한다.
+
+★파티션 키 = `ts`(거래 분의 분 단위 instant; KST 거래일+체결시각 HHMM 결합). TimescaleDB 는 모든
+UNIQUE/PK 인덱스에 파티션 컬럼을 포함하도록 요구하므로 대리키 cuid 를 두지 않고
+**복합 PK `@@id([stockCode, ts])`** 를 자연키로 쓴다. `chunk_time_interval = 7 days`.
 
 Prisma 모델은 '일반 정의'만 두고, 하이퍼테이블 변환·압축·연속집계·보존정책은 raw SQL
 마이그레이션이 담당한다(Prisma 모델 + raw SQL 공존, TimescaleDB 가이드 준수).
@@ -586,6 +590,7 @@ Prisma 모델은 '일반 정의'만 두고, 하이퍼테이블 변환·압축·�
 | corpCode | TEXT FK | DART 고유번호 → Company.corpCode |
 | stockCode | TEXT | 종목코드 6자리 (복합 PK) |
 | ts | TIMESTAMP(3) | 거래 분 instant — **파티션 키**, 복합 PK |
+| tradeDate | TEXT? | 거래일 YYYYMMDD(파생, 조회 편의·보존정책) — 수집기가 ts 에서 도출해 채움 |
 | openPrice/highPrice/lowPrice/closePrice | INT | 분봉 OHLC |
 | volume | BIGINT | 분 거래량 |
 | tradingValue | BIGINT? | 분 거래대금 |
@@ -596,19 +601,21 @@ Prisma 모델은 '일반 정의'만 두고, 하이퍼테이블 변환·압축·�
 - **압축**: chunk 7일 경과 시 columnar 압축(`compress_segmentby='stockCode'`, `compress_orderby='ts DESC'`)
   + `add_compression_policy(... '7 days')`. 실측 압축률 **10.7×(90.6% 절감)** — 금융 OHLCV ~90~95% 기대 부합.
 - **연속집계**: 분봉→`stock_candles_5m`/`stock_candles_15m`/`stock_candles_1d` materialized cagg
-  + refresh policy. 차트·분석이 원본 분봉 풀스캔 없이 롤업 조회(OHLCV: open=first/high=max/low=min/close=last/volume=sum).
-- **보존정책**: `add_retention_policy(... '5 years')` — 기본은 길게 보존(무손실), 운영에서 용량 압박 시 INTERVAL 튜닝.
+  + refresh policy. 차트·분석이 원본 분봉 풀스캔 없이 롤업 조회.
+- **보존정책**: `add_retention_policy(... '5 years')` — 기본은 길게 보존, 운영에서 용량 압박 시 INTERVAL 튜닝.
 
+수집기: `StockMinutePriceCollector` — KIS 당일 분봉 time(HHMMSS)→ts(분 단위 instant) 변환 후 멱등 적재.
 조회 API: `GET /market-data/candles`(from~to + resolution 1m/5m/15m/1d + 페이지네이션 + 서버측 다운샘플).
+레거시 분봉: `GET /market-data/minute-candles`(당일 KIS 실시간 우선, tradeDate 지정 시 저장분 폴백).
 
-마이그레이션: `20260620000000_dar378_timescaledb_hypertables`(create-only, 적용 휴먼 승인 — 이미지 교체·`CREATE EXTENSION` 포함).
-일봉(`stock_daily_prices`)의 하이퍼테이블 전환은 규모가 작아 후순위(기존 cuid PK 파괴 변경 필요)로 본 마이그레이션에서 제외.
+마이그레이션: `20260620000000_dar381_minute_prices_timescaledb`(create-only, 적용 휴먼 승인 — TimescaleDB 이미지 교체·`CREATE EXTENSION` 포함).
 
 ```prisma
 model StockMinutePrice {
   corpCode     String
   stockCode    String
   ts           DateTime
+  tradeDate    String?
   openPrice    Int
   highPrice    Int
   lowPrice     Int
@@ -618,12 +625,14 @@ model StockMinutePrice {
   source       String   @default("KIS_REALTIME")
   createdAt    DateTime @default(now())
   company      Company  @relation(fields: [corpCode], references: [corpCode])
-  @@id([stockCode, ts]) // 파티션 컬럼(ts) 포함 — TimescaleDB 하이퍼테이블 요건
+  @@id([stockCode, ts])
   @@index([corpCode])
   @@index([ts])
+  @@index([stockCode, tradeDate])
   @@map("stock_minute_prices")
 }
 ```
+
 
 ### 7.1b SimulatedDailyPrice (simulated_daily_prices) — DAR-124 ★모의 전용·실시세 아님
 
@@ -1395,5 +1404,5 @@ DART 정형 엔드포인트 2종을 수집·정규화한 행. 미공개 펀더�
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-06-14
+**최종 수정일**: 2026-06-20 (DAR-377 StockMinutePrice 추가)
 **버전**: 2.3 (DAR-87: Engine1 InsiderHoldingChange + EventType 지분변동 3종 추가; 본문은 refresh_tokens·WatchList.lastViewedRcpNo·Disclosure[corpCode,rcpNo] 인덱스까지 이미 반영 — DAR-222 날짜 동기화)

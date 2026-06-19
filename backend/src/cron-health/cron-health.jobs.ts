@@ -21,6 +21,8 @@ export const CRON_JOB_KEYS = {
   FAILED_EVENT_RECOVERY: 'failed-event.recovery',
   // DAR-366: 장중 손절 모니터 — 보유종목 실시간 능동 fetch 후 Exit 평가(실가 -8% 손절 발화 유일 경로).
   INTRADAY_EXIT_MONITOR: 'paper.intraday-exit',
+  // DAR-377: 분봉 수집 — KIS 당일 분봉을 StockMinutePrice 에 forward 축적(장중 공시반응 분석 기반).
+  MINUTE_PRICE_COLLECT: 'market.minute-collect',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -153,5 +155,16 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'WEEKDAY_INTRADAY',
     staleAfterMinutes: 180, // 3시간 — 장 마감(15:30)~윈도 끝 공백 흡수
     cadence: '평일 09:00~15:30 / 5분 간격',
+  },
+  {
+    // DAR-377: 분봉 수집(KIS 당일 분봉 → StockMinutePrice forward 축적). 정규장 내 10분 간격 가동.
+    //   장 마감(15:30)~윈도 끝 공백을 흡수하도록 임계를 넉넉히(3h). 키 미설정/장외엔 기록이 없으므로
+    //   (no-op) 장중 무가동만 stale 로 표면화한다.
+    jobKey: CRON_JOB_KEYS.MINUTE_PRICE_COLLECT,
+    label: '분봉 수집',
+    source: 'CRON_RUN_LOG',
+    window: 'WEEKDAY_INTRADAY',
+    staleAfterMinutes: 180, // 3시간 — 장 마감(15:30)~윈도 끝 공백 흡수
+    cadence: '평일 09:00~15:30 / 10분 간격',
   },
 ];

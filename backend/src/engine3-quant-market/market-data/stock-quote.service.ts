@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeQuoteCache } from './realtime-quote.cache';
 import { KisApiService, KisMinuteCandle } from './kis-api.service';
+import { hhmmFromTs, tradeDateFromTs } from './minute-timestamp';
 
 /**
  * 종목 최신 시세(quote) 조회 — 화면 가격 배지 종단연결 (DAR-158, read-only).
@@ -45,19 +46,24 @@ export interface StockQuote {
   sparkline: number[];
 }
 
-/** 당일 분봉 조회 응답 (DAR-352, read-only). */
+/** 분봉 조회 응답 (DAR-352 당일 KIS → DAR-377 저장분 확장, read-only). */
 export interface MinuteCandlesResult {
   /** 조회한 6자리 종목코드. */
   stockCode: string;
   /**
-   * 캔들 출처 — 'KIS_REALTIME'(KIS 당일 분봉 실데이터) | 'UNAVAILABLE'(키 미설정·장마감·실패로 0행).
-   * ★정직(DAR-140 계약): KIS_REALTIME 은 '실제 시장 실시간가'다. 환경 시계(2026)와 시점이
-   *   다를 수 있어 asOf(서버 조회시각)와 함께 고지한다. 합성가(SYNTHETIC)와 혼동 금지.
+   * 캔들 출처 —
+   *   'KIS_REALTIME' : KIS 당일 분봉 실데이터(실시간 조회).
+   *   'STORED'       : StockMinutePrice 저장분(과거일 포함 — DAR-377 forward 축적분 서빙).
+   *   'UNAVAILABLE'  : 키 미설정·장마감·실패·저장분 없음으로 0행.
+   * ★정직(DAR-140 계약): KIS_REALTIME/STORED 모두 '실제 시장가' 유래다. 환경 시계(2026)와 시점이
+   *   다를 수 있어 asOf(서버 조회시각)·tradeDate(거래일)로 고지한다. 합성가(SYNTHETIC)와 혼동 금지.
    */
-  source: 'KIS_REALTIME' | 'UNAVAILABLE';
-  /** 서버가 KIS 를 조회한 시각(ISO). 캔들 time(HHMMSS)은 KIS 시장 시각이므로 환경 시계와 괴리될 수 있음. */
+  source: 'KIS_REALTIME' | 'STORED' | 'UNAVAILABLE';
+  /** 서버가 응답을 만든 시각(ISO). 캔들 time 은 KIS 시장 시각이므로 환경 시계와 괴리될 수 있음. */
   asOf: string;
-  /** 당일 분봉(시간 오름차순). 미가용 시 빈 배열. */
+  /** 캔들이 속한 거래일(YYYYMMDD). STORED 는 저장 거래일, 미가용 시 null. */
+  tradeDate: string | null;
+  /** 분봉(시간 오름차순). 미가용 시 빈 배열. */
   candles: KisMinuteCandle[];
 }
 
@@ -128,35 +134,89 @@ export class StockQuoteService {
    */
   async getMinuteCandles(
     rawStockCode: string,
-    nowMs: number = Date.now(),
+    opts: { tradeDate?: string; nowMs?: number } = {},
   ): Promise<MinuteCandlesResult> {
+    const nowMs = opts.nowMs ?? Date.now();
+    const requestedDate = (opts.tradeDate ?? '').trim();
     const stockCode = (rawStockCode ?? '').trim();
     const asOf = new Date(nowMs).toISOString();
+    const empty = (): MinuteCandlesResult => ({
+      stockCode,
+      source: 'UNAVAILABLE',
+      asOf,
+      tradeDate: null,
+      candles: [],
+    });
 
     // 6자리 숫자만 허용 — 형식 위반은 조회 없이 빈배열(소비측 미표시).
-    if (!/^\d{6}$/.test(stockCode)) {
-      return { stockCode, source: 'UNAVAILABLE', asOf, candles: [] };
+    if (!/^\d{6}$/.test(stockCode)) return empty();
+
+    // 특정 거래일 지정(YYYYMMDD): 과거 분봉은 KIS 가 제공하지 않으므로 저장분(StockMinutePrice)에서만
+    // 서빙한다(DAR-377). 저장분이 없으면 UNAVAILABLE — KIS 로 과거일을 메우지 않는다(정직).
+    if (/^\d{8}$/.test(requestedDate)) {
+      return this.servedStored(stockCode, requestedDate, asOf);
     }
 
-    // KIS 미배선/키 미설정 → 실호출 0, graceful 빈배열.
-    if (!this.kisApi || !this.kisApi.isConfigured) {
-      return { stockCode, source: 'UNAVAILABLE', asOf, candles: [] };
+    // 거래일 미지정(당일): 1) KIS 실시간 분봉 우선 2) 미가용 시 저장된 '최근 거래일' 분봉으로 폴백.
+    if (this.kisApi && this.kisApi.isConfigured) {
+      try {
+        const candles = await this.kisApi.fetchMinuteCandles(stockCode, '', nowMs);
+        if (candles.length > 0) {
+          // KIS 실시간 분봉은 '당일 라이브'다. 거래일 라벨은 환경 시계 괴리로 단정하지 않고 null
+          //   (소비측은 asOf + source=KIS_REALTIME 로 '실시간'임을 표시한다). 저장 거래일은 STORED 만.
+          return { stockCode, source: 'KIS_REALTIME', asOf, tradeDate: null, candles };
+        }
+      } catch (e) {
+        // fetchMinuteCandles 는 내부 흡수해 [] 를 주지만, 키 미설정 예외(KisApiUnavailableError)는
+        // throw 한다 → 흡수해 저장분 폴백으로 일관 처리.
+        this.logger.warn(`[분봉] ${stockCode} KIS 조회 실패: ${(e as Error).message}`);
+      }
     }
 
-    try {
-      const candles = await this.kisApi.fetchMinuteCandles(stockCode, '', nowMs);
-      return {
-        stockCode,
-        source: candles.length > 0 ? 'KIS_REALTIME' : 'UNAVAILABLE',
-        asOf,
-        candles,
-      };
-    } catch (e) {
-      // fetchMinuteCandles 는 내부 흡수해 [] 를 주지만, 키 미설정 예외(KisApiUnavailableError)는
-      // throw 한다 → 여기서 흡수해 graceful 빈배열로 일관 처리.
-      this.logger.warn(`[분봉] ${stockCode} 조회 실패: ${(e as Error).message}`);
-      return { stockCode, source: 'UNAVAILABLE', asOf, candles: [] };
+    // KIS 미가용/0행 → 저장된 최근 거래일 분봉으로 폴백(없으면 UNAVAILABLE).
+    const latest = await this.prisma.stockMinutePrice.findFirst({
+      where: { stockCode },
+      orderBy: { ts: 'desc' },
+      select: { ts: true, tradeDate: true },
+    });
+    if (!latest) return empty();
+    const latestTradeDate = latest.tradeDate ?? tradeDateFromTs(latest.ts);
+    return this.servedStored(stockCode, latestTradeDate, asOf);
+  }
+
+  /**
+   * StockMinutePrice 저장분(특정 거래일)을 KisMinuteCandle 형태로 시간 오름차순 서빙한다 (DAR-381).
+   * TimescaleDB 하이퍼테이블 스키마 기준: ts(파티션 키)로 조회·정렬하고, time(HHMM)은 ts 에서 도출.
+   */
+  private async servedStored(
+    stockCode: string,
+    tradeDate: string,
+    asOf: string,
+  ): Promise<MinuteCandlesResult> {
+    const rows = await this.prisma.stockMinutePrice.findMany({
+      where: { stockCode, tradeDate },
+      orderBy: { ts: 'asc' },
+      select: {
+        ts: true,
+        openPrice: true,
+        highPrice: true,
+        lowPrice: true,
+        closePrice: true,
+        volume: true,
+      },
+    });
+    if (rows.length === 0) {
+      return { stockCode, source: 'UNAVAILABLE', asOf, tradeDate: null, candles: [] };
     }
+    const candles: KisMinuteCandle[] = rows.map((r) => ({
+      time: hhmmFromTs(r.ts), // ts → HHMM
+      open: r.openPrice,
+      high: r.highPrice,
+      low: r.lowPrice,
+      close: r.closePrice,
+      volume: Number(r.volume),
+    }));
+    return { stockCode, source: 'STORED', asOf, tradeDate, candles };
   }
 
   /** 입력 종목코드 정규화 — 6자리 숫자만, 중복 제거, 최대 개수 제한. */

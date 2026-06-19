@@ -138,6 +138,63 @@ describe('KisApiService (DAR-140)', () => {
     });
   });
 
+  describe('fetchMinuteCandlesFullDay — 당일 전 구간 페이지네이션 (DAR-377)', () => {
+    const noSleep = (_ms: number) => Promise.resolve();
+    const page = (rowsNewestFirst: Array<[string, number]>) => ({
+      data: {
+        output2: rowsNewestFirst.map(([t, v]) => ({
+          stck_cntg_hour: t,
+          stck_oprc: String(v),
+          stck_hgpr: String(v),
+          stck_lwpr: String(v),
+          stck_prpr: String(v),
+          cntg_vol: '1',
+        })),
+      },
+    });
+
+    it('가장 이른 시각을 앵커로 과거를 페이지네이션·중복제거·오름차순 반환', async () => {
+      mockClient.post.mockResolvedValue({ data: { access_token: 'tok', expires_in: 86400 } });
+      mockClient.get
+        // page1(anchor ''): 최신부터 093000,092900 → 오름차순 [092900,093000]
+        .mockResolvedValueOnce(page([['093000', 105], ['092900', 100]]))
+        // page2(anchor 092900): 090100,090000 → earliest 090000 ≤ 0900 → 종료
+        .mockResolvedValueOnce(page([['090100', 91], ['090000', 90]]));
+      const svc = new KisApiService(makeConfig(KEYS));
+
+      const candles = await svc.fetchMinuteCandlesFullDay('005930', { sleep: noSleep, nowMs: 0 });
+
+      expect(candles.map((c) => c.time)).toEqual(['090000', '090100', '092900', '093000']);
+      expect(mockClient.get).toHaveBeenCalledTimes(2);
+      // 두 번째 페이지 앵커가 page1 의 가장 이른 시각(092900)인지 확인.
+      expect(mockClient.get.mock.calls[1][1].params.FID_INPUT_HOUR_1).toBe('092900');
+    });
+
+    it('빈 페이지를 만나면 즉시 종료(그때까지 수집분 반환)', async () => {
+      mockClient.post.mockResolvedValue({ data: { access_token: 'tok', expires_in: 86400 } });
+      mockClient.get
+        .mockResolvedValueOnce(page([['093000', 105], ['092900', 100]]))
+        .mockResolvedValueOnce(page([])); // 빈 페이지 → 종료
+      const svc = new KisApiService(makeConfig(KEYS));
+
+      const candles = await svc.fetchMinuteCandlesFullDay('005930', { sleep: noSleep, nowMs: 0 });
+
+      expect(candles.map((c) => c.time)).toEqual(['092900', '093000']);
+      expect(mockClient.get).toHaveBeenCalledTimes(2);
+    });
+
+    it('진전 없음(같은 earliest 반복)이면 무한루프 없이 종료', async () => {
+      mockClient.post.mockResolvedValue({ data: { access_token: 'tok', expires_in: 86400 } });
+      mockClient.get.mockResolvedValue(page([['093000', 105], ['092900', 100]])); // 매번 동일
+      const svc = new KisApiService(makeConfig(KEYS));
+
+      const candles = await svc.fetchMinuteCandlesFullDay('005930', { sleep: noSleep, nowMs: 0 });
+
+      expect(candles.map((c) => c.time)).toEqual(['092900', '093000']);
+      expect(mockClient.get).toHaveBeenCalledTimes(2); // page1 + page2(진전없음 감지) → 종료
+    });
+  });
+
   describe('fetchIndexPrice — 업종지수 현재값 (DAR-371)', () => {
     it('상승 케이스: 소수 2자리 보존·전일대비 부호 적용·등락률 자체산출', async () => {
       mockClient.post.mockResolvedValue({ data: { access_token: 'tok', expires_in: 86400 } });

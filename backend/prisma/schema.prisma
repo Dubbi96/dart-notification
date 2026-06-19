@@ -705,29 +705,35 @@ model StockDailyPrice {
 }
 
 // ====================================
-// 분봉 시세 (DAR-378, TimescaleDB 하이퍼테이블) — 대규모 시계열(B 적재 대상)
+// 분봉 시세 (DAR-381 통합 = DAR-377 수집 + DAR-378 TimescaleDB) — 장중 공시반응 분석·대규모 시계열
 // ====================================
 //
-// 분봉(OHLCV)을 수억 행 규모로 효율 저장하기 위해 stock_minute_prices 를 TimescaleDB
-// 하이퍼테이블로 운용한다. Prisma 모델은 '일반 정의'만 두고, 하이퍼테이블 변환·압축·
-// 연속집계·보존정책은 raw SQL 마이그레이션(20260620000000_dar378_timescaledb_hypertables)이
-// 담당한다(Prisma 모델 + raw SQL 공존, TimescaleDB 가이드 준수).
+// 분봉(OHLCV)을 대규모로 효율 저장하기 위해 stock_minute_prices 를 TimescaleDB 하이퍼테이블로
+// 운용한다(DAR-381 = #333 분봉 수집 + #334 TimescaleDB 통합·단일 스키마). Prisma 모델은 '일반
+// 정의'만 두고, 하이퍼테이블 변환·압축·연속집계·보존정책은 raw SQL 마이그레이션
+// (20260620000000_dar381_minute_prices_timescaledb)이 담당한다(Prisma 모델 + raw SQL 공존).
 //
-// ★파티션 키 = ts (거래 분의 instant; KST 거래일+시각을 UTC TIMESTAMP 로 보관).
-//   TimescaleDB 는 모든 UNIQUE/PK 인덱스에 파티션 컬럼을 포함하도록 요구하므로
-//   대리키 cuid id 를 두지 않고 복합 PK @@id([stockCode, ts]) 를 자연키로 쓴다
-//   (= 이슈의 @@unique([stockCode, ts]) 의도를 PK 로 충족).
+// ★KIS 는 '당일 분봉'만 제공한다(과거 분봉 미제공) → 과거 소급 백필 불가. 수집 시작일부터 매일
+//   수집해 forward 로 누적한다(StockMinutePriceCollector). 시작일 이전 분봉은 원천적으로 존재하지
+//   않는다 — 이 정직 고지는 docs/workflow.md·수집 로그에도 명시한다.
+//
+// ★파티션 키 = ts (거래 분의 instant; KST 거래일+체결시각 HHMM 을 결합한 분 단위 시각).
+//   TimescaleDB 는 모든 UNIQUE/PK 인덱스에 파티션 컬럼을 포함하도록 요구하므로 대리키 cuid id 를
+//   두지 않고 복합 PK @@id([stockCode, ts]) 를 자연키로 쓴다(= 이슈의 @@unique([stockCode, ts]) 충족).
 //   chunk_time_interval = 7 days · 7일 경과 chunk columnar 압축(segmentby=stockCode).
 //   분봉→5m/15m/1d continuous aggregate 가 차트·분석 롤업 조회를 원본 풀스캔 없이 지원.
+// ★tradeDate(YYYYMMDD) 는 조회 편의·보존정책 운영용 파생 컬럼(선택). (stockCode, tradeDate) 인덱스로
+//   '특정 종목·특정일 분봉 전체' 조회(legacy minute-candles 폴백)를 받친다. 수집기가 항상 채운다.
 // ★정직: source 라벨로 데이터 출처를 명시(KIS_REALTIME 등). 합성가(SYNTHETIC)와 혼동 금지.
 model StockMinutePrice {
   corpCode     String // DART 고유번호 (FK → Company.corpCode)
   stockCode    String // 종목코드 6자리
-  ts           DateTime // 거래 분 instant (파티션 키) — 거래일+시각
+  ts           DateTime // 거래 분 instant (파티션 키) — 거래일+체결시각(KST 분 단위)
+  tradeDate    String? // 거래일 YYYYMMDD 파생(조회 편의·보존정책) — 수집기가 ts 에서 도출해 채움
   openPrice    Int // 시가
   highPrice    Int // 고가
   lowPrice     Int // 저가
-  closePrice   Int // 종가
+  closePrice   Int // 종가(체결가)
   volume       BigInt // 분 거래량
   tradingValue BigInt? // 분 거래대금 (원)
   source       String   @default("KIS_REALTIME") // 데이터 출처 라벨(정직)
@@ -735,9 +741,10 @@ model StockMinutePrice {
 
   company Company @relation(fields: [corpCode], references: [corpCode])
 
-  @@id([stockCode, ts]) // 파티션 컬럼(ts) 포함 복합 PK — TimescaleDB 하이퍼테이블 요건
+  @@id([stockCode, ts]) // 파티션 컬럼(ts) 포함 복합 PK — TimescaleDB 하이퍼테이블 요건(멱등 ON CONFLICT)
   @@index([corpCode])
   @@index([ts])
+  @@index([stockCode, tradeDate]) // 특정 종목·특정일 분봉 전체 조회(legacy minute-candles 폴백)·보존정책
   @@map("stock_minute_prices")
 }
 

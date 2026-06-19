@@ -213,6 +213,57 @@ export class KisApiService {
   }
 
   /**
+   * 국내주식 당일 분봉 '전 구간' 수집 (DAR-377) — forward 축적 적재용.
+   *
+   * KIS inquire-time-itemchartprice 는 한 호출당 최신 ~30분(output2) 만 반환한다. 당일 세션 전체
+   * (09:00~15:30 ≈ 390분)를 모으려면 FID_INPUT_HOUR_1(앵커 시각)을 과거로 옮기며 페이지네이션해야
+   * 한다. 가장 이른 캔들 시각(earliest)을 다음 페이지 앵커로 삼아 과거로 거슬러 올라가고,
+   * 더 이른 캔들이 나오지 않으면(진전 없음) 종료한다. time(HHMMSS) 키로 중복 제거 후 오름차순 반환.
+   *
+   * ★레이트리밋: 페이지 간 pageDelayMs(기본 150ms) 지연 + maxPages(기본 20) 상한으로 KIS 초당 제한을
+   *   넘지 않게 가드한다. 단일 호출(fetchMinuteCandles)과 동일하게 키 미설정은 throw, 그 외 실패는
+   *   graceful(그때까지 모은 캔들 반환).
+   *
+   * @param maxPages 최대 페이지 수(기본 20 — 30분×20=600분, 세션 390분 + 여유)
+   * @param pageDelayMs 페이지 호출 간 지연 ms(기본 150 — 레이트리밋 스로틀)
+   * @param sleep 지연 주입(테스트용 — 미지정 시 실제 setTimeout)
+   */
+  async fetchMinuteCandlesFullDay(
+    stockCode: string,
+    opts: { maxPages?: number; pageDelayMs?: number; nowMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+  ): Promise<KisMinuteCandle[]> {
+    const maxPages = opts.maxPages ?? 20;
+    const pageDelayMs = opts.pageDelayMs ?? 150;
+    const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+    const byTime = new Map<string, KisMinuteCandle>();
+    let anchor = ''; // 최초 페이지: 빈 앵커 = 최신 캔들부터.
+    let prevEarliest: string | null = null;
+
+    for (let page = 0; page < maxPages; page++) {
+      const candles = await this.fetchMinuteCandles(stockCode, anchor, opts.nowMs);
+      if (candles.length === 0) break; // 더 이상 데이터 없음(장 시작 이전·휴장).
+
+      for (const c of candles) {
+        if (c.time) byTime.set(c.time, c);
+      }
+
+      // 오름차순이므로 [0] 이 이 페이지의 가장 이른 시각.
+      const earliest = candles[0]?.time ?? '';
+      // 진전 없음(같은 earliest 반복) 또는 장 시작(09:00) 도달 시 종료.
+      if (!earliest || (prevEarliest !== null && earliest >= prevEarliest)) break;
+      prevEarliest = earliest;
+      if (earliest <= '090000') break;
+
+      // 다음 페이지는 가장 이른 시각을 앵커로 과거를 더 받는다(중복은 byTime 으로 제거).
+      anchor = earliest;
+      if (page < maxPages - 1 && pageDelayMs > 0) await sleep(pageDelayMs);
+    }
+
+    return [...byTime.values()].sort((a, b) => a.time.localeCompare(b.time));
+  }
+
+  /**
    * 국내 업종(시장)지수 현재값(inquire-index-price, tr_id FHPUP02100000) — DAR-371.
    *
    * 홈 배지가 '6/5 종가(stale)'를 '현재'처럼 표시하던 신뢰 문제를 해소하기 위해, 주식 실시간가와

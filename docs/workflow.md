@@ -671,6 +671,27 @@ npx ts-node -r dotenv/config src/engine3-quant-market/market-data/backfill-histo
 npx ts-node -r dotenv/config src/engine3-quant-market/indicators/indicator-backfill.manual.ts [latest|all]
 ```
 
+### 5.7 분봉 forward 축적 수집 (평일 09:00~15:30 / 10분, DAR-377)
+
+장중 가격반응(분봉)을 공시 이벤트와 매칭해 인과근거를 축적하기 위한 분봉 저장 인프라.
+
+```
+@Cron('*/10 9-15 * * 1-5')  StockMinutePriceCollector.collectMinutePricesCron (KST)
+  └─ isKstRegularMarketHours 게이트(09:00~15:30 정밀) + KIS 키 설정 + 단일 실행 락
+     └─ resolveUniverse: 보유(OPEN)→신호(entryReady)→관심(watchlist)→거래량 상위, 중복제거
+        └─ cap(KIS_MINUTE_COLLECT_CAP, 기본 100)까지 slice — 초과분은 skippedByQuota 정직 로그
+           └─ KisApiService.fetchMinuteCandlesFullDay (당일 전 구간 페이지네이션, 페이지간 스로틀)
+              └─ StockMinutePrice.createMany(skipDuplicates) — (stockCode,tradeDate,time) 멱등
+     CronRunRecorder(MINUTE_PRICE_COLLECT) 기록 → 신선도 안전망 노출(장중 무가동 stale)
+```
+
+- ★**forward-only(정직)**: KIS 는 '당일 분봉'만 제공 → **과거 분봉 소급 백필 불가**. 수집 시작일부터
+  누적한다. 10분 간격 반복으로 장 마감 시점이면 커버 종목의 당일 세션 전체가 누적된다.
+- ★**KIS 레이트리밋·일일 쿼터 엄수**: 우선순위 cap 제한 + 종목간(`stockDelayMs`)·페이지간
+  (`pageDelayMs`) 스로틀 + 단일 실행 락(겹침 방지). 쿼터 초과분은 `skippedByQuota` 로 정직 보고.
+- 수동 트리거: `POST /market-data/collect/minute-prices?cap=100[&tradeDate=YYYYMMDD]` → 커버리지 리포트.
+- 조회: `GET /market-data/minute-candles?stockCode=...[&tradeDate=...]` — 당일 KIS 우선·저장분(과거일) 폴백.
+
 ---
 
 ## 6. Portfolio & Exit 엔진 점검 스케줄 (M8-A DAR-12)

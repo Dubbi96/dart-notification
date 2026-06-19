@@ -31,6 +31,23 @@ const GENERAL_EVENT_WEIGHT = 5; // 일반 악재: 약한 가중(다건 누적)
 const INSIDER_NET_SELL_WEIGHT = 12; // 내부자/대량보유 대량 순매도
 const DISCLOSURE_RISK_CAP = 20;
 
+/**
+ * 공시 악재 점수 소프트 캡 (DAR-349#5).
+ *
+ * 기존 `Math.min(raw, 20)` 하드 캡은 단건 고위험(16)+a 만 넘어도 모두 20으로
+ * 평탄화되어 단일 위기와 다중 위기를 구분하지 못했다(비차별). 단건 고위험
+ * 가중(16)까지는 선형으로 그대로 보존하고, 그 이상은 로그스케일형 감쇠로
+ * 압축한다 — 초과분이 클수록 증가폭은 줄지만 **항상 단조 증가**하며 cap(20)에
+ * 점근(도달하지 않음)한다. 결과적으로 다중 위기는 단일 위기보다 항상 높은 점수.
+ */
+export function softCapDisclosureRisk(raw: number): number {
+  const linear = HIGH_RISK_EVENT_WEIGHT; // 16: 단건 고위험까지는 선형 보존
+  if (raw <= linear) return raw;
+  const headroom = DISCLOSURE_RISK_CAP - linear; // 4
+  const compressed = headroom * (1 - Math.exp(-(raw - linear) / headroom));
+  return linear + compressed;
+}
+
 // 내부자 '대량 순매도' 판정 임계(지분율 %p 환산 가중합)
 const INSIDER_NET_SELL_THRESHOLD = 1.0;
 // 규모 결측(ratioChange null) 시 보고 1건당 보수적 기본 규모(%p)
@@ -65,8 +82,11 @@ export function calcLossRiskScore(
     if (currentPrice < atrStop) score += 15;
   }
 
-  // 트레일링 스탑 (-6% from highest, 수익권에서만)
-  if (pos.highestPrice !== null && pnlPct > 5) {
+  // 트레일링 스탑 (-6% from highest) — DAR-349#1: 수익권 게이트(pnlPct>5) 제거.
+  // 게이트가 있으면 +10%→-5% 하락처럼 고점 대비 급락했으나 진입가 대비 손실인
+  // 구간에서 미발동(거짓음성)한다. 고점이 존재하면 손익 부호와 무관하게
+  // current < peak*0.94 를 항상 평가해 고점 대비 6% 이상 하락을 포착한다.
+  if (pos.highestPrice !== null) {
     const trailingStop = pos.highestPrice * (1 - 0.06);
     if (currentPrice < trailingStop) score += 12;
   }
@@ -251,18 +271,26 @@ export function calcChartBreakScore(tech: TechnicalSnapshot): {
 }
 
 // Trigger 6: 리밸런싱 (overweightScore 0~10)
-export function calcOverweightScore(pos: PositionSnapshot): {
+// DAR-349#3: 비중 계산 가격소스를 손절(calcLossRiskScore)과 동일한 tech.closePrice
+// 로 통일한다. 기존엔 pos.currentPrice(stale 가능)를 써서 손절은 신선가, 비중은
+// 구가로 평가해 모순 신호가 날 수 있었다.
+export function calcOverweightScore(
+  pos: PositionSnapshot,
+  tech: TechnicalSnapshot,
+): {
   score: number;
   triggered: boolean;
 } {
   if (pos.portfolioTotalValue <= 0) return { score: 0, triggered: false };
   const positionPct =
-    ((pos.currentPrice * pos.quantity) / pos.portfolioTotalValue) * 100;
+    ((tech.closePrice * pos.quantity) / pos.portfolioTotalValue) * 100;
   let score = 0;
 
   if (positionPct > pos.portfolioMaxSinglePositionPct) {
+    // DAR-349#6: floor(excess/2)*2 양자화 절벽 제거 — 초과분에 선형 비례(상한 8).
+    // 1.4%↔1.5% 같은 미세 초과도 연속적으로 반영해 단조성을 보존한다.
     const excess = positionPct - pos.portfolioMaxSinglePositionPct;
-    score += Math.min(Math.floor(excess / 2) * 2, 8);
+    score += Math.min(excess, 8);
   }
 
   return { score: Math.min(score, 10), triggered: score > 0 };
@@ -306,8 +334,12 @@ export function isLargeInsiderNetSell(
 
     if (t.tradeType === 'SELL') {
       let w = mag;
-      if (t.source === 'EXECUTIVE') w *= 1.5; // 임원 처분 가중
-      if (t.isMajorShareholder) w *= 1.5; // 주요주주 처분 가중
+      // DAR-349#4: 임원 가중(1.5)·주요주주 가중(1.5)을 곱셈으로 중복 적용하면
+      // 둘 다 해당 시 2.25배가 되어 과대평가된다. 둘 다면 2.0, 어느 하나면 1.5.
+      const isExecutive = t.source === 'EXECUTIVE';
+      const isMajor = t.isMajorShareholder === true;
+      if (isExecutive && isMajor) w *= 2.0;
+      else if (isExecutive || isMajor) w *= 1.5;
       netSellWeight += w;
     } else if (t.tradeType === 'BUY') {
       netSellWeight -= mag; // 같은 윈도우 매수는 순매도 상쇄
@@ -349,21 +381,38 @@ export function calcDisclosureRiskScore(
   }
 
   return {
-    score: Math.min(score, DISCLOSURE_RISK_CAP),
+    // DAR-349#5: 하드 캡 대신 단조 소프트 캡으로 다중 위기 차별성 보존.
+    score: softCapDisclosureRisk(score),
     triggered: score > 0,
     severe,
   };
 }
 
-// 거래일 계산 (주말 제외 — 단순 근사)
-export function tradingDaysSince(entryDate: Date): number {
-  const now = new Date();
+/**
+ * 두 시점 사이의 거래일(주말 제외) 정확 계산 — DAR-349#2 (순수 함수).
+ *
+ * 기존 `floor(totalDays*5/7)` 근사는 거래일을 약 20% 과소 추정해
+ * maxHoldDays 초과 보유를 늦게 감지했다(예: 30일 → 근사 21, 실제 ~22).
+ * from 다음 날부터 to(포함)까지 각 날의 요일을 세어 토·일을 제외한다.
+ * 요일 판정은 TZ 비의존(getUTCDay)으로 결정론을 보장한다.
+ */
+export function countTradingDays(from: Date, to: Date): number {
   const msPerDay = 86400000;
-  const totalDays = Math.floor(
-    (now.getTime() - entryDate.getTime()) / msPerDay,
-  );
-  // 주말 제외 근사: 7일 중 5거래일
-  return Math.max(0, Math.floor(totalDays * (5 / 7)));
+  const totalDays = Math.floor((to.getTime() - from.getTime()) / msPerDay);
+  if (totalDays <= 0) return 0;
+
+  const fromDow = from.getUTCDay(); // 0=일 … 6=토
+  let count = 0;
+  for (let i = 1; i <= totalDays; i++) {
+    const dow = (fromDow + i) % 7;
+    if (dow !== 0 && dow !== 6) count++;
+  }
+  return count;
+}
+
+// 진입 이후 경과 거래일(주말 제외 정확 계산).
+export function tradingDaysSince(entryDate: Date): number {
+  return countTradingDays(entryDate, new Date());
 }
 
 // 메인 계산 함수
@@ -380,7 +429,7 @@ export function calculateExitScore(
   const thesisResult = calcThesisBreakScore(thesis, disclosureEvents, pos, tech);
   const chartResult = calcChartBreakScore(tech);
   const timeResult = calcTimeExceededScore(pos, thesis, tech);
-  const overweightResult = calcOverweightScore(pos);
+  const overweightResult = calcOverweightScore(pos, tech);
   const momentumBonus = calcPositiveMomentumBonus(tech);
 
   // DAR-94: 공시 악재를 이벤트 타입별로 가중(고위험 5종 강 / 일반 악재 약)하고,

@@ -135,14 +135,14 @@ describe('DisclosureEventsService', () => {
       expect(result.confidence).toBeGreaterThanOrEqual(0.85);
     });
 
-    // DAR-291: doc 조회는 parsedJson/isAmendment/originalRcpNo 만 사용 →
-    // rawText(@db.Text, 200KB) over-fetch 방지를 위해 select 가 적용돼야 한다.
+    // DAR-291: doc 조회는 사용 컬럼만 select → rawText(@db.Text, 200KB) over-fetch 방지.
+    // DAR-339: SHARE_BUYBACK 추출 폴백 스캔용으로 tables(영속 원본 표) 추가 — 여전히 rawText 제외.
     it('DisclosureDocument 조회에 사용 컬럼만 select 적용(rawText over-fetch 방지)', async () => {
       await service.processDisclosure('20240601000001');
 
       expect(mockPrismaService.disclosureDocument.findUnique).toHaveBeenCalledWith({
         where: { rcpNo: '20240601000001' },
-        select: { parsedJson: true, isAmendment: true, originalRcpNo: true },
+        select: { parsedJson: true, tables: true, isAmendment: true, originalRcpNo: true },
       });
     });
 

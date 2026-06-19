@@ -2,6 +2,7 @@
 // 자기주식 취득·소각 수치 추출 파서 (Rule/정규식 전용, AI 미사용)
 
 import { ParsedJson } from '../../disclosure-documents/types/parsed-json.type';
+import { Table } from '../../disclosure-documents/types/table.type';
 
 export interface ShareBuybackData {
   buybackAmount: number | null;        // 취득 금액 (원)
@@ -76,11 +77,48 @@ export function computeBuybackRatios(
  * - DAR-79: buybackAmount를 매출(parsedJson.revenue) 대비로 정규화한다(supply-contract 패턴).
  *   parsedJson에는 시총·상장주식수 필드가 없어 buybackRatioToMarketCap은 null이며,
  *   매출 대비 비율도 매출 결측 시 null(engine3에서 CompanyFinancial로 보강).
+ *
+ * DAR-339: 취득금액·취득주식수 추출 폴백(데이터커버리지). 분류는 확실하나 수치 0.0 →
+ *   FAILED(94건)였던 케이스를 회수한다. 폴백 순서(모두 Rule, AI 미사용):
+ *   1) 정형 키 acquisitionAmount/acquisitionShares
+ *   2) 대체 키 — parsedJson 블롭에 비정형으로 실릴 수 있는 동의 키
+ *      (buybackAmount/repurchaseAmount/취득가액 …)
+ *   3) 원시 표(tables) 스캔 — 매퍼가 라벨 변형('취득가액' 등)으로 놓친 값을
+ *      DisclosureDocument.tables(영속 원본)에서 직접 회수. 신규 DART 호출 0.
+ *   부분 필드(취득금액·주식수 중 하나)만 회수돼도 상위 calcConfidence가 NEEDS_REVIEW
+ *   범위(≈0.75)를 산출해 FAILED를 면한다. 모두 결측이면 기존대로 null.
+ *
+ * @param tables DisclosureDocument.tables(원본 표). 폴백 스캔용. 없으면 parsedJson 내 임베드 표 사용.
  */
-export function extract(parsedJson: ParsedJson, _reportName: string): ShareBuybackData {
+export function extract(
+  parsedJson: ParsedJson,
+  _reportName: string,
+  tables?: Table[],
+): ShareBuybackData {
   try {
-    const buybackAmount = parsedJson.acquisitionAmount ?? null;
-    const buybackShares = parsedJson.acquisitionShares ?? null;
+    // 1) 정형 키
+    let buybackAmount = finiteOrNull(parsedJson.acquisitionAmount);
+    let buybackShares = finiteOrNull(parsedJson.acquisitionShares);
+
+    // 2) 대체 키 (parsedJson 블롭의 동의 키) — graceful
+    if (buybackAmount === null) {
+      buybackAmount = readAltNumber(parsedJson, ALT_AMOUNT_KEYS, parseAmount);
+    }
+    if (buybackShares === null) {
+      buybackShares = readAltNumber(parsedJson, ALT_SHARES_KEYS, parseShareCount);
+    }
+
+    // 3) 원시 표 스캔 (취득가액/취득주식수 등) — 매퍼 라벨 변형 누락분 회수
+    const tableSource = resolveTables(parsedJson, tables);
+    if (tableSource.length > 0) {
+      if (buybackAmount === null) {
+        buybackAmount = scanTable(tableSource, AMOUNT_LABEL_PATTERNS, parseAmount);
+      }
+      if (buybackShares === null) {
+        buybackShares = scanTable(tableSource, SHARES_LABEL_PATTERNS, parseShareCount);
+      }
+    }
+
     const buybackPeriodStart = normalizeDate(parsedJson.acquisitionStartDate ?? null);
     const buybackPeriodEnd = normalizeDate(parsedJson.acquisitionEndDate ?? null);
     const acquisitionMethod = parsedJson.acquisitionMethod ?? null;
@@ -131,7 +169,150 @@ export function extractCancellation(
   }
 }
 
+// ─── DAR-339 폴백 상수 ───────────────────────────────────────────────────────
+
+// 대체 키: 매퍼가 acquisitionAmount/Shares로 쓰지 못한 케이스에서 블롭에 실릴 수 있는 동의 키.
+const ALT_AMOUNT_KEYS = [
+  'buybackAmount',
+  'repurchaseAmount',
+  'treasuryAcquisitionAmount',
+  '취득가액',
+  '취득금액',
+] as const;
+const ALT_SHARES_KEYS = [
+  'buybackShares',
+  'repurchaseShares',
+  'treasuryAcquisitionShares',
+  '취득주식수',
+] as const;
+
+// 원시 표 라벨 패턴. 단가('취득단가'/'예정단가')·주당 항목과 충돌하지 않도록 특정.
+const AMOUNT_LABEL_PATTERNS: RegExp[] = [
+  /취득\s*예정\s*(금액|가액)/,
+  /취득\s*(금액|가액|총액)/,
+];
+const SHARES_LABEL_PATTERNS: RegExp[] = [
+  /취득\s*예정\s*(주식\s*등?\s*)?수/,
+  /취득\s*예정\s*주식/,
+  /취득\s*(주식\s*등?\s*)?수/,
+  /취득\s*수량/,
+];
+
 // ─── 내부 유틸 ──────────────────────────────────────────────────────────────
+
+/**
+ * 폴백 스캔에 사용할 표 배열을 해석한다.
+ * - 우선순위: 명시 인자(tables, DisclosureDocument.tables 영속 원본)
+ * - 차선: parsedJson 블롭에 임베드된 tables (방어적 — 일부 레거시/외부 경로 대비)
+ */
+function resolveTables(parsedJson: ParsedJson, tables?: Table[]): Table[] {
+  if (Array.isArray(tables)) return tables.filter(isTableLike);
+  const embedded = (parsedJson as { tables?: unknown }).tables;
+  if (Array.isArray(embedded)) return embedded.filter(isTableLike);
+  return [];
+}
+
+function isTableLike(t: unknown): t is Table {
+  return (
+    typeof t === 'object' &&
+    t !== null &&
+    Array.isArray((t as { rows?: unknown }).rows)
+  );
+}
+
+/**
+ * 표 배열에서 라벨 패턴에 매칭되는 행을 찾아 값 셀을 파서로 변환한다.
+ * - 라벨=셀0 가정. 자기주식 취득표는 구분 컬럼('보통주식' 등)이 끼어 값이 셀1이 아닐 수 있어,
+ *   셀1부터 끝까지 순회해 파서로 변환되는 첫 셀을 채택(findValueByLabel보다 관대).
+ */
+function scanTable(
+  tables: Table[],
+  patterns: RegExp[],
+  parse: (raw: string, unitNote?: string) => number | null,
+): number | null {
+  for (const table of tables) {
+    const headers = Array.isArray(table.headers) ? table.headers : [];
+    const rows = Array.isArray(table.rows) ? table.rows : [];
+    const allRows = headers.length > 0 ? [headers, ...rows] : rows;
+    for (const row of allRows) {
+      if (!Array.isArray(row) || row.length < 2) continue;
+      const labelCell = String(row[0] ?? '');
+      if (!patterns.some((p) => p.test(labelCell))) continue;
+      for (let i = 1; i < row.length; i++) {
+        const cell = String(row[i] ?? '').trim();
+        if (cell === '') continue;
+        const parsed = parse(cell, table.unitNote);
+        if (parsed !== null) return parsed;
+      }
+    }
+  }
+  return null;
+}
+
+/** parsedJson 블롭에서 대체 키를 순서대로 조회해 첫 유효값을 파서로 변환한다. */
+function readAltNumber(
+  parsedJson: ParsedJson,
+  keys: readonly string[],
+  parse: (raw: string, unitNote?: string) => number | null,
+): number | null {
+  const blob = parsedJson as unknown as Record<string, unknown>;
+  for (const key of keys) {
+    const raw = blob[key];
+    if (raw === null || raw === undefined) continue;
+    if (typeof raw === 'number') {
+      const v = finiteOrNull(raw);
+      if (v !== null) return v;
+    } else if (typeof raw === 'string') {
+      const v = parse(raw);
+      if (v !== null) return v;
+    }
+  }
+  return null;
+}
+
+/**
+ * 한국 금액 문자열 → 원(原) 단위 숫자. ('1,200억원' → 120000000000)
+ * key-value.mapper.parseKoreanAmount의 축약형(추출기 자립 유지 — 매퍼 런타임 비의존).
+ */
+function parseAmount(raw: string, unitNote?: string): number | null {
+  if (typeof raw !== 'string') return null;
+  const text = raw.replace(/,/g, '').trim();
+  const unitTable: [RegExp, number][] = [
+    [/^([\d.]+)\s*억\s*원?/, 100_000_000],
+    [/^([\d.]+)\s*천만\s*원?/, 10_000_000],
+    [/^([\d.]+)\s*백만\s*원?/, 1_000_000],
+    [/^([\d.]+)\s*만\s*원?/, 10_000],
+    [/^([\d.]+)\s*천\s*원?/, 1_000],
+  ];
+  for (const [re, mult] of unitTable) {
+    const m = text.match(re);
+    if (m) return Math.round(parseFloat(m[1]) * mult);
+  }
+  const numMatch = text.match(/^([\d.]+)/);
+  if (!numMatch) return null;
+  let num = parseFloat(numMatch[1]);
+  if (!isFinite(num)) return null;
+  if (unitNote) {
+    if (/백만\s*원/.test(unitNote)) num *= 1_000_000;
+    else if (/억\s*원/.test(unitNote)) num *= 100_000_000;
+    else if (/천만\s*원/.test(unitNote)) num *= 10_000_000;
+    else if (/천\s*원/.test(unitNote)) num *= 1_000;
+  }
+  return Math.round(num);
+}
+
+/** 주식 수 문자열 → 정수. 쉼표 제거 후 파싱(단위 보정 없음). */
+function parseShareCount(raw: string): number | null {
+  if (typeof raw !== 'string') return null;
+  const m = raw.replace(/,/g, '').trim().match(/^([\d.]+)/);
+  if (!m) return null;
+  const num = parseFloat(m[1]);
+  return isFinite(num) ? Math.round(num) : null;
+}
+
+function finiteOrNull(raw: number | null | undefined): number | null {
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+}
 
 function normalizeDate(raw: string | null | undefined): string | null {
   if (!raw) return null;

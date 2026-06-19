@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { isImplausibleIndexChange } from './index-sanity';
 
 export interface StockDailyPrice {
   stockCode: string;
@@ -25,6 +26,10 @@ export interface MarketIndexQuote {
   prevCloseIndex: number | null; // 전일 종가지수 (없으면 null)
   change: number | null; // 전일대비 등락폭 (포인트)
   changePercent: number | null; // 전일대비 등락률 (%)
+  // DAR-367: 인접 거래일 |Δ| 가 물리적으로 불가능한 수준(>±20%)이면 전일 종가가 오염된
+  // 것으로 보고 등락 필드를 노출하지 않는다(null). suspect=true 면 배지가 '데이터 점검중'
+  // 폴백을 띄울 수 있다. 정상 데이터에서는 false.
+  suspect: boolean;
 }
 
 /**
@@ -147,10 +152,21 @@ export class MarketDataService {
       const latest = rows[0];
       const prevClose = rows.length > 1 ? rows[1].closeIndex : null;
 
+      // DAR-367 표시 단계 방어선: 적재 가드가 들어오기 전 과거에 오염된 행(예: 8639.41)이
+      // 전일 종가로 남아 있으면 -63.75% 같은 불가능한 등락률이 산출된다. 이를 사용자에게
+      // 노출하지 않도록 등락 필드를 모두 숨기고(suspect=true) 최신 종가만 표시한다.
+      const suspect = isImplausibleIndexChange(latest.closeIndex, prevClose);
+      if (suspect) {
+        this.logger.warn(
+          `[지수] ${market} 등락률 이상치 감지 — close=${latest.closeIndex}(${latest.tradeDate}) ` +
+            `prevClose=${prevClose} → 등락 미표시(데이터 점검 필요)`,
+        );
+      }
+
       const change =
-        prevClose !== null ? round2(latest.closeIndex - prevClose) : null;
+        !suspect && prevClose !== null ? round2(latest.closeIndex - prevClose) : null;
       const changePercent =
-        prevClose !== null && prevClose !== 0
+        !suspect && prevClose !== null && prevClose !== 0
           ? round2(((latest.closeIndex - prevClose) / prevClose) * 100)
           : null;
 
@@ -160,9 +176,10 @@ export class MarketDataService {
         market,
         tradeDate: latest.tradeDate,
         closeIndex: latest.closeIndex,
-        prevCloseIndex: prevClose,
+        prevCloseIndex: suspect ? null : prevClose,
         change,
         changePercent,
+        suspect,
       });
     }
 

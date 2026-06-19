@@ -43,6 +43,7 @@ interface WatchlistRowProps {
   typo: ThemeTypography;
   onPress: (corpCode: string) => void;
   onRemovePress: (item: WatchlistItem) => void;
+  onChartPress: (stockCode: string) => void;
 }
 
 const WatchlistRow = React.memo(function WatchlistRow({
@@ -52,10 +53,16 @@ const WatchlistRow = React.memo(function WatchlistRow({
   typo,
   onPress,
   onRemovePress,
+  onChartPress,
 }: WatchlistRowProps) {
   // item.corpCode 기준 안정 콜백. onPress/onRemovePress 자체가 부모에서 안정 참조라 deps 충족.
   const handlePress = useCallback(() => onPress(item.corpCode), [onPress, item.corpCode]);
   const handleRemove = useCallback(() => onRemovePress(item), [onRemovePress, item]);
+  // DAR-355: 종목코드 있을 때만 차트 진입(없으면 버튼 미노출).
+  const handleChart = useCallback(
+    () => item.stockCode && onChartPress(item.stockCode),
+    [onChartPress, item.stockCode],
+  );
 
   return (
     <TouchableOpacity
@@ -99,6 +106,18 @@ const WatchlistRow = React.memo(function WatchlistRow({
         ) : null}
       </View>
       <View style={styles.itemActions}>
+        {/* DAR-355: 전용 종목 차트 진입 — 종목코드 있을 때만. */}
+        {item.stockCode ? (
+          <TouchableOpacity
+            style={styles.actionBtn}
+            hitSlop={{ top: spacing.md, bottom: spacing.md, left: spacing.md, right: spacing.md }}
+            accessibilityRole="button"
+            accessibilityLabel={`${item.corpName} 차트 보기`}
+            onPress={handleChart}
+          >
+            <Ionicons name="bar-chart-outline" size={20} color={colors.primary} />
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity
           style={styles.actionBtn}
           hitSlop={{ top: spacing.md, bottom: spacing.md, left: spacing.md, right: spacing.md }}
@@ -179,6 +198,11 @@ export default function WatchlistScreen() {
     router.push(`/company/${corpCode}`);
   }, []);
 
+  // DAR-355: 전용 종목 차트 화면 진입(풀스크린 분봉/현재가).
+  const handleChartNavigate = useCallback((stockCode: string) => {
+    router.push(`/stock/${stockCode}`);
+  }, []);
+
   const handleRemovePress = useCallback(
     (item: WatchlistItem) => {
       showDialog({
@@ -205,9 +229,10 @@ export default function WatchlistScreen() {
         typo={typo}
         onPress={handleNavigate}
         onRemovePress={handleRemovePress}
+        onChartPress={handleChartNavigate}
       />
     ),
-    [quotes, colors, typo, handleNavigate, handleRemovePress],
+    [quotes, colors, typo, handleNavigate, handleRemovePress, handleChartNavigate],
   );
 
   if (isLoading) {

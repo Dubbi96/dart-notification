@@ -94,19 +94,74 @@ function Chip({ label }: { label: string }) {
   );
 }
 
-/** 성과 요약 1행 — 기간(누적) 수익률 + 추이 스파크라인. 성적표 전체는 '성과' 탭으로. */
+/**
+ * 신뢰지표 히어로 카드 — 진입 즉시 무스크롤 가독(DAR-360). 2행 위계로 가중치 차등화:
+ *  1행=승률(대형 볼드 h1, 최고 신뢰지표 8승2패=80%)+누적수익률(h2 세컨더리, 손익색)
+ *  2행=평균손익·평균보유(터셔리). 표본 부족 시 과신방지 '데이터 한계' 배지.
+ * 기존 4지표 width:50% 균등 가중을 위계로 대체해 핵심 신뢰지표를 시각적으로 승격한다.
+ */
+function HeroScorecard({ scorecard }: { scorecard: TradeScorecard }) {
+  const { colors, typography: typo } = useTheme();
+  const winRateText = formatWinRate(scorecard.winRate, { fallback: '표본 부족' });
+  const avgHoldText = scorecard.avgHoldDays === null ? '—' : `${scorecard.avgHoldDays}일`;
+  const cumColor = returnColor(scorecard.cumulativeReturnPct, colors);
+
+  return (
+    <Surface elevation={1} style={[styles.hero, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <View style={styles.heroHeader}>
+        <Text style={[typo.captionMedium, { color: colors.text }]}>매매 성적표</Text>
+        {scorecard.lowSample ? (
+          <View style={[styles.warnBadge, { backgroundColor: colors.surfaceSecondary }]}>
+            <Feather name="alert-triangle" size={11} color={colors.warning} />
+            <Text style={[typo.small, { color: colors.warning, marginLeft: spacing.xs, fontWeight: '600' }]}>
+              데이터 한계 (표본 {scorecard.sampleSize})
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      {/* 1행: 승률(대형 볼드) + 누적수익률(세컨더리) — 최고 신뢰지표 우선 */}
+      <View style={styles.heroPrimaryRow}>
+        <View
+          style={styles.heroPrimaryItem}
+          accessibilityRole="text"
+          accessibilityLabel={`승률 ${winRateText}, ${scorecard.winCount}승 ${scorecard.lossCount}패`}
+        >
+          <Text style={[typo.small, { color: colors.textSecondary }]}>승률</Text>
+          <Text style={[typo.h1, { color: colors.text }]}>{winRateText}</Text>
+          <Text style={[typo.small, { color: colors.textTertiary }]}>
+            {scorecard.winCount}승 {scorecard.lossCount}패
+          </Text>
+        </View>
+        <View style={[styles.heroDivider, { backgroundColor: colors.borderLight }]} />
+        <View
+          style={styles.heroPrimaryItem}
+          accessibilityRole="text"
+          accessibilityLabel={`누적 수익률 ${formatReturnPct(scorecard.cumulativeReturnPct)}`}
+        >
+          <Text style={[typo.small, { color: colors.textSecondary }]}>누적 수익률</Text>
+          <Text style={[typo.h2, { color: cumColor }]}>{formatReturnPct(scorecard.cumulativeReturnPct)}</Text>
+        </View>
+      </View>
+
+      {/* 2행: 평균손익 + 평균보유 (터셔리 보조지표) */}
+      <View style={[styles.heroSecondaryRow, { borderTopColor: colors.borderLight }]}>
+        <Metric label="평균 손익" value={formatPnl(scorecard.avgPnl)} />
+        <Metric label="평균 보유" value={avgHoldText} />
+      </View>
+    </Surface>
+  );
+}
+
+/** 추이 보조맥락(세컨더리) — 기간 수익률 스파크라인. 히어로 카드 아래 보조로. */
 function SummaryRow({
-  scorecard,
   returnSeries,
   onPress,
 }: {
-  scorecard: TradeScorecard | undefined;
   returnSeries: number[];
   onPress: () => void;
 }) {
   const { colors, typography: typo } = useTheme();
-  const cumPct = scorecard?.cumulativeReturnPct ?? 0;
-  const valueColor = returnColor(cumPct, colors);
   const hasTrend = returnSeries.length >= 2;
 
   return (
@@ -114,12 +169,11 @@ function SummaryRow({
       onPress={onPress}
       activeOpacity={0.7}
       accessibilityRole="button"
-      accessibilityLabel={`기간 수익률 ${formatReturnPct(cumPct)}. 성과 탭에서 매매 성적표 전체 보기`}
+      accessibilityLabel="수익률 추이. 성과 탭에서 매매 내역 전체 보기"
     >
       <Surface elevation={1} style={[styles.summaryRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.summaryLeft}>
-          <Text style={[typo.small, { color: colors.textSecondary }]}>기간 수익률</Text>
-          <Text style={[typo.h3, { color: valueColor, marginTop: spacing.xs }]}>{formatReturnPct(cumPct)}</Text>
+          <Text style={[typo.small, { color: colors.textSecondary }]}>수익률 추이</Text>
         </View>
         <View style={styles.summaryTrend}>
           {hasTrend ? (
@@ -207,42 +261,6 @@ function DataLimitBadge() {
   );
 }
 
-function Scorecard({ scorecard }: { scorecard: TradeScorecard }) {
-  const { colors, typography: typo } = useTheme();
-  const winRateText = formatWinRate(scorecard.winRate, { fallback: '표본 부족' });
-  const avgHoldText = scorecard.avgHoldDays === null ? '—' : `${scorecard.avgHoldDays}일`;
-
-  return (
-    <Surface
-      elevation={1}
-      style={[styles.scorecard, { backgroundColor: colors.surface, borderColor: colors.border }]}
-    >
-      <View style={styles.scorecardHeader}>
-        <Text style={[typo.captionMedium, { color: colors.text }]}>매매 성적표</Text>
-        {scorecard.lowSample ? (
-          <View style={[styles.warnBadge, { backgroundColor: colors.surfaceSecondary }]}>
-            <Feather name="alert-triangle" size={11} color={colors.warning} />
-            <Text style={[typo.small, { color: colors.warning, marginLeft: spacing.xs, fontWeight: '600' }]}>
-              데이터 한계 (표본 {scorecard.sampleSize})
-            </Text>
-          </View>
-        ) : null}
-      </View>
-
-      <View style={styles.metricGrid}>
-        <Metric label="승률" value={winRateText} sub={`${scorecard.winCount}승 ${scorecard.lossCount}패`} />
-        <Metric
-          label="누적 수익률"
-          value={formatReturnPct(scorecard.cumulativeReturnPct)}
-          valueColor={returnColor(scorecard.cumulativeReturnPct, colors)}
-        />
-        <Metric label="평균 손익" value={formatPnl(scorecard.avgPnl)} />
-        <Metric label="평균 보유" value={avgHoldText} />
-      </View>
-    </Surface>
-  );
-}
-
 function Metric({
   label,
   value,
@@ -326,8 +344,20 @@ function TradeCard({ item }: { item: TradeRationale }) {
   );
 }
 
-/** L3 탭 바 — 성과 / 신호 정밀도 / 보정 권고 */
-function TabBar({ active, onChange }: { active: ReportTab; onChange: (t: ReportTab) => void }) {
+/**
+ * L3 탭 바 — 성과 / 신호 정밀도 / 보정 권고. 3탭 유지(2탭 통합은 ReportTab 타입·refetch
+ * 매핑이 @utils/reportRefresh에 있어 파일 스코프를 벗어남 → 택1: 긴급 액션 프리뷰 배지).
+ * badges[탭]>0 일 때만 해당 탭에 긴급 건수 배지를 붙인다(있을 때만, 정직 노출).
+ */
+function TabBar({
+  active,
+  onChange,
+  badges,
+}: {
+  active: ReportTab;
+  onChange: (t: ReportTab) => void;
+  badges?: Partial<Record<ReportTab, number>>;
+}) {
   const { colors, typography: typo } = useTheme();
   const tabs: { key: ReportTab; label: string }[] = [
     { key: 'performance', label: '성과' },
@@ -338,6 +368,7 @@ function TabBar({ active, onChange }: { active: ReportTab; onChange: (t: ReportT
     <View style={[styles.tabBar, { backgroundColor: colors.surfaceSecondary }]}>
       {tabs.map((t) => {
         const selected = active === t.key;
+        const badge = badges?.[t.key] ?? 0;
         return (
           <TouchableOpacity
             key={t.key}
@@ -345,13 +376,21 @@ function TabBar({ active, onChange }: { active: ReportTab; onChange: (t: ReportT
             style={[styles.tab, selected ? { backgroundColor: colors.surface } : null]}
             accessibilityRole="tab"
             accessibilityState={{ selected }}
-            accessibilityLabel={`${t.label} 탭`}
+            accessibilityLabel={`${t.label} 탭${badge > 0 ? `, 긴급 ${badge}건` : ''}`}
           >
-            <Text
-              style={[typo.small, { color: selected ? colors.text : colors.textSecondary, fontWeight: selected ? '600' : '400' }]}
-            >
-              {t.label}
-            </Text>
+            <View style={styles.tabContent}>
+              <Text
+                style={[typo.small, { color: selected ? colors.text : colors.textSecondary, fontWeight: selected ? '600' : '400' }]}
+                numberOfLines={1}
+              >
+                {t.label}
+              </Text>
+              {badge > 0 ? (
+                <View style={[styles.tabBadge, { backgroundColor: colors.warning }]}>
+                  <Text style={[typo.small, { color: colors.surface, fontWeight: '700' }]}>{badge}</Text>
+                </View>
+              ) : null}
+            </View>
           </TouchableOpacity>
         );
       })}
@@ -364,6 +403,7 @@ export default function TradeHistoryScreen() {
   const queryClient = useQueryClient();
   const query = useTradeHistory();
   const equityQuery = useSimulationEquityCurve();
+  const calibrationQuery = useCalibration();
   const [activeTab, setActiveTab] = useState<ReportTab>('performance');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -393,6 +433,16 @@ export default function TradeHistoryScreen() {
     [equityQuery.data],
   );
 
+  // 보정 권고 탭 긴급 액션 프리뷰 배지 건수 — CALIBRATE 상태(표본 충분)만(있을 때만 노출).
+  // UrgentCalibrationBanner와 동일 쿼리(['calibration'])를 공유하므로 추가 네트워크 없음.
+  const urgentCalibrationCount = useMemo(() => {
+    const cal = calibrationQuery.data;
+    if (!cal) return 0;
+    return cal.eventScoreCalibrationsD20.filter(
+      (e) => e.status === 'CALIBRATE' && !e.lowSample,
+    ).length;
+  }, [calibrationQuery.data]);
+
   // 탭별 FlatList data — 성과 탭만 매매내역 리스트, 나머지는 헤더 섹션만.
   const listData = activeTab === 'performance' ? data?.trades ?? [] : [];
 
@@ -409,20 +459,16 @@ export default function TradeHistoryScreen() {
         </Text>
       </Banner>
 
-      {/* 지금 행동할 것: 요약 1행 + 가장 시급한 보정 1건만 (정밀도·보정 전체는 탭으로) */}
-      <SummaryRow
-        scorecard={data?.scorecard}
-        returnSeries={returnSeries}
-        onPress={() => setActiveTab('performance')}
-      />
+      {/* 신뢰지표 승격(DAR-360): 진입 즉시 승률+누적수익률 히어로 → 추이 보조 → 시급 보정 */}
+      {data ? <HeroScorecard scorecard={data.scorecard} /> : null}
+      <SummaryRow returnSeries={returnSeries} onPress={() => setActiveTab('performance')} />
       <UrgentCalibrationBanner onPress={() => setActiveTab('calibration')} />
 
-      <TabBar active={activeTab} onChange={setActiveTab} />
+      <TabBar active={activeTab} onChange={setActiveTab} badges={{ calibration: urgentCalibrationCount }} />
 
       {/* 탭 본문 상단(헤더에 실어 단일 FlatList 유지 — 중첩 가상리스트 경고 회피) */}
       {activeTab === 'performance' ? (
         <View style={styles.tabBody}>
-          {data ? <Scorecard scorecard={data.scorecard} /> : null}
           <Text style={[typo.captionMedium, { color: colors.text, marginTop: spacing.sm }]}>매매 내역</Text>
         </View>
       ) : activeTab === 'precision' ? (
@@ -512,6 +558,20 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     borderRadius: radius.sm,
   },
+  tabContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  tabBadge: {
+    minWidth: 16,
+    height: 16,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   tabBody: { gap: spacing.md },
   dataLimitBadge: {
     flexDirection: 'row',
@@ -520,23 +580,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
   },
-  scorecard: { borderRadius: radius.lg, borderWidth: 1, padding: spacing.base },
-  scorecardHeader: {
+  hero: { borderRadius: radius.lg, borderWidth: 1, padding: spacing.base, gap: spacing.md },
+  heroHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.md,
   },
+  heroPrimaryRow: { flexDirection: 'row', alignItems: 'stretch' },
+  heroPrimaryItem: { flex: 1, gap: spacing.xs },
+  heroDivider: { width: 1, marginHorizontal: spacing.base },
+  heroSecondaryRow: { flexDirection: 'row', borderTopWidth: 1, paddingTop: spacing.md },
   warnBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
-  },
-  metricGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
   },
   metric: { width: '50%', marginBottom: spacing.sm },
   tradeCard: { borderRadius: radius.lg, borderWidth: 1, padding: spacing.base },

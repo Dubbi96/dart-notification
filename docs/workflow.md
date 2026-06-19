@@ -576,8 +576,18 @@ KrxMarketDataScheduler.collectMarketIndicesForDate()
   └─ for KOSPI, KOSDAQ:
        KrxApiService.fetchIndexDaily(indexType, basDd)
          └─ GET /idx/kospi_dd_trd | /idx/kosdaq_dd_trd
-       MarketIndex.upsert(indexCode, tradeDate)
+         └─ 종합지수(IDX_NM=='코스피'/'코스닥') 행 1건만 선별 (DAR-367)
+       연속성 sanity 가드: 직전 거래일 종가 대비 |Δ| > 20% → 격리(적재 거부)+WARN 로그
+       MarketIndex.upsert(indexCode, tradeDate)  // 가드 통과분만
 ```
+
+> **DAR-367 데이터 정합 가드.** `kospi_dd_trd`/`kosdaq_dd_trd` 는 종합지수 외에 KOSPI 200·
+> 업종지수 등 수십 개 시리즈를 함께 반환한다. 이전 구현은 모든 행을 동일 indexCode('0001')로
+> 적재해 `@@unique([indexCode,tradeDate])` upsert 에서 마지막 행(업종지수 등)이 종합지수를
+> 덮어썼고, 일자별로 3132/8639 같은 오염값이 저장돼 홈 배지에 `-63.75%` 가 노출됐다.
+> 정정: ① 파서가 종합지수 행만 선별, ② 적재 단계 연속성 가드(±20% 초과 격리),
+> ③ 표시 단계(`fetchLatestIndices`)도 등락률이 임계를 넘으면 등락 필드를 숨기고 `suspect=true`
+> 로 표기해 사용자에게 불가능한 수치를 노출하지 않는다.
 
 ### 5.3 종목상태 수집 (평일 08:50, 장 시작 전)
 

@@ -25,20 +25,24 @@ const comp = readFileSync(join(ROOT, 'components/company/MinuteCandleChart.tsx')
 const types = readFileSync(join(ROOT, 'types/market-quote.types.ts'), 'utf8');
 const page = readFileSync(join(ROOT, 'app/company/[corpCode].tsx'), 'utf8');
 
-console.log('[1] 타입 — MinuteCandle 백엔드 KisMinuteCandle 1:1');
-ok('time/open/high/low/close/volume 필드 존재', /interface MinuteCandle[\s\S]*time:[\s\S]*open:[\s\S]*high:[\s\S]*low:[\s\S]*close:[\s\S]*volume:/.test(types));
+console.log('[1] 타입 — 백엔드 MinuteCandlesResult / KisMinuteCandle 1:1');
+ok('MinuteCandle time/open/high/low/close/volume', /interface MinuteCandle[\s\S]*time:[\s\S]*open:[\s\S]*high:[\s\S]*low:[\s\S]*close:[\s\S]*volume:/.test(types));
+ok('MinuteCandlesResult stockCode/source/asOf/candles', /interface MinuteCandlesResult[\s\S]*stockCode:[\s\S]*source:[\s\S]*asOf:[\s\S]*candles:/.test(types));
+ok("source enum KIS_REALTIME|UNAVAILABLE", /'KIS_REALTIME'\s*\|\s*'UNAVAILABLE'/.test(types));
 
-console.log('[2] 서비스 — getMinuteCandles(stockCode)');
+console.log('[2] 서비스 — getMinuteCandles(stockCode): MinuteCandlesResult');
 ok('getMinuteCandles 메서드 존재', /getMinuteCandles:\s*\(stockCode: string\)/.test(svc));
+ok('반환 타입 MinuteCandlesResult', /getMinuteCandles:\s*\(stockCode: string\):\s*Promise<MinuteCandlesResult>/.test(svc));
 ok('엔드포인트 /market-data/minute-candles', /['"]\/market-data\/minute-candles['"]/.test(svc));
-ok('6자리 아니면 빈배열(네트워크 0)', /\/\^\\d\{6\}\$\/\.test\(stockCode\)[\s\S]*Promise\.resolve\(\[\]\)/.test(svc));
-ok('null 응답 ?? [] 가드', /r\.data\.data\s*\?\?\s*\[\]/.test(svc));
+ok('6자리 아니면 UNAVAILABLE 빈결과(네트워크 0)', /\/\^\\d\{6\}\$\/\.test\(stockCode\)[\s\S]*source:\s*'UNAVAILABLE'[\s\S]*candles:\s*\[\]/.test(svc));
+ok('응답 r.data.data(MinuteCandlesResult 전체) 반환', /\.then\(\(r\)\s*=>\s*r\.data\.data\)/.test(svc));
 
-console.log('[3] 훅 — queryKey/폴링');
+console.log('[3] 훅 — queryKey/폴링/candles·asOf 노출');
 ok("queryKey ['minute-candles', code]", /queryKey:\s*\['minute-candles',\s*code\]/.test(hook));
 ok('6자리 정규화 enabled 게이트', /\/\^\\d\{6\}\$\/\.test\(code\)/.test(hook));
 ok('장중 폴링: isKrxMarketOpen 게이트', /pollWhileMarketOpen[\s\S]*isKrxMarketOpen\(new Date\(\)\)\s*\?\s*60 \* 1000\s*:\s*false/.test(hook));
-ok('장외/주말 폴링 false', /:\s*false/.test(hook));
+ok('candles = result?.candles ?? []', /candles:\s*result\?\.candles\s*\?\?\s*\[\]/.test(hook));
+ok('asOf 노출(환경시계 괴리 고지용)', /asOf:\s*result\?\.asOf\s*\?\?\s*''/.test(hook));
 
 console.log('[4] 컴포넌트 — 3상태 분기 + 캔들 + 거래량 + 정직라벨');
 ok('로딩 분기(isLoading)', /if \(isLoading\)/.test(comp));
@@ -50,6 +54,7 @@ ok('거래량 보조 차트', /거래량|VOLUME_HEIGHT/.test(comp) && /v-\$\{c\.
 ok('상승/하락 색 returnColor(close-open)', /returnColor\(c\.close - c\.open, colors\)/.test(comp));
 ok("정직 라벨 '실시간 분봉(실제 시장)'", /실시간 분봉\(실제 시장\)/.test(comp));
 ok('환경 시계 괴리 고지', /앱 환경 시계와 다를 수 있어요/.test(comp));
+ok('asOf → 서버 조회 HH:MM 병기(asOfClock)', /asOfClock\(asOf \?\? ''\)[\s\S]*서버 조회/.test(comp));
 ok('색 단독 금지 — 시간·가격 평문 병기(요약)', /종가 \{won\(active\.close\)\}/.test(comp));
 
 console.log('[5] 페이지 배선 — 현재가 헤더 아래');
@@ -58,6 +63,7 @@ ok('MinuteCandleChart import', /import \{ MinuteCandleChart \} from '@components
 ok('장중 폴링 옵션 전달', /useMinuteCandles\(company\?\.stockCode,\s*\{\s*pollWhileMarketOpen:\s*true\s*\}\)/.test(page));
 ok('헤더 Card 닫힘 직후 섹션(현재가 헤더 아래)', /DAR-354: 분봉 차트 섹션 — 현재가 헤더 아래/.test(page));
 ok('stockCode 있을 때만 렌더', /company\.stockCode \? \([\s\S]*<MinuteCandleChart/.test(page));
+ok('asOf prop 전달(정직 라벨)', /asOf=\{minuteCandlesAsOf\}/.test(page));
 ok('탭 셀렉터 앞 배치', page.indexOf('DAR-354: 분봉 차트 섹션') < page.indexOf('Tab selector'));
 
 // --- 순수 로직 재구현 대조군: 장중 판정 ---

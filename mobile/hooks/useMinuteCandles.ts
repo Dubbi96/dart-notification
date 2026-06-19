@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { marketQuoteService } from '@services/market-quote.service';
 
-import type { MinuteCandle } from '@app-types/market-quote.types';
+import type { MinuteCandlesResult } from '@app-types/market-quote.types';
 
 /**
  * KRX 정규장(평일 09:00–15:30 KST)이 열려 있는지 — 장중 폴링 게이트용 (DAR-354).
@@ -36,7 +36,7 @@ export function useMinuteCandles(
   const valid = /^\d{6}$/.test(code);
   const pollWhileMarketOpen = options?.pollWhileMarketOpen ?? false;
 
-  const query = useQuery<MinuteCandle[]>({
+  const query = useQuery<MinuteCandlesResult>({
     queryKey: ['minute-candles', code],
     queryFn: () => marketQuoteService.getMinuteCandles(code),
     enabled: valid && (options?.enabled ?? true),
@@ -48,5 +48,13 @@ export function useMinuteCandles(
       : false,
   });
 
-  return { candles: query.data ?? [], ...query };
+  const result = query.data;
+  return {
+    result,
+    candles: result?.candles ?? [],
+    source: result?.source,
+    // 서버 조회 시각(ISO) — 환경 시계 괴리 고지에 사용. 없으면 빈 문자열.
+    asOf: result?.asOf ?? '',
+    ...query,
+  };
 }

@@ -42,3 +42,19 @@ export interface MinuteCandle {
   /** 해당 분 거래량(주). */
   volume: number;
 }
+
+/**
+ * 분봉 조회 응답 — 백엔드 MinuteCandlesResult 와 1:1 (DAR-352/354).
+ * ★정직(DAR-140 계약): KIS_REALTIME 은 '실제 시장 실시간가'. 캔들 time(HHMMSS)은 시장 시각이라
+ * 환경 시계(2026)와 괴리될 수 있어 asOf(서버 조회 ISO 시각)와 함께 고지한다. UNAVAILABLE 이면 빈 배열.
+ */
+export interface MinuteCandlesResult {
+  /** 조회한 6자리 종목코드. */
+  stockCode: string;
+  /** 캔들 출처 — 'KIS_REALTIME'(실데이터) | 'UNAVAILABLE'(키 미설정·장마감·실패로 0행). */
+  source: 'KIS_REALTIME' | 'UNAVAILABLE';
+  /** 서버가 KIS 를 조회한 시각(ISO). 미가용/미조회 시 빈 문자열. */
+  asOf: string;
+  /** 당일 분봉(시간 오름차순). 미가용 시 빈 배열. */
+  candles: MinuteCandle[];
+}

@@ -3,6 +3,7 @@
 
 import { EventType } from '@prisma/client';
 import { ParsedJson } from '../../disclosure-documents/types/parsed-json.type';
+import { Table } from '../../disclosure-documents/types/table.type';
 import { extract as extractSupplyContract } from './supply-contract';
 import {
   extract as extractShareBuyback,
@@ -62,6 +63,8 @@ const REQUIRED_FIELDS: Partial<Record<EventType, string[]>> = {
  *   MAJOR_HOLDER_5PCT (DAR-337)
  * - 나머지 EventType: data = {}, confidence = 0.0
  *
+ * @param tables DisclosureDocument.tables(원본 표). SHARE_BUYBACK 폴백 스캔(DAR-339)에만 사용.
+ *   다른 파서는 미사용. 미전달 시 parsedJson 정형 키만으로 추출(기존 동작 보존).
  * @returns { data: Record<string, unknown>; confidence: number }
  *   confidence: 필수 필드 모두 추출 시 0.90, 일부 누락 시 0.60~0.89, 전체 누락/미지원 시 0.0
  */
@@ -69,6 +72,7 @@ export function extractEventData(
   eventType: EventType,
   parsedJson: ParsedJson,
   reportName: string,
+  tables?: Table[],
 ): {
   data: Record<string, unknown>;
   confidence: number;
@@ -81,7 +85,8 @@ export function extractEventData(
         data = extractSupplyContract(parsedJson, reportName) as unknown as Record<string, unknown>;
         break;
       case EventType.SHARE_BUYBACK:
-        data = extractShareBuyback(parsedJson, reportName) as unknown as Record<string, unknown>;
+        // DAR-339: tables 폴백 스캔으로 취득금액·주식수 회수(FAILED 복구)
+        data = extractShareBuyback(parsedJson, reportName, tables) as unknown as Record<string, unknown>;
         break;
       case EventType.SHARE_CANCELLATION:
         data = extractShareCancellation(parsedJson, reportName) as unknown as Record<string, unknown>;

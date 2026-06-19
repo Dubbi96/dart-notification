@@ -7,6 +7,7 @@ import { Queue } from 'bullmq';
 import { DisclosureEvent, EventType, ExtractionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ParsedJson } from '../disclosure-documents/types/parsed-json.type';
+import { Table } from '../disclosure-documents/types/table.type';
 import { computeDilutionRate } from '../disclosure-documents/utils/dilution.util';
 import { classifyEventType } from './extractors/event-classifier';
 import { extractEventData } from './extractors/index';
@@ -85,9 +86,10 @@ export class DisclosureEventsService {
 
       // Step 2: DisclosureDocument 조회 (parsedJson 필수)
       // rawText(@db.Text, 최대 200KB)는 미사용 — 사용 컬럼만 select 하여 over-fetch 방지
+      // DAR-339: tables(영속 원본 표)는 SHARE_BUYBACK 추출 폴백 스캔에 사용 → select 포함.
       const doc = await this.prisma.disclosureDocument.findUnique({
         where: { rcpNo },
-        select: { parsedJson: true, isAmendment: true, originalRcpNo: true },
+        select: { parsedJson: true, tables: true, isAmendment: true, originalRcpNo: true },
       });
       if (!doc || !doc.parsedJson) {
         return this.upsertFailed(rcpNo, disclosure.corpCode, 'NO_PARSED_DOC');
@@ -117,8 +119,12 @@ export class DisclosureEventsService {
       }
 
       // Step 4: 수치 추출 + 파생값 보정(서비스 레이어, 계약 §4-2 Step 4)
+      // DAR-339: 영속 tables를 폴백 스캔용으로 전달(SHARE_BUYBACK FAILED 복구). 신규 DART 호출 0.
+      const tables = Array.isArray(doc.tables)
+        ? (doc.tables as unknown as Table[])
+        : undefined;
       const { data: rawExtracted, confidence: extractConfidence } =
-        extractEventData(eventType, parsedJson, disclosure.reportName);
+        extractEventData(eventType, parsedJson, disclosure.reportName, tables);
       const data = this.computeDerivedValues(eventType, rawExtracted);
 
       // 필수 필드 전부 누락 (confidence = 0.0)

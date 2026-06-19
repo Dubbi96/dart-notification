@@ -1,0 +1,23 @@
+{
+  "_note": "DAR-339 실샘플 형상: 매퍼가 '취득가액' 라벨 변형을 놓쳐 parsedJson에 acquisition* 키가 없어 FAILED(confidence 0.0)였던 자기주식취득결정 공시. 영속 tables 폴백 스캔으로 회수.",
+  "parsedJson": {
+    "docType": "SHARE_BUYBACK",
+    "rawTableCount": 1,
+    "keyValueSource": "none"
+  },
+  "tables": [
+    {
+      "tableIndex": 0,
+      "headers": [],
+      "rows": [
+        ["취득예정 주식(주)", "보통주식", "1,500,000"],
+        ["취득예정 가액(원)", "보통주식", "7,500,000,000"],
+        ["취득예상기간", "시작일", "2026-06-22"],
+        ["취득방법", "유가증권시장을 통한 장내매수", ""]
+      ],
+      "unitNote": "",
+      "hasColspan": true,
+      "hasRowspan": false
+    }
+  ]
+}

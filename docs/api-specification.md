@@ -1293,6 +1293,62 @@ GET /api/market-data/quote?stockCodes=005930,000660   (OptionalJwt — 게스트
 | `source` | `REALTIME`\|`DAILY` | 가격 출처(정직 라벨) |
 | `sparkline` | number[] | 최근 종가(오래된→최신, 최대 5) |
 
+### 13.2 분봉 조회 (Minute Candles, DAR-352 → DAR-377 저장분 확장)
+
+```
+GET /api/market-data/minute-candles?stockCode=005930[&tradeDate=20260620]   (OptionalJwt — 게스트 열람)
+```
+
+| 쿼리 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `stockCode` | string | 필수 | 종목코드 6자리. 형식 위반·데이터 없음 시 `candles` 빈 배열. |
+| `tradeDate` | string | 선택 | 거래일 YYYYMMDD. 지정 시 저장분(`StockMinutePrice`)에서 해당일 분봉 서빙. 미지정 시 당일 KIS 실시간 우선·저장 최근일 폴백. |
+
+서빙 우선순위(거래일 미지정): ① KIS 당일 실시간 분봉(`source=KIS_REALTIME`) → ② 미가용 시 저장된
+최근 거래일 분봉(`source=STORED`) → ③ 없으면 `UNAVAILABLE` 빈 배열. ★**과거 분봉은 KIS 가 제공하지
+않으므로** `tradeDate` 지정 조회는 수집 시작일부터의 저장분만 존재한다(forward 축적).
+
+**응답**:
+```json
+{
+  "success": true,
+  "data": {
+    "stockCode": "005930",
+    "source": "STORED",
+    "asOf": "2026-06-20T06:31:00.000Z",
+    "tradeDate": "20260619",
+    "candles": [
+      { "time": "0901", "open": 100, "high": 102, "low": 99, "close": 101, "volume": 500 }
+    ]
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `source` | `KIS_REALTIME`\|`STORED`\|`UNAVAILABLE` | 캔들 출처 정직 라벨 |
+| `asOf` | string | 서버 응답 생성 시각(ISO). 캔들 `time` 은 KIS 시장 시각이라 환경 시계와 괴리 가능 |
+| `tradeDate` | string\|null | 캔들 거래일(YYYYMMDD). `STORED` 는 저장 거래일, `KIS_REALTIME`/미가용은 null |
+| `candles[].time` | string | 분 시각 HHMM(저장분) 또는 HHMMSS(KIS 실시간). 시간 오름차순 |
+
+### 13.3 분봉 수동 수집 (DAR-377, 운영 트리거)
+
+```
+POST /api/market-data/collect/minute-prices?cap=100&tradeDate=20260620   (JWT 필수)
+```
+
+우선순위 상위 종목(보유→신호→관심→거래량)의 당일 분봉을 KIS 에서 받아 `StockMinutePrice` 에 멱등
+적재하고 커버리지 리포트를 반환한다. cron(평일 09:00~15:30 / 10분 간격) 외 단발 트리거. KIS 일일
+쿼터·레이트리밋 가드(`cap`·스로틀) 내 동작.
+
+| 쿼리 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `cap` | number | 선택 | 수집 상한 종목 수(쿼터 가드). 미지정 시 env `KIS_MINUTE_COLLECT_CAP`→기본 100 |
+| `tradeDate` | string | 선택 | 적재 거래일 YYYYMMDD 강제(미지정 시 KRX 실 가용 거래일로 해석) |
+
+**응답 데이터**: `{ tradeDate, totalCandidates, requested, skippedByQuota, covered, empty, candlesSaved }`
+— `skippedByQuota`(쿼터로 잘려 미수집한 종목 수)로 커버리지를 정직 보고한다.
+
 ---
 
 ## 14. 포트폴리오 리스크 스냅샷 (Portfolio Risk — DAR-163)

@@ -93,6 +93,7 @@ model Company {
   disclosureEvents    DisclosureEvent[]
   insiderHoldingChanges InsiderHoldingChange[]
   stockDailyPrices    StockDailyPrice[]
+  stockMinutePrices   StockMinutePrice[]
   technicalIndicators TechnicalIndicator[]
   tradingSignals      TradingSignal[]
   positionTheses      PositionThesis[]
@@ -701,6 +702,41 @@ model StockDailyPrice {
   @@index([corpCode])
   @@index([tradeDate])
   @@map("stock_daily_prices")
+}
+
+// ====================================
+// 분봉 시세 (DAR-377 신규) — 장중 공시반응(분봉) 분석 기반
+// ====================================
+//
+// ★KIS 는 '당일 분봉'만 제공한다(과거 분봉 미제공). 따라서 분봉은 과거 소급 백필이 불가능하며,
+//   수집 시작일부터 매일 수집해 forward 로 누적한다(StockMinutePriceCollector). 시작일 이전 분봉은
+//   원천적으로 존재하지 않는다 — 이 정직 고지는 docs/workflow.md·수집 로그에도 명시한다.
+//
+// 대용량: 전 종목 × ~390분/일 ≈ 일 150만 행 규모를 가정한다. (stockCode, tradeDate) 복합 인덱스로
+//   조회를 받치고, KIS 일일 쿼터 한계상 실제로는 거래량/관심 상위 종목 우선 수집한다(커버리지 정직 로그).
+//   향후 보존정책(N개월 경과분 파티셔닝/아카이브)을 적용할 수 있도록 tradeDate 단일 인덱스도 둔다.
+model StockMinutePrice {
+  id         String   @id @default(cuid())
+  corpCode   String // DART 고유번호 (FK → Company.corpCode)
+  stockCode  String // 종목코드 6자리
+  tradeDate  String // 거래일 (YYYYMMDD)
+  time       String // 체결시각 HHMM (장중 분 단위, 예: "0901")
+  openPrice  Int // 해당 분 시가
+  highPrice  Int // 해당 분 고가
+  lowPrice   Int // 해당 분 저가
+  closePrice Int // 해당 분 종가(체결가)
+  volume     BigInt // 해당 분 거래량
+  createdAt  DateTime @default(now())
+
+  company Company @relation(fields: [corpCode], references: [corpCode])
+
+  // (stockCode, tradeDate, time) 멱등 — 재적재해도 중복 없이 누락 분만 신규 삽입.
+  @@unique([stockCode, tradeDate, time])
+  // 조회(특정 종목·특정일 분봉 전체)·보존정책 운영을 받치는 인덱스.
+  @@index([stockCode, tradeDate])
+  @@index([corpCode])
+  @@index([tradeDate])
+  @@map("stock_minute_prices")
 }
 
 // ====================================

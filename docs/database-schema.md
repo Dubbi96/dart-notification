@@ -569,6 +569,44 @@ model StockDailyPrice {
 }
 ```
 
+### 7.1a StockMinutePrice (stock_minute_prices) — DAR-377 신규 ★분봉 forward 축적
+
+장중 분봉 시세 데이터. 자연키: `(stockCode, tradeDate, time)`. 장중 가격반응(분봉)을 공시 이벤트와
+매칭해 인과근거를 축적하기 위한 저장 인프라.
+
+★**forward-only(불가침 정직 고지)**: KIS 는 '당일 분봉'만 제공한다(과거 분봉 미제공). 따라서 분봉은
+**과거 소급 백필이 원천 불가**하며 수집 시작일부터 매일 누적한다(`StockMinutePriceCollector`). 시작일
+이전 분봉은 존재하지 않는다 — 이 한계는 수집 로그·문서에 명시한다.
+
+대용량(전 종목 × ~390분/일 ≈ 일 150만 행) 대비: `(stockCode, tradeDate)` 복합 인덱스로 조회를
+받치고, `tradeDate` 단일 인덱스로 향후 보존정책(N개월 경과분 파티셔닝/아카이브) 운영을 받친다. KIS
+일일 쿼터 한계상 실제로는 거래량/관심 상위 종목 우선 수집하고 커버리지를 정직 로그로 남긴다.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | TEXT PK | CUID |
+| corpCode | TEXT FK | DART 고유번호 → Company.corpCode |
+| stockCode | TEXT | 종목코드 6자리 |
+| tradeDate | TEXT | 거래일 YYYYMMDD |
+| time | TEXT | 체결시각 HHMM (장중 분 단위, 예: "0901") |
+| openPrice | INT | 해당 분 시가 |
+| highPrice | INT | 해당 분 고가 |
+| lowPrice | INT | 해당 분 저가 |
+| closePrice | INT | 해당 분 종가(체결가) |
+| volume | BIGINT | 해당 분 거래량 |
+
+```prisma
+model StockMinutePrice {
+  @@unique([stockCode, tradeDate, time]) // 멱등 재적재 — 누락 분만 신규 삽입
+  @@index([stockCode, tradeDate])
+  @@index([corpCode])
+  @@index([tradeDate])
+  @@map("stock_minute_prices")
+}
+```
+
+마이그레이션: `20260620000000_dar377_stock_minute_price`(비파괴 CREATE TABLE — `migrate deploy` 휴먼 승인).
+
 ### 7.1b SimulatedDailyPrice (simulated_daily_prices) — DAR-124 ★모의 전용·실시세 아님
 
 모의운용 전용 **결정적 합성 일봉**. 환경 시계가 미래(2026)라 실 KRX 일봉이 없어
@@ -1339,5 +1377,5 @@ DART 정형 엔드포인트 2종을 수집·정규화한 행. 미공개 펀더�
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-06-14
+**최종 수정일**: 2026-06-20 (DAR-377 StockMinutePrice 추가)
 **버전**: 2.3 (DAR-87: Engine1 InsiderHoldingChange + EventType 지분변동 3종 추가; 본문은 refresh_tokens·WatchList.lastViewedRcpNo·Disclosure[corpCode,rcpNo] 인덱스까지 이미 반영 — DAR-222 날짜 동기화)

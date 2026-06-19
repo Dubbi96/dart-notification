@@ -17,6 +17,7 @@ const mockPrismaService = {
   },
   disclosureDocument: {
     findUnique: jest.fn(),
+    findMany: jest.fn(),
   },
   disclosureEvent: {
     findUnique: jest.fn(),
@@ -490,6 +491,57 @@ describe('DisclosureEventsService', () => {
       const intersection = page1.filter((id) => page2.includes(id));
       expect(union.size).toBeLessThan(rows.length); // 누락 발생
       expect(intersection.length).toBeGreaterThan(0); // 중복 발생
+    });
+  });
+
+  // ─── DAR-348: processPendingDisclosures 전건 메모리 적재 제거 ──────────────────
+  // 과거엔 disclosureEvent.findMany({select:{rcpNo}})로 모든 이벤트 rcpNo를 메모리에
+  // 적재(O(n)) 후 notIn 필터 → 이벤트 누적 시 메모리 스파이크·크론 타임아웃.
+  // relation 쿼리(disclosure.disclosureEvent is null)로 DB에서 직접 필터하도록 교정.
+  describe('processPendingDisclosures — relation 쿼리(전건 메모리 적재 제거, DAR-348)', () => {
+    const docRcpNo = '20240601000001';
+
+    beforeEach(() => {
+      // PENDING 이벤트 없음 — 신규 doc 경로만 검증
+      mockPrismaService.disclosureEvent.findMany.mockResolvedValue([]);
+      // 이벤트 미존재 doc 1건을 relation 쿼리가 반환
+      mockPrismaService.disclosureDocument.findMany.mockResolvedValue([{ rcpNo: docRcpNo }]);
+      // 반환된 doc 의 processDisclosure 가 SUCCESS 로 귀결되도록 픽스처 배선
+      mockPrismaService.disclosure.findUnique.mockResolvedValue(supplyContractDisclosure);
+      mockPrismaService.disclosureDocument.findUnique.mockResolvedValue(supplyContractDoc);
+    });
+
+    it('이벤트 미존재 doc 을 relation 필터로 골라 처리한다(동등성 회귀)', async () => {
+      const result = await service.processPendingDisclosures(100);
+      expect(result.success).toBe(1);
+      expect(result.failed).toBe(0);
+      expect(result.needsReview).toBe(0);
+    });
+
+    it('disclosureDocument.findMany 는 relation 필터를 사용하고 notIn 전건 목록을 쓰지 않는다', async () => {
+      await service.processPendingDisclosures(100);
+
+      const where = (mockPrismaService.disclosureDocument.findMany as jest.Mock).mock.calls[0][0]
+        .where;
+      expect(where).toMatchObject({
+        parseStatus: 'DONE',
+        disclosure: { disclosureEvent: { is: null } },
+      });
+      // O(n) 메모리 적재의 잔재(rcpNo.notIn)가 where 에 남아있지 않아야 한다.
+      expect(where).not.toHaveProperty('rcpNo');
+    });
+
+    it('전건 DisclosureEvent rcpNo 적재(where 없는 findMany)를 호출하지 않는다', async () => {
+      await service.processPendingDisclosures(100);
+
+      const eventCalls = (mockPrismaService.disclosureEvent.findMany as jest.Mock).mock.calls;
+      // 남은 disclosureEvent.findMany 호출은 PENDING 조회뿐 — 모두 where 를 동반해야 한다.
+      // (과거 전건 적재 호출은 where 없이 select:{rcpNo}만 전달했다.)
+      expect(eventCalls.length).toBe(1);
+      for (const [arg] of eventCalls) {
+        expect(arg).toHaveProperty('where');
+        expect(arg.where).toMatchObject({ extractionStatus: ExtractionStatus.PENDING });
+      }
     });
   });
 });

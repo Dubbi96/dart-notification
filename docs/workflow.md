@@ -692,7 +692,18 @@ IExitCheckScheduler.runPreMarketCheck() / runIntradayCheck() / runPostMarketChec
 - 손절/익절 하드룰·주문 수량: Engine5(Risk)가 독립 강제 — 이 엔진은 신호/점검만
 - `ExitSignal.aiUsed = false` 원칙 (논리훼손 해석 보조 시에만 true 허용, AIUsageLog 기록 필수)
 
+### 6.5 모의운용 평가 가격 = 실시간 실가 (DAR-364)
+
+- 모의운용(Engine5 `PaperSimulationService`)의 보유 포지션 손익·손절 평가와 상태 조회 표시는 **동일한 가격**을 쓴다.
+  `SimulationPriceSourceService.latestPriceRow` 가 **KIS 실시간 실가(REALTIME) 1순위 → 실 KRX 일봉(REAL) → 합성(SYNTHETIC)**
+  순으로 종목별 단일 소스를 결정한다(운영 기본 `PAPER_SIM_REAL_FEED=1`).
+- `evaluateExits`(손절/익절)·`getSimulationStatus`(화면 표시)·`computeMetrics`(equity)가 모두 그 가격을 사용 →
+  사용자가 보는 실시간 손실(예: -20%)이 곧 엔진이 손절을 평가하는 손실. 실시간 실가가 **-8% 이하면 하드 스탑로스 EXIT** 발화.
+- '30일 트랙레코드'는 합성 전용 트랙이 아니라 **실시간 실가 구동으로 재정의**(과거 백테스트와 분리). 합성은 실데이터·실시간이
+  모두 부재한 종목의 최후 폴백·레거시 검증 모드로만 남는다. source 라벨(REALTIME/REAL/SYNTHETIC)·원일자로 정직 고지(2026 오인 금지).
+- ★AI 금지영역 불변: 손절/주문수량/리스크는 순수 Rule — Engine5 독립, AI(engine2) 미개입.
+
 ---
 
 **작성일**: 2026-03-07
-**버전**: 1.2 (M8-A DAR-12: Portfolio & Exit 엔진 점검 스케줄 추가)
+**버전**: 1.3 (DAR-364: 모의운용 평가 가격 = 실시간 실가 통일 — 표시=엔진, -8% 손절 실발화)

@@ -36,6 +36,12 @@ export interface SimPositionDetail {
   unrealizedPnl: number;
   /** 평가손익률(%) */
   unrealizedPnlPct: number;
+  /** DAR-364: 표시 현재가의 출처 — 'REALTIME'(KIS 실시간 실가)·'REAL'(실 KRX 일봉)·'SYNTHETIC'(합성).
+   *  실시간 실가는 환경 시계(2026)와 괴리할 수 있으나, 엔진이 손절을 평가하는 바로 그 가격이다(표시=엔진).
+   *  저장 스냅샷값으로 폴백한 경우 undefined(라벨 미상). */
+  priceSource?: 'REALTIME' | 'REAL' | 'SYNTHETIC';
+  /** DAR-364: 표시 현재가의 실제 거래일/원일자(YYYYMMDD) — 2026 오인 방지 정직 고지. 폴백 시 undefined. */
+  priceSourceDate?: string;
 }
 
 /**

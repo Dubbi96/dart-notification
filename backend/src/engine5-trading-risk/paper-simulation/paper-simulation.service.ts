@@ -15,6 +15,7 @@
 
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { formatKstDateCompact } from '../../common/time/kst';
 import { PaperTradeService } from '../services/paper-trade.service';
 import { NotificationProducerService } from '../../notifications/notification-producer.service';
 import { PrismaExitSignalRepository } from '../../engine4-portfolio-exit/repositories/prisma-exit-signal.repository';
@@ -188,8 +189,15 @@ export class PaperSimulationService {
     metrics: SimulationMetrics;
   }> {
     const pf = await this.getOrCreateSimPortfolio();
-    const { metrics, equity, openPositions } = await this.computeMetrics(pf.id);
-    const positions = await this.getOpenPositionDetails(pf.id);
+    // DAR-364: 표시·엔진 동일 가격 — 보유 포지션을 '지금'(오늘 KST) 실시간 실가로 재평가하고(positions),
+    //   그 미실현손익 합을 equity 산식에 그대로 넘긴다. 화면 카드 손익과 총평가금액이 같은 가격을 쓴다.
+    const asOf = this.todayBasDd();
+    const positions = await this.getOpenPositionDetails(pf.id, asOf);
+    const liveOpenUnrealizedPnl = positions.reduce((s, p) => s + p.unrealizedPnl, 0);
+    const { metrics, equity, openPositions } = await this.computeMetrics(
+      pf.id,
+      liveOpenUnrealizedPnl,
+    );
     const closedPositions = await this.prisma.position.count({
       where: { portfolioId: pf.id, status: 'CLOSED' },
     });
@@ -378,8 +386,13 @@ export class PaperSimulationService {
     return map;
   }
 
-  /** 보유(OPEN) 포지션을 모바일 표시용으로 매핑 — 회사명 보강, 평가손익 큰 순 정렬 */
-  private async getOpenPositionDetails(portfolioId: string): Promise<SimPositionDetail[]> {
+  /** 보유(OPEN) 포지션을 모바일 표시용으로 매핑 — 회사명 보강, 평가손익 큰 순 정렬.
+   *  DAR-364: 표시 currentPrice·평가손익을 '엔진이 손절을 평가하는 가격'(실시간 실가 1순위)과
+   *  동일 소스로 재평가한다(표시=엔진). 실가 미가용 종목은 저장 스냅샷값으로 정직 폴백. */
+  private async getOpenPositionDetails(
+    portfolioId: string,
+    asOf: string,
+  ): Promise<SimPositionDetail[]> {
     const rows = await this.prisma.position.findMany({
       where: { portfolioId, status: 'OPEN' },
       select: {
@@ -407,7 +420,58 @@ export class PaperSimulationService {
     const corpNameByCode: Record<string, string> = {};
     for (const c of companies) corpNameByCode[c.corpCode] = c.corpName;
 
-    return deduped.map((r) => toSimPositionDetail(r, corpNameByCode));
+    // DAR-364: 종목별 실시간 실가 재평가(표시=엔진). 실가 미가용이면 저장값 그대로(폴백).
+    return Promise.all(
+      deduped.map(async (r) => {
+        const base = toSimPositionDetail(r, corpNameByCode);
+        const live = await this.revalueLive(r.corpCode, r.entryPrice, r.quantity, asOf);
+        if (!live) return base;
+        return {
+          ...base,
+          currentPrice: live.currentPrice,
+          currentValue: live.currentValue,
+          unrealizedPnl: live.unrealizedPnl,
+          unrealizedPnlPct: live.unrealizedPnlPct,
+          priceSource: live.source,
+          priceSourceDate: live.sourceDate,
+        };
+      }),
+    );
+  }
+
+  /**
+   * DAR-364: 보유 포지션을 '표시·엔진 동일' 가격으로 재평가한다.
+   *   latestPriceRow(실시간 실가 1순위 → 실 KRX 일봉 → 합성 폴백)로 현재가를 구하고 진입가 대비
+   *   평가손익(원·%)을 산출한다. 손절/익절 평가가 쓰는 바로 그 가격이므로 사용자가 보는 손실 =
+   *   엔진이 손절하는 손실이 된다.
+   *   priceSource 미주입(레거시 테스트)·실가 미가용(closePrice≤0/null)이면 null → 호출측이
+   *   저장 스냅샷값으로 정직 폴백(회귀 0).
+   */
+  private async revalueLive(
+    corpCode: string,
+    entryPrice: number,
+    quantity: number,
+    asOf: string,
+  ): Promise<{
+    currentPrice: number;
+    currentValue: number;
+    unrealizedPnl: number;
+    unrealizedPnlPct: number;
+    source: SimPriceRow['source'];
+    sourceDate?: string;
+  } | null> {
+    const row = await this.latestPriceRow(corpCode, asOf);
+    if (!row || row.closePrice <= 0) return null;
+    const currentPrice = row.closePrice;
+    return {
+      currentPrice,
+      currentValue: currentPrice * quantity,
+      unrealizedPnl: (currentPrice - entryPrice) * quantity,
+      unrealizedPnlPct:
+        entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0,
+      source: row.source,
+      sourceDate: row.sourceDate,
+    };
   }
 
   // ─── 1) 신규 매수 ─────────────────────────────────────────────────────
@@ -583,6 +647,9 @@ export class PaperSimulationService {
   }
 
   // ─── 3) Exit 평가 + 모의 매도 ─────────────────────────────────────────
+  // DAR-364: 손절/익절 평가가 쓰는 현재가는 latestPriceRow = 실시간 실가(REALTIME) 1순위 →
+  //   실 KRX 일봉(REAL) → 합성(SYNTHETIC) 폴백이다. 사용자가 화면에서 보는 실시간 실가가
+  //   곧 하드 스탑로스 평가에 쓰이는 가격이므로(표시=엔진), 실가 -8% 이하면 손절 EXIT 이 발화한다.
   private async evaluateExits(portfolioId: string, tradeDate: string): Promise<number> {
     const positions = await this.prisma.position.findMany({
       where: { portfolioId, status: 'OPEN' },
@@ -638,7 +705,14 @@ export class PaperSimulationService {
         exitAction: exit.exitAction,
         triggerTypes: exit.triggerTypes,
         primaryTrigger: exit.primaryTrigger,
-        scoreDetail: { source: 'DAR-40 paper-sim', tradeDate, triggers: exit.triggerTypes },
+        scoreDetail: {
+          source: 'DAR-40 paper-sim',
+          tradeDate,
+          triggers: exit.triggerTypes,
+          // DAR-364: 평가에 쓴 가격의 출처/원일자 — 정직 고지(REALTIME 이면 실시간 실가로 손절 평가).
+          priceSource: day.source,
+          priceSourceDate: day.sourceDate ?? null,
+        },
       });
 
       // 스냅샷에 exit 결과 기록(있으면)
@@ -696,7 +770,14 @@ export class PaperSimulationService {
   }
 
   // ─── 4) 누적 지표 ─────────────────────────────────────────────────────
-  private async computeMetrics(portfolioId: string): Promise<{
+  // DAR-364: openUnrealizedPnlOverride 가 주어지면(상태 조회 경로) 보유 포지션 미실현손익 합을
+  //   '실시간 실가로 재평가한 표시값'으로 대체해 equity·누적수익률이 화면 표시와 동일 가격을 쓰게 한다
+  //   (표시=엔진). 미지정(equity-curve·사이클 경로)이면 저장 스냅샷값 합을 쓴다 — DAR-206 grouped
+  //   쿼리 형태 보존(보유 포지션당 시세 재조회 없음, N+1 미발생).
+  private async computeMetrics(
+    portfolioId: string,
+    openUnrealizedPnlOverride?: number,
+  ): Promise<{
     metrics: SimulationMetrics;
     equity: number;
     openPositions: number;
@@ -718,7 +799,10 @@ export class PaperSimulationService {
       },
     });
 
-    const unrealizedPnl = open.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
+    // DAR-364: 상태 조회는 표시(실시간 실가 재평가)와 동일한 보유 미실현손익을 쓴다(override).
+    //   미지정이면 저장 스냅샷값 합(회귀 0·N+1 미발생).
+    const unrealizedPnl =
+      openUnrealizedPnlOverride ?? open.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
     const realizedNetPnl = closed.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
     const equity = PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl + unrealizedPnl;
 
@@ -1021,6 +1105,11 @@ export class PaperSimulationService {
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return `${y}${m}${day}`;
+  }
+
+  /** DAR-364: 오늘 거래일 YYYYMMDD(KST). 상태 조회의 '지금' 기준일 — 실시간 실가 재평가 앵커. */
+  private todayBasDd(): string {
+    return formatKstDateCompact(new Date());
   }
 
   private emptyResult(tradeDate: string, message: string): DailyCycleResult {

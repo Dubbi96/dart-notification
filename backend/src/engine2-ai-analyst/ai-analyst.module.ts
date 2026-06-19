@@ -17,6 +17,8 @@ import { HttpLlmClient } from './llm/http-llm-client';
 import { AiAnalysisRepository } from './ports/ai-analysis.repository';
 import { PrismaAiAnalysisRepository } from './adapters/prisma-ai-analysis.repository';
 import { EventExtractedConsumer } from './consumers/event-extracted.consumer';
+import { AiBackfillDrainService } from './backfill/ai-backfill-drain.service';
+import { AiBackfillScheduler } from './backfill/ai-backfill.scheduler';
 import { MarketDataModule } from '../engine3-quant-market/market-data/market-data.module';
 import { QUEUE } from '../common/queues/queue.constants';
 
@@ -52,6 +54,8 @@ import { QUEUE } from '../common/queues/queue.constants';
     PrismaAiAnalysisRepository,
     { provide: AiAnalysisRepository, useClass: PrismaAiAnalysisRepository },
     EventExtractedConsumer,
+    AiBackfillDrainService,
+    AiBackfillScheduler,
   ],
   exports: [AiAnalystService, AiCostGateService, AiCostLimitGuardService, AiUsageLogService, AiCostAggregationService, AiCostHealthService],
 })

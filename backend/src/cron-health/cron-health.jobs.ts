@@ -23,6 +23,8 @@ export const CRON_JOB_KEYS = {
   INTRADAY_EXIT_MONITOR: 'paper.intraday-exit',
   // DAR-377: 분봉 수집 — KIS 당일 분봉을 StockMinutePrice 에 forward 축적(장중 공시반응 분석 기반).
   MINUTE_PRICE_COLLECT: 'market.minute-collect',
+  // DAR-379: AI 평가 백필 드레인 — 과거 미분석 공시를 비용게이트 내 점진 드레인(평가자료 코퍼스 적재).
+  AI_BACKFILL_DRAIN: 'ai.backfill-drain',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -166,5 +168,15 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'WEEKDAY_INTRADAY',
     staleAfterMinutes: 180, // 3시간 — 장 마감(15:30)~윈도 끝 공백 흡수
     cadence: '평일 09:00~15:30 / 10분 간격',
+  },
+  {
+    // DAR-379: AI 평가 백필 드레인. 가동이 멈추면 과거 미분석 공시 적체가 영구화되어
+    //   AI 평가자료 커버리지가 정체된다. 매일 02:00 가동 — 하루 누락(48h)까지 허용.
+    jobKey: CRON_JOB_KEYS.AI_BACKFILL_DRAIN,
+    label: 'AI 평가 백필 드레인',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: 2_880, // 48시간 — 매일 02:00, 하루 누락까지 허용
+    cadence: '매일 02:00',
   },
 ];

@@ -555,31 +555,45 @@ datasource db {
 
 ## 5. KRX 시세 수집 플로우 (M4-C, DAR-8)
 
-### 5.1 EOD 일봉 수집 (평일 18:30)
+### 5.1 EOD 일봉 캐치업 수집 (평일 18:30, DAR-375)
 
 ```
-KrxMarketDataScheduler.collectDailyPricesForDate()
-  ├─ 주말·휴장일 체크 → 스킵
-  ├─ isCollecting 락 → 중복 방지
-  ├─ Company.findMany (stockCode NOT NULL)
-  └─ for each company:
-       KrxApiService.fetchStockDaily(basDd, stockCode)
-         └─ GET /sto/stk_bydd_trd?basDd=&isuCd=&auth=
-              (axios-retry 3회, exponential backoff)
-       StockDailyPrice.upsert(stockCode, tradeDate)
+KrxMarketDataScheduler.collectDailyPrices() → catchUpDailyPrices()
+  ├─ target = resolveLatestAvailableTradeDate()  // ★KRX 프로브로 실제 최신 가용일 산출
+  ├─ lastLoaded = StockDailyPrice 최신 tradeDate
+  ├─ dates = (lastLoaded, target] 평일 갭 전체  // 단일일이 아니라 누락분 전부
+  ├─ MarketDataCollectionLog(RUNNING) 기록
+  └─ for each basDd in dates:
+       collectDailyPricesBulkForDate(basDd)  // createMany skipDuplicates(멱등)
+         └─ KRX fetchStockDaily/fetchKosqdaqDaily → rowsFetched=0 면 휴장일 스킵(emptyDates)
+     → MarketDataCollectionLog(SUCCESS, savedCount)
 ```
 
-### 5.2 시장지수 수집 (평일 18:45)
+> **DAR-375 근본 버그 — 최신일이 6/5 에 영원히 정체.** 과거 `resolveLatestAvailableTradeDate`
+> 는 "최신 가용일"을 **StockDailyPrice 최신 tradeDate**(= 마지막으로 적재한 날)로 해석했다.
+> 저장소가 6/5 에 멈추면 resolver 가 영영 6/5 만 반환 → 크론이 매번 6/5 만 재수집 → KRX 에
+> 6/8~6/18 데이터가 존재함에도 전진 못 하는 self-fulfilling stale 이 발생했다. 정정: ①resolver
+> 가 **KRX 를 직접 프로빙**(today 부터 과거로 지수 응답이 존재하는 첫 평일 = 실제 최신 가용일)해
+> 저장소 정체와 무관하게 전진, ②크론이 단일일이 아니라 `lastLoaded~target` **갭 전체를 멱등 백필**.
+> 실측(2026-06-19 라이브 KRX): 6/19=미게시, **6/18=가용(KOSPI close 9063.84)** → 프로브가 6/18 채택.
+
+### 5.2 시장지수 캐치업 수집 (평일 18:45, DAR-375)
 
 ```
-KrxMarketDataScheduler.collectMarketIndicesForDate()
-  └─ for KOSPI, KOSDAQ:
-       KrxApiService.fetchIndexDaily(indexType, basDd)
-         └─ GET /idx/kospi_dd_trd | /idx/kosdaq_dd_trd
-         └─ 종합지수(IDX_NM=='코스피'/'코스닥') 행 1건만 선별 (DAR-367)
-       연속성 sanity 가드: 직전 거래일 종가 대비 |Δ| > 20% → 격리(적재 거부)+WARN 로그
-       MarketIndex.upsert(indexCode, tradeDate)  // 가드 통과분만
+KrxMarketDataScheduler.collectMarketIndices() → catchUpMarketIndices()
+  ├─ target = resolveLatestAvailableTradeDate()  // KRX 프로브 최신 가용일
+  ├─ lastLoaded = MarketIndex 최신 tradeDate (지수 독립 spine)
+  ├─ dates = (lastLoaded, target] 평일 갭 전체
+  └─ for each basDd in dates:
+       collectMarketIndicesForDate(basDd)
+         └─ for KOSPI, KOSDAQ: fetchIndexDaily(indexType, basDd)
+              └─ 종합지수(IDX_NM=='코스피'/'코스닥') 행 1건만 선별 (DAR-367)
+            연속성 sanity 가드: 직전 거래일 종가 대비 |Δ| > 20% → 격리+WARN (DAR-367)
+            MarketIndex.upsert(indexCode, tradeDate)  // 가드 통과분만
 ```
+
+> 단일일 수집(`collectMarketIndicesForDate`)·단일일 일봉(`collectDailyPricesForDate`)은 수동
+> 트리거·`collectAll` EOD 배치용으로 그대로 유지된다. 크론만 갭 캐치업으로 전환했다.
 
 > **DAR-367 데이터 정합 가드.** `kospi_dd_trd`/`kosdaq_dd_trd` 는 종합지수 외에 KOSPI 200·
 > 업종지수 등 수십 개 시리즈를 함께 반환한다. 이전 구현은 모든 행을 동일 indexCode('0001')로
@@ -625,6 +639,9 @@ KrxMarketDataScheduler.syncCompanyMarkets()
 ### 5.5 수동 트리거 (관리자)
 
 ```
+POST /market-data/collect/catch-up
+  → catchUpDailyPrices() + catchUpMarketIndices() — 마지막 적재일~최신 가용일 갭 멱등 백필 (DAR-375)
+     (최신 가용일을 KRX 프로브로 산출 → 저장소 정체 시에도 전진. basDd 불필요)
 POST /market-data/collect/all?basDd=YYYYMMDD
   → collectAll() — 일봉+지수+종목상태+시장분류 병렬 + MarketDataCollectionLog 기록
 POST /market-data/sync-company-markets?basDd=YYYYMMDD

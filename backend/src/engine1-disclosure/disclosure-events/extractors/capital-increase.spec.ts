@@ -104,4 +104,55 @@ describe('capital-increase extract', () => {
       expect(result.dilutionRate).toBeNull();
     });
   });
+
+  // DAR-340: 필수 수치(newShares·fundingAmount) 부재 FAILED 회수 — partialFieldsPresent 신호
+  describe('partialFieldsPresent (DAR-340 FAILED 회수)', () => {
+    it('docType=PAID_IN_CAPITAL_INCREASE + 수치 전부 부재 → partialFieldsPresent=true (FAILED 아님)', () => {
+      const parsed = makeParsedJson({ docType: 'PAID_IN_CAPITAL_INCREASE' });
+      const result = extract(parsed, '주요사항보고서(유상증자결정)');
+      expect(result.newShares).toBeNull();
+      expect(result.fundingAmount).toBeNull();
+      expect(result.partialFieldsPresent).toBe(true);
+    });
+
+    it('THIRD_PARTY_ALLOTMENT docType도 회수 대상', () => {
+      const parsed = makeParsedJson({ docType: 'THIRD_PARTY_ALLOTMENT' });
+      const result = extract(parsed, '');
+      expect(result.partialFieldsPresent).toBe(true);
+    });
+
+    it('issueMethod로 발행방식 분류되면(issueType≠UNKNOWN) 수치 부재여도 회수', () => {
+      const parsed = makeParsedJson({ docType: 'OTHER', issueMethod: '제3자배정증자' });
+      const result = extract(parsed, '');
+      expect(result.issueType).toBe('THIRD_PARTY');
+      expect(result.partialFieldsPresent).toBe(true);
+    });
+
+    it('부수 수치(discountRate)만 있어도 회수', () => {
+      const parsed = makeParsedJson({ docType: 'OTHER', discountRate: 0.1 });
+      const result = extract(parsed, '');
+      expect(result.newShares).toBeNull();
+      expect(result.partialFieldsPresent).toBe(true);
+    });
+
+    it('음성 대조군: 유상증자 단서 전무(docType=OTHER, 발행방식·수치 모두 부재) → partialFieldsPresent=false (FAILED 유지)', () => {
+      const parsed = makeParsedJson({ docType: 'OTHER' });
+      const result = extract(parsed, '');
+      expect(result.issueType).toBe('UNKNOWN');
+      expect(result.partialFieldsPresent).toBe(false);
+    });
+
+    it('emptyResult(예외 경로)도 partialFieldsPresent=false', () => {
+      const malicious = {
+        docType: 'OTHER',
+        rawTableCount: 1,
+        keyValueSource: 'table_0',
+        get discountRate(): number {
+          throw new Error('boom');
+        },
+      } as unknown as ParsedJson;
+      const result = extract(malicious, '');
+      expect(result.partialFieldsPresent).toBe(false);
+    });
+  });
 });

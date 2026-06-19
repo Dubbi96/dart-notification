@@ -18,7 +18,19 @@ export interface CapitalIncreaseData {
   subscriptionDate: string | null;   // 청약일 YYYY-MM-DD
   listingDate: string | null;        // 상장 예정일 YYYY-MM-DD
   derivedDataMissing: boolean;
+  // DAR-340: 필수 수치(newShares·fundingAmount) 모두 부재여도 "유상증자 문서임"이
+  //   문서 단서(docType·발행방식·부수 수치)로 확인되면 true. 상위 dispatcher가
+  //   confidence 0.0(→FAILED) 대신 부분 confidence(0.7, NEEDS_REVIEW→AI L1 보강)로
+  //   회수하는 신호다. 수치를 날조하지 않으며 라우팅만 바꾼다.
+  partialFieldsPresent: boolean;
 }
+
+// DAR-340: parsedJson.docType이 아래에 속하면 파서가 "유상증자 표(발행주식수·모집금액
+//   헤더 등)"를 식별했다는 뜻 → 분류 확실. 수치만 비어도 FAILED가 아니라 회수 대상.
+const PAID_IN_CAPITAL_INCREASE_DOC_TYPES: ReadonlySet<string> = new Set([
+  'PAID_IN_CAPITAL_INCREASE',
+  'THIRD_PARTY_ALLOTMENT',
+]);
 
 /**
  * parsedJson에서 유상증자 수치를 추출한다.
@@ -54,6 +66,20 @@ export function extract(parsedJson: ParsedJson, reportName: string): CapitalIncr
     // derivedDataMissing: dilutionRate 계산 불가 시 true
     const derivedDataMissing = dilutionRate === null;
 
+    // DAR-340: 부분 단서 존재 여부 — 필수 수치(newShares·fundingAmount)가 모두 비어도
+    //   ①파서가 유상증자 문서로 식별(docType) ②발행방식 분류 가능(issueType≠UNKNOWN,
+    //   "발행주식수+모집금액" 표 헤더 등에서 발행방식 단서) ③부수 수치(할인율·기존주식수·
+    //   희석률) 존재 — 중 하나라도 있으면 "유상증자임은 확실, 수치만 부재"로 본다.
+    //   FAILED(분류 불가) 대신 NEEDS_REVIEW(AI L1 수치 보강)로 회수하기 위한 신호.
+    const partialFieldsPresent =
+      PAID_IN_CAPITAL_INCREASE_DOC_TYPES.has(String(parsedJson.docType ?? '')) ||
+      issueType !== 'UNKNOWN' ||
+      discountRate !== null ||
+      existingShares !== null ||
+      dilutionRate !== null ||
+      newShares !== null ||
+      fundingAmount !== null;
+
     return {
       issueType,
       fundingAmount,
@@ -68,6 +94,7 @@ export function extract(parsedJson: ParsedJson, reportName: string): CapitalIncr
       subscriptionDate: null,
       listingDate: null,
       derivedDataMissing,
+      partialFieldsPresent,
     };
   } catch {
     return emptyResult();
@@ -109,5 +136,6 @@ function emptyResult(): CapitalIncreaseData {
     subscriptionDate: null,
     listingDate: null,
     derivedDataMissing: true,
+    partialFieldsPresent: false,
   };
 }

@@ -140,6 +140,11 @@ export function extractEventData(
 
 // ─── 내부 유틸 ──────────────────────────────────────────────────────────────
 
+// DAR-340: 필수 수치 전부 부재여도 파서가 "유상증자 문서임"을 단서로 확인한 경우
+//   부여하는 부분 confidence. 0.0(→FAILED)이 아니라 NEEDS_REVIEW(0.60≤c<0.85,
+//   AI L1 수치 보강 대기) 경로로 회수한다. 수치를 날조하지 않고 라우팅만 바꾼다.
+const PARTIAL_FIELDS_CONFIDENCE = 0.70;
+
 /**
  * 추출 결과에서 필수 필드 충족 여부로 confidence 산출
  *
@@ -147,7 +152,7 @@ export function extractEventData(
  *   - 필수 필드가 정의되지 않은 이벤트 타입: 0.0
  *   - 필수 필드 모두 non-null: 0.90
  *   - 일부 누락: 0.90 - (누락 수 / 전체 수) * 0.30 → 최소 0.60
- *   - 전체 누락: 0.0
+ *   - 전체 누락: 0.0 (단, DAR-340 partialFieldsPresent 단서 존재 시 0.70)
  */
 function calcConfidence(
   eventType: EventType,
@@ -160,7 +165,10 @@ function calcConfidence(
     (field) => data[field] !== null && data[field] !== undefined,
   ).length;
 
-  if (presentCount === 0) return 0.0;
+  if (presentCount === 0) {
+    // DAR-340: 유상증자 등 — 필수 수치는 비었으나 문서 단서로 분류 확실한 경우 부분 회수.
+    return data['partialFieldsPresent'] === true ? PARTIAL_FIELDS_CONFIDENCE : 0.0;
+  }
   if (presentCount === requiredFields.length) return 0.90;
 
   // 일부 누락: 0.60 ~ 0.89 범위에서 선형 보간

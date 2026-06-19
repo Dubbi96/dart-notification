@@ -249,6 +249,15 @@ function SummaryHeader({
         accessibilityLabel="성과 리포트 — 매매 성적표·신호 정밀도·보정 권고"
       />
 
+      {/* 자동매매 상태(읽기전용 투명성) 진입점 (DAR-361) — 킬스위치·리스크게이트·최근 실행 모니터링 */}
+      <DrilldownLink
+        icon="shield"
+        title="자동매매 상태"
+        subtitle="킬스위치 · 리스크게이트 · 최근 실행 (모니터링 전용)"
+        onPress={() => router.push('/portfolio/auto-trading')}
+        accessibilityLabel="자동매매 상태 — 킬스위치·리스크게이트·최근 실행 모니터링. 자동 실행은 준비중."
+      />
+
       {/* 철학 체크리스트 진입점 (DAR-105) — 투자거장 허브에서 거장별 체크리스트로 종목 점검 */}
       <DrilldownLink
         icon="check-square"

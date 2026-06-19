@@ -1094,6 +1094,40 @@ POST /api/paper-trading/personas/run-once   (JWT 필수 — 쓰기)
 
 persona별 독립 포트폴리오에 1일치 사이클(적합도 진입 → 시가평가 → Exit) 분기 실행. ★모의 전용.
 
+### 11.4 자동매매 실행상태(읽기전용 투명성) — DAR-361
+
+```
+GET /api/trading/auto-status   (OptionalJwt — 게스트 데모)
+```
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `recentLimit` | number | 선택 | 최근 주문 건수(기본 3, 상한 20). 비숫자/음수/거대값은 안전 보정. |
+
+자동매매 신뢰=실행상태 가시성. **킬스위치 상태**(발동/대기·사유·시각)·**리스크게이트 차단여부**(정상/주문 차단중·사유)·**최근 주문**(상태·사유·시각, 없으면 빈배열)을 read-only 로 집계해 노출한다. 기존 KillSwitchManager(영속 상태, DAR-350)·OrderRequest 모델만 읽으며 Risk/주문/AI 판정·쓰기는 일절 없다(AI 금지영역 미접촉).
+
+★범위 정직: M11 주문 실행 루프는 미인가 — `executionEnabled`는 항상 `false`, `notice`로 정직 고지("자동 실행은 준비중 — 현재는 상태 모니터링만 제공합니다."). 표준 standing 차단원은 킬스위치 발동(유일)이며, 손실·비중 등 하드룰은 주문 시점마다 건별 평가된다.
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "data": {
+    "killSwitch": { "isActive": false, "reason": null, "triggeredBy": "SYSTEM", "activatedAt": null },
+    "riskGate": { "blocked": false, "status": "NORMAL", "blockedReason": null },
+    "recentOrders": [
+      { "id": "ord_x", "stockCode": "005930", "side": "BUY", "requestedShares": 10, "status": "REJECTED", "reason": "SINGLE_BUY_LIMIT", "createdAt": "2026-06-19T01:00:00.000Z" }
+    ],
+    "executionEnabled": false,
+    "notice": "자동 실행은 준비중 — 현재는 상태 모니터링만 제공합니다.",
+    "asOf": "2026-06-19T04:54:28.979Z"
+  }
+}
+```
+
+소비 화면: `app/portfolio/auto-trading.tsx`(자동매매 상태 — 킬스위치 배지·리스크게이트·최근 실행/감사 트레일·정직 고지). 30초 폴링(포그라운드 한정). 전체 감사 이력은 `GET /api/trading/audit-logs`(운영자 JWT, DAR-351).
+
 ## 12. 매매 신호 (Signals, Engine3)
 
 ### 12.1 종목별 최신 신호 단건 조회 (DAR-159)

@@ -31,10 +31,22 @@ export class KrxMarketDataScheduler {
     private readonly dartStockStatus: DartStockStatusService,
   ) {}
 
-  /** 평일 18:30(KST) — 일봉 수집 */
+  /**
+   * 평일 18:30(KST) — 일봉 캐치업 수집 (DAR-375).
+   * 단일 거래일이 아니라 '마지막 적재일~최신 가용일' 갭 전체를 멱등 백필한다.
+   * 과거: resolveLatestAvailableTradeDate 가 저장소 최신일만 반환해 6/5 에 영원히 정체됐다.
+   */
   @Cron('30 18 * * 1-5', { timeZone: KST_TIMEZONE })
-  async collectDailyPrices(): Promise<{ saved: number; skipped: number; message?: string }> {
-    return this.collectDailyPricesForDate(await this.resolveLatestAvailableTradeDate(), 'CRON');
+  async collectDailyPrices(): Promise<{
+    target: string;
+    lastLoaded: string | null;
+    filledDates: string[];
+    emptyDates: string[];
+    totalSaved: number;
+    totalSkipped: number;
+    message?: string;
+  }> {
+    return this.catchUpDailyPrices('CRON');
   }
 
   /**
@@ -88,10 +100,20 @@ export class KrxMarketDataScheduler {
     }
   }
 
-  /** 평일 18:45(KST) — 시장지수 수집 */
+  /**
+   * 평일 18:45(KST) — 시장지수 캐치업 수집 (DAR-375).
+   * 마지막 적재 지수일~최신 가용일 갭 전체를 멱등 백필(연속성 가드·휴장 스킵 포함).
+   */
   @Cron('45 18 * * 1-5', { timeZone: KST_TIMEZONE })
-  async collectMarketIndices(): Promise<{ saved: number; message?: string }> {
-    return this.collectMarketIndicesForDate(await this.resolveLatestAvailableTradeDate(), 'CRON');
+  async collectMarketIndices(): Promise<{
+    target: string;
+    lastLoaded: string | null;
+    filledDates: string[];
+    totalSaved: number;
+    quarantined: number;
+    message?: string;
+  }> {
+    return this.catchUpMarketIndices('CRON');
   }
 
   async collectMarketIndicesForDate(
@@ -557,22 +579,28 @@ export class KrxMarketDataScheduler {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * 기본 기준일을 '최신 가용 거래일'로 해석한다 (DAR-331).
+   * 기본 기준일을 '최신 가용 거래일'로 해석한다 (DAR-331 → DAR-375 근본 교정).
    *
-   * 배경(실측 2026-06-19): 이 제품의 시스템 시계(today=20260619)가 실제 KRX 데이터
-   * 가용일(최신 20260605)보다 앞서 있다. 그래서 크론·수동 기본값이 today 면 KRX 가
-   * 데이터를 주지 않는 미래일을 조회해 무인 실행이 매번 0건이 된다. 명시
-   * `?basDd=20260605` 로 호출하면 정상 동작함이 확인됨.
+   * 배경(실측 2026-06-19): 시스템 시계(today)가 실제 KRX 데이터 가용일보다 앞설 수 있다.
+   * 그래서 today 를 그대로 조회하면 빈 응답(0건)이 된다.
+   *
+   * ★DAR-375 근본 버그: 이전 구현은 (b) StockDailyPrice 최신 tradeDate 를 '최신 가용일'로
+   * 삼았다. 그러나 그 값은 "우리가 마지막으로 적재한 날"일 뿐 "KRX 가 보유한 최신일"이 아니다.
+   * 저장소가 6/5 에 멈춰 있으면 resolver 가 영영 6/5 만 반환 → 크론이 매번 6/5 만 재수집 →
+   * 6/8~6/18 가 KRX 에 존재함에도 영원히 전진하지 못하는 정체(self-fulfilling stale)가 발생했다.
+   *
+   * 교정: KRX 를 직접 프로빙해 '실제' 최신 가용 거래일을 산출한다.
    *
    * 우선순위:
    *   (a) 명시 basDd(8자리 YYYYMMDD) — 호출자 의도 우선, 그대로 사용.
-   *   (b) StockDailyPrice 최신 tradeDate — 우리 저장소가 '가용'으로 확인한 최신 거래일.
-   *   (c) today(주말이면 직전 평일로 클램프) — 저장소가 비었을 때의 부트스트랩 폴백.
+   *   (b) ★KRX 라이브 프로브 — today 부터 과거로 평일을 순회하며 지수 데이터가 존재하는
+   *       첫 거래일을 채택(= KRX 가 보유한 실제 최신 가용일). 저장소 상태와 무관하게 전진.
+   *   (c) StockDailyPrice 최신 tradeDate — 프로브 불가(KRX 미설정·일시오류) 시 폴백.
+   *   (d) today(주말이면 직전 평일로 클램프) — 저장소도 비었을 때의 부트스트랩 폴백.
    *
-   * 미래일 클램프: (b)가 today 보다 미래면(비정상) today 로 클램프.
+   * 미래일 클램프: (c)가 today 보다 미래면(비정상) today 로 클램프.
    *
-   * 정직성: 임의 데이터 생성이 아니라 '시계가 실데이터보다 앞선' 환경 보정이며,
-   * 시계 선행이 감지되면(latest < today) WARN 로그로 사용 기준일과 한계를 명시한다.
+   * 정직성: 임의 데이터 생성이 아니라 'KRX 실보유일' 산출이며, 시계 선행 시 WARN 로그를 남긴다.
    *
    * @param explicitBasDd 호출자가 지정한 기준일(있으면 우선)
    */
@@ -583,6 +611,19 @@ export class KrxMarketDataScheduler {
 
     const todayClamped = this.clampToLastWeekday(this.krx.formatDate(new Date()));
 
+    // (b) KRX 라이브 프로브 — 저장소 적재 상태와 무관하게 실제 최신 가용일을 산출(DAR-375).
+    const probed = await this.probeLatestAvailableTradeDate(todayClamped);
+    if (probed) {
+      if (probed < todayClamped) {
+        this.logger.warn(
+          `[KRX] 기준일 해석 — today(${todayClamped})에 KRX 데이터 미게시. ` +
+            `프로브로 확인한 실제 최신 가용 거래일 ${probed} 사용.`,
+        );
+      }
+      return probed;
+    }
+
+    // (c) 프로브 실패(KRX 미설정·일시오류) — 저장소 최신일 폴백.
     const latest = await this.prisma.stockDailyPrice.findFirst({
       orderBy: { tradeDate: 'desc' },
       select: { tradeDate: true },
@@ -600,11 +641,61 @@ export class KrxMarketDataScheduler {
     // 시계 선행 감지 — 최신 가용 거래일 사용을 명시(YYYYMMDD 문자열 사전식 비교 = 날짜순).
     if (latest.tradeDate < todayClamped) {
       this.logger.warn(
-        `[KRX] 기준일 해석 — today(${todayClamped})가 저장소 최신 거래일(${latest.tradeDate})보다 ` +
-          `앞섬(시스템 시계가 실 KRX 데이터에 선행). 최신 가용 거래일 ${latest.tradeDate} 사용.`,
+        `[KRX] 기준일 해석 — KRX 프로브 불가, 저장소 최신 거래일(${latest.tradeDate})로 폴백 ` +
+          `(today=${todayClamped}).`,
       );
     }
     return latest.tradeDate;
+  }
+
+  /**
+   * KRX 를 직접 프로빙해 '실제' 최신 가용 거래일을 산출한다 (DAR-375).
+   *
+   * clampedStart 부터 과거로 평일을 순회하며, 지수(kospi_dd_trd) 응답이 비어있지 않은
+   * (= KRX 가 해당일 데이터를 보유한) 첫 거래일을 채택한다. 지수 엔드포인트는 종합지수 1건만
+   * 반환하는 경량 호출이라 가용성 프로브로 적합하다(전종목 일봉 조회보다 가볍다).
+   *
+   * - 미게시일(오늘·아직 마감 전): 빈 응답 → 다음(과거) 후보로.
+   * - KRX 미설정(KrxApiUnavailableError): null 반환 → 호출자가 DB 최신일로 폴백.
+   * - maxProbeWeekdays 회 안에 못 찾으면 null(장기 휴장·전체 미게시 등).
+   *
+   * @param clampedStart 프로브 시작일(YYYYMMDD, 보통 today 를 직전 평일로 클램프한 값)
+   * @param maxProbeWeekdays 최대 프로브 평일 수(기본 10 — 연휴 포함 약 2주 커버)
+   */
+  async probeLatestAvailableTradeDate(
+    clampedStart: string,
+    maxProbeWeekdays = 10,
+  ): Promise<string | null> {
+    const cursor = this.krx.parseDate(clampedStart);
+    let probed = 0;
+    let guard = 0;
+    while (probed < maxProbeWeekdays && guard < maxProbeWeekdays + 14) {
+      guard++;
+      if (this.krx.isWeekend(cursor)) {
+        cursor.setDate(cursor.getDate() - 1);
+        continue;
+      }
+      const candidate = this.krx.formatDate(cursor);
+      cursor.setDate(cursor.getDate() - 1);
+      probed++;
+      try {
+        const rows = await this.krx.fetchIndexDaily('KOSPI', candidate);
+        if (rows.length > 0) {
+          this.logger.log(`[KRX] 최신 가용일 프로브 — ${candidate} 데이터 확인(채택).`);
+          return candidate;
+        }
+      } catch (e) {
+        if (e instanceof KrxApiUnavailableError) {
+          this.logger.warn('[KRX] 최신 가용일 프로브 — KRX 미설정, DB 최신일로 폴백');
+          return null;
+        }
+        // 일시 오류는 다음(과거) 후보로 계속(graceful).
+        this.logger.warn(
+          `[KRX] 최신 가용일 프로브 ${candidate} 오류: ${(e as Error).message} — 다음 후보로`,
+        );
+      }
+    }
+    return null;
   }
 
   /** YYYYMMDD 가 주말이면 직전 평일(금요일)로 클램프한다 (DAR-331). */
@@ -614,6 +705,224 @@ export class KrxMarketDataScheduler {
       d.setDate(d.getDate() - 1);
     }
     return this.krx.formatDate(d);
+  }
+
+  /**
+   * fromExclusive(미포함) ~ toInclusive(포함) 사이의 평일 목록을 오름차순으로 만든다 (DAR-375).
+   * 캐치업 백필이 채워야 할 후보 거래일(주말 제외) 산출용. from >= to 면 빈 배열(전진할 갭 없음).
+   * YYYYMMDD 문자열 사전식 비교 = 날짜순. 휴장일은 여기서 거를 수 없으므로 수집 단계에서
+   * rowsFetched=0 으로 스킵한다(상한 가드 400일).
+   */
+  private weekdaysAfter(fromExclusive: string, toInclusive: string): string[] {
+    const out: string[] = [];
+    if (!(fromExclusive < toInclusive)) return out;
+    const cursor = this.krx.parseDate(fromExclusive);
+    cursor.setDate(cursor.getDate() + 1);
+    const endTime = this.krx.parseDate(toInclusive).getTime();
+    let guard = 0;
+    while (cursor.getTime() <= endTime && guard < 400) {
+      guard++;
+      if (!this.krx.isWeekend(cursor)) out.push(this.krx.formatDate(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return out;
+  }
+
+  /**
+   * 데일리 일봉 캐치업 (DAR-375): 18:30 평일 크론 본체.
+   *
+   * 1) 최신 가용 거래일(target)을 KRX 프로브로 산출(저장소 정체와 무관하게 전진).
+   * 2) 마지막 적재일(StockDailyPrice 최신 tradeDate)~target 사이 누락 거래일(주말 제외)을
+   *    모두 멱등 백필한다(createMany skipDuplicates). 휴장일·미게시일(rowsFetched=0)은 스킵.
+   * 3) MarketDataCollectionLog 에 캐치업 실행을 기록(관측성).
+   *
+   * 저장소가 비어 있으면(부트스트랩) target 1일만 수집한다 — 전체 히스토리는 backfillDailyPrices
+   * 별도 경로. 이미 최신(lastLoaded ≥ target)이면 채울 거래일이 없어 즉시 리턴(멱등 no-op).
+   */
+  async catchUpDailyPrices(
+    triggeredBy: 'CRON' | 'MANUAL' = 'CRON',
+    opts: { delayMs?: number } = {},
+  ): Promise<{
+    target: string;
+    lastLoaded: string | null;
+    filledDates: string[];
+    emptyDates: string[];
+    totalSaved: number;
+    totalSkipped: number;
+    message?: string;
+  }> {
+    if (this.isDailyCollecting) {
+      this.logger.warn('[KRX][캐치업] 일봉 수집이 이미 진행 중입니다.');
+      return {
+        target: '',
+        lastLoaded: null,
+        filledDates: [],
+        emptyDates: [],
+        totalSaved: 0,
+        totalSkipped: 0,
+        message: '이전 작업 진행 중',
+      };
+    }
+
+    const target = await this.resolveLatestAvailableTradeDate();
+    const last = await this.prisma.stockDailyPrice.findFirst({
+      orderBy: { tradeDate: 'desc' },
+      select: { tradeDate: true },
+    });
+    const lastLoaded = last?.tradeDate ?? null;
+
+    const dates = this.computeCatchUpDates(lastLoaded, target);
+    if (dates.length === 0) {
+      this.logger.log(
+        `[KRX][캐치업] 일봉 — 이미 최신(lastLoaded=${lastLoaded ?? '비어있음'} ≥ target=${target}), 채울 거래일 없음`,
+      );
+      return { target, lastLoaded, filledDates: [], emptyDates: [], totalSaved: 0, totalSkipped: 0 };
+    }
+
+    this.isDailyCollecting = true;
+    const log = await this.prisma.marketDataCollectionLog.create({
+      data: { tradeDate: target, triggeredBy, status: 'RUNNING' },
+    });
+    const filledDates: string[] = [];
+    const emptyDates: string[] = [];
+    let totalSaved = 0;
+    let totalSkipped = 0;
+    const delayMs = opts.delayMs ?? 0;
+
+    try {
+      this.logger.log(
+        `[KRX][캐치업] 일봉 시작 lastLoaded=${lastLoaded ?? '비어있음'} target=${target} 후보=${dates.length}일`,
+      );
+      const corpCodeByStockCode = await this.loadCorpCodeMap();
+
+      for (const basDd of dates) {
+        const res = await this.collectDailyPricesBulkForDate(basDd, corpCodeByStockCode);
+        if (res.rowsFetched === 0) {
+          emptyDates.push(basDd); // 휴장일·미게시 — 거래일 아님
+          continue;
+        }
+        filledDates.push(basDd);
+        totalSaved += res.saved;
+        totalSkipped += res.skipped;
+        this.logger.log(
+          `[KRX][캐치업] 일봉 ${basDd} saved=${res.saved} skipped=${res.skipped}`,
+        );
+        if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+      }
+
+      const companies = await this.prisma.company.count({ where: { stockCode: { not: null } } });
+      await this.prisma.marketDataCollectionLog.update({
+        where: { id: log.id },
+        data: {
+          status: 'SUCCESS',
+          stockCount: companies,
+          savedCount: totalSaved,
+          failedCount: totalSkipped,
+          endedAt: new Date(),
+        },
+      });
+      this.logger.log(
+        `[KRX][캐치업] 일봉 완료 filled=${filledDates.length} empty=${emptyDates.length} saved=${totalSaved}`,
+      );
+      return { target, lastLoaded, filledDates, emptyDates, totalSaved, totalSkipped };
+    } catch (e) {
+      const unavailable = e instanceof KrxApiUnavailableError;
+      await this.prisma.marketDataCollectionLog.update({
+        where: { id: log.id },
+        data: {
+          status: 'FAILED',
+          savedCount: totalSaved,
+          failedCount: totalSkipped,
+          errorMessage: unavailable ? 'KRX API 미설정' : (e as Error).message,
+          endedAt: new Date(),
+        },
+      });
+      if (unavailable) {
+        this.logger.warn('[KRX][캐치업] 일봉 — KRX 미설정, 스킵');
+        return {
+          target,
+          lastLoaded,
+          filledDates,
+          emptyDates,
+          totalSaved,
+          totalSkipped,
+          message: 'KRX API 미설정',
+        };
+      }
+      this.logger.error(`[KRX][캐치업] 일봉 오류: ${(e as Error).message}`);
+      return {
+        target,
+        lastLoaded,
+        filledDates,
+        emptyDates,
+        totalSaved,
+        totalSkipped,
+        message: (e as Error).message,
+      };
+    } finally {
+      this.isDailyCollecting = false;
+    }
+  }
+
+  /**
+   * 데일리 지수 캐치업 (DAR-375): 18:45 평일 크론 본체.
+   * 마지막 적재 지수일(MarketIndex 최신 tradeDate)~target 사이 누락 거래일의 지수를 멱등 백필한다.
+   * 일봉과 별도 spine(MarketIndex 자체 최신일)으로 갭을 계산해, 일봉만 적재되고 지수가 누락된
+   * 케이스도 독립적으로 메운다. collectMarketIndicesForDate 가 휴장·미설정·연속성 가드를 처리한다.
+   */
+  async catchUpMarketIndices(
+    triggeredBy: 'CRON' | 'MANUAL' = 'CRON',
+  ): Promise<{
+    target: string;
+    lastLoaded: string | null;
+    filledDates: string[];
+    totalSaved: number;
+    quarantined: number;
+    message?: string;
+  }> {
+    const target = await this.resolveLatestAvailableTradeDate();
+    const last = await this.prisma.marketIndex.findFirst({
+      orderBy: { tradeDate: 'desc' },
+      select: { tradeDate: true },
+    });
+    const lastLoaded = last?.tradeDate ?? null;
+
+    const dates = this.computeCatchUpDates(lastLoaded, target);
+    if (dates.length === 0) {
+      this.logger.log(
+        `[KRX][캐치업] 지수 — 이미 최신(lastLoaded=${lastLoaded ?? '비어있음'} ≥ target=${target})`,
+      );
+      return { target, lastLoaded, filledDates: [], totalSaved: 0, quarantined: 0 };
+    }
+
+    const filledDates: string[] = [];
+    let totalSaved = 0;
+    let quarantined = 0;
+    this.logger.log(
+      `[KRX][캐치업] 지수 시작 lastLoaded=${lastLoaded ?? '비어있음'} target=${target} 후보=${dates.length}일`,
+    );
+    for (const basDd of dates) {
+      const res = await this.collectMarketIndicesForDate(basDd, triggeredBy);
+      if (res.saved > 0) filledDates.push(basDd);
+      totalSaved += res.saved;
+      quarantined += res.quarantined ?? 0;
+    }
+    this.logger.log(
+      `[KRX][캐치업] 지수 완료 filled=${filledDates.length} saved=${totalSaved} quarantined=${quarantined}`,
+    );
+    return { target, lastLoaded, filledDates, totalSaved, quarantined };
+  }
+
+  /**
+   * 캐치업이 채워야 할 거래일 목록을 산출한다 (DAR-375 공유 헬퍼).
+   * - lastLoaded 없음(저장소 비어있음): [target] — 부트스트랩 1일.
+   * - lastLoaded < target: 그 사이 평일 전부(누락 갭) — 휴장일은 수집 단계에서 스킵.
+   * - lastLoaded ≥ target: [] — 이미 최신, 신규 거래일 없음(멱등 no-op).
+   */
+  private computeCatchUpDates(lastLoaded: string | null, target: string): string[] {
+    if (!lastLoaded) return [target];
+    if (lastLoaded < target) return this.weekdaysAfter(lastLoaded, target);
+    return [];
   }
 
   /** stockCode → corpCode 매핑 (DB 1회 로드) */

@@ -111,6 +111,20 @@ export class MarketDataController {
     return { success: true, data: result };
   }
 
+  @Post('collect/catch-up')
+  @ApiOperation({
+    summary:
+      'KRX 일봉·지수 캐치업 — 마지막 적재일~최신 가용 거래일 갭을 멱등 백필 (DAR-375). ' +
+      '최신 가용일을 KRX 프로브로 산출하므로 저장소가 정체돼 있어도 전진한다.',
+  })
+  async collectCatchUp() {
+    const [daily, indices] = await Promise.all([
+      this.scheduler.catchUpDailyPrices('MANUAL'),
+      this.scheduler.catchUpMarketIndices('MANUAL'),
+    ]);
+    return { success: true, data: { daily, indices } };
+  }
+
   @Post('sync-company-markets')
   @ApiOperation({
     summary:

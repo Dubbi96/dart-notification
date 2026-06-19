@@ -748,6 +748,232 @@ describe('KrxMarketDataScheduler.resolveLatestAvailableTradeDate', () => {
   });
 });
 
+// ─── DAR-375: 최신 가용일 프로브 + 갭 캐치업 ──────────────────────────────────
+
+describe('KrxMarketDataScheduler — DAR-375 최신 가용일 프로브 / 갭 캐치업', () => {
+  // 실제 날짜 산술 mock (parseDate/formatDate/isWeekend) — 백워드/포워드 순회 검증용.
+  const realParse = (s: string) =>
+    new Date(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8)));
+  const realFormat = (d: Date) =>
+    `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  const realIsWeekend = (d: Date) => d.getDay() === 0 || d.getDay() === 6;
+
+  // KRX 가 6/5~6/18 의 평일 데이터를 보유(6/19 는 미게시) — 이슈 실측 시나리오.
+  const AVAILABLE = new Set([
+    '20260605',
+    '20260608',
+    '20260609',
+    '20260610',
+    '20260611',
+    '20260612',
+    '20260615',
+    '20260616',
+    '20260617',
+    '20260618',
+  ]);
+  const sampleKospi: KrxIndexDailyRow = {
+    indexCode: '0001',
+    indexName: 'KOSPI',
+    openIndex: 2700,
+    highIndex: 2750,
+    lowIndex: 2680,
+    closeIndex: 2720,
+    volume: 1,
+    tradingValue: 1,
+  };
+  const sampleRow: KrxStockDailyRow = {
+    stockCode: '005930',
+    isuAbbrv: '삼성전자',
+    openPrice: 70_000,
+    highPrice: 71_000,
+    lowPrice: 69_500,
+    closePrice: 70_500,
+    volume: 15_000_000,
+    tradingValue: 1_057_500_000_000,
+  };
+
+  // today=20260620(토)로 고정 — formatDate(new Date()) 첫 호출만 '20260620', 이후 real.
+  function makeRealDateKrx(overrides: Partial<KrxApiService> = {}): jest.Mocked<KrxApiService> {
+    return makeKrxApi({
+      parseDate: jest.fn(realParse),
+      isWeekend: jest.fn(realIsWeekend),
+      formatDate: jest.fn().mockReturnValueOnce('20260620').mockImplementation(realFormat),
+      fetchIndexDaily: jest.fn((_t: 'KOSPI' | 'KOSDAQ', basDd: string) =>
+        Promise.resolve(AVAILABLE.has(basDd) ? [sampleKospi] : []),
+      ),
+      ...overrides,
+    });
+  }
+
+  it('프로브: today(20260620토→20260619금) 미게시 → 직전 가용일 20260618 채택 (DB 정체와 무관)', async () => {
+    const krx = makeRealDateKrx();
+    const prisma = makePrisma();
+    // 저장소는 6/5 에 정체 — 과거 버그라면 6/5 를 반환했을 것.
+    (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue({ tradeDate: '20260605' });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.resolveLatestAvailableTradeDate();
+
+    expect(result).toBe('20260618'); // 6/5 정체를 넘어 실제 최신 가용일로 전진
+    // 6/19(미게시) 프로브 → 6/18(가용)에서 채택
+    expect(krx.fetchIndexDaily).toHaveBeenCalledWith('KOSPI', '20260619');
+    expect(krx.fetchIndexDaily).toHaveBeenCalledWith('KOSPI', '20260618');
+  });
+
+  it('프로브 직접: 6/19 미게시 → 6/18 반환', async () => {
+    const krx = makeKrxApi({
+      parseDate: jest.fn(realParse),
+      isWeekend: jest.fn(realIsWeekend),
+      formatDate: jest.fn(realFormat),
+      fetchIndexDaily: jest.fn((_t: 'KOSPI' | 'KOSDAQ', basDd: string) =>
+        Promise.resolve(AVAILABLE.has(basDd) ? [sampleKospi] : []),
+      ),
+    });
+    const scheduler = new KrxMarketDataScheduler(makePrisma(), krx, makeDart());
+
+    expect(await scheduler.probeLatestAvailableTradeDate('20260619')).toBe('20260618');
+  });
+
+  it('프로브: KRX 미설정(KrxApiUnavailableError) → null (호출자 DB 폴백)', async () => {
+    const krx = makeKrxApi({
+      parseDate: jest.fn(realParse),
+      isWeekend: jest.fn(realIsWeekend),
+      formatDate: jest.fn(realFormat),
+      fetchIndexDaily: jest.fn().mockRejectedValue(new KrxApiUnavailableError('미설정')),
+    });
+    const scheduler = new KrxMarketDataScheduler(makePrisma(), krx, makeDart());
+
+    expect(await scheduler.probeLatestAvailableTradeDate('20260619')).toBeNull();
+  });
+
+  it('resolve: 프로브 실패(미설정) 시 DB 최신일로 폴백', async () => {
+    const krx = makeRealDateKrx({
+      fetchIndexDaily: jest.fn().mockRejectedValue(new KrxApiUnavailableError('미설정')),
+    });
+    const prisma = makePrisma();
+    (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue({ tradeDate: '20260605' });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    expect(await scheduler.resolveLatestAvailableTradeDate()).toBe('20260605');
+  });
+
+  it('일봉 캐치업: 마지막 적재(6/5)~최신 가용(6/18) 누락 거래일 9일 멱등 백필 + 로그 기록', async () => {
+    const krx = makeRealDateKrx({
+      fetchStockDaily: jest.fn().mockResolvedValue([sampleRow]),
+      fetchKosqdaqDaily: jest.fn().mockResolvedValue([]),
+    });
+    const prisma = makePrisma();
+    (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue({ tradeDate: '20260605' });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.catchUpDailyPrices('CRON');
+
+    expect(result.target).toBe('20260618');
+    expect(result.lastLoaded).toBe('20260605');
+    // 6/8·9·10·11·12·15·16·17·18 (주말 제외) = 9 거래일
+    expect(result.filledDates).toEqual([
+      '20260608',
+      '20260609',
+      '20260610',
+      '20260611',
+      '20260612',
+      '20260615',
+      '20260616',
+      '20260617',
+      '20260618',
+    ]);
+    expect(result.totalSaved).toBe(9); // 종목 1건/일 × 9일
+    expect(prisma.stockDailyPrice.createMany).toHaveBeenCalledTimes(9);
+    // 캐치업 실행이 MarketDataCollectionLog 에 기록됨(RUNNING→SUCCESS)
+    expect(prisma.marketDataCollectionLog.create).toHaveBeenCalledTimes(1);
+    expect(prisma.marketDataCollectionLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'SUCCESS' }) }),
+    );
+  });
+
+  it('일봉 캐치업: 휴장일(rowsFetched=0)은 emptyDates 로 스킵(거래일 카운트 제외)', async () => {
+    // 6/16 만 휴장(빈 응답) — 나머지는 정상
+    const krx = makeRealDateKrx({
+      fetchStockDaily: jest.fn((basDd: string) =>
+        Promise.resolve(basDd === '20260616' ? [] : [sampleRow]),
+      ),
+      fetchKosqdaqDaily: jest.fn().mockResolvedValue([]),
+    });
+    const prisma = makePrisma();
+    (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue({ tradeDate: '20260605' });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.catchUpDailyPrices('CRON');
+
+    expect(result.emptyDates).toEqual(['20260616']);
+    expect(result.filledDates).not.toContain('20260616');
+    expect(result.filledDates).toHaveLength(8);
+  });
+
+  it('일봉 캐치업: 이미 최신(lastLoaded=6/18=target)이면 no-op(로그·수집 없음)', async () => {
+    const krx = makeRealDateKrx();
+    const prisma = makePrisma();
+    (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue({ tradeDate: '20260618' });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.catchUpDailyPrices('CRON');
+
+    expect(result.target).toBe('20260618');
+    expect(result.filledDates).toEqual([]);
+    expect(prisma.stockDailyPrice.createMany).not.toHaveBeenCalled();
+    expect(prisma.marketDataCollectionLog.create).not.toHaveBeenCalled();
+  });
+
+  it('일봉 캐치업: 저장소 비어있음(부트스트랩) → target 1일만 수집', async () => {
+    const krx = makeRealDateKrx({
+      fetchStockDaily: jest.fn().mockResolvedValue([sampleRow]),
+      fetchKosqdaqDaily: jest.fn().mockResolvedValue([]),
+    });
+    const prisma = makePrisma(); // stockDailyPrice.findFirst 기본 null
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.catchUpDailyPrices('CRON');
+
+    expect(result.lastLoaded).toBeNull();
+    expect(result.filledDates).toEqual(['20260618']);
+    expect(prisma.stockDailyPrice.createMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('지수 캐치업: 마지막 적재 지수일(6/5)~최신 가용(6/18) 누락분 백필', async () => {
+    const krx = makeRealDateKrx();
+    const prisma = makePrisma();
+    // marketIndex.findFirst: lastLoaded(6/5) + 연속성 가드 prev(close 2700, ±2%로 통과)
+    (prisma.marketIndex.findFirst as jest.Mock).mockResolvedValue({
+      tradeDate: '20260605',
+      closeIndex: 2700,
+    });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.catchUpMarketIndices('CRON');
+
+    expect(result.target).toBe('20260618');
+    expect(result.lastLoaded).toBe('20260605');
+    expect(result.filledDates).toHaveLength(9); // 6/8~6/18 평일
+    expect(result.totalSaved).toBe(18); // KOSPI+KOSDAQ × 9일
+    expect(prisma.marketIndex.upsert).toHaveBeenCalledTimes(18);
+  });
+
+  it('지수 캐치업: 이미 최신이면 no-op', async () => {
+    const krx = makeRealDateKrx();
+    const prisma = makePrisma();
+    (prisma.marketIndex.findFirst as jest.Mock).mockResolvedValue({
+      tradeDate: '20260618',
+      closeIndex: 2700,
+    });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.catchUpMarketIndices('CRON');
+
+    expect(result.filledDates).toEqual([]);
+    expect(prisma.marketIndex.upsert).not.toHaveBeenCalled();
+  });
+});
+
 // ─── KrxApiService 단위 ──────────────────────────────────────────────────────
 
 describe('KrxApiService 유틸리티', () => {
@@ -994,5 +1220,308 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
     const kosdaq = result.filter((r: KrxStockBaseInfo) => r.marketType === 'KOSDAQ');
     expect(kospi.map((r: KrxStockBaseInfo) => r.stockCode).sort()).toEqual(['000660', '005930']);
     expect(kosdaq.map((r: KrxStockBaseInfo) => r.stockCode)).toEqual(['035720']);
+  });
+});
+
+// ─── DAR-375: 최신 가용일 프로브 + 갭 캐치업 ────────────────────────────────────
+// 근본 버그: resolveLatestAvailableTradeDate 가 '저장소 최신 적재일'을 반환해 크론이 6/5 에
+// 영원히 정체(소스엔 6/8~6/18 존재). 교정: KRX 프로브로 실제 최신 가용일 산출 + 갭 멱등 백필.
+
+// 실제 날짜 산술이 필요한 테스트용 KRX 목(makeKrxApi 의 parseDate/formatDate 는 상수 목이라
+// 캐치업 walk 가 전진하지 못함). UTC 기준 결정론.
+function realParseDate(ymd: string): Date {
+  return new Date(Date.UTC(+ymd.slice(0, 4), +ymd.slice(4, 6) - 1, +ymd.slice(6, 8)));
+}
+function realFormatDate(d: Date): string {
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(
+    d.getUTCDate(),
+  ).padStart(2, '0')}`;
+}
+function realIsWeekend(d: Date): boolean {
+  const g = d.getUTCDay();
+  return g === 0 || g === 6;
+}
+function makeRealDateKrx(overrides: Partial<KrxApiService> = {}): jest.Mocked<KrxApiService> {
+  return makeKrxApi({
+    parseDate: jest.fn(realParseDate) as unknown as KrxApiService['parseDate'],
+    formatDate: jest.fn(realFormatDate) as unknown as KrxApiService['formatDate'],
+    isWeekend: jest.fn(realIsWeekend) as unknown as KrxApiService['isWeekend'],
+    ...overrides,
+  });
+}
+
+const sampleDailyRow: KrxStockDailyRow = {
+  stockCode: '005930',
+  isuAbbrv: '삼성전자',
+  openPrice: 70_000,
+  highPrice: 71_000,
+  lowPrice: 69_500,
+  closePrice: 70_500,
+  volume: 15_000_000,
+  tradingValue: 1_057_500_000_000,
+};
+const sampleDailyRow2: KrxStockDailyRow = { ...sampleDailyRow, stockCode: '000660', isuAbbrv: 'SK하이닉스' };
+const sampleIdx: KrxIndexDailyRow = {
+  indexCode: '0001',
+  indexName: 'KOSPI',
+  openIndex: 2700,
+  highIndex: 2750,
+  lowIndex: 2680,
+  closeIndex: 2720,
+  volume: 500_000_000,
+  tradingValue: 10_000_000_000_000,
+};
+
+describe('KrxMarketDataScheduler.probeLatestAvailableTradeDate (DAR-375)', () => {
+  it('today(6/19)에 KRX 미게시면 직전 거래일(6/18)을 실제 최신 가용일로 채택', async () => {
+    // 6/19 는 빈 응답(아직 미게시), 6/18 은 데이터 보유 → 6/18 채택.
+    const fetchIndexDaily = jest.fn((_t: string, basDd: string) =>
+      Promise.resolve(basDd === '20260618' ? [sampleIdx] : []),
+    );
+    const krx = makeRealDateKrx({
+      fetchIndexDaily: fetchIndexDaily as unknown as KrxApiService['fetchIndexDaily'],
+    });
+    const scheduler = new KrxMarketDataScheduler(makePrisma(), krx, makeDart());
+
+    const probed = await scheduler.probeLatestAvailableTradeDate('20260619');
+
+    expect(probed).toBe('20260618');
+  });
+
+  it('주말 시작일은 건너뛰고 직전 평일을 프로브한다 (6/20 토 → 6/19 금)', async () => {
+    const fetchIndexDaily = jest.fn((_t: string, basDd: string) =>
+      Promise.resolve(basDd === '20260619' ? [sampleIdx] : []),
+    );
+    const krx = makeRealDateKrx({
+      fetchIndexDaily: fetchIndexDaily as unknown as KrxApiService['fetchIndexDaily'],
+    });
+    const scheduler = new KrxMarketDataScheduler(makePrisma(), krx, makeDart());
+
+    const probed = await scheduler.probeLatestAvailableTradeDate('20260620');
+
+    expect(probed).toBe('20260619');
+    // 토요일(6/20)은 KRX 호출 대상 아님(평일만 프로브).
+    const probedDates: string[] = fetchIndexDaily.mock.calls.map((c) => c[1] as string);
+    expect(probedDates).not.toContain('20260620');
+  });
+
+  it('KRX 미설정 — null 반환(호출자가 DB 최신일로 폴백)', async () => {
+    const krx = makeRealDateKrx({
+      fetchIndexDaily: jest
+        .fn()
+        .mockRejectedValue(new KrxApiUnavailableError('미설정')) as unknown as KrxApiService['fetchIndexDaily'],
+    });
+    const scheduler = new KrxMarketDataScheduler(makePrisma(), krx, makeDart());
+
+    expect(await scheduler.probeLatestAvailableTradeDate('20260619')).toBeNull();
+  });
+
+  it('maxProbeWeekdays 안에 데이터 없으면 null', async () => {
+    const krx = makeRealDateKrx({
+      fetchIndexDaily: jest.fn().mockResolvedValue([]) as unknown as KrxApiService['fetchIndexDaily'],
+    });
+    const scheduler = new KrxMarketDataScheduler(makePrisma(), krx, makeDart());
+
+    expect(await scheduler.probeLatestAvailableTradeDate('20260619', 5)).toBeNull();
+  });
+});
+
+describe('KrxMarketDataScheduler.resolveLatestAvailableTradeDate — 프로브 우선 (DAR-375)', () => {
+  it('명시 basDd 는 그대로 우선(프로브 안 함)', async () => {
+    const fetchIndexDaily = jest.fn().mockResolvedValue([sampleIdx]);
+    const krx = makeRealDateKrx({
+      fetchIndexDaily: fetchIndexDaily as unknown as KrxApiService['fetchIndexDaily'],
+    });
+    const scheduler = new KrxMarketDataScheduler(makePrisma(), krx, makeDart());
+
+    expect(await scheduler.resolveLatestAvailableTradeDate('20260601')).toBe('20260601');
+    expect(fetchIndexDaily).not.toHaveBeenCalled();
+  });
+
+  it('★프로브가 저장소 정체(6/5)를 넘어 실제 최신일(6/18)로 전진', async () => {
+    const krx = makeRealDateKrx();
+    const scheduler = new KrxMarketDataScheduler(makePrisma(), krx, makeDart());
+    // 저장소는 6/5 에 정체돼 있지만 프로브가 6/18 을 반환하도록 스텁 → resolver 는 6/18 채택.
+    jest.spyOn(scheduler, 'probeLatestAvailableTradeDate').mockResolvedValue('20260618');
+    const prismaFindFirst = jest.spyOn(scheduler['prisma'].stockDailyPrice, 'findFirst');
+
+    const resolved = await scheduler.resolveLatestAvailableTradeDate();
+
+    expect(resolved).toBe('20260618');
+    // 프로브가 성공하면 DB 최신일 폴백 조회를 하지 않는다(전진이 저장소와 무관).
+    expect(prismaFindFirst).not.toHaveBeenCalled();
+  });
+
+  it('프로브 불가(null) — DB 최신 적재일로 폴백', async () => {
+    const krx = makeRealDateKrx();
+    const prisma = makePrisma();
+    (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue({ tradeDate: '20260605' });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+    jest.spyOn(scheduler, 'probeLatestAvailableTradeDate').mockResolvedValue(null);
+
+    expect(await scheduler.resolveLatestAvailableTradeDate()).toBe('20260605');
+  });
+});
+
+describe('KrxMarketDataScheduler computeCatchUpDates/weekdaysAfter (DAR-375)', () => {
+  function sched() {
+    return new KrxMarketDataScheduler(makePrisma(), makeRealDateKrx(), makeDart());
+  }
+
+  it('저장소 비어있음 → 부트스트랩 [target] 1일만', () => {
+    expect((sched() as any).computeCatchUpDates(null, '20260618')).toEqual(['20260618']);
+  });
+
+  it('갭(6/5→6/18) → 그 사이 평일 전부(주말 제외, 6/5 미포함·6/18 포함)', () => {
+    expect((sched() as any).computeCatchUpDates('20260605', '20260618')).toEqual([
+      '20260608',
+      '20260609',
+      '20260610',
+      '20260611',
+      '20260612',
+      '20260615',
+      '20260616',
+      '20260617',
+      '20260618',
+    ]);
+  });
+
+  it('이미 최신(lastLoaded ≥ target) → 빈 배열(멱등 no-op)', () => {
+    expect((sched() as any).computeCatchUpDates('20260618', '20260618')).toEqual([]);
+    expect((sched() as any).computeCatchUpDates('20260620', '20260618')).toEqual([]);
+  });
+});
+
+describe('KrxMarketDataScheduler.catchUpDailyPrices (DAR-375)', () => {
+  function makeScheduler(target: string, lastLoaded: string | null, krxOverrides: Partial<KrxApiService> = {}) {
+    const krx = makeRealDateKrx({
+      fetchStockDaily: jest.fn().mockResolvedValue([sampleDailyRow]) as unknown as KrxApiService['fetchStockDaily'],
+      fetchKosqdaqDaily: jest
+        .fn()
+        .mockResolvedValue([sampleDailyRow2]) as unknown as KrxApiService['fetchKosqdaqDaily'],
+      ...krxOverrides,
+    });
+    const prisma = makePrisma();
+    (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue(
+      lastLoaded ? { tradeDate: lastLoaded } : null,
+    );
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+    jest.spyOn(scheduler, 'resolveLatestAvailableTradeDate').mockResolvedValue(target);
+    return { scheduler, prisma, krx };
+  }
+
+  it('★갭(6/5→6/18) 누락 거래일 9일 전부 멱등 백필 + 6/5 이하 재수집 안 함', async () => {
+    const { scheduler, prisma } = makeScheduler('20260618', '20260605');
+
+    const res = await scheduler.catchUpDailyPrices('CRON');
+
+    expect(res.filledDates).toEqual([
+      '20260608',
+      '20260609',
+      '20260610',
+      '20260611',
+      '20260612',
+      '20260615',
+      '20260616',
+      '20260617',
+      '20260618',
+    ]);
+    expect(res.filledDates.every((d) => d > '20260605')).toBe(true);
+    expect(res.totalSaved).toBe(18); // 9일 × 2종목
+    // 캐치업 실행을 수집 로그에 기록(관측성).
+    expect(prisma.marketDataCollectionLog.create).toHaveBeenCalledTimes(1);
+    expect(prisma.marketDataCollectionLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'SUCCESS' }) }),
+    );
+  });
+
+  it('휴장일(rowsFetched=0)은 emptyDates 로 분류하고 적재 안 함', async () => {
+    const fetchStockDaily = jest.fn((basDd: string) =>
+      Promise.resolve(basDd === '20260612' ? [] : [sampleDailyRow]),
+    );
+    const fetchKosqdaqDaily = jest.fn((basDd: string) =>
+      Promise.resolve(basDd === '20260612' ? [] : [sampleDailyRow2]),
+    );
+    const { scheduler } = makeScheduler('20260618', '20260605', {
+      fetchStockDaily: fetchStockDaily as unknown as KrxApiService['fetchStockDaily'],
+      fetchKosqdaqDaily: fetchKosqdaqDaily as unknown as KrxApiService['fetchKosqdaqDaily'],
+    });
+
+    const res = await scheduler.catchUpDailyPrices('CRON');
+
+    expect(res.emptyDates).toContain('20260612');
+    expect(res.filledDates).not.toContain('20260612');
+    expect(res.filledDates).toHaveLength(8);
+  });
+
+  it('이미 최신(target=lastLoaded) → 즉시 no-op(로그 생성 안 함)', async () => {
+    const { scheduler, prisma } = makeScheduler('20260605', '20260605');
+
+    const res = await scheduler.catchUpDailyPrices('CRON');
+
+    expect(res.filledDates).toEqual([]);
+    expect(prisma.marketDataCollectionLog.create).not.toHaveBeenCalled();
+  });
+
+  it('KRX 미설정 — graceful(로그 FAILED, message)', async () => {
+    const { scheduler, prisma } = makeScheduler('20260618', '20260605', {
+      fetchStockDaily: jest
+        .fn()
+        .mockRejectedValue(new KrxApiUnavailableError('미설정')) as unknown as KrxApiService['fetchStockDaily'],
+    });
+
+    const res = await scheduler.catchUpDailyPrices('CRON');
+
+    expect(res.message).toBe('KRX API 미설정');
+    expect(prisma.marketDataCollectionLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'FAILED' }) }),
+    );
+  });
+
+  it('중복 실행 가드 — 진행 중이면 즉시 반환', async () => {
+    const { scheduler } = makeScheduler('20260618', '20260605');
+    (scheduler as any).isDailyCollecting = true;
+
+    const res = await scheduler.catchUpDailyPrices('CRON');
+
+    expect(res.message).toBe('이전 작업 진행 중');
+  });
+});
+
+describe('KrxMarketDataScheduler.catchUpMarketIndices (DAR-375)', () => {
+  it('지수 갭(6/5→6/9) 누락일 백필 — 연속성 가드 통과분 적재', async () => {
+    const krx = makeRealDateKrx({
+      fetchIndexDaily: jest.fn().mockResolvedValue([sampleIdx]) as unknown as KrxApiService['fetchIndexDaily'],
+    });
+    const prisma = makePrisma();
+    // marketIndex.findFirst: lastLoaded 조회 + 연속성 가드 prev 조회 양쪽에 사용.
+    // closeIndex 2700 vs sampleIdx 2720 → +0.74% → 가드 통과.
+    (prisma.marketIndex.findFirst as jest.Mock).mockResolvedValue({
+      tradeDate: '20260605',
+      closeIndex: 2700,
+    });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+    jest.spyOn(scheduler, 'resolveLatestAvailableTradeDate').mockResolvedValue('20260609');
+
+    const res = await scheduler.catchUpMarketIndices('CRON');
+
+    // 6/8·6/9 두 거래일, 각 KOSPI+KOSDAQ = 4건 적재.
+    expect(res.filledDates).toEqual(['20260608', '20260609']);
+    expect(res.totalSaved).toBe(4);
+    expect(res.quarantined).toBe(0);
+  });
+
+  it('저장소 비어있음 → 부트스트랩 target 1일만', async () => {
+    const krx = makeRealDateKrx({
+      fetchIndexDaily: jest.fn().mockResolvedValue([sampleIdx]) as unknown as KrxApiService['fetchIndexDaily'],
+    });
+    const prisma = makePrisma(); // marketIndex.findFirst 기본 null
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+    jest.spyOn(scheduler, 'resolveLatestAvailableTradeDate').mockResolvedValue('20260618');
+
+    const res = await scheduler.catchUpMarketIndices('CRON');
+
+    expect(res.filledDates).toEqual(['20260618']);
+    expect(res.totalSaved).toBe(2);
   });
 });

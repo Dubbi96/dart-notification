@@ -621,7 +621,12 @@ model StockDailyPrice {
 
 ### 7.3 MarketIndex (market_indices)
 
-시장 지수 (KOSPI=0001, KOSDAQ=1001, 업종지수). 자연키: `(indexCode, tradeDate)`.
+시장 종합지수 (KOSPI=0001, KOSDAQ=1001). 자연키: `(indexCode, tradeDate)`.
+
+> **DAR-367.** 0001/1001 에는 **종합지수만** 적재한다(파서가 `IDX_NM=='코스피'/'코스닥'` 행만
+> 선별). 이전엔 `kospi_dd_trd` 응답의 업종지수 등 모든 시리즈가 동일 코드로 upsert 돼 마지막
+> 행이 종합지수를 덮어쓰는 오염(예: KOSPI close 3132 vs prevClose 8639, -63.75%)이 있었다.
+> 적재 단계 연속성 가드가 직전 거래일 종가 대비 |Δ| > 20% 행을 격리한다(스키마 변경 없음).
 
 | 컬럼 | 타입 | 설명 |
 |---|---|---|

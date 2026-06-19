@@ -5,6 +5,7 @@ import { KrxApiService, KrxApiUnavailableError } from './krx-api.service';
 import { DartStockStatusService, DerivedStockStatus } from './dart-stock-status.service';
 import type { Prisma } from '@prisma/client';
 import { KST_TIMEZONE } from '../../common/time/kst';
+import { MAX_INDEX_DAILY_CHANGE_PCT, isImplausibleIndexChange } from './index-sanity';
 
 /**
  * KRX 시세 일괄 수집 Cron 스케줄러.
@@ -96,7 +97,7 @@ export class KrxMarketDataScheduler {
   async collectMarketIndicesForDate(
     basDd: string,
     triggeredBy: 'CRON' | 'MANUAL' = 'MANUAL',
-  ): Promise<{ saved: number; message?: string }> {
+  ): Promise<{ saved: number; quarantined?: number; message?: string }> {
     if (this.isIndexCollecting) {
       return { saved: 0, message: '이전 작업 진행 중' };
     }
@@ -108,6 +109,7 @@ export class KrxMarketDataScheduler {
 
     this.isIndexCollecting = true;
     let saved = 0;
+    let quarantined = 0;
 
     try {
       this.logger.log(`[KRX] 지수 수집 시작 basDd=${basDd} [${triggeredBy}]`);
@@ -117,6 +119,25 @@ export class KrxMarketDataScheduler {
 
         for (const row of rows) {
           if (row.closeIndex === 0) continue;
+
+          // DAR-367 연속성 sanity 가드: 직전 거래일 종가 대비 |Δ| 가 임계를 초과하면
+          // 오염값으로 간주해 적재를 거부(격리)하고 경고 로그를 남긴다. 인접일 ±20% 초과는
+          // 물리적으로 불가능한 수준이라 -63.75% 같은 오염값이 DB·홈 배지로 흘러가지 않게 한다.
+          const prev = await this.prisma.marketIndex.findFirst({
+            where: { indexCode: row.indexCode, tradeDate: { lt: basDd } },
+            orderBy: { tradeDate: 'desc' },
+            select: { closeIndex: true, tradeDate: true },
+          });
+          if (prev && isImplausibleIndexChange(row.closeIndex, prev.closeIndex)) {
+            const deltaPct = ((row.closeIndex - prev.closeIndex) / prev.closeIndex) * 100;
+            this.logger.warn(
+              `[KRX] ${row.indexName} 연속성 이상치 격리 basDd=${basDd} close=${row.closeIndex} ` +
+                `prev=${prev.closeIndex}(${prev.tradeDate}) Δ=${deltaPct.toFixed(2)}% ` +
+                `(|Δ| > ${MAX_INDEX_DAILY_CHANGE_PCT}% 임계) — 적재 거부`,
+            );
+            quarantined++;
+            continue;
+          }
 
           await this.prisma.marketIndex.upsert({
             where: {
@@ -146,15 +167,17 @@ export class KrxMarketDataScheduler {
         }
       }
 
-      this.logger.log(`[KRX] 지수 수집 완료 saved=${saved}`);
-      return { saved };
+      this.logger.log(`[KRX] 지수 수집 완료 saved=${saved} quarantined=${quarantined}`);
+      return quarantined > 0
+        ? { saved, quarantined, message: `연속성 이상치 ${quarantined}건 격리` }
+        : { saved, quarantined };
     } catch (e) {
       if (e instanceof KrxApiUnavailableError) {
         this.logger.warn(`[KRX] API 키 미설정 — 지수 수집 스킵`);
         return { saved: 0, message: 'KRX API 미설정' };
       }
       this.logger.error(`[KRX] 지수 수집 오류: ${(e as Error).message}`);
-      return { saved, message: (e as Error).message };
+      return { saved, quarantined, message: (e as Error).message };
     } finally {
       this.isIndexCollecting = false;
     }

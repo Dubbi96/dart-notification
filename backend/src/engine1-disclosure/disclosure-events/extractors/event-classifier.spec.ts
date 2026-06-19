@@ -216,3 +216,140 @@ describe('classifyEventType', () => {
     }
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// DAR-346: 미모델 공시유형 분류 확대 (OTHER 4225 축소)
+// 라이브 reportName 전수조사 상위 유형이 더 이상 OTHER로 떨어지지 않음을 고정.
+// 모든 fixture는 docType=''(2차 보완 비활성) → 순수 reportName 룰 동작만 검증.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('classifyEventType — DAR-346 미모델 공시유형 확대', () => {
+  const noDocType = (): ParsedJson => makeParsedJson({ docType: '' });
+  const classify = (reportName: string) =>
+    classifyEventType(reportName, noDocType());
+
+  // (reportName, 기대 eventType, 기대 polarity) — 라이브 상위 유형 1:1 매핑
+  const cases: Array<[string, EventType, string]> = [
+    // 임원·주요주주 특정증권등 (774건, 라이브 최대 OTHER)
+    ['임원ㆍ주요주주특정증권등소유상황보고서', EventType.INSIDER_TRADING_REPORT, 'UNKNOWN'],
+    ['임원ㆍ주요주주특정증권등거래계획보고서', EventType.INSIDER_TRADING_REPORT, 'UNKNOWN'],
+    // 증권 발행/모집 서류 (1345건)
+    ['투자설명서(일괄신고)', EventType.SECURITIES_OFFERING, 'UNKNOWN'],
+    ['증권발행실적보고서', EventType.SECURITIES_OFFERING, 'UNKNOWN'],
+    ['일괄신고추가서류(파생결합사채-주가연계파생결합사채)', EventType.SECURITIES_OFFERING, 'UNKNOWN'],
+    ['[기재정정]증권신고서(지분증권)', EventType.SECURITIES_OFFERING, 'UNKNOWN'],
+    // 정기/감사 보고
+    ['감사보고서 (2025.12)', EventType.PERIODIC_DISCLOSURE, 'UNKNOWN'],
+    ['[기재정정]사업보고서 (2025.12)', EventType.PERIODIC_DISCLOSURE, 'UNKNOWN'],
+    ['[기재정정]분기보고서 (2026.03)', EventType.PERIODIC_DISCLOSURE, 'UNKNOWN'],
+    ['연결감사보고서 (2025.12)', EventType.PERIODIC_DISCLOSURE, 'UNKNOWN'],
+    // 주주총회·의결권·기준일
+    ['주주총회소집공고', EventType.SHAREHOLDER_MEETING, 'UNKNOWN'],
+    ['주주총회소집결의              (임시주주총회)', EventType.SHAREHOLDER_MEETING, 'UNKNOWN'],
+    ['의결권대리행사권유참고서류', EventType.SHAREHOLDER_MEETING, 'UNKNOWN'],
+    ['주주명부폐쇄기간또는기준일설정', EventType.SHAREHOLDER_MEETING, 'UNKNOWN'],
+    // IR
+    ['기업설명회(IR)개최', EventType.IR_EVENT, 'UNKNOWN'],
+    ['기업설명회(IR)개최결과', EventType.IR_EVENT, 'UNKNOWN'],
+    // 특수관계인 거래
+    ['특수관계인으로부터자금차입', EventType.RELATED_PARTY_TRANSACTION, 'MIXED'],
+    ['동일인등출자계열회사와의상품ㆍ용역거래', EventType.RELATED_PARTY_TRANSACTION, 'MIXED'],
+    // 대규모기업집단
+    ['[기재정정]대규모기업집단현황공시[연1회공시및1/4분기용(개별회사)]', EventType.AFFILIATE_GROUP_DISCLOSURE, 'UNKNOWN'],
+    // 최대주주등 소유주식 변동 (지배변경 아님)
+    ['최대주주등소유주식변동신고서', EventType.OWNERSHIP_DISCLOSURE, 'UNKNOWN'],
+    // 채무보증·담보·대여·차입 (특수관계인 단서 없는 건)
+    ['타인에대한채무보증결정', EventType.DEBT_GUARANTEE, 'NEGATIVE'],
+    ['단기차입금증가결정', EventType.DEBT_GUARANTEE, 'NEGATIVE'],
+    ['금전대여결정', EventType.DEBT_GUARANTEE, 'NEGATIVE'],
+    // 투자 결정
+    ['타법인주식및출자증권취득결정', EventType.INVESTMENT_DECISION, 'MIXED'],
+    ['신규시설투자등', EventType.INVESTMENT_DECISION, 'MIXED'],
+    ['주요사항보고서(유형자산양수결정)', EventType.INVESTMENT_DECISION, 'MIXED'],
+    // 감자·주식병합
+    ['[기재정정]주요사항보고서(감자결정)', EventType.CAPITAL_REDUCTION, 'NEGATIVE'],
+    ['주식병합결정', EventType.CAPITAL_REDUCTION, 'NEGATIVE'],
+    // 무상증자
+    ['주요사항보고서(무상증자결정)', EventType.BONUS_ISSUE, 'POSITIVE'],
+    // 합병·분할·양수도
+    ['합병등종료보고서(합병)', EventType.MERGER_SPLIT, 'MIXED'],
+    ['[기재정정]주요사항보고서(회사합병결정)', EventType.MERGER_SPLIT, 'MIXED'],
+    ['[기재정정]자산양도등의등록신청서', EventType.MERGER_SPLIT, 'MIXED'],
+    // 스톡옵션
+    ['[기재정정]주식매수선택권부여에관한신고', EventType.STOCK_OPTION, 'UNKNOWN'],
+    // 임원 변경
+    ['대표이사변경', EventType.EXECUTIVE_CHANGE, 'UNKNOWN'],
+    ['사외이사의선임ㆍ해임또는중도퇴임에관한신고', EventType.EXECUTIVE_CHANGE, 'UNKNOWN'],
+    // 조회공시·풍문해명
+    ['조회공시요구(현저한시황변동)에대한답변(미확정)', EventType.INQUIRY_DISCLOSURE, 'MIXED'],
+    ['풍문또는보도에대한해명(미확정)', EventType.INQUIRY_DISCLOSURE, 'MIXED'],
+    // 전환청구권 행사·가액조정
+    ['전환청구권행사(제1회차)', EventType.CONVERTIBLE_EXERCISE, 'UNKNOWN'],
+    ['전환가액ㆍ신주인수권행사가액ㆍ교환가액의조정(안내공시)', EventType.CONVERTIBLE_EXERCISE, 'UNKNOWN'],
+    // 거래소 기타 시장안내
+    ['기타시장안내(금일NXT경쟁매매대상종목지정으로인한KRX시간외단일가매매제외종목안내(유가증권시장))', EventType.MARKET_NOTICE, 'UNKNOWN'],
+    // 주식소각(자기주식 명시 없음) → SHARE_CANCELLATION 보강
+    ['주식소각결정', EventType.SHARE_CANCELLATION, 'POSITIVE'],
+    // 신탁계약 자기주식 매입 라이프사이클 → SHARE_BUYBACK 보강
+    ['신탁계약에의한취득상황보고서', EventType.SHARE_BUYBACK, 'POSITIVE'],
+    ['신탁계약해지결과보고서', EventType.SHARE_BUYBACK, 'POSITIVE'],
+  ];
+
+  it.each(cases)(
+    '%s → %s 로 분류되어 더 이상 OTHER가 아니다',
+    (reportName, expectedType, expectedPolarity) => {
+      const result = classify(reportName);
+      expect(result.eventType).toBe(expectedType);
+      expect(result.eventType).not.toBe(EventType.OTHER);
+      expect(result.polarity).toBe(expectedPolarity);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.60); // NEEDS_REVIEW 이상 라우팅 보장
+    },
+  );
+
+  // ── 우선순위(직렬) 보장: 기존 시그널 룰이 항상 신규 룰을 이긴다 ──────────────
+  it('기존 시그널 룰 우선: "자기주식 소각" 은 신규 "주식 소각" 룰보다 먼저 매칭(둘 다 SHARE_CANCELLATION이나 conf 유지)', () => {
+    const result = classify('자기주식 소각 결정');
+    expect(result.eventType).toBe(EventType.SHARE_CANCELLATION);
+    expect(result.confidence).toBe(0.95); // 기존 룰 conf — 신규 0.88이 덮어쓰지 않음
+  });
+
+  it('기존 시그널 룰 우선: "단일판매·공급계약" 은 신규 어떤 룰보다 먼저 SUPPLY_CONTRACT', () => {
+    const result = classify('단일판매·공급계약체결');
+    expect(result.eventType).toBe(EventType.SUPPLY_CONTRACT);
+  });
+
+  it('INSIDER_TRADING_REPORT 가 EXECUTIVE_CHANGE 보다 먼저: "임원…특정증권" 은 임원 변경이 아님', () => {
+    const result = classify('임원ㆍ주요주주특정증권등소유상황보고서');
+    expect(result.eventType).toBe(EventType.INSIDER_TRADING_REPORT);
+  });
+
+  it('RELATED_PARTY 가 DEBT_GUARANTEE 보다 먼저: "특수관계인으로부터자금차입" 은 특수관계인 거래', () => {
+    const result = classify('특수관계인으로부터자금차입');
+    expect(result.eventType).toBe(EventType.RELATED_PARTY_TRANSACTION);
+  });
+
+  it('"유무상증자" 는 유상증자 토큰 미포함 → BONUS_ISSUE(무상증자)로 도달', () => {
+    const result = classify('[기재정정]주요사항보고서(유무상증자결정)');
+    expect(result.eventType).toBe(EventType.BONUS_ISSUE);
+  });
+
+  // ── 음성 대조: 정말 미상인 공시는 여전히 OTHER ───────────────────────────────
+  it('완전 미상 보고서명은 여전히 OTHER(0.40) — 무차별 회수 아님', () => {
+    const result = classify('기타 알 수 없는 임의 보고서 제목 XYZ');
+    expect(result.eventType).toBe(EventType.OTHER);
+    expect(result.confidence).toBe(0.40);
+  });
+
+  // ── 정형/절차성 공시는 0.80 (FAILED 라우팅), 재료성 행위는 0.85 (AI L1) ──────
+  it('정형·절차성 공시 confidence = 0.80 (AI 자동 라우팅 제외)', () => {
+    for (const rn of ['감사보고서 (2025.12)', '주주총회소집공고', '기업설명회(IR)개최']) {
+      expect(classify(rn).confidence).toBe(0.80);
+    }
+  });
+
+  it('재료성 행위 confidence = 0.85 (AWAITING_AI_L1)', () => {
+    for (const rn of ['주요사항보고서(무상증자결정)', '[기재정정]주요사항보고서(감자결정)']) {
+      expect(classify(rn).confidence).toBe(0.85);
+    }
+  });
+});

@@ -181,6 +181,182 @@ export const REPORT_NAME_RULES: ReportNameRule[] = [
     polarity: 'UNKNOWN',
     confidence: 0.85,
   },
+
+  // ════════════════════════════════════════════════════════════════════════
+  // DAR-346: 미모델 공시유형 분류 확대 (OTHER 4225 축소)
+  // 라이브 DisclosureEvent eventType=OTHER 상위 reportName 패턴 전수조사 기반.
+  // 모두 기존 시그널 룰보다 *아래(낮은 우선순위)*에 둔다 → 특정 시그널 룰이 항상 우선.
+  //
+  // confidence 정책(서비스 라우팅 §4-7 + DAR-58 선례):
+  //   - 0.85: AI L1이 의미 있게 분석할 "재료성" 행위 → NEEDS_REVIEW(AWAITING_AI_L1).
+  //   - 0.80: 정형·절차성 공시(정기보고/IR/주총/시장안내 등) → 추출기 부재 시 FAILED.
+  //           분류는 확정이나 수치/시그널 모델이 없어 AI 자동 라우팅 대상이 아님.
+  // (정형 추출기는 후속 이터레이션 — 본 이슈 목표는 "분류조차 안 됨(OTHER)" 해소.)
+  // ════════════════════════════════════════════════════════════════════════
+
+  // ── 자기주식 소각/취득 — 보강(기존 "자기주식 소각" 룰이 못 잡는 변형) ──────
+  // "주식소각결정"(자기주식 명시 없음) → 소각은 주주가치 환원
+  {
+    pattern: /주식\s*소각/,
+    eventType: EventType.SHARE_CANCELLATION,
+    polarity: 'POSITIVE',
+    confidence: 0.88,
+  },
+  // 신탁계약 취득/해지(자기주식 신탁 매입 프로그램 라이프사이클)
+  {
+    pattern: /신탁계약.*(취득|해지|체결)/,
+    eventType: EventType.SHARE_BUYBACK,
+    polarity: 'POSITIVE',
+    confidence: 0.85,
+  },
+
+  // ── 전환청구권 행사·전환/행사/교환가액 조정 ───────────────────────────────
+  {
+    pattern: /전환청구권\s*행사|(전환가액|행사가액|교환가액).*조정|신주인수권행사가액/,
+    eventType: EventType.CONVERTIBLE_EXERCISE,
+    polarity: 'UNKNOWN',
+    confidence: 0.85,
+  },
+
+  // ── 감자(자본감소)·주식병합 ───────────────────────────────────────────────
+  {
+    pattern: /감자\s*(결정|완료)|자본\s*감소|주식\s*병합/,
+    eventType: EventType.CAPITAL_REDUCTION,
+    polarity: 'NEGATIVE',
+    confidence: 0.85,
+  },
+
+  // ── 무상증자 ──────────────────────────────────────────────────────────────
+  // (기존 "유상증자" 룰은 위에서 먼저 검사됨. "유무상증자"는 유상증자 토큰 미포함→여기 도달)
+  {
+    pattern: /무상증자/,
+    eventType: EventType.BONUS_ISSUE,
+    polarity: 'POSITIVE',
+    confidence: 0.85,
+  },
+
+  // ── 합병·분할·자산/영업 양수도 (M&A) ──────────────────────────────────────
+  {
+    pattern: /합병|회사\s*분할|분할합병|물적분할|인적분할|자산양수도|영업양수도|영업양도|자산양도등/,
+    eventType: EventType.MERGER_SPLIT,
+    polarity: 'MIXED',
+    confidence: 0.85,
+  },
+
+  // ── 주식매수선택권(스톡옵션) 부여 ─────────────────────────────────────────
+  {
+    pattern: /주식매수선택권/,
+    eventType: EventType.STOCK_OPTION,
+    polarity: 'UNKNOWN',
+    confidence: 0.85,
+  },
+
+  // ── 투자 결정(타법인주식 취득·시설투자·유형/비유동자산 양수도) ────────────
+  {
+    pattern: /타법인\s*주식|신규\s*시설\s*투자|유형자산\s*(양수|양도|취득)|비유동자산\s*(취득|양수)|투자판단\s*관련/,
+    eventType: EventType.INVESTMENT_DECISION,
+    polarity: 'MIXED',
+    confidence: 0.85,
+  },
+
+  // ── 임원·주요주주 특정증권등 소유·거래 보고 (방향 미상) ───────────────────
+  // 반드시 EXECUTIVE_CHANGE(임원 변경)보다 먼저 — "임원ㆍ주요주주특정증권등…"
+  {
+    pattern: /임원.*주요주주.*특정증권|특정증권등\s*(소유상황|거래계획)/,
+    eventType: EventType.INSIDER_TRADING_REPORT,
+    polarity: 'UNKNOWN',
+    confidence: 0.85,
+  },
+
+  // ── 최대주주등 소유주식 변동신고 (지배 변경 아님 — 위 MAJOR_SHAREHOLDER_CHANGE와 구분) ──
+  {
+    pattern: /최대주주등\s*소유주식\s*변동|최대주주등의\s*주식보유\s*변동|주식보유\s*변동/,
+    eventType: EventType.OWNERSHIP_DISCLOSURE,
+    polarity: 'UNKNOWN',
+    confidence: 0.85,
+  },
+
+  // ── 임원/대표이사/사외이사 변경 ───────────────────────────────────────────
+  {
+    pattern: /대표이사\s*변경|사외이사.*(선임|해임|중도퇴임)|임원.*(선임|해임|변경)/,
+    eventType: EventType.EXECUTIVE_CHANGE,
+    polarity: 'UNKNOWN',
+    confidence: 0.80,
+  },
+
+  // ── 특수관계인 거래(자금·담보·상품용역)·동일인등 출자계열 거래 ────────────
+  // 채무보증/담보 룰보다 먼저 — "특수관계인으로부터자금차입" 등은 특수관계인 거래로 분류
+  {
+    pattern: /특수관계인|동일인등\s*출자계열/,
+    eventType: EventType.RELATED_PARTY_TRANSACTION,
+    polarity: 'MIXED',
+    confidence: 0.80,
+  },
+
+  // ── 채무보증·담보제공·자금/금전 대여·차입 ─────────────────────────────────
+  {
+    pattern: /채무보증|담보\s*제공|담보\s*취득|자금\s*(대여|차입)|금전\s*대여|차입금\s*증가/,
+    eventType: EventType.DEBT_GUARANTEE,
+    polarity: 'NEGATIVE',
+    confidence: 0.85,
+  },
+
+  // ── 대규모기업집단 현황공시 ───────────────────────────────────────────────
+  {
+    pattern: /대규모기업집단/,
+    eventType: EventType.AFFILIATE_GROUP_DISCLOSURE,
+    polarity: 'UNKNOWN',
+    confidence: 0.80,
+  },
+
+  // ── 주주총회·의결권대리행사·주주명부폐쇄/기준일 ───────────────────────────
+  {
+    pattern: /주주총회|의결권\s*대리행사|주주명부\s*폐쇄|기준일\s*(설정|결정)/,
+    eventType: EventType.SHAREHOLDER_MEETING,
+    polarity: 'UNKNOWN',
+    confidence: 0.80,
+  },
+
+  // ── 기업설명회(IR) ────────────────────────────────────────────────────────
+  {
+    pattern: /기업설명회/,
+    eventType: EventType.IR_EVENT,
+    polarity: 'UNKNOWN',
+    confidence: 0.80,
+  },
+
+  // ── 조회공시 요구·답변·풍문/보도 해명 ─────────────────────────────────────
+  {
+    pattern: /조회공시|풍문또는보도|풍문.*해명/,
+    eventType: EventType.INQUIRY_DISCLOSURE,
+    polarity: 'MIXED',
+    confidence: 0.80,
+  },
+
+  // ── 정기/감사 보고 (사업·반기·분기보고서·(연결)감사보고서) ─────────────────
+  {
+    pattern: /사업보고서|반기보고서|분기보고서|감사보고서/,
+    eventType: EventType.PERIODIC_DISCLOSURE,
+    polarity: 'UNKNOWN',
+    confidence: 0.80,
+  },
+
+  // ── 증권 발행/모집 서류 (증권신고서·투자설명서·발행실적·일괄신고·발행결과·자산유동화·파생결합) ──
+  {
+    pattern: /증권신고서|투자설명서|증권발행\s*실적|일괄신고|증권발행\s*결과|자산유동화|파생결합/,
+    eventType: EventType.SECURITIES_OFFERING,
+    polarity: 'UNKNOWN',
+    confidence: 0.80,
+  },
+
+  // ── 거래소 기타 시장안내 ──────────────────────────────────────────────────
+  // (거래정지/상장폐지 등 리스크 룰은 위에서 먼저 검사됨 — 여기는 잔여 안내성 공시)
+  {
+    pattern: /기타\s*시장안내|시장조치|기타\s*안내사항/,
+    eventType: EventType.MARKET_NOTICE,
+    polarity: 'UNKNOWN',
+    confidence: 0.80,
+  },
 ];
 
 /**

@@ -421,6 +421,28 @@ enum EventType {
   INSIDER_SELL // 임원·주요주주 순매도 (특정증권등 소유 감소)
   MAJOR_HOLDER_5PCT // 5%(대량보유) 상황보고 — 지분율 변동
 
+  // ── DAR-346: 미모델 공시유형 분류 확대 (OTHER 4225 축소) ──────────────
+  // 라이브 DisclosureEvent OTHER 상위 reportName 패턴(전수조사) 기반 신규 분류 타입.
+  // 대부분 정형 수치 추출기는 후속 이터레이션 — 우선 "분류조차 안 됨(OTHER)" 상태 해소가 목표.
+  INSIDER_TRADING_REPORT // 임원·주요주주 특정증권등 소유·거래 보고 (방향 미상)
+  SECURITIES_OFFERING // 증권신고서·투자설명서·증권발행실적·일괄신고추가서류·증권발행결과
+  PERIODIC_DISCLOSURE // 사업·반기·분기보고서·(연결)감사보고서 등 정기/감사 보고
+  SHAREHOLDER_MEETING // 주주총회 소집·결과·의결권대리행사·주주명부폐쇄/기준일
+  IR_EVENT // 기업설명회(IR) 개최·결과
+  RELATED_PARTY_TRANSACTION // 특수관계인 거래(자금·담보·상품용역)·동일인등 출자계열 거래
+  AFFILIATE_GROUP_DISCLOSURE // 대규모기업집단 현황공시
+  OWNERSHIP_DISCLOSURE // 최대주주등 소유주식 변동신고·주식보유변동 (지배변경 아님)
+  DEBT_GUARANTEE // 채무보증·담보제공·자금대여·금전대여 결정
+  CAPITAL_REDUCTION // 감자(자본감소) 결정·완료·주식병합
+  BONUS_ISSUE // 무상증자 결정
+  MERGER_SPLIT // 합병·분할·회사합병·자산양수도 (M&A)
+  INVESTMENT_DECISION // 타법인주식취득·신규시설투자·유형/비유동자산 양수·투자판단 주요경영사항
+  STOCK_OPTION // 주식매수선택권(스톡옵션) 부여
+  EXECUTIVE_CHANGE // 대표이사·임원·사외이사 선임/해임/변경
+  INQUIRY_DISCLOSURE // 조회공시 요구·답변·풍문/보도 해명
+  MARKET_NOTICE // 거래소 기타 시장안내
+  CONVERTIBLE_EXERCISE // 전환청구권 행사·전환/행사가액 조정
+
   OTHER // 분류 불가 (NEEDS_REVIEW 대상)
 }
 

@@ -141,6 +141,20 @@ External APIs:
 - 마이그레이션 관리
 - 스키마 버전 관리
 
+**시계열 저장 엔진: TimescaleDB (DAR-378)**
+- 대규모 분봉/일봉(수억 행)을 효율 저장하기 위해 PostgreSQL 위에 TimescaleDB(pg15 기반)를 사용한다.
+  pg15 호환 이미지라 기존 `postgres_data` 볼륨을 그대로 쓴다(데이터 손실 0). 확장은 마이그레이션의
+  `CREATE EXTENSION IF NOT EXISTS timescaledb` 로 활성화한다.
+- **하이퍼테이블**: 분봉 `stock_minute_prices` 를 `ts`(파티션 키)로 7일 chunk 분할. PK 는 파티션 컬럼을
+  포함한 복합키 `(stockCode, ts)`(TimescaleDB 요건).
+- **압축**: 7일 경과 chunk columnar 압축(segmentby=stockCode) — 실측 ~90% 절감.
+- **연속집계**: 분봉→`stock_candles_5m/15m/1d` materialized cagg + refresh policy. 차트·분석·EventStudy 가
+  원본 풀스캔 없이 롤업 조회.
+- **보존정책**: 원본 분봉 기본 5년 보존(설정가능). 오래된 원본은 집계 롤업으로 대체 가능.
+- Prisma 모델은 '일반 정의'만 두고, 하이퍼테이블/압축/집계/보존은 raw SQL 마이그레이션이 담당(공존).
+- 조회: `GET /market-data/candles`(구간 + 해상도 + 페이지네이션 + 서버측 다운샘플 — 모바일 대량 전송 방지).
+- 데이터 축적 A(일봉)·B(분봉)가 이 기반 위에 적재된다(★선행).
+
 ### 2.4 External APIs
 
 #### DART Open API

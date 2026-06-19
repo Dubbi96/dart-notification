@@ -1293,6 +1293,62 @@ GET /api/market-data/quote?stockCodes=005930,000660   (OptionalJwt — 게스트
 | `source` | `REALTIME`\|`DAILY` | 가격 출처(정직 라벨) |
 | `sparkline` | number[] | 최근 종가(오래된→최신, 최대 5) |
 
+### 13.2 분봉 조회 (Minute Candles, DAR-352 → DAR-377 저장분 확장)
+
+```
+GET /api/market-data/minute-candles?stockCode=005930[&tradeDate=20260620]   (OptionalJwt — 게스트 열람)
+```
+
+| 쿼리 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `stockCode` | string | 필수 | 종목코드 6자리. 형식 위반·데이터 없음 시 `candles` 빈 배열. |
+| `tradeDate` | string | 선택 | 거래일 YYYYMMDD. 지정 시 저장분(`StockMinutePrice`)에서 해당일 분봉 서빙. 미지정 시 당일 KIS 실시간 우선·저장 최근일 폴백. |
+
+서빙 우선순위(거래일 미지정): ① KIS 당일 실시간 분봉(`source=KIS_REALTIME`) → ② 미가용 시 저장된
+최근 거래일 분봉(`source=STORED`) → ③ 없으면 `UNAVAILABLE` 빈 배열. ★**과거 분봉은 KIS 가 제공하지
+않으므로** `tradeDate` 지정 조회는 수집 시작일부터의 저장분만 존재한다(forward 축적).
+
+**응답**:
+```json
+{
+  "success": true,
+  "data": {
+    "stockCode": "005930",
+    "source": "STORED",
+    "asOf": "2026-06-20T06:31:00.000Z",
+    "tradeDate": "20260619",
+    "candles": [
+      { "time": "0901", "open": 100, "high": 102, "low": 99, "close": 101, "volume": 500 }
+    ]
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `source` | `KIS_REALTIME`\|`STORED`\|`UNAVAILABLE` | 캔들 출처 정직 라벨 |
+| `asOf` | string | 서버 응답 생성 시각(ISO). 캔들 `time` 은 KIS 시장 시각이라 환경 시계와 괴리 가능 |
+| `tradeDate` | string\|null | 캔들 거래일(YYYYMMDD). `STORED` 는 저장 거래일, `KIS_REALTIME`/미가용은 null |
+| `candles[].time` | string | 분 시각 HHMM(저장분) 또는 HHMMSS(KIS 실시간). 시간 오름차순 |
+
+### 13.3 분봉 수동 수집 (DAR-377, 운영 트리거)
+
+```
+POST /api/market-data/collect/minute-prices?cap=100&tradeDate=20260620   (JWT 필수)
+```
+
+우선순위 상위 종목(보유→신호→관심→거래량)의 당일 분봉을 KIS 에서 받아 `StockMinutePrice` 에 멱등
+적재하고 커버리지 리포트를 반환한다. cron(평일 09:00~15:30 / 10분 간격) 외 단발 트리거. KIS 일일
+쿼터·레이트리밋 가드(`cap`·스로틀) 내 동작.
+
+| 쿼리 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `cap` | number | 선택 | 수집 상한 종목 수(쿼터 가드). 미지정 시 env `KIS_MINUTE_COLLECT_CAP`→기본 100 |
+| `tradeDate` | string | 선택 | 적재 거래일 YYYYMMDD 강제(미지정 시 KRX 실 가용 거래일로 해석) |
+
+**응답 데이터**: `{ tradeDate, totalCandidates, requested, skippedByQuota, covered, empty, candlesSaved }`
+— `skippedByQuota`(쿼터로 잘려 미수집한 종목 수)로 커버리지를 정직 보고한다.
+
 ---
 
 ## 14. 포트폴리오 리스크 스냅샷 (Portfolio Risk — DAR-163)
@@ -1500,5 +1556,56 @@ GET /api/companies/:corpCode/event-study   (OptionalJwt — 게스트 열람)
 
 ---
 
-**작성일**: 2026-06-14
-**버전**: 1.10 (시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)
+## 17. 구간 캔들 (Candles — TimescaleDB, DAR-378)
+
+### 17.1 분봉/일봉 구간 조회
+
+```
+GET /api/market-data/candles?stockCode=005930&resolution=5m&from=20260501&to=20260530&limit=200   (OptionalJwt — 게스트 열람)
+```
+
+TimescaleDB 분봉 하이퍼테이블(`stock_minute_prices`)과 연속집계(`stock_candles_5m/15m/1d`)에서
+**구간(from~to) + 해상도 + 페이지네이션 + 서버측 다운샘플**로 캔들을 조회한다. 모바일에 원본 분봉을
+대량 전송하지 않도록 `limit`(기본 200, 최대 1000)으로 상한을 강제하고, 해상도가 높을수록 연속집계
+롤업 뷰를 조회해 원본 풀스캔을 피한다. 당일 KIS 실시간 분봉(`minute-candles`, DAR-352)과 달리
+**적재된 시계열을 구간 조회**한다.
+
+**쿼리 파라미터**
+
+| 파라미터 | 필수 | 설명 |
+|---|---|---|
+| `stockCode` | ✅ | 종목코드 6자리 (위반 시 400) |
+| `resolution` | — | `1m`(기본)·`5m`·`15m`·`1d`. 5m/15m/1d 는 연속집계 롤업 |
+| `from` | — | 구간 시작(포함) — ISO 8601 또는 `YYYYMMDD`/`YYYYMMDDHHmm`(UTC) |
+| `to` | — | 구간 끝(포함) — `from` 과 동일 형식 (`from > to` 면 400) |
+| `before` | — | 페이지네이션 커서 — 이 시각 이전(미만) 캔들만(과거 페이지). 응답 `nextCursor` 사용 |
+| `limit` | — | 한 페이지 캔들 수 (기본 200, 최대 1000) |
+
+**응답** — `candles` 는 시간 오름차순. `source` 는 `TIMESCALE`(조회 성공) 또는 `UNAVAILABLE`
+(확장/마이그레이션 미적용 등 — 빈 배열 graceful, 비파괴). `asOf` 는 서버 조회시각(환경 시계 괴리 고지).
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "stockCode": "005930",
+    "resolution": "5m",
+    "source": "TIMESCALE",
+    "asOf": "2026-06-20T05:00:00.000Z",
+    "count": 200,
+    "nextCursor": "2026-05-29T00:00:00.000Z",
+    "candles": [
+      { "time": "2026-05-29T00:05:00.000Z", "open": 70100, "high": 70530, "low": 69950, "close": 70450, "volume": 8064 }
+      /* … 오름차순 … */
+    ]
+  }
+}
+```
+
+OHLCV 롤업 규칙(연속집계): open=first(ts)·high=max·low=min·close=last(ts)·volume=sum.
+실측: 1d 롤업이 원본-분봉 집계(high/low/volume)와 정확 일치.
+
+---
+
+**작성일**: 2026-06-20
+**버전**: 1.11 (구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)

@@ -1,0 +1,10 @@
+{
+  "docType": "SUPPLY_CONTRACT",
+  "rawTableCount": 1,
+  "keyValueSource": "table_0",
+  "판매금액": "880억원",
+  "recentSales": 400000000000,
+  "counterparty": "한빛정밀공업",
+  "contractStartDate": "2024-09-01",
+  "contractEndDate": "2025-08-31"
+}

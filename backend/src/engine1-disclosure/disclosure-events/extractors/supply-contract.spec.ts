@@ -5,6 +5,18 @@ import { extract } from './supply-contract';
 import { ParsedJson } from '../../disclosure-documents/types/parsed-json.type';
 import * as sampleFixture from '../__fixtures__/supply-contract-sample.json';
 import * as missingSalesFixture from '../__fixtures__/supply-contract-missing-sales.json';
+import * as altKeyFixture from '../__fixtures__/supply-contract-altkey.json';
+import * as reportNameOnlyFixture from '../__fixtures__/supply-contract-reportname-only.json';
+
+/** 대체키 등 ParsedJson 타입 외 원시 키를 포함한 입력 구성용 */
+function makeRaw(extra: Record<string, unknown>): ParsedJson {
+  return {
+    docType: 'SUPPLY_CONTRACT',
+    rawTableCount: 1,
+    keyValueSource: 'table_0',
+    ...extra,
+  } as unknown as ParsedJson;
+}
 
 function makeParsedJson(overrides: Partial<ParsedJson> = {}): ParsedJson {
   return {
@@ -159,6 +171,136 @@ describe('supply-contract extract', () => {
       const result = extract(makeParsedJson({ counterparty: '한빛정밀공업' }), '');
       expect(result.counterpartyType).toBe('UNKNOWN');
       expect(result.counterpartyType).not.toBe('DOMESTIC_SME' as never);
+    });
+  });
+
+  // DAR-342: 계약금액 회수 폴백 (FAILED 57건 복구) — DIRECT → ALT_KEY → REPORT_NAME
+  describe('계약금액 회수 폴백 (DAR-342)', () => {
+    describe('DIRECT (표준 매핑 필드)', () => {
+      it('contractAmount 직접조회 시 source=DIRECT', () => {
+        const result = extract(
+          makeParsedJson({ contractAmount: 50_000_000_000 }),
+          '단일판매·공급계약체결',
+        );
+        expect(result.contractAmount).toBe(50_000_000_000);
+        expect(result.contractAmountSource).toBe('DIRECT');
+      });
+
+      it('sampleFixture → DIRECT', () => {
+        const result = extract(sampleFixture as ParsedJson, '단일판매·공급계약체결');
+        expect(result.contractAmountSource).toBe('DIRECT');
+      });
+
+      it('DIRECT는 보고서명 금액보다 우선', () => {
+        const result = extract(
+          makeParsedJson({ contractAmount: 50_000_000_000 }),
+          '단일판매·공급계약체결(999억원)',
+        );
+        expect(result.contractAmount).toBe(50_000_000_000);
+        expect(result.contractAmountSource).toBe('DIRECT');
+      });
+    });
+
+    describe('ALT_KEY (표 헤더 대체키 스캔)', () => {
+      it('판매금액 문자열 토큰 회수 → ALT_KEY', () => {
+        const result = extract(makeRaw({ 판매금액: '880억원' }), '단일판매·공급계약체결');
+        expect(result.contractAmount).toBe(88_000_000_000);
+        expect(result.contractAmountSource).toBe('ALT_KEY');
+      });
+
+      it('수주금액 숫자 회수 → ALT_KEY', () => {
+        const result = extract(makeRaw({ 수주금액: 12_000_000_000 }), '');
+        expect(result.contractAmount).toBe(12_000_000_000);
+        expect(result.contractAmountSource).toBe('ALT_KEY');
+      });
+
+      it('매출액(최후 후보)만 있으면 회수 → ALT_KEY', () => {
+        const result = extract(makeRaw({ 매출액: '1,000억원' }), '');
+        expect(result.contractAmount).toBe(100_000_000_000);
+        expect(result.contractAmountSource).toBe('ALT_KEY');
+      });
+
+      it('우선순위: 계약금액 대체키가 판매금액보다 우선', () => {
+        const result = extract(
+          makeRaw({ 계약금액: '500억원', 판매금액: '880억원' }),
+          '',
+        );
+        expect(result.contractAmount).toBe(50_000_000_000);
+        expect(result.contractAmountSource).toBe('ALT_KEY');
+      });
+
+      it('altKeyFixture: 판매금액 회수 + recentSales 기반 salesRatio 산출', () => {
+        const result = extract(altKeyFixture as unknown as ParsedJson, '단일판매·공급계약체결');
+        expect(result.contractAmount).toBe(88_000_000_000);
+        expect(result.contractAmountSource).toBe('ALT_KEY');
+        expect(result.recentSales).toBe(400_000_000_000);
+        // 880억 / 4000억 * 100 = 22.0
+        expect(result.salesRatio).toBe(22.0);
+      });
+    });
+
+    describe('REPORT_NAME (보고서명 괄호 금액 정규식)', () => {
+      it('단일판매공급계약(123억원) → 123억', () => {
+        const result = extract(makeParsedJson(), '단일판매공급계약(123억원)');
+        expect(result.contractAmount).toBe(12_300_000_000);
+        expect(result.contractAmountSource).toBe('REPORT_NAME');
+      });
+
+      it('콤마 포함 원 단위 표기 회수', () => {
+        const result = extract(
+          makeParsedJson(),
+          '단일판매·공급계약체결(12,000,000,000원)',
+        );
+        expect(result.contractAmount).toBe(12_000_000_000);
+        expect(result.contractAmountSource).toBe('REPORT_NAME');
+      });
+
+      it('조+억 결합 표기 회수', () => {
+        const result = extract(makeParsedJson(), '대규모공급계약(1조2000억원)');
+        expect(result.contractAmount).toBe(1_200_000_000_000);
+        expect(result.contractAmountSource).toBe('REPORT_NAME');
+      });
+
+      it('reportNameOnlyFixture + 보고서명 금액 → REPORT_NAME', () => {
+        const result = extract(
+          reportNameOnlyFixture as unknown as ParsedJson,
+          '단일판매·공급계약체결(450억원)',
+        );
+        expect(result.contractAmount).toBe(45_000_000_000);
+        expect(result.contractAmountSource).toBe('REPORT_NAME');
+      });
+
+      it('단위 없는 단순 숫자(차수·일자)는 오추출하지 않음 → NONE', () => {
+        const result = extract(makeParsedJson(), '단일판매·공급계약체결(제3호)');
+        expect(result.contractAmount).toBeNull();
+        expect(result.contractAmountSource).toBe('NONE');
+      });
+    });
+
+    describe('NONE (미회수)', () => {
+      it('금액 단서가 전혀 없으면 NONE + null', () => {
+        const result = extract(makeParsedJson(), '단일판매·공급계약체결');
+        expect(result.contractAmount).toBeNull();
+        expect(result.contractAmountSource).toBe('NONE');
+      });
+
+      it('0·음수 대체키는 인정하지 않음 → NONE', () => {
+        const result = extract(makeRaw({ 판매금액: 0, 수주금액: -100 }), '');
+        expect(result.contractAmount).toBeNull();
+        expect(result.contractAmountSource).toBe('NONE');
+      });
+
+      it('파싱 불가 문자열 대체키 → NONE', () => {
+        const result = extract(makeRaw({ 판매금액: '미정' }), '');
+        expect(result.contractAmount).toBeNull();
+        expect(result.contractAmountSource).toBe('NONE');
+      });
+    });
+
+    it('회귀: 기존 missingSalesFixture는 DIRECT 유지', () => {
+      const result = extract(missingSalesFixture as ParsedJson, '단일판매·공급계약체결');
+      expect(result.contractAmount).toBe(50_000_000_000);
+      expect(result.contractAmountSource).toBe('DIRECT');
     });
   });
 

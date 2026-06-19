@@ -72,6 +72,28 @@
 - **다음거래일 시가 진입**: 공시 당일 체결 금지(lookahead bias 방지)
 - 장마감(15:30) 후 공시: +2 거래일 시가 진입
 
+## 모의운용 후보·사이징·섹터 (paper-simulation, 순수 Rule·AI 0)
+
+> 구현: `paper-simulation/simulation-entry.ts`(순수 함수) + `paper-simulation.service.ts:openNewPositions`.
+> ★ 모든 값은 "가상원금의 종목별 배분 비율"일 뿐 Risk 하드룰(단일종목·섹터 한도)을 대체/우회하지 않는다.
+
+- **후보 pool (DAR-51→DAR-362)**: `signal ≥ SIM_MIN_ENTRY_GRADE(기본 WATCH)`.
+  - 1순위 `entryReady=true` 후보(품질 우선)로 가용 슬롯을 채운다.
+  - 슬롯이 남으면 `entryReady=false`라도 `buyScore ≥ ENTRY_FALLBACK_MIN_BUY_SCORE(50)` 인
+    상위 후보로 보강(BUY/STRONG 희소 시 pool 협소 완화). **무차별 확대 아님 — 품질 하한 유지.**
+  - 종목당 1건 디듑(`dedupeCandidatesByCorpCode`) 후 `available` 절단.
+- **차등 사이징 (DAR-362)**: 진입예산 = `baseBudget × 등급계수 × buyScore가중`.
+  - `baseBudget = 가상원금 × maxSinglePositionPct`(Risk 하드룰 envelope).
+  - `등급계수`(STRONG 1.0 / BUY 0.75 / WATCH 0.4) + `buyScore가중`(buyScoreSizingMultiplier:
+    HIGH 80↑→1.0, LOW 20↓→FLOOR 0.5, 사이 선형). **고확신 더·저확신 덜**.
+  - 결합계수 ∈ (0, 등급계수] ≤ 1.0 → 종목당 예산은 **항상 baseBudget 이내**(하드룰 보존).
+  - 데이터가 거의 전부 WATCH(단일 등급)라 등급계수만으로는 사실상 균일해지던 문제를 buyScore로 교정.
+- **섹터 분산 가드 (DAR-362)**: 진입 시 동일 섹터 비중 상한 `maxSectorPct`(기본 30%) enforce.
+  - 섹터 식별: `CompanyOverview.industryCode`(스키마 변경 0). 기보유+후보 corpCode 1회 조회.
+  - 섹터별 잔여 허용예산 `sectorHeadroomBudget`로 후보 예산을 절감(상한 초과 진입 차단).
+  - **industryCode 미상(null)은 가드 면제** — 데이터 없는 상한 강제는 거짓 보수(전종목 차단). 적재율
+    낮으면 사실상 no-op(데이터 의존). 적재 후 자동 발효.
+
 ## 절대 규칙
 
 - Engine2(AI) import 금지

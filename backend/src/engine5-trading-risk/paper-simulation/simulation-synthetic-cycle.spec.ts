@@ -49,7 +49,11 @@ function makePrismaMock() {
       create: jest.fn().mockResolvedValue({ id: 'u1' }),
     },
     portfolio: {
-      findFirst: jest.fn().mockResolvedValue({ id: 'pf1', maxSinglePositionPct: 10 }),
+      findFirst: jest.fn().mockResolvedValue({
+        id: 'pf1',
+        maxSinglePositionPct: 10,
+        maxSectorPct: 30,
+      }),
       create: jest.fn(),
     },
     position: {
@@ -92,6 +96,8 @@ function makePrismaMock() {
       upsert: jest.fn().mockResolvedValue({}),
     },
     company: { findMany: jest.fn().mockResolvedValue([]) },
+    // DAR-362: 섹터 분산 가드용 업종 조회(industryCode). 미설정이면 섹터 미상 → 가드 면제.
+    companyOverview: { findMany: jest.fn().mockResolvedValue([]) },
   };
   return prisma;
 }
@@ -153,7 +159,10 @@ describe('합성 시세 모의 사이클(DAR-124) — bought>0 · 스냅샷 가�
     expect(result.bought).toBeGreaterThan(0);
     expect(prisma._created.length).toBe(1);
     expect(prisma._created[0].entryPrice).toBe(ENTRY_FILL_PRICE);
-    expect(prisma._created[0].quantity).toBe(8);
+    // DAR-362: buyScore 차등 사이징 — WATCH·buyScore41 →
+    //   baseBudget(1,000,000) × 등급계수(0.4) × buyScore가중(0.675) = 270,000 → floor(270000/50000)=5.
+    //   (종전 균일 8주에서 확신도 비례 축소 — '균일 탈피' 동작 재현)
+    expect(prisma._created[0].quantity).toBe(5);
 
     // (2) 스냅샷이 합성 종가(50,000) 기준 평가손익을 반영 — entry(49,500) 대비 가격변동 반영
     expect(result.snapshotted).toBeGreaterThan(0);

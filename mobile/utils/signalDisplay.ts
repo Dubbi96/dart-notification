@@ -171,6 +171,63 @@ export function thesisStatusLabel(status: ThesisStatus): string {
 }
 
 /**
+ * 포지션 상태칩 톤(DAR-368) — 시스템 트레이딩 자동 동작 언어.
+ *  - 'auto-sell' : 하드룰 손절·청산 결정(EXIT). 시스템이 다음 평가 시 자동 매도(체결 예정).
+ *  - 'monitoring': 논거 훼손 등 소프트(VIOLATED). 자동 매도 전, 시스템이 자동 모니터링 중.
+ *  - 'neutral'   : 그 외(유효/관찰/만료).
+ */
+export type PositionActionTone = 'auto-sell' | 'monitoring' | 'neutral';
+
+/** 포지션 상태칩에 표시할 시스템 자동 동작 디스크립터(DAR-368). */
+export interface PositionSystemAction {
+  /** 칩 라벨(자동 동작 언어 — 수동 '검토 필요' 금지). */
+  label: string;
+  tone: PositionActionTone;
+  /** 시스템이 자동 매도를 체결/예정 중인가(하드룰 손절·청산 결정). */
+  isAutoSell: boolean;
+  /** 스크린리더 동선 — 사용자 조치 불필요(시스템 자동)임을 명시. */
+  a11yLabel: string;
+}
+
+/**
+ * 모의투자는 **시스템 트레이딩 현황**이므로 포지션 상태를 자동 동작 언어로 표기한다(DAR-368).
+ * 하드룰 손절(-8% 등)은 Engine5가 자동 체결하며 사용자 승인이 불필요하다 — 어떤 상태도
+ * 수동 매도('매도 검토 필요')를 요구하지 않는다.
+ *
+ *  1. exitAction === 'EXIT' → 시스템이 다음 평가 시 자동 매도 → '자동 매도 예정'(auto-sell).
+ *     (포지션이 아직 목록에 보이면 미체결 = 예정. 체결되면 거래내역으로 이동한다 → '예정'이 정직.)
+ *  2. thesisStatus === 'VIOLATED' → 소프트 훼손, 시스템 자동 모니터링 → '시스템 모니터링'.
+ *  3. 그 외 → Thesis 상태 라벨(유효/관찰/만료).
+ */
+export function positionSystemAction(position: {
+  thesisStatus: ThesisStatus;
+  exitAction?: ExitAction;
+}): PositionSystemAction {
+  if (position.exitAction === 'EXIT') {
+    return {
+      label: '자동 매도 예정',
+      tone: 'auto-sell',
+      isAutoSell: true,
+      a11yLabel: '하드룰 손절 — 시스템이 다음 평가 시 자동 매도합니다. 사용자 조치 불필요.',
+    };
+  }
+  if (position.thesisStatus === 'VIOLATED') {
+    return {
+      label: '시스템 모니터링',
+      tone: 'monitoring',
+      isAutoSell: false,
+      a11yLabel: '논거 훼손 — 시스템이 자동 모니터링 중입니다. 사용자 조치 불필요.',
+    };
+  }
+  return {
+    label: thesisStatusLabel(position.thesisStatus),
+    tone: 'neutral',
+    isAutoSell: false,
+    a11yLabel: `Thesis 상태 ${thesisStatusLabel(position.thesisStatus)}`,
+  };
+}
+
+/**
  * 손익률 색상 — 부호→색 단일 규칙 `returnColor`의 손익 도메인 별칭(DAR-177).
  * 양수 success / 음수 error / 보합 textSecondary(AA, DAR-148).
  * `opts.digits` 는 표기 자릿수와 맞춘다(기본 1) — 반올림 후 0 은 보합색(DAR-312).

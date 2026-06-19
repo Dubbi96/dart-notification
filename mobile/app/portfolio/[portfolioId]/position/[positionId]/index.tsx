@@ -21,7 +21,7 @@ import { CompanyHubLink } from '@components/company/CompanyHubLink';
 import { usePosition, usePositionThesis } from '@hooks/usePortfolio';
 import {
   thesisStatusColor,
-  thesisStatusLabel,
+  positionSystemAction,
   pnlColor,
   formatPnlPercent,
 } from '@utils/signalDisplay';
@@ -88,6 +88,9 @@ export default function PositionDetailScreen() {
   const position = positionQuery.data;
   const thesis = thesisQuery.data;
 
+  // DAR-368: 시스템 트레이딩 현황 — 상태칩을 자동 동작 언어로(EXIT='자동 매도 예정', VIOLATED='시스템 모니터링').
+  // 표시=엔진 일치(①): 손익(실시간)과 시스템이 행동하는 상태를 같은 언어로 노출, 수동 점검 암시 문구 금지.
+  const action = position ? positionSystemAction(position) : null;
   // DAR-359: 손익% 위계 지배 — 이익/손실 글랜스. pnlColor(반올림 정합)로 부호를 판정해
   // 전폭 색조 배경·방향 화살표를 결정한다(이익=초록, 손실=빨강, 보합=중립).
   const pnlTextColor = position ? pnlColor(position.pnlPercent, colors) : colors.textSecondary;
@@ -152,17 +155,45 @@ export default function PositionDetailScreen() {
               <Text style={[typo.h2, { color: colors.text, flex: 1 }]} numberOfLines={1}>
                 {position.corpName}
               </Text>
-              <Chip
-                compact
-                mode="flat"
-                // DAR-305: OS 글꼴 확대 시 상태칩 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
-                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-                style={{ backgroundColor: colors.surfaceSecondary }}
-                textStyle={[typo.small, { color: thesisStatusColor(position.thesisStatus, colors), fontWeight: '700' }]}
-                accessibilityLabel={`Thesis 상태: ${thesisStatusLabel(position.thesisStatus)}`}
-              >
-                {thesisStatusLabel(position.thesisStatus)}
-              </Chip>
+              {action ? (
+                <Chip
+                  compact
+                  mode="flat"
+                  // DAR-305: OS 글꼴 확대 시 상태칩 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+                  maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                  // DAR-368: 자동 매도(하드룰 손절·청산)만 솔리드 경고색 강조, 그 외는 보조 표면.
+                  style={{
+                    backgroundColor: action.tone === 'auto-sell' ? colors.error : colors.surfaceSecondary,
+                  }}
+                  textStyle={[
+                    typo.small,
+                    {
+                      color:
+                        action.tone === 'auto-sell'
+                          ? colors.onColor
+                          : thesisStatusColor(position.thesisStatus, colors),
+                      fontWeight: '700',
+                    },
+                  ]}
+                  accessibilityLabel={action.a11yLabel}
+                  // DAR-368: 자동 매도='zap'(시스템 자동 실행), 모니터링='activity'(시스템 감시). 수동 알림 금지.
+                  icon={
+                    action.tone === 'auto-sell'
+                      ? ({ size }) => <Feather name="zap" size={size} color={colors.onColor} />
+                      : action.tone === 'monitoring'
+                        ? ({ size }) => (
+                            <Feather
+                              name="activity"
+                              size={size}
+                              color={thesisStatusColor(position.thesisStatus, colors)}
+                            />
+                          )
+                        : undefined
+                  }
+                >
+                  {action.label}
+                </Chip>
+              ) : null}
             </View>
             {/* DAR-359: 손익% 지배 블록 — typo.amount 전폭 색조 + 방향 화살표.
                 결과(손익)를 한눈에 추출하도록 입력값(가격·수량)보다 위계를 명확히 끌어올린다. */}
@@ -211,6 +242,20 @@ export default function PositionDetailScreen() {
                 </View>
                 <Feather name="chevron-right" size={18} color={colors.primary} />
               </TouchableOpacity>
+            ) : null}
+            {/* DAR-368: 하드룰 손절·청산은 Engine5가 자동 체결 — 수동 매도 불필요임을 정직하게 고지(예정 상태).
+                포지션이 목록/상세에 보이면 미체결 = 예정. 체결되면 거래내역으로 이동한다. */}
+            {action?.tone === 'auto-sell' ? (
+              <View
+                style={[styles.autoSellNotice, { backgroundColor: colors.error, marginTop: spacing.sm }]}
+                accessibilityRole="summary"
+                accessibilityLabel={action.a11yLabel}
+              >
+                <Feather name="zap" size={16} color={colors.onColor} />
+                <Text style={[typo.small, { color: colors.onColor, flex: 1 }]}>
+                  하드룰 손절 — 시스템이 다음 평가 시 자동 매도합니다. 사용자 조치는 필요하지 않습니다.
+                </Text>
+              </View>
             ) : null}
           </Surface>
 
@@ -288,6 +333,15 @@ const styles = StyleSheet.create({
   metaSection: {
     paddingTop: spacing.sm,
     borderTopWidth: 1,
+  },
+  // DAR-368: 자동 매도 고지 배너 — 솔리드 경고색 + 아이콘 + 평문(시스템 자동 체결 예정).
+  autoSellNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.sm,
   },
   rowBetween: {
     flexDirection: 'row',

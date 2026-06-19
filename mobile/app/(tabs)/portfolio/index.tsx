@@ -19,6 +19,7 @@ import { PersonaTrackSection } from '@components/portfolio/PersonaTrackSection';
 import { TodayCheckSlot } from '@components/portfolio/TodayCheckSlot';
 import { PositionSearchBar } from '@components/portfolio/PositionSearchBar';
 import { PortfolioRiskBadge } from '@components/portfolio/PortfolioRiskBadge';
+import { AutoTradingEntryButton } from '@components/portfolio/AutoTradingEntryButton';
 import {
   usePositions,
   usePortfolioSummary,
@@ -310,6 +311,10 @@ export default function PortfolioScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <Text style={[typo.h2, { color: colors.text }]}>포트폴리오</Text>
+        {/* DAR-372: 자동매매 상태(읽기전용 투명성) 진입을 헤더 상단에 항상 노출.
+            기존 모의 성과 푸터 링크에만 의존하던 동선('탭으로만 유도돼 찾을 수 없음')을
+            해소 — 어느 서브탭에서도 1탭 진입. */}
+        <AutoTradingEntryButton />
       </View>
 
       {/* DAR-113: 포트폴리오는 전 탭 인증 필요(401). 게스트는 탭/빈·에러 화면 대신 로그인 유도. */}
@@ -385,6 +390,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     borderBottomWidth: 1,

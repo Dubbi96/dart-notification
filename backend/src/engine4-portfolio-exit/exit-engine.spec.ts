@@ -391,7 +391,8 @@ describe('calcOverweightScore', () => {
       portfolioTotalValue: 10000000,
       portfolioMaxSinglePositionPct: 10.0,
     });
-    const result = calcOverweightScore(pos);
+    // DAR-349#3: 비중은 tech.closePrice 기준
+    const result = calcOverweightScore(pos, makeTech({ closePrice: 70000 }));
     expect(result.score).toBe(0);
     expect(result.triggered).toBe(false);
   });
@@ -404,14 +405,14 @@ describe('calcOverweightScore', () => {
       portfolioTotalValue: 1000000,
       portfolioMaxSinglePositionPct: 10.0,
     });
-    const result = calcOverweightScore(pos);
+    const result = calcOverweightScore(pos, makeTech({ closePrice: 70000 }));
     expect(result.score).toBeGreaterThan(0);
     expect(result.triggered).toBe(true);
   });
 
   it('portfolioTotalValue=0 → score=0', () => {
     const pos = makePosition({ portfolioTotalValue: 0 });
-    const result = calcOverweightScore(pos);
+    const result = calcOverweightScore(pos, makeTech({ closePrice: 70000 }));
     expect(result.score).toBe(0);
     expect(result.triggered).toBe(false);
   });
@@ -990,13 +991,25 @@ describe('calcDisclosureRiskScore — 이벤트 타입별 가중 (DAR-94)', () =
     expect(high).toBeGreaterThan(general);
   });
 
-  it('다건 누적은 cap(20)에서 절단', () => {
-    const r = calcDisclosureRiskScore([
+  it('다건 누적은 소프트 캡 — 단일보다 높고 cap(20) 미만·단조 (DAR-349#5)', () => {
+    const single = calcDisclosureRiskScore([
+      { type: 'TRADING_SUSPENSION', rcpNo: 'R1' },
+    ]).score; // 16 (선형 보존)
+    const two = calcDisclosureRiskScore([
       { type: 'TRADING_SUSPENSION', rcpNo: 'R1' },
       { type: 'DELISTING_RISK', rcpNo: 'R2' },
-    ]);
-    expect(r.score).toBe(20); // 16+16=32 → 20
-    expect(r.severe).toBe(true);
+    ]); // raw 16+16=32 → 소프트 캡
+    const three = calcDisclosureRiskScore([
+      { type: 'TRADING_SUSPENSION', rcpNo: 'R1' },
+      { type: 'DELISTING_RISK', rcpNo: 'R2' },
+      { type: 'LAWSUIT', rcpNo: 'R3' },
+    ]).score; // raw 48 → 소프트 캡
+    // 다중 위기가 단일보다 항상 높음(비차별 해소) + cap 미만 + 단조 증가
+    expect(two.score).toBeGreaterThan(single);
+    expect(two.score).toBeLessThan(20);
+    expect(three).toBeGreaterThan(two.score);
+    expect(three).toBeLessThan(20);
+    expect(two.severe).toBe(true);
   });
 
   it('내부자 대량 순매도만 있어도 결합(12)·severe true', () => {

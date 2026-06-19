@@ -11,6 +11,8 @@
 import { Module } from '@nestjs/common';
 import { PaperTradeService } from './services/paper-trade.service';
 import { OrderRiskService } from './services/order-risk.service';
+import { AuditLogQueryService } from './services/audit-log-query.service';
+import { AuditLogQueryController } from './services/audit-log-query.controller';
 import { PrismaPaperTradeRepository } from './repositories/prisma-paper-trade.repository';
 import { PrismaAuditLogRepository } from './repositories/prisma-audit-log.repository';
 import { KillSwitchManager } from './domain/kill-switch';
@@ -20,9 +22,10 @@ import { PaperTradingService } from './paper-trading/paper-trading.service';
 
 @Module({
   imports: [PrismaModule],
-  controllers: [PaperTradingController],
+  controllers: [PaperTradingController, AuditLogQueryController],
   providers: [
     PaperTradingService,
+    AuditLogQueryService,
     PrismaPaperTradeRepository,
     PrismaAuditLogRepository,
     KillSwitchManager,

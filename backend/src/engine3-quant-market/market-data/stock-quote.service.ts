@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeQuoteCache } from './realtime-quote.cache';
+import { KisApiService, KisMinuteCandle } from './kis-api.service';
 
 /**
  * 종목 최신 시세(quote) 조회 — 화면 가격 배지 종단연결 (DAR-158, read-only).
@@ -42,6 +43,22 @@ export interface StockQuote {
   source: 'REALTIME' | 'DAILY';
   /** 최근 종가 스파크라인(오래된→최신, 최대 5개). */
   sparkline: number[];
+}
+
+/** 당일 분봉 조회 응답 (DAR-352, read-only). */
+export interface MinuteCandlesResult {
+  /** 조회한 6자리 종목코드. */
+  stockCode: string;
+  /**
+   * 캔들 출처 — 'KIS_REALTIME'(KIS 당일 분봉 실데이터) | 'UNAVAILABLE'(키 미설정·장마감·실패로 0행).
+   * ★정직(DAR-140 계약): KIS_REALTIME 은 '실제 시장 실시간가'다. 환경 시계(2026)와 시점이
+   *   다를 수 있어 asOf(서버 조회시각)와 함께 고지한다. 합성가(SYNTHETIC)와 혼동 금지.
+   */
+  source: 'KIS_REALTIME' | 'UNAVAILABLE';
+  /** 서버가 KIS 를 조회한 시각(ISO). 캔들 time(HHMMSS)은 KIS 시장 시각이므로 환경 시계와 괴리될 수 있음. */
+  asOf: string;
+  /** 당일 분봉(시간 오름차순). 미가용 시 빈 배열. */
+  candles: KisMinuteCandle[];
 }
 
 /** 일봉 행(오름차순)을 정직한 시세로 합성하는 순수 함수. 행이 없으면 null. */
@@ -97,7 +114,50 @@ export class StockQuoteService {
     private readonly prisma: PrismaService,
     // @Optional: 전역 RealtimeQuoteCache 미배선(테스트 등) 시 일봉 폴백으로 graceful 동작.
     @Optional() private readonly realtimeCache?: RealtimeQuoteCache,
+    // @Optional: KIS 어댑터 미배선(테스트 등) 또는 키 미설정 시 분봉은 빈배열 graceful(DAR-352).
+    @Optional() private readonly kisApi?: KisApiService,
   ) {}
+
+  /**
+   * 당일 분봉 조회 (DAR-352, read-only). KIS inquire-time-itemchartprice 결과를 시간 오름차순으로
+   * 반환한다. 키 미설정·KIS 미배선·장마감/실패로 0행이면 빈 배열 + source=UNAVAILABLE 로 graceful.
+   *
+   * ★정직: 반환 캔들은 '실제 시장 실시간가'이며 환경 시계(2026)와 시점이 다를 수 있어
+   *   source/asOf 로 고지한다(DAR-140 계약).
+   * @param nowMs KIS 토큰 만료 판정·asOf 산출용 현재 epoch ms(테스트 주입 가능).
+   */
+  async getMinuteCandles(
+    rawStockCode: string,
+    nowMs: number = Date.now(),
+  ): Promise<MinuteCandlesResult> {
+    const stockCode = (rawStockCode ?? '').trim();
+    const asOf = new Date(nowMs).toISOString();
+
+    // 6자리 숫자만 허용 — 형식 위반은 조회 없이 빈배열(소비측 미표시).
+    if (!/^\d{6}$/.test(stockCode)) {
+      return { stockCode, source: 'UNAVAILABLE', asOf, candles: [] };
+    }
+
+    // KIS 미배선/키 미설정 → 실호출 0, graceful 빈배열.
+    if (!this.kisApi || !this.kisApi.isConfigured) {
+      return { stockCode, source: 'UNAVAILABLE', asOf, candles: [] };
+    }
+
+    try {
+      const candles = await this.kisApi.fetchMinuteCandles(stockCode, '', nowMs);
+      return {
+        stockCode,
+        source: candles.length > 0 ? 'KIS_REALTIME' : 'UNAVAILABLE',
+        asOf,
+        candles,
+      };
+    } catch (e) {
+      // fetchMinuteCandles 는 내부 흡수해 [] 를 주지만, 키 미설정 예외(KisApiUnavailableError)는
+      // throw 한다 → 여기서 흡수해 graceful 빈배열로 일관 처리.
+      this.logger.warn(`[분봉] ${stockCode} 조회 실패: ${(e as Error).message}`);
+      return { stockCode, source: 'UNAVAILABLE', asOf, candles: [] };
+    }
+  }
 
   /** 입력 종목코드 정규화 — 6자리 숫자만, 중복 제거, 최대 개수 제한. */
   private sanitize(raw: string[]): string[] {

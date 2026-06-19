@@ -44,6 +44,25 @@ export class MarketDataController {
     return { success: true, data };
   }
 
+  // 분봉 엔드포인트 노출(DAR-352): KIS fetchMinuteCandles 가 구현돼 있으나 조회 경로가 없어
+  // 모바일이 못 쓰던 문제 해소. quote 와 동일 게스트 열람 패턴(OptionalJwtAuthGuard).
+  // ★정직: 캔들은 '실제 시장 실시간가' — 응답 source/asOf 로 환경 시계 괴리 고지. 비파괴 read-only.
+  @Get('minute-candles')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      '종목 당일 분봉 조회 — KIS 실시간 분봉(시간 오름차순). 미가용(키미설정·장마감·실패) 시 빈 배열 graceful (게스트 열람, DAR-352)',
+  })
+  @ApiQuery({
+    name: 'stockCode',
+    required: true,
+    description: '종목코드 6자리 (예: 005930). 형식 위반·데이터 없음 시 candles 빈 배열.',
+  })
+  async getMinuteCandles(@Query('stockCode') stockCode?: string) {
+    const data = await this.stockQuote.getMinuteCandles(stockCode ?? '');
+    return { success: true, data };
+  }
+
   /**
    * 시장지수 최신값 조회 (DAR-160, read-only).
    * KOSPI·KOSDAQ 최신 종가 + 전일대비 등락률(%) + 거래일을 반환한다. 홈 헤더 '시장 한눈에'

@@ -23,3 +23,22 @@ export interface StockQuote {
 
 /** stockCode → StockQuote|null 맵. 조회 안 된 종목 키는 null. */
 export type StockQuoteMap = Record<string, StockQuote | null>;
+
+/**
+ * 당일 분봉 1캔들 — 백엔드 KisMinuteCandle 와 1:1 (DAR-354). 인트라데이 시·고·저·종·거래량.
+ * 시각은 체결시각 HHMMSS 문자열. 데이터 없으면 빈 배열.
+ */
+export interface MinuteCandle {
+  /** 체결시각 HHMMSS (예: '093000'). */
+  time: string;
+  /** 해당 분 시가(원). */
+  open: number;
+  /** 해당 분 고가(원). */
+  high: number;
+  /** 해당 분 저가(원). */
+  low: number;
+  /** 해당 분 종가(체결가, 원). */
+  close: number;
+  /** 해당 분 거래량(주). */
+  volume: number;
+}

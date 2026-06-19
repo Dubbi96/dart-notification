@@ -90,7 +90,9 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:15-alpine
+    # DAR-378: TimescaleDB(pg15 기반) — 대규모 분봉/일봉 시계열 효율화.
+    # pg15 호환 이미지라 기존 postgres_data(PG15) 볼륨을 그대로 사용한다(데이터 손실 0).
+    image: timescale/timescaledb:2.17.2-pg15
     container_name: dart-notification-db
     restart: always
     environment:
@@ -110,6 +112,28 @@ volumes:
 # Docker Compose 실행
 docker-compose -f docker-compose.dev.yml up -d
 ```
+
+#### TimescaleDB 적용 절차 (DAR-378, ★휴먼 게이트)
+
+대규모 분봉/일봉 시계열을 위해 저장 엔진을 TimescaleDB 로 운용한다. **이미지 교체·확장 활성화·
+스키마 운영 반영은 사용자 적용 단계**다(에이전트 자동 적용 금지):
+
+```bash
+# 1) 이미지 교체 후 컨테이너 재생성 (기존 PG15 볼륨 호환 — 데이터 손실 0)
+docker-compose -f docker-compose.dev.yml up -d
+
+# 2) 마이그레이션 적용 (휴먼 승인 ask). CREATE EXTENSION + 하이퍼테이블/압축/연속집계/보존 정책 생성
+cd backend && npx prisma migrate deploy   # 20260620000000_dar378_timescaledb_hypertables
+
+# 3) (선택) 정책·압축률 점검
+psql "$DATABASE_URL" -c "SELECT * FROM timescaledb_information.jobs WHERE hypertable_name IS NOT NULL;"
+psql "$DATABASE_URL" -c "SELECT * FROM chunk_compression_stats('stock_minute_prices');"
+```
+
+- 마이그레이션은 **순수 가산**(신규 `stock_minute_prices` 하이퍼테이블 + 확장 + 정책)이라 기존
+  테이블/데이터(`stock_daily_prices` 등)를 건드리지 않는다.
+- 일봉(`stock_daily_prices`) 하이퍼테이블 전환은 후순위(별도 마이그레이션).
+- 실측: 86,400행 적재 후 압축률 **10.7×(90.6% 절감)**, 1d 연속집계 롤업이 원본-분봉 집계와 정확 일치.
 
 #### Option 2: 로컬 PostgreSQL
 

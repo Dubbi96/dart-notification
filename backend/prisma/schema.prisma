@@ -93,6 +93,7 @@ model Company {
   disclosureEvents    DisclosureEvent[]
   insiderHoldingChanges InsiderHoldingChange[]
   stockDailyPrices    StockDailyPrice[]
+  stockMinutePrices   StockMinutePrice[]
   technicalIndicators TechnicalIndicator[]
   tradingSignals      TradingSignal[]
   positionTheses      PositionThesis[]
@@ -701,6 +702,43 @@ model StockDailyPrice {
   @@index([corpCode])
   @@index([tradeDate])
   @@map("stock_daily_prices")
+}
+
+// ====================================
+// 분봉 시세 (DAR-378, TimescaleDB 하이퍼테이블) — 대규모 시계열(B 적재 대상)
+// ====================================
+//
+// 분봉(OHLCV)을 수억 행 규모로 효율 저장하기 위해 stock_minute_prices 를 TimescaleDB
+// 하이퍼테이블로 운용한다. Prisma 모델은 '일반 정의'만 두고, 하이퍼테이블 변환·압축·
+// 연속집계·보존정책은 raw SQL 마이그레이션(20260620000000_dar378_timescaledb_hypertables)이
+// 담당한다(Prisma 모델 + raw SQL 공존, TimescaleDB 가이드 준수).
+//
+// ★파티션 키 = ts (거래 분의 instant; KST 거래일+시각을 UTC TIMESTAMP 로 보관).
+//   TimescaleDB 는 모든 UNIQUE/PK 인덱스에 파티션 컬럼을 포함하도록 요구하므로
+//   대리키 cuid id 를 두지 않고 복합 PK @@id([stockCode, ts]) 를 자연키로 쓴다
+//   (= 이슈의 @@unique([stockCode, ts]) 의도를 PK 로 충족).
+//   chunk_time_interval = 7 days · 7일 경과 chunk columnar 압축(segmentby=stockCode).
+//   분봉→5m/15m/1d continuous aggregate 가 차트·분석 롤업 조회를 원본 풀스캔 없이 지원.
+// ★정직: source 라벨로 데이터 출처를 명시(KIS_REALTIME 등). 합성가(SYNTHETIC)와 혼동 금지.
+model StockMinutePrice {
+  corpCode     String // DART 고유번호 (FK → Company.corpCode)
+  stockCode    String // 종목코드 6자리
+  ts           DateTime // 거래 분 instant (파티션 키) — 거래일+시각
+  openPrice    Int // 시가
+  highPrice    Int // 고가
+  lowPrice     Int // 저가
+  closePrice   Int // 종가
+  volume       BigInt // 분 거래량
+  tradingValue BigInt? // 분 거래대금 (원)
+  source       String   @default("KIS_REALTIME") // 데이터 출처 라벨(정직)
+  createdAt    DateTime @default(now())
+
+  company Company @relation(fields: [corpCode], references: [corpCode])
+
+  @@id([stockCode, ts]) // 파티션 컬럼(ts) 포함 복합 PK — TimescaleDB 하이퍼테이블 요건
+  @@index([corpCode])
+  @@index([ts])
+  @@map("stock_minute_prices")
 }
 
 // ====================================

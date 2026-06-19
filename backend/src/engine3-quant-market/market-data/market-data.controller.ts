@@ -1,4 +1,11 @@
-import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -8,6 +15,8 @@ import {
 import { KrxMarketDataScheduler } from './krx-market-data.scheduler';
 import { StockQuoteService } from './stock-quote.service';
 import { MarketDataService } from './market-data.service';
+import { CandleHistoryService } from './candle-history.service';
+import { CANDLE_RESOLUTIONS, CandleQueryError } from './candle-query';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../auth/guards/optional-jwt-auth.guard';
 
@@ -20,6 +29,7 @@ export class MarketDataController {
     private readonly scheduler: KrxMarketDataScheduler,
     private readonly stockQuote: StockQuoteService,
     private readonly marketData: MarketDataService,
+    private readonly candleHistory: CandleHistoryService,
   ) {}
 
   // 가격 배지 종단연결(DAR-158): 읽기 전용 시세 조회는 게스트 열람 허용(DAR-99 패턴).
@@ -61,6 +71,65 @@ export class MarketDataController {
   async getMinuteCandles(@Query('stockCode') stockCode?: string) {
     const data = await this.stockQuote.getMinuteCandles(stockCode ?? '');
     return { success: true, data };
+  }
+
+  // 구간 캔들 조회(DAR-378): TimescaleDB 하이퍼테이블(분봉) + 연속집계(5m/15m/1d)에서
+  // from~to 구간 + 해상도 + 페이지네이션 + 서버측 다운샘플로 반환한다. 모바일에 원본 분봉
+  // 대량 전송 금지 — limit 으로 다운샘플 상한 강제. minute-candles(당일 KIS 실시간) 와 달리
+  // 적재된 시계열을 구간 조회한다. ★정직: source/asOf 로 출처·조회시각 고지(미적용 시 UNAVAILABLE).
+  // quote 와 동일 게스트 열람 패턴(OptionalJwtAuthGuard).
+  @Get('candles')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      '구간 캔들 조회 — TimescaleDB 분봉 하이퍼테이블/연속집계(1m·5m·15m·1d), from~to+해상도+페이지네이션 서버측 다운샘플 (게스트 열람, DAR-378)',
+  })
+  @ApiQuery({ name: 'stockCode', required: true, description: '종목코드 6자리 (예: 005930)' })
+  @ApiQuery({
+    name: 'resolution',
+    required: false,
+    description: `해상도 ${CANDLE_RESOLUTIONS.join('|')} (기본 1m). 5m/15m/1d 는 연속집계 롤업 조회.`,
+  })
+  @ApiQuery({
+    name: 'from',
+    required: false,
+    description: '구간 시작(포함) — ISO 8601 또는 YYYYMMDD/YYYYMMDDHHmm(UTC)',
+  })
+  @ApiQuery({ name: 'to', required: false, description: '구간 끝(포함) — from 과 동일 형식' })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: '페이지네이션 커서 — 이 시각 이전(미만) 캔들만(과거 페이지). 응답 nextCursor 사용.',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: '한 페이지 캔들 수 (기본 200, 최대 1000).',
+  })
+  async getCandles(
+    @Query('stockCode') stockCode?: string,
+    @Query('resolution') resolution?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('before') before?: string,
+    @Query('limit') limit?: string,
+  ) {
+    try {
+      const data = await this.candleHistory.getCandles({
+        stockCode,
+        resolution,
+        from,
+        to,
+        before,
+        limit,
+      });
+      return { success: true, data };
+    } catch (err) {
+      if (err instanceof CandleQueryError) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
   }
 
   /**

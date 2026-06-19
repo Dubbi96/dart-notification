@@ -4,6 +4,7 @@
 import { extract } from './trading-suspension';
 import { ParsedJson } from '../../disclosure-documents/types/parsed-json.type';
 import * as sampleFixture from '../__fixtures__/trading-suspension-sample.json';
+import * as missingReasonFixture from '../__fixtures__/trading-suspension-missing-reason.json';
 
 function makeParsedJson(overrides: Partial<ParsedJson> = {}): ParsedJson {
   return {
@@ -52,17 +53,97 @@ describe('trading-suspension extract', () => {
       expect(result.derivedDataMissing).toBe(false);
     });
 
-    it('사유 결측 → derivedDataMissing true', () => {
+    it('사유·reportName 모두 결측 → derivedDataMissing true, reasonInferred false', () => {
       const result = extract(makeParsedJson({ suspensionStartDate: '2024-05-01' }), '');
       expect(result.suspensionReason).toBeNull();
       expect(result.suspensionType).toBe('UNKNOWN');
       expect(result.derivedDataMissing).toBe(true);
+      expect(result.reasonInferred).toBe(false);
     });
 
     it('모든 필드 undefined → throw 없음', () => {
       const parsed = { docType: 'OTHER', rawTableCount: 0, keyValueSource: 'none' } as ParsedJson;
       expect(() => extract(parsed, '')).not.toThrow();
       expect(extract(parsed, '').suspensionReason).toBeNull();
+    });
+  });
+
+  // DAR-343: 사유 결측 FAILED(36건) 복구 — reportName 기반 유형 추론 + 키워드 스캔 폴백
+  describe('사유 결측 복구 (reasonInferred)', () => {
+    it('정규 사유 결측 + reportName 조회공시 → DISCLOSURE 추론, reasonInferred true', () => {
+      const result = extract(makeParsedJson({}), '매매거래정지(조회공시 답변)');
+      expect(result.suspensionReason).toBeNull();
+      expect(result.suspensionType).toBe('DISCLOSURE');
+      expect(result.derivedDataMissing).toBe(true);
+      expect(result.reasonInferred).toBe(true);
+    });
+
+    it('사유 결측 + reportName 상폐절차 → DELISTING 추론, reasonInferred true', () => {
+      const result = extract(makeParsedJson({}), '상장폐지 사유 발생');
+      expect(result.suspensionReason).toBeNull();
+      expect(result.suspensionType).toBe('DELISTING');
+      expect(result.reasonInferred).toBe(true);
+    });
+
+    it('사유 결측 + reportName 감사의견 → AUDIT 추론, reasonInferred true', () => {
+      const result = extract(makeParsedJson({}), '감사보고서 제출(의견거절)');
+      expect(result.suspensionType).toBe('AUDIT');
+      expect(result.reasonInferred).toBe(true);
+    });
+
+    it('reportName 매칭 없어 OTHER 추론돼도 reasonInferred true (악재 보존)', () => {
+      const result = extract(makeParsedJson({}), '매매거래 정지');
+      expect(result.suspensionType).toBe('OTHER');
+      expect(result.reasonInferred).toBe(true);
+    });
+  });
+
+  // DAR-343: 정지사유/원인 키워드 스캔 — 비정규 위치의 사유 회수
+  describe('키워드 스캔 폴백 (scanSuspensionReason)', () => {
+    it("라벨 패턴('정지사유: …')을 비정규 필드에서 회수 → 실제 사유 + reasonInferred false", () => {
+      const result = extract(
+        makeParsedJson({ delistingReason: '정지사유: 감사의견 거절' } as Partial<ParsedJson>),
+        '매매거래 정지',
+      );
+      expect(result.suspensionReason).toBe('감사의견 거절');
+      expect(result.suspensionType).toBe('AUDIT');
+      expect(result.derivedDataMissing).toBe(false);
+      expect(result.reasonInferred).toBe(false);
+    });
+
+    it('라벨 없는 위험 문맥 문장 회수 (불성실공시)', () => {
+      const result = extract(
+        makeParsedJson({ auditOpinionReason: '불성실공시법인 지정에 따른 매매거래 정지' } as Partial<ParsedJson>),
+        '매매거래 정지',
+      );
+      expect(result.suspensionReason).toContain('불성실공시');
+      expect(result.suspensionType).toBe('DISCLOSURE');
+      expect(result.reasonInferred).toBe(false);
+    });
+
+    it('위험 키워드 없는 무관 텍스트는 회수하지 않음(과매칭 방지)', () => {
+      const result = extract(
+        makeParsedJson({ counterparty: '주식회사 무관거래처' } as Partial<ParsedJson>),
+        '',
+      );
+      expect(result.suspensionReason).toBeNull();
+      expect(result.suspensionType).toBe('UNKNOWN');
+      expect(result.reasonInferred).toBe(false);
+    });
+
+    it('sampleFixture 정규 필드 우선 — 스캔 폴백과 무관하게 회귀 불변', () => {
+      const result = extract(sampleFixture as ParsedJson, '매매거래 정지');
+      expect(result.suspensionReason).toContain('감사의견 거절');
+      expect(result.reasonInferred).toBe(false);
+    });
+
+    it('missingReasonFixture — 정규 사유 결측이나 비정규 필드 라벨에서 회수 + 날짜 정규화', () => {
+      const result = extract(missingReasonFixture as ParsedJson, '매매거래 정지');
+      expect(result.suspensionReason).toContain('상장폐지');
+      expect(result.suspensionType).toBe('DELISTING');
+      expect(result.suspensionStartDate).toBe('2024-05-02');
+      expect(result.derivedDataMissing).toBe(false);
+      expect(result.reasonInferred).toBe(false);
     });
   });
 });

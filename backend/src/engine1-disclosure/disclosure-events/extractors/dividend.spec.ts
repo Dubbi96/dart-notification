@@ -71,4 +71,74 @@ describe('dividend extract', () => {
       expect(() => extract(parsed, '')).not.toThrow();
     });
   });
+
+  // ─── DAR-345: 주당 배당금 회수 폴백(DIRECT → DERIVED) ─────────────────────
+  describe('DAR-345 dividendPerShare 폴백', () => {
+    it('DIRECT: dividendPerShare 직접값 존재 → source=DIRECT, 유도 안 함', () => {
+      const parsed = makeParsedJson({ dividendPerShare: 500, dividendTotal: 25_000_000_000 });
+      const result = extract(parsed, '');
+      expect(result.dividendPerShare).toBe(500);
+      expect(result.dividendPerShareSource).toBe('DIRECT');
+      expect(result.partialFieldsPresent).toBe(false);
+    });
+
+    it('DERIVED: 직접값 결측·dividendTotal + totalIssuedShares → 주당배당 유도', () => {
+      // 250억 / 5천만주 = 500원/주
+      const parsed = makeParsedJson({
+        dividendTotal: 25_000_000_000,
+        totalIssuedShares: 50_000_000,
+      } as unknown as Partial<ParsedJson>);
+      const result = extract(parsed, '');
+      expect(result.dividendPerShare).toBe(500);
+      expect(result.dividendPerShareSource).toBe('DERIVED');
+      expect(result.partialFieldsPresent).toBe(false);
+    });
+
+    it('DERIVED: 발행주식수 대체 라벨(발행주식총수, 문자열·콤마) 회수', () => {
+      const parsed = makeParsedJson({
+        dividendTotal: 12_000_000_000,
+        발행주식총수: '40,000,000주',
+      } as unknown as Partial<ParsedJson>);
+      const result = extract(parsed, '');
+      expect(result.dividendPerShare).toBe(300); // 120억 / 4천만 = 300
+      expect(result.dividendPerShareSource).toBe('DERIVED');
+    });
+
+    it('회수 실패(주식수 부재)·dividendTotal만 존재 → null + partialFieldsPresent=true(NEEDS_REVIEW)', () => {
+      const parsed = makeParsedJson({ dividendTotal: 25_000_000_000 });
+      const result = extract(parsed, '');
+      expect(result.dividendPerShare).toBeNull();
+      expect(result.dividendPerShareSource).toBe('NONE');
+      expect(result.partialFieldsPresent).toBe(true);
+    });
+
+    it('단서 전무(총액·주당·주식수 모두 결측) → null + partialFieldsPresent=false(FAILED 유지)', () => {
+      const result = extract(makeParsedJson(), '');
+      expect(result.dividendPerShare).toBeNull();
+      expect(result.dividendPerShareSource).toBe('NONE');
+      expect(result.partialFieldsPresent).toBe(false);
+    });
+
+    it('주식수 0/음수 → 0 나눗셈 방지(유도 안 함)', () => {
+      const parsed = makeParsedJson({
+        dividendTotal: 25_000_000_000,
+        totalIssuedShares: 0,
+      } as unknown as Partial<ParsedJson>);
+      const result = extract(parsed, '');
+      expect(result.dividendPerShare).toBeNull();
+      expect(result.dividendPerShareSource).toBe('NONE');
+      expect(result.partialFieldsPresent).toBe(true);
+    });
+
+    it('DIRECT 우선순위: 직접값·유도 가능 둘 다 → 직접값 채택(유도 무시)', () => {
+      const parsed = makeParsedJson({
+        dividendPerShare: 480, // 직접값(실제 공시값)
+        dividendTotal: 25_000_000_000, // 유도하면 500이지만 직접값 우선
+        totalIssuedShares: 50_000_000,
+      } as unknown as Partial<ParsedJson>);
+      const result = extract(parsed, '');
+      expect(result.dividendPerShare).toBe(480);
+      expect(result.dividendPerShareSource).toBe('DIRECT');
+    });
+  });
 });

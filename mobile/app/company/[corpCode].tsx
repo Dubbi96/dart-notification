@@ -8,11 +8,13 @@ import {
   Linking,
   RefreshControl,
   ActivityIndicator,
+  AppState,
+  type AppStateStatus,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { Chip } from 'react-native-paper';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
@@ -42,7 +44,8 @@ import { RiskStatusBadges } from '@components/common/RiskStatusBadges';
 import { useCompanyPhilosophyFit } from '@hooks/usePhilosophies';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
 import { useStockQuotes } from '@hooks/useStockQuotes';
-import { StockPriceBadge } from '@components/common/StockPriceBadge';
+import { QuoteHeader } from '@components/common/QuoteHeader';
+import { resolveQuotePollInterval } from '@utils/marketQuoteDisplay';
 import { useHaptics } from '@hooks/useHaptics';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
@@ -51,6 +54,9 @@ import { isNotFoundError } from '@services/api';
 import type { EventStudyResult } from '@app-types/signal.types';
 
 type CompanyTab = 'decision' | 'disclosures' | 'financials' | 'insider' | 'stats' | 'philosophy';
+
+// DAR-353: 현재가 라이브 폴링 간격(15s). 화면 포커스 + 앱 활성 + 장중에만 가동(배터리·비용).
+const QUOTE_POLL_INTERVAL_MS = 15 * 1000;
 
 // 기업 상세 상단 6탭(DAR-156). 한 줄 SegmentedButtons는 좁은 기기에서 라벨이 압축·잘려
 // 오탭을 유발하므로 가로 스크롤 칩 행으로 노출한다(홈 segmentTab 패턴 재사용).
@@ -312,8 +318,32 @@ export default function CompanyDetailScreen() {
     refetch: refetchRisk,
     isRefetching: isRefetchingRisk,
   } = useStockRiskStatus({ corpCode: corpCode! });
-  // DAR-158: 최신 시세(현재가·전일대비%·5일 스파크라인) 배지. 가격 없으면 미표시.
-  const { quotes, dataUpdatedAt: quoteUpdatedAt } = useStockQuotes([company?.stockCode]);
+  // DAR-353: 현재가 라이브 자동갱신 — 화면 포커스 + 앱 활성 + 장중에만 ~15s 폴링(배터리·비용 배려).
+  // 포커스 이탈/백그라운드/장 마감이면 폴링 off → 1회 fetch 한 종가만 graceful 표시.
+  const [isFocused, setIsFocused] = useState(false);
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  useFocusEffect(
+    useCallback(() => {
+      setIsFocused(true);
+      return () => setIsFocused(false);
+    }, []),
+  );
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
+      setAppActive(s === 'active');
+    });
+    return () => sub.remove();
+  }, []);
+  const quotePollInterval = resolveQuotePollInterval({
+    isFocused,
+    appActive,
+    now: new Date(),
+    intervalMs: QUOTE_POLL_INTERVAL_MS,
+  });
+  // DAR-158/353: 최신 시세(현재가·전일대비·출처·갱신시각). 가격 없으면 헤더 미표시.
+  const { quotes, dataUpdatedAt: quoteUpdatedAt } = useStockQuotes([company?.stockCode], {
+    refetchInterval: quotePollInterval,
+  });
   const quote = company?.stockCode ? quotes[company.stockCode] : null;
   const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
   const addToWatchlist = useAddToWatchlist();
@@ -501,8 +531,8 @@ export default function CompanyDetailScreen() {
             </Text>
           )}
 
-          {/* DAR-158: 가격 배지 — 시세 적재 시 현재가·등락률·스파크라인, 없으면 미표시. */}
-          <StockPriceBadge quote={quote} style={styles.priceBadge} />
+          {/* DAR-353: 대형 현재가 헤더 — 현재가·등락(색+부호+금액)·출처 배지·갱신시각. 없으면 미표시. */}
+          <QuoteHeader quote={quote} updatedAt={quoteUpdatedAt} style={styles.quoteHeader} />
 
           {/* DAR-173: 오프라인 시 '마지막 갱신 N분 전' 보조 라벨(stale 옛값 오인 방지). 온라인이면 미표시. */}
           {company.stockCode ? (
@@ -970,7 +1000,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     marginLeft: spacing.sm,
   },
-  priceBadge: {
+  quoteHeader: {
     marginTop: spacing.sm,
   },
   staleLabel: {

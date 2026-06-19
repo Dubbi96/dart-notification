@@ -151,4 +151,29 @@ describe('extractEventData — DAR-71 고위험 5종 배선', () => {
       expect(confidence).toBe(0.0);
     });
   });
+
+  // DAR-344: 소송금액 회수 폴백 배선 — FAILED 25건 복구
+  describe('DAR-344 LAWSUIT 소송금액 회수', () => {
+    const base = { docType: 'OTHER', rawTableCount: 1, keyValueSource: 'table_0' } as ParsedJson;
+
+    it('보고서명 괄호 금액 폴백 → lawsuitAmount 회수 + confidence 0.90 (SUCCESS)', () => {
+      const { data, confidence } = extractEventData(EventType.LAWSUIT, base, '소제기(100억원 청구)');
+      expect(data.lawsuitAmount).toBe(10_000_000_000);
+      expect(data.lawsuitAmountSource).toBe('REPORT_NAME');
+      expect(confidence).toBe(0.9);
+    });
+
+    it('금액 결측 + 진행단계 확인 → 0.0 아닌 0.70 (NEEDS_REVIEW 회수)', () => {
+      const parsed = { ...base, litigationStage: '항소심 진행중' } as ParsedJson;
+      const { data, confidence } = extractEventData(EventType.LAWSUIT, parsed, '소송 등의 제기');
+      expect(data.lawsuitAmount).toBeNull();
+      expect(data.partialFieldsPresent).toBe(true);
+      expect(confidence).toBe(0.7);
+    });
+
+    it('음성 대조군: 금액·단계·원인 전무 → 0.0 유지 (FAILED 천장 보존)', () => {
+      const { confidence } = extractEventData(EventType.LAWSUIT, base, '기타 경영사항');
+      expect(confidence).toBe(0.0);
+    });
+  });
 });

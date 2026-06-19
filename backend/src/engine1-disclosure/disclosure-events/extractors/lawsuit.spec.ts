@@ -23,6 +23,8 @@ describe('lawsuit extract', () => {
       expect(result.companyRole).toBe('DEFENDANT'); // defendant="당사"
       expect(result.litigationStage).toBe('FILED'); // "소송 제기"
       expect(result.derivedDataMissing).toBe(false);
+      expect(result.lawsuitAmountSource).toBe('DIRECT');
+      expect(result.partialFieldsPresent).toBe(false); // 금액 존재 → 부분회수 불필요
     });
   });
 
@@ -73,6 +75,57 @@ describe('lawsuit extract', () => {
       const parsed = { docType: 'OTHER', rawTableCount: 0, keyValueSource: 'none' } as ParsedJson;
       expect(() => extract(parsed, '')).not.toThrow();
       expect(extract(parsed, '').lawsuitAmount).toBeNull();
+    });
+  });
+
+  // DAR-344: 소송금액 회수 폴백 — 정형 결측 시 보고서명 금액 + 부분필드 신호
+  describe('DAR-344 소송금액 회수 폴백', () => {
+    it("보고서명 괄호 금액 폴백 ('소제기(100억원 청구)' → 100억, source=REPORT_NAME)", () => {
+      const result = extract(makeParsedJson(), '소제기(100억원 청구)');
+      expect(result.lawsuitAmount).toBe(10_000_000_000);
+      expect(result.lawsuitAmountSource).toBe('REPORT_NAME');
+      expect(result.derivedDataMissing).toBe(false);
+      expect(result.partialFieldsPresent).toBe(false); // 금액 회수됨 → SUCCESS 경로
+    });
+
+    it('조+억 결합 보고서명 금액 폴백 (1조2000억)', () => {
+      const result = extract(makeParsedJson(), '소송 제기(청구금액 1조2000억원)');
+      expect(result.lawsuitAmount).toBe(1_200_000_000_000);
+      expect(result.lawsuitAmountSource).toBe('REPORT_NAME');
+    });
+
+    it('정형 필드 우선 — 보고서명에 금액 있어도 DIRECT 채택', () => {
+      const result = extract(makeParsedJson({ lawsuitAmount: 5_000_000_000 }), '소제기(100억원 청구)');
+      expect(result.lawsuitAmount).toBe(5_000_000_000);
+      expect(result.lawsuitAmountSource).toBe('DIRECT');
+    });
+
+    it('금액 결측 + 진행단계 확인 → partialFieldsPresent (NEEDS_REVIEW 회수 신호)', () => {
+      const result = extract(makeParsedJson({ litigationStage: '항소심 계속중' }), '소송 등의 제기');
+      expect(result.lawsuitAmount).toBeNull();
+      expect(result.litigationStage).toBe('APPEAL');
+      expect(result.partialFieldsPresent).toBe(true);
+    });
+
+    it('금액 결측 + 청구원인 확인 → partialFieldsPresent', () => {
+      const result = extract(makeParsedJson({ claimCause: '특허침해 금지청구' }), '');
+      expect(result.lawsuitAmount).toBeNull();
+      expect(result.partialFieldsPresent).toBe(true);
+    });
+
+    it('음성 대조군: 금액·단계·원인 전무 → partialFieldsPresent=false (FAILED 천장 보존)', () => {
+      // 보고서명/필드 어디에도 금액·진행단계·청구원인 단서가 없는 케이스
+      const blank = extract(makeParsedJson(), '기타 경영사항');
+      expect(blank.lawsuitAmount).toBeNull();
+      expect(blank.litigationStage).toBe('UNKNOWN');
+      expect(blank.claimCause).toBeNull();
+      expect(blank.partialFieldsPresent).toBe(false);
+    });
+
+    it("단위 없는 보고서명 숫자(차수·일자)는 금액 오추출 안 함 ('소송(제3차)')", () => {
+      const result = extract(makeParsedJson(), '소송 제기(제3차)');
+      expect(result.lawsuitAmount).toBeNull();
+      expect(result.lawsuitAmountSource).toBe('NONE');
     });
   });
 });

@@ -79,6 +79,7 @@ dart-notification/
 │   │   │   ├── validation/          # AI 응답 검증
 │   │   │   ├── types/               # 타입 정의
 │   │   │   ├── consumers/           # BullMQ 컨슈머 (ai-analyze 큐)
+│   │   │   ├── backfill/            # AI 평가 백필 드레이너·스케줄러 (과거 미분석 공시, DAR-379)
 │   │   │   ├── smoke/               # 스모크 테스트
 │   │   │   └── ai-analyst.module.ts
 │   │   ├── engine3-quant-market/ # 🟧 Engine3: Quant Market 엔진 (M4~M6, M9, DAR-25)

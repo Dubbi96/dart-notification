@@ -441,6 +441,37 @@ async cleanupExpiredTokens() {
 }
 ```
 
+### 2.4 AI 평가 백필 드레인 (매일 02:00, DAR-379)
+
+EventStudy 실현결과(사후)와 결합할 **AI 평가자료(사전)** 코퍼스를 늘리기 위해, 이벤트 추출은
+됐으나(`SUCCESS`/`NEEDS_REVIEW`) 아직 AI 분석(`summary`)이 없는 **과거 미분석 공시**를 비용게이트
+내에서 점진 드레인한다. `AiBackfillScheduler`(`@Cron('0 2 * * *')`) → `AiBackfillDrainService.drainOnce()`.
+
+```typescript
+@Cron('0 2 * * *', { timeZone: KST })  // 매일 02:00
+async drainBackfill() {
+  // 1) 예산 판정: AiCostLimitGuard.getLimitStatus()
+  //    dailyExceeded/monthlyExceeded → 발행 0건(skippedByBudget). 예산 회복 시 다음 날 진척.
+  // 2) 배치 상한 = min(MAX_BATCH_PER_RUN=200, floor(remainingDaily / $0.01 추정단가))
+  // 3) 미분석 후보(extractedAt asc, 오래된 순) 조회 → AI_ANALYZE 큐에 발행
+  //    (jobId = ai-<rcpNo> 자연키 → 멱등, consumer (rcpNo,task) 캐시로 중복 LLM 호출 0)
+}
+```
+
+**비용 폭주 방지(이중 방어)**: 드레이너는 예산 잔액이 감당하는 만큼만 '소프트' 페이싱 발행하고,
+실제 일 $1/월 $20 캡의 **하드 보장**은 consumer 의 `AiCostLimitGuard.enforceLimit`(호출별 L0
+강등)이 담당한다. 추정 단가가 빗나가도 비용은 캡을 넘지 못한다.
+
+**AIUsageLog 누락 0**: 드레이너는 발행만 하고, AI 호출/스킵의 비용 기록은 기존 consumer 경로가
+모든 태스크에 대해 보장한다(신규 기록 경로 없음 = 누락 위험 0).
+
+**기존 `reprocessMissingAi`(수동 전용)와의 차이**: 수동 경로는 예산 소진 시에도 L0 스킵 대상을
+무한 재발행해 큐 노이즈가 되므로 cron 미연결이었다. 본 드레이너는 **예산이 남았을 때만** 발행하므로
+노이즈 없이 일자별 안전 드레인이 가능하다.
+
+**AI 금지영역 불가침**: 생성되는 것은 참고 평가자료(`DisclosureAnalysis`/`PersonaAnalysis`)뿐이다.
+Buy/Exit Score·Risk 하드룰·주문 승인·손절에는 일절 개입하지 않는다.
+
 ---
 
 ## 3. 에러 처리 및 재시도 전략

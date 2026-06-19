@@ -17,6 +17,8 @@ export const CRON_JOB_KEYS = {
   // DAR-232: 그간 CronRunRecorder 로 감싸지지 않아 실패가 로그로만 삼켜지던 경량 크론.
   CLEANUP_DAILY: 'cleanup.daily', // 자정 만료 토큰/알림 정리
   KIS_REALTIME: 'kis.realtime-poll', // 장중 실시간 현재가 폴링
+  // DAR-347: FAILED 이벤트 자동복구 — reprocess 경로를 주기 호출해 사일런트 손실 방지.
+  FAILED_EVENT_RECOVERY: 'failed-event.recovery',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -129,5 +131,15 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'WEEKDAY_INTRADAY',
     staleAfterMinutes: 180, // 3시간 — 폴링 종료(15:59)~윈도 끝(18:30) 공백 흡수
     cadence: '평일 09:00~15:59 / 1분 간격',
+  },
+  {
+    // DAR-347: FAILED 이벤트 자동복구 크론. 가동이 멈추면 FAILED 가 무한 적체되어
+    // 사일런트 손실로 번지므로 안전망에 노출한다. 매시간 가동 — 2시간 무가동이면 stale.
+    jobKey: CRON_JOB_KEYS.FAILED_EVENT_RECOVERY,
+    label: 'FAILED 이벤트 자동복구',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: 120, // 2시간 — 매시간 가동, 한 사이클 누락까지 허용
+    cadence: '매시간',
   },
 ];

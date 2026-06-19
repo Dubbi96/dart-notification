@@ -137,4 +137,86 @@ describe('KisApiService (DAR-140)', () => {
       expect(await svc.fetchMinuteCandles('005930', '', 0)).toEqual([]);
     });
   });
+
+  describe('fetchIndexPrice — 업종지수 현재값 (DAR-371)', () => {
+    it('상승 케이스: 소수 2자리 보존·전일대비 부호 적용·등락률 자체산출', async () => {
+      mockClient.post.mockResolvedValue({ data: { access_token: 'tok', expires_in: 86400 } });
+      mockClient.get.mockResolvedValue({
+        data: {
+          output: {
+            bstp_nmix_prpr: '9,033.15',
+            bstp_nmix_prdy_vrss: '31.05',
+            prdy_vrss_sign: '2', // 상승
+            bstp_nmix_oprc: '9,288.89',
+            bstp_nmix_hgpr: '9,385.59',
+            bstp_nmix_lwpr: '8,875.33',
+          },
+        },
+      });
+      const svc = new KisApiService(makeConfig(KEYS));
+      const q = await svc.fetchIndexPrice('0001', 0);
+      expect(q).not.toBeNull();
+      expect(q!.indexCode).toBe('0001');
+      expect(q!.price).toBe(9033.15); // 정수 반올림 없이 소수 보존
+      expect(q!.change).toBe(31.05);
+      expect(q!.prevClose).toBe(9002.1); // price − change
+      expect(q!.changePercent).toBe(0.34); // 31.05/9002.1*100 ≈ 0.34
+      expect(q!.open).toBe(9288.89);
+      expect(q!.high).toBe(9385.59);
+      expect(q!.low).toBe(8875.33);
+      // 지수 tr_id·업종(U) 마켓 구분 확인
+      expect(mockClient.get.mock.calls[0][1].headers.tr_id).toBe('FHPUP02100000');
+      expect(mockClient.get.mock.calls[0][1].params).toMatchObject({
+        FID_COND_MRKT_DIV_CODE: 'U',
+        FID_INPUT_ISCD: '0001',
+      });
+    });
+
+    it('하락 케이스: prdy_vrss_sign=5 → 음수 등락', async () => {
+      mockClient.post.mockResolvedValue({ data: { access_token: 'tok', expires_in: 86400 } });
+      mockClient.get.mockResolvedValue({
+        data: {
+          output: {
+            bstp_nmix_prpr: '792.00',
+            bstp_nmix_prdy_vrss: '8.00',
+            prdy_vrss_sign: '5', // 하락
+            bstp_nmix_oprc: '800',
+            bstp_nmix_hgpr: '801',
+            bstp_nmix_lwpr: '790',
+          },
+        },
+      });
+      const svc = new KisApiService(makeConfig(KEYS));
+      const q = await svc.fetchIndexPrice('1001', 0);
+      expect(q!.change).toBe(-8);
+      expect(q!.prevClose).toBe(800);
+      expect(q!.changePercent).toBe(-1); // -8/800*100
+    });
+
+    it('output 결측이면 null', async () => {
+      mockClient.post.mockResolvedValue({ data: { access_token: 'tok', expires_in: 86400 } });
+      mockClient.get.mockResolvedValue({ data: {} });
+      const svc = new KisApiService(makeConfig(KEYS));
+      expect(await svc.fetchIndexPrice('0001', 0)).toBeNull();
+    });
+
+    it('현재 지수 0/음수면 null(이상 응답 방어)', async () => {
+      mockClient.post.mockResolvedValue({ data: { access_token: 'tok', expires_in: 86400 } });
+      mockClient.get.mockResolvedValue({ data: { output: { bstp_nmix_prpr: '0' } } });
+      const svc = new KisApiService(makeConfig(KEYS));
+      expect(await svc.fetchIndexPrice('0001', 0)).toBeNull();
+    });
+
+    it('네트워크 에러는 graceful null', async () => {
+      mockClient.post.mockResolvedValue({ data: { access_token: 'tok', expires_in: 86400 } });
+      mockClient.get.mockRejectedValue(new Error('boom'));
+      const svc = new KisApiService(makeConfig(KEYS));
+      expect(await svc.fetchIndexPrice('0001', 0)).toBeNull();
+    });
+
+    it('키 미설정이면 KisApiUnavailableError throw(소비측이 폴백 전환)', async () => {
+      const svc = new KisApiService(makeConfig({}));
+      await expect(svc.fetchIndexPrice('0001', 0)).rejects.toBeInstanceOf(KisApiUnavailableError);
+    });
+  });
 });

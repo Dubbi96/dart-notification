@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { pnlColor } from '@utils/signalDisplay';
+import { indexBasisLabel } from '@utils/marketIndexDisplay';
 import { useMarketIndices } from '@hooks/useMarketIndices';
 
 import type { MarketIndexQuote } from '@app-types/market.types';
@@ -41,11 +42,16 @@ function MarketIndexColumn({ quote }: { quote: MarketIndexQuote }) {
           ? '하락'
           : '보합';
 
+  // DAR-371: 신선도 정직 — 실시간이면 '실시간', EOD/구버전이면 'YYYY.MM.DD 종가' 기준 라벨.
+  // stale 종가를 '현재'로 오인하지 않도록 출처를 명시한다.
+  const basis = indexBasisLabel(quote);
+  const basisColor = basis.isRealtime ? colors.success : colors.textTertiary;
+
   return (
     <View
       style={styles.column}
       accessibilityRole="text"
-      accessibilityLabel={`${quote.market} ${formatIndex(quote.closeIndex)} 전일대비 ${pctText} ${direction}`}
+      accessibilityLabel={`${quote.market} ${formatIndex(quote.closeIndex)} 전일대비 ${pctText} ${direction}, ${basis.a11y}`}
     >
       <Text style={[typo.small, { color: colors.textSecondary }]} maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}>
         {quote.market}
@@ -67,6 +73,18 @@ function MarketIndexColumn({ quote }: { quote: MarketIndexQuote }) {
           maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
         >
           {pctText}
+        </Text>
+      </View>
+      <View style={styles.basisRow}>
+        {basis.isRealtime && (
+          <View style={[styles.liveDot, { backgroundColor: colors.success }]} />
+        )}
+        <Text
+          style={[typo.small, styles.basisText, { color: basisColor }]}
+          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          numberOfLines={1}
+        >
+          {basis.label}
         </Text>
       </View>
     </View>
@@ -135,6 +153,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 2,
+  },
+  // DAR-371: 신선도 기준 라벨 행('실시간' / 'YYYY.MM.DD 종가').
+  basisRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  basisText: {
+    fontWeight: '400',
+  },
+  liveDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    marginRight: 4,
   },
   changeText: {
     fontWeight: '600',

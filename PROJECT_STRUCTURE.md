@@ -283,7 +283,8 @@ dart-notification/
 │   │   ├── date.ts
 │   │   ├── signalDisplay.ts         # 점수/상태 → 테마색·레이블 매핑 [DAR-21]
 │   │   ├── copy.ts                  # UI 문자열 상수 (복사 텍스트) [DAR-32]
-│   │   └── disclosureType.ts        # 공시 유형 분류 유틸 [DAR-32]
+│   │   ├── disclosureType.ts        # 공시 유형 분류 유틸 [DAR-32]
+│   │   └── marketIndexDisplay.ts    # 시장지수 배지 신선도 라벨 (REALTIME/EOD 종가 기준일) [DAR-371]
 │   ├── assets/                # 정적 자산
 │   │   ├── android-icon-background.png
 │   │   ├── android-icon-foreground.png

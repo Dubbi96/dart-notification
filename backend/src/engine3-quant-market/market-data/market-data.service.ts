@@ -1,6 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { isImplausibleIndexChange } from './index-sanity';
+import { KisApiService } from './kis-api.service';
+import { formatKstDateCompact } from '../../common/time/kst';
 
 export interface StockDailyPrice {
   stockCode: string;
@@ -30,6 +32,12 @@ export interface MarketIndexQuote {
   // 것으로 보고 등락 필드를 노출하지 않는다(null). suspect=true 면 배지가 '데이터 점검중'
   // 폴백을 띄울 수 있다. 정상 데이터에서는 false.
   suspect: boolean;
+  // DAR-371: 가격 출처 — 'REALTIME'(KIS 실시간 지수) | 'EOD'(KRX 일봉 종가).
+  // 신선도 정직: EOD 는 tradeDate 가 '종가 기준일'이므로 배지가 'YYYY-MM-DD 종가 기준' 라벨을
+  // 띄워 stale 을 현재로 오인하지 않게 한다. REALTIME 은 '실시간' 라벨.
+  source: 'REALTIME' | 'EOD';
+  // REALTIME 일 때 서버가 KIS 를 조회한 시각(ISO). EOD 면 null(tradeDate 가 기준).
+  asOf: string | null;
 }
 
 /**
@@ -47,7 +55,11 @@ export class MarketDataService {
   // 홈 진입마다 KOSPI·KOSDAQ 2회 DB 조회가 발생했다. 60s TTL 로 동일 결과 재조회를 흡수한다.
   private indicesCache: { expiresAtMs: number; data: MarketIndexQuote[] } | null = null;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // @Optional: KIS 미배선(테스트 등)·키 미설정 시 EOD 일봉 폴백으로 graceful 동작(DAR-371).
+    @Optional() private readonly kisApi?: KisApiService,
+  ) {}
 
   /**
    * 일봉 조회 (DB 읽기).
@@ -140,6 +152,14 @@ export class MarketDataService {
     const results: MarketIndexQuote[] = [];
 
     for (const { code, market } of MarketDataService.MARKET_INDEX_CODES) {
+      // DAR-371 ①현재 지수 소스 우선: KIS 실시간 업종지수가 가용하면 그 실가로 배지를 구동한다
+      // (주식 실시간가와 동일 정신·source=REALTIME). 실패/미설정/미배선이면 ②EOD 일봉 폴백.
+      const realtime = await this.tryFetchRealtimeIndex(code, market, nowMs);
+      if (realtime) {
+        results.push(realtime);
+        continue;
+      }
+
       const rows = await this.prisma.marketIndex.findMany({
         where: { indexCode: code },
         orderBy: { tradeDate: 'desc' },
@@ -180,6 +200,8 @@ export class MarketDataService {
         change,
         changePercent,
         suspect,
+        source: 'EOD',
+        asOf: null,
       });
     }
 
@@ -188,6 +210,51 @@ export class MarketDataService {
       data: results,
     };
     return results;
+  }
+
+  /**
+   * KIS 실시간 업종지수 시도 (DAR-371). 키 미설정·미배선·응답 결측·이상치면 null → EOD 폴백.
+   *
+   * ±20% sanity 가드(DAR-367) 유지: 실시간 등락률이 물리적으로 불가능하면(데이터 오류 의심)
+   * 등락은 숨기되(suspect=true) 현재 지수는 표시한다. tradeDate 는 KST 조회 당일.
+   * @param nowMs 토큰 만료 판정·asOf 산출용 현재 epoch ms.
+   */
+  private async tryFetchRealtimeIndex(
+    code: string,
+    market: 'KOSPI' | 'KOSDAQ',
+    nowMs: number,
+  ): Promise<MarketIndexQuote | null> {
+    if (!this.kisApi || !this.kisApi.isConfigured) return null;
+    try {
+      const live = await this.kisApi.fetchIndexPrice(code, nowMs);
+      if (!live || live.price <= 0) return null;
+
+      const prevClose = live.prevClose > 0 ? live.prevClose : null;
+      const suspect = isImplausibleIndexChange(live.price, prevClose);
+      if (suspect) {
+        this.logger.warn(
+          `[지수] ${market} KIS 실시간 등락률 이상치 — price=${live.price} ` +
+            `prevClose=${prevClose} → 등락 미표시(데이터 점검 필요)`,
+        );
+      }
+      return {
+        indexCode: code,
+        indexName: market,
+        market,
+        tradeDate: formatKstDateCompact(new Date(nowMs)),
+        closeIndex: live.price,
+        prevCloseIndex: suspect ? null : prevClose,
+        change: suspect ? null : live.change,
+        changePercent: suspect ? null : live.changePercent,
+        suspect,
+        source: 'REALTIME',
+        asOf: new Date(nowMs).toISOString(),
+      };
+    } catch (e) {
+      // 키 미설정 예외(KisApiUnavailableError) 포함 모든 실패를 흡수 → EOD 폴백으로 graceful.
+      this.logger.warn(`[지수] ${market} KIS 실시간 조회 실패: ${(e as Error).message}`);
+      return null;
+    }
   }
 }
 

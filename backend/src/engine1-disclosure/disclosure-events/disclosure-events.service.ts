@@ -258,19 +258,16 @@ export class DisclosureEventsService {
       select: { rcpNo: true },
     });
 
-    // 이미 이벤트 레코드가 있는 rcpNo는 전부 제외 (PENDING은 위에서 별도 처리,
-    // SUCCESS/FAILED/NEEDS_REVIEW 완료건의 무한 재처리 방지 — BLOCKER 수정)
-    const existingEventRcpNos = (
-      await this.prisma.disclosureEvent.findMany({ select: { rcpNo: true } })
-    ).map((e) => e.rcpNo);
-
-    // parsedJson DONE이지만 DisclosureEvent가 아직 없는 건만 신규 처리
+    // parsedJson DONE이지만 DisclosureEvent가 아직 없는 건만 신규 처리.
+    // DAR-348: 과거엔 전체 DisclosureEvent rcpNo를 메모리에 적재(O(n)) 후 notIn으로
+    // 필터했다 → 이벤트 누적 시 메모리 스파이크·크론 타임아웃. relation 쿼리로 DB에서
+    // 직접 필터한다. `disclosure.disclosureEvent is null` ⟺ 해당 공시에 이벤트 레코드가
+    // 전무(이미 이벤트가 있는 rcpNo는 자동 제외 — PENDING/SUCCESS/FAILED/NEEDS_REVIEW
+    // 모두 이벤트 존재이므로 무한 재처리 방지 불변식 보존. PENDING은 위에서 별도 처리).
     const docsWithoutEvent = await this.prisma.disclosureDocument.findMany({
       where: {
         parseStatus: 'DONE',
-        rcpNo: {
-          notIn: existingEventRcpNos.length > 0 ? existingEventRcpNos : ['_placeholder_'],
-        },
+        disclosure: { disclosureEvent: { is: null } },
       },
       take: safeLimit - pendingEvents.length,
       orderBy: { parsedAt: 'asc' },

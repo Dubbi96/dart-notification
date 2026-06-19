@@ -24,11 +24,22 @@ function MarketIndexColumn({ quote }: { quote: MarketIndexQuote }) {
   const pct = quote.changePercent;
   // 등락 결측: 아이콘 없이 옅은 색의 '—' 만 — 정상 등락값과 같은 높이를 예약하지 않도록 컴팩트 처리.
   const isMissing = pct === null;
+  // DAR-367: 전일 종가가 오염돼 등락률이 물리적으로 불가능(>±20%)한 경우 BE 가 suspect=true 로
+  // 등락을 숨긴다. 사용자에게 -63% 같은 값 대신 '점검중' 으로 정직하게 표기한다.
+  const isSuspect = quote.suspect === true && isMissing;
   const changeColor = isMissing ? colors.textTertiary : pnlColor(pct, colors);
   const iconName = pct === null ? 'minus' : pct > 0 ? 'trending-up' : pct < 0 ? 'trending-down' : 'minus';
   const sign = pct !== null && pct > 0 ? '+' : '';
-  const pctText = isMissing ? '—' : `${sign}${pct.toFixed(2)}%`;
-  const direction = isMissing ? '데이터 없음' : pct > 0 ? '상승' : pct < 0 ? '하락' : '보합';
+  const pctText = isSuspect ? '점검중' : isMissing ? '—' : `${sign}${pct.toFixed(2)}%`;
+  const direction = isSuspect
+    ? '데이터 점검중'
+    : isMissing
+      ? '데이터 없음'
+      : pct > 0
+        ? '상승'
+        : pct < 0
+          ? '하락'
+          : '보합';
 
   return (
     <View

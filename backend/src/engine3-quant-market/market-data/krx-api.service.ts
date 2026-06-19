@@ -187,6 +187,9 @@ export class KrxApiService {
 
     const indexCode = indexType === 'KOSPI' ? '0001' : '1001';
     const indexName = indexType === 'KOSPI' ? 'KOSPI' : 'KOSDAQ';
+    // 종합지수 행 식별명. kospi_dd_trd/kosdaq_dd_trd 는 종합지수 외에 200·100·업종지수 등
+    // 수십 개 시리즈를 함께 반환한다(IDX_NM 으로 구분). 종합지수만 선별해야 한다 (DAR-367).
+    const compositeName = indexType === 'KOSPI' ? '코스피' : '코스닥';
 
     try {
       const { data } = await this.client.get(endpoint, {
@@ -194,17 +197,37 @@ export class KrxApiService {
         headers: this.buildHeaders(),
       });
 
-      const rows = data?.['OutBlock_1'] ?? data?.OutBlock1 ?? data?.output1 ?? [];
-      return rows.map((r: Record<string, string>) => ({
-        indexCode,
-        indexName,
-        openIndex: this.parseFloat(r['OPNPRC_IDX'] ?? r['opnprcIdx'] ?? '0'),
-        highIndex: this.parseFloat(r['HGPRC_IDX'] ?? r['hgprcIdx'] ?? '0'),
-        lowIndex: this.parseFloat(r['LWPRC_IDX'] ?? r['lwprcIdx'] ?? '0'),
-        closeIndex: this.parseFloat(r['CLSPRC_IDX'] ?? r['clsprcIdx'] ?? '0'),
-        volume: this.parseNum(r['ACC_TRDVOL'] ?? r['ACML_VOL'] ?? r['acmlVol'] ?? '0'),
-        tradingValue: this.parseNum(r['ACC_TRDVAL'] ?? r['ACML_TRAD_PBMN'] ?? r['acmlTradPbmn'] ?? '0'),
-      }));
+      const rows: Array<Record<string, string>> =
+        data?.['OutBlock_1'] ?? data?.OutBlock1 ?? data?.output1 ?? [];
+
+      // DAR-367 근본 원인 정정: 이전 구현은 응답의 모든 시리즈 행을 동일 indexCode('0001')로
+      // 매핑해 적재했고, @@unique([indexCode,tradeDate]) upsert 에서 마지막 행(업종지수 등)이
+      // 종합지수를 덮어써 일자별로 3132/8639 처럼 오염값이 저장됐다. 종합지수(IDX_NM=='코스피'/
+      // '코스닥') 행 1건만 선별한다. 미발견 시 임의 행을 적재하지 않고 빈 배열로 스킵.
+      const composite = rows.find(
+        (r) => String(r['IDX_NM'] ?? r['idxNm'] ?? '').trim() === compositeName,
+      );
+      if (!composite) {
+        this.logger.warn(
+          `[KRX] ${indexType} 종합지수(IDX_NM=${compositeName}) 행 미발견 — rows=${rows.length}, 적재 스킵 basDd=${basDd}`,
+        );
+        return [];
+      }
+
+      return [
+        {
+          indexCode,
+          indexName,
+          openIndex: this.parseFloat(composite['OPNPRC_IDX'] ?? composite['opnprcIdx'] ?? '0'),
+          highIndex: this.parseFloat(composite['HGPRC_IDX'] ?? composite['hgprcIdx'] ?? '0'),
+          lowIndex: this.parseFloat(composite['LWPRC_IDX'] ?? composite['lwprcIdx'] ?? '0'),
+          closeIndex: this.parseFloat(composite['CLSPRC_IDX'] ?? composite['clsprcIdx'] ?? '0'),
+          volume: this.parseNum(composite['ACC_TRDVOL'] ?? composite['ACML_VOL'] ?? composite['acmlVol'] ?? '0'),
+          tradingValue: this.parseNum(
+            composite['ACC_TRDVAL'] ?? composite['ACML_TRAD_PBMN'] ?? composite['acmlTradPbmn'] ?? '0',
+          ),
+        },
+      ];
     } catch (e) {
       if (e instanceof KrxApiUnavailableError) throw e;
       this.logger.error(`[KRX] ${indexType} 지수 실패 basDd=${basDd}: ${(e as Error).message}`);

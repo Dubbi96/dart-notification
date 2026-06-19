@@ -25,6 +25,7 @@ import {
   pnlColor,
   formatPnlPercent,
 } from '@utils/signalDisplay';
+import { isChartableTicker, navigateToStockChart } from '@utils/stockChartLink';
 
 // 포지션 상세(기획 §3 SCR-PORTFOLIO 연계). API 미존재 시 graceful null 처리.
 // 청산 룰 수치는 읽기 전용 — 탭 시 토스트.
@@ -41,6 +42,12 @@ export default function PositionDetailScreen() {
   const handleViewThesis = useCallback(() => {
     router.push(`/portfolio/${portfolioId}/position/${positionId}/thesis`);
   }, [portfolioId, positionId]);
+
+  // DAR-363: 손익을 체감하는 바로 이 화면에서 해당 종목 실시간 차트로 1탭 진입.
+  // position 변수는 아래에서 선언되므로 쿼리 데이터(상단 선언)를 직접 참조한다(TDZ 회피).
+  const handleViewChart = useCallback(() => {
+    navigateToStockChart(positionQuery.data?.ticker);
+  }, [positionQuery.data?.ticker]);
 
   // 시세·논거 변동 데이터 갱신 — 포지션·Thesis 두 쿼리를 함께 새로고침.
   const handleRefresh = useCallback(() => {
@@ -84,6 +91,17 @@ export default function PositionDetailScreen() {
   // DAR-368: 시스템 트레이딩 현황 — 상태칩을 자동 동작 언어로(EXIT='자동 매도 예정', VIOLATED='시스템 모니터링').
   // 표시=엔진 일치(①): 손익(실시간)과 시스템이 행동하는 상태를 같은 언어로 노출, 수동 점검 암시 문구 금지.
   const action = position ? positionSystemAction(position) : null;
+  // DAR-359: 손익% 위계 지배 — 이익/손실 글랜스. pnlColor(반올림 정합)로 부호를 판정해
+  // 전폭 색조 배경·방향 화살표를 결정한다(이익=초록, 손실=빨강, 보합=중립).
+  const pnlTextColor = position ? pnlColor(position.pnlPercent, colors) : colors.textSecondary;
+  const isProfit = pnlTextColor === colors.success;
+  const isLoss = pnlTextColor === colors.error;
+  const pnlSurface = isProfit
+    ? colors.successSurface
+    : isLoss
+      ? colors.errorSurface
+      : colors.surfaceSecondary;
+  const pnlArrow = isProfit ? 'trending-up' : isLoss ? 'trending-down' : 'minus';
 
   // Thesis 카드 보조 라벨 — 로딩/에러/무데이터/데이터를 명시적으로 분기(DAR-183).
   // 기존엔 data 존재여부만 봐 에러·무데이터에도 "불러오는 중…"으로 고착됐다.
@@ -177,20 +195,53 @@ export default function PositionDetailScreen() {
                 </Chip>
               ) : null}
             </View>
-            <View style={[styles.pnlRow, { marginTop: spacing.sm }]}>
-              <Text style={[typo.h3, { color: pnlColor(position.pnlPercent, colors) }]}>
-                {formatPnlPercent(position.pnlPercent)}
-              </Text>
+            {/* DAR-359: 손익% 지배 블록 — typo.amount 전폭 색조 + 방향 화살표.
+                결과(손익)를 한눈에 추출하도록 입력값(가격·수량)보다 위계를 명확히 끌어올린다. */}
+            <View
+              style={[styles.pnlBlock, { backgroundColor: pnlSurface, marginTop: spacing.md }]}
+              accessibilityRole="summary"
+              accessibilityLabel={`손익 ${formatPnlPercent(position.pnlPercent)}`}
+            >
+              <View style={styles.pnlHeadline}>
+                <Feather name={pnlArrow} size={28} color={pnlTextColor} />
+                <Text style={[typo.amount, { color: pnlTextColor }]} numberOfLines={1}>
+                  {formatPnlPercent(position.pnlPercent)}
+                </Text>
+              </View>
               {position.currentPrice != null ? (
-                <Text style={[typo.caption, { color: colors.textSecondary }]}>
+                <Text style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
                   현재가 {position.currentPrice.toLocaleString()}원
                 </Text>
               ) : null}
             </View>
+            {/* 입력값 메타 — 작은 폰트·낮은 불투명도로 손익 결과와 시각 위계 분리. */}
             {position.quantity != null && position.avgPrice != null ? (
-              <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
-                {position.quantity}주 · 평균 {position.avgPrice.toLocaleString()}원
-              </Text>
+              <View style={[styles.metaSection, { borderTopColor: colors.border, marginTop: spacing.md }]}>
+                <Text style={[typo.small, { color: colors.textTertiary, opacity: 0.75 }]}>
+                  {position.quantity}주 · 평균 {position.avgPrice.toLocaleString()}원
+                </Text>
+              </View>
+            ) : null}
+
+            {/* DAR-363: 실시간 차트 1탭 진입 — 6자리 종목코드 있을 때만(graceful). ★정직 라벨. */}
+            {isChartableTicker(position.ticker) ? (
+              <TouchableOpacity
+                onPress={handleViewChart}
+                activeOpacity={0.8}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel={`${position.corpName} 실시간 차트 보기 — 실시간 시장가, 환경시계와 다를 수 있음`}
+                style={[styles.chartLink, { borderColor: colors.primary }]}
+              >
+                <Feather name="bar-chart-2" size={16} color={colors.primary} />
+                <View style={styles.chartLinkText}>
+                  <Text style={[typo.captionMedium, { color: colors.primary }]}>실시간 차트 보기</Text>
+                  <Text style={[typo.small, { color: colors.textTertiary }]}>
+                    실시간 시장가 · 환경시계와 괴리
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={18} color={colors.primary} />
+              </TouchableOpacity>
             ) : null}
             {/* DAR-368: 하드룰 손절·청산은 Engine5가 자동 체결 — 수동 매도 불필요임을 정직하게 고지(예정 상태).
                 포지션이 목록/상세에 보이면 미체결 = 예정. 체결되면 거래내역으로 이동한다. */}
@@ -269,10 +320,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
-  pnlRow: {
+  pnlBlock: {
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  pnlHeadline: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: spacing.md,
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  metaSection: {
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
   },
   // DAR-368: 자동 매도 고지 배너 — 솔리드 경고색 + 아이콘 + 평문(시스템 자동 체결 예정).
   autoSellNotice: {
@@ -287,6 +347,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  chartLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    minHeight: 44,
+  },
+  chartLinkText: {
+    flex: 1,
+    gap: 1,
   },
   emptyState: {
     flex: 1,

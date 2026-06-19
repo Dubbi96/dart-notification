@@ -52,7 +52,11 @@ function makePrisma(): jest.Mocked<PrismaService> {
       // DAR-331: 최신 가용 거래일 해석용. 기본 null(저장소 비어있음 → today 폴백).
       findFirst: jest.fn().mockResolvedValue(null),
     },
-    marketIndex: { upsert: jest.fn().mockResolvedValue({}) },
+    // DAR-367: 연속성 가드가 직전 거래일 종가를 findFirst 로 조회한다. 기본 null(전일 없음 → 가드 통과).
+    marketIndex: {
+      upsert: jest.fn().mockResolvedValue({}),
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
     stockStatus: { upsert: jest.fn().mockResolvedValue({}) },
     marketDataCollectionLog: {
       create: jest.fn().mockResolvedValue({ id: 'log-1' }),
@@ -226,6 +230,52 @@ describe('KrxMarketDataScheduler.collectMarketIndicesForDate', () => {
     const result = await scheduler.collectMarketIndicesForDate('20260604', 'CRON');
 
     expect(result.message).toBe('KRX API 미설정');
+  });
+
+  // DAR-367 연속성 sanity 가드: 직전 거래일 종가 대비 |Δ| 가 임계(±20%)를 초과하면 적재 거부.
+  it('연속성 이상치(인접일 +60% 등) 행은 격리 — upsert 호출 안 함', async () => {
+    // close 2720 vs prev 1700 → +60% → 임계(20%) 초과 → 격리.
+    const krx = makeKrxApi({ fetchIndexDaily: jest.fn().mockResolvedValue([sampleKospi]) });
+    const prisma = makePrisma();
+    (prisma.marketIndex.findFirst as jest.Mock).mockResolvedValue({
+      closeIndex: 1700,
+      tradeDate: '20260603',
+    });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.collectMarketIndicesForDate('20260604', 'MANUAL');
+
+    expect(result.saved).toBe(0);
+    expect(result.quarantined).toBe(2); // KOSPI + KOSDAQ 양쪽 격리
+    expect(prisma.marketIndex.upsert).not.toHaveBeenCalled();
+  });
+
+  it('정상 범위(인접일 ±2%)는 가드 통과 후 적재', async () => {
+    // close 2720 vs prev 2700 → +0.74% → 통과.
+    const krx = makeKrxApi({ fetchIndexDaily: jest.fn().mockResolvedValue([sampleKospi]) });
+    const prisma = makePrisma();
+    (prisma.marketIndex.findFirst as jest.Mock).mockResolvedValue({
+      closeIndex: 2700,
+      tradeDate: '20260603',
+    });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.collectMarketIndicesForDate('20260604', 'MANUAL');
+
+    expect(result.saved).toBe(2);
+    expect(result.quarantined).toBe(0);
+    expect(prisma.marketIndex.upsert).toHaveBeenCalledTimes(2);
+  });
+
+  it('직전 거래일 데이터 없음(findFirst null) — 가드 통과(최초 적재 허용)', async () => {
+    const krx = makeKrxApi({ fetchIndexDaily: jest.fn().mockResolvedValue([sampleKospi]) });
+    const prisma = makePrisma(); // findFirst 기본 null
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.collectMarketIndicesForDate('20260604', 'MANUAL');
+
+    expect(result.saved).toBe(2);
+    expect(prisma.marketIndex.upsert).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -809,9 +859,14 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
     expect(calledUrl).toContain('/sto/ksq_bydd_trd');
   });
 
-  it('fetchIndexDaily KOSPI — idx/kospi_dd_trd 호출', async () => {
+  // DAR-367: kospi_dd_trd 는 종합지수 외에 200·업종지수 등 여러 시리즈를 함께 반환한다.
+  // 종합지수(IDX_NM='코스피') 행 1건만 선별하고, 업종지수 같은 다른 시리즈는 무시해야 한다.
+  it('fetchIndexDaily KOSPI — 종합지수(IDX_NM=코스피) 행만 선별, 업종지수 무시', async () => {
     const axiosGet = mockOutBlock1([
-      { CLSPRC_IDX: '2,720.50', OPNPRC_IDX: '2,700.00', HGPRC_IDX: '2,750.00', LWPRC_IDX: '2,680.00', ACC_TRDVOL: '500,000,000', ACC_TRDVAL: '10,000,000,000,000' },
+      // 업종지수(고값) — 과거엔 마지막 행이 종합지수를 덮어써 8639 같은 오염값이 적재됐다.
+      { IDX_NM: '운수창고업', CLSPRC_IDX: '8,639.41', OPNPRC_IDX: '8,600.00', HGPRC_IDX: '8,700.00', LWPRC_IDX: '8,500.00', ACC_TRDVOL: '1', ACC_TRDVAL: '1' },
+      { IDX_NM: '코스피 200', CLSPRC_IDX: '360.10', OPNPRC_IDX: '358.00', HGPRC_IDX: '361.00', LWPRC_IDX: '357.00', ACC_TRDVOL: '1', ACC_TRDVAL: '1' },
+      { IDX_NM: '코스피', CLSPRC_IDX: '2,720.50', OPNPRC_IDX: '2,700.00', HGPRC_IDX: '2,750.00', LWPRC_IDX: '2,680.00', ACC_TRDVOL: '500,000,000', ACC_TRDVAL: '10,000,000,000,000' },
     ]);
     const krx = makeRealKrxWithAxiosMock(axiosGet);
 
@@ -821,13 +876,15 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
       expect.stringContaining('/idx/kospi_dd_trd'),
       expect.any(Object),
     );
-    expect(rows[0].closeIndex).toBeCloseTo(2720.5, 1);
+    expect(rows).toHaveLength(1); // 종합지수 1건만
+    expect(rows[0].closeIndex).toBeCloseTo(2720.5, 1); // 8639.41(업종)이 아님
     expect(rows[0].volume).toBe(500_000_000);
   });
 
-  it('fetchIndexDaily KOSDAQ — idx/kosdaq_dd_trd 호출', async () => {
+  it('fetchIndexDaily KOSDAQ — 종합지수(IDX_NM=코스닥) 행만 선별', async () => {
     const axiosGet = mockOutBlock1([
-      { CLSPRC_IDX: '850.25', OPNPRC_IDX: '840.00', HGPRC_IDX: '855.00', LWPRC_IDX: '838.00', ACC_TRDVOL: '1,000,000,000', ACC_TRDVAL: '5,000,000,000,000' },
+      { IDX_NM: '코스닥 150', CLSPRC_IDX: '1,400.00', OPNPRC_IDX: '1,390.00', HGPRC_IDX: '1,410.00', LWPRC_IDX: '1,385.00', ACC_TRDVOL: '1', ACC_TRDVAL: '1' },
+      { IDX_NM: '코스닥', CLSPRC_IDX: '850.25', OPNPRC_IDX: '840.00', HGPRC_IDX: '855.00', LWPRC_IDX: '838.00', ACC_TRDVOL: '1,000,000,000', ACC_TRDVAL: '5,000,000,000,000' },
     ]);
     const krx = makeRealKrxWithAxiosMock(axiosGet);
 
@@ -837,7 +894,18 @@ describe('KrxApiService 엔드포인트 경로·파싱', () => {
       expect.stringContaining('/idx/kosdaq_dd_trd'),
       expect.any(Object),
     );
+    expect(rows).toHaveLength(1);
     expect(rows[0].closeIndex).toBeCloseTo(850.25, 2);
+  });
+
+  it('fetchIndexDaily — 종합지수 행 미발견 시 임의 행 적재 없이 빈 배열', async () => {
+    const axiosGet = mockOutBlock1([
+      { IDX_NM: '운수창고업', CLSPRC_IDX: '8,639.41', OPNPRC_IDX: '8,600.00', HGPRC_IDX: '8,700.00', LWPRC_IDX: '8,500.00', ACC_TRDVOL: '1', ACC_TRDVAL: '1' },
+    ]);
+    const krx = makeRealKrxWithAxiosMock(axiosGet);
+
+    const rows = await krx.fetchIndexDaily('KOSPI', '20260604');
+    expect(rows).toEqual([]);
   });
 
   it('fetchStkIsuBaseInfo — sto/stk_isu_base_info 호출·파싱 (실제 필드명 ISU_SRT_CD/ISU_ABBRV)', async () => {

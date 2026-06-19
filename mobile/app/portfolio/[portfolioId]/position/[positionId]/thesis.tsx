@@ -29,28 +29,46 @@ import type { ThesisCondition } from '@app-types/portfolio.types';
 function ConditionRow({ item, isViolation }: { item: ThesisCondition; isViolation: boolean }) {
   const { colors, typography: typo } = useTheme();
   const isViolated = isViolation && item.violated;
+  // 진입 논리에서 violated=true 는 '충족'을 뜻한다(타입 주석 참조). 훼손 조건의 위반과 구분.
+  const isMet = !isViolation && item.violated;
 
-  const iconColor = isViolated ? colors.error : colors.success;
-  const rowColor = isViolated ? colors.error : colors.text;
+  // DAR-359: 조건행 전폭 색조 + 좌측 솔리드 컬러바로 '빨간 행 있나?' <1초 스캔.
+  // 위반=경고(error) 톤, 충족=성공 톤, 미충족/미위반=중립.
+  const accentColor = isViolated ? colors.error : isMet ? colors.success : colors.textTertiary;
+  const rowSurface = isViolated
+    ? colors.errorSurface
+    : isMet
+      ? colors.successSurface
+      : colors.surfaceSecondary;
+  const iconName = isViolated ? 'x-circle' : isMet ? 'check-circle' : 'circle';
+  const textColor = isViolated ? colors.error : colors.text;
   // 훼손 조건 label 은 백엔드가 enum 원문(PRICE_BELOW 등)을 그대로 내려보내므로
   // 표시 직전 한국어 라벨로 치환한다(DAR-314). 진입 논리 label 은 이미 한국어.
   const displayLabel = isViolation ? getBreachConditionLabel(item.label) : item.label;
   return (
-    <View style={styles.conditionRow}>
-      <Feather
-        name={item.violated ? (isViolation ? 'x-circle' : 'check-circle') : 'circle'}
-        size={15}
-        color={isViolated ? iconColor : colors.textTertiary}
-        accessibilityLabel={
-          isViolation
-            ? `훼손 조건 ${item.violated ? '위반' : '미위반'}: ${displayLabel}`
-            : `진입 논리 충족: ${displayLabel}`
-        }
-      />
-      <Text style={[typo.small, { color: isViolated ? rowColor : colors.textSecondary, flex: 1 }]}>
-        {displayLabel}
-        {isViolated ? ' ← 위반' : ''}
-      </Text>
+    <View style={[styles.conditionRow, { backgroundColor: rowSurface }]}>
+      <View style={[styles.conditionBar, { backgroundColor: accentColor }]} />
+      <View style={styles.conditionContent}>
+        <Feather
+          name={iconName}
+          size={19}
+          color={accentColor}
+          accessibilityLabel={
+            isViolation
+              ? `훼손 조건 ${item.violated ? '위반' : '미위반'}: ${displayLabel}`
+              : `진입 논리 ${item.violated ? '충족' : '미충족'}: ${displayLabel}`
+          }
+        />
+        <Text
+          style={[
+            typo.caption,
+            { color: textColor, flex: 1, fontWeight: isViolated ? '700' : '400' },
+          ]}
+        >
+          {displayLabel}
+          {isViolated ? '  · 위반' : ''}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -251,9 +269,21 @@ const styles = StyleSheet.create({
   },
   conditionRow: {
     flexDirection: 'row',
+    alignItems: 'stretch',
+    borderRadius: radius.sm,
+    overflow: 'hidden',
+    marginBottom: spacing.xs,
+  },
+  conditionBar: {
+    width: 4,
+  },
+  conditionContent: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    paddingVertical: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
   },
   rowBetween: {
     flexDirection: 'row',

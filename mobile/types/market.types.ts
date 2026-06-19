@@ -11,4 +11,7 @@ export interface MarketIndexQuote {
   prevCloseIndex: number | null; // 전일 종가지수 (없으면 null)
   change: number | null; // 전일대비 등락폭 (포인트)
   changePercent: number | null; // 전일대비 등락률 (%)
+  // DAR-367: 인접 거래일 |Δ| 가 물리적으로 불가능(>±20%)하면 전일 종가 오염으로 보고 등락 필드를
+  // null 로 숨긴 케이스. suspect=true 면 배지는 등락 대신 '점검중' 폴백을 띄운다(과거 데이터 미정합 시).
+  suspect?: boolean;
 }

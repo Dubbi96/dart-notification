@@ -16,6 +16,7 @@ import { guestPromptCopy } from '@components/common/guestPromptCopy';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
 import { SIGNAL_TERMS, buildSignalCardA11yLabel } from '@utils/signalTerms';
 import { curateBuySignals } from '@utils/signalCuration';
+import { isChartableTicker, navigateToStockChart } from '@utils/stockChartLink';
 import { useBuySignals } from '@hooks/useSignals';
 import { useCarouselCardWidth } from '@hooks/useCarouselCardWidth';
 import { CAROUSEL_GAP } from '@utils/carouselMetrics';
@@ -55,6 +56,9 @@ function SignalPreviewCard({ signal, onPress, cardWidth }: SignalPreviewCardProp
   const { colors, typography: typo } = useTheme();
   const sampleN = representativeSampleN(signal);
   const handlePress = useCallback(() => onPress(signal), [onPress, signal]);
+  // DAR-363: 홈 프리뷰 카드에서 해당 종목 실시간 차트로 직접 진입. 6자리 종목코드 있을 때만.
+  const handleChartPress = useCallback(() => navigateToStockChart(signal.ticker), [signal.ticker]);
+  const chartable = isChartableTicker(signal.ticker);
 
   return (
     <TouchableOpacity
@@ -71,9 +75,19 @@ function SignalPreviewCard({ signal, onPress, cardWidth }: SignalPreviewCardProp
         buyScore: signal.buyScore,
         gradeText: gradeLabel(signal.grade),
       })}
-      accessibilityActions={[{ name: 'activate', label: '신호 상세 보기' }]}
+      // DAR-363: 카드가 no-hide-descendants 라 자식 버튼이 a11y 트리에서 숨겨지므로,
+      // 차트 진입을 카드 단위 보조 액션으로도 노출(스크린리더 1탭 동선).
+      accessibilityActions={
+        chartable
+          ? [
+              { name: 'activate', label: '신호 상세 보기' },
+              { name: 'chart', label: '실시간 차트 보기' },
+            ]
+          : [{ name: 'activate', label: '신호 상세 보기' }]
+      }
       onAccessibilityAction={(event) => {
         if (event.nativeEvent.actionName === 'activate') handlePress();
+        else if (event.nativeEvent.actionName === 'chart') handleChartPress();
       }}
     >
       <Surface
@@ -95,6 +109,18 @@ function SignalPreviewCard({ signal, onPress, cardWidth }: SignalPreviewCardProp
           >
             {gradeLabel(signal.grade)}
           </Chip>
+          {/* DAR-363: 차트 퀵진입 — 6자리 종목코드 있을 때만(graceful). 카드 탭(상세)과 분리. */}
+          {chartable ? (
+            <TouchableOpacity
+              onPress={handleChartPress}
+              hitSlop={{ top: spacing.md, bottom: spacing.md, left: spacing.sm, right: spacing.sm }}
+              accessibilityRole="button"
+              accessibilityLabel={`${signal.corpName} 실시간 차트 보기`}
+              style={styles.chartBtn}
+            >
+              <Feather name="bar-chart-2" size={20} color={colors.primary} />
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         <View style={styles.gaugeWrap}>
@@ -335,6 +361,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
+  },
+  chartBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   gradeChip: {
     // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).

@@ -76,6 +76,38 @@ describe('MarketDataService.fetchLatestIndices (DAR-160)', () => {
     expect(res).toEqual([]);
   });
 
+  // DAR-367 표시 단계 방어선: 과거 오염 행이 전일 종가로 남아 -63.75% 같은 불가능한 등락률이
+  // 산출되면 사용자에게 노출하지 않고 등락 필드를 모두 숨긴다(suspect=true).
+  it('이슈 재현: close 3132 vs prevClose 8639(-63.75%) → 등락 미표시·suspect=true', async () => {
+    const { service } = makeService({
+      '0001': [
+        { closeIndex: 8639.41, tradeDate: '20260604' }, // 과거 오염값
+        { closeIndex: 3132.06, tradeDate: '20260605' }, // 최신(정상 종합지수)
+      ],
+    });
+
+    const res = await service.fetchLatestIndices();
+    const kospi = res.find((r) => r.market === 'KOSPI')!;
+
+    expect(kospi.closeIndex).toBe(3132.06); // 최신 종가는 그대로 노출
+    expect(kospi.suspect).toBe(true);
+    expect(kospi.prevCloseIndex).toBeNull();
+    expect(kospi.change).toBeNull(); // -63% 미표시
+    expect(kospi.changePercent).toBeNull();
+  });
+
+  it('정상 등락은 suspect=false', async () => {
+    const { service } = makeService({
+      '0001': [
+        { closeIndex: 2700, tradeDate: '20260610' },
+        { closeIndex: 2727, tradeDate: '20260611' },
+      ],
+    });
+    const res = await service.fetchLatestIndices();
+    expect(res[0].suspect).toBe(false);
+    expect(res[0].changePercent).toBe(1);
+  });
+
   it('전일 종가 0 인 비정상 케이스는 등락률 null(0 나눗셈 회피)', async () => {
     const { service } = makeService({
       '0001': [

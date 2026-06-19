@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
@@ -133,17 +133,16 @@ function EquityCurveCard() {
   );
 }
 
-// 드릴다운 진입 카드 — DAR-105. 매매 성적표·철학 체크리스트 등 검증 동선 진입점 공용.
-function DrilldownLink({
+// 검증 동선 푸터 링크 — DAR-358. DAR-105의 인라인 카드(고가치 시각공간 점유)를
+// 푸터 바의 경량 버튼으로 강등. 터치 영역은 44pt 이상 유지.
+function FooterLink({
   icon,
-  title,
-  subtitle,
+  label,
   onPress,
   accessibilityLabel,
 }: {
   icon: keyof typeof Feather.glyphMap;
-  title: string;
-  subtitle: string;
+  label: string;
   onPress: () => void;
   accessibilityLabel: string;
 }) {
@@ -154,36 +153,40 @@ function DrilldownLink({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
+      style={styles.footerLink}
     >
-      <Surface
-        elevation={1}
-        style={[styles.tradeLink, { backgroundColor: colors.surface, borderColor: colors.border }]}
-      >
-        <Feather name={icon} size={18} color={colors.primary} />
-        <View style={styles.tradeLinkText}>
-          <Text style={[typo.captionMedium, { color: colors.text }]}>{title}</Text>
-          <Text style={[typo.small, { color: colors.textSecondary }]}>{subtitle}</Text>
-        </View>
-        <Feather name="chevron-right" size={18} color={colors.textTertiary} />
-      </Surface>
+      <Feather name={icon} size={16} color={colors.primary} />
+      <Text style={[typo.small, { color: colors.primary }]} numberOfLines={1}>
+        {label}
+      </Text>
     </TouchableOpacity>
   );
 }
 
+// DAR-358: 모의 성과 헤더 간결화 — 7+ 섹션 워터폴 → 핵심 3카드 + 점진적 공개.
+// ① 핵심 카드(평가금액·손익=누적수익률·승률) — 진입 즉시 가장 중요한 지표 노출.
+// ② 자산곡선(async 논블로킹 유지). ③ 나머지 졸업지표는 접이(More)로 점진적 공개.
+// 드릴다운(성과 리포트·철학 체크)은 인라인 카드 → 푸터 바로 강등.
 function SummaryHeader({
   equity,
   initialCapital,
   metrics,
   latestSnapshotDate,
+  positionCount,
 }: {
   equity: number;
   initialCapital: number;
   metrics: SimulationMetrics;
   latestSnapshotDate: string | null;
+  positionCount: number;
 }) {
   const { colors, typography: typo } = useTheme();
+  const [metricsExpanded, setMetricsExpanded] = useState(false);
+  const cumReturnText = `${metrics.cumulativeReturnPct >= 0 ? '+' : ''}${metrics.cumulativeReturnPct.toFixed(2)}%`;
+
   return (
     <View style={styles.headerBox}>
+      {/* 면책(정직 라벨) — 카드 아님, 얇은 배너 유지 */}
       <Banner
         visible
         actions={[]}
@@ -195,6 +198,7 @@ function SummaryHeader({
         </Text>
       </Banner>
 
+      {/* 카드 ① 핵심 — 평가금액 + 손익(누적수익률) + 승률을 진입 즉시 노출 */}
       <Surface
         elevation={1}
         style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}
@@ -206,60 +210,82 @@ function SummaryHeader({
         <View style={styles.summaryChipRow}>
           <PriceChangeChip value={metrics.cumulativeReturnPct} amount={metrics.netPnl} />
         </View>
+        {/* 핵심지표: 승률(누적수익률은 위 칩으로 노출) — 4번째 카드에 묻히던 지표를 전면 배치 */}
+        <View
+          style={[styles.keyMetric, { borderTopColor: colors.border }]}
+          accessibilityRole="text"
+          accessibilityLabel={`신호 적중률 D+5 ${formatRate(metrics.hitRateD5)} 표본 ${metrics.hitRateSampleSize}`}
+        >
+          <Text style={[typo.small, { color: colors.textSecondary }]}>신호 적중률(D+5)</Text>
+          <Text style={[typo.captionMedium, { color: colors.text }]}>
+            {formatRate(metrics.hitRateD5)}
+            <Text style={[typo.small, { color: colors.textTertiary }]}>
+              {`  n=${metrics.hitRateSampleSize}`}
+            </Text>
+          </Text>
+        </View>
         <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
           초기 가상원금 {initialCapital.toLocaleString('ko-KR')}원
           {latestSnapshotDate ? `  ·  기준일 ${formatYmdDots(latestSnapshotDate)}` : ''}
         </Text>
       </Surface>
 
-      {/* 모의 자산곡선 연동 (DAR-105) — 컴포넌트는 존재했으나 포트폴리오 동선에 미연결이었음 */}
+      {/* 카드 ② 모의 자산곡선 (DAR-105) — async 논블로킹 유지 */}
       <EquityCurveCard />
 
+      {/* 카드 ③ 나머지 졸업지표 — 점진적 공개(접이). 기본 접힘으로 카드 체감 수 감소 */}
       <Surface
         elevation={1}
         style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}
       >
-        <Text style={[typo.captionMedium, { color: colors.text, marginBottom: spacing.xs }]}>
-          졸업지표 요약
-        </Text>
-        <MetricRow
-          label="신호 적중률(D+5)"
-          value={formatRate(metrics.hitRateD5)}
-          sub={`n=${metrics.hitRateSampleSize}`}
-        />
-        <MetricRow
-          label="누적 수익률"
-          value={`${metrics.cumulativeReturnPct >= 0 ? '+' : ''}${metrics.cumulativeReturnPct.toFixed(2)}%`}
-        />
-        <MetricRow
-          label="Exit 정확도(D+3)"
-          value={formatRate(metrics.exitAccuracyD3)}
-          sub={`n=${metrics.exitAccuracySampleSize}`}
-        />
-        <MetricRow label="AI비용/순익" value={formatRatio(metrics.aiCostToNetPnlRatio)} />
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => setMetricsExpanded((v) => !v)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: metricsExpanded }}
+          accessibilityLabel={`상세 졸업지표 ${metricsExpanded ? '접기' : '펼치기'}`}
+          style={styles.collapseHeader}
+        >
+          <Text style={[typo.captionMedium, { color: colors.text }]}>상세 졸업지표</Text>
+          <Feather
+            name={metricsExpanded ? 'chevron-up' : 'chevron-down'}
+            size={18}
+            color={colors.textTertiary}
+          />
+        </TouchableOpacity>
+        {metricsExpanded ? (
+          <View style={{ marginTop: spacing.xs }}>
+            <MetricRow label="누적 수익률" value={cumReturnText} />
+            <MetricRow
+              label="Exit 정확도(D+3)"
+              value={formatRate(metrics.exitAccuracyD3)}
+              sub={`n=${metrics.exitAccuracySampleSize}`}
+            />
+            <MetricRow label="AI비용/순익" value={formatRatio(metrics.aiCostToNetPnlRatio)} />
+          </View>
+        ) : null}
       </Surface>
 
-      {/* 검증 동선 드릴다운 진입점 (DAR-105) */}
-      {/* 성과 리포트 진입 (DAR-64 성적표 → DAR-120 성과·정밀도·보정 3탭) */}
-      <DrilldownLink
-        icon="clipboard"
-        title="성과 리포트"
-        subtitle="매매 성적표 · 신호 정밀도 · 보정 권고"
-        onPress={() => router.push('/portfolio/trade-history')}
-        accessibilityLabel="성과 리포트 — 매매 성적표·신호 정밀도·보정 권고"
-      />
+      {/* 검증 동선 — 인라인 카드 → 푸터 바로 강등 (DAR-358) */}
+      <View style={styles.footerBar}>
+        <FooterLink
+          icon="clipboard"
+          label="성과 리포트"
+          onPress={() => router.push('/portfolio/trade-history')}
+          accessibilityLabel="성과 리포트 — 매매 성적표·신호 정밀도·보정 권고"
+        />
+        <View style={[styles.footerDivider, { backgroundColor: colors.border }]} />
+        <FooterLink
+          icon="check-square"
+          label="철학 체크"
+          onPress={() => router.push('/philosophy')}
+          accessibilityLabel="철학 체크리스트 — 투자거장 원칙으로 종목 점검"
+        />
+      </View>
 
-      {/* 철학 체크리스트 진입점 (DAR-105) — 투자거장 허브에서 거장별 체크리스트로 종목 점검 */}
-      <DrilldownLink
-        icon="check-square"
-        title="철학 체크리스트"
-        subtitle="투자거장 원칙으로 보유 종목 점검 · 참고용"
-        onPress={() => router.push('/philosophy')}
-        accessibilityLabel="철학 체크리스트 — 투자거장 원칙으로 종목 점검"
-      />
-
-      <Text style={[typo.captionMedium, { color: colors.text, marginTop: spacing.sm }]}>
-        보유 포지션
+      {/* 보유 포지션 — 리스트 헤더로 시각 축소 (DAR-358) */}
+      <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+        보유 포지션 {positionCount}
       </Text>
     </View>
   );
@@ -303,6 +329,7 @@ export function SimulationStatusSection() {
             initialCapital={status.initialCapital}
             metrics={status.metrics}
             latestSnapshotDate={status.latestSnapshotDate}
+            positionCount={positions.length}
           />
         ) : null
       }
@@ -339,6 +366,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginTop: spacing.sm,
   },
+  keyMetric: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  collapseHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    minHeight: 44,
+  },
+  footerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  footerLink: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    minHeight: 44,
+  },
+  footerDivider: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: 'stretch',
+    marginVertical: spacing.sm,
+  },
   metricRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -357,18 +415,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   positionNameBox: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  tradeLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: spacing.base,
-  },
-  tradeLinkText: {
     flex: 1,
     gap: spacing.xs,
   },

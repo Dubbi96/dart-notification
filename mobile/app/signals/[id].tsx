@@ -305,6 +305,20 @@ export default function SignalDetailScreen() {
           ticker={signal.ticker}
         />
 
+        {/* DAR-355: 전용 종목 차트 화면 진입 — 6자리 종목코드(ticker) 있을 때만(graceful). */}
+        {signal.ticker && /^\d{6}$/.test(signal.ticker) ? (
+          <TouchableOpacity
+            onPress={() => router.push(`/stock/${signal.ticker}`)}
+            accessibilityRole="button"
+            accessibilityLabel="종목 차트 보기"
+            style={[styles.chartLink, { borderColor: colors.borderLight }]}
+          >
+            <Feather name="bar-chart-2" size={16} color={colors.primary} />
+            <Text style={[typo.body, { color: colors.text, flex: 1 }]}>차트 보기</Text>
+            <Feather name="chevron-right" size={18} color={colors.textTertiary} />
+          </TouchableOpacity>
+        ) : null}
+
         {/* DAR-323: 억제 사유 배지 — Score 근거 섹션 상단. BUY 이상·BLOCKED 는 백엔드가
             suppressionReason 을 미제공(undefined)하므로 자동 미표시. */}
         {signal.suppressionReason ? (
@@ -407,6 +421,17 @@ export default function SignalDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  // DAR-355: 종목 차트 진입 링크 행.
+  chartLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    marginTop: spacing.sm,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

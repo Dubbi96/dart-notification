@@ -587,7 +587,29 @@ export default function CompanyDetailScreen() {
       {company.stockCode ? (
         <View style={styles.companyCardWrap}>
           <Card style={styles.mainCard} variant="elevated">
-            <Text style={[typo.h3, { color: colors.text, marginBottom: spacing.sm }]}>분봉 차트</Text>
+            {/* DAR-355: 전용 풀스크린 차트 화면(app/stock/[stockCode]) 진입. */}
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: spacing.sm,
+              }}
+            >
+              <Text style={[typo.h3, { color: colors.text }]}>분봉 차트</Text>
+              <TouchableOpacity
+                onPress={() => router.push(`/stock/${company.stockCode}`)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="전체화면 차트 보기"
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+              >
+                <Text style={[typo.small, { color: colors.primary, fontWeight: '600' }]}>
+                  크게 보기
+                </Text>
+                <Feather name="maximize-2" size={14} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
             <MinuteCandleChart
               candles={minuteCandles}
               asOf={minuteCandlesAsOf}

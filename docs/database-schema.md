@@ -579,6 +579,13 @@ model StockDailyPrice {
 `PaperSimulation`(`SimulationPriceSourceService`)만 읽고, 기업 현재가/지표/신호 등 실가격
 표시 경로는 이 테이블을 절대 참조하지 않는다. 활성: `PAPER_SIM_SYNTHETIC_FEED=1`.
 
+★DAR-364(가격 기준 = 실시간 실가 구동): 운영 기본은 `PAPER_SIM_REAL_FEED=1`(REAL_THEN_SYNTHETIC)이며,
+보유 포지션 평가의 **1순위는 KIS 실시간 실가(`RealtimeQuoteCache`, source=REALTIME)**다 →
+실 KRX 일봉(REAL) → 합성(SYNTHETIC) 순 폴백(한 종목 한 소스). 따라서 합성은 '실시간/실데이터가
+전혀 없는 종목'의 최후 폴백일 뿐이며, **'30일 트랙레코드'는 합성 전용 트랙이 아니라 실시간 실가
+구동으로 재정의**된다(과거 백테스트와 분리). 합성 전용(`PAPER_SIM_SYNTHETIC_FEED=1`)은 실데이터·
+실시간이 모두 부재한 환경의 레거시/검증 모드로만 남는다.
+
 | 컬럼 | 타입 | 설명 |
 |---|---|---|
 | id | TEXT PK | CUID |
@@ -614,7 +621,12 @@ model StockDailyPrice {
 
 ### 7.3 MarketIndex (market_indices)
 
-시장 지수 (KOSPI=0001, KOSDAQ=1001, 업종지수). 자연키: `(indexCode, tradeDate)`.
+시장 종합지수 (KOSPI=0001, KOSDAQ=1001). 자연키: `(indexCode, tradeDate)`.
+
+> **DAR-367.** 0001/1001 에는 **종합지수만** 적재한다(파서가 `IDX_NM=='코스피'/'코스닥'` 행만
+> 선별). 이전엔 `kospi_dd_trd` 응답의 업종지수 등 모든 시리즈가 동일 코드로 upsert 돼 마지막
+> 행이 종합지수를 덮어쓰는 오염(예: KOSPI close 3132 vs prevClose 8639, -63.75%)이 있었다.
+> 적재 단계 연속성 가드가 직전 거래일 종가 대비 |Δ| > 20% 행을 격리한다(스키마 변경 없음).
 
 | 컬럼 | 타입 | 설명 |
 |---|---|---|
@@ -923,7 +935,7 @@ Buy Score = W1×C1 + W2×C2 + W3×C3 + W4×C4 + W5×C5 + W6×C6 + W7×C7 − Ris
 | stockCode | String | 종목코드 6자리 |
 | positionThesisId | String? (UNIQUE FK → position_theses.id) | PositionThesis 1:1 |
 | entryDate / entryPrice / quantity / entryAmount | 진입 정보 | |
-| currentPrice / currentValue / unrealizedPnl / unrealizedPnlPct | 현재 평가 | |
+| currentPrice / currentValue / unrealizedPnl / unrealizedPnlPct | 현재 평가 | 일일 사이클 스냅샷 시 저장값. ★DAR-364: 상태 조회(`/paper-trading/simulation/status`)·손절 평가는 이 저장값이 아니라 **조회 시점 실시간 실가**(`latestPriceRow`: REALTIME→REAL→SYNTHETIC)로 재평가해 표시·엔진이 동일 가격을 쓴다(화면 -20% = 엔진이 손절하는 -20%). |
 | stopLossPct / takeProfitPct / maxHoldDays | 리스크 기준 | |
 | highestPrice / highestAt | 고점 추적 | 트레일링 스탑용 |
 | status | PositionStatus (default OPEN) | |
@@ -1068,6 +1080,14 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 ## 15. Engine5 — 모의투자 (M10-A, DAR-16)
 
 > AI 금지영역: 체결·Risk 로직은 순수 Rule. AI 개입 0.
+
+> ★DAR-364 가격 기준(불가침): 보유 포지션의 손익·손절 평가와 상태 조회 표시는 **동일한 가격**을 쓴다.
+> `SimulationPriceSourceService.latestPriceRow` 가 **KIS 실시간 실가(REALTIME) 1순위 → 실 KRX 일봉(REAL)
+> → 합성(SYNTHETIC)** 순으로 한 종목 한 소스를 결정하고, `PaperSimulationService` 의 `evaluateExits`(손절/익절
+> 평가)·`getSimulationStatus`(표시)·`computeMetrics`(equity)가 모두 그 가격을 쓴다. 결과적으로 사용자가
+> 화면에서 보는 손실(예: 실시간 -20%)이 곧 엔진이 손절을 평가하는 손실이며, 실시간 실가가 -8% 이하면 하드
+> 스탑로스 EXIT 이 발화한다. 실시간 실가는 환경 시계(2026)와 괴리할 수 있어 source 라벨(REALTIME)·원일자로
+> 정직 고지한다(2026 실시세 오인 금지).
 
 ### 15.1 PaperTrade 모델
 

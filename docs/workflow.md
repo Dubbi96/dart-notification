@@ -576,8 +576,18 @@ KrxMarketDataScheduler.collectMarketIndicesForDate()
   └─ for KOSPI, KOSDAQ:
        KrxApiService.fetchIndexDaily(indexType, basDd)
          └─ GET /idx/kospi_dd_trd | /idx/kosdaq_dd_trd
-       MarketIndex.upsert(indexCode, tradeDate)
+         └─ 종합지수(IDX_NM=='코스피'/'코스닥') 행 1건만 선별 (DAR-367)
+       연속성 sanity 가드: 직전 거래일 종가 대비 |Δ| > 20% → 격리(적재 거부)+WARN 로그
+       MarketIndex.upsert(indexCode, tradeDate)  // 가드 통과분만
 ```
+
+> **DAR-367 데이터 정합 가드.** `kospi_dd_trd`/`kosdaq_dd_trd` 는 종합지수 외에 KOSPI 200·
+> 업종지수 등 수십 개 시리즈를 함께 반환한다. 이전 구현은 모든 행을 동일 indexCode('0001')로
+> 적재해 `@@unique([indexCode,tradeDate])` upsert 에서 마지막 행(업종지수 등)이 종합지수를
+> 덮어썼고, 일자별로 3132/8639 같은 오염값이 저장돼 홈 배지에 `-63.75%` 가 노출됐다.
+> 정정: ① 파서가 종합지수 행만 선별, ② 적재 단계 연속성 가드(±20% 초과 격리),
+> ③ 표시 단계(`fetchLatestIndices`)도 등락률이 임계를 넘으면 등락 필드를 숨기고 `suspect=true`
+> 로 표기해 사용자에게 불가능한 수치를 노출하지 않는다.
 
 ### 5.3 종목상태 수집 (평일 08:50, 장 시작 전)
 
@@ -692,7 +702,39 @@ IExitCheckScheduler.runPreMarketCheck() / runIntradayCheck() / runPostMarketChec
 - 손절/익절 하드룰·주문 수량: Engine5(Risk)가 독립 강제 — 이 엔진은 신호/점검만
 - `ExitSignal.aiUsed = false` 원칙 (논리훼손 해석 보조 시에만 true 허용, AIUsageLog 기록 필수)
 
+### 6.5 모의운용 평가 가격 = 실시간 실가 (DAR-364)
+
+- 모의운용(Engine5 `PaperSimulationService`)의 보유 포지션 손익·손절 평가와 상태 조회 표시는 **동일한 가격**을 쓴다.
+  `SimulationPriceSourceService.latestPriceRow` 가 **KIS 실시간 실가(REALTIME) 1순위 → 실 KRX 일봉(REAL) → 합성(SYNTHETIC)**
+  순으로 종목별 단일 소스를 결정한다(운영 기본 `PAPER_SIM_REAL_FEED=1`).
+- `evaluateExits`(손절/익절)·`getSimulationStatus`(화면 표시)·`computeMetrics`(equity)가 모두 그 가격을 사용 →
+  사용자가 보는 실시간 손실(예: -20%)이 곧 엔진이 손절을 평가하는 손실. 실시간 실가가 **-8% 이하면 하드 스탑로스 EXIT** 발화.
+- '30일 트랙레코드'는 합성 전용 트랙이 아니라 **실시간 실가 구동으로 재정의**(과거 백테스트와 분리). 합성은 실데이터·실시간이
+  모두 부재한 종목의 최후 폴백·레거시 검증 모드로만 남는다. source 라벨(REALTIME/REAL/SYNTHETIC)·원일자로 정직 고지(2026 오인 금지).
+- ★AI 금지영역 불변: 손절/주문수량/리스크는 순수 Rule — Engine5 독립, AI(engine2) 미개입.
+
+### 6.6 장중 연속 손절 모니터 — 능동 fetch (DAR-366)
+
+- **왜 필수인가(라이브 검증 2026-06-19)**: KIS 실시간가는 **KRX 정규장(09:00~15:30 KST)에만** 존재하고
+  장외엔 일봉(정체)으로 폴백한다. 일배치 손절 평가 cron(`30 19 * * 1-5`)은 **장 마감 후**라 그 시각엔 실시간이
+  영영 없어 정체 일봉으로만 평가 → 손절 영영 미발화. 따라서 **장중에 실시간 실가로 평가**하는 것이 손절이 작동하는 ★유일 경로다.
+
+| 점검 시간 | Cron | 설명 |
+|-----------|------|------|
+| 09:00~15:30 / 5분 | `*/5 9-15 * * 1-5` | `PaperSimulationScheduler.runIntradayExitMonitor` — 보유종목 실시간 능동 fetch → Exit 평가 |
+
+- **능동 fetch(핵심)**: `runIntradayExitMonitor` 는 `RealtimeQuoteCache` 를 '읽기'만 하지 않는다 — 캐시는 누가 채우지
+  않으면 빈다. 보유 OPEN 포지션 종목들의 실시간 현재가를 **KIS 에서 직접 조회(`refreshHoldingsRealtime`)해 캐시를 채운 뒤**
+  `evaluateExits` 를 호출한다(모바일이 화면을 열 때만 우연히 캐시되는 구조에 의존 금지).
+- **시장시간 게이트**: 메서드가 `isKstRegularMarketHours(now)`(평일 09:00~15:30 KST)로 정밀 클램프. cron 은 시(hour) 단위라
+  15:35~15:55 틱은 발화하되 메서드 게이트가 스킵한다. 장외/주말/휴장/KIS 키 미설정은 무가동 스킵(로그·호출 0).
+- **장외 정직**: 장 마감 후엔 실시간 불가가 정상 — 그땐 일배치(REAL)만. **장외 손절 미발화는 버그가 아니다(시장 닫힘)**.
+  단 장중 급락은 이 모니터가 5분 내 포착한다.
+- **멱등·비용**: `evaluateExits` 는 `status=OPEN` 만 처리 → 이미 청산(CLOSED)된 포지션 재처리 없음. 보유종목(≤`MAX_HOLDINGS`)만,
+  corpCode 중복 제거, 순차 호출 + 겹침 락(`isIntradayRunning`)으로 분 경계 누적·rate-limit 위반 차단. CronRunLog 는 실제 평가가 돈 틱만 기록.
+- ★AI 금지영역 불변: 능동 fetch 는 engine3 market-data primitive(HTTP/캐시), 손절은 순수 Rule — Engine5 독립, AI(engine2) 미개입.
+
 ---
 
 **작성일**: 2026-03-07
-**버전**: 1.2 (M8-A DAR-12: Portfolio & Exit 엔진 점검 스케줄 추가)
+**버전**: 1.4 (DAR-366: 장중 연속 손절 모니터 — 보유종목 실시간 능동 fetch → 실가 -8% 손절 발화 유일 경로)

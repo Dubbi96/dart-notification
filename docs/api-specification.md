@@ -1367,7 +1367,8 @@ KOSPI(0001)·KOSDAQ(1001)의 최신 종가지수 + 전일대비 등락폭·등�
       "closeIndex": 2727.0,
       "prevCloseIndex": 2700.0,
       "change": 27.0,
-      "changePercent": 1.0
+      "changePercent": 1.0,
+      "suspect": false
     },
     {
       "indexCode": "1001",
@@ -1377,7 +1378,8 @@ KOSPI(0001)·KOSDAQ(1001)의 최신 종가지수 + 전일대비 등락폭·등�
       "closeIndex": 792.0,
       "prevCloseIndex": 800.0,
       "change": -8.0,
-      "changePercent": -1.0
+      "changePercent": -1.0,
+      "suspect": false
     }
   ]
 }
@@ -1392,8 +1394,14 @@ KOSPI(0001)·KOSDAQ(1001)의 최신 종가지수 + 전일대비 등락폭·등�
 | `prevCloseIndex` | number \| null | 전일 종가지수 (없으면 null) |
 | `change` | number \| null | 전일대비 등락폭(포인트) |
 | `changePercent` | number \| null | 전일대비 등락률(%) |
+| `suspect` | boolean | 데이터 정합 의심 플래그 (DAR-367) |
 
 > 전일 데이터가 1건뿐이면 `prevCloseIndex`·`change`·`changePercent`는 `null`. 데이터가 전혀 없으면 빈 배열(홈 배지 미표시).
+>
+> **DAR-367 연속성 sanity 가드.** 인접 거래일 종가 대비 |Δ| 가 ±20% 를 초과하면(물리적으로
+> 불가능한 수준) 전일 종가가 오염된 것으로 보고 `prevCloseIndex`·`change`·`changePercent` 를
+> `null` 로 숨기고 `suspect: true` 로 표기한다. 클라이언트(홈 배지)는 `suspect` 면 등락 대신
+> '데이터 점검중' 폴백을 띄워 `-63.75%` 같은 불가능한 수치를 사용자에게 노출하지 않는다.
 
 ---
 

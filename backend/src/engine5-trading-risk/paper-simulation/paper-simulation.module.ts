@@ -16,9 +16,13 @@ import { PaperSimulationScheduler } from './paper-simulation.scheduler';
 import { SimulationPriceSourceService } from './simulation-price-source.service';
 import { NotificationProducerModule } from '../../notifications/notification-producer.module';
 import { NotificationProducerService } from '../../notifications/notification-producer.service';
+// DAR-366: 장중 손절 모니터의 능동 fetch 용 KIS 현재가 조회(KisApiService). RealtimeQuoteCache 는 @Global.
+import { MarketDataModule } from '../../engine3-quant-market/market-data/market-data.module';
+import { KisApiService } from '../../engine3-quant-market/market-data/kis-api.service';
+import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realtime-quote.cache';
 
 @Module({
-  imports: [PrismaModule, TradingRiskModule, NotificationProducerModule],
+  imports: [PrismaModule, TradingRiskModule, NotificationProducerModule, MarketDataModule],
   controllers: [PaperSimulationController],
   providers: [
     PaperSimulationScheduler,
@@ -30,17 +34,31 @@ import { NotificationProducerService } from '../../notifications/notification-pr
       // DAR-85: NotificationProducerService 주입(청산 권고 enqueue). optional:true 로
       // 큐 미설정 환경에서도 안전(producer 내부도 @Optional 큐로 graceful).
       // DAR-124: SimulationPriceSourceService 주입(시세 소스 추상화).
+      // DAR-366: KisApiService(능동 fetch)·RealtimeQuoteCache(@Global) 주입 — 둘 다 optional 로
+      //   미설정/미주입 환경(테스트·키 없음)에서도 안전(능동 fetch no-op, 평가는 폴백).
       useFactory: (
         prisma: PrismaService,
         paperTrade: PaperTradeService,
         notifyProducer?: NotificationProducerService,
         priceSource?: SimulationPriceSourceService,
-      ) => new PaperSimulationService(prisma, paperTrade, notifyProducer, priceSource),
+        kis?: KisApiService,
+        realtimeCache?: RealtimeQuoteCache,
+      ) =>
+        new PaperSimulationService(
+          prisma,
+          paperTrade,
+          notifyProducer,
+          priceSource,
+          kis,
+          realtimeCache,
+        ),
       inject: [
         PrismaService,
         PaperTradeService,
         { token: NotificationProducerService, optional: true },
         { token: SimulationPriceSourceService, optional: true },
+        { token: KisApiService, optional: true },
+        { token: RealtimeQuoteCache, optional: true },
       ],
     },
   ],

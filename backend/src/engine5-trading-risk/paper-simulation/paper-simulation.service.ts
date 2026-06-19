@@ -15,6 +15,9 @@
 
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { formatKstDateCompact, isKstRegularMarketHours } from '../../common/time/kst';
+import { KisApiService } from '../../engine3-quant-market/market-data/kis-api.service';
+import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realtime-quote.cache';
 import { PaperTradeService } from '../services/paper-trade.service';
 import { NotificationProducerService } from '../../notifications/notification-producer.service';
 import { PrismaExitSignalRepository } from '../../engine4-portfolio-exit/repositories/prisma-exit-signal.repository';
@@ -38,9 +41,11 @@ import {
 import {
   SIM_MIN_ENTRY_GRADE,
   entryEligibleGrades,
-  entryBudget,
+  entryBudgetScored,
   buildEntryMeta,
   dedupeCandidatesByCorpCode,
+  sectorHeadroomBudget,
+  ENTRY_FALLBACK_MIN_BUY_SCORE,
 } from './simulation-entry';
 import { Prisma } from '@prisma/client';
 import { SimulationPriceSourceService, SimPriceRow } from './simulation-price-source.service';
@@ -75,6 +80,9 @@ const EXIT_ACTIONS = new Set(['EXIT', 'BLOCK_REBUY']);
 export class PaperSimulationService {
   private readonly logger = new Logger(PaperSimulationService.name);
   private isRunning = false;
+  // DAR-366: 장중 손절 모니터 단일 실행 락 — N분 cron 이 능동 fetch+평가가 길어져 겹치면
+  //   KIS rate-limit·중복 매도 위험. 진행 중이면 이번 틱을 건너뛴다(일일 사이클 isRunning 과 분리).
+  private isIntradayRunning = false;
 
   static readonly SIM_USER_EMAIL = 'paper-sim@system.local';
   static readonly SIM_PORTFOLIO_NAME = '모의운용 포트폴리오';
@@ -96,10 +104,22 @@ export class PaperSimulationService {
     // 종전대로 StockDailyPrice 직접 읽기로 폴백(회귀 0). 합성 모드는 플래그로만 활성.
     @Optional()
     private readonly priceSource?: SimulationPriceSourceService,
+    // DAR-366: 장중 손절 모니터의 '능동 fetch'용 KIS 현재가 조회. @Optional — 미주입/키 미설정이면
+    //   능동 fetch no-op(캐시에 남은 값만 사용). 시세 수집 primitive(engine3·market-data) — AI 무관.
+    @Optional()
+    private readonly kis?: KisApiService,
+    // DAR-366: 능동 fetch 한 실시간가를 적재할 전역 캐시(@Global). 미주입이면 fetch 결과를 적재하지
+    //   못하므로 능동 fetch 비활성(평가는 priceSource 폴백). evaluateExits 가 이 캐시를 실가 1순위로 읽는다.
+    @Optional()
+    private readonly realtimeCache?: RealtimeQuoteCache,
   ) {}
 
   /** 모의운용 전용 포트폴리오 find-or-create (고정 시스템 유저) */
-  async getOrCreateSimPortfolio(): Promise<{ id: string; maxSinglePositionPct: number }> {
+  async getOrCreateSimPortfolio(): Promise<{
+    id: string;
+    maxSinglePositionPct: number;
+    maxSectorPct: number;
+  }> {
     let user = await this.prisma.user.findFirst({
       where: { email: PaperSimulationService.SIM_USER_EMAIL },
       select: { id: true },
@@ -112,7 +132,7 @@ export class PaperSimulationService {
     }
     let pf = await this.prisma.portfolio.findFirst({
       where: { userId: user.id, name: PaperSimulationService.SIM_PORTFOLIO_NAME },
-      select: { id: true, maxSinglePositionPct: true },
+      select: { id: true, maxSinglePositionPct: true, maxSectorPct: true },
     });
     if (!pf) {
       pf = await this.prisma.portfolio.create({
@@ -121,7 +141,7 @@ export class PaperSimulationService {
           name: PaperSimulationService.SIM_PORTFOLIO_NAME,
           maxSinglePositionPct: 10,
         },
-        select: { id: true, maxSinglePositionPct: true },
+        select: { id: true, maxSinglePositionPct: true, maxSectorPct: true },
       });
     }
     return pf;
@@ -170,6 +190,101 @@ export class PaperSimulationService {
   }
 
   /**
+   * DAR-366(★②의 효력을 살리는 필수 경로) — 장중 연속 손절 모니터.
+   *
+   * 라이브 검증(2026-06-19)으로 확정: KIS 실시간가는 KRX 정규장(09:00~15:30 KST)에만 존재하고,
+   * 일배치 손절 cron 은 장 마감 후(19:30)라 그 시각엔 실시간이 영영 없다 → ① 단독은 정체된 일봉만
+   * 평가해 손절이 영영 미발화. 따라서 '장중에 실시간 실가로 평가'하는 것이 손절이 작동하는 유일한 경로다.
+   *
+   * 동작(능동 fetch 우선): ① 장시간 게이트 → ② 보유 종목 실시간 현재가를 KIS 에서 능동 조회해 캐시
+   *   적재(누가 안 부르면 캐시는 빈다 — 모바일 우연 캐싱에 의존 금지) → ③ evaluateExits(실가 1순위로 평가).
+   *   장외/휴장/키 미설정이면 평가 없이 스킵(거짓 손절 방지·로그/호출 0). throw 없이 결과로만 보고.
+   */
+  async runIntradayExitMonitor(
+    now: Date = new Date(),
+  ): Promise<{
+    ran: boolean;
+    skipped: boolean;
+    reason?: string;
+    fetched: number;
+    cached: number;
+    exited: number;
+    tradeDate: string;
+  }> {
+    const tradeDate = formatKstDateCompact(now);
+    // ① 장시간 게이트 — 평일 09:00~15:30 KST 만. 장외/주말은 실시간 부재 → 평가 스킵(정직).
+    if (!isKstRegularMarketHours(now)) {
+      return { ran: false, skipped: true, reason: '장외(정규장 09:00~15:30 KST 아님)', fetched: 0, cached: 0, exited: 0, tradeDate };
+    }
+    // 겹침 가드 — 이전 틱이 아직 fetch/평가 중이면 이번 틱 건너뜀.
+    if (this.isIntradayRunning) {
+      return { ran: false, skipped: true, reason: '이전 장중 모니터 진행 중', fetched: 0, cached: 0, exited: 0, tradeDate };
+    }
+    this.isIntradayRunning = true;
+    try {
+      const pf = await this.getOrCreateSimPortfolio();
+      // ② 보유 종목 실시간 현재가 능동 fetch → 캐시 적재(실가 1순위 평가의 전제).
+      const { fetched, cached } = await this.refreshHoldingsRealtime(pf.id);
+      // ③ 실가 기준 Exit 평가 — evaluateExits 가 latestPriceRow(REALTIME 1순위)로 읽는다.
+      const exited = await this.evaluateExits(pf.id, tradeDate);
+      if (exited > 0 || cached > 0) {
+        this.logger.log(
+          `[PaperSim][장중모니터] tradeDate=${tradeDate} fetch=${fetched} cached=${cached} 매도=${exited}`,
+        );
+      }
+      return { ran: true, skipped: false, fetched, cached, exited, tradeDate };
+    } catch (e) {
+      // cron 스케줄 유지 위해 흡수(결과로 보고). 부분 매도는 evaluateExits 내에서 종목별 독립.
+      this.logger.error(`[PaperSim][장중모니터] 오류: ${(e as Error).message}`);
+      return { ran: false, skipped: true, reason: (e as Error).message, fetched: 0, cached: 0, exited: 0, tradeDate };
+    } finally {
+      this.isIntradayRunning = false;
+    }
+  }
+
+  /**
+   * DAR-366: 보유 OPEN 포지션 종목의 실시간 현재가를 KIS 에서 능동 조회해 RealtimeQuoteCache 에 적재한다.
+   *   - KIS 미주입/키 미설정·캐시 미주입이면 no-op(fetched=0) → 평가는 priceSource 폴백(회귀 0).
+   *   - 보유 종목(≤MAX_HOLDINGS)만, corpCode 중복 제거 → 레이트리밋·비용 가드. 순차 호출(겹침 락이 보호).
+   *   - 한 종목 실패는 건너뛰고 계속(graceful) — 장중 모니터를 깨지 않는다.
+   *   ★시세 수집 primitive(HTTP/캐시)만 — 체결·주문수량·하드룰 무관(AI 금지영역 미접촉).
+   */
+  private async refreshHoldingsRealtime(
+    portfolioId: string,
+  ): Promise<{ fetched: number; cached: number }> {
+    if (!this.kis?.isConfigured || !this.realtimeCache) return { fetched: 0, cached: 0 };
+    const open = await this.prisma.position.findMany({
+      where: { portfolioId, status: 'OPEN' },
+      select: { corpCode: true, stockCode: true },
+    });
+    const byCorp = new Map<string, { corpCode: string; stockCode: string }>();
+    for (const r of open) {
+      if (!r.corpCode || !r.stockCode) continue;
+      if (!byCorp.has(r.corpCode)) byCorp.set(r.corpCode, { corpCode: r.corpCode, stockCode: r.stockCode });
+      if (byCorp.size >= PaperSimulationService.MAX_HOLDINGS) break;
+    }
+    let fetched = 0;
+    let cached = 0;
+    for (const { corpCode, stockCode } of byCorp.values()) {
+      fetched++;
+      const q = await this.kis.fetchCurrentPrice(stockCode);
+      if (!q || q.price <= 0) continue;
+      this.realtimeCache.set({
+        corpCode,
+        stockCode,
+        price: q.price,
+        open: q.open,
+        high: q.high,
+        low: q.low,
+        volume: q.volume,
+        fetchedAtMs: Date.now(),
+      });
+      cached++;
+    }
+    return { fetched, cached };
+  }
+
+  /**
    * 진척 조회 — 최신 누적지표 + 포트폴리오 현황 + 보유 포지션 상세 (실주문 없음)
    *
    * 모바일 포트폴리오 화면용(DAR-42): 평가금액·초기원금·보유 포지션[종목·수량·평가손익]·
@@ -188,8 +303,15 @@ export class PaperSimulationService {
     metrics: SimulationMetrics;
   }> {
     const pf = await this.getOrCreateSimPortfolio();
-    const { metrics, equity, openPositions } = await this.computeMetrics(pf.id);
-    const positions = await this.getOpenPositionDetails(pf.id);
+    // DAR-364: 표시·엔진 동일 가격 — 보유 포지션을 '지금'(오늘 KST) 실시간 실가로 재평가하고(positions),
+    //   그 미실현손익 합을 equity 산식에 그대로 넘긴다. 화면 카드 손익과 총평가금액이 같은 가격을 쓴다.
+    const asOf = this.todayBasDd();
+    const positions = await this.getOpenPositionDetails(pf.id, asOf);
+    const liveOpenUnrealizedPnl = positions.reduce((s, p) => s + p.unrealizedPnl, 0);
+    const { metrics, equity, openPositions } = await this.computeMetrics(
+      pf.id,
+      liveOpenUnrealizedPnl,
+    );
     const closedPositions = await this.prisma.position.count({
       where: { portfolioId: pf.id, status: 'CLOSED' },
     });
@@ -378,8 +500,13 @@ export class PaperSimulationService {
     return map;
   }
 
-  /** 보유(OPEN) 포지션을 모바일 표시용으로 매핑 — 회사명 보강, 평가손익 큰 순 정렬 */
-  private async getOpenPositionDetails(portfolioId: string): Promise<SimPositionDetail[]> {
+  /** 보유(OPEN) 포지션을 모바일 표시용으로 매핑 — 회사명 보강, 평가손익 큰 순 정렬.
+   *  DAR-364: 표시 currentPrice·평가손익을 '엔진이 손절을 평가하는 가격'(실시간 실가 1순위)과
+   *  동일 소스로 재평가한다(표시=엔진). 실가 미가용 종목은 저장 스냅샷값으로 정직 폴백. */
+  private async getOpenPositionDetails(
+    portfolioId: string,
+    asOf: string,
+  ): Promise<SimPositionDetail[]> {
     const rows = await this.prisma.position.findMany({
       where: { portfolioId, status: 'OPEN' },
       select: {
@@ -407,52 +534,147 @@ export class PaperSimulationService {
     const corpNameByCode: Record<string, string> = {};
     for (const c of companies) corpNameByCode[c.corpCode] = c.corpName;
 
-    return deduped.map((r) => toSimPositionDetail(r, corpNameByCode));
+    // DAR-364: 종목별 실시간 실가 재평가(표시=엔진). 실가 미가용이면 저장값 그대로(폴백).
+    return Promise.all(
+      deduped.map(async (r) => {
+        const base = toSimPositionDetail(r, corpNameByCode);
+        const live = await this.revalueLive(r.corpCode, r.entryPrice, r.quantity, asOf);
+        if (!live) return base;
+        return {
+          ...base,
+          currentPrice: live.currentPrice,
+          currentValue: live.currentValue,
+          unrealizedPnl: live.unrealizedPnl,
+          unrealizedPnlPct: live.unrealizedPnlPct,
+          priceSource: live.source,
+          priceSourceDate: live.sourceDate,
+        };
+      }),
+    );
+  }
+
+  /**
+   * DAR-364: 보유 포지션을 '표시·엔진 동일' 가격으로 재평가한다.
+   *   latestPriceRow(실시간 실가 1순위 → 실 KRX 일봉 → 합성 폴백)로 현재가를 구하고 진입가 대비
+   *   평가손익(원·%)을 산출한다. 손절/익절 평가가 쓰는 바로 그 가격이므로 사용자가 보는 손실 =
+   *   엔진이 손절하는 손실이 된다.
+   *   priceSource 미주입(레거시 테스트)·실가 미가용(closePrice≤0/null)이면 null → 호출측이
+   *   저장 스냅샷값으로 정직 폴백(회귀 0).
+   */
+  private async revalueLive(
+    corpCode: string,
+    entryPrice: number,
+    quantity: number,
+    asOf: string,
+  ): Promise<{
+    currentPrice: number;
+    currentValue: number;
+    unrealizedPnl: number;
+    unrealizedPnlPct: number;
+    source: SimPriceRow['source'];
+    sourceDate?: string;
+  } | null> {
+    const row = await this.latestPriceRow(corpCode, asOf);
+    if (!row || row.closePrice <= 0) return null;
+    const currentPrice = row.closePrice;
+    return {
+      currentPrice,
+      currentValue: currentPrice * quantity,
+      unrealizedPnl: (currentPrice - entryPrice) * quantity,
+      unrealizedPnlPct:
+        entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0,
+      source: row.source,
+      sourceDate: row.sourceDate,
+    };
   }
 
   // ─── 1) 신규 매수 ─────────────────────────────────────────────────────
   private async openNewPositions(
-    pf: { id: string; maxSinglePositionPct: number },
+    pf: { id: string; maxSinglePositionPct: number; maxSectorPct: number },
     tradeDate: string,
   ): Promise<number> {
-    const holdings = await this.prisma.position.count({
+    // 기존 OPEN 포지션(종목 제외 + 섹터 노출 초기값 산정에 재사용).
+    const openPositions = await this.prisma.position.findMany({
       where: { portfolioId: pf.id, status: 'OPEN' },
+      select: { corpCode: true, currentValue: true, entryAmount: true },
     });
-    const available = PaperSimulationService.MAX_HOLDINGS - holdings;
+    const available = PaperSimulationService.MAX_HOLDINGS - openPositions.length;
     if (available <= 0) return 0;
+    const openCorpCodes = openPositions.map((p) => p.corpCode);
 
-    // 이미 보유 중인 종목 제외
-    const openCorpCodes = (
-      await this.prisma.position.findMany({
-        where: { portfolioId: pf.id, status: 'OPEN' },
-        select: { corpCode: true },
-      })
-    ).map((p) => p.corpCode);
-
-    // DAR-51: 진입 기준 확장 — grade≥BUY → 설정 최소등급(기본 WATCH) AND entryReady.
-    // BUY 0·WATCH만 쌓이는 현 데이터에서 P/L 검증 데이터를 모으기 위해 가용 최선 후보를 모의매수.
+    // DAR-362: 후보 pool 확대 — entryReady=true 만으로는 BUY 희소 시 pool이 인위적으로 협소.
+    //   ① entryReady WATCH+ 후보를 우선 채우고(진입품질 우선),
+    //   ② 슬롯이 남으면 entryReady 아니어도 buyScore≥ENTRY_FALLBACK_MIN_BUY_SCORE 인 상위
+    //      후보로 보강한다(무차별 확대 아님 — 품질 하한 유지). 변경 근거: BUY/STRONG 신호가
+    //      희소해 entryReady 통과 후보만으로는 다양성이 막힘.
     // DAR-122: 한 종목은 4 Persona(또는 다수 공시)당 신호 행을 가지므로 take 전 디듑이 필요하다.
     //   디듑 없이 take/loop를 돌면 동일 corpCode에 Position이 중복 생성된다. Persona 최대 4를
     //   고려해 넉넉히 조회(available×4) 후 종목당 1건으로 디듑하고 available개로 절단한다.
     const PERSONA_FANOUT = 4;
-    const rawCandidates = await this.prisma.tradingSignal.findMany({
+    const eligibleGrades = entryEligibleGrades(SIM_MIN_ENTRY_GRADE) as never;
+    const excludeCorp = openCorpCodes.length ? openCorpCodes : ['__none__'];
+
+    const readyRaw = await this.prisma.tradingSignal.findMany({
       where: {
-        signal: { in: entryEligibleGrades(SIM_MIN_ENTRY_GRADE) as never },
+        signal: { in: eligibleGrades },
         entryReady: true,
-        corpCode: { notIn: openCorpCodes.length ? openCorpCodes : ['__none__'] },
+        corpCode: { notIn: excludeCorp },
       },
       orderBy: { buyScore: 'desc' },
       take: available * PERSONA_FANOUT,
     });
-    const candidates = dedupeCandidatesByCorpCode(rawCandidates).slice(
-      0,
-      available,
-    );
+    let candidates = dedupeCandidatesByCorpCode(readyRaw).slice(0, available);
+
+    // ② 부족분만 비-entryReady 상위 buyScore로 보강(품질 하한 적용·기보유/선정 종목 제외).
+    if (candidates.length < available) {
+      const need = available - candidates.length;
+      const already = new Set<string>([
+        ...openCorpCodes,
+        ...candidates.map((c) => c.corpCode),
+      ]);
+      const fallbackRaw = await this.prisma.tradingSignal.findMany({
+        where: {
+          signal: { in: eligibleGrades },
+          entryReady: false,
+          buyScore: { gte: ENTRY_FALLBACK_MIN_BUY_SCORE },
+          corpCode: { notIn: Array.from(already).length ? Array.from(already) : ['__none__'] },
+        },
+        orderBy: { buyScore: 'desc' },
+        take: need * PERSONA_FANOUT,
+      });
+      const fallback = dedupeCandidatesByCorpCode(fallbackRaw)
+        .filter((c) => !already.has(c.corpCode))
+        .slice(0, need);
+      candidates = [...candidates, ...fallback];
+    }
 
     // 한 사이클 안에서 이미 매수한 종목 추적(디듑된 후보라도 방어선 유지).
     const openedCorpCodes = new Set<string>(openCorpCodes);
 
-    // 종목별 기본 배분 예산(가상원금 × 단일종목 최대비중). 등급별 차등 사이징은 entryBudget 적용.
+    // DAR-362: 섹터 분산 가드 준비 — 섹터(업종)는 CompanyOverview.industryCode 로 식별(스키마 변경 0).
+    //   기보유 + 후보 corpCode 의 industryCode 를 1회 조회해 매핑하고, 기보유 포지션 가치로
+    //   섹터별 현재 노출을 초기화한다. industryCode 미상(null)은 가드 면제(데이터 없는 상한 강제 금지).
+    const sectorCorpCodes = Array.from(
+      new Set<string>([...openCorpCodes, ...candidates.map((c) => c.corpCode)]),
+    );
+    const overviews = sectorCorpCodes.length
+      ? await this.prisma.companyOverview.findMany({
+          where: { corpCode: { in: sectorCorpCodes } },
+          select: { corpCode: true, industryCode: true },
+        })
+      : [];
+    const sectorByCorp = new Map<string, string | null>();
+    for (const o of overviews) sectorByCorp.set(o.corpCode, o.industryCode ?? null);
+    const sectorValue = new Map<string, number>();
+    for (const p of openPositions) {
+      const sector = sectorByCorp.get(p.corpCode) ?? null;
+      if (!sector) continue;
+      const val = p.currentValue ?? p.entryAmount ?? 0;
+      sectorValue.set(sector, (sectorValue.get(sector) ?? 0) + val);
+    }
+    const portfolioTotalValue = PaperSimulationService.INITIAL_CAPITAL;
+
+    // 종목별 기본 배분 예산(가상원금 × 단일종목 최대비중). 등급+buyScore 차등은 entryBudgetScored 적용.
     const baseBudget =
       PaperSimulationService.INITIAL_CAPITAL * (pf.maxSinglePositionPct / 100);
 
@@ -462,8 +684,23 @@ export class PaperSimulationService {
       if (openedCorpCodes.has(sig.corpCode)) continue;
       const price = await this.latestClose(sig.corpCode, tradeDate);
       if (price === null || price <= 0) continue;
-      // DAR-51: 등급별 차등 사이징(WATCH는 작게)
-      const budget = entryBudget(baseBudget, sig.signal as string);
+      // DAR-362: 등급 + buyScore 차등 사이징(고확신 더, 저확신 덜 — 균일 탈피).
+      let budget = entryBudgetScored(
+        baseBudget,
+        sig.signal as string,
+        sig.buyScore,
+      );
+      // DAR-362: 섹터 분산 가드 — 동일 섹터 비중 상한(maxSectorPct) enforce.
+      //   섹터 식별 가능 시 잔여 허용 예산으로 예산을 절감(상한 초과 진입 차단). 미상은 면제.
+      const sector = sectorByCorp.get(sig.corpCode) ?? null;
+      if (sector) {
+        const headroom = sectorHeadroomBudget(
+          sectorValue.get(sector) ?? 0,
+          portfolioTotalValue,
+          pf.maxSectorPct,
+        );
+        budget = Math.min(budget, headroom);
+      }
       const shares = Math.floor(budget / price);
       if (shares <= 0) continue;
 
@@ -523,6 +760,13 @@ export class PaperSimulationService {
         throw err;
       }
       openedCorpCodes.add(sig.corpCode);
+      // DAR-362: 이번 사이클에 담은 가치를 섹터 노출에 누적(다음 후보의 섹터 가드에 반영).
+      if (sector) {
+        sectorValue.set(
+          sector,
+          (sectorValue.get(sector) ?? 0) + fillPrice * trade.filledShares,
+        );
+      }
       opened++;
     }
     return opened;
@@ -583,6 +827,9 @@ export class PaperSimulationService {
   }
 
   // ─── 3) Exit 평가 + 모의 매도 ─────────────────────────────────────────
+  // DAR-364: 손절/익절 평가가 쓰는 현재가는 latestPriceRow = 실시간 실가(REALTIME) 1순위 →
+  //   실 KRX 일봉(REAL) → 합성(SYNTHETIC) 폴백이다. 사용자가 화면에서 보는 실시간 실가가
+  //   곧 하드 스탑로스 평가에 쓰이는 가격이므로(표시=엔진), 실가 -8% 이하면 손절 EXIT 이 발화한다.
   private async evaluateExits(portfolioId: string, tradeDate: string): Promise<number> {
     const positions = await this.prisma.position.findMany({
       where: { portfolioId, status: 'OPEN' },
@@ -638,7 +885,14 @@ export class PaperSimulationService {
         exitAction: exit.exitAction,
         triggerTypes: exit.triggerTypes,
         primaryTrigger: exit.primaryTrigger,
-        scoreDetail: { source: 'DAR-40 paper-sim', tradeDate, triggers: exit.triggerTypes },
+        scoreDetail: {
+          source: 'DAR-40 paper-sim',
+          tradeDate,
+          triggers: exit.triggerTypes,
+          // DAR-364: 평가에 쓴 가격의 출처/원일자 — 정직 고지(REALTIME 이면 실시간 실가로 손절 평가).
+          priceSource: day.source,
+          priceSourceDate: day.sourceDate ?? null,
+        },
       });
 
       // 스냅샷에 exit 결과 기록(있으면)
@@ -696,7 +950,14 @@ export class PaperSimulationService {
   }
 
   // ─── 4) 누적 지표 ─────────────────────────────────────────────────────
-  private async computeMetrics(portfolioId: string): Promise<{
+  // DAR-364: openUnrealizedPnlOverride 가 주어지면(상태 조회 경로) 보유 포지션 미실현손익 합을
+  //   '실시간 실가로 재평가한 표시값'으로 대체해 equity·누적수익률이 화면 표시와 동일 가격을 쓰게 한다
+  //   (표시=엔진). 미지정(equity-curve·사이클 경로)이면 저장 스냅샷값 합을 쓴다 — DAR-206 grouped
+  //   쿼리 형태 보존(보유 포지션당 시세 재조회 없음, N+1 미발생).
+  private async computeMetrics(
+    portfolioId: string,
+    openUnrealizedPnlOverride?: number,
+  ): Promise<{
     metrics: SimulationMetrics;
     equity: number;
     openPositions: number;
@@ -718,7 +979,10 @@ export class PaperSimulationService {
       },
     });
 
-    const unrealizedPnl = open.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
+    // DAR-364: 상태 조회는 표시(실시간 실가 재평가)와 동일한 보유 미실현손익을 쓴다(override).
+    //   미지정이면 저장 스냅샷값 합(회귀 0·N+1 미발생).
+    const unrealizedPnl =
+      openUnrealizedPnlOverride ?? open.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
     const realizedNetPnl = closed.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
     const equity = PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl + unrealizedPnl;
 
@@ -1021,6 +1285,11 @@ export class PaperSimulationService {
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return `${y}${m}${day}`;
+  }
+
+  /** DAR-364: 오늘 거래일 YYYYMMDD(KST). 상태 조회의 '지금' 기준일 — 실시간 실가 재평가 앵커. */
+  private todayBasDd(): string {
+    return formatKstDateCompact(new Date());
   }
 
   private emptyResult(tradeDate: string, message: string): DailyCycleResult {

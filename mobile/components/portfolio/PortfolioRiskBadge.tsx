@@ -53,68 +53,76 @@ export function PortfolioRiskBadge({ snapshot, style }: PortfolioRiskBadgeProps)
       accessible
       accessibilityLabel={a11yLabel}
     >
-      <View style={styles.row}>
-        {/* 당일 손익 */}
-        <View style={[styles.chip, { backgroundColor: dailyTone + '1A', borderColor: dailyTone }]}>
-          <Feather
-            name={hasDailyPnl && (snapshot.dailyPnlPct as number) < 0 ? 'trending-down' : 'trending-up'}
-            size={12}
-            color={dailyTone}
-          />
-          <Text style={[typo.small, styles.chipLabel, { color: dailyTone }]}>
-            당일 {hasDailyPnl ? formatPnlPercent(snapshot.dailyPnlPct as number) : '—'}
-          </Text>
-        </View>
-
-        {/* 집중도(최대 종목 비중) */}
-        <View style={[styles.chip, { backgroundColor: concentrationTone + '1A', borderColor: concentrationTone }]}>
-          <Feather name="pie-chart" size={12} color={concentrationTone} />
-          <Text style={[typo.small, styles.chipLabel, { color: concentrationTone }]}>
-            집중도 {snapshot.topPositionPct.toFixed(0)}%
-          </Text>
-        </View>
-
-        {/* 하드룰 위반 경고 */}
-        {snapshot.hardRuleBreached ? (
-          <View style={[styles.chip, { backgroundColor: colors.error + '1A', borderColor: colors.error }]}>
-            <Feather name="alert-triangle" size={12} color={colors.error} />
-            <Text style={[typo.small, styles.chipLabel, { color: colors.error }]}>
-              하드룰 위반
+      {/* DAR-356 1순위: 하드룰 위반 — 전폭 솔리드 경보 배너(최상단·아이콘+솔리드 배경).
+          빠른 글랜스에서 최고우선 경보를 절대 놓치지 않도록 칩 나열에서 분리·승격한다. */}
+      {snapshot.hardRuleBreached ? (
+        <View
+          style={[styles.alertBanner, { backgroundColor: colors.error }]}
+          accessibilityRole="alert"
+        >
+          <Feather name="alert-triangle" size={16} color={colors.onColor} />
+          <View style={styles.alertBody}>
+            <Text style={[typo.captionMedium, styles.alertTitle, { color: colors.onColor }]}>
+              하드룰 위반 — 즉시 점검 필요
             </Text>
+            {snapshot.hardRuleDetail ? (
+              <Text style={[typo.small, { color: colors.onColor }]} numberOfLines={2}>
+                {snapshot.hardRuleDetail}
+              </Text>
+            ) : null}
           </View>
-        ) : null}
-      </View>
-
-      {/* 하드룰 위반 상세(있을 때만) */}
-      {snapshot.hardRuleBreached && snapshot.hardRuleDetail ? (
-        <Text style={[typo.small, { color: colors.error, marginTop: spacing.xs }]}>
-          {snapshot.hardRuleDetail}
-        </Text>
+        </View>
       ) : null}
+
+      {/* DAR-356 2순위: 당일 손익 · 집중도 1줄 압축('당일 -2.1% · 최대종목 45%'). */}
+      <View style={styles.metricsRow}>
+        <Feather
+          name={hasDailyPnl && (snapshot.dailyPnlPct as number) < 0 ? 'trending-down' : 'trending-up'}
+          size={13}
+          color={dailyTone}
+        />
+        <Text style={[typo.small, styles.metricLabel, { color: dailyTone }]}>
+          당일 {hasDailyPnl ? formatPnlPercent(snapshot.dailyPnlPct as number) : '—'}
+        </Text>
+        <Text style={[typo.small, styles.metricSep, { color: colors.textSecondary }]}>·</Text>
+        <Feather name="pie-chart" size={13} color={concentrationTone} />
+        <Text style={[typo.small, styles.metricLabel, { color: concentrationTone }]}>
+          최대종목 {snapshot.topPositionPct.toFixed(0)}%
+        </Text>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
-  row: {
+  alertBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+  },
+  alertBody: {
+    flex: 1,
+    gap: 2,
+  },
+  alertTitle: {
+    fontWeight: '700',
+  },
+  metricsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: spacing.xs,
   },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-  },
-  chipLabel: {
+  metricLabel: {
     fontWeight: '700',
-    marginLeft: spacing.xs,
+  },
+  metricSep: {
+    marginHorizontal: spacing.xs,
   },
 });

@@ -31,6 +31,21 @@ export interface KisCurrentPrice {
   volume: number; // 누적 거래량 acml_vol
 }
 
+/**
+ * 업종(시장)지수 현재값 1행 (DAR-371). 지수는 소수 2자리이므로 정수 반올림하지 않는다.
+ * 0001=KOSPI 종합, 1001=KOSDAQ 종합.
+ */
+export interface KisIndexPrice {
+  indexCode: string; // '0001' KOSPI | '1001' KOSDAQ
+  price: number; // 현재 지수(bstp_nmix_prpr)
+  prevClose: number; // 전일 종가지수(현재값 − 전일대비). 등락률 산출 기준.
+  change: number; // 전일대비 등락폭(부호 적용)
+  changePercent: number; // 전일대비 등락률(%) 소수 2자리
+  open: number; // 시가지수(bstp_nmix_oprc)
+  high: number; // 고가지수(bstp_nmix_hgpr)
+  low: number; // 저가지수(bstp_nmix_lwpr)
+}
+
 /** 분봉 1캔들. */
 export interface KisMinuteCandle {
   time: string; // 체결시각 HHMMSS (stck_cntg_hour)
@@ -197,9 +212,74 @@ export class KisApiService {
     }
   }
 
+  /**
+   * 국내 업종(시장)지수 현재값(inquire-index-price, tr_id FHPUP02100000) — DAR-371.
+   *
+   * 홈 배지가 '6/5 종가(stale)'를 '현재'처럼 표시하던 신뢰 문제를 해소하기 위해, 주식 실시간가와
+   * 동일 정신으로 지수의 '실시간/실가'를 확보한다(소비측 source=REALTIME 라벨).
+   *
+   * 지수코드: KOSPI 종합 '0001' · KOSDAQ 종합 '1001'. FID_COND_MRKT_DIV_CODE='U'(업종).
+   * 응답 output: bstp_nmix_prpr(현재지수)·bstp_nmix_prdy_vrss(전일대비 절대값)·prdy_vrss_sign
+   *   (부호 1상한·2상승·3보합·4하한·5하락)·bstp_nmix_oprc/hgpr/lwpr.
+   * 등락률은 KIS ctrt 의 부호 모호성을 피하기 위해 prevClose=price−change 로 자체 산출한다.
+   *
+   * ★정직: 받은 값은 '실제 시장 실시간가'다. 키 미설정 예외(KisApiUnavailableError)는 throw,
+   *   파싱 불가/응답 결측/네트워크 실패는 null 로 graceful — 소비측이 EOD 폴백으로 전환한다.
+   */
+  async fetchIndexPrice(indexCode: string, nowMs?: number): Promise<KisIndexPrice | null> {
+    try {
+      const headers = await this.authHeaders('FHPUP02100000', nowMs);
+      const { data } = await this.client.get(
+        `${this.baseUrl}/uapi/domestic-stock/v1/quotations/inquire-index-price`,
+        {
+          headers,
+          params: { FID_COND_MRKT_DIV_CODE: 'U', FID_INPUT_ISCD: indexCode },
+        },
+      );
+      const o = data?.output;
+      const price = this.parseDecimal(o?.bstp_nmix_prpr);
+      if (!o || o.bstp_nmix_prpr == null || price <= 0) return null;
+
+      // 전일대비는 절대값 + 별도 부호(prdy_vrss_sign). 4=하한·5=하락 → 음수.
+      const vrssMag = this.parseDecimal(o.bstp_nmix_prdy_vrss);
+      const sign = ['4', '5'].includes(String(o.prdy_vrss_sign ?? '').trim()) ? -1 : 1;
+      const change = round2(sign * Math.abs(vrssMag));
+      const prevClose = round2(price - change);
+      const changePercent =
+        prevClose > 0 ? round2((change / prevClose) * 100) : 0;
+
+      return {
+        indexCode,
+        price,
+        prevClose,
+        change,
+        changePercent,
+        open: this.parseDecimal(o.bstp_nmix_oprc),
+        high: this.parseDecimal(o.bstp_nmix_hgpr),
+        low: this.parseDecimal(o.bstp_nmix_lwpr),
+      };
+    } catch (e) {
+      if (e instanceof KisApiUnavailableError) throw e;
+      this.logger.error(`[KIS] inquire-index-price 실패 ${indexCode}: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
   private parseNum(v: string | number | null | undefined): number {
     if (v == null) return 0;
     const n = Number(String(v).replace(/,/g, ''));
     return Number.isFinite(n) ? Math.round(n) : 0;
   }
+
+  /** 지수·등락폭처럼 소수 2자리가 의미 있는 값 파싱(반올림 없이 소수 2자리 유지). */
+  private parseDecimal(v: string | number | null | undefined): number {
+    if (v == null) return 0;
+    const n = Number(String(v).replace(/,/g, ''));
+    return Number.isFinite(n) ? round2(n) : 0;
+  }
+}
+
+/** 소수 2자리 반올림(지수·등락 표시용). */
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }

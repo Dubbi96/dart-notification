@@ -5,6 +5,7 @@ import { OptionalJwtAuthGuard } from '../../auth/guards/optional-jwt-auth.guard'
 import { PrismaService } from '../../prisma/prisma.service';
 import { KrxMarketDataScheduler } from './krx-market-data.scheduler';
 import { StockQuoteService } from './stock-quote.service';
+import { KisApiService } from './kis-api.service';
 
 /**
  * DAR-160 회귀 가드: 시장지수 최신값 조회.
@@ -185,5 +186,109 @@ describe('MarketDataController.latestIndices (DAR-160)', () => {
   it('지수 조회 핸들러는 게스트 열람 가능(OptionalJwtAuthGuard)', () => {
     const guards = Reflect.getMetadata('__guards__', MarketDataController.prototype.latestIndices) ?? [];
     expect(guards).toContain(OptionalJwtAuthGuard);
+  });
+});
+
+/**
+ * DAR-371: KIS 실시간 지수 우선 + EOD 신선도 정직.
+ * - KIS 가용 시 실시간 지수로 배지를 구동(source=REALTIME). stale 종가를 '현재'로 표시 금지.
+ * - KIS 미설정/실패 시 EOD 일봉 폴백(source=EOD, tradeDate 가 종가 기준일).
+ * - 실시간에도 ±20% sanity 가드(DAR-367) 유지.
+ */
+describe('MarketDataService.fetchLatestIndices — KIS 실시간 우선 (DAR-371)', () => {
+  function makePrisma(byCode: Record<string, Array<{ closeIndex: number; tradeDate: string }>>) {
+    const findMany = jest.fn(async ({ where }: any) => {
+      const rows = byCode[where.indexCode] ?? [];
+      return [...rows]
+        .sort((a, b) => (a.tradeDate < b.tradeDate ? 1 : -1))
+        .slice(0, 2)
+        .map((r) => ({ ...r, indexCode: where.indexCode, indexName: where.indexCode === '0001' ? 'KOSPI' : 'KOSDAQ' }));
+    });
+    return { prisma: { marketIndex: { findMany } } as unknown as PrismaService, findMany };
+  }
+
+  function makeKis(opts: {
+    configured: boolean;
+    byCode?: Record<string, { price: number; prevClose: number; change: number; changePercent: number }>;
+    throwOn?: string;
+  }) {
+    const fetchIndexPrice = jest.fn(async (code: string) => {
+      if (opts.throwOn === code) throw new Error('boom');
+      const v = opts.byCode?.[code];
+      if (!v) return null;
+      return { indexCode: code, open: v.price, high: v.price, low: v.price, ...v };
+    });
+    return {
+      kis: { get isConfigured() { return opts.configured; }, fetchIndexPrice } as unknown as KisApiService,
+      fetchIndexPrice,
+    };
+  }
+
+  it('KIS 가용: 실시간 지수로 배지 구동(source=REALTIME)·DB 미조회', async () => {
+    const { prisma, findMany } = makePrisma({ '0001': [{ closeIndex: 8160, tradeDate: '20260605' }] });
+    const { kis } = makeKis({
+      configured: true,
+      byCode: {
+        '0001': { price: 9033.15, prevClose: 9002.1, change: 31.05, changePercent: 0.34 },
+        '1001': { price: 792, prevClose: 800, change: -8, changePercent: -1 },
+      },
+    });
+    const service = new MarketDataService(prisma, kis);
+
+    const res = await service.fetchLatestIndices(0);
+    const kospi = res.find((r) => r.market === 'KOSPI')!;
+    expect(kospi.source).toBe('REALTIME');
+    expect(kospi.closeIndex).toBe(9033.15); // stale 8160 이 아니라 실시간 9033
+    expect(kospi.changePercent).toBe(0.34);
+    expect(kospi.suspect).toBe(false);
+    expect(kospi.asOf).not.toBeNull();
+    // 실시간으로 충족 → EOD DB 조회 안 함
+    expect(findMany).not.toHaveBeenCalled();
+  });
+
+  it('KIS 미설정: EOD 일봉 폴백(source=EOD, asOf=null, tradeDate 가 종가 기준일)', async () => {
+    const { prisma } = makePrisma({ '0001': [{ closeIndex: 8160.59, tradeDate: '20260605' }] });
+    const { kis } = makeKis({ configured: false });
+    const service = new MarketDataService(prisma, kis);
+
+    const res = await service.fetchLatestIndices(0);
+    const kospi = res.find((r) => r.market === 'KOSPI')!;
+    expect(kospi.source).toBe('EOD');
+    expect(kospi.asOf).toBeNull();
+    expect(kospi.tradeDate).toBe('20260605');
+    expect(kospi.closeIndex).toBe(8160.59);
+  });
+
+  it('KIS 실패(throw)·null → 해당 지수만 EOD 폴백(graceful)', async () => {
+    const { prisma, findMany } = makePrisma({
+      '0001': [{ closeIndex: 8160, tradeDate: '20260605' }],
+      '1001': [{ closeIndex: 800, tradeDate: '20260605' }],
+    });
+    // 0001 은 throw, 1001 은 null → 둘 다 EOD 폴백
+    const { kis } = makeKis({ configured: true, throwOn: '0001', byCode: {} });
+    const service = new MarketDataService(prisma, kis);
+
+    const res = await service.fetchLatestIndices(0);
+    expect(res.every((r) => r.source === 'EOD')).toBe(true);
+    expect(findMany).toHaveBeenCalled();
+  });
+
+  it('실시간 등락률 이상치(>±20%)는 suspect=true·등락 미표시(현재 지수는 노출)', async () => {
+    const { prisma } = makePrisma({});
+    const { kis } = makeKis({
+      configured: true,
+      // price 3132 vs prevClose 8639 → -63% (물리적 불가) → suspect
+      byCode: { '0001': { price: 3132.06, prevClose: 8639.41, change: -5507.35, changePercent: -63.75 } },
+    });
+    const service = new MarketDataService(prisma, kis);
+
+    const res = await service.fetchLatestIndices(0);
+    const kospi = res.find((r) => r.market === 'KOSPI')!;
+    expect(kospi.source).toBe('REALTIME');
+    expect(kospi.closeIndex).toBe(3132.06);
+    expect(kospi.suspect).toBe(true);
+    expect(kospi.change).toBeNull();
+    expect(kospi.changePercent).toBeNull();
+    expect(kospi.prevCloseIndex).toBeNull();
   });
 });

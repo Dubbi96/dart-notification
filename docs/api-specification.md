@@ -1349,9 +1349,14 @@ GET /api/portfolio/risk/latest   (JWT 필수)
 GET /api/market-data/indices/latest   (OptionalJwt — 게스트 열람)
 ```
 
-KOSPI(0001)·KOSDAQ(1001)의 최신 종가지수 + 전일대비 등락폭·등락률(%) + 거래일을 반환한다.
+KOSPI(0001)·KOSDAQ(1001)의 최신 지수값 + 전일대비 등락폭·등락률(%) + 거래일·출처를 반환한다.
 홈 헤더 '시장 한눈에' 배지·신호 화면 시장국면 맥락에 쓰인다. 시장 데이터는 비개인 공개정보이므로
 게스트도 열람 가능(컨트롤러 기본 JWT 가드를 메서드 단위 OptionalJwt 로 덮음).
+
+**가격 출처 우선순위 (DAR-371).** ①KIS 실시간 업종지수(`inquire-index-price`, tr_id `FHPUP02100000`,
+KOSPI=0001·KOSDAQ=1001)가 가용하면 그 실가로 구동(`source: 'REALTIME'`, `asOf` 서버 조회시각).
+②KIS 미설정·실패면 KRX 일봉 최신 종가로 폴백(`source: 'EOD'`, `asOf: null`, `tradeDate` 가 종가 기준일).
+실시간에도 ±20% sanity 가드(DAR-367)를 유지한다.
 
 **응답** (`data`: 배열, 미적재 지수는 생략됨)
 
@@ -1363,23 +1368,27 @@ KOSPI(0001)·KOSDAQ(1001)의 최신 종가지수 + 전일대비 등락폭·등�
       "indexCode": "0001",
       "indexName": "KOSPI",
       "market": "KOSPI",
-      "tradeDate": "20260611",
-      "closeIndex": 2727.0,
-      "prevCloseIndex": 2700.0,
-      "change": 27.0,
-      "changePercent": 1.0,
-      "suspect": false
+      "tradeDate": "20260619",
+      "closeIndex": 9052.42,
+      "prevCloseIndex": 9063.84,
+      "change": -11.42,
+      "changePercent": -0.13,
+      "suspect": false,
+      "source": "REALTIME",
+      "asOf": "2026-06-19T05:30:00.000Z"
     },
     {
       "indexCode": "1001",
       "indexName": "KOSDAQ",
       "market": "KOSDAQ",
-      "tradeDate": "20260611",
+      "tradeDate": "20260605",
       "closeIndex": 792.0,
       "prevCloseIndex": 800.0,
       "change": -8.0,
       "changePercent": -1.0,
-      "suspect": false
+      "suspect": false,
+      "source": "EOD",
+      "asOf": null
     }
   ]
 }
@@ -1389,14 +1398,20 @@ KOSPI(0001)·KOSDAQ(1001)의 최신 종가지수 + 전일대비 등락폭·등�
 |---|---|---|
 | `indexCode` | string | 지수코드 (0001=KOSPI, 1001=KOSDAQ) |
 | `market` | `'KOSPI' \| 'KOSDAQ'` | 시장 구분 |
-| `tradeDate` | string (YYYYMMDD) | 최신 거래일 |
-| `closeIndex` | number | 최신 종가지수 |
-| `prevCloseIndex` | number \| null | 전일 종가지수 (없으면 null) |
+| `tradeDate` | string (YYYYMMDD) | REALTIME=조회 당일(KST), EOD=종가 기준 거래일 |
+| `closeIndex` | number | 최신 지수값(REALTIME=현재 지수, EOD=종가지수) |
+| `prevCloseIndex` | number \| null | 전일(직전) 지수 (없으면 null) |
 | `change` | number \| null | 전일대비 등락폭(포인트) |
 | `changePercent` | number \| null | 전일대비 등락률(%) |
 | `suspect` | boolean | 데이터 정합 의심 플래그 (DAR-367) |
+| `source` | `'REALTIME' \| 'EOD'` | 가격 출처 (DAR-371). EOD 는 `tradeDate` 가 '종가 기준일' |
+| `asOf` | string(ISO) \| null | REALTIME 일 때 서버 KIS 조회 시각. EOD 면 null |
 
 > 전일 데이터가 1건뿐이면 `prevCloseIndex`·`change`·`changePercent`는 `null`. 데이터가 전혀 없으면 빈 배열(홈 배지 미표시).
+>
+> **DAR-371 신선도 정직.** 홈 배지는 `source` 로 신선도를 정직하게 표기한다 — `REALTIME` 은 '실시간',
+> `EOD` 는 'YYYY.MM.DD 종가' 기준일 라벨. KRX 일봉이 환경 시계보다 지연(예: 최신 가용일 20260605)되어
+> stale 종가를 '현재'로 오인하던 신뢰 문제를 차단한다.
 >
 > **DAR-367 연속성 sanity 가드.** 인접 거래일 종가 대비 |Δ| 가 ±20% 를 초과하면(물리적으로
 > 불가능한 수준) 전일 종가가 오염된 것으로 보고 `prevCloseIndex`·`change`·`changePercent` 를
@@ -1486,4 +1501,4 @@ GET /api/companies/:corpCode/event-study   (OptionalJwt — 게스트 열람)
 ---
 
 **작성일**: 2026-06-14
-**버전**: 1.9 (매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)
+**버전**: 1.10 (시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)

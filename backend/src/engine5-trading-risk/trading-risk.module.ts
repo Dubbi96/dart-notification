@@ -13,20 +13,35 @@ import { PaperTradeService } from './services/paper-trade.service';
 import { OrderRiskService } from './services/order-risk.service';
 import { AuditLogQueryService } from './services/audit-log-query.service';
 import { AuditLogQueryController } from './services/audit-log-query.controller';
+import { AutoTradingStatusService } from './services/auto-status.service';
+import { AutoTradingStatusController } from './services/auto-status.controller';
 import { PrismaPaperTradeRepository } from './repositories/prisma-paper-trade.repository';
 import { PrismaAuditLogRepository } from './repositories/prisma-audit-log.repository';
 import { PrismaKillSwitchStateRepository } from './repositories/prisma-kill-switch-state.repository';
 import { KillSwitchManager } from './domain/kill-switch';
 import { PrismaModule } from '../prisma/prisma.module';
+import { PrismaService } from '../prisma/prisma.service';
 import { PaperTradingController } from './paper-trading/paper-trading.controller';
 import { PaperTradingService } from './paper-trading/paper-trading.service';
 
 @Module({
   imports: [PrismaModule],
-  controllers: [PaperTradingController, AuditLogQueryController],
+  controllers: [
+    PaperTradingController,
+    AuditLogQueryController,
+    AutoTradingStatusController,
+  ],
   providers: [
     PaperTradingService,
     AuditLogQueryService,
+    // DAR-361: 자동매매 실행상태 read-only 투명성(킬스위치·리스크게이트·최근 주문).
+    // KillSwitchManager(영속 상태) + PrismaService(OrderRequest 조회)를 주입받아 집계만 한다.
+    {
+      provide: AutoTradingStatusService,
+      useFactory: (prisma: PrismaService, killSwitch: KillSwitchManager) =>
+        new AutoTradingStatusService(prisma, killSwitch),
+      inject: [PrismaService, KillSwitchManager],
+    },
     PrismaPaperTradeRepository,
     PrismaAuditLogRepository,
     PrismaKillSwitchStateRepository,

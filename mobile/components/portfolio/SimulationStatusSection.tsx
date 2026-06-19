@@ -281,6 +281,15 @@ function SummaryHeader({
           onPress={() => router.push('/philosophy')}
           accessibilityLabel="철학 체크리스트 — 투자거장 원칙으로 종목 점검"
         />
+        {/* DAR-361: 자동매매 상태(읽기전용 투명성) 진입을 C(DAR-358) 간결 푸터 바에 합류.
+            중복 '철학 체크' 금지 — 모니터링 전용 진입만 추가. */}
+        <View style={[styles.footerDivider, { backgroundColor: colors.border }]} />
+        <FooterLink
+          icon="shield"
+          label="자동매매 상태"
+          onPress={() => router.push('/portfolio/auto-trading')}
+          accessibilityLabel="자동매매 상태 — 킬스위치·리스크게이트·최근 실행 모니터링. 자동 실행은 준비중."
+        />
       </View>
 
       {/* 보유 포지션 — 리스트 헤더로 시각 축소 (DAR-358) */}

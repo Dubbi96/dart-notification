@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { View, Text, FlatList, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Banner } from 'react-native-paper';
+import { Feather } from '@expo/vector-icons';
 import { router, useScrollToTop } from 'expo-router';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
@@ -25,6 +26,7 @@ import {
   usePaperPortfolio,
 } from '@hooks/usePortfolio';
 import { pnlColor, formatPnlPercent } from '@utils/signalDisplay';
+import { currentPortfolioBasisLabel } from '@utils/marketQuoteDisplay';
 import { dedupeByStock } from '@utils/dedupe';
 import { PORTFOLIO_TABS, pickLiveEmptyState } from '@utils/portfolioTabs';
 
@@ -45,6 +47,8 @@ export default function PortfolioScreen() {
   const [subTab, setSubTab] = useState<PortfolioSubTab>('live');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('urgency');
+  // DAR-356: '오늘 점검할 포지션'은 요약 아래로 강등(세컨더리)하고 기본 접힘 — 요약 글랜스 보호.
+  const [showTodayCheck, setShowTodayCheck] = useState(false);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   // DAR-181: 탭 재탭 시 최상단 복귀. 실전·모의 FlatList는 상호배타로 하나만 마운트되어
@@ -99,6 +103,17 @@ export default function PortfolioScreen() {
     [handlePositionPress],
   );
 
+  // DAR-356: 접힘 토글 표시/카운트용 — TodayCheckSlot 큐레이션 조건과 동일 술어(점검 대상만 노출).
+  const todayCheckCount = useMemo(() => {
+    const data = positionsQuery.data ?? [];
+    return data.filter(
+      (p) =>
+        p.exitScore !== undefined ||
+        p.thesisStatus === 'VIOLATED' ||
+        p.thesisStatus === 'EXPIRED',
+    ).length;
+  }, [positionsQuery.data]);
+
   const renderLive = () => {
     if (positionsQuery.isLoading) return <SkeletonList variant="buyScore" />;
     if (positionsQuery.isError) {
@@ -106,37 +121,69 @@ export default function PortfolioScreen() {
     }
 
     const summary = summaryQuery.data;
+    const basisLabel = currentPortfolioBasisLabel();
 
     return (
-      <FlatList
-        ref={listRef}
-        data={filteredPositions}
-        renderItem={renderPosition}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        removeClippedSubviews={false}
-        initialNumToRender={8}
-        maxToRenderPerBatch={8}
-        windowSize={7}
-        refreshing={positionsQuery.isRefetching}
-        onRefresh={() => {
-          positionsQuery.refetch();
-          summaryQuery.refetch();
-          riskQuery.refetch();
-        }}
-        ListHeaderComponent={
+      <View style={styles.liveBody}>
+        {/* DAR-356: 검색/정렬은 요약과 리스트 사이에서 제거 → 헤더 상단 고정.
+            스크롤로 사라지지 않고, 요약 글랜스 존을 밀어내지 않는다. 검색 대상이 있을 때만 노출. */}
+        {(positionsQuery.data?.length ?? 0) > 0 ? (
+          <View style={styles.fixedSearch}>
+            <PositionSearchBar
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              sortKey={sortKey}
+              onSortChange={setSortKey}
+            />
+          </View>
+        ) : null}
+        <FlatList
+          ref={listRef}
+          data={filteredPositions}
+          renderItem={renderPosition}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          removeClippedSubviews={false}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={7}
+          refreshing={positionsQuery.isRefetching}
+          onRefresh={() => {
+            positionsQuery.refetch();
+            summaryQuery.refetch();
+            riskQuery.refetch();
+          }}
+          ListHeaderComponent={
           <View style={styles.liveHeader}>
             {summary ? (
               <Surface elevation={1} style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Text style={[typo.small, { color: colors.textSecondary }]}>총 평가금액</Text>
-                <Text style={[typo.h2, { color: colors.text, marginTop: spacing.xs }]}>
+                {/* DAR-356 GROUND-1: 총평가금액(대형) 1줄 + 손익 색조 1줄 = 2줄 헤드라인.
+                    무스크롤 최상단에서 '내 상태 어때?'를 2초 내 글랜스로 파악. */}
+                <View style={styles.summaryTopRow}>
+                  <Text style={[typo.small, { color: colors.textSecondary }]}>총 평가금액</Text>
+                  {/* DAR-356 GROUND-2: 신선도 정직 표기('기준: 실시간' | '기준: 장 마감'). */}
+                  <Text style={[typo.small, { color: colors.textTertiary }]}>{basisLabel}</Text>
+                </View>
+                <Text
+                  style={[typo.h1, styles.headlineValue, { color: colors.text }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
+                >
                   {summary.totalValue.toLocaleString()}원
                 </Text>
-                <Text style={[typo.captionMedium, { color: pnlColor(summary.totalPnlPercent, colors), marginTop: spacing.xs }]}>
-                  {summary.totalPnl.toLocaleString()}원 ({formatPnlPercent(summary.totalPnlPercent)})
-                </Text>
-                {/* DAR-163: 최신 리스크 스냅샷(일손익·집중도·하드룰 위반). 데이터 없으면 미표시. */}
+                <View style={styles.headlinePnlRow}>
+                  <Feather
+                    name={summary.totalPnlPercent < 0 ? 'trending-down' : 'trending-up'}
+                    size={16}
+                    color={pnlColor(summary.totalPnlPercent, colors)}
+                  />
+                  <Text style={[typo.bodyMedium, styles.headlinePnl, { color: pnlColor(summary.totalPnlPercent, colors) }]}>
+                    {summary.totalPnl >= 0 ? '+' : ''}{summary.totalPnl.toLocaleString()}원 ({formatPnlPercent(summary.totalPnlPercent)})
+                  </Text>
+                </View>
+                {/* DAR-163/356: 리스크 스냅샷(하드룰 위반 전폭 배너 우선 → 일손익·집중도 1줄). 없으면 미표시. */}
                 <PortfolioRiskBadge snapshot={riskQuery.data} style={styles.riskBadge} />
                 {summary.mddBreached ? (
                   <Banner visible actions={[]} style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}>
@@ -147,13 +194,29 @@ export default function PortfolioScreen() {
                 ) : null}
               </Surface>
             ) : null}
-            <TodayCheckSlot positions={positionsQuery.data ?? []} onPress={handlePositionPress} />
-            <PositionSearchBar
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              sortKey={sortKey}
-              onSortChange={setSortKey}
-            />
+
+            {/* DAR-356: '오늘 점검할 포지션'은 요약 아래 세컨더리 + 기본 접힘. 글랜스 존을 덮지 않는다. */}
+            {todayCheckCount > 0 ? (
+              <View>
+                <TouchableOpacity
+                  style={[styles.collapseToggle, { borderColor: colors.borderLight, backgroundColor: colors.surface }]}
+                  onPress={() => setShowTodayCheck((v) => !v)}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: showTodayCheck }}
+                  accessibilityLabel={`오늘 점검할 포지션 ${todayCheckCount}건 ${showTodayCheck ? '접기' : '펼치기'}`}
+                >
+                  <Feather name="check-circle" size={14} color={colors.textSecondary} />
+                  <Text style={[typo.captionMedium, styles.collapseLabel, { color: colors.text }]}>
+                    오늘 점검할 포지션 {todayCheckCount}건
+                  </Text>
+                  <Feather name={showTodayCheck ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textSecondary} />
+                </TouchableOpacity>
+                {showTodayCheck ? (
+                  <TodayCheckSlot positions={positionsQuery.data ?? []} onPress={handlePositionPress} />
+                ) : null}
+              </View>
+            ) : null}
           </View>
         }
         ListEmptyComponent={
@@ -176,7 +239,8 @@ export default function PortfolioScreen() {
             />
           )
         }
-      />
+        />
+      </View>
     );
   };
 
@@ -346,6 +410,13 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
   },
+  liveBody: {
+    flex: 1,
+  },
+  fixedSearch: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
   listContent: {
     padding: spacing.lg,
     gap: spacing.md,
@@ -360,8 +431,38 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: spacing.base,
   },
+  summaryTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headlineValue: {
+    marginTop: spacing.xs,
+  },
+  headlinePnlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  headlinePnl: {
+    fontWeight: '700',
+  },
   riskBadge: {
-    marginTop: spacing.sm,
+    marginTop: spacing.md,
+  },
+  collapseToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    minHeight: 44,
+  },
+  collapseLabel: {
+    flex: 1,
   },
   paperHeader: {
     gap: spacing.md,

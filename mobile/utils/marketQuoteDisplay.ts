@@ -75,6 +75,25 @@ export function quoteUpdatedAgo(updatedAt: number | null | undefined): string {
   return formatUpdatedAgo(updatedAt, Date.now());
 }
 
+/**
+ * 포트폴리오 요약/리스크 신선도 라벨(DAR-356) — 표시 값이 어느 시점 기준인지 정직 고지.
+ * 장중(평일 09:00–15:30 KST)이면 시세가 실시간 갱신되므로 '기준: 실시간', 그 외(마감·주말)엔
+ * 직전 종가 기준이므로 '기준: 장 마감'으로 표기한다. 절대 시각을 단정하지 않는다(시계 괴리 정직).
+ * 순수 함수 — 진리표로 검증(check-portfolio-visibility.ts).
+ */
+export function portfolioBasisLabel(isMarketOpen: boolean): string {
+  return isMarketOpen ? '기준: 실시간' : '기준: 장 마감';
+}
+
+/**
+ * portfolioBasisLabel 의 렌더용 래퍼 — new Date() 를 util 내부에서 호출해
+ * 컴포넌트 렌더에서 직접 new Date()/Date.now() 호출(react-hooks/purity)을 피한다
+ * (quoteUpdatedAgo 와 동일 idiom).
+ */
+export function currentPortfolioBasisLabel(): string {
+  return portfolioBasisLabel(isKstMarketOpen(new Date()));
+}
+
 export interface QuoteSourceMeta {
   /** 배지 라벨 — '실시간'(REALTIME) | '종가'(DAILY). */
   label: string;

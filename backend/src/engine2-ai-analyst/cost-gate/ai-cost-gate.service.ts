@@ -10,8 +10,13 @@ import { AiCostLevel, AiGateInput } from '../types/ai-analyst.types';
  */
 @Injectable()
 export class AiCostGateService {
-  /** 거래대금 하한 — 이 미만은 분석 가치 낮아 L0(스킵). 잠정값, DQ 파트가 확정. */
-  private static readonly THRESHOLD_MIN_TRADING_VALUE = 100_000_000; // 1억원
+  /**
+   * 거래대금 하한 — 이 미만은 L0(AI 스킵).
+   * ★전수분석(2026-06-19 사용자지시): 0 으로 완화 — 거래대금 무관 전 공시를 AI 분석 대상에 포함한다.
+   *   (종전 1억원. L0≥70% 비용규율 회귀게이트는 전수분석 모드에서 의도적으로 완화됨 — engine2/CLAUDE.md 참조.)
+   *   절대 비용은 AiCostLimitGuard 의 일일 한도($1/day)가 하드 백스톱으로 보호한다.
+   */
+  private static readonly THRESHOLD_MIN_TRADING_VALUE = 0;
 
   evaluateGate(input: AiGateInput): AiCostLevel {
     // 1. 무조건 L0(AI 미사용) 조건

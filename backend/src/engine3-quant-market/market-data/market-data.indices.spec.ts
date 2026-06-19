@@ -175,6 +175,7 @@ describe('MarketDataController.latestIndices (DAR-160)', () => {
       {} as unknown as KrxMarketDataScheduler,
       {} as unknown as StockQuoteService,
       { fetchLatestIndices } as unknown as MarketDataService,
+      {} as unknown as import('./candle-history.service').CandleHistoryService,
     );
 
     const res = await controller.latestIndices();

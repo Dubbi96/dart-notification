@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MarketDataService } from './market-data.service';
 import { StockQuoteService } from './stock-quote.service';
+import { CandleHistoryService } from './candle-history.service';
 import { KrxApiService } from './krx-api.service';
 import { KrxMarketDataScheduler } from './krx-market-data.scheduler';
 import { DartStockStatusService } from './dart-stock-status.service';
@@ -18,6 +19,8 @@ import { RealtimeQuoteModule } from './realtime-quote.module';
   providers: [
     MarketDataService,
     StockQuoteService,
+    // DAR-378: TimescaleDB 분봉/일봉 구간 조회(하이퍼테이블+연속집계, read-only).
+    CandleHistoryService,
     KrxApiService,
     KrxMarketDataScheduler,
     DartStockStatusService,
@@ -28,6 +31,7 @@ import { RealtimeQuoteModule } from './realtime-quote.module';
   exports: [
     MarketDataService,
     StockQuoteService,
+    CandleHistoryService,
     KrxApiService,
     KrxMarketDataScheduler,
     DartStockStatusService,

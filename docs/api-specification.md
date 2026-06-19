@@ -1500,5 +1500,56 @@ GET /api/companies/:corpCode/event-study   (OptionalJwt — 게스트 열람)
 
 ---
 
-**작성일**: 2026-06-14
-**버전**: 1.10 (시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)
+## 17. 구간 캔들 (Candles — TimescaleDB, DAR-378)
+
+### 17.1 분봉/일봉 구간 조회
+
+```
+GET /api/market-data/candles?stockCode=005930&resolution=5m&from=20260501&to=20260530&limit=200   (OptionalJwt — 게스트 열람)
+```
+
+TimescaleDB 분봉 하이퍼테이블(`stock_minute_prices`)과 연속집계(`stock_candles_5m/15m/1d`)에서
+**구간(from~to) + 해상도 + 페이지네이션 + 서버측 다운샘플**로 캔들을 조회한다. 모바일에 원본 분봉을
+대량 전송하지 않도록 `limit`(기본 200, 최대 1000)으로 상한을 강제하고, 해상도가 높을수록 연속집계
+롤업 뷰를 조회해 원본 풀스캔을 피한다. 당일 KIS 실시간 분봉(`minute-candles`, DAR-352)과 달리
+**적재된 시계열을 구간 조회**한다.
+
+**쿼리 파라미터**
+
+| 파라미터 | 필수 | 설명 |
+|---|---|---|
+| `stockCode` | ✅ | 종목코드 6자리 (위반 시 400) |
+| `resolution` | — | `1m`(기본)·`5m`·`15m`·`1d`. 5m/15m/1d 는 연속집계 롤업 |
+| `from` | — | 구간 시작(포함) — ISO 8601 또는 `YYYYMMDD`/`YYYYMMDDHHmm`(UTC) |
+| `to` | — | 구간 끝(포함) — `from` 과 동일 형식 (`from > to` 면 400) |
+| `before` | — | 페이지네이션 커서 — 이 시각 이전(미만) 캔들만(과거 페이지). 응답 `nextCursor` 사용 |
+| `limit` | — | 한 페이지 캔들 수 (기본 200, 최대 1000) |
+
+**응답** — `candles` 는 시간 오름차순. `source` 는 `TIMESCALE`(조회 성공) 또는 `UNAVAILABLE`
+(확장/마이그레이션 미적용 등 — 빈 배열 graceful, 비파괴). `asOf` 는 서버 조회시각(환경 시계 괴리 고지).
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "stockCode": "005930",
+    "resolution": "5m",
+    "source": "TIMESCALE",
+    "asOf": "2026-06-20T05:00:00.000Z",
+    "count": 200,
+    "nextCursor": "2026-05-29T00:00:00.000Z",
+    "candles": [
+      { "time": "2026-05-29T00:05:00.000Z", "open": 70100, "high": 70530, "low": 69950, "close": 70450, "volume": 8064 }
+      /* … 오름차순 … */
+    ]
+  }
+}
+```
+
+OHLCV 롤업 규칙(연속집계): open=first(ts)·high=max·low=min·close=last(ts)·volume=sum.
+실측: 1d 롤업이 원본-분봉 집계(high/low/volume)와 정확 일치.
+
+---
+
+**작성일**: 2026-06-20
+**버전**: 1.11 (구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)

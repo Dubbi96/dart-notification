@@ -8,6 +8,7 @@ import {
   MinuteCandlesResult,
 } from './stock-quote.service';
 import { KisApiService, KisMinuteCandle } from './kis-api.service';
+import { CandleHistoryService } from './candle-history.service';
 
 /**
  * DAR-352: 분봉 엔드포인트 노출. quote 와 동일하게 게스트 열람(OptionalJwtAuthGuard) 이어야 하고,
@@ -21,6 +22,7 @@ describe('MarketDataController.getMinuteCandles (DAR-352)', () => {
       {} as unknown as KrxMarketDataScheduler,
       stockQuote,
       {} as unknown as MarketDataService,
+      {} as unknown as CandleHistoryService,
     );
     return { controller, getMinuteCandles };
   }

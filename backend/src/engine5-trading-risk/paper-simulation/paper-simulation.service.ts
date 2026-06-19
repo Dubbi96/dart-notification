@@ -15,7 +15,9 @@
 
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { formatKstDateCompact } from '../../common/time/kst';
+import { formatKstDateCompact, isKstRegularMarketHours } from '../../common/time/kst';
+import { KisApiService } from '../../engine3-quant-market/market-data/kis-api.service';
+import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realtime-quote.cache';
 import { PaperTradeService } from '../services/paper-trade.service';
 import { NotificationProducerService } from '../../notifications/notification-producer.service';
 import { PrismaExitSignalRepository } from '../../engine4-portfolio-exit/repositories/prisma-exit-signal.repository';
@@ -78,6 +80,9 @@ const EXIT_ACTIONS = new Set(['EXIT', 'BLOCK_REBUY']);
 export class PaperSimulationService {
   private readonly logger = new Logger(PaperSimulationService.name);
   private isRunning = false;
+  // DAR-366: 장중 손절 모니터 단일 실행 락 — N분 cron 이 능동 fetch+평가가 길어져 겹치면
+  //   KIS rate-limit·중복 매도 위험. 진행 중이면 이번 틱을 건너뛴다(일일 사이클 isRunning 과 분리).
+  private isIntradayRunning = false;
 
   static readonly SIM_USER_EMAIL = 'paper-sim@system.local';
   static readonly SIM_PORTFOLIO_NAME = '모의운용 포트폴리오';
@@ -99,6 +104,14 @@ export class PaperSimulationService {
     // 종전대로 StockDailyPrice 직접 읽기로 폴백(회귀 0). 합성 모드는 플래그로만 활성.
     @Optional()
     private readonly priceSource?: SimulationPriceSourceService,
+    // DAR-366: 장중 손절 모니터의 '능동 fetch'용 KIS 현재가 조회. @Optional — 미주입/키 미설정이면
+    //   능동 fetch no-op(캐시에 남은 값만 사용). 시세 수집 primitive(engine3·market-data) — AI 무관.
+    @Optional()
+    private readonly kis?: KisApiService,
+    // DAR-366: 능동 fetch 한 실시간가를 적재할 전역 캐시(@Global). 미주입이면 fetch 결과를 적재하지
+    //   못하므로 능동 fetch 비활성(평가는 priceSource 폴백). evaluateExits 가 이 캐시를 실가 1순위로 읽는다.
+    @Optional()
+    private readonly realtimeCache?: RealtimeQuoteCache,
   ) {}
 
   /** 모의운용 전용 포트폴리오 find-or-create (고정 시스템 유저) */
@@ -174,6 +187,101 @@ export class PaperSimulationService {
     } finally {
       this.isRunning = false;
     }
+  }
+
+  /**
+   * DAR-366(★②의 효력을 살리는 필수 경로) — 장중 연속 손절 모니터.
+   *
+   * 라이브 검증(2026-06-19)으로 확정: KIS 실시간가는 KRX 정규장(09:00~15:30 KST)에만 존재하고,
+   * 일배치 손절 cron 은 장 마감 후(19:30)라 그 시각엔 실시간이 영영 없다 → ① 단독은 정체된 일봉만
+   * 평가해 손절이 영영 미발화. 따라서 '장중에 실시간 실가로 평가'하는 것이 손절이 작동하는 유일한 경로다.
+   *
+   * 동작(능동 fetch 우선): ① 장시간 게이트 → ② 보유 종목 실시간 현재가를 KIS 에서 능동 조회해 캐시
+   *   적재(누가 안 부르면 캐시는 빈다 — 모바일 우연 캐싱에 의존 금지) → ③ evaluateExits(실가 1순위로 평가).
+   *   장외/휴장/키 미설정이면 평가 없이 스킵(거짓 손절 방지·로그/호출 0). throw 없이 결과로만 보고.
+   */
+  async runIntradayExitMonitor(
+    now: Date = new Date(),
+  ): Promise<{
+    ran: boolean;
+    skipped: boolean;
+    reason?: string;
+    fetched: number;
+    cached: number;
+    exited: number;
+    tradeDate: string;
+  }> {
+    const tradeDate = formatKstDateCompact(now);
+    // ① 장시간 게이트 — 평일 09:00~15:30 KST 만. 장외/주말은 실시간 부재 → 평가 스킵(정직).
+    if (!isKstRegularMarketHours(now)) {
+      return { ran: false, skipped: true, reason: '장외(정규장 09:00~15:30 KST 아님)', fetched: 0, cached: 0, exited: 0, tradeDate };
+    }
+    // 겹침 가드 — 이전 틱이 아직 fetch/평가 중이면 이번 틱 건너뜀.
+    if (this.isIntradayRunning) {
+      return { ran: false, skipped: true, reason: '이전 장중 모니터 진행 중', fetched: 0, cached: 0, exited: 0, tradeDate };
+    }
+    this.isIntradayRunning = true;
+    try {
+      const pf = await this.getOrCreateSimPortfolio();
+      // ② 보유 종목 실시간 현재가 능동 fetch → 캐시 적재(실가 1순위 평가의 전제).
+      const { fetched, cached } = await this.refreshHoldingsRealtime(pf.id);
+      // ③ 실가 기준 Exit 평가 — evaluateExits 가 latestPriceRow(REALTIME 1순위)로 읽는다.
+      const exited = await this.evaluateExits(pf.id, tradeDate);
+      if (exited > 0 || cached > 0) {
+        this.logger.log(
+          `[PaperSim][장중모니터] tradeDate=${tradeDate} fetch=${fetched} cached=${cached} 매도=${exited}`,
+        );
+      }
+      return { ran: true, skipped: false, fetched, cached, exited, tradeDate };
+    } catch (e) {
+      // cron 스케줄 유지 위해 흡수(결과로 보고). 부분 매도는 evaluateExits 내에서 종목별 독립.
+      this.logger.error(`[PaperSim][장중모니터] 오류: ${(e as Error).message}`);
+      return { ran: false, skipped: true, reason: (e as Error).message, fetched: 0, cached: 0, exited: 0, tradeDate };
+    } finally {
+      this.isIntradayRunning = false;
+    }
+  }
+
+  /**
+   * DAR-366: 보유 OPEN 포지션 종목의 실시간 현재가를 KIS 에서 능동 조회해 RealtimeQuoteCache 에 적재한다.
+   *   - KIS 미주입/키 미설정·캐시 미주입이면 no-op(fetched=0) → 평가는 priceSource 폴백(회귀 0).
+   *   - 보유 종목(≤MAX_HOLDINGS)만, corpCode 중복 제거 → 레이트리밋·비용 가드. 순차 호출(겹침 락이 보호).
+   *   - 한 종목 실패는 건너뛰고 계속(graceful) — 장중 모니터를 깨지 않는다.
+   *   ★시세 수집 primitive(HTTP/캐시)만 — 체결·주문수량·하드룰 무관(AI 금지영역 미접촉).
+   */
+  private async refreshHoldingsRealtime(
+    portfolioId: string,
+  ): Promise<{ fetched: number; cached: number }> {
+    if (!this.kis?.isConfigured || !this.realtimeCache) return { fetched: 0, cached: 0 };
+    const open = await this.prisma.position.findMany({
+      where: { portfolioId, status: 'OPEN' },
+      select: { corpCode: true, stockCode: true },
+    });
+    const byCorp = new Map<string, { corpCode: string; stockCode: string }>();
+    for (const r of open) {
+      if (!r.corpCode || !r.stockCode) continue;
+      if (!byCorp.has(r.corpCode)) byCorp.set(r.corpCode, { corpCode: r.corpCode, stockCode: r.stockCode });
+      if (byCorp.size >= PaperSimulationService.MAX_HOLDINGS) break;
+    }
+    let fetched = 0;
+    let cached = 0;
+    for (const { corpCode, stockCode } of byCorp.values()) {
+      fetched++;
+      const q = await this.kis.fetchCurrentPrice(stockCode);
+      if (!q || q.price <= 0) continue;
+      this.realtimeCache.set({
+        corpCode,
+        stockCode,
+        price: q.price,
+        open: q.open,
+        high: q.high,
+        low: q.low,
+        volume: q.volume,
+        fetchedAtMs: Date.now(),
+      });
+      cached++;
+    }
+    return { fetched, cached };
   }
 
   /**

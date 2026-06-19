@@ -67,3 +67,42 @@ export function kstDayStart(date: Date): Date {
 export function kstMonthStart(date: Date): Date {
   return new Date(`${formatKstDateDashed(date).slice(0, 7)}-01T00:00:00+09:00`);
 }
+
+/** KST 벽시계 요일(영문 약어)·분(0~1439) 추출용 — 시스템 TZ 무관(Intl). */
+const KST_CLOCK = new Intl.DateTimeFormat('en-GB', {
+  timeZone: KST_TIMEZONE,
+  weekday: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/**
+ * KST 벽시계 요일·자정 기준 분(minute-of-day). 시스템 TZ 무관.
+ * @returns weekday: 'Mon'..'Sun', minutes: 0~1439(=hour*60+minute)
+ */
+export function kstClock(date: Date): { weekday: string; minutes: number } {
+  const p: Record<string, string> = {};
+  for (const part of KST_CLOCK.formatToParts(date)) p[part.type] = part.value;
+  return { weekday: p.weekday, minutes: Number(p.hour) * 60 + Number(p.minute) };
+}
+
+/** KRX 정규장 시작·종료(KST 분). 09:00~15:30. */
+export const KRX_REGULAR_OPEN_MIN = 9 * 60; // 540
+export const KRX_REGULAR_CLOSE_MIN = 15 * 60 + 30; // 930
+
+/**
+ * KST 정규장 운영 시간대 여부 — 평일(월~금) 09:00~15:30(경계 포함).
+ *
+ * ★KRX 공휴일/임시휴장은 미반영(달력 데이터 비의존). 휴장일에는 KIS 실시간가 자체가 없어
+ *   소비측(SimulationPriceSourceService)이 신선도로 자동 폴백한다 — 즉 휴장일 평가는 실시간이
+ *   비어 손절이 '거짓 발화'하지 않는다(시장 닫힘 = 정직). 이 게이트의 목적은 장외 불필요 호출·
+ *   로그 폭주 차단이며, 휴장 안전은 신선도 게이트가 이중으로 보장한다.
+ */
+export function isKstRegularMarketHours(date: Date): boolean {
+  const { weekday, minutes } = kstClock(date);
+  const isWeekday =
+    weekday === 'Mon' || weekday === 'Tue' || weekday === 'Wed' ||
+    weekday === 'Thu' || weekday === 'Fri';
+  return isWeekday && minutes >= KRX_REGULAR_OPEN_MIN && minutes <= KRX_REGULAR_CLOSE_MIN;
+}

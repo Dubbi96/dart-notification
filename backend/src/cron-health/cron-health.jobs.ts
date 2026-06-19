@@ -19,6 +19,8 @@ export const CRON_JOB_KEYS = {
   KIS_REALTIME: 'kis.realtime-poll', // 장중 실시간 현재가 폴링
   // DAR-347: FAILED 이벤트 자동복구 — reprocess 경로를 주기 호출해 사일런트 손실 방지.
   FAILED_EVENT_RECOVERY: 'failed-event.recovery',
+  // DAR-366: 장중 손절 모니터 — 보유종목 실시간 능동 fetch 후 Exit 평가(실가 -8% 손절 발화 유일 경로).
+  INTRADAY_EXIT_MONITOR: 'paper.intraday-exit',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -141,5 +143,15 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: 120, // 2시간 — 매시간 가동, 한 사이클 누락까지 허용
     cadence: '매시간',
+  },
+  {
+    // DAR-366: 장중 손절 모니터. 정규장(09:00~15:30) 내 N분 가동. 16:00~ 장 마감 후 공백을
+    //   흡수하도록 임계를 넉넉히(3h). 키 미설정/장외엔 기록이 없으므로(스킵) 장중 무가동만 stale.
+    jobKey: CRON_JOB_KEYS.INTRADAY_EXIT_MONITOR,
+    label: '장중 손절 모니터',
+    source: 'CRON_RUN_LOG',
+    window: 'WEEKDAY_INTRADAY',
+    staleAfterMinutes: 180, // 3시간 — 장 마감(15:30)~윈도 끝 공백 흡수
+    cadence: '평일 09:00~15:30 / 5분 간격',
   },
 ];

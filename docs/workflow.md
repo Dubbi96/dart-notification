@@ -703,7 +703,28 @@ IExitCheckScheduler.runPreMarketCheck() / runIntradayCheck() / runPostMarketChec
   모두 부재한 종목의 최후 폴백·레거시 검증 모드로만 남는다. source 라벨(REALTIME/REAL/SYNTHETIC)·원일자로 정직 고지(2026 오인 금지).
 - ★AI 금지영역 불변: 손절/주문수량/리스크는 순수 Rule — Engine5 독립, AI(engine2) 미개입.
 
+### 6.6 장중 연속 손절 모니터 — 능동 fetch (DAR-366)
+
+- **왜 필수인가(라이브 검증 2026-06-19)**: KIS 실시간가는 **KRX 정규장(09:00~15:30 KST)에만** 존재하고
+  장외엔 일봉(정체)으로 폴백한다. 일배치 손절 평가 cron(`30 19 * * 1-5`)은 **장 마감 후**라 그 시각엔 실시간이
+  영영 없어 정체 일봉으로만 평가 → 손절 영영 미발화. 따라서 **장중에 실시간 실가로 평가**하는 것이 손절이 작동하는 ★유일 경로다.
+
+| 점검 시간 | Cron | 설명 |
+|-----------|------|------|
+| 09:00~15:30 / 5분 | `*/5 9-15 * * 1-5` | `PaperSimulationScheduler.runIntradayExitMonitor` — 보유종목 실시간 능동 fetch → Exit 평가 |
+
+- **능동 fetch(핵심)**: `runIntradayExitMonitor` 는 `RealtimeQuoteCache` 를 '읽기'만 하지 않는다 — 캐시는 누가 채우지
+  않으면 빈다. 보유 OPEN 포지션 종목들의 실시간 현재가를 **KIS 에서 직접 조회(`refreshHoldingsRealtime`)해 캐시를 채운 뒤**
+  `evaluateExits` 를 호출한다(모바일이 화면을 열 때만 우연히 캐시되는 구조에 의존 금지).
+- **시장시간 게이트**: 메서드가 `isKstRegularMarketHours(now)`(평일 09:00~15:30 KST)로 정밀 클램프. cron 은 시(hour) 단위라
+  15:35~15:55 틱은 발화하되 메서드 게이트가 스킵한다. 장외/주말/휴장/KIS 키 미설정은 무가동 스킵(로그·호출 0).
+- **장외 정직**: 장 마감 후엔 실시간 불가가 정상 — 그땐 일배치(REAL)만. **장외 손절 미발화는 버그가 아니다(시장 닫힘)**.
+  단 장중 급락은 이 모니터가 5분 내 포착한다.
+- **멱등·비용**: `evaluateExits` 는 `status=OPEN` 만 처리 → 이미 청산(CLOSED)된 포지션 재처리 없음. 보유종목(≤`MAX_HOLDINGS`)만,
+  corpCode 중복 제거, 순차 호출 + 겹침 락(`isIntradayRunning`)으로 분 경계 누적·rate-limit 위반 차단. CronRunLog 는 실제 평가가 돈 틱만 기록.
+- ★AI 금지영역 불변: 능동 fetch 는 engine3 market-data primitive(HTTP/캐시), 손절은 순수 Rule — Engine5 독립, AI(engine2) 미개입.
+
 ---
 
 **작성일**: 2026-03-07
-**버전**: 1.3 (DAR-364: 모의운용 평가 가격 = 실시간 실가 통일 — 표시=엔진, -8% 손절 실발화)
+**버전**: 1.4 (DAR-366: 장중 연속 손절 모니터 — 보유종목 실시간 능동 fetch → 실가 -8% 손절 발화 유일 경로)

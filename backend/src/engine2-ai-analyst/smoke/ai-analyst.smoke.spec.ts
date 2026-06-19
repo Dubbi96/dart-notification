@@ -42,14 +42,16 @@ describe('[DAR-6] AiCostGate L0 비율 실측', () => {
       expectedLevel: AiCostLevel.L0,
     },
     {
-      desc: '저거래대금(5천만원) → L0',
+      // 전수분석(2026-06-19): 거래대금 하한 0 — 저거래대금이라도 대상 이벤트면 분석(L2).
+      desc: '저거래대금(5천만원) + 대상 이벤트 → L2 (전수분석)',
       input: { isManagementStock: false, isTargetEventType: true,  tradingValue: 50_000_000,    confidence: 0.9 },
-      expectedLevel: AiCostLevel.L0,
+      expectedLevel: AiCostLevel.L2,
     },
     {
-      desc: '저거래대금(9천9백만원) → L0',
+      // 전수분석(2026-06-19): 거래대금 하한 0 — 저거래대금이라도 대상 이벤트면 분석(L2).
+      desc: '저거래대금(9천9백만원) + 대상 이벤트 → L2 (전수분석)',
       input: { isManagementStock: false, isTargetEventType: true,  tradingValue: 99_000_000,    confidence: 0.9 },
-      expectedLevel: AiCostLevel.L0,
+      expectedLevel: AiCostLevel.L2,
     },
     {
       desc: '비분석 이벤트 + 저거래대금 → L0',
@@ -89,17 +91,28 @@ describe('[DAR-6] AiCostGate L0 비율 실측', () => {
     });
   });
 
-  it('L0 비율 ≥ 70% (실측)', () => {
+  // 전수분석(2026-06-19 사용자지시): L0≥70% 비용규율 가드는 의도적으로 완화됨.
+  //   거래대금 하한=0 으로 전 공시를 AI 분석하므로 L0 비율 하한을 강제하지 않는다.
+  //   대신 L0 은 '관리종목·비대상 이벤트'에서만 발생함을 검증한다(거래대금은 더 이상 L0 유발 안 함).
+  //   절대 비용은 AiCostLimitGuard 일일 $1 한도가 하드 백스톱. (engine2/CLAUDE.md 참조)
+  it('전수분석: L0 은 관리종목·비대상 이벤트에서만 발생(거래대금은 L0 유발 안 함)', () => {
     const levels = samples.map((s) => gate.evaluateGate(s.input));
     const l0Count = levels.filter((l) => l === AiCostLevel.L0).length;
-    const l0Ratio = l0Count / samples.length;
-
-    // 실측값 출력 (CI 로그 캡처용)
     console.log(
-      `[DAR-6] L0 실측: ${l0Count}/${samples.length} = ${(l0Ratio * 100).toFixed(0)}%`,
+      `[전수분석] L0 실측: ${l0Count}/${samples.length} = ${((l0Count / samples.length) * 100).toFixed(0)}% (≥70% 가드 완화)`,
     );
 
-    expect(l0Ratio).toBeGreaterThanOrEqual(0.7);
+    // 저거래대금이라도 대상 이벤트면 분석된다(L0 아님).
+    expect(
+      gate.evaluateGate({ isManagementStock: false, isTargetEventType: true, tradingValue: 1_000, confidence: 0.9 }),
+    ).not.toBe(AiCostLevel.L0);
+    // 관리종목·비대상 이벤트는 여전히 L0.
+    expect(
+      gate.evaluateGate({ isManagementStock: true, isTargetEventType: true, tradingValue: 5_000_000_000, confidence: 0.9 }),
+    ).toBe(AiCostLevel.L0);
+    expect(
+      gate.evaluateGate({ isManagementStock: false, isTargetEventType: false, tradingValue: 5_000_000_000, confidence: 0.9 }),
+    ).toBe(AiCostLevel.L0);
   });
 });
 

@@ -18,8 +18,11 @@ describe('AiCostGateService', () => {
     expect(gate.evaluateGate({ ...base, isTargetEventType: false })).toBe(AiCostLevel.L0);
   });
 
-  it('거래대금 하한 미만이면 L0', () => {
-    expect(gate.evaluateGate({ ...base, tradingValue: 1_000 })).toBe(AiCostLevel.L0);
+  it('전수분석(2026-06-19): 거래대금 하한 0 — 저거래대금도 L0 스킵 없이 분석된다', () => {
+    // 종전 1억 미만 → L0 였으나, 전수분석으로 거래대금 필터 해제(임계 0).
+    // 저거래대금이라도 대상 이벤트 + 충분한 신뢰도면 L2(요약·Persona)로 분석.
+    expect(gate.evaluateGate({ ...base, tradingValue: 1_000 })).toBe(AiCostLevel.L2);
+    expect(gate.evaluateGate({ ...base, tradingValue: 0 })).toBe(AiCostLevel.L2);
   });
 
   it('추출 신뢰도 < 0.5 이면 L1', () => {

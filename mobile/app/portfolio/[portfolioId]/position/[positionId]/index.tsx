@@ -81,6 +81,18 @@ export default function PositionDetailScreen() {
   const position = positionQuery.data;
   const thesis = thesisQuery.data;
 
+  // DAR-359: 손익% 위계 지배 — 이익/손실 글랜스. pnlColor(반올림 정합)로 부호를 판정해
+  // 전폭 색조 배경·방향 화살표를 결정한다(이익=초록, 손실=빨강, 보합=중립).
+  const pnlTextColor = position ? pnlColor(position.pnlPercent, colors) : colors.textSecondary;
+  const isProfit = pnlTextColor === colors.success;
+  const isLoss = pnlTextColor === colors.error;
+  const pnlSurface = isProfit
+    ? colors.successSurface
+    : isLoss
+      ? colors.errorSurface
+      : colors.surfaceSecondary;
+  const pnlArrow = isProfit ? 'trending-up' : isLoss ? 'trending-down' : 'minus';
+
   // Thesis 카드 보조 라벨 — 로딩/에러/무데이터/데이터를 명시적으로 분기(DAR-183).
   // 기존엔 data 존재여부만 봐 에러·무데이터에도 "불러오는 중…"으로 고착됐다.
   const thesisSummary = thesisQuery.isLoading
@@ -145,20 +157,32 @@ export default function PositionDetailScreen() {
                 {thesisStatusLabel(position.thesisStatus)}
               </Chip>
             </View>
-            <View style={[styles.pnlRow, { marginTop: spacing.sm }]}>
-              <Text style={[typo.h3, { color: pnlColor(position.pnlPercent, colors) }]}>
-                {formatPnlPercent(position.pnlPercent)}
-              </Text>
+            {/* DAR-359: 손익% 지배 블록 — typo.amount 전폭 색조 + 방향 화살표.
+                결과(손익)를 한눈에 추출하도록 입력값(가격·수량)보다 위계를 명확히 끌어올린다. */}
+            <View
+              style={[styles.pnlBlock, { backgroundColor: pnlSurface, marginTop: spacing.md }]}
+              accessibilityRole="summary"
+              accessibilityLabel={`손익 ${formatPnlPercent(position.pnlPercent)}`}
+            >
+              <View style={styles.pnlHeadline}>
+                <Feather name={pnlArrow} size={28} color={pnlTextColor} />
+                <Text style={[typo.amount, { color: pnlTextColor }]} numberOfLines={1}>
+                  {formatPnlPercent(position.pnlPercent)}
+                </Text>
+              </View>
               {position.currentPrice != null ? (
-                <Text style={[typo.caption, { color: colors.textSecondary }]}>
+                <Text style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
                   현재가 {position.currentPrice.toLocaleString()}원
                 </Text>
               ) : null}
             </View>
+            {/* 입력값 메타 — 작은 폰트·낮은 불투명도로 손익 결과와 시각 위계 분리. */}
             {position.quantity != null && position.avgPrice != null ? (
-              <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
-                {position.quantity}주 · 평균 {position.avgPrice.toLocaleString()}원
-              </Text>
+              <View style={[styles.metaSection, { borderTopColor: colors.border, marginTop: spacing.md }]}>
+                <Text style={[typo.small, { color: colors.textTertiary, opacity: 0.75 }]}>
+                  {position.quantity}주 · 평균 {position.avgPrice.toLocaleString()}원
+                </Text>
+              </View>
             ) : null}
           </Surface>
 
@@ -223,10 +247,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
-  pnlRow: {
+  pnlBlock: {
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  pnlHeadline: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: spacing.md,
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  metaSection: {
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
   },
   rowBetween: {
     flexDirection: 'row',

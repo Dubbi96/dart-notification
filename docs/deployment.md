@@ -95,6 +95,8 @@ services:
     image: timescale/timescaledb:2.17.2-pg15
     container_name: dart-notification-db
     restart: always
+    # DAR-382: 기존 볼륨 재사용 시 conf 자동설정이 안 돼 확장 적재가 실패하므로 preload 강제.
+    command: postgres -c shared_preload_libraries=timescaledb
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
@@ -120,10 +122,15 @@ docker-compose -f docker-compose.dev.yml up -d
 
 ```bash
 # 1) 이미지 교체 후 컨테이너 재생성 (기존 PG15 볼륨 호환 — 데이터 손실 0)
+#    ★DAR-382: docker-compose.dev.yml 의 command 가 shared_preload_libraries=timescaledb 를
+#    강제하므로, 신규/기존 볼륨 모두 재생성만으로 확장이 preload 된다(수동 ALTER SYSTEM 불요).
 docker-compose -f docker-compose.dev.yml up -d
 
+# 1-검) 확장 preload 확인 — timescaledb 가 포함돼야 한다.
+psql "$DATABASE_URL" -c "SHOW shared_preload_libraries;"   # → timescaledb
+
 # 2) 마이그레이션 적용 (휴먼 승인 ask). CREATE EXTENSION + 하이퍼테이블/압축/연속집계/보존 정책 생성
-cd backend && npx prisma migrate deploy   # 20260620000000_dar378_timescaledb_hypertables
+cd backend && npx prisma migrate deploy   # 20260620000000_dar381_minute_prices_timescaledb
 
 # 3) (선택) 정책·압축률 점검
 psql "$DATABASE_URL" -c "SELECT * FROM timescaledb_information.jobs WHERE hypertable_name IS NOT NULL;"
@@ -132,6 +139,11 @@ psql "$DATABASE_URL" -c "SELECT * FROM chunk_compression_stats('stock_minute_pri
 
 - 마이그레이션은 **순수 가산**(신규 `stock_minute_prices` 하이퍼테이블 + 확장 + 정책)이라 기존
   테이블/데이터(`stock_daily_prices` 등)를 건드리지 않는다.
+- ★**DAR-382 (preload 필수)**: `timescaledb` 확장은 `shared_preload_libraries` 에 등재돼야만 적재된다
+  (`extension "timescaledb" must be preloaded`). dev 는 compose `command` 가 강제하지만,
+  **운영/관리형 PostgreSQL(RDS·Cloud SQL·Supabase 등)은 파라미터그룹·확장 설정에서 직접
+  `shared_preload_libraries=timescaledb` 를 켜고 인스턴스를 재시작**해야 한다. self-host PG 라면
+  `postgresql.conf` 에 동일 항목 추가 후 재시작(또는 `ALTER SYSTEM SET ... ` + restart).
 - 일봉(`stock_daily_prices`) 하이퍼테이블 전환은 후순위(별도 마이그레이션).
 - 실측: 86,400행 적재 후 압축률 **10.7×(90.6% 절감)**, 1d 연속집계 롤업이 원본-분봉 집계와 정확 일치.
 
@@ -346,9 +358,13 @@ services:
       - dart-network
 
   postgres:
-    image: postgres:15-alpine
+    # DAR-378/DAR-382: 시계열(분봉/일봉) 운용을 위해 TimescaleDB 이미지 + preload 강제.
+    #   관리형 PostgreSQL(RDS·Cloud SQL 등)을 쓰는 경우 이미지가 아니라 파라미터그룹에서
+    #   shared_preload_libraries=timescaledb 를 켜고 인스턴스를 재시작해야 한다.
+    image: timescale/timescaledb:2.17.2-pg15
     container_name: dart-notification-db
     restart: always
+    command: postgres -c shared_preload_libraries=timescaledb
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

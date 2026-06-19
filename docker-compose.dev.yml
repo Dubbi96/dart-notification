@@ -9,6 +9,13 @@ services:
     image: timescale/timescaledb:2.17.2-pg15
     container_name: dart-notification-db
     restart: always
+    # DAR-382: shared_preload_libraries=timescaledb 를 command 로 명시한다.
+    #   timescaledb 이미지의 자동 conf 설정은 '신규 볼륨 초기화' 시에만 동작한다. 기존 PG15
+    #   postgres_data 볼륨을 재사용하면 conf 가 갱신되지 않아 'extension timescaledb must be
+    #   preloaded' 로 확장 적재가 실패한다. command 오버라이드는 볼륨 신규/기존과 무관하게 매
+    #   기동 시 preload 를 강제하므로, docker-compose up -d 재생성만으로 수동 ALTER SYSTEM 없이
+    #   CREATE EXTENSION 이 성공한다.
+    command: postgres -c shared_preload_libraries=timescaledb
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password

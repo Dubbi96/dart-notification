@@ -1,12 +1,14 @@
 import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface, Chip } from 'react-native-paper';
+import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { SignalMiniGauge } from '@components/signals/SignalMiniGauge';
 import { SignalFreshnessBadge } from '@components/signals/SignalFreshnessBadge';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
 import { getEventTypeLabel } from '@utils/disclosureType';
+import { getSignalTiming } from '@utils/signalTiming';
 
 import type { TradingSignal } from '@app-types/signal.types';
 
@@ -26,6 +28,13 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
   // 핵심 근거 1줄: AI 요약 우선, 없으면 점수·등급 기반 평문(항상 '(참고)' 꼬리표 포함).
   const rationale = signal.summary ?? scoreOneLiner(signal.buyScore, signal.grade);
 
+  // DAR-369: 발생 시점 — 신선/만료 무관 항상 표시(판단 가능성). 공시 접수일(rcpNo 앞 8자리) 우선,
+  // 없으면 createdAt 을 '신호' 라벨로 폴백(레코드 시각을 공시 발생으로 오인 방지).
+  const timing = getSignalTiming({
+    relatedDisclosureRcpNo: signal.relatedDisclosureRcpNo,
+    createdAt: signal.createdAt,
+  });
+
   return (
     <TouchableOpacity
       activeOpacity={0.8}
@@ -34,7 +43,9 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
       // 카드 단위 합성 읽기(§8-1) — 내부 요소 중복 읽기 방지
       accessibilityLabel={`${signal.corpName}${
         signal.eventType ? `, ${getEventTypeLabel(signal.eventType)}` : ''
-      }, 점수 ${signal.buyScore}, ${gradeLabel(signal.grade)}`}
+      }, 점수 ${signal.buyScore}, ${gradeLabel(signal.grade)}${
+        timing.show ? `, ${timing.accessibleText}` : ''
+      }`}
       accessibilityHint="분석 상세 보기"
     >
       <Surface
@@ -58,21 +69,34 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
           </Chip>
         </View>
 
-        {signal.eventType ? (
-          // DAR-307: 이벤트 칩을 기업명과 별도 행으로 분리. 칩 라벨 길이가 달라도
-          // 기업명이 항상 헤더 행 첫 자식(좌측 고정 x)에서 시작해 리스트가 가지런하다.
-          // (CuratedSignalCard 와 동일 패턴 — DAR-191 의 같은 행 짓눌림도 구조적으로 제거.)
+        {/* DAR-307: 이벤트 칩을 기업명과 별도 행으로 분리(좌측). DAR-369: 같은 행 우측에
+            발생 시점을 상시 노출 — 신선/만료 무관 '언제 발생했는지'를 한눈에. */}
+        {signal.eventType || timing.show ? (
           <View style={styles.metaRow}>
-            <Chip
-              compact
-              mode="flat"
-              // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
-              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-              style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
-              textStyle={[typo.small, { color: colors.textSecondary }]}
-            >
-              {getEventTypeLabel(signal.eventType)}
-            </Chip>
+            {signal.eventType ? (
+              <Chip
+                compact
+                mode="flat"
+                // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
+                textStyle={[typo.small, { color: colors.textSecondary }]}
+              >
+                {getEventTypeLabel(signal.eventType)}
+              </Chip>
+            ) : null}
+            {timing.show ? (
+              <View style={styles.timingRow}>
+                <Feather name="calendar" size={12} color={colors.textSecondary} />
+                <Text
+                  style={[typo.small, { color: colors.textSecondary }]}
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                >
+                  {timing.label}
+                </Text>
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -114,7 +138,18 @@ const styles = StyleSheet.create({
   },
   metaRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
     marginTop: spacing.xs,
+  },
+  timingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    // 이벤트 칩이 없을 때 좌측 정렬, 있을 때는 행 우측으로 밀려 시점이 가지런히 보인다.
+    marginLeft: 'auto',
+    flexShrink: 1,
   },
   eventChip: {
     // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).

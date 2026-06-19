@@ -3,9 +3,11 @@ import {
   CandleQueryError,
   DEFAULT_CANDLE_LIMIT,
   MAX_CANDLE_LIMIT,
+  dateFromTradeDate,
   normalizeCandleQuery,
   parseInstantMs,
   resolveCandleSource,
+  tradeDateFromMs,
 } from './candle-query';
 
 describe('candle-query (DAR-378 순수 정규화)', () => {
@@ -48,25 +50,32 @@ describe('candle-query (DAR-378 순수 정규화)', () => {
   });
 
   describe('resolveCandleSource — 해상도→관계 화이트리스트', () => {
-    it('1m 은 원본 하이퍼테이블', () => {
+    it('1m 은 원본 하이퍼테이블(분봉 kind)', () => {
       expect(resolveCandleSource('1m')).toEqual({
         relation: 'stock_minute_prices',
         timeColumn: 'ts',
+        kind: 'minute',
       });
     });
 
-    it('5m/15m/1d 는 연속집계 뷰(bucket 컬럼)', () => {
+    it('5m/15m 은 연속집계 뷰(bucket 컬럼·분봉 kind)', () => {
       expect(resolveCandleSource('5m')).toEqual({
         relation: 'stock_candles_5m',
         timeColumn: 'bucket',
+        kind: 'minute',
       });
       expect(resolveCandleSource('15m')).toEqual({
         relation: 'stock_candles_15m',
         timeColumn: 'bucket',
+        kind: 'minute',
       });
+    });
+
+    it('1d 은 KRX 일봉 stock_daily_prices(tradeDate·daily kind) — DAR-384 캐노니컬', () => {
       expect(resolveCandleSource('1d')).toEqual({
-        relation: 'stock_candles_1d',
-        timeColumn: 'bucket',
+        relation: 'stock_daily_prices',
+        timeColumn: 'tradeDate',
+        kind: 'daily',
       });
     });
 
@@ -74,6 +83,36 @@ describe('candle-query (DAR-378 순수 정규화)', () => {
       for (const r of CANDLE_RESOLUTIONS) {
         expect(resolveCandleSource(r).relation).toBeTruthy();
       }
+    });
+  });
+
+  describe('tradeDateFromMs / dateFromTradeDate — 일봉 거래일 환산(DAR-384)', () => {
+    it('자정 UTC instant 를 같은 KST 거래일로 환산(=09:00 KST 같은 날)', () => {
+      // 2026-06-20T00:00:00Z = 2026-06-20 09:00 KST → 20260620
+      expect(tradeDateFromMs(Date.UTC(2026, 5, 20, 0, 0, 0))).toBe('20260620');
+    });
+
+    it('KST 자정 직전(UTC 14:59)은 같은 날, UTC 15:00(=KST 자정)은 다음 날', () => {
+      expect(tradeDateFromMs(Date.UTC(2026, 5, 20, 14, 59, 0))).toBe('20260620');
+      expect(tradeDateFromMs(Date.UTC(2026, 5, 20, 15, 0, 0))).toBe('20260621');
+    });
+
+    it('dateFromTradeDate 는 거래일 자정 UTC instant 를 만든다', () => {
+      const d = dateFromTradeDate('20260620');
+      expect(d?.toISOString()).toBe('2026-06-20T00:00:00.000Z');
+    });
+
+    it('자정 UTC time 을 커서로 되넘기면 같은 거래일로 라운드트립(페이지네이션 보존)', () => {
+      const d = dateFromTradeDate('20100104'); // 백필 초기 거래일
+      expect(d).not.toBeNull();
+      expect(tradeDateFromMs(d!.getTime())).toBe('20100104');
+    });
+
+    it('형식 불량 거래일은 null', () => {
+      expect(dateFromTradeDate('2026062')).toBeNull();
+      expect(dateFromTradeDate('20261320')).toBeNull(); // 13월
+      expect(dateFromTradeDate('20260640')).toBeNull(); // 40일
+      expect(dateFromTradeDate('abcdefgh')).toBeNull();
     });
   });
 

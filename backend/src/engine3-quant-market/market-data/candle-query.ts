@@ -37,13 +37,23 @@ export interface CandleSource {
   relation: string;
   /** 버킷 시간 컬럼명. */
   timeColumn: string;
+  /**
+   * 조회 방식(DAR-384):
+   * - 'minute': TimescaleDB 하이퍼테이블/연속집계(timeColumn=timestamp instant). 분봉 수집 이후만 커버.
+   * - 'daily' : KRX 일봉 캐노니컬 소스 stock_daily_prices(timeColumn=tradeDate 'YYYYMMDD' 문자열).
+   *             과거 딥히스토리(StockDailyPrice 백필)를 1d 의 캐노니컬 소스로 서빙한다.
+   */
+  kind: 'minute' | 'daily';
 }
 
+// 1d 일봉의 캐노니컬 소스는 KRX 딥히스토리(stock_daily_prices)다(DAR-384). 분봉 롤업 1d
+// (stock_candles_1d)는 분봉 수집 시작 이후(forward)만 커버하므로 과거 일봉을 못 본다 → 백필한
+// StockDailyPrice 를 1d 의 권위 소스로 둔다. 5m/15m/1m 는 기존 분봉 하이퍼테이블/연속집계 유지.
 const CANDLE_SOURCES: Record<CandleResolution, CandleSource> = {
-  '1m': { relation: 'stock_minute_prices', timeColumn: 'ts' },
-  '5m': { relation: 'stock_candles_5m', timeColumn: 'bucket' },
-  '15m': { relation: 'stock_candles_15m', timeColumn: 'bucket' },
-  '1d': { relation: 'stock_candles_1d', timeColumn: 'bucket' },
+  '1m': { relation: 'stock_minute_prices', timeColumn: 'ts', kind: 'minute' },
+  '5m': { relation: 'stock_candles_5m', timeColumn: 'bucket', kind: 'minute' },
+  '15m': { relation: 'stock_candles_15m', timeColumn: 'bucket', kind: 'minute' },
+  '1d': { relation: 'stock_daily_prices', timeColumn: 'tradeDate', kind: 'daily' },
 };
 
 export function resolveCandleSource(resolution: CandleResolution): CandleSource {
@@ -181,4 +191,34 @@ export function normalizeCandleQuery(
     beforeMs,
     limit: clampLimit(raw.limit),
   };
+}
+
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/**
+ * epoch ms(UTC instant) → KST 거래일 'YYYYMMDD' (DAR-384, 일봉 소스 stock_daily_prices 필터용).
+ * tradeDate 는 KST 벽시계 거래일이므로, 구간(from/to/before)을 일봉 테이블에 적용하려면 KST
+ * 달력일로 환산해야 한다. ★일봉 캔들의 time(자정 UTC = 09:00 KST 같은 날)을 커서로 되넘겨도
+ * 같은 거래일로 환산돼 `< tradeDate` 페이지네이션이 정확히 이어진다.
+ */
+export function tradeDateFromMs(ms: number): string {
+  const kst = new Date(ms + KST_OFFSET_MS);
+  const y = kst.getUTCFullYear();
+  const m = String(kst.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(kst.getUTCDate()).padStart(2, '0');
+  return `${y}${m}${d}`;
+}
+
+/**
+ * 거래일 'YYYYMMDD'(KST) → 대표 instant Date(자정 UTC). 일봉 1캔들의 time 으로 일관 반환한다
+ * (분봉과 동일하게 ISO 8601 UTC). 형식 불량이면 null.
+ */
+export function dateFromTradeDate(tradeDate: string): Date | null {
+  if (!/^\d{8}$/.test(tradeDate)) return null;
+  const y = Number(tradeDate.slice(0, 4));
+  const m = Number(tradeDate.slice(4, 6));
+  const d = Number(tradeDate.slice(6, 8));
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  const ms = Date.UTC(y, m - 1, d);
+  return Number.isNaN(ms) ? null : new Date(ms);
 }

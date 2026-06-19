@@ -41,7 +41,8 @@ function main() {
   assert('15s 폴링 상수', /QUOTE_POLL_INTERVAL_MS = 15 \* 1000/.test(screen));
   assert('useFocusEffect·AppState 게이트', /useFocusEffect/.test(screen) && /AppState\.addEventListener/.test(screen));
   assert('타임프레임 토글(SegmentedButtons minute/daily)', /<SegmentedButtons/.test(screen) && /value:\s*'minute'/.test(screen) && /value:\s*'daily'/.test(screen));
-  assert('일봉 준비중(EmptyState graceful)', /<EmptyState/.test(screen) && /일봉 준비중/.test(screen));
+  // DAR-384: 일봉 탭 '준비중' 플레이스홀더 → 실제 일봉 차트(DailyCandleChart)로 교체.
+  assert('일봉 실제 차트(DailyCandleChart, 준비중 placeholder 제거)', /<DailyCandleChart\b/.test(screen) && !/일봉 준비중/.test(screen));
   assert('★정직: 실시간 시장가 고지 1줄', /실시간 시장가 —/.test(screen));
   assert('렌더에서 Date.now 직접 호출 안 함(purity, now=new Date())', !/Date\.now\(/.test(screen));
 

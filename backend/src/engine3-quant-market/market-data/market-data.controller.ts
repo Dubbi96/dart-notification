@@ -87,22 +87,23 @@ export class MarketDataController {
     return { success: true, data };
   }
 
-  // 구간 캔들 조회(DAR-378·DAR-381): TimescaleDB 하이퍼테이블(분봉) + 연속집계(5m/15m/1d)에서
-  // from~to 구간 + 해상도 + 페이지네이션 + 서버측 다운샘플로 반환한다. 모바일에 원본 분봉
-  // 대량 전송 금지 — limit 으로 다운샘플 상한 강제. minute-candles(당일 KIS 실시간) 와 달리
-  // 적재된 시계열을 구간 조회한다. ★정직: source/asOf 로 출처·조회시각 고지(미적용 시 UNAVAILABLE).
+  // 구간 캔들 조회(DAR-378·DAR-381·DAR-384): 해상도별 캐노니컬 소스에서 from~to 구간 + 해상도 +
+  // 페이지네이션 + 서버측 다운샘플로 반환한다. 1m=분봉 하이퍼테이블, 5m/15m=연속집계 롤업,
+  // ★1d=KRX 일봉 stock_daily_prices(StockDailyPrice 딥히스토리 백필, source=EOD) — 분봉 롤업은
+  // 수집 시작 이후만 커버하므로 과거 일봉은 일봉 테이블이 캐노니컬. 모바일에 원본 대량 전송 금지 —
+  // limit 으로 다운샘플 상한 강제. ★정직: source/asOf 로 출처·조회시각 고지(미적용 시 UNAVAILABLE).
   // quote 와 동일 게스트 열람 패턴(OptionalJwtAuthGuard).
   @Get('candles')
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({
     summary:
-      '구간 캔들 조회 — TimescaleDB 분봉 하이퍼테이블/연속집계(1m·5m·15m·1d), from~to+해상도+페이지네이션 서버측 다운샘플 (게스트 열람, DAR-381)',
+      '구간 캔들 조회 — 1m·5m·15m=TimescaleDB 분봉 하이퍼테이블/연속집계, 1d=KRX 일봉 StockDailyPrice(EOD 딥히스토리). from~to+해상도+페이지네이션 서버측 다운샘플 (게스트 열람, DAR-384)',
   })
   @ApiQuery({ name: 'stockCode', required: true, description: '종목코드 6자리 (예: 005930)' })
   @ApiQuery({
     name: 'resolution',
     required: false,
-    description: `해상도 ${CANDLE_RESOLUTIONS.join('|')} (기본 1m). 5m/15m/1d 는 연속집계 롤업 조회.`,
+    description: `해상도 ${CANDLE_RESOLUTIONS.join('|')} (기본 1m). 5m/15m 는 연속집계 롤업, 1d 는 KRX 일봉(StockDailyPrice) 딥히스토리 조회.`,
   })
   @ApiQuery({
     name: 'from',

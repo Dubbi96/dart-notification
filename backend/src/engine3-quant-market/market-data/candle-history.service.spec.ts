@@ -100,4 +100,87 @@ describe('CandleHistoryService (DAR-378)', () => {
     expect(r1d.resolution).toBe('1d');
     expect(query).toHaveBeenCalledTimes(2);
   });
+
+  describe('1d 일봉 = KRX 일봉 stock_daily_prices 서빙 (DAR-384)', () => {
+    /** stock_daily_prices 행(newest-first DESC) — time 대신 tradeDate 문자열. */
+    function dailyRowsDesc(tradeDates: string[]) {
+      return tradeDates.map((tradeDate, i) => ({
+        tradeDate,
+        open: 70000 + i,
+        high: 71000 + i,
+        low: 69000 + i,
+        close: 70500 + i,
+        volume: BigInt(12_000_000 + i),
+      }));
+    }
+
+    it('일봉 행을 source=EOD + 거래일 자정 UTC time(오름차순)으로 반환', async () => {
+      // newest-first: 06-19, 06-18, 06-17
+      const query = jest
+        .fn()
+        .mockResolvedValue(dailyRowsDesc(['20260619', '20260618', '20260617']));
+      const svc = make(query);
+      const res = await svc.getCandles(
+        { stockCode: '005930', resolution: '1d' },
+        NOW,
+      );
+
+      expect(res.source).toBe('EOD');
+      expect(res.resolution).toBe('1d');
+      expect(res.count).toBe(3);
+      // 오름차순(가장 오래된→최신), time 은 거래일 자정 UTC
+      expect(res.candles.map((c) => c.time)).toEqual([
+        '2026-06-17T00:00:00.000Z',
+        '2026-06-18T00:00:00.000Z',
+        '2026-06-19T00:00:00.000Z',
+      ]);
+      // 일봉 테이블 조회임을 SQL 로 확인
+      const sql = String(query.mock.calls[0][0].sql ?? query.mock.calls[0][0]);
+      expect(sql).toContain('stock_daily_prices');
+      expect(typeof res.candles[0].volume).toBe('number');
+    });
+
+    it('limit 가득 차면 가장 오래된 거래일(자정 UTC)을 nextCursor 로 제공', async () => {
+      const query = jest
+        .fn()
+        .mockResolvedValue(dailyRowsDesc(['20260619', '20260618', '20260617']));
+      const svc = make(query);
+      const res = await svc.getCandles(
+        { stockCode: '005930', resolution: '1d', limit: 3 },
+        NOW,
+      );
+      expect(res.nextCursor).toBe('2026-06-17T00:00:00.000Z');
+    });
+
+    it('형식 불량 거래일 행은 방어적으로 제외(빈 차트 graceful)', async () => {
+      const query = jest
+        .fn()
+        .mockResolvedValue(dailyRowsDesc(['20260619', 'BADDATE0', '20260617']));
+      const svc = make(query);
+      const res = await svc.getCandles(
+        { stockCode: '005930', resolution: '1d' },
+        NOW,
+      );
+      expect(res.count).toBe(2);
+      expect(res.candles.map((c) => c.time)).toEqual([
+        '2026-06-17T00:00:00.000Z',
+        '2026-06-19T00:00:00.000Z',
+      ]);
+    });
+
+    it('일봉 테이블 부재(미백필) 등 조회 실패는 UNAVAILABLE graceful', async () => {
+      const query = jest
+        .fn()
+        .mockRejectedValue(
+          new Error('relation "stock_daily_prices" does not exist'),
+        );
+      const svc = make(query);
+      const res = await svc.getCandles(
+        { stockCode: '005930', resolution: '1d' },
+        NOW,
+      );
+      expect(res.source).toBe('UNAVAILABLE');
+      expect(res.candles).toEqual([]);
+    });
+  });
 });

@@ -7,22 +7,30 @@ import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { ScreenHeader } from '@components/common/ScreenHeader';
-import { EmptyState } from '@components/common/StateView';
 import { QuoteHeader } from '@components/common/QuoteHeader';
 import { MinuteCandleChart } from '@components/company/MinuteCandleChart';
+import { DailyCandleChart } from '@components/company/DailyCandleChart';
 import { useStockQuotes } from '@hooks/useStockQuotes';
 import { useMinuteCandles } from '@hooks/useMinuteCandles';
+import { useDailyCandles, type DailyRangePreset } from '@hooks/useDailyCandles';
 import { resolveQuotePollInterval } from '@utils/marketQuoteDisplay';
 
-// DAR-355: 일반 주식앱 스타일 전용 종목 차트 화면(풀스크린, 인트라데이 분봉 중심).
-// 소비자 화면 — QuoteHeader(DAR-353)·MinuteCandleChart/useMinuteCandles(DAR-354)·useStockQuotes 를 조립한다.
-// ★정직: 분봉/현재가는 실제 시장 실시간 시세 → 화면 상단에 '실시간 시장가' 고지 1줄(앱 환경시계와 괴리 가능).
-//   세부 출처/갱신시각 괴리 고지는 QuoteHeader(src.disclosure)·MinuteCandleChart(asOf) 가 내부 렌더.
-// 일봉 탭: 적재 일봉(StockDailyPrice) 모바일 훅 부재 → '준비중'으로 정직 처리(스코프 인플레이션 회피).
+// DAR-355/384: 일반 주식앱 스타일 전용 종목 차트 화면(풀스크린, 분봉+일봉).
+// 소비자 화면 — QuoteHeader(DAR-353)·MinuteCandleChart/useMinuteCandles(DAR-354)·
+//   DailyCandleChart/useDailyCandles(DAR-384)·useStockQuotes 를 조립한다.
+// ★정직: 분봉/현재가는 실제 시장 실시간 시세, 일봉은 KRX 종가(EOD) → 화면 상단 '실시간 시장가'
+//   고지 1줄(앱 환경시계와 괴리 가능). 세부 출처/갱신시각 괴리는 각 차트(asOf/source)가 내부 렌더.
+// 일봉 탭(DAR-384): 백필 일봉(StockDailyPrice, source=EOD)을 실제 일봉 차트로 렌더 + 구간 선택(3M/1Y/전체).
 
 const QUOTE_POLL_INTERVAL_MS = 15 * 1000;
 
 type Timeframe = 'minute' | 'daily';
+
+const DAILY_RANGE_OPTIONS: { value: DailyRangePreset; label: string }[] = [
+  { value: '3M', label: '3개월' },
+  { value: '1Y', label: '1년' },
+  { value: 'ALL', label: '전체' },
+];
 
 export default function StockChartScreen() {
   const { stockCode } = useLocalSearchParams<{ stockCode: string }>();
@@ -65,6 +73,17 @@ export default function StockChartScreen() {
     refetch: refetchMinuteCandles,
   } = useMinuteCandles(code, { pollWhileMarketOpen: true });
 
+  // 일봉(딥히스토리, EOD) — 구간 프리셋(기본 1년). 폴링 없음(장 마감 후 확정).
+  const [dailyRange, setDailyRange] = useState<DailyRangePreset>('1Y');
+  const {
+    candles: dailyCandles,
+    source: dailySource,
+    asOf: dailyCandlesAsOf,
+    isLoading: isLoadingDailyCandles,
+    isError: isDailyCandlesError,
+    refetch: refetchDailyCandles,
+  } = useDailyCandles(code, { range: dailyRange });
+
   const [timeframe, setTimeframe] = useState<Timeframe>('minute');
 
   return (
@@ -96,6 +115,18 @@ export default function StockChartScreen() {
           />
         </View>
 
+        {/* 일봉 구간 선택 — 일봉 탭일 때만 노출(3개월/1년/전체). */}
+        {timeframe === 'daily' ? (
+          <View style={styles.rangeToggle}>
+            <SegmentedButtons
+              value={dailyRange}
+              onValueChange={(v) => setDailyRange(v as DailyRangePreset)}
+              density="small"
+              buttons={DAILY_RANGE_OPTIONS}
+            />
+          </View>
+        ) : null}
+
         <Card style={styles.chartCard} variant="elevated">
           {timeframe === 'minute' ? (
             <MinuteCandleChart
@@ -108,10 +139,15 @@ export default function StockChartScreen() {
               }}
             />
           ) : (
-            <EmptyState
-              icon="bar-chart-2"
-              title="일봉 준비중"
-              description="일봉 차트는 적재 데이터 연동 후 제공됩니다. 현재는 당일 분봉을 확인하세요."
+            <DailyCandleChart
+              candles={dailyCandles}
+              source={dailySource}
+              asOf={dailyCandlesAsOf}
+              isLoading={isLoadingDailyCandles}
+              isError={isDailyCandlesError}
+              onRetry={() => {
+                void refetchDailyCandles();
+              }}
             />
           )}
         </Card>
@@ -137,6 +173,9 @@ const styles = StyleSheet.create({
   },
   toggle: {
     marginTop: spacing.sm,
+  },
+  rangeToggle: {
+    marginTop: spacing.xs,
   },
   chartCard: {
     padding: spacing.md,

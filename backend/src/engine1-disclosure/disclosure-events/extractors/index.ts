@@ -153,6 +153,16 @@ function calcConfidence(
   eventType: EventType,
   data: Record<string, unknown>,
 ): number {
+  // DAR-343: 거래정지는 사유 텍스트가 결측이어도 reportName으로 suspensionType(악재)을
+  //   추론할 수 있다. 사유 추출 시 0.90, 유형만 추론 시 0.0(=FAILED 유발) 대신 부분 0.70
+  //   (NEEDS_REVIEW 경로)을 부여해 보유종목 리스크 경보 누락을 막는다.
+  if (eventType === EventType.TRADING_SUSPENSION) {
+    const hasReason = data.suspensionReason !== null && data.suspensionReason !== undefined;
+    if (hasReason) return 0.90;
+    if (data.reasonInferred === true) return 0.70;
+    return 0.0;
+  }
+
   const requiredFields = REQUIRED_FIELDS[eventType];
   if (!requiredFields || requiredFields.length === 0) return 0.0;
 

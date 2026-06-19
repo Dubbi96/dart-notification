@@ -33,6 +33,28 @@ describe('extractEventData — DAR-71 고위험 5종 배선', () => {
     expect(confidence).toBe(0.9);
   });
 
+  // DAR-343: 사유 결측이나 reportName으로 유형 추론 → 부분 confidence 0.70 (FAILED 회수)
+  it('TRADING_SUSPENSION 사유 결측 + reportName 추론 → confidence 0.70 (NEEDS_REVIEW 경로)', () => {
+    const parsed = { docType: 'OTHER', rawTableCount: 0, keyValueSource: 'none' } as ParsedJson;
+    const { data, confidence } = extractEventData(EventType.TRADING_SUSPENSION, parsed, '상장폐지 사유 발생');
+    expect(data.suspensionReason).toBeNull();
+    expect(data.suspensionType).toBe('DELISTING');
+    expect(data.reasonInferred).toBe(true);
+    expect(confidence).toBe(0.7);
+  });
+
+  it('TRADING_SUSPENSION 비정규 필드 사유 스캔 회수 → confidence 0.90', () => {
+    const parsed = {
+      docType: 'OTHER',
+      rawTableCount: 1,
+      keyValueSource: 'table_0',
+      delistingReason: '정지사유: 감사의견 거절',
+    } as unknown as ParsedJson;
+    const { data, confidence } = extractEventData(EventType.TRADING_SUSPENSION, parsed, '매매거래 정지');
+    expect(data.suspensionReason).toBe('감사의견 거절');
+    expect(confidence).toBe(0.9);
+  });
+
   it('DELISTING_RISK → delisting 파서 + confidence 0.90', () => {
     const { data, confidence } = extractEventData(EventType.DELISTING_RISK, delistingFixture as ParsedJson, '실질심사');
     expect(data.delistingStage).toBe('SUBSTANTIVE_REVIEW');

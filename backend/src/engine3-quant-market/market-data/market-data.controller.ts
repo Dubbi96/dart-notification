@@ -273,6 +273,30 @@ export class MarketDataController {
     return { success: true, data: result };
   }
 
+  @Post('backfill/deep')
+  @ApiOperation({
+    summary:
+      'KRX 일봉 과거 깊이 백필 — 가장 오래된 적재일부터 더 과거로 이어 수집 (DAR-376, 재개 가능·멱등). ' +
+      '같은 명령을 반복 실행하면 KRX 제공 한도까지 점진적으로 깊어진다.',
+  })
+  @ApiQuery({ name: 'days', required: false, description: '추가로 수집할 과거 거래일 수 (기본 120)' })
+  async backfillDeep(@Query('days') days?: string) {
+    const result = await this.scheduler.backfillDailyHistoryDeep({
+      days: days ? parseInt(days, 10) : undefined,
+    });
+    return { success: true, data: result };
+  }
+
+  @Get('coverage')
+  @ApiOperation({
+    summary:
+      '일봉 적재 커버리지·갭 리포트 (DAR-376) — 유니버스 대비 누락 종목·거래일 범위·총 행수. EventStudy 데이터 충분성 점검.',
+  })
+  async coverage() {
+    const data = await this.scheduler.getDailyCoverageReport();
+    return { success: true, data };
+  }
+
   @Get('collection-logs')
   @ApiOperation({ summary: '시세 수집 이력 조회 (최근 20건)' })
   @ApiQuery({ name: 'tradeDate', required: false, description: '날짜 필터 YYYYMMDD' })

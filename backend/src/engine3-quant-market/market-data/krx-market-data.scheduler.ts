@@ -6,6 +6,7 @@ import { DartStockStatusService, DerivedStockStatus } from './dart-stock-status.
 import type { Prisma } from '@prisma/client';
 import { KST_TIMEZONE } from '../../common/time/kst';
 import { MAX_INDEX_DAILY_CHANGE_PCT, isImplausibleIndexChange } from './index-sanity';
+import { isValidDailyOhlc } from './daily-price-sanity';
 
 /**
  * KRX 시세 일괄 수집 Cron 스케줄러.
@@ -965,7 +966,9 @@ export class KrxMarketDataScheduler {
     const data: Prisma.StockDailyPriceCreateManyInput[] = [];
     let skipped = 0;
     for (const row of allRows) {
-      if (!row.stockCode || row.closePrice === 0) {
+      // DAR-376 품질 가드: 종목코드 부재·OHLC 손상(0/음수·고<저·시·종 범위 밖) 행은 적재 거부.
+      // EventStudy backbone 에 물리적으로 불가능한 가격이 섞이지 않도록 행 단위로 차단한다.
+      if (!row.stockCode || !isValidDailyOhlc(row)) {
         skipped++;
         continue;
       }
@@ -1098,6 +1101,141 @@ export class KrxMarketDataScheduler {
       totalSkipped,
       emptyDates,
       dateRange: this.dateRange(collectedDates),
+    };
+  }
+
+  /**
+   * 재개 가능한 과거 깊이 백필 (DAR-376).
+   *
+   * 기존 `backfillDailyPrices` 는 항상 endDate(기본 today)부터 과거로 days 거래일을 수집해, 반복
+   * 실행 시 이미 적재된 최근 구간을 다시 훑는다(멱등이라 무손상이나 비효율). 깊이 백필은 '가장
+   * 오래된 적재일의 직전 일자'부터 더 과거로 이어 수집해 **호출마다 과거 범위를 확장**한다(재개 가능).
+   * 운영자가 같은 명령을 반복 실행하기만 하면 KRX 제공 한도까지 점진적으로 깊어진다.
+   *
+   * - resumeFrom = StockDailyPrice 최소 tradeDate − 1일(있으면) / today(저장소 비었을 때 부트스트랩).
+   * - days 거래일만큼 추가 과거 적재(멱등 createMany skipDuplicates·휴장일 스킵·품질 가드 적용).
+   * - `MarketDataCollectionLog`(RUNNING→SUCCESS/PARTIAL/FAILED) 로 진행 기록(관측성·재개 추적).
+   * - KRX 한도 소진(연속 휴장·미제공)은 backfillDailyPrices 의 maxLookback 가드로 자연 종료.
+   */
+  async backfillDailyHistoryDeep(
+    opts: { days?: number; delayMs?: number } = {},
+  ): Promise<{
+    resumedFrom: string;
+    earliestBefore: string | null;
+    requestedDays: number;
+    collectedDays: number;
+    totalSaved: number;
+    dateRange: { from: string | null; to: string | null };
+    message?: string;
+  }> {
+    const days = opts.days ?? 120;
+
+    const earliest = await this.prisma.stockDailyPrice.findFirst({
+      orderBy: { tradeDate: 'asc' },
+      select: { tradeDate: true },
+    });
+    const earliestBefore = earliest?.tradeDate ?? null;
+
+    // resumeFrom: 가장 오래된 적재일의 직전 일자부터 더 과거로(없으면 today 부트스트랩).
+    let resumeFrom: string;
+    if (earliestBefore) {
+      const c = this.krx.parseDate(earliestBefore);
+      c.setDate(c.getDate() - 1);
+      resumeFrom = this.krx.formatDate(c);
+    } else {
+      resumeFrom = this.krx.formatDate(new Date());
+    }
+
+    this.logger.log(
+      `[KRX][깊이백필] 시작 earliestBefore=${earliestBefore ?? '비어있음'} resumeFrom=${resumeFrom} days=${days}`,
+    );
+
+    const log = await this.prisma.marketDataCollectionLog.create({
+      data: { tradeDate: resumeFrom, triggeredBy: 'MANUAL', status: 'RUNNING' },
+    });
+    try {
+      const res = await this.backfillDailyPrices({ days, endDate: resumeFrom, delayMs: opts.delayMs });
+      await this.prisma.marketDataCollectionLog.update({
+        where: { id: log.id },
+        data: {
+          status: res.message ? 'PARTIAL' : 'SUCCESS',
+          savedCount: res.totalSaved,
+          failedCount: res.totalSkipped,
+          errorMessage: res.message ?? null,
+          endedAt: new Date(),
+        },
+      });
+      this.logger.log(
+        `[KRX][깊이백필] 완료 collectedDays=${res.collectedDays} totalSaved=${res.totalSaved} ` +
+          `range=${JSON.stringify(res.dateRange)}`,
+      );
+      return {
+        resumedFrom: resumeFrom,
+        earliestBefore,
+        requestedDays: days,
+        collectedDays: res.collectedDays,
+        totalSaved: res.totalSaved,
+        dateRange: res.dateRange,
+        message: res.message,
+      };
+    } catch (e) {
+      await this.prisma.marketDataCollectionLog.update({
+        where: { id: log.id },
+        data: { status: 'FAILED', errorMessage: (e as Error).message, endedAt: new Date() },
+      });
+      throw e;
+    }
+  }
+
+  /**
+   * 일봉 적재 커버리지·갭 리포트 (DAR-376).
+   *
+   * EventStudy 가 돌 데이터가 충분한지·어떤 종목/구간이 비었는지 운영 가시성을 제공한다.
+   * - universeSize: stockCode 보유 Company 수(분석 유니버스).
+   * - stocksWithData / missingStockCount(+sample): 일봉이 1행이라도 있는 종목 vs 전무 종목.
+   * - tradeDateMin/Max·tradingDayCount: 적재된 거래일 범위·일수.
+   * - totalRows: 총 일봉 행수.
+   */
+  async getDailyCoverageReport(missingSampleSize = 20): Promise<{
+    universeSize: number;
+    stocksWithData: number;
+    missingStockCount: number;
+    missingStockSample: string[];
+    tradeDateMin: string | null;
+    tradeDateMax: string | null;
+    tradingDayCount: number;
+    totalRows: number;
+  }> {
+    const companies = await this.prisma.company.findMany({
+      where: { stockCode: { not: null } },
+      select: { stockCode: true },
+    });
+    const universe = new Set(
+      companies.map((c) => c.stockCode).filter((s): s is string => s !== null),
+    );
+
+    const [agg, byStock, byDate, totalRows] = await Promise.all([
+      this.prisma.stockDailyPrice.aggregate({
+        _min: { tradeDate: true },
+        _max: { tradeDate: true },
+      }),
+      this.prisma.stockDailyPrice.groupBy({ by: ['stockCode'] }),
+      this.prisma.stockDailyPrice.groupBy({ by: ['tradeDate'] }),
+      this.prisma.stockDailyPrice.count(),
+    ]);
+
+    const stocksWith = new Set((byStock as Array<{ stockCode: string }>).map((g) => g.stockCode));
+    const missing = [...universe].filter((s) => !stocksWith.has(s));
+
+    return {
+      universeSize: universe.size,
+      stocksWithData: stocksWith.size,
+      missingStockCount: missing.length,
+      missingStockSample: missing.slice(0, missingSampleSize),
+      tradeDateMin: agg._min.tradeDate ?? null,
+      tradeDateMax: agg._max.tradeDate ?? null,
+      tradingDayCount: (byDate as Array<unknown>).length,
+      totalRows,
     };
   }
 }

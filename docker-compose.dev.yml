@@ -9,6 +9,11 @@ services:
     image: timescale/timescaledb:2.17.2-pg15
     container_name: dart-notification-db
     restart: always
+    # DAR-382: shared_preload_libraries 영구 반영. 기존 PG15 볼륨에 timescaledb 이미지를 올리면
+    # 이미지가 conf 를 자동 수정하지 않아 'extension timescaledb must be preloaded' 로 CREATE EXTENSION 이
+    # 실패한다(SHOW shared_preload_libraries → 빈값). command 로 명시해 신규/기존 볼륨 모두 확장이 적재되게 한다.
+    # postgres entrypoint 에 -c 플래그를 넘기면 postgresql.conf 의 빈 기본값을 덮어쓴다.
+    command: postgres -c shared_preload_libraries=timescaledb
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password

@@ -95,6 +95,8 @@ services:
     image: timescale/timescaledb:2.17.2-pg15
     container_name: dart-notification-db
     restart: always
+    # DAR-382: 확장 적재를 위해 shared_preload_libraries 를 영구 지정(이미지가 자동으로 conf 를 고치지 않음).
+    command: postgres -c shared_preload_libraries=timescaledb
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
@@ -134,6 +136,25 @@ psql "$DATABASE_URL" -c "SELECT * FROM chunk_compression_stats('stock_minute_pri
   테이블/데이터(`stock_daily_prices` 등)를 건드리지 않는다.
 - 일봉(`stock_daily_prices`) 하이퍼테이블 전환은 후순위(별도 마이그레이션).
 - 실측: 86,400행 적재 후 압축률 **10.7×(90.6% 절감)**, 1d 연속집계 롤업이 원본-분봉 집계와 정확 일치.
+
+##### ★ shared_preload_libraries 사전적재 (DAR-382, 필수)
+
+`timescaledb` 확장은 **공유 라이브러리 사전적재(preload)** 가 선행돼야 `CREATE EXTENSION` 이 성공한다.
+기존 PG15 볼륨에 timescaledb 이미지를 올려도 이미지가 `postgresql.conf` 를 자동 수정하지 않으므로,
+설정을 명시하지 않으면 `SHOW shared_preload_libraries` 가 빈값이고 마이그레이션이
+`extension "timescaledb" must be preloaded via shared_preload_libraries` 로 실패한다.
+
+- **로컬/Docker**: `docker-compose.dev.yml` 의 postgres 서비스에 `command: postgres -c
+  shared_preload_libraries=timescaledb` 를 지정해 영구 반영했다(신규/기존 볼륨 모두 적용·재생성만으로 충분).
+  과거 `ALTER SYSTEM SET shared_preload_libraries='timescaledb'` + 재시작으로 임시조치한 dev DB 도
+  이제 수동 개입 없이 동일하게 적재된다.
+- **운영 DB(관리형 PostgreSQL)**: 컨테이너 `command` 가 적용되지 않으므로 **반드시 동등 설정을 별도로** 한다.
+  - AWS RDS/Aurora: 파라미터그룹의 `shared_preload_libraries` 에 `timescaledb` 추가 후 인스턴스 **재부팅**.
+  - 셀프호스트/매니지드 공통: `postgresql.conf`(또는 `ALTER SYSTEM SET shared_preload_libraries='timescaledb'`)
+    설정 후 PostgreSQL **재시작**. 일부 관리형은 TimescaleDB 확장의 사전 허용(allowlist) 활성화도 필요.
+- 검증: 컨테이너/인스턴스 재생성 후
+  `psql "$DATABASE_URL" -c "SHOW shared_preload_libraries;"` 출력에 `timescaledb` 포함 →
+  `CREATE EXTENSION IF NOT EXISTS timescaledb;` 성공.
 
 #### Option 2: 로컬 PostgreSQL
 

@@ -1,0 +1,11 @@
+{
+  "docType": "CB_BW_ISSUANCE",
+  "rawTableCount": 2,
+  "keyValueSource": "table_0",
+  "bondType": "CB",
+  "interestRate": 0.0,
+  "maturityDate": "2030-03-15",
+  "발행총액": "300억원",
+  "기초주가": "5,000",
+  "할증률": "10%"
+}

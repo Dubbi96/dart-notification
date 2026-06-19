@@ -66,6 +66,78 @@ export function entryBudget(baseBudget: number, grade: string): number {
   return baseBudget * gradeSizingFactor(grade);
 }
 
+/**
+ * DAR-362: buyScore(확신도) 기반 사이징 가중 — 등급계수만으로는 차등이 무력화되는 문제 교정.
+ *
+ * 현 데이터는 후보가 거의 전부 WATCH(단일 등급)라 등급계수(0.4)만 곱하면 전 포지션이
+ * ~균일(40만)해진다. buyScore(-100~100, 확신도)로 "등급 내 차등"을 실효화한다:
+ *   buyScore ≥ HIGH → 가중 1.0(등급계수 그대로, 고확신은 더)
+ *   buyScore ≤ LOW  → 가중 FLOOR(저확신은 덜, 완전 0은 방지)
+ *   사이는 선형 보간.
+ *
+ * ★ 가중계수는 항상 (0, 1] → entrySizingFactor = 등급계수 × buyScore가중 ≤ 등급계수 ≤ 1.0.
+ *   따라서 종목당 예산은 항상 baseBudget(=가상원금×maxSinglePositionPct) 이내로,
+ *   Risk 하드룰(단일종목 최대비중)을 상향하거나 우회하지 않는다(순수 Rule, AI 0).
+ */
+export const SIZING_SCORE_REF_HIGH = 80;
+export const SIZING_SCORE_REF_LOW = 20;
+export const SIZING_SCORE_MULT_FLOOR = 0.5;
+
+export function buyScoreSizingMultiplier(buyScore: number): number {
+  if (!Number.isFinite(buyScore)) return SIZING_SCORE_MULT_FLOOR;
+  if (buyScore >= SIZING_SCORE_REF_HIGH) return 1.0;
+  if (buyScore <= SIZING_SCORE_REF_LOW) return SIZING_SCORE_MULT_FLOOR;
+  const t =
+    (buyScore - SIZING_SCORE_REF_LOW) /
+    (SIZING_SCORE_REF_HIGH - SIZING_SCORE_REF_LOW);
+  return SIZING_SCORE_MULT_FLOOR + t * (1 - SIZING_SCORE_MULT_FLOOR);
+}
+
+/** 등급 × buyScore 결합 사이징 계수(0~1]. 고확신 종목 더, 저확신 덜. */
+export function entrySizingFactor(grade: string, buyScore: number): number {
+  return gradeSizingFactor(grade) * buyScoreSizingMultiplier(buyScore);
+}
+
+/**
+ * DAR-362: 등급 + buyScore 차등 모의 매수 예산 = 기본예산 × 결합계수. 음수예산은 0 가드.
+ * 항상 baseBudget 이내(Risk 하드룰 보존). 실제 주문수량 결정 아님(가상원금 배분 한도).
+ */
+export function entryBudgetScored(
+  baseBudget: number,
+  grade: string,
+  buyScore: number,
+): number {
+  if (!(baseBudget > 0)) return 0;
+  return baseBudget * entrySizingFactor(grade, buyScore);
+}
+
+/**
+ * DAR-362: 섹터(업종) 분산 가드 — 동일 섹터 비중 상한(maxSectorPct)을 진입에서 enforce.
+ *
+ * 해당 섹터의 현재 보유가치 기준 "추가로 허용되는 예산(원)"을 반환한다.
+ *   허용예산 = max(0, 포트폴리오총액 × maxSectorPct/100 − 현재섹터보유가치)
+ * 상한 도달/초과 시 0(더 못 담음). 음수·0 입력은 0으로 가드.
+ *
+ * ★ 순수 Rule(AI 0). 섹터 미상(industryCode null) 종목은 호출부에서 가드를 면제한다 —
+ *   데이터가 없는 상한을 강제하면 전 종목 진입 차단(거짓 보수)이 되므로.
+ */
+export function sectorHeadroomBudget(
+  currentSectorValue: number,
+  portfolioTotalValue: number,
+  maxSectorPct: number,
+): number {
+  if (!(portfolioTotalValue > 0) || !(maxSectorPct > 0)) return 0;
+  const cap = portfolioTotalValue * (maxSectorPct / 100);
+  return Math.max(0, cap - Math.max(0, currentSectorValue));
+}
+
+/**
+ * DAR-362: 후보 pool 확대용 품질 하한 — entryReady 후보로 슬롯이 안 차면, entryReady가
+ * 아니어도 buyScore가 이 하한 이상인 상위 후보로 채운다(진입품질 가드 유지·무차별 확대 아님).
+ * entryReady WATCH+ 의 실측 buyScore 분포(min 30) 위쪽으로 보수 설정.
+ */
+export const ENTRY_FALLBACK_MIN_BUY_SCORE = 50;
+
 /** 검증 메타 — 추후 "등급별 수익률" 상관 분석용 진입 스냅샷(grade·buyScore·계수). */
 export interface EntryMeta {
   grade: string;

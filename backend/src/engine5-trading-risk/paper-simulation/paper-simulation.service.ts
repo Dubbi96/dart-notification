@@ -38,9 +38,11 @@ import {
 import {
   SIM_MIN_ENTRY_GRADE,
   entryEligibleGrades,
-  entryBudget,
+  entryBudgetScored,
   buildEntryMeta,
   dedupeCandidatesByCorpCode,
+  sectorHeadroomBudget,
+  ENTRY_FALLBACK_MIN_BUY_SCORE,
 } from './simulation-entry';
 import { Prisma } from '@prisma/client';
 import { SimulationPriceSourceService, SimPriceRow } from './simulation-price-source.service';
@@ -99,7 +101,11 @@ export class PaperSimulationService {
   ) {}
 
   /** 모의운용 전용 포트폴리오 find-or-create (고정 시스템 유저) */
-  async getOrCreateSimPortfolio(): Promise<{ id: string; maxSinglePositionPct: number }> {
+  async getOrCreateSimPortfolio(): Promise<{
+    id: string;
+    maxSinglePositionPct: number;
+    maxSectorPct: number;
+  }> {
     let user = await this.prisma.user.findFirst({
       where: { email: PaperSimulationService.SIM_USER_EMAIL },
       select: { id: true },
@@ -112,7 +118,7 @@ export class PaperSimulationService {
     }
     let pf = await this.prisma.portfolio.findFirst({
       where: { userId: user.id, name: PaperSimulationService.SIM_PORTFOLIO_NAME },
-      select: { id: true, maxSinglePositionPct: true },
+      select: { id: true, maxSinglePositionPct: true, maxSectorPct: true },
     });
     if (!pf) {
       pf = await this.prisma.portfolio.create({
@@ -121,7 +127,7 @@ export class PaperSimulationService {
           name: PaperSimulationService.SIM_PORTFOLIO_NAME,
           maxSinglePositionPct: 10,
         },
-        select: { id: true, maxSinglePositionPct: true },
+        select: { id: true, maxSinglePositionPct: true, maxSectorPct: true },
       });
     }
     return pf;
@@ -412,47 +418,91 @@ export class PaperSimulationService {
 
   // ─── 1) 신규 매수 ─────────────────────────────────────────────────────
   private async openNewPositions(
-    pf: { id: string; maxSinglePositionPct: number },
+    pf: { id: string; maxSinglePositionPct: number; maxSectorPct: number },
     tradeDate: string,
   ): Promise<number> {
-    const holdings = await this.prisma.position.count({
+    // 기존 OPEN 포지션(종목 제외 + 섹터 노출 초기값 산정에 재사용).
+    const openPositions = await this.prisma.position.findMany({
       where: { portfolioId: pf.id, status: 'OPEN' },
+      select: { corpCode: true, currentValue: true, entryAmount: true },
     });
-    const available = PaperSimulationService.MAX_HOLDINGS - holdings;
+    const available = PaperSimulationService.MAX_HOLDINGS - openPositions.length;
     if (available <= 0) return 0;
+    const openCorpCodes = openPositions.map((p) => p.corpCode);
 
-    // 이미 보유 중인 종목 제외
-    const openCorpCodes = (
-      await this.prisma.position.findMany({
-        where: { portfolioId: pf.id, status: 'OPEN' },
-        select: { corpCode: true },
-      })
-    ).map((p) => p.corpCode);
-
-    // DAR-51: 진입 기준 확장 — grade≥BUY → 설정 최소등급(기본 WATCH) AND entryReady.
-    // BUY 0·WATCH만 쌓이는 현 데이터에서 P/L 검증 데이터를 모으기 위해 가용 최선 후보를 모의매수.
+    // DAR-362: 후보 pool 확대 — entryReady=true 만으로는 BUY 희소 시 pool이 인위적으로 협소.
+    //   ① entryReady WATCH+ 후보를 우선 채우고(진입품질 우선),
+    //   ② 슬롯이 남으면 entryReady 아니어도 buyScore≥ENTRY_FALLBACK_MIN_BUY_SCORE 인 상위
+    //      후보로 보강한다(무차별 확대 아님 — 품질 하한 유지). 변경 근거: BUY/STRONG 신호가
+    //      희소해 entryReady 통과 후보만으로는 다양성이 막힘.
     // DAR-122: 한 종목은 4 Persona(또는 다수 공시)당 신호 행을 가지므로 take 전 디듑이 필요하다.
     //   디듑 없이 take/loop를 돌면 동일 corpCode에 Position이 중복 생성된다. Persona 최대 4를
     //   고려해 넉넉히 조회(available×4) 후 종목당 1건으로 디듑하고 available개로 절단한다.
     const PERSONA_FANOUT = 4;
-    const rawCandidates = await this.prisma.tradingSignal.findMany({
+    const eligibleGrades = entryEligibleGrades(SIM_MIN_ENTRY_GRADE) as never;
+    const excludeCorp = openCorpCodes.length ? openCorpCodes : ['__none__'];
+
+    const readyRaw = await this.prisma.tradingSignal.findMany({
       where: {
-        signal: { in: entryEligibleGrades(SIM_MIN_ENTRY_GRADE) as never },
+        signal: { in: eligibleGrades },
         entryReady: true,
-        corpCode: { notIn: openCorpCodes.length ? openCorpCodes : ['__none__'] },
+        corpCode: { notIn: excludeCorp },
       },
       orderBy: { buyScore: 'desc' },
       take: available * PERSONA_FANOUT,
     });
-    const candidates = dedupeCandidatesByCorpCode(rawCandidates).slice(
-      0,
-      available,
-    );
+    let candidates = dedupeCandidatesByCorpCode(readyRaw).slice(0, available);
+
+    // ② 부족분만 비-entryReady 상위 buyScore로 보강(품질 하한 적용·기보유/선정 종목 제외).
+    if (candidates.length < available) {
+      const need = available - candidates.length;
+      const already = new Set<string>([
+        ...openCorpCodes,
+        ...candidates.map((c) => c.corpCode),
+      ]);
+      const fallbackRaw = await this.prisma.tradingSignal.findMany({
+        where: {
+          signal: { in: eligibleGrades },
+          entryReady: false,
+          buyScore: { gte: ENTRY_FALLBACK_MIN_BUY_SCORE },
+          corpCode: { notIn: Array.from(already).length ? Array.from(already) : ['__none__'] },
+        },
+        orderBy: { buyScore: 'desc' },
+        take: need * PERSONA_FANOUT,
+      });
+      const fallback = dedupeCandidatesByCorpCode(fallbackRaw)
+        .filter((c) => !already.has(c.corpCode))
+        .slice(0, need);
+      candidates = [...candidates, ...fallback];
+    }
 
     // 한 사이클 안에서 이미 매수한 종목 추적(디듑된 후보라도 방어선 유지).
     const openedCorpCodes = new Set<string>(openCorpCodes);
 
-    // 종목별 기본 배분 예산(가상원금 × 단일종목 최대비중). 등급별 차등 사이징은 entryBudget 적용.
+    // DAR-362: 섹터 분산 가드 준비 — 섹터(업종)는 CompanyOverview.industryCode 로 식별(스키마 변경 0).
+    //   기보유 + 후보 corpCode 의 industryCode 를 1회 조회해 매핑하고, 기보유 포지션 가치로
+    //   섹터별 현재 노출을 초기화한다. industryCode 미상(null)은 가드 면제(데이터 없는 상한 강제 금지).
+    const sectorCorpCodes = Array.from(
+      new Set<string>([...openCorpCodes, ...candidates.map((c) => c.corpCode)]),
+    );
+    const overviews = sectorCorpCodes.length
+      ? await this.prisma.companyOverview.findMany({
+          where: { corpCode: { in: sectorCorpCodes } },
+          select: { corpCode: true, industryCode: true },
+        })
+      : [];
+    const sectorByCorp = new Map<string, string | null>();
+    for (const o of overviews) sectorByCorp.set(o.corpCode, o.industryCode ?? null);
+    const sectorValue = new Map<string, number>();
+    for (const p of openPositions) {
+      const sector = sectorByCorp.get(p.corpCode) ?? null;
+      if (!sector) continue;
+      const val = p.currentValue ?? p.entryAmount ?? 0;
+      sectorValue.set(sector, (sectorValue.get(sector) ?? 0) + val);
+    }
+    const portfolioTotalValue = PaperSimulationService.INITIAL_CAPITAL;
+
+    // 종목별 기본 배분 예산(가상원금 × 단일종목 최대비중). 등급+buyScore 차등은 entryBudgetScored 적용.
     const baseBudget =
       PaperSimulationService.INITIAL_CAPITAL * (pf.maxSinglePositionPct / 100);
 
@@ -462,8 +512,23 @@ export class PaperSimulationService {
       if (openedCorpCodes.has(sig.corpCode)) continue;
       const price = await this.latestClose(sig.corpCode, tradeDate);
       if (price === null || price <= 0) continue;
-      // DAR-51: 등급별 차등 사이징(WATCH는 작게)
-      const budget = entryBudget(baseBudget, sig.signal as string);
+      // DAR-362: 등급 + buyScore 차등 사이징(고확신 더, 저확신 덜 — 균일 탈피).
+      let budget = entryBudgetScored(
+        baseBudget,
+        sig.signal as string,
+        sig.buyScore,
+      );
+      // DAR-362: 섹터 분산 가드 — 동일 섹터 비중 상한(maxSectorPct) enforce.
+      //   섹터 식별 가능 시 잔여 허용 예산으로 예산을 절감(상한 초과 진입 차단). 미상은 면제.
+      const sector = sectorByCorp.get(sig.corpCode) ?? null;
+      if (sector) {
+        const headroom = sectorHeadroomBudget(
+          sectorValue.get(sector) ?? 0,
+          portfolioTotalValue,
+          pf.maxSectorPct,
+        );
+        budget = Math.min(budget, headroom);
+      }
       const shares = Math.floor(budget / price);
       if (shares <= 0) continue;
 
@@ -523,6 +588,13 @@ export class PaperSimulationService {
         throw err;
       }
       openedCorpCodes.add(sig.corpCode);
+      // DAR-362: 이번 사이클에 담은 가치를 섹터 노출에 누적(다음 후보의 섹터 가드에 반영).
+      if (sector) {
+        sectorValue.set(
+          sector,
+          (sectorValue.get(sector) ?? 0) + fillPrice * trade.filledShares,
+        );
+      }
       opened++;
     }
     return opened;

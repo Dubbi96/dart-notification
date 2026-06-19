@@ -13,6 +13,7 @@ import { PaperTradeService } from './services/paper-trade.service';
 import { OrderRiskService } from './services/order-risk.service';
 import { PrismaPaperTradeRepository } from './repositories/prisma-paper-trade.repository';
 import { PrismaAuditLogRepository } from './repositories/prisma-audit-log.repository';
+import { PrismaKillSwitchStateRepository } from './repositories/prisma-kill-switch-state.repository';
 import { KillSwitchManager } from './domain/kill-switch';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PaperTradingController } from './paper-trading/paper-trading.controller';
@@ -25,7 +26,15 @@ import { PaperTradingService } from './paper-trading/paper-trading.service';
     PaperTradingService,
     PrismaPaperTradeRepository,
     PrismaAuditLogRepository,
-    KillSwitchManager,
+    PrismaKillSwitchStateRepository,
+    // KillSwitchManager는 영속 레포를 주입해 부팅 시 DB 상태를 복원(DAR-350).
+    // NestJS가 onModuleInit을 호출 → 재시작 후에도 발동 상태 유지(거짓 안전 교정).
+    {
+      provide: KillSwitchManager,
+      useFactory: (killSwitchRepo: PrismaKillSwitchStateRepository) =>
+        new KillSwitchManager(killSwitchRepo),
+      inject: [PrismaKillSwitchStateRepository],
+    },
     {
       provide: 'IPaperTradeRepository',
       useClass: PrismaPaperTradeRepository,

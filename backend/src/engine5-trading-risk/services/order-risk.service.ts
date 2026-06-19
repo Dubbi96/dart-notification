@@ -114,7 +114,7 @@ export class OrderRiskService {
    * activateKillSwitch — 수동 Kill Switch 활성화
    */
   async activateKillSwitch(reason: string): Promise<void> {
-    this.killSwitch.activate(reason, 'USER');
+    await this.killSwitch.activate(reason, 'USER');
     await this.auditRepo.save({
       action: 'KILL_SWITCH_SET',
       actorKind: 'USER',
@@ -127,7 +127,7 @@ export class OrderRiskService {
    * deactivateKillSwitch — 수동 Kill Switch 해제
    */
   async deactivateKillSwitch(): Promise<void> {
-    this.killSwitch.deactivate();
+    await this.killSwitch.deactivate();
     await this.auditRepo.save({
       action: 'KILL_SWITCH_RESET',
       actorKind: 'USER',

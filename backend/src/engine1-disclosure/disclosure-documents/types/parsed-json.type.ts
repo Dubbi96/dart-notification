@@ -139,6 +139,22 @@ export interface ParsedJson {
   /** 상폐 사유 */
   delistingReason?: string;
 
+  // ── 대량보유(5%룰) 상황보고 (MAJOR_HOLDER_5PCT) ──────────
+  // DAR-337: 보유 parsedJson에 존재할 때만 사용(없으면 null → NEEDS_REVIEW→AI L1/insider 보강).
+  // 방향(증감 부호)의 정본은 정형 majorstock.json 수집 경로(InsiderHoldingChange)다.
+  /** 대표보고자/보유자명 */
+  holderName?: string;
+  /** 변동 후 보유비율 (% 0~100, 또는 소수 비율 0<r<1) */
+  holdingRatio?: number;
+  /** 직전 보유비율 (% 0~100, 또는 소수 비율 0<r<1) */
+  previousHoldingRatio?: number;
+  /** 보유 주식등의 수 */
+  heldShares?: number;
+  /** 보유목적 원문 (경영참가·단순투자·일반투자 등) */
+  holdingPurpose?: string;
+  /** 보고사유 원문 (신규·변동·변경 등) */
+  holdingReportReason?: string;
+
   // ── 계약 해제 (CONTRACT_CANCELLATION) ────────────────────
   /** 해제된 계약금액 (원) */
   cancelledContractAmount?: number;

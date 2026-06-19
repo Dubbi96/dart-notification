@@ -59,6 +59,30 @@ describe('extractEventData — DAR-71 고위험 5종 배선', () => {
     });
   });
 
+  // DAR-337: 대량보유(5%룰) 배선 — FAILED 최대 단일레버 복구
+  it('MAJOR_HOLDER_5PCT → major-holder-5pct 파서 + 보유비율 존재 시 confidence 0.90', () => {
+    const parsed = {
+      docType: 'OTHER',
+      rawTableCount: 1,
+      keyValueSource: 'table_0',
+      holdingRatio: 8.52,
+      previousHoldingRatio: 6.31,
+    } as ParsedJson;
+    const { data, confidence } = extractEventData(
+      EventType.MAJOR_HOLDER_5PCT,
+      parsed,
+      '주식등의 대량보유상황보고서',
+    );
+    expect(data.holdingRatio).toBe(8.52);
+    expect(data.changeDirection).toBe('INCREASE');
+    expect(confidence).toBe(0.9);
+  });
+
+  it('MAJOR_HOLDER_5PCT: 보유비율 부재 → 0.0 (상위 NEEDS_REVIEW 경로)', () => {
+    const { confidence } = extractEventData(EventType.MAJOR_HOLDER_5PCT, EMPTY, '대량보유상황보고');
+    expect(confidence).toBe(0.0);
+  });
+
   it('회귀: 기존 7종(SUPPLY_CONTRACT) 배선 유지', () => {
     const parsed = { docType: 'SUPPLY_CONTRACT', rawTableCount: 1, keyValueSource: 'table_0', contractAmount: 1_000 } as ParsedJson;
     const { data, confidence } = extractEventData(EventType.SUPPLY_CONTRACT, parsed, '단일판매·공급계약체결');

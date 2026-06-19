@@ -256,6 +256,92 @@ describe('DisclosureEventsService', () => {
     });
   });
 
+  // ─── DAR-337: 추출 커버리지 확대 — FAILED 복구 ─────────────────────────────
+  // 분류는 확실(≥0.85)하나 문서 Rule 수치가 비면 FAILED(분류 불가 의미)가 아니라
+  // NEEDS_REVIEW(AI L1/insider 보강 대기)로 회수한다. MAJOR_HOLDER_5PCT(611건)가 대표.
+  describe('processDisclosure — DAR-337 분류확실·수치부재 회수', () => {
+    const major5PctDisclosure = {
+      ...supplyContractDisclosure,
+      rcpNo: '20240801000001',
+      reportName: '주식등의 대량보유상황보고서',
+    };
+
+    it('MAJOR_HOLDER_5PCT: 보유비율 부재(과거 FAILED 611건) → NEEDS_REVIEW(AWAITING_AI_L1)로 복구', async () => {
+      mockPrismaService.disclosure.findUnique.mockResolvedValue(major5PctDisclosure);
+      mockPrismaService.disclosureDocument.findUnique.mockResolvedValue({
+        ...supplyContractDoc,
+        rcpNo: '20240801000001',
+        // 5%룰 보고는 보유 parsedJson에 구조화 필드가 없는 경우가 일반적(frozen).
+        parsedJson: { docType: 'OTHER', rawTableCount: 0, keyValueSource: 'none' },
+      });
+
+      const result = await service.processDisclosure('20240801000001');
+      expect(result.eventType).toBe(EventType.MAJOR_HOLDER_5PCT);
+      // 핵심 회귀고정: FAILED 아님.
+      expect(result.extractionStatus).toBe(ExtractionStatus.NEEDS_REVIEW);
+      expect(result.extractionStatus).not.toBe(ExtractionStatus.FAILED);
+      expect(result.failReason).toBe('AWAITING_AI_L1');
+      expect(result.isAiAssisted).toBe(true);
+    });
+
+    it('MAJOR_HOLDER_5PCT: 보유비율 존재 → SUCCESS 승격', async () => {
+      mockPrismaService.disclosure.findUnique.mockResolvedValue(major5PctDisclosure);
+      mockPrismaService.disclosureDocument.findUnique.mockResolvedValue({
+        ...supplyContractDoc,
+        rcpNo: '20240801000001',
+        parsedJson: {
+          docType: 'OTHER',
+          rawTableCount: 1,
+          keyValueSource: 'table_0',
+          holdingRatio: 8.52,
+          previousHoldingRatio: 6.31,
+        },
+      });
+
+      const result = await service.processDisclosure('20240801000001');
+      expect(result.eventType).toBe(EventType.MAJOR_HOLDER_5PCT);
+      expect(result.extractionStatus).toBe(ExtractionStatus.SUCCESS);
+      const data = result.extractedData as Record<string, unknown>;
+      expect(data['holdingRatio']).toBe(8.52);
+    });
+
+    it('일반 하드타입(SHARE_BUYBACK)도 분류확실·수치부재 시 FAILED→NEEDS_REVIEW로 회수', async () => {
+      mockPrismaService.disclosure.findUnique.mockResolvedValue({
+        ...supplyContractDisclosure,
+        rcpNo: '20240802000001',
+        reportName: '자기주식 취득 결정',
+      });
+      mockPrismaService.disclosureDocument.findUnique.mockResolvedValue({
+        ...supplyContractDoc,
+        rcpNo: '20240802000001',
+        parsedJson: { docType: 'SHARE_BUYBACK', rawTableCount: 0, keyValueSource: 'none' },
+      });
+
+      const result = await service.processDisclosure('20240802000001');
+      expect(result.eventType).toBe(EventType.SHARE_BUYBACK);
+      expect(result.extractionStatus).toBe(ExtractionStatus.NEEDS_REVIEW);
+      expect(result.failReason).toBe('AWAITING_AI_L1');
+    });
+
+    it('음성 대조군: 분류 confidence가 낮은(docType 0.70) 수치부재 건은 FAILED(NO_PARSED_FIELD) 유지', async () => {
+      // 보고서명 미매칭 + docType=SHARE_BUYBACK(2차 보완 0.70 < 0.85) → 회수 대상 아님.
+      mockPrismaService.disclosure.findUnique.mockResolvedValue({
+        ...supplyContractDisclosure,
+        rcpNo: '20240803000001',
+        reportName: '기타 경영사항 안내',
+      });
+      mockPrismaService.disclosureDocument.findUnique.mockResolvedValue({
+        ...supplyContractDoc,
+        rcpNo: '20240803000001',
+        parsedJson: { docType: 'SHARE_BUYBACK', rawTableCount: 0, keyValueSource: 'none' },
+      });
+
+      const result = await service.processDisclosure('20240803000001');
+      expect(result.extractionStatus).toBe(ExtractionStatus.FAILED);
+      expect(result.failReason).toBe('NO_PARSED_FIELD');
+    });
+  });
+
   describe('computeDerivedValues', () => {
     it('SUPPLY_CONTRACT salesRatio 계산', () => {
       const result = service.computeDerivedValues(EventType.SUPPLY_CONTRACT, {

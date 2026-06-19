@@ -157,6 +157,10 @@ function makePrisma(open: OpenRow) {
     portfolioRiskSnapshot: { findFirst: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockResolvedValue({}) },
     company: { findMany: jest.fn().mockResolvedValue([]) },
     tradingSignal: { findMany: jest.fn().mockResolvedValue([]) },
+    // DAR-362(#323) 섹터 분산 가드가 openNewPositions 에서 보유/후보 corpCode 의 업종을 조회한다.
+    // 이 스펙은 #324 와 병렬 머지되어 해당 모델 목이 없으면 사이클이 'undefined.findMany' 로 깨진다
+    // (머지순서 회귀). []=업종 미상 → 가드 면제 → exit 평가 경로 불변.
+    companyOverview: { findMany: jest.fn().mockResolvedValue([]) },
   };
 }
 

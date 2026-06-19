@@ -1525,3 +1525,151 @@ describe('KrxMarketDataScheduler.catchUpMarketIndices (DAR-375)', () => {
     expect(res.totalSaved).toBe(2);
   });
 });
+
+// ─── DAR-376: 과거 깊이 백필(재개) + 커버리지 리포트 + 품질 가드 ──────────────────
+const validDaily: KrxStockDailyRow = {
+  stockCode: '005930',
+  isuAbbrv: '삼성전자',
+  openPrice: 70_000,
+  highPrice: 71_000,
+  lowPrice: 69_500,
+  closePrice: 70_500,
+  volume: 15_000_000,
+  tradingValue: 1_057_500_000_000,
+};
+
+describe('KrxMarketDataScheduler.backfillDailyHistoryDeep (DAR-376)', () => {
+  it('가장 오래된 적재일(6/5) 직전부터 더 과거로 이어 수집 + 수집로그 기록', async () => {
+    const krx = makeRealDateKrx({
+      fetchStockDaily: jest.fn().mockResolvedValue([validDaily]) as unknown as KrxApiService['fetchStockDaily'],
+      fetchKosqdaqDaily: jest
+        .fn()
+        .mockResolvedValue([{ ...validDaily, stockCode: '000660' }]) as unknown as KrxApiService['fetchKosqdaqDaily'],
+    });
+    const prisma = makePrisma();
+    // earliest 적재일 = 6/5 → resumeFrom = 6/4.
+    (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue({ tradeDate: '20260605' });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const res = await scheduler.backfillDailyHistoryDeep({ days: 2, delayMs: 0 });
+
+    expect(res.earliestBefore).toBe('20260605');
+    expect(res.resumedFrom).toBe('20260604'); // 6/5 - 1
+    expect(res.collectedDays).toBe(2); // 6/4·6/3 (평일)
+    expect(res.totalSaved).toBeGreaterThan(0);
+    expect(prisma.marketDataCollectionLog.create).toHaveBeenCalledTimes(1);
+    expect(prisma.marketDataCollectionLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'SUCCESS' }) }),
+    );
+  });
+
+  it('저장소 비어있음 → today 부트스트랩(earliestBefore null)', async () => {
+    const krx = makeRealDateKrx({
+      fetchStockDaily: jest.fn().mockResolvedValue([validDaily]) as unknown as KrxApiService['fetchStockDaily'],
+      fetchKosqdaqDaily: jest.fn().mockResolvedValue([]) as unknown as KrxApiService['fetchKosqdaqDaily'],
+    });
+    const prisma = makePrisma(); // findFirst 기본 null
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const res = await scheduler.backfillDailyHistoryDeep({ days: 1, delayMs: 0 });
+
+    expect(res.earliestBefore).toBeNull();
+    expect(res.resumedFrom).toMatch(/^[0-9]{8}$/);
+  });
+
+  it('KRX 미설정 — graceful(로그 PARTIAL, message 전파)', async () => {
+    const krx = makeRealDateKrx({
+      fetchStockDaily: jest
+        .fn()
+        .mockRejectedValue(new KrxApiUnavailableError('미설정')) as unknown as KrxApiService['fetchStockDaily'],
+    });
+    const prisma = makePrisma();
+    (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue({ tradeDate: '20260605' });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const res = await scheduler.backfillDailyHistoryDeep({ days: 5, delayMs: 0 });
+
+    expect(res.message).toBe('KRX API 미설정');
+    expect(prisma.marketDataCollectionLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'PARTIAL' }) }),
+    );
+  });
+});
+
+describe('KrxMarketDataScheduler.getDailyCoverageReport (DAR-376)', () => {
+  it('유니버스 대비 누락 종목·거래일 범위·총 행수 리포트', async () => {
+    const prisma = makePrisma();
+    (prisma.company.findMany as jest.Mock).mockResolvedValue([
+      { stockCode: '005930' },
+      { stockCode: '000660' },
+      { stockCode: '035720' }, // 일봉 전무 → missing
+    ]);
+    (prisma.stockDailyPrice as any).aggregate = jest
+      .fn()
+      .mockResolvedValue({ _min: { tradeDate: '20260101' }, _max: { tradeDate: '20260618' } });
+    (prisma.stockDailyPrice as any).groupBy = jest.fn((arg: { by: string[] }) =>
+      Promise.resolve(
+        arg.by[0] === 'stockCode'
+          ? [{ stockCode: '005930' }, { stockCode: '000660' }] // 2 종목만 데이터 보유
+          : Array.from({ length: 100 }, (_, i) => ({ tradeDate: String(i) })), // 거래일 100일
+      ),
+    );
+    (prisma.stockDailyPrice as any).count = jest.fn().mockResolvedValue(5_000);
+    const scheduler = new KrxMarketDataScheduler(prisma, makeKrxApi(), makeDart());
+
+    const rep = await scheduler.getDailyCoverageReport();
+
+    expect(rep.universeSize).toBe(3);
+    expect(rep.stocksWithData).toBe(2);
+    expect(rep.missingStockCount).toBe(1);
+    expect(rep.missingStockSample).toEqual(['035720']);
+    expect(rep.tradeDateMin).toBe('20260101');
+    expect(rep.tradeDateMax).toBe('20260618');
+    expect(rep.tradingDayCount).toBe(100);
+    expect(rep.totalRows).toBe(5_000);
+  });
+});
+
+describe('KrxMarketDataScheduler.collectDailyPricesBulkForDate 품질 가드 (DAR-376)', () => {
+  it('손상 행(고가<저가)은 적재 거부(skipped), 정상 행만 saved', async () => {
+    const corrupt: KrxStockDailyRow = {
+      stockCode: '000660',
+      isuAbbrv: 'SK하이닉스',
+      openPrice: 100,
+      highPrice: 90, // 고가 < 저가 → 손상
+      lowPrice: 110,
+      closePrice: 100,
+      volume: 1,
+      tradingValue: 1,
+    };
+    const krx = makeKrxApi({
+      fetchStockDaily: jest.fn().mockResolvedValue([validDaily]) as unknown as KrxApiService['fetchStockDaily'],
+      fetchKosqdaqDaily: jest.fn().mockResolvedValue([corrupt]) as unknown as KrxApiService['fetchKosqdaqDaily'],
+    });
+    const prisma = makePrisma();
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const res = await scheduler.collectDailyPricesBulkForDate('20260604');
+
+    expect(res.saved).toBe(1); // 정상 005930 만
+    expect(res.skipped).toBe(1); // 손상 000660 거부
+    const arg = (prisma.stockDailyPrice.createMany as jest.Mock).mock.calls[0][0];
+    expect(arg.data).toHaveLength(1);
+    expect(arg.data[0].stockCode).toBe('005930');
+  });
+
+  it('음수·0 가격 행도 거부', async () => {
+    const zero: KrxStockDailyRow = { ...validDaily, stockCode: '000660', closePrice: 0 };
+    const krx = makeKrxApi({
+      fetchStockDaily: jest.fn().mockResolvedValue([validDaily]) as unknown as KrxApiService['fetchStockDaily'],
+      fetchKosqdaqDaily: jest.fn().mockResolvedValue([zero]) as unknown as KrxApiService['fetchKosqdaqDaily'],
+    });
+    const prisma = makePrisma();
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const res = await scheduler.collectDailyPricesBulkForDate('20260604');
+
+    expect(res.saved).toBe(1);
+    expect(res.skipped).toBe(1);
+  });
+});

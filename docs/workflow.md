@@ -657,7 +657,7 @@ GET  /market-data/collection-logs?tradeDate=YYYYMMDD
 ```
 POST /market-data/backfill/daily?days=60&endDate=YYYYMMDD
   → backfillDailyPrices() — endDate부터 과거 N거래일 일봉을 StockDailyPrice에 멱등 적재
-     (주말 스킵·휴장일 0행 자동 스킵·createMany skipDuplicates·날짜간 delay)
+     (주말 스킵·휴장일 0행 자동 스킵·createMany skipDuplicates·날짜간 delay·DAR-376 OHLC 품질 가드)
 POST /indicators/backfill?mode=latest|all
   → IndicatorBackfillService.backfill() — DB 일봉 → 순수함수 지표 계산 → technical_indicators 멱등 upsert
      (latest=종목별 최신 거래일 / all=보유 전 거래일)
@@ -691,6 +691,32 @@ npx ts-node -r dotenv/config src/engine3-quant-market/indicators/indicator-backf
   (`pageDelayMs`) 스로틀 + 단일 실행 락(겹침 방지). 쿼터 초과분은 `skippedByQuota` 로 정직 보고.
 - 수동 트리거: `POST /market-data/collect/minute-prices?cap=100[&tradeDate=YYYYMMDD]` → 커버리지 리포트.
 - 조회: `GET /market-data/minute-candles?stockCode=...[&tradeDate=...]` — 당일 KIS 우선·저장분(과거일) 폴백.
+
+### 5.8 과거 깊이 백필(재개) + 커버리지 리포트 (DAR-376)
+
+EventStudy(공시→D+N 초과수익)의 backbone 인 일봉을 **과거로 깊게** 축적하고 유니버스 커버리지를
+운영 가시화한다. 지속 최신화(forward)는 DAR-375 캐치업 크론이 담당하고, 여기서는 backward 깊이와
+품질·완전성을 다룬다.
+
+```
+POST /market-data/backfill/deep?days=120
+  → backfillDailyHistoryDeep() — '가장 오래된 적재일의 직전 일자'부터 더 과거로 N거래일 이어 수집.
+     같은 명령을 반복 실행하면 KRX 제공 한도까지 점진적으로 깊어진다(재개 가능·멱등).
+     MarketDataCollectionLog(RUNNING→SUCCESS/PARTIAL/FAILED) 로 진행/재개 추적.
+GET  /market-data/coverage
+  → getDailyCoverageReport() — universeSize·stocksWithData·missingStockCount(+sample)·
+     tradeDateMin/Max·tradingDayCount·totalRows. 누락 종목·구간 점검(EventStudy 데이터 충분성).
+```
+
+수동 스크립트(관리자):
+```
+npx ts-node -r dotenv/config src/engine3-quant-market/market-data/backfill-history.manual.ts deep [days]
+```
+
+> **품질 가드(DAR-376).** bulk 적재 경로(`collectDailyPricesBulkForDate`)가 행 단위로 `isValidDailyOhlc`
+> 를 적용 — 0/음수 가격·고가<저가·시/종가가 [저,고] 범위 밖인 손상 행을 적재 거부(skipped)해
+> EventStudy backbone 오염을 차단한다. 전일대비 ±상한 시계열 이상치는 종목별 직전 종가 조회가
+> 필요해 bulk 경로에 부적합하므로 향후 별도 배치로 분리한다(행 내 정합성만 여기서 검사).
 
 ---
 

@@ -1,12 +1,14 @@
 import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface, Chip } from 'react-native-paper';
+import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { SignalMiniGauge } from '@components/signals/SignalMiniGauge';
 import { SignalFreshnessBadge } from '@components/signals/SignalFreshnessBadge';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
 import { getEventTypeLabel } from '@utils/disclosureType';
+import { isChartableTicker, navigateToStockChart } from '@utils/stockChartLink';
 
 import type { TradingSignal } from '@app-types/signal.types';
 
@@ -22,6 +24,9 @@ interface SignalExploreCardProps {
 function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
   const { colors, typography: typo } = useTheme();
   const handlePress = useCallback(() => onPress?.(signal), [onPress, signal]);
+  // DAR-363: 행에서 실시간 차트로 직접 진입(상세 경유 2홉 제거). 6자리 종목코드 있을 때만.
+  const handleChartPress = useCallback(() => navigateToStockChart(signal.ticker), [signal.ticker]);
+  const chartable = isChartableTicker(signal.ticker);
 
   // 핵심 근거 1줄: AI 요약 우선, 없으면 점수·등급 기반 평문(항상 '(참고)' 꼬리표 포함).
   const rationale = signal.summary ?? scoreOneLiner(signal.buyScore, signal.grade);
@@ -36,6 +41,16 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
         signal.eventType ? `, ${getEventTypeLabel(signal.eventType)}` : ''
       }, 점수 ${signal.buyScore}, ${gradeLabel(signal.grade)}`}
       accessibilityHint="분석 상세 보기"
+      // DAR-363: 카드가 no-hide-descendants 로 자식을 a11y 트리에서 숨기므로, 차트 퀵진입은
+      // 카드 단위 보조 액션으로 노출해 스크린리더 사용자도 동일 동선을 1탭으로 쓸 수 있게 한다.
+      accessibilityActions={chartable ? [{ name: 'chart', label: '실시간 차트 보기' }] : undefined}
+      onAccessibilityAction={
+        chartable
+          ? (event) => {
+              if (event.nativeEvent.actionName === 'chart') handleChartPress();
+            }
+          : undefined
+      }
     >
       <Surface
         elevation={1}
@@ -56,6 +71,18 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
           >
             {gradeLabel(signal.grade)}
           </Chip>
+          {/* DAR-363: 행 우측 차트 퀵진입 — 6자리 종목코드 있을 때만(graceful). 카드 탭(상세)과 분리. */}
+          {chartable ? (
+            <TouchableOpacity
+              onPress={handleChartPress}
+              hitSlop={{ top: spacing.md, bottom: spacing.md, left: spacing.sm, right: spacing.sm }}
+              accessibilityRole="button"
+              accessibilityLabel={`${signal.corpName} 실시간 차트 보기`}
+              style={styles.chartBtn}
+            >
+              <Feather name="bar-chart-2" size={20} color={colors.primary} />
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         {signal.eventType ? (
@@ -111,6 +138,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
+  },
+  chartBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   metaRow: {
     flexDirection: 'row',

@@ -25,6 +25,7 @@ import {
   pnlColor,
   formatPnlPercent,
 } from '@utils/signalDisplay';
+import { isChartableTicker, navigateToStockChart } from '@utils/stockChartLink';
 
 // 포지션 상세(기획 §3 SCR-PORTFOLIO 연계). API 미존재 시 graceful null 처리.
 // 청산 룰 수치는 읽기 전용 — 탭 시 토스트.
@@ -41,6 +42,12 @@ export default function PositionDetailScreen() {
   const handleViewThesis = useCallback(() => {
     router.push(`/portfolio/${portfolioId}/position/${positionId}/thesis`);
   }, [portfolioId, positionId]);
+
+  // DAR-363: 손익을 체감하는 바로 이 화면에서 해당 종목 실시간 차트로 1탭 진입.
+  // position 변수는 아래에서 선언되므로 쿼리 데이터(상단 선언)를 직접 참조한다(TDZ 회피).
+  const handleViewChart = useCallback(() => {
+    navigateToStockChart(positionQuery.data?.ticker);
+  }, [positionQuery.data?.ticker]);
 
   // 시세·논거 변동 데이터 갱신 — 포지션·Thesis 두 쿼리를 함께 새로고침.
   const handleRefresh = useCallback(() => {
@@ -160,6 +167,27 @@ export default function PositionDetailScreen() {
                 {position.quantity}주 · 평균 {position.avgPrice.toLocaleString()}원
               </Text>
             ) : null}
+
+            {/* DAR-363: 실시간 차트 1탭 진입 — 6자리 종목코드 있을 때만(graceful). ★정직 라벨. */}
+            {isChartableTicker(position.ticker) ? (
+              <TouchableOpacity
+                onPress={handleViewChart}
+                activeOpacity={0.8}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel={`${position.corpName} 실시간 차트 보기 — 실시간 시장가, 환경시계와 다를 수 있음`}
+                style={[styles.chartLink, { borderColor: colors.primary }]}
+              >
+                <Feather name="bar-chart-2" size={16} color={colors.primary} />
+                <View style={styles.chartLinkText}>
+                  <Text style={[typo.captionMedium, { color: colors.primary }]}>실시간 차트 보기</Text>
+                  <Text style={[typo.small, { color: colors.textTertiary }]}>
+                    실시간 시장가 · 환경시계와 괴리
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={18} color={colors.primary} />
+              </TouchableOpacity>
+            ) : null}
           </Surface>
 
           {/* 기업 허브 진입(DAR-149) — corpCode 부재 시 미노출(graceful) */}
@@ -232,6 +260,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  chartLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    minHeight: 44,
+  },
+  chartLinkText: {
+    flex: 1,
+    gap: 1,
   },
   emptyState: {
     flex: 1,

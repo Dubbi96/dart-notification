@@ -19,6 +19,8 @@ import { extract as extractAuditOpinionRisk } from './audit-opinion-risk';
 import { extract as extractTradingSuspension } from './trading-suspension';
 import { extract as extractDelistingRisk } from './delisting-risk';
 import { extract as extractContractCancellation } from './contract-cancellation';
+// DAR-337: 대량보유(5%룰) 상황보고 — FAILED 최대 단일레버(611) 복구
+import { extract as extractMajorHolder5Pct } from './major-holder-5pct';
 
 // ─── 이벤트 타입별 필수 필드 목록 ────────────────────────────────────────────
 // confidence 산출 기준: 필수 필드가 모두 존재하면 0.90, 일부 누락 시 0.60~0.89
@@ -43,6 +45,8 @@ const REQUIRED_FIELDS: Partial<Record<EventType, string[]>> = {
   [EventType.TRADING_SUSPENSION]:       ['suspensionReason'],
   [EventType.DELISTING_RISK]:           ['delistingStage'],
   [EventType.CONTRACT_CANCELLATION]:    ['cancelledAmount'],
+  // DAR-337: 대량보유(5%룰) — 보유비율 충족 시 SUCCESS, 부재 시 0.0 → 상위 NEEDS_REVIEW(AI L1/insider 보강)
+  [EventType.MAJOR_HOLDER_5PCT]:        ['holdingRatio'],
 };
 
 /**
@@ -54,7 +58,8 @@ const REQUIRED_FIELDS: Partial<Record<EventType, string[]>> = {
  *   CB_ISSUANCE, BW_ISSUANCE,
  *   MAJOR_SHAREHOLDER_CHANGE, EARNINGS_SURPRISE/SHOCK (DAR-58),
  *   LAWSUIT, AUDIT_OPINION_RISK, TRADING_SUSPENSION, DELISTING_RISK,
- *   CONTRACT_CANCELLATION (DAR-71)
+ *   CONTRACT_CANCELLATION (DAR-71),
+ *   MAJOR_HOLDER_5PCT (DAR-337)
  * - 나머지 EventType: data = {}, confidence = 0.0
  *
  * @returns { data: Record<string, unknown>; confidence: number }
@@ -115,6 +120,10 @@ export function extractEventData(
         break;
       case EventType.CONTRACT_CANCELLATION:
         data = extractContractCancellation(parsedJson, reportName) as unknown as Record<string, unknown>;
+        break;
+      // DAR-337: 대량보유(5%룰) 상황보고
+      case EventType.MAJOR_HOLDER_5PCT:
+        data = extractMajorHolder5Pct(parsedJson, reportName) as unknown as Record<string, unknown>;
         break;
       default:
         // 미지원 이벤트 타입 — extractionStatus = NEEDS_REVIEW

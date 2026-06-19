@@ -38,14 +38,19 @@ const REQUIRED_FIELDS_MAP: Partial<Record<EventType, string[]>> = {
   [EventType.MAJOR_SHAREHOLDER_CHANGE]: ['ownershipRatio'],
   [EventType.EARNINGS_SURPRISE]:        ['operatingProfitYoY'],
   [EventType.EARNINGS_SHOCK]:           ['operatingProfitYoY'],
+  // DAR-337: 대량보유(5%룰)
+  [EventType.MAJOR_HOLDER_5PCT]:        ['holdingRatio'],
 };
 
 // DAR-58: 구조화 수치가 보유 parsedJson에 자주 부재하는 "소프트" 이벤트 타입.
 // 분류는 확실하나 수치 추출 0.0인 경우 FAILED 대신 NEEDS_REVIEW(AI L1 보정 대기)로 라우팅한다.
+// DAR-337: 대량보유(5%룰) 추가 — 방향(증감 부호)의 정본은 정형 majorstock.json(InsiderHoldingChange)
+//          이며, 문서 기반 Rule 추출이 비면 FAILED가 아니라 AI L1/insider 보강 대기다.
 const AI_RESOLVABLE_TYPES: ReadonlySet<EventType> = new Set([
   EventType.MAJOR_SHAREHOLDER_CHANGE,
   EventType.EARNINGS_SURPRISE,
   EventType.EARNINGS_SHOCK,
+  EventType.MAJOR_HOLDER_5PCT,
 ]);
 
 @Injectable()
@@ -118,10 +123,15 @@ export class DisclosureEventsService {
 
       // 필수 필드 전부 누락 (confidence = 0.0)
       if (extractConfidence === 0.0 && eventType !== EventType.OTHER) {
-        // DAR-58: 분류는 확실하나 수치 부재인 소프트 타입 → FAILED 대신 NEEDS_REVIEW(AI L1 대기)
+        // DAR-58: 분류는 확실하나 수치 부재인 소프트 타입 → FAILED 대신 NEEDS_REVIEW(AI L1 대기).
+        // DAR-337: 추출 커버리지 확대 — 분류 confidence가 SUCCESS 임계(≥0.85) 이상이면
+        //   "타입은 확정·문서 Rule 수치만 부재"이므로 FAILED(분류 불가 의미)가 아니라
+        //   NEEDS_REVIEW(AI L1/2차 보강 대기)로 회수한다. 소프트셋은 더 낮은 분류
+        //   confidence(≥NEEDS_REVIEW 0.60)에서도 회수(기존 동작 보존).
         const aiResolvable =
-          AI_RESOLVABLE_TYPES.has(eventType) &&
-          classifyConfidence >= CONFIDENCE_NEEDS_REVIEW_THRESHOLD;
+          (AI_RESOLVABLE_TYPES.has(eventType) &&
+            classifyConfidence >= CONFIDENCE_NEEDS_REVIEW_THRESHOLD) ||
+          classifyConfidence >= CONFIDENCE_SUCCESS_THRESHOLD;
         return this.upsertEvent({
           rcpNo,
           corpCode: disclosure.corpCode,

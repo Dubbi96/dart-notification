@@ -42,7 +42,9 @@ import { RiskStatusBadges } from '@components/common/RiskStatusBadges';
 import { useCompanyPhilosophyFit } from '@hooks/usePhilosophies';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
 import { useStockQuotes } from '@hooks/useStockQuotes';
+import { useMinuteCandles } from '@hooks/useMinuteCandles';
 import { StockPriceBadge } from '@components/common/StockPriceBadge';
+import { MinuteCandleChart } from '@components/company/MinuteCandleChart';
 import { useHaptics } from '@hooks/useHaptics';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
@@ -315,6 +317,13 @@ export default function CompanyDetailScreen() {
   // DAR-158: 최신 시세(현재가·전일대비%·5일 스파크라인) 배지. 가격 없으면 미표시.
   const { quotes, dataUpdatedAt: quoteUpdatedAt } = useStockQuotes([company?.stockCode]);
   const quote = company?.stockCode ? quotes[company.stockCode] : null;
+  // DAR-354: 당일 분봉(인트라데이) — 현재가 헤더 아래 차트. 장중에만 1분 폴링.
+  const {
+    candles: minuteCandles,
+    isLoading: isLoadingMinuteCandles,
+    isError: isMinuteCandlesError,
+    refetch: refetchMinuteCandles,
+  } = useMinuteCandles(company?.stockCode, { pollWhileMarketOpen: true });
   const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
   const addToWatchlist = useAddToWatchlist();
   const removeFromWatchlist = useRemoveFromWatchlist();
@@ -541,6 +550,23 @@ export default function CompanyDetailScreen() {
           </TouchableOpacity>
         </Card>
       </View>
+
+      {/* DAR-354: 분봉 차트 섹션 — 현재가 헤더 아래. 종목코드 있을 때만. 빈/로딩/에러 graceful. */}
+      {company.stockCode ? (
+        <View style={styles.companyCardWrap}>
+          <Card style={styles.mainCard} variant="elevated">
+            <Text style={[typo.h3, { color: colors.text, marginBottom: spacing.sm }]}>분봉 차트</Text>
+            <MinuteCandleChart
+              candles={minuteCandles}
+              isLoading={isLoadingMinuteCandles}
+              isError={isMinuteCandlesError}
+              onRetry={() => {
+                void refetchMinuteCandles();
+              }}
+            />
+          </Card>
+        </View>
+      ) : null}
 
       {/* Tab selector — 6탭 가로 스크롤 칩 행(DAR-156): 좁은 기기 라벨 압축·오탭 방지 */}
       <View style={[styles.tabWrap, { borderBottomColor: colors.borderLight }]}>

@@ -1,6 +1,7 @@
 import type { ApiResponse } from '@app-types/api.types';
 import type { SignalAccuracyReport } from '@app-types/signal-accuracy.types';
 import type { CalibrationReport } from '@app-types/calibration.types';
+import type { BacktestTrackRecord } from '@app-types/backtest.types';
 
 import { api } from './api';
 
@@ -18,5 +19,12 @@ export const backtestService = {
   getCalibration: () =>
     api
       .get<ApiResponse<CalibrationReport>>('/backtest/calibration')
+      .then((r) => r.data.data),
+
+  // 1년 자동매매 point-in-time 리플레이 트랙레코드(DAR-385) — 최신 완료본.
+  // OptionalJwt(게스트 데모 가능). 미완료/미실행이면 data=null 로 graceful(빈 상태 표시).
+  getTrackRecord: () =>
+    api
+      .get<ApiResponse<BacktestTrackRecord | null>>('/backtest/track-record')
       .then((r) => r.data.data),
 };

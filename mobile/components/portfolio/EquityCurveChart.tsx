@@ -22,6 +22,14 @@ function shortDate(yyyymmdd: string): string {
   return `${Number(yyyymmdd.slice(4, 6))}/${Number(yyyymmdd.slice(6, 8))}`;
 }
 
+/**
+ * 점 라벨 — DAR-393. live(현재 실시간 실가 재평가) 점은 날짜 대신 '현재(실시간)'로 표기해
+ * 과거 스냅샷(정체 가능)과 시각적으로 구분한다(헤더 평가금액과 같은 시점임을 명시).
+ */
+function pointLabel(p: EquityCurvePoint): string {
+  return p.kind === 'live' ? '현재(실시간)' : shortDate(p.snapshotDate);
+}
+
 interface EquityCurveChartProps {
   points: EquityCurvePoint[];
   initialCapital: number;
@@ -77,12 +85,12 @@ export function EquityCurveChart({ points, initialCapital }: EquityCurveChartPro
         <View
           style={styles.tooltip}
           accessibilityRole="text"
-          accessibilityLabel={`${shortDate(active.snapshotDate)} 모의 평가금액 ${Math.round(
+          accessibilityLabel={`${pointLabel(active)} 모의 평가금액 ${Math.round(
             active.totalValue,
           ).toLocaleString('ko-KR')}원, 초기원금 대비 ${formatReturnPct(active.returnPct, { digits: 2 })}`}
         >
           <Text style={[typo.small, { color: colors.textSecondary }]}>
-            {shortDate(active.snapshotDate)}
+            {pointLabel(active)}
           </Text>
           <Text style={[typo.captionMedium, { color: colors.text }]}>
             {Math.round(active.totalValue).toLocaleString('ko-KR')}원
@@ -138,10 +146,10 @@ export function EquityCurveChart({ points, initialCapital }: EquityCurveChartPro
       {points.length >= 2 ? (
         <View style={styles.axisRow}>
           <Text style={[typo.small, { color: colors.textTertiary }]}>
-            {shortDate(points[0].snapshotDate)}
+            {pointLabel(points[0])}
           </Text>
           <Text style={[typo.small, { color: colors.textTertiary }]}>
-            {shortDate(points[points.length - 1].snapshotDate)}
+            {pointLabel(points[points.length - 1])}
           </Text>
         </View>
       ) : null}

@@ -30,16 +30,18 @@ function check(label: string, got: unknown, want: unknown): void {
 }
 
 // 컴포넌트가 라벨을 만드는 방식 그대로 재현(소스와 동일한 표현식)
+// DAR-393: 라벨 접두어를 '기준일'→'최근 스냅샷'으로 변경(평가금액은 live 라 stale 스냅샷일을
+//   '기준일'로 붙이면 오인). 포맷 정본(formatYmdDots)·raw 미노출 규칙은 그대로 유지.
 function snapshotLabel(latestSnapshotDate: string | null): string {
-  return latestSnapshotDate ? `  ·  기준일 ${formatYmdDots(latestSnapshotDate)}` : '';
+  return latestSnapshotDate ? `  ·  최근 스냅샷 ${formatYmdDots(latestSnapshotDate)}` : '';
 }
 
 // 1) DoD 핵심 — '20260610' → '2026.06.10' 형식 표시
 check("formatYmdDots('20260610')", formatYmdDots('20260610'), '2026.06.10');
 check(
-  '기준일 라벨이 YYYY.MM.DD 포함',
+  '최근 스냅샷 라벨이 YYYY.MM.DD 포함',
   snapshotLabel('20260610'),
-  '  ·  기준일 2026.06.10',
+  '  ·  최근 스냅샷 2026.06.10',
 );
 
 // 2) raw YYYYMMDD 미노출 — 라벨에 구분자 없는 '20260610' 이 등장하면 안 됨
@@ -65,13 +67,13 @@ const src = readFileSync(
 );
 check('formatYmdDots import 존재', /import\s*{[^}]*\bformatYmdDots\b[^}]*}\s*from\s*'@utils\/datetime'/.test(src), true);
 check(
-  '기준일 라벨이 formatYmdDots(latestSnapshotDate) 경유',
-  /기준일 \$\{formatYmdDots\(latestSnapshotDate\)\}/.test(src),
+  '최근 스냅샷 라벨이 formatYmdDots(latestSnapshotDate) 경유',
+  /최근 스냅샷 \$\{formatYmdDots\(latestSnapshotDate\)\}/.test(src),
   true,
 );
 check(
-  '기준일 라벨에 raw ${latestSnapshotDate} 보간 잔존 없음',
-  /기준일 \$\{latestSnapshotDate\}/.test(src),
+  '스냅샷 라벨에 raw ${latestSnapshotDate} 보간 잔존 없음',
+  /(?:기준일|최근 스냅샷) \$\{latestSnapshotDate\}/.test(src),
   false,
 );
 

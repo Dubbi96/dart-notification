@@ -65,7 +65,12 @@ function makePrisma(opts: {
     stockDailyPrice: {
       // exit batch: corpCode in(...) 단일 호출 — corpCode asc, tradeDate asc 정렬된 행 반환.
       findMany: jest.fn(async () => opts.priceRows),
+      // DAR-393: getEquityCurve 가 헤더와 동일한 live 평가(getOpenPositionDetails→revalueLive→
+      //   latestPriceRow)를 호출 → 실가 미가용(null) 폴백. findMany 카운트(위 grouped 단언)와 무관.
+      findFirst: jest.fn().mockResolvedValue(null),
     },
+    // DAR-393: getOpenPositionDetails 의 회사명 보강 조회(보유 포지션 표시) — 빈 결과 스텁.
+    company: { findMany: jest.fn().mockResolvedValue([]) },
     aIUsageLog: { aggregate: jest.fn().mockResolvedValue({ _sum: { costUsd: 0 } }) },
     portfolioRiskSnapshot: { findMany: jest.fn().mockResolvedValue([]) },
   };

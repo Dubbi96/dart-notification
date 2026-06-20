@@ -1,4 +1,5 @@
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { MarketCalendarService } from '../constraint/market-calendar.service';
 import { PriceConstraintService } from '../constraint/price-constraint.service';
@@ -67,6 +68,32 @@ export interface BacktestTrackRecord {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const REPLAY_UNIVERSE = 'ALL_LISTED';
+
+/** returnPct 컬럼 정밀도 Decimal(8,4) 표현 한계(±9999.9999) — 초과 시 클램프(DAR-390) */
+export const RETURN_PCT_LIMIT = 9999.9999;
+
+/** 유한·양수 여부(진입 필수 수치 검증용) */
+export function isFinitePositive(v: number | undefined | null): boolean {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0;
+}
+
+/** 유한값이면 그대로, 아니면 null(선택 수치 필드 정규화) */
+export function finiteOrNull(v: number | undefined | null): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/** 유한값이면 그대로, 아니면 fallback(비용 등 기본 0 필드) */
+export function finiteOr(v: number | undefined | null, fallback: number): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+}
+
+/** returnPct 정규화 — 비유한은 null, 범위 초과는 표현 가능 한계로 클램프 */
+export function clampReturnPct(v: number | undefined | null): number | null {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  if (v > RETURN_PCT_LIMIT) return RETURN_PCT_LIMIT;
+  if (v < -RETURN_PCT_LIMIT) return -RETURN_PCT_LIMIT;
+  return v;
+}
 
 /**
  * BacktestReplayService — 1년 자동매매 모의투자 point-in-time 리플레이 오케스트레이터.
@@ -261,11 +288,41 @@ export class BacktestReplayService {
     };
   }
 
-  /** SimulatedTrade[] → BacktestTrade 영속(createMany) */
+  /**
+   * SimulatedTrade[] → BacktestTrade 영속(createMany).
+   *
+   * DAR-390 — null/NaN/Infinity 안전성(이중 방어):
+   *  - 러너가 가격 결측·이상치 신호를 1차 제외하지만, 어떤 경로로든 진입 필수 수치
+   *    (entryPrice/entryShares/entryValue 등)가 유한·양수가 아닌 트레이드가 들어오면
+   *    Prisma 가 createMany 전체를 거부해 replay 가 500 으로 깨진다. 그런 트레이드는
+   *    여기서 graceful 하게 제외하고 제외 건수를 로그로 남긴다(부분 결측이 전체 실패로
+   *    번지지 않게).
+   *  - 선택(nullable) 수치 필드는 undefined/비유한 값을 null 로 정규화한다.
+   *  - returnPct 는 컬럼 정밀도 Decimal(8,4) 한계(±9999.9999)를 넘으면 Prisma 가 거부하므로
+   *    표현 가능 범위로 클램프한다(극단치 보존보다 영속 성공 우선).
+   */
   private async persistTrades(runId: string, trades: SimulatedTrade[]): Promise<void> {
     if (trades.length === 0) return;
-    await this.prisma.backtestTrade.createMany({
-      data: trades.map((t) => ({
+
+    const rows: Prisma.BacktestTradeCreateManyInput[] = [];
+    let skipped = 0;
+    for (const t of trades) {
+      // 진입 필수 수치 — 유한·양수가 아니면 영속 불가 트레이드로 제외
+      if (
+        !isFinitePositive(t.entryPrice) ||
+        !isFinitePositive(t.entryShares) ||
+        !isFinitePositive(t.entryValue) ||
+        !Number.isFinite(t.buyScore)
+      ) {
+        skipped += 1;
+        this.logger.warn(
+          `[DAR-390] 영속 제외(가격 결측/이상치) [${t.stockCode}] rcpNo=${t.rcpNo} ` +
+            `entryPrice=${t.entryPrice} entryShares=${t.entryShares} entryValue=${t.entryValue}`,
+        );
+        continue;
+      }
+
+      rows.push({
         backtestRunId: runId,
         disclosureRcpNo: t.rcpNo,
         corpCode: t.corpCode,
@@ -276,30 +333,40 @@ export class BacktestReplayService {
         isAfterMarket: t.isAfterMarket,
         entryDate: t.entryDate,
         entryPrice: t.entryPrice,
-        entryShares: t.entryShares,
+        entryShares: Math.round(t.entryShares),
         entryValue: t.entryValue,
         exitDate: t.exitDate ?? null,
-        exitPrice: t.exitPrice ?? null,
-        exitShares: t.exitShares ?? null,
-        exitValue: t.exitValue ?? null,
+        exitPrice: finiteOrNull(t.exitPrice),
+        exitShares:
+          t.exitShares != null && Number.isFinite(t.exitShares) ? Math.round(t.exitShares) : null,
+        exitValue: finiteOrNull(t.exitValue),
         exitReason: t.exitReason ?? null,
-        commission: t.commission,
-        tax: t.tax,
-        slippage: t.slippage,
-        grossPnl: t.grossPnl ?? null,
-        netPnl: t.netPnl ?? null,
-        returnPct: t.returnPct ?? null,
-        holdDays: t.holdDays ?? null,
+        commission: finiteOr(t.commission, 0),
+        tax: finiteOr(t.tax, 0),
+        slippage: finiteOr(t.slippage, 0),
+        grossPnl: finiteOrNull(t.grossPnl),
+        netPnl: finiteOrNull(t.netPnl),
+        returnPct: clampReturnPct(t.returnPct),
+        holdDays:
+          t.holdDays != null && Number.isFinite(t.holdDays) ? Math.round(t.holdDays) : null,
         wasLimitUp: t.wasLimitUp,
         wasLimitDown: t.wasLimitDown,
         wasTradingSuspended: t.wasTradingSuspended,
         wasAdminStock: t.wasAdminStock,
         isPartialFill: t.isPartialFill,
-        fillRate: t.fillRate ?? null,
+        fillRate: finiteOrNull(t.fillRate),
         lowLiquidityFlag: t.lowLiquidityFlag,
         buyScoreSnapshot: Math.round(t.buyScore),
-      })),
-    });
+      });
+    }
+
+    if (skipped > 0) {
+      this.logger.warn(
+        `[DAR-390] 가격 결측/이상치로 ${skipped}건 영속 제외 (전체 ${trades.length}건)`,
+      );
+    }
+    if (rows.length === 0) return;
+    await this.prisma.backtestTrade.createMany({ data: rows });
   }
 
   private assertDate(value: string, field: string): void {

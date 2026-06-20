@@ -16,6 +16,7 @@ import {
 } from '../../common/queues/queue.constants';
 import {
   AiReprocessResult,
+  DrainProgress,
   PipelineDrainResult,
   PipelineFailureRow,
   PipelineHealth,
@@ -25,6 +26,13 @@ import {
 
 /** 폐루프 1회 backfill 시 단계별 처리 상한(과도 부하 방지). */
 const DEFAULT_DRAIN_LIMIT = 100;
+
+/**
+ * DAR-392 ETA 추정용 분당 공칭 파싱 처리량(성공 건/분).
+ * 실측(drain limit500 ≈ parse 200·성공 ~144·56s → ~150/분)에서 보수적으로 잡은 상수.
+ * ★거친 추정 — 실제는 DART 레이트리밋/쿼터·적응형 백오프에 따라 달라진다.
+ */
+const NOMINAL_PARSE_PER_MINUTE = 140;
 /** AI 재발행(수동) 1회 상한. */
 const DEFAULT_AI_REPROCESS_LIMIT = 100;
 /** 실패/적체 가시화 행 상한. */
@@ -162,6 +170,74 @@ export class PipelineIntegrityService {
         awaitingSummary,
       },
       recentFailures,
+    };
+  }
+
+  /**
+   * DAR-392 드레인 진행 리포트(read-only) — 백데이터 fetch→parse 적체 소진 가시성.
+   * 문서 파싱 DONE%·잔여 백로그·ETA 를 노출해 '차주 장 전 풀커버' 진척을 추적한다.
+   * `now` 주입 가능(테스트 결정론). 부작용 0.
+   */
+  async getDrainProgress(now: Date = new Date()): Promise<DrainProgress> {
+    const [parseGroups, retryable, missingDocument, eligibleEvents] =
+      await Promise.all([
+        this.prisma.disclosureDocument.groupBy({
+          by: ['parseStatus'],
+          _count: { _all: true },
+        }),
+        this.prisma.disclosureDocument.count({
+          where: {
+            parseStatus: {
+              in: [ParseStatus.FETCH_FAILED, ParseStatus.PARSE_FAILED],
+            },
+            retryCount: { lt: PARSE_MAX_RETRY },
+          },
+        }),
+        this.prisma.disclosure.count({ where: { document: { is: null } } }),
+        this.prisma.disclosureEvent.count({
+          where: {
+            extractionStatus: {
+              in: [ExtractionStatus.SUCCESS, ExtractionStatus.NEEDS_REVIEW],
+            },
+          },
+        }),
+      ]);
+
+    const parse = this.tallyParse(parseGroups);
+    const totalDocuments =
+      parse.pending +
+      parse.fetching +
+      parse.parsing +
+      parse.done +
+      parse.fetchFailed +
+      parse.parseFailed +
+      parse.skipped;
+    const pending = parse.pending + parse.fetching + parse.parsing;
+    const donePercent =
+      totalDocuments > 0
+        ? Math.round((parse.done / totalDocuments) * 1000) / 10
+        : 0;
+
+    // ETA: 잔여 백로그(미파싱 문서 + 아직 큐에 없는 공시) / 공칭 처리량.
+    const backlog = pending + missingDocument;
+    const etaHours =
+      backlog > 0
+        ? Math.round((backlog / NOMINAL_PARSE_PER_MINUTE / 60) * 10) / 10
+        : 0;
+
+    return {
+      generatedAt: now.toISOString(),
+      parse: {
+        totalDocuments,
+        done: parse.done,
+        pending,
+        retryable,
+        donePercent,
+      },
+      missingDocument,
+      eligibleEvents,
+      nominalParsePerMinute: NOMINAL_PARSE_PER_MINUTE,
+      etaHours,
     };
   }
 

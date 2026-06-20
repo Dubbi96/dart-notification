@@ -97,4 +97,116 @@ describe('PipelineDrainScheduler (DAR-126)', () => {
     await expect(scheduler.drainPipeline()).resolves.toBe('RAN');
     expect(pipeline.drainOnce).toHaveBeenCalledTimes(2);
   });
+
+  // ── DAR-392: 적응형 레이트리밋 백오프 ──────────────────────────────
+  /** 고실패(표본 충분) 결과 — parse.failed/(success+failed) ≥ 0.5, attempts ≥ 20. */
+  const highFailureResult: PipelineDrainResult = {
+    enqueuedMissingDocuments: 0,
+    parse: { success: 10, failed: 40 }, // 50 시도 중 80% 실패
+    events: { success: 0, failed: 0, needsReview: 0 },
+    durationMs: 100,
+  };
+  /** 건강한 결과(표본 충분, 저실패). */
+  const healthyResult: PipelineDrainResult = {
+    enqueuedMissingDocuments: 0,
+    parse: { success: 48, failed: 2 }, // 4% 실패
+    events: { success: 5, failed: 0, needsReview: 1 },
+    durationMs: 100,
+  };
+
+  it('파싱 고실패율(레이트리밋 의심) 사이클 후 다음 사이클을 COOLDOWN 으로 건너뛴다', async () => {
+    const pipeline = makePipeline(() => Promise.resolve(highFailureResult));
+    const scheduler = new PipelineDrainScheduler(pipeline);
+    let t = 1_000_000;
+    jest
+      .spyOn(scheduler as unknown as { nowMs: () => number }, 'nowMs')
+      .mockImplementation(() => t);
+
+    // 1) 고실패 사이클 RAN → 쿨다운 설정.
+    await expect(scheduler.drainPipeline()).resolves.toBe('RAN');
+    expect(pipeline.drainOnce).toHaveBeenCalledTimes(1);
+
+    // 2) 쿨다운 내(같은 시각) — COOLDOWN, drainOnce 재호출 없음.
+    await expect(scheduler.drainPipeline()).resolves.toBe('COOLDOWN');
+    expect(pipeline.drainOnce).toHaveBeenCalledTimes(1);
+
+    // 3) 쿨다운 경과(+3분 > 1차 2분) — 다시 진입.
+    t += 3 * 60_000;
+    await expect(scheduler.drainPipeline()).resolves.toBe('RAN');
+    expect(pipeline.drainOnce).toHaveBeenCalledTimes(2);
+  });
+
+  it('연속 고실패는 쿨다운을 지수 증가시킨다(2분→4분)', async () => {
+    const pipeline = makePipeline(() => Promise.resolve(highFailureResult));
+    const scheduler = new PipelineDrainScheduler(pipeline);
+    let t = 0;
+    jest
+      .spyOn(scheduler as unknown as { nowMs: () => number }, 'nowMs')
+      .mockImplementation(() => t);
+
+    // 1차 고실패 → 쿨다운 2분.
+    await scheduler.drainPipeline();
+    // +2.5분 경과 → 1차(2분) 쿨다운 지나 재진입, 2차 고실패 → 쿨다운 4분.
+    t = 2.5 * 60_000;
+    await scheduler.drainPipeline();
+    expect(pipeline.drainOnce).toHaveBeenCalledTimes(2);
+
+    // +3분(누적 5.5분): 2차 쿨다운(4분, 즉 t≥6.5분)이 아직 안 지남 → COOLDOWN.
+    t = 5.5 * 60_000;
+    await expect(scheduler.drainPipeline()).resolves.toBe('COOLDOWN');
+    expect(pipeline.drainOnce).toHaveBeenCalledTimes(2);
+  });
+
+  it('건강한 사이클은 백오프를 걸지 않는다(연속 진입)', async () => {
+    const pipeline = makePipeline(() => Promise.resolve(healthyResult));
+    const scheduler = new PipelineDrainScheduler(pipeline);
+    const t = 0;
+    jest
+      .spyOn(scheduler as unknown as { nowMs: () => number }, 'nowMs')
+      .mockImplementation(() => t);
+
+    await expect(scheduler.drainPipeline()).resolves.toBe('RAN');
+    await expect(scheduler.drainPipeline()).resolves.toBe('RAN');
+    expect(pipeline.drainOnce).toHaveBeenCalledTimes(2);
+  });
+
+  it('고실패 후 건강 사이클이 오면 백오프가 해제된다', async () => {
+    let result: PipelineDrainResult = highFailureResult;
+    const pipeline = makePipeline(() => Promise.resolve(result));
+    const scheduler = new PipelineDrainScheduler(pipeline);
+    let t = 0;
+    jest
+      .spyOn(scheduler as unknown as { nowMs: () => number }, 'nowMs')
+      .mockImplementation(() => t);
+
+    // 고실패 → 쿨다운 2분.
+    await scheduler.drainPipeline();
+    // 쿨다운 경과 후 건강 사이클 → 백오프 해제(cooldownUntil=0).
+    t = 3 * 60_000;
+    result = healthyResult;
+    await expect(scheduler.drainPipeline()).resolves.toBe('RAN');
+    // 직후 같은 시각에 또 진입 가능(쿨다운 해제 확인).
+    await expect(scheduler.drainPipeline()).resolves.toBe('RAN');
+    expect(pipeline.drainOnce).toHaveBeenCalledTimes(3);
+  });
+
+  it('표본 부족(큐 거의 빔)은 실패율이 높아도 백오프하지 않는다', async () => {
+    // attempts = 2 + 3 = 5 < MIN_SAMPLES_FOR_BACKOFF(20) → 정상 idle 로 간주.
+    const sparse: PipelineDrainResult = {
+      enqueuedMissingDocuments: 0,
+      parse: { success: 2, failed: 3 },
+      events: { success: 0, failed: 0, needsReview: 0 },
+      durationMs: 10,
+    };
+    const pipeline = makePipeline(() => Promise.resolve(sparse));
+    const scheduler = new PipelineDrainScheduler(pipeline);
+    const t = 0;
+    jest
+      .spyOn(scheduler as unknown as { nowMs: () => number }, 'nowMs')
+      .mockImplementation(() => t);
+
+    await expect(scheduler.drainPipeline()).resolves.toBe('RAN');
+    await expect(scheduler.drainPipeline()).resolves.toBe('RAN');
+    expect(pipeline.drainOnce).toHaveBeenCalledTimes(2);
+  });
 });

@@ -108,8 +108,10 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     label: '파이프라인 폐루프 드레인',
     source: 'CRON_RUN_LOG',
     window: 'ALWAYS',
-    staleAfterMinutes: 60, // 15분 간격 — 1시간 무가동이면 정체(수집→AI 폐루프 견고화, DAR-126)
-    cadence: '매 15분',
+    // DAR-392: 카덴스 15분→1분(연속 드레인). 단, 적응형 백오프(레이트리밋/쿼터)로 최대 30분
+    //   쿨다운할 수 있으므로 stale 임계는 그 위(45분)로 둬 정상 백오프를 오탐하지 않는다.
+    staleAfterMinutes: 45, // 1분 간격이나 백오프 최대 30분 — 45분 무가동이면 정체(DAR-392)
+    cadence: '매 1분(연속, 레이트리밋 시 적응형 백오프)',
   },
   {
     jobKey: CRON_JOB_KEYS.EVENT_STUDY_CALC,

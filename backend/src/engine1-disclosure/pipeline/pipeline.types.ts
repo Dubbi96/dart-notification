@@ -101,3 +101,35 @@ export interface AiReprocessResult {
   /** 큐에 재발행한 건수(summary 미존재만). 큐 미가용 시 0. */
   reEnqueued: number;
 }
+
+/**
+ * DAR-392 드레인 진행 리포트 — 백데이터(과거 백필 공시) fetch→parse 적체 소진 가시성.
+ * 문서 파싱 DONE% 와 잔여 백로그·예상 완료시각(ETA)을 노출해 '차주 장 전 풀커버' 진척을 추적한다.
+ */
+export interface DrainProgress {
+  /** 집계 생성 시각 ISO8601 */
+  generatedAt: string;
+  parse: {
+    /** 문서 레코드 총수(=파싱 큐 등록된 공시 수) */
+    totalDocuments: number;
+    /** 파싱 완료(DONE) 문서 수 */
+    done: number;
+    /** 미파싱(PENDING+FETCHING+PARSING) 문서 수 */
+    pending: number;
+    /** 재처리 가능 실패(FETCH_FAILED|PARSE_FAILED & retryCount<MAX) 수 */
+    retryable: number;
+    /** DONE / totalDocuments * 100 (소수 첫째자리). total=0 이면 0. */
+    donePercent: number;
+  };
+  /** 문서 레코드가 아직 없는 공시 수(파싱 큐 미등록 = 추가 백로그). */
+  missingDocument: number;
+  /** 파싱 DONE 에서 추출된 이벤트 수(SUCCESS|NEEDS_REVIEW). */
+  eligibleEvents: number;
+  /** ETA 추정에 사용한 분당 공칭 파싱 처리량(관측 기반 상수, 레이트리밋/백오프 시 변동). */
+  nominalParsePerMinute: number;
+  /**
+   * 잔여 백로그(미파싱 + 문서 미등록) 소진 예상 시간(시). 백로그 0 이면 0.
+   * ★공칭 처리량 기반 거친 추정 — 실제는 DART 레이트리밋/쿼터·백오프에 따라 달라진다.
+   */
+  etaHours: number;
+}

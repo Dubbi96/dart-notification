@@ -210,6 +210,11 @@ function SummaryHeader({
         <View style={styles.summaryChipRow}>
           <PriceChangeChip value={metrics.cumulativeReturnPct} amount={metrics.netPnl} />
         </View>
+        {/* DAR-393: 평가금액·등락률은 '지금' 실시간 실가 재평가값(자산곡선 최신점과 동일). 과거
+            스냅샷일을 기준일로 표기하면 live 값을 stale 로 오인시키므로 '실시간 현재가 기준'으로 정직 표기. */}
+        <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
+          실시간 현재가 기준 · 자산곡선 최신점과 동일
+        </Text>
         {/* 핵심지표: 승률(누적수익률은 위 칩으로 노출) — 4번째 카드에 묻히던 지표를 전면 배치 */}
         <View
           style={[styles.keyMetric, { borderTopColor: colors.border }]}
@@ -226,7 +231,7 @@ function SummaryHeader({
         </View>
         <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
           초기 가상원금 {initialCapital.toLocaleString('ko-KR')}원
-          {latestSnapshotDate ? `  ·  기준일 ${formatYmdDots(latestSnapshotDate)}` : ''}
+          {latestSnapshotDate ? `  ·  최근 스냅샷 ${formatYmdDots(latestSnapshotDate)}` : ''}
         </Text>
       </Surface>
 

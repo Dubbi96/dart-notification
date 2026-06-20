@@ -49,7 +49,7 @@ import {
 } from './simulation-entry';
 import { Prisma } from '@prisma/client';
 import { SimulationPriceSourceService, SimPriceRow } from './simulation-price-source.service';
-import { buildEquityCurve, EquityCurvePoint } from './equity-curve';
+import { buildEquityCurve, withLivePoint, EquityCurvePoint } from './equity-curve';
 import {
   buildTradeRationale,
   calculateTradeScorecard,
@@ -303,15 +303,8 @@ export class PaperSimulationService {
     metrics: SimulationMetrics;
   }> {
     const pf = await this.getOrCreateSimPortfolio();
-    // DAR-364: 표시·엔진 동일 가격 — 보유 포지션을 '지금'(오늘 KST) 실시간 실가로 재평가하고(positions),
-    //   그 미실현손익 합을 equity 산식에 그대로 넘긴다. 화면 카드 손익과 총평가금액이 같은 가격을 쓴다.
-    const asOf = this.todayBasDd();
-    const positions = await this.getOpenPositionDetails(pf.id, asOf);
-    const liveOpenUnrealizedPnl = positions.reduce((s, p) => s + p.unrealizedPnl, 0);
-    const { metrics, equity, openPositions } = await this.computeMetrics(
-      pf.id,
-      liveOpenUnrealizedPnl,
-    );
+    // DAR-364/393: 표시·엔진 동일 가격 — 헤더와 자산곡선이 같은 live 평가를 쓰도록 단일 헬퍼로 산출.
+    const live = await this.computeLiveEquity(pf.id);
     const closedPositions = await this.prisma.position.count({
       where: { portfolioId: pf.id, status: 'CLOSED' },
     });
@@ -323,13 +316,36 @@ export class PaperSimulationService {
     return {
       portfolioId: pf.id,
       initialCapital: PaperSimulationService.INITIAL_CAPITAL,
-      equity,
-      openPositionCount: openPositions,
-      positions,
+      equity: live.equity,
+      openPositionCount: live.openPositionCount,
+      positions: live.positions,
       closedPositions,
       latestSnapshotDate: latest?.snapshotDate ?? null,
-      metrics,
+      metrics: live.metrics,
     };
+  }
+
+  /**
+   * 헤더·자산곡선 공용 'live 평가' 산출(DAR-393).
+   * 보유 포지션을 '지금'(오늘 KST) 실시간 실가로 재평가하고(positions), 그 미실현손익 합을 equity 산식에
+   * 그대로 넘긴다 — 헤더 평가금액·등락률과 자산곡선 최신점이 **동일 계산(같은 priceSource·같은 시점)**을 쓴다.
+   * asOf = 재평가 앵커일(YYYYMMDD KST) = 자산곡선 live 점의 날짜.
+   */
+  private async computeLiveEquity(portfolioId: string): Promise<{
+    asOf: string;
+    positions: SimPositionDetail[];
+    equity: number;
+    metrics: SimulationMetrics;
+    openPositionCount: number;
+  }> {
+    const asOf = this.todayBasDd();
+    const positions = await this.getOpenPositionDetails(portfolioId, asOf);
+    const liveOpenUnrealizedPnl = positions.reduce((s, p) => s + p.unrealizedPnl, 0);
+    const { metrics, equity, openPositions } = await this.computeMetrics(
+      portfolioId,
+      liveOpenUnrealizedPnl,
+    );
+    return { asOf, positions, equity, metrics, openPositionCount: openPositions };
   }
 
   /**
@@ -353,14 +369,30 @@ export class PaperSimulationService {
       orderBy: { snapshotDate: 'asc' },
       select: { snapshotDate: true, totalValue: true },
     });
-    const { metrics } = await this.computeMetrics(pf.id);
-    const points = buildEquityCurve(snapshots, PaperSimulationService.INITIAL_CAPITAL);
+    // DAR-393: 헤더와 동일한 live 평가를 곡선에도 정합. 과거 스냅샷(kind='snapshot')은 그대로 두되,
+    //   곡선 끝에 '현재(실시간)' 점(kind='live')을 정합 병합해 곡선 최신점 totalValue === 헤더 equity (±0)로
+    //   맞춘다. metrics 도 헤더와 같은 live 계산을 재사용 → 등락률·부호 일치.
+    const snapshotPoints = buildEquityCurve(
+      snapshots,
+      PaperSimulationService.INITIAL_CAPITAL,
+    );
+    const live = await this.computeLiveEquity(pf.id);
+    const points = withLivePoint(
+      snapshotPoints,
+      live.asOf,
+      live.equity,
+      PaperSimulationService.INITIAL_CAPITAL,
+    );
     return {
       portfolioId: pf.id,
       initialCapital: PaperSimulationService.INITIAL_CAPITAL,
       points,
-      latestSnapshotDate: points.length > 0 ? points[points.length - 1].snapshotDate : null,
-      metrics,
+      // 저장 스냅샷(과거) 최신일 — 신선도 라벨용. live 점 날짜와 구분(stale 표기 근거).
+      latestSnapshotDate:
+        snapshotPoints.length > 0
+          ? snapshotPoints[snapshotPoints.length - 1].snapshotDate
+          : null,
+      metrics: live.metrics,
     };
   }
 

@@ -70,6 +70,13 @@ export interface EquityCurvePoint {
   totalValue: number;
   /** 초기 가상원금 대비 누적 수익률(%) */
   returnPct: number;
+  /**
+   * 이 점의 가격 출처(DAR-393).
+   * - 'snapshot' = 사이클 시점 저장값(과거·정체 가능).
+   * - 'live'     = '지금' 실시간 실가 재평가 = 헤더 평가금액과 동일. 곡선 끝 점.
+   * (구버전 서버 호환 위해 옵셔널 — 미지정이면 snapshot 으로 간주)
+   */
+  kind?: 'snapshot' | 'live';
 }
 
 /**

@@ -915,6 +915,123 @@ export class KrxMarketDataScheduler {
   }
 
   /**
+   * 평일·토 03:00(KST) — 시장지수 과거 깊이 백필 (DAR-398).
+   * EventStudy baseline 재산출(토 04:00) 직전에 지수 결손을 메워, 과거 공시 이벤트의
+   * 시장 기준선(초과수익 AR) 결측으로 인한 noIndexPrices 전량 스킵을 해소한다.
+   * 멱등: 이미 채워졌으면 no-op. throw 금지(스케줄 유지).
+   */
+  @Cron('0 3 * * *', { timeZone: KST_TIMEZONE })
+  async backfillMarketIndexHistoryCron(): Promise<void> {
+    try {
+      await this.backfillMarketIndexHistory({ triggeredBy: 'CRON' });
+    } catch (e) {
+      this.logger.error(`[KRX][지수백필] 크론 오류: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * 시장지수 과거 깊이 백필 (DAR-398) — EventStudy 초과수익(AR) 산출의 시장 기준선.
+   *
+   * 근본 문제: market_indices 가 최근 일부 거래일만 보유해, 과거 공시 이벤트의 지수
+   * 윈도(D±N)가 비어 EventStudy 가 전량 noIndexPrices 로 스킵됐다(공시↔등락 근거 0).
+   * 종목 일봉(stock_daily_prices)·corpCode→stockCode 연결은 정상이었다(DAR-398 진단).
+   *
+   * 대상 거래일은 stock_daily_prices 에 실재하는 거래일(= KRX 가 데이터를 가진 영업일,
+   * 휴장일 자동 제외)에서 market_indices 에 아직 없는 날짜만 오래된 순으로 고른다.
+   * 수집은 collectMarketIndicesForDate 를 재사용 — 연속성 가드(±20%)·휴장 빈응답·
+   * KRX 미설정 graceful·멱등 upsert 가 그대로 적용된다.
+   *
+   * @param opts.fromDate/toDate 거래일 범위(YYYYMMDD, 포함). 미지정 시 전체.
+   * @param opts.maxDays 1회 수집 상한(기본 500) — 쿼터/부하 보호.
+   */
+  async backfillMarketIndexHistory(
+    opts: {
+      fromDate?: string;
+      toDate?: string;
+      maxDays?: number;
+      triggeredBy?: 'CRON' | 'MANUAL';
+    } = {},
+  ): Promise<{
+    tradingDays: number;
+    missing: number;
+    filledDates: string[];
+    totalSaved: number;
+    quarantined: number;
+    message?: string;
+  }> {
+    const triggeredBy = opts.triggeredBy ?? 'MANUAL';
+    const maxDays = opts.maxDays ?? 500;
+
+    const dateFilter =
+      opts.fromDate || opts.toDate
+        ? {
+            tradeDate: {
+              ...(opts.fromDate ? { gte: opts.fromDate } : {}),
+              ...(opts.toDate ? { lte: opts.toDate } : {}),
+            },
+          }
+        : {};
+
+    // 거래일 캘린더: stock_daily_prices 에 실재하는 거래일(휴장일 자동 제외)
+    const stockDateRows = await this.prisma.stockDailyPrice.findMany({
+      where: dateFilter,
+      distinct: ['tradeDate'],
+      select: { tradeDate: true },
+      orderBy: { tradeDate: 'asc' },
+    });
+    const tradeDates = stockDateRows.map((r) => r.tradeDate);
+
+    // 이미 지수가 적재된 거래일
+    const indexDateRows = await this.prisma.marketIndex.findMany({
+      where: dateFilter,
+      distinct: ['tradeDate'],
+      select: { tradeDate: true },
+    });
+    const haveIndex = new Set(indexDateRows.map((r) => r.tradeDate));
+
+    const missing = tradeDates.filter((d) => !haveIndex.has(d)).slice(0, maxDays);
+
+    if (missing.length === 0) {
+      this.logger.log(
+        `[KRX][지수백필] 결손 없음 — 거래일=${tradeDates.length} 모두 지수 보유 [${triggeredBy}]`,
+      );
+      return {
+        tradingDays: tradeDates.length,
+        missing: 0,
+        filledDates: [],
+        totalSaved: 0,
+        quarantined: 0,
+        message: '백필 불필요(지수 결손 없음)',
+      };
+    }
+
+    const filledDates: string[] = [];
+    let totalSaved = 0;
+    let quarantined = 0;
+    this.logger.log(
+      `[KRX][지수백필] 시작 거래일=${tradeDates.length} 누락=${missing.length} (cap=${maxDays}) ` +
+        `범위=${missing[0]}~${missing[missing.length - 1]} [${triggeredBy}]`,
+    );
+    // 오래된 순으로 채워 연속성 가드(직전 거래일 대비)가 자연 성립하게 한다.
+    for (const basDd of missing) {
+      const res = await this.collectMarketIndicesForDate(basDd, triggeredBy);
+      if (res.saved > 0) filledDates.push(basDd);
+      totalSaved += res.saved;
+      quarantined += res.quarantined ?? 0;
+    }
+    this.logger.log(
+      `[KRX][지수백필] 완료 filled=${filledDates.length} saved=${totalSaved} quarantined=${quarantined}`,
+    );
+    return {
+      tradingDays: tradeDates.length,
+      missing: missing.length,
+      filledDates,
+      totalSaved,
+      quarantined,
+    };
+  }
+
+  /**
    * 캐치업이 채워야 할 거래일 목록을 산출한다 (DAR-375 공유 헬퍼).
    * - lastLoaded 없음(저장소 비어있음): [target] — 부트스트랩 1일.
    * - lastLoaded < target: 그 사이 평일 전부(누락 갭) — 휴장일은 수집 단계에서 스킵.

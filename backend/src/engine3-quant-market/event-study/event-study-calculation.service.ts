@@ -67,7 +67,12 @@ export interface EventStudyCalcSummary {
   observationsPersisted: number;
   skipped: {
     noStockOrMarket: number;
+    /** 종목·시장 가격 윈도 중 하나라도 비어 스킵된 합계 (= noStockPrices + noIndexPrices). */
     noPrices: number;
+    /** corpCode→stockCode→stock_daily_prices 윈도가 비어 스킵 (종목 일봉 결측). */
+    noStockPrices: number;
+    /** 종목 일봉은 있으나 KOSPI/KOSDAQ 지수 윈도가 비어 스킵 (시장 기준선 결측). DAR-398. */
+    noIndexPrices: number;
     immatureOrUnaligned: number;
   };
   groupsAggregated: number;
@@ -211,7 +216,13 @@ export class EventStudyCalculationService {
       eventsScanned: rows.length,
       observationsBuilt: 0,
       observationsPersisted: 0,
-      skipped: { noStockOrMarket: 0, noPrices: 0, immatureOrUnaligned: 0 },
+      skipped: {
+        noStockOrMarket: 0,
+        noPrices: 0,
+        noStockPrices: 0,
+        noIndexPrices: 0,
+        immatureOrUnaligned: 0,
+      },
       groupsAggregated: 0,
       readyCount: 0,
       insufficientCount: 0,
@@ -269,6 +280,11 @@ export class EventStudyCalculationService {
       ]);
 
       if (stockWin.length === 0 || indexWin.length === 0) {
+        // DAR-398: 어느 쪽 가격이 결측인지 분리 계측한다. 과거엔 둘을 합쳐 noPrices 로만
+        //   세어, 실제 원인(시장지수 과거 결측)이 '종목 일봉 결측'으로 오진단됐다.
+        //   종목 일봉이 비면 noStockPrices, 종목은 있으나 지수 윈도가 비면 noIndexPrices.
+        if (stockWin.length === 0) summary.skipped.noStockPrices++;
+        else summary.skipped.noIndexPrices++;
         summary.skipped.noPrices++;
         continue;
       }
@@ -330,6 +346,9 @@ export class EventStudyCalculationService {
     this.logger.log(
       `Event Study 산출 완료: scanned=${summary.eventsScanned} obs=${summary.observationsBuilt} ` +
         `persisted=${summary.observationsPersisted} ` +
+        `skip{noStockOrMarket=${summary.skipped.noStockOrMarket} ` +
+        `noStockPrices=${summary.skipped.noStockPrices} noIndexPrices=${summary.skipped.noIndexPrices} ` +
+        `immature=${summary.skipped.immatureOrUnaligned}} ` +
         `groups=${summary.groupsAggregated} (coarse=${summary.coarseGroupsAggregated}) ` +
         `ready=${summary.readyCount} insufficient=${summary.insufficientCount}`,
     );

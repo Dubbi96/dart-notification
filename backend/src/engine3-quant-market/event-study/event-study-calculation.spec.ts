@@ -409,9 +409,63 @@ describe('EventStudyCalculationService.run()', () => {
 
     const summary = await service.run();
     expect(summary.skipped.noPrices).toBe(1);
+    // DAR-398: 결측 측면 분리 — 종목 일봉이 빠졌으므로 noStockPrices, 지수는 정상
+    expect(summary.skipped.noStockPrices).toBe(1);
+    expect(summary.skipped.noIndexPrices).toBe(0);
     expect(summary.observationsBuilt).toBe(2);
     // 표본 2 → INSUFFICIENT 2그룹
     expect(upserts.every(u => u.create.status === 'INSUFFICIENT')).toBe(true);
+  });
+
+  // ── DAR-398: noPrices 결측 측면 분리 + corpCode→stockCode→가격 연결 ──────────
+  it('시장지수 윈도만 비면 noIndexPrices 로 계측한다 (종목 일봉은 정상·DAR-398 실제 버그)', async () => {
+    // 종목 일봉은 모두 존재하지만 시장지수가 전무 → 과거엔 noPrices 로 뭉뚱그려져
+    // '종목 일봉 결측'으로 오진단됐다. 결측 측면을 분리해 진짜 원인을 드러낸다.
+    const events = Array.from({ length: 3 }, (_, i) => makeDbEvent(i));
+    const { prisma, upserts } = makePrismaMock(events);
+    const stockData = events.flatMap(e => makeStockSeries(e.company.stockCode));
+    const service = new EventStudyCalculationService(
+      prisma as any,
+      new EventStudyService(),
+      new InMemoryStockPriceAdapter(stockData),
+      new InMemoryMarketIndexAdapter([]), // 시장지수 전무
+    );
+
+    const summary = await service.run();
+
+    expect(summary.skipped.noIndexPrices).toBe(3);
+    expect(summary.skipped.noStockPrices).toBe(0);
+    expect(summary.skipped.noPrices).toBe(3); // 합계 보존(하위호환)
+    expect(summary.observationsBuilt).toBe(0);
+    expect(upserts).toHaveLength(0);
+  });
+
+  it('가격 조회를 company.stockCode 로 풀어 존재하는 일봉을 찾아 관측을 만든다 (corpCode 직접조회 금지·DAR-398)', async () => {
+    // 이벤트는 corpCode(corp-N)만, 일봉은 stockCode(stock-N) 키. 어댑터가
+    // corpCode 가 아닌 resolved stockCode 로 조회해야 일봉을 찾는다.
+    const events = Array.from({ length: 35 }, (_, i) => makeDbEvent(i));
+    const { prisma, upserts } = makePrismaMock(events);
+    const stockData = events.flatMap(e => makeStockSeries(e.company.stockCode));
+    const stockPort = new InMemoryStockPriceAdapter(stockData);
+    const spy = jest.spyOn(stockPort, 'getPriceWindow');
+    const service = new EventStudyCalculationService(
+      prisma as any,
+      new EventStudyService(),
+      stockPort,
+      new InMemoryMarketIndexAdapter([...makeIndexSeries('0001')]),
+    );
+
+    const summary = await service.run();
+
+    // 어댑터는 stockCode(stock-*)로만 조회 — corpCode(corp-*) 직접조회 0건
+    const queriedKeys = spy.mock.calls.map(c => c[0]);
+    expect(queriedKeys.every(k => /^stock-/.test(k))).toBe(true);
+    expect(queriedKeys.some(k => /^corp-/.test(k))).toBe(false);
+    // 존재하는 일봉을 찾아 관측 생성 → 근거 적재 > 0
+    expect(summary.skipped.noStockPrices).toBe(0);
+    expect(summary.skipped.noIndexPrices).toBe(0);
+    expect(summary.observationsBuilt).toBe(35);
+    expect(upserts.some(u => u.create.status === 'READY')).toBe(true);
   });
 
   // DAR-328: company.market 이 지수코드(0001/1001)에 매핑되는 KOSPI/KOSDAQ 여야

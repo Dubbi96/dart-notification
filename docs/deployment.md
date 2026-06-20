@@ -200,6 +200,24 @@ psql "$DATABASE_URL" -c "SELECT * FROM chunk_compression_stats('stock_minute_pri
   psql "$DATABASE_URL" -c "VACUUM (FULL, VERBOSE) disclosure_documents;"
   ```
 
+#### 공시 파싱 표(tables) S3 오프로드 운영 (DAR-399)
+
+rawText 오프로드(위) 후에도 `disclosure_documents` 의 TOAST 진짜 bulk 는 **`tables` JSONB(실측
+약 1,619MB·58k 문서)** 였다(`parsedJson` 은 5MB뿐이라 DB 유지). rawText 와 동일 메커니즘으로 `tables`
+도 오프로드해 멀티이어 백필 시 로컬 DB 비대를 막는다.
+
+- **활성화**: rawText 와 동일(`STORAGE_DRIVER`/`S3_BUCKET`/자격증명 공유). 별도 설정 불요.
+- **쓰기 경로**: 신규 파싱 완료 시점에 `tables` 를 JSON 직렬화 + gzip 해 객체(`disclosure-tables/{rcpNo}.json.gz`)
+  로 업로드하고 DB `tables` 컬럼은 `Prisma.DbNull`(SQL NULL)로 비운다(`tablesS3Key` 포인터만 보유).
+  실패는 graceful — `tables` 를 DB 에 보존(데이터 손실/기능 차단 방지).
+- **읽기 경로**: SHARE_BUYBACK 폴백 스캔(재추출) 시 `tablesS3Key` 로 S3 lazy fetch(소량 캐시). 콜드 데이터.
+- **기존분 마이그레이션**: `TablesOffloadScheduler`(매 10분 cron) 또는
+  `POST /api/pipeline/tables-offload?limit=200`(JWT, 멱등)가 과거 `tables` 를 점진·재개가능하게 이전 후
+  컬럼을 비운다. 진척은 `GET /api/pipeline/tables-offload-progress`(잔여/완료율/드라이버).
+- **디스크 회수(VACUUM)**: 위 rawText 절차와 동일(`disclosure_documents` 대상). 오프로드가 충분히 진행된
+  뒤 점검창에서 `VACUUM (FULL)` 수동 실행(휴먼 게이트). 실측 투영: tables 오프로드 + VACUUM 후
+  `disclosure_documents` 1772MB → 약 85MB(heap 60 + index 18 + parsedJson 5).
+
 #### Option 2: 로컬 PostgreSQL
 
 ```bash

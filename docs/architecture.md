@@ -133,6 +133,10 @@ External APIs:
   (공시 원문 오프로드/lazy fetch)를 제공한다. 대용량 콜드 데이터(`DisclosureDocument.rawText`)를 로컬 DB
   밖 객체 스토리지로 내보내 멀티이어 백필 시 DB 폭증을 막는다(쓰기=파싱 완료 시점, 읽기=Engine2 AI excerpt
   lazy fetch, 기존분=`RawTextOffloadScheduler` 점진 마이그레이션). 상세: `docs/workflow.md §2.6`.
+  - **tables 오프로드 (DAR-399)**: TOAST 진짜 bulk 는 rawText 가 아니라 `DisclosureDocument.tables`
+    JSONB(실측 ~1.6GB)였다. 동일 추상화에 `TablesStoreService` + `TablesOffloadScheduler` 를 추가해
+    파싱 표를 객체 스토리지로 오프로드(`tablesS3Key` 포인터, SHARE_BUYBACK 폴백만 lazy fetch).
+    상세: `docs/workflow.md §2.7`.
 
 ### 2.3 Database (PostgreSQL + Prisma)
 

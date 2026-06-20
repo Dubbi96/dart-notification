@@ -3,9 +3,12 @@
  * POST /signals/generate — 즉시 1회 신호 생성 (멱등).
  */
 
-import { Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { SignalGenerationService } from './signal-generation.service';
+import {
+  BackfillSignalOptions,
+  SignalGenerationService,
+} from './signal-generation.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 
 @ApiTags('signals')
@@ -31,6 +34,16 @@ export class SignalGenerationController {
   })
   async regenerate() {
     const result = await this.signalGen.regenerateSignals('MANUAL');
+    return { success: true, data: result };
+  }
+
+  @Post('generate-backfill')
+  @ApiOperation({
+    summary:
+      '과거(백필) 공시 point-in-time 신호 백필 (분석·백테스트용 — 가격≤rcpDt as-of, 멱등, AI 미개입, DAR-389)',
+  })
+  async generateBackfill(@Body() options: BackfillSignalOptions = {}) {
+    const result = await this.signalGen.generateBackfillSignals(options ?? {});
     return { success: true, data: result };
   }
 }

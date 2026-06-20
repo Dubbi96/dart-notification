@@ -507,6 +507,8 @@ export class SimulationPriceSourceService {
       where: {
         signal: { in: entryEligibleGrades(SIM_MIN_ENTRY_GRADE) as never },
         entryReady: true,
+        // ★DAR-389/DAR-129(불가침): 백필 신호 종목은 라이브 합성 유니버스(진입 후보)에서 배제.
+        disclosure: { isBackfill: false },
       },
       orderBy: { buyScore: 'desc' },
       take: CANDIDATE_UNIVERSE_CAP,

@@ -199,4 +199,28 @@ describe('합성 시세 모의 사이클(DAR-124) — bought>0 · 스냅샷 가�
     expect(result.bought).toBe(0);
     expect(prisma._created.length).toBe(0);
   });
+
+  // ★DAR-389: 백필 신호가 라이브 모의 진입 후보를 오염시키지 않도록 후보 조회 where 에
+  //   disclosure.isBackfill=false 가드를 강제한다(DAR-129 불가침과 동일 원칙).
+  it('라이브 진입 후보 조회는 disclosure.isBackfill=false 로 백필 신호를 배제한다', async () => {
+    const prisma = makePrismaMock();
+    const priceSource = makePriceSourceStub();
+    const paperTrade = makePaperTradeStub();
+    const findMany = jest.fn().mockResolvedValue([]);
+    (prisma as any).tradingSignal = { findMany };
+
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTrade as never,
+      undefined,
+      priceSource,
+    );
+    await svc.runDailyCycle('20260608');
+
+    // 후보 조회가 한 번 이상 일어났고, 매 호출의 where 가 백필을 배제한다.
+    expect(findMany).toHaveBeenCalled();
+    for (const call of findMany.mock.calls) {
+      expect(call[0].where.disclosure).toEqual({ isBackfill: false });
+    }
+  });
 });

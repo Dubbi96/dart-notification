@@ -242,6 +242,8 @@ export class PhilosophyStyleSimulationService {
         signal: { in: entryEligibleGrades(SIM_MIN_ENTRY_GRADE) as never },
         entryReady: true,
         corpCode: { notIn: openCorpCodes.length ? openCorpCodes : ['__none__'] },
+        // ★DAR-389/DAR-129(불가침): 과거 공시 백필 신호는 라이브 스타일 진입 후보에서 배제.
+        disclosure: { isBackfill: false },
       },
       orderBy: { buyScore: 'desc' },
       take: PhilosophyStyleSimulationService.CANDIDATE_POOL_CAP,

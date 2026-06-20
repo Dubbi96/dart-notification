@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
@@ -179,6 +179,34 @@ function RecentOrdersCard({ orders }: { orders: AutoStatusOrderItem[] }) {
   );
 }
 
+/** 백테스트 트랙레코드 진입점 — 1년 리플레이 성과 화면(DAR-388)으로 이동. */
+function TrackRecordEntryCard() {
+  const { colors, typography: typo } = useTheme();
+  return (
+    <Pressable
+      onPress={() => router.push('/portfolio/backtest-track-record')}
+      accessibilityRole="button"
+      accessibilityLabel="1년 백테스트 트랙레코드 보기"
+      style={({ pressed }) => [
+        styles.card,
+        styles.entryCard,
+        { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.7 : 1 },
+      ]}
+    >
+      <View style={styles.entryIcon}>
+        <Feather name="bar-chart-2" size={20} color={colors.primary} />
+      </View>
+      <View style={styles.entryText}>
+        <Text style={[typo.captionMedium, { color: colors.text }]}>1년 백테스트 트랙레코드</Text>
+        <Text style={[typo.small, { color: colors.textSecondary }]}>
+          point-in-time 리플레이 성과 — 총수익률·승률·자산곡선
+        </Text>
+      </View>
+      <Feather name="chevron-right" size={20} color={colors.textTertiary} />
+    </Pressable>
+  );
+}
+
 export default function AutoTradingStatusScreen() {
   const { colors, typography: typo } = useTheme();
   const query = useAutoTradingStatus();
@@ -219,6 +247,9 @@ export default function AutoTradingStatusScreen() {
           {/* ③ 최근 실행 · 감사 트레일 */}
           <RecentOrdersCard orders={data.recentOrders} />
 
+          {/* 백테스트 트랙레코드 진입점 — 1년 리플레이 성과(DAR-388) */}
+          <TrackRecordEntryCard />
+
           <Text style={[typo.small, { color: colors.textTertiary, textAlign: 'center', marginTop: spacing.sm }]}>
             갱신 {formatDateTime(data.asOf)} · 30초마다 자동 갱신
           </Text>
@@ -244,6 +275,20 @@ const styles = StyleSheet.create({
     padding: spacing.base,
   },
   killCard: { borderWidth: 1.5 },
+  entryCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: 44,
+  },
+  entryIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  entryText: { flex: 1, gap: 2 },
   cardHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',

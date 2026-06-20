@@ -266,6 +266,8 @@ export class PrismaSimulationAdapter implements ISimulationPort {
       where: {
         signal: { in: BUY_CANDIDATE_GRADES },
         entryReady: true,
+        // ★DAR-389/DAR-129(불가침): 과거 공시 백필 신호는 라이브 모의매수 후보에서 배제.
+        disclosure: { isBackfill: false },
       },
       orderBy: { buyScore: 'desc' },
       select: {

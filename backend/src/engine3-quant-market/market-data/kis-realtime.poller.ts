@@ -118,7 +118,9 @@ export class KisRealtimePoller {
       select: { corpCode: true, stockCode: true },
     });
     const signals = await this.prisma.tradingSignal.findMany({
-      where: { entryReady: true },
+      // ★DAR-389/DAR-129(불가침): 백필 신호 종목이 라이브 실시간 폴링 유니버스(상한·점수순)를
+      //   잠식하지 않도록 배제(KIS 쿼터 보호·현재 후보 우선).
+      where: { entryReady: true, disclosure: { isBackfill: false } },
       orderBy: { buyScore: 'desc' },
       take: POLL_UNIVERSE_CAP,
       select: { corpCode: true, stockCode: true },

@@ -244,7 +244,9 @@ export class StockMinutePriceCollector {
         select: { corpCode: true, stockCode: true },
       }),
       this.prisma.tradingSignal.findMany({
-        where: { entryReady: true },
+        // ★DAR-389/DAR-129(불가침): 백필 신호 종목이 라이브 분봉 수집 유니버스(상한·점수순)를
+        //   잠식해 현재 후보를 밀어내지 않도록 배제(KIS 쿼터 보호).
+        where: { entryReady: true, disclosure: { isBackfill: false } },
         orderBy: { buyScore: 'desc' },
         select: { corpCode: true, stockCode: true },
       }),

@@ -619,6 +619,10 @@ export class PaperSimulationService {
         signal: { in: eligibleGrades },
         entryReady: true,
         corpCode: { notIn: excludeCorp },
+        // ★DAR-389/DAR-129(불가침): 과거 공시 point-in-time 백필 신호(분석·백테스트 전용)는
+        //   라이브 모의 진입 후보에서 원천 배제한다. 백필 신호는 과거 시점 가격으로 채점되어
+        //   당일 현재가 진입과 맞지 않으므로 라이브 포트폴리오를 오염시키면 안 된다.
+        disclosure: { isBackfill: false },
       },
       orderBy: { buyScore: 'desc' },
       take: available * PERSONA_FANOUT,
@@ -638,6 +642,8 @@ export class PaperSimulationService {
           entryReady: false,
           buyScore: { gte: ENTRY_FALLBACK_MIN_BUY_SCORE },
           corpCode: { notIn: Array.from(already).length ? Array.from(already) : ['__none__'] },
+          // ★DAR-389/DAR-129(불가침): 백필 신호는 라이브 보강 후보에서도 배제(위 ① 동일 근거).
+          disclosure: { isBackfill: false },
         },
         orderBy: { buyScore: 'desc' },
         take: need * PERSONA_FANOUT,

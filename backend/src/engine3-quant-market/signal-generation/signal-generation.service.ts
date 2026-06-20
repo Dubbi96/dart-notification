@@ -142,6 +142,34 @@ export interface SignalGenerationSummary {
   message?: string;
 }
 
+/**
+ * 과거 공시 point-in-time 신호 백필 옵션 (DAR-389).
+ */
+export interface BackfillSignalOptions {
+  /** 처리할 백필 공시 rcpDt 하한 YYYYMMDD (포함). 미지정 시 전체 백필. */
+  startRcpDt?: string;
+  /** 처리할 백필 공시 rcpDt 상한 YYYYMMDD (포함). 미지정 시 전체 백필. */
+  endRcpDt?: string;
+  /** 한 배치(페이지)당 이벤트 수 (스로틀·메모리 상한). 기본 500. */
+  batchSize?: number;
+  /** 처리할 최대 이벤트 수(경계 실행용). 미지정 시 전량. */
+  maxEvents?: number;
+  /** 배치 간 지연(ms). DB 부하 완화 스로틀. 기본 0. */
+  throttleMs?: number;
+  /** 생성할 persona 목록 (기본 4 Persona 전부). */
+  personas?: readonly PersonaType[];
+  /** 기존 신호 재채점 여부. 기본 false(멱등 신규만). */
+  overwrite?: boolean;
+}
+
+/** 백필 신호 생성 결과 요약 (DAR-389). */
+export interface BackfillSignalSummary extends SignalGenerationSummary {
+  /** 처리한 배치(페이지) 수. */
+  batches: number;
+  /** 생성 신호의 공시 접수월(YYYYMM)별 분포 — 연중화 검증용. */
+  monthlyDist: Record<string, number>;
+}
+
 interface StockContext {
   closePrice: number | null;
   volume: number | null;
@@ -415,15 +443,308 @@ export class SignalGenerationService {
     return this.generateMissingSignals(triggeredBy, personas, true);
   }
 
-  /** 종목별 최신 시세·지표·상태 컨텍스트 */
+  /**
+   * 과거(백필) 공시에 point-in-time 신호를 생성·영속화한다 (DAR-389).
+   *
+   * 배경: 라이브 신호 생성(generateMissingSignals)은 DAR-129 불가침 규칙으로 isBackfill=true
+   * 공시를 원천 제외한다. 그 결과 백필 공시(rcpDt 연중 분포)에 TradingSignal 이 0건이라 1년
+   * 백테스트가 최근 1개월만 거래한다. 이 메서드는 **분석/백테스트 전용으로만** 과거 공시의
+   * 신호를 생성한다(라이브 신호 피드는 여전히 백필 제외 — 이 경로는 별도 진입점).
+   *
+   * ★엄격 point-in-time(lookahead 0, 불가침):
+   *   - 각 공시의 스코어·지표는 **그 공시일(rcpDt)까지의 데이터로만** 산출한다.
+   *   - 가격(StockDailyPrice)·기술지표(TechnicalIndicator)·지수(MarketIndex)는 tradeDate ≤ rcpDt
+   *     상한(as-of)으로 조회한다(loadStockContextAsOf/loadMarketContextAsOf). 미래 가격/수익으로
+   *     점수를 부풀리지 않는다.
+   *   - calibration 보정계수는 **적용하지 않는다**(calibration 은 과거 신호의 실현 D20 수익에서
+   *     역산 — 백필 시점엔 미래 정보다). calibratedConfidence = buyScore.
+   *   - 신규 AI 호출 0(Rule 스코어는 AI 무관). 통지 enqueue 0(과거 신호는 알림 대상 아님).
+   *   - EventStudy 통계는 라이브와 동일한 코퍼스 단위 prior 맵을 쓴다(공시 자신의 미래 가격을
+   *     쓰지 않음 — 종목별 가격 lookahead 아님). 표본 통계의 시점절단은 별도 분석 코퍼스 영역
+   *     (DAR-376/379)으로, 본 백필의 범위 밖.
+   *
+   * 멱등: 자연키 (corpCode, rcpNo, eventType, persona) upsert. 재실행/동시실행 중복 0.
+   * 규모: rcpNo 커서 페이지네이션 + 배치별 컨텍스트 맵 적재 + 선택적 스로틀로 대량 공시 처리.
+   *
+   * AI 금지영역 불가침: BuyScore=Rule. 본 경로는 어떤 AI/LLM 도 호출하지 않는다.
+   */
+  async generateBackfillSignals(
+    options: BackfillSignalOptions = {},
+  ): Promise<BackfillSignalSummary> {
+    const personas = options.personas ?? PERSONA_TYPES;
+    const batchSize = Math.max(1, options.batchSize ?? 500);
+    const throttleMs = Math.max(0, options.throttleMs ?? 0);
+    const overwrite = options.overwrite ?? false;
+    const maxEvents = options.maxEvents;
+
+    if (this.isRunning) {
+      this.logger.warn('[SignalGen:Backfill] 신호 생성이 이미 진행 중입니다.');
+      return {
+        candidates: 0,
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        gradeDist: {},
+        triggeredBy: 'BACKFILL',
+        message: '이전 작업 진행 중',
+        batches: 0,
+        monthlyDist: {},
+      };
+    }
+    this.isRunning = true;
+
+    const gradeDist: Record<string, number> = {};
+    const monthlyDist: Record<string, number> = {};
+    let candidates = 0;
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+    let batches = 0;
+
+    try {
+      this.logger.log(
+        `[SignalGen:Backfill] point-in-time 백필 시작 range=${options.startRcpDt ?? '*'}~${options.endRcpDt ?? '*'} batchSize=${batchSize}`,
+      );
+
+      // 1. 시세 보유 종목 집합 (라이브와 동일 게이트 — 가격 컨텍스트 가능 종목만).
+      const pricedStocks = await this.prisma.stockDailyPrice.findMany({
+        distinct: ['stockCode'],
+        select: { stockCode: true },
+      });
+      const pricedSet = new Set(pricedStocks.map((s) => s.stockCode));
+
+      // 2. 코퍼스 단위 prior — EventStudy 통계 맵(라이브와 동일). 1회 적재 후 전 배치 재사용.
+      const esrMaps = await this.loadEventStudyMap();
+
+      // 3. as-of 컨텍스트 캐시 (종목+공시일 단위, 지수는 공시일 단위) — 배치 간 재사용.
+      const stockCtxCache = new Map<string, StockContext>();
+      const marketCtxCache = new Map<string, MarketContext>();
+
+      // 4. rcpNo 커서 페이지네이션으로 백필 공시 이벤트 순회.
+      const rcpDtFilter: Prisma.StringFilter | undefined =
+        options.startRcpDt || options.endRcpDt
+          ? {
+              ...(options.startRcpDt ? { gte: options.startRcpDt } : {}),
+              // 종일 포함: 14자리(YYYYMMDDHHmmss) rcpDt 까지 포괄.
+              ...(options.endRcpDt ? { lte: `${options.endRcpDt}999999` } : {}),
+            }
+          : undefined;
+      const eventWhere: Prisma.DisclosureEventWhereInput = {
+        disclosure: {
+          isBackfill: true,
+          ...(rcpDtFilter ? { rcpDt: rcpDtFilter } : {}),
+        },
+      };
+
+      let cursor: string | undefined;
+      let processedEvents = 0;
+      for (;;) {
+        const page = await this.prisma.disclosureEvent.findMany({
+          where: eventWhere,
+          select: {
+            rcpNo: true,
+            corpCode: true,
+            eventType: true,
+            polarity: true,
+            isAmendment: true,
+            extractedData: true,
+            company: { select: { stockCode: true, market: true } },
+            disclosure: { select: { rcpDt: true } },
+          },
+          orderBy: { rcpNo: 'asc' },
+          take: batchSize,
+          ...(cursor ? { cursor: { rcpNo: cursor }, skip: 1 } : {}),
+        });
+        if (page.length === 0) break;
+        cursor = page[page.length - 1].rcpNo;
+
+        // 시세 보유 종목만 후보.
+        const batchEvents = page.filter(
+          (e) => e.company?.stockCode && pricedSet.has(e.company.stockCode),
+        );
+        candidates += batchEvents.length;
+
+        if (batchEvents.length > 0) {
+          batches++;
+          const batchRcpNos = batchEvents.map((e) => e.rcpNo);
+          const batchCorpCodes = batchEvents.map((e) => e.corpCode);
+
+          // 배치별 입력 맵 (라이브와 동일 피처 — 신규 수집·AI 0).
+          const [existing, revenueMap, insiderMap, growthMap, filedFactMap] =
+            await Promise.all([
+              this.prisma.tradingSignal.findMany({
+                where: { rcpNo: { in: batchRcpNos } },
+                select: { rcpNo: true, persona: true },
+              }),
+              this.loadRevenueMap(batchCorpCodes),
+              this.loadInsiderMap(batchCorpCodes),
+              this.loadGrowthMap(batchCorpCodes),
+              this.loadFiledFactMap(batchRcpNos),
+            ]);
+          const existingSet = new Set(
+            existing.map((s) => `${s.rcpNo}::${s.persona}`),
+          );
+
+          for (const ev of batchEvents) {
+            const stockCode = ev.company!.stockCode!;
+            // ★as-of 거래일 = 공시 접수일(YYYYMMDD). 이후 데이터 미참조.
+            const asOf = this.rcpDtToTradeDate(ev.disclosure.rcpDt);
+
+            const stockKey = `${stockCode}::${asOf}`;
+            let stockCtx = stockCtxCache.get(stockKey);
+            if (!stockCtx) {
+              stockCtx = await this.loadStockContextAsOf(stockCode, asOf);
+              stockCtxCache.set(stockKey, stockCtx);
+            }
+            let marketCtx = marketCtxCache.get(asOf);
+            if (!marketCtx) {
+              marketCtx = await this.loadMarketContextAsOf(asOf);
+              marketCtxCache.set(asOf, marketCtx);
+            }
+
+            const marketType = ev.company?.market ?? 'ALL';
+            const esrStats = this.resolveEventStudy(esrMaps, ev, marketType);
+            const monthKey = ev.disclosure.rcpDt.slice(0, 6);
+
+            for (const persona of personas) {
+              const key = `${ev.rcpNo}::${persona}`;
+              const exists = existingSet.has(key);
+              if (exists && !overwrite) {
+                skipped++;
+                continue;
+              }
+
+              const params = this.buildParams(
+                ev,
+                persona,
+                stockCtx,
+                marketCtx,
+                esrStats,
+                // signalSummary 생략: 과거 신호는 표시 요약 불필요 + 캐시 요약이 미래 시점일 수
+                //   있어 point-in-time 정직성 위해 미참조(buyScore 무관 — 표시값일 뿐).
+                undefined,
+                revenueMap.get(ev.corpCode) ?? null,
+                insiderMap.get(ev.corpCode) ?? { trades: [] },
+                {
+                  growth: growthMap.get(ev.corpCode) ?? null,
+                  filedFacts: filedFactMap.get(ev.rcpNo) ?? null,
+                },
+              );
+              const result = this.buySignal.computeBuyScore(params);
+
+              // ★calibration 미적용 — calibratedConfidence = buyScore (lookahead 0).
+              const calibratedConfidence = result.buyScore;
+
+              try {
+                await this.prisma.tradingSignal.upsert({
+                  where: {
+                    corpCode_rcpNo_eventType_persona: {
+                      corpCode: ev.corpCode,
+                      rcpNo: ev.rcpNo,
+                      eventType: ev.eventType,
+                      persona,
+                    },
+                  },
+                  create: this.toCreateData(result, calibratedConfidence),
+                  update: this.toUpdateData(result, calibratedConfidence),
+                  select: { id: true },
+                });
+                if (exists) {
+                  updated++;
+                } else {
+                  created++;
+                  existingSet.add(key);
+                  monthlyDist[monthKey] = (monthlyDist[monthKey] ?? 0) + 1;
+                  // ★통지 enqueue 없음 — 과거 신호는 푸시 알림 대상이 아니다.
+                }
+                gradeDist[result.signal] = (gradeDist[result.signal] ?? 0) + 1;
+              } catch (err) {
+                if (
+                  err instanceof Prisma.PrismaClientKnownRequestError &&
+                  err.code === 'P2002'
+                ) {
+                  skipped++;
+                  continue;
+                }
+                throw err;
+              }
+            }
+          }
+        }
+
+        processedEvents += page.length;
+        if (maxEvents !== undefined && processedEvents >= maxEvents) {
+          this.logger.log(
+            `[SignalGen:Backfill] maxEvents=${maxEvents} 도달 — 중단(이어실행 가능).`,
+          );
+          break;
+        }
+        if (page.length < batchSize) break;
+        if (throttleMs > 0) await this.sleep(throttleMs);
+      }
+
+      this.logger.log(
+        `[SignalGen:Backfill] 완료 candidates=${candidates} created=${created} updated=${updated} skipped=${skipped} batches=${batches} monthly=${JSON.stringify(monthlyDist)}`,
+      );
+      return {
+        candidates,
+        created,
+        updated,
+        skipped,
+        gradeDist,
+        triggeredBy: 'BACKFILL',
+        batches,
+        monthlyDist,
+      };
+    } finally {
+      this.isRunning = false;
+    }
+  }
+
+  /** YYYYMMDD[HHmmss] 접수일시 → as-of 거래일 YYYYMMDD (앞 8자리). */
+  private rcpDtToTradeDate(rcpDt: string): string {
+    return rcpDt.slice(0, 8);
+  }
+
+  /** 배치 간 스로틀 sleep. */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** 종목별 최신 시세·지표·상태 컨텍스트 (라이브 = as-of 상한 없음 = 최신) */
   private async loadStockContext(stockCode: string): Promise<StockContext> {
+    return this.loadStockContextAsOf(stockCode);
+  }
+
+  /**
+   * 종목별 시세·지표·상태 컨텍스트를 **as-of 거래일 상한** 내에서 적재한다 (DAR-389).
+   *
+   * ★point-in-time(불가침): asOf(YYYYMMDD)가 주어지면 가격·기술지표를 tradeDate ≤ asOf
+   *   로만 조회한다(공시일 이후 데이터 미참조 — 미래 가격으로 점수 부풀리기 차단). asOf 생략
+   *   시 상한 없음 = 라이브 '최신' 동작(회귀 0). tradeDate 는 YYYYMMDD 문자열이라 사전식 ≤
+   *   비교가 곧 시간순 ≤ 비교다.
+   *
+   *   StockStatus 는 거래일 차원이 없는 단일 현재 스냅샷(이력 테이블 부재)이라 as-of 절단 불가.
+   *   상태 플래그는 리스크 게이트(감점/차단)일 뿐 미래 '수익/가격' 입력이 아니므로 백필에서도
+   *   현재 스냅샷을 그대로 쓴다(라이브 산식과 동일). 점수 인플레이션 lookahead 와 무관.
+   */
+  private async loadStockContextAsOf(
+    stockCode: string,
+    asOf?: string,
+  ): Promise<StockContext> {
+    const priceWhere = asOf
+      ? { stockCode, tradeDate: { lte: asOf } }
+      : { stockCode };
+    const tiWhere = asOf
+      ? { stockCode, tradeDate: { lte: asOf } }
+      : { stockCode };
     const [price, ti, status] = await Promise.all([
       this.prisma.stockDailyPrice.findFirst({
-        where: { stockCode },
+        where: priceWhere,
         orderBy: { tradeDate: 'desc' },
       }),
       this.prisma.technicalIndicator.findFirst({
-        where: { stockCode },
+        where: tiWhere,
         orderBy: { tradeDate: 'desc' },
       }),
       this.prisma.stockStatus.findUnique({ where: { stockCode } }),
@@ -454,11 +775,22 @@ export class SignalGenerationService {
     };
   }
 
-  /** KOSPI/KOSDAQ 전일 대비 변동률 (%) 스냅샷 */
+  /** KOSPI/KOSDAQ 전일 대비 변동률 (%) 스냅샷 (라이브 = as-of 상한 없음 = 최신) */
   private async loadMarketContext(): Promise<MarketContext> {
+    return this.loadMarketContextAsOf();
+  }
+
+  /**
+   * KOSPI/KOSDAQ 전일 대비 변동률(%)을 **as-of 거래일 상한** 내에서 적재한다 (DAR-389).
+   * asOf 가 주어지면 tradeDate ≤ asOf 의 최근 2거래일로만 변동률을 산출한다(공시일 이후 지수
+   * 미참조). asOf 생략 시 라이브 '최신' 동작(회귀 0).
+   */
+  private async loadMarketContextAsOf(asOf?: string): Promise<MarketContext> {
     const change = async (code: string): Promise<number | null> => {
       const rows = await this.prisma.marketIndex.findMany({
-        where: { indexCode: code },
+        where: asOf
+          ? { indexCode: code, tradeDate: { lte: asOf } }
+          : { indexCode: code },
         orderBy: { tradeDate: 'desc' },
         take: 2,
       });

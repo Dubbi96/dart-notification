@@ -5,7 +5,14 @@
  * 2. ★point-in-time(lookahead 0): 구간/데이터 밖 시점은 진입 불가(미래 미참조)
  * 3. run(): 가짜 Prisma 로 신호조립→러너→영속(BacktestRun/Trade) 전 구간 + COMPLETED 전이
  */
-import { BacktestReplayService } from './backtest-replay.service';
+import {
+  BacktestReplayService,
+  isFinitePositive,
+  finiteOrNull,
+  finiteOr,
+  clampReturnPct,
+  RETURN_PCT_LIMIT,
+} from './backtest-replay.service';
 import { BacktestSignalAssemblyService } from './backtest-signal-assembly.service';
 import { MarketCalendarService } from '../constraint/market-calendar.service';
 import { PriceConstraintService } from '../constraint/price-constraint.service';
@@ -256,5 +263,205 @@ describe('BacktestReplayService.run — 신호조립→러너→영속 전 구�
     const { prisma } = makeFakePrisma();
     const service = buildService(prisma);
     await expect(service.run({ startDate: '2025/06/19', endDate: '2025-08-31' })).rejects.toThrow();
+  });
+});
+
+// =========================================================
+// DAR-390 — persistTrades null/NaN 안전성 + 가격결측 graceful + 재실행 멱등
+// =========================================================
+
+describe('DAR-390 — 수치 정규화 헬퍼(영속 안전성)', () => {
+  it('isFinitePositive: 유한·양수만 true', () => {
+    expect(isFinitePositive(1)).toBe(true);
+    expect(isFinitePositive(0)).toBe(false);
+    expect(isFinitePositive(-1)).toBe(false);
+    expect(isFinitePositive(NaN)).toBe(false);
+    expect(isFinitePositive(Infinity)).toBe(false);
+    expect(isFinitePositive(undefined)).toBe(false);
+    expect(isFinitePositive(null)).toBe(false);
+  });
+
+  it('finiteOrNull: 비유한은 null, 유한은 보존(0 포함)', () => {
+    expect(finiteOrNull(0)).toBe(0);
+    expect(finiteOrNull(-5)).toBe(-5);
+    expect(finiteOrNull(NaN)).toBeNull();
+    expect(finiteOrNull(Infinity)).toBeNull();
+    expect(finiteOrNull(undefined)).toBeNull();
+  });
+
+  it('finiteOr: 비유한은 fallback', () => {
+    expect(finiteOr(3, 0)).toBe(3);
+    expect(finiteOr(NaN, 0)).toBe(0);
+    expect(finiteOr(undefined, 0)).toBe(0);
+  });
+
+  it('clampReturnPct: 비유한 null·범위 초과 클램프·정상 보존', () => {
+    expect(clampReturnPct(12.5)).toBe(12.5);
+    expect(clampReturnPct(-8)).toBe(-8);
+    expect(clampReturnPct(NaN)).toBeNull();
+    // 비유한(Infinity)은 계산 폭주 → 클램프가 아니라 정직하게 null
+    expect(clampReturnPct(Infinity)).toBeNull();
+    expect(clampReturnPct(-Infinity)).toBeNull();
+    // 유한하지만 컬럼 한계 초과 → 표현 가능 범위로 클램프
+    expect(clampReturnPct(99999)).toBe(RETURN_PCT_LIMIT);
+    expect(clampReturnPct(-99999)).toBe(-RETURN_PCT_LIMIT);
+  });
+});
+
+describe('DAR-390 — executeReplay: 가격 0/결측 신호 graceful 제외', () => {
+  const service = buildService({} as PrismaService);
+
+  it('시가 0 종목 신호는 진입 제외(NaN/Infinity 트레이드 미생성), 정상 신호는 거래', async () => {
+    const pricesWithZero: Record<string, DailyPrice[]> = {
+      ...PRICES,
+      // 시가 0(백필 결측/이상치) — 진입 시 0 으로 나눠 Infinity/NaN 이 되는 케이스
+      '900900': [
+        price('2025-07-01', 0, 0),
+        price('2025-07-02', 0, 0),
+        price('2025-07-03', 0, 0),
+      ],
+    };
+    const adapter = new InMemoryPriceDataAdapter(pricesWithZero, TRADING_DAYS);
+    const signals = [
+      signal('W1', 'A005930', '005930', '2025-07-01'),
+      signal('BAD', 'A900900', '900900', '2025-07-01'),
+    ];
+
+    const { trades } = await service.executeReplay(
+      signals, adapter, STRATEGY, ZERO_COST, '2025-07-01', '2025-08-31',
+    );
+
+    // 정상 1건만, 0 종목은 제외
+    expect(trades).toHaveLength(1);
+    expect(trades[0].stockCode).toBe('005930');
+    // 모든 트레이드 수치 유한
+    for (const t of trades) {
+      expect(Number.isFinite(t.entryPrice)).toBe(true);
+      expect(Number.isFinite(t.entryShares)).toBe(true);
+      expect(Number.isFinite(t.entryValue)).toBe(true);
+      expect(t.entryPrice).toBeGreaterThan(0);
+      expect(t.entryShares).toBeGreaterThan(0);
+    }
+  });
+});
+
+// 가격결측 종목/신호를 포함하는 가짜 Prisma
+function makeFakePrismaWithZeroPrice() {
+  const extraPriceRows: PriceRow[] = [
+    ...PRICE_ROWS,
+    // 시가 0 = 백필 이상치 (신호백필 #341 이후 재실행에서 깨지던 케이스 재현)
+    { stockCode: '900900', tradeDate: '20250701', openPrice: 0, highPrice: 0, lowPrice: 0, closePrice: 0, volume: 0n },
+    { stockCode: '900900', tradeDate: '20250702', openPrice: 0, highPrice: 0, lowPrice: 0, closePrice: 0, volume: 0n },
+    { stockCode: '900900', tradeDate: '20250703', openPrice: 0, highPrice: 0, lowPrice: 0, closePrice: 0, volume: 0n },
+  ];
+  const extraSignalRows = [
+    ...SIGNAL_ROWS,
+    { rcpNo: 'BAD', corpCode: 'A900900', stockCode: '900900', eventType: 'SUPPLY_CONTRACT', persona: 'GROWTH', buyScore: 80, disclosure: { rcpDt: '20250701' } },
+  ];
+
+  const store: { run?: Record<string, unknown>; trades?: unknown[]; runs: Record<string, unknown>[] } = { runs: [] };
+  let seq = 0;
+  const prisma = {
+    tradingSignal: {
+      findMany: jest.fn(async (args: { where: { disclosure: { rcpDt: { gte: string; lte: string } } } }) => {
+        const { gte, lte } = args.where.disclosure.rcpDt;
+        return extraSignalRows.filter((s) => s.disclosure.rcpDt >= gte && s.disclosure.rcpDt <= lte);
+      }),
+    },
+    stockDailyPrice: {
+      findMany: jest.fn(async (args: { where: { stockCode: string; tradeDate: { gte: string; lte: string } } }) =>
+        extraPriceRows.filter(
+          (r) => r.stockCode === args.where.stockCode &&
+            r.tradeDate >= args.where.tradeDate.gte && r.tradeDate <= args.where.tradeDate.lte,
+        ).sort((a, b) => a.tradeDate.localeCompare(b.tradeDate)),
+      ),
+      findUnique: jest.fn(async (args: { where: { stockCode_tradeDate: { stockCode: string; tradeDate: string } } }) => {
+        const k = args.where.stockCode_tradeDate;
+        return extraPriceRows.find((r) => r.stockCode === k.stockCode && r.tradeDate === k.tradeDate) ?? null;
+      }),
+      groupBy: jest.fn(async (args: { where: { tradeDate: { gte: string; lte: string } } }) => {
+        const dates = [...new Set(
+          extraPriceRows.filter((r) => r.tradeDate >= args.where.tradeDate.gte && r.tradeDate <= args.where.tradeDate.lte)
+            .map((r) => r.tradeDate),
+        )].sort();
+        return dates.map((tradeDate) => ({ tradeDate }));
+      }),
+    },
+    backtestRun: {
+      create: jest.fn(async (args: { data: Record<string, unknown> }) => {
+        seq += 1;
+        const id = `run-${seq}`;
+        store.run = { id, ...args.data };
+        store.runs.push(store.run);
+        return { id };
+      }),
+      update: jest.fn(async (args: { where: { id: string }; data: Record<string, unknown> }) => {
+        store.run = { ...store.run, ...args.data };
+        return store.run;
+      }),
+      findFirst: jest.fn(async () => store.run ?? null),
+      findUnique: jest.fn(async () => store.run ?? null),
+    },
+    backtestTrade: {
+      createMany: jest.fn(async (args: { data: unknown[] }) => {
+        store.trades = args.data;
+        return { count: args.data.length };
+      }),
+    },
+  } as unknown as PrismaService;
+  return { prisma, store };
+}
+
+describe('DAR-390 — run(): 가격결측 신호 포함해도 replay 성공 + 영속 안전 + 재실행 멱등', () => {
+  it('가격 0 신호 포함 재실행 → 500 없이 COMPLETED, 정상 트레이드만 영속(NaN/Infinity 0건)', async () => {
+    const { prisma, store } = makeFakePrismaWithZeroPrice();
+    const service = buildService(prisma);
+
+    const tr = await service.run({
+      startDate: '2025-06-19',
+      endDate: '2025-08-31',
+      strategy: { exitRules: { takeProfitPct: 10, stopLossPct: -8, maxHoldDays: 20 } },
+      costs: { commissionRate: 0, taxRate: 0, slippagePct: 0 },
+    });
+
+    // 200 경로: 예외 없이 COMPLETED 전이
+    expect(tr.status).toBe('COMPLETED');
+    expect((store.run as { status: string }).status).toBe('COMPLETED');
+    // 가격 0 종목(BAD)은 트랙레코드 거래에 미포함
+    const persisted = store.trades as Array<Record<string, number | string | null>>;
+    expect(persisted.map((t) => t.disclosureRcpNo)).not.toContain('BAD');
+    // 영속 수치 전부 유한(NaN/Infinity 0건)
+    for (const t of persisted) {
+      expect(Number.isFinite(t.entryPrice as number)).toBe(true);
+      expect(Number.isFinite(t.entryShares as number)).toBe(true);
+      expect(Number.isFinite(t.entryValue as number)).toBe(true);
+      expect(t.entryPrice as number).toBeGreaterThan(0);
+      expect(t.entryShares as number).toBeGreaterThan(0);
+      if (t.returnPct !== null) {
+        expect(Number.isFinite(t.returnPct as number)).toBe(true);
+      }
+    }
+  });
+
+  it('동일 구간 재실행 → 매번 신규 runId·유니크 충돌 0·COMPLETED (멱등)', async () => {
+    const { prisma, store } = makeFakePrismaWithZeroPrice();
+    const service = buildService(prisma);
+    const input = {
+      startDate: '2025-06-19',
+      endDate: '2025-08-31',
+      strategy: { exitRules: { takeProfitPct: 10, stopLossPct: -8, maxHoldDays: 20 } },
+      costs: { commissionRate: 0, taxRate: 0, slippagePct: 0 },
+    };
+
+    const first = await service.run(input);
+    const second = await service.run(input);
+
+    expect(first.status).toBe('COMPLETED');
+    expect(second.status).toBe('COMPLETED');
+    // 매 실행 신규 runId (이전 run 트레이드와 FK 충돌 없음)
+    expect(first.runId).not.toBe(second.runId);
+    expect(store.runs.length).toBe(2);
+    // createMany 가 매 실행 호출되고 throw 없음
+    expect((prisma.backtestTrade.createMany as jest.Mock).mock.calls.length).toBe(2);
   });
 });

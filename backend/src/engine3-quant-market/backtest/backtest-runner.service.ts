@@ -90,11 +90,21 @@ export class BacktestRunnerService {
           continue;
         }
 
+        // 가격 결측·이상치 가드(DAR-390): 시가가 유한·양수가 아니면 진입 불가.
+        // 백필 일봉에 0/음수/결측이 섞이면 0 으로 나눠 shares=Infinity·entryValue=NaN 이
+        // 되어 영속 시 Prisma 가 거부(500)된다 → 신호를 graceful 하게 제외하고 로그만 남긴다.
+        const rawEntryPrice = dayPrice.open;
+        if (!Number.isFinite(rawEntryPrice) || rawEntryPrice <= 0) {
+          this.logger.debug(
+            `진입 불가 [${signal.stockCode}] ${day}: 시가 결측/이상치(open=${rawEntryPrice})`,
+          );
+          continue;
+        }
+
         const disclosureDate = this.calendar.formatDate(signal.disclosureAt);
         const isAfterMarket = this.calendar.isAfterMarket(signal.disclosureAt);
 
         // 슬리피지 반영 진입가 (시가 기준)
-        const rawEntryPrice = dayPrice.open;
         const entryPrice = this.constraint.applySlippage(rawEntryPrice, costs.slippagePct, true);
 
         // 포지션 크기 결정
@@ -148,6 +158,9 @@ export class BacktestRunnerService {
         const prices = await this.priceDataPort.getDailyPrices(trade.stockCode, day, day);
         const dayPrice = prices[0];
         if (!dayPrice) continue;
+        // 가격 결측·이상치 가드(DAR-390): 종가가 유한·양수가 아니면 해당일 청산 판정 보류
+        // (데이터 없는 날과 동일 취급 → 포지션 유지). returnPct=NaN 으로 인한 오판/오염 방지.
+        if (!Number.isFinite(dayPrice.close) || dayPrice.close <= 0) continue;
 
         const entryDateStr = this.calendar.formatDate(trade.entryDate);
         const holdDays = this.calendar.daysBetween(entryDateStr, day);
@@ -215,7 +228,8 @@ export class BacktestRunnerService {
       const lastDay = tradingDays[tradingDays.length - 1];
       const prices = await this.priceDataPort.getDailyPrices(trade.stockCode, lastDay, lastDay);
       const dayPrice = prices[0];
-      if (!dayPrice) {
+      // 종가 결측·이상치(DAR-390)도 가격 부재와 동일 취급 → 미청산(미실현)으로 보존.
+      if (!dayPrice || !Number.isFinite(dayPrice.close) || dayPrice.close <= 0) {
         trades.push(trade);
         continue;
       }

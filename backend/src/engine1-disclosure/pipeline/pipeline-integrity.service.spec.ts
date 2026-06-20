@@ -42,7 +42,7 @@ describe('PipelineIntegrityService (DAR-126)', () => {
       enqueueParsing: jest.fn().mockResolvedValue(undefined),
       processPendingBatch: jest
         .fn()
-        .mockResolvedValue({ success: 0, failed: 0, durationMs: 0 }),
+        .mockResolvedValue({ success: 0, failed: 0, durationMs: 0, tradeRelevant: 0 }),
       ...over,
     } as unknown as DisclosureDocumentsService;
   }
@@ -141,7 +141,12 @@ describe('PipelineIntegrityService (DAR-126)', () => {
       { parseStatus: ParseStatus.PENDING, _count: { _all: 280 } },
       { parseStatus: ParseStatus.FETCHING, _count: { _all: 20 } },
     ]);
-    (prisma.disclosureDocument.count as jest.Mock).mockResolvedValueOnce(50); // retryable
+    // disclosureDocument.count 호출 순서: retryable, tradeRelevantTotal, tradeRelevantDone, tradeRelevantPending
+    (prisma.disclosureDocument.count as jest.Mock)
+      .mockResolvedValueOnce(50) // retryable
+      .mockResolvedValueOnce(120) // 거래대상 총수
+      .mockResolvedValueOnce(90) // 거래대상 DONE
+      .mockResolvedValueOnce(30); // 거래대상 미파싱
     (prisma.disclosure.count as jest.Mock).mockResolvedValueOnce(600); // missingDocument
     (prisma.disclosureEvent.count as jest.Mock).mockResolvedValueOnce(648); // eligibleEvents
 
@@ -165,6 +170,13 @@ describe('PipelineIntegrityService (DAR-126)', () => {
     expect(p.nominalParsePerMinute).toBe(140);
     // backlog = pending(300)+missing(600)=900 → 900/140/60 ≈ 0.107 → 0.1h
     expect(p.etaHours).toBe(0.1);
+    // DAR-394: 거래대상 커버리지 — 120중 90 DONE = 75%
+    expect(p.tradeRelevant).toEqual({
+      total: 120,
+      done: 90,
+      pending: 30,
+      donePercent: 75,
+    });
   });
 
   it('문서 0건이면 donePercent·etaHours 0(graceful)', async () => {
@@ -257,7 +269,7 @@ describe('PipelineIntegrityService (DAR-126)', () => {
       }),
       processPendingBatch: jest.fn().mockImplementation(async () => {
         calls.push('parse');
-        return { success: 3, failed: 1, durationMs: 5 };
+        return { success: 3, failed: 1, durationMs: 5, tradeRelevant: 2 };
       }),
     });
     const events = makeEvents({
@@ -272,7 +284,7 @@ describe('PipelineIntegrityService (DAR-126)', () => {
 
     expect(calls).toEqual(['enqueue', 'parse', 'events']);
     expect(result.enqueuedMissingDocuments).toBe(1);
-    expect(result.parse).toEqual({ success: 3, failed: 1 });
+    expect(result.parse).toEqual({ success: 3, failed: 1, tradeRelevant: 2 });
     expect(result.events).toEqual({ success: 2, failed: 0, needsReview: 1 });
   });
 
@@ -290,8 +302,8 @@ describe('PipelineIntegrityService (DAR-126)', () => {
     const service = new PipelineIntegrityService(prisma, docs, events, null);
 
     const result = await service.drainOnce();
-    // 파싱 단계는 폴백(0/0), 이벤트 단계는 정상 진행.
-    expect(result.parse).toEqual({ success: 0, failed: 0 });
+    // 파싱 단계는 폴백(0/0/거래대상0), 이벤트 단계는 정상 진행.
+    expect(result.parse).toEqual({ success: 0, failed: 0, tradeRelevant: 0 });
     expect(result.events.success).toBe(5);
     expect(events.processPendingDisclosures).toHaveBeenCalled();
   });

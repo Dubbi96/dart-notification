@@ -505,6 +505,30 @@ LEFT JOIN 으로 노출(빈 구간 events=0 가시화) → '연중화' 진척을
 **AI 금지영역 불가침**: 추출은 전부 Rule(L0). AI는 기존 큐 체이닝(비용게이트 #335)에 위임 — 본 경로
 신규 AI 호출 0. 손절·주문(Engine5)과 무관.
 
+### 2.6 거래대상 우선 fetch — DART 쿼터 최적화 (DAR-394)
+
+**진단(실측)**: 연속 드레인이 백필 공시 전부의 문서를 **무차별 fetch** 하는데, DART 일일 fetch
+쿼터는 하드 상한이다. 그러나 백테스트 신호는 **거래대상 이벤트유형**(공급계약·자사주·유상증자·
+CB/BW·실적·배당·소송·감사의견·거래정지·상장폐지 등 17종)에서만 나온다 — 비거래 유형(대다수)은
+fetch 해도 신호 0 → 쿼터 낭비. (라이브 dev DB 실측: PENDING 195,667건 중 거래대상은 34,398건(≈17.6%)
+뿐 → 무차별 FIFO 드레인은 매 배치의 ≈82%를 신호-0 공시에 소진.)
+
+**해결 — 메타데이터 선별 우선순위(문서 fetch 전, 추가 쿼터 0)**:
+- `classifyByReportName`(event-classifier SSOT 재사용) + `isTradeRelevantReportName` —
+  이미 백필된 **보고서명**만으로 거래대상 후보를 L0 Rule(정규식)로 식별. 원문 fetch 불필요.
+- `TRADE_RELEVANT_EVENT_TYPES` = persona-view 의 FAVORED ∪ DILUTIVE ∪ NEGATIVE 와 1:1 정합
+  (이 집합 밖은 모든 persona view 가 NEUTRAL → 신호 0).
+- `processPendingBatch(limit, { prioritizeTradeRelevant=true, skipNonTrade=false })`:
+  거래대상 후보를 보고서명 키워드로 DB prefilter 후 정밀 정규식으로 확정, **최신 접수일(rcpDt desc)
+  우선** 선택(백테스트 최근 구간 빠르게 충전). 거래대상이 limit 미만이면 비거래로 채워 **전량
+  커버리지 보존**(순서만 바뀜·누락 0). `skipNonTrade=true` 면 쿼터를 거래대상에만 집중.
+- **쿼터 인지**: 기존 적응형 백오프(DAR-392)가 레이트리밋/쿼터 소진을 흡수(자정 리셋 후 자동 재개).
+  `GET /pipeline/drain-progress` 에 `tradeRelevant{ total·done·pending·donePercent }` 커버리지 추가.
+
+**효과(실측)**: 무차별 FIFO 드레인의 큐 헤드는 7/8 이 비거래(효력발생안내·감사보고서·타법인주식취득 등)
+였으나, 거래대상 우선 선택은 배치를 거의 100% 신호 공시로 채운다 → 동일 쿼터로 신호 커버리지 ≈5.7×.
+미해결(옵션): 동일 우선순위 내 **월별 라운드로빈**(연중 균형). 현재는 최신월 우선(rcpDt desc).
+
 ---
 
 ## 3. 에러 처리 및 재시도 전략

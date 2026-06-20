@@ -359,6 +359,37 @@ export const REPORT_NAME_RULES: ReportNameRule[] = [
   },
 ];
 
+/** 분류 결과 (eventType + 방향성 + 신뢰도). */
+export interface EventClassification {
+  eventType: EventType;
+  polarity: 'POSITIVE' | 'NEGATIVE' | 'MIXED' | 'UNKNOWN';
+  confidence: number;
+}
+
+/**
+ * 보고서명만으로 1차 이벤트 타입 분류 (문서 fetch 불필요·메타데이터 전용, L0 Rule).
+ *
+ * REPORT_NAME_RULES 정규식 테이블을 순차 적용해 첫 매칭을 채택한다. parsedJson 이
+ * 없어도(=원문 미수집) 동작하므로, DART 쿼터 절약을 위한 fetch 우선순위 선별
+ * (DAR-394)에서 재사용한다 — classifyEventType 과 동일 SSOT 라 분류 결과가 일관된다.
+ *
+ * @returns 매칭 시 EventClassification, 미매칭 시 null(호출부가 docType 보완·OTHER 결정).
+ */
+export function classifyByReportName(
+  reportName: string,
+): EventClassification | null {
+  for (const rule of REPORT_NAME_RULES) {
+    if (rule.pattern.test(reportName)) {
+      return {
+        eventType: rule.eventType,
+        polarity: rule.polarity,
+        confidence: rule.confidence,
+      };
+    }
+  }
+  return null;
+}
+
 /**
  * 보고서명 + parsedJson 기반 1차 이벤트 타입 분류
  *
@@ -372,21 +403,10 @@ export const REPORT_NAME_RULES: ReportNameRule[] = [
 export function classifyEventType(
   reportName: string,
   parsedJson: ParsedJson,
-): {
-  eventType: EventType;
-  polarity: 'POSITIVE' | 'NEGATIVE' | 'MIXED' | 'UNKNOWN';
-  confidence: number;
-} {
+): EventClassification {
   // 1차: reportName 정규식 룰 테이블 순차 적용
-  for (const rule of REPORT_NAME_RULES) {
-    if (rule.pattern.test(reportName)) {
-      return {
-        eventType: rule.eventType,
-        polarity: rule.polarity,
-        confidence: rule.confidence,
-      };
-    }
-  }
+  const byName = classifyByReportName(reportName);
+  if (byName) return byName;
 
   // 2차: parsedJson.docType 보완
   if (parsedJson.docType) {

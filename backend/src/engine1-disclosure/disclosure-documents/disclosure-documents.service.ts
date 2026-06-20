@@ -28,6 +28,11 @@ import { AmendmentDiff } from './types/amendment-diff.type';
 import type { DisclosureEventsService } from '../disclosure-events/disclosure-events.service';
 // DAR-293: 파싱 재시도 캡 SSOT — pipeline-integrity.service와 공유(발산 방지)
 import { PARSE_MAX_RETRY as MAX_RETRY } from './disclosure-documents.constants';
+// DAR-394: 거래대상(신호 생산) 우선 fetch — 보고서명 메타데이터 선별(쿼터 최적화)
+import {
+  isTradeRelevantReportName,
+  tradeRelevantReportNameFilter,
+} from '../disclosure-events/extractors/trade-relevance';
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 const MAX_RAWTEXT_LENGTH = 200_000;  // 200KB 상한
@@ -38,6 +43,27 @@ const MAX_BATCH_LIMIT = 200;
 const DEFAULT_RETRY_LIMIT = 20;
 // 빈 문서 기준 (P-03)
 const EMPTY_DOCUMENT_THRESHOLD = 50;
+
+/** DAR-394: 배치 파싱 선택 옵션. */
+export interface ProcessPendingOptions {
+  /** 거래대상(신호 생산) 공시를 우선 선택 (기본 true). false 면 enqueue 순(FIFO). */
+  prioritizeTradeRelevant?: boolean;
+  /**
+   * 비거래대상 공시를 이번 배치에서 제외 (기본 false). true 면 쿼터를 거래대상에만
+   * 집중(신호 커버리지 극대화)하되 비거래 문서는 후일로 미룬다. prioritizeTradeRelevant
+   * 가 true 일 때만 의미가 있다.
+   */
+  skipNonTrade?: boolean;
+}
+
+/** 배치 파싱 결과 — DAR-394: 이번 배치의 거래대상 선택 수(tradeRelevant) 포함. */
+export interface ProcessPendingResult {
+  success: number;
+  failed: number;
+  durationMs: number;
+  /** 이번 배치에서 거래대상으로 선택된 문서 수(가시성·검증용). */
+  tradeRelevant: number;
+}
 
 @Injectable()
 export class DisclosureDocumentsService {
@@ -327,34 +353,47 @@ export class DisclosureDocumentsService {
   /**
    * PENDING 상태 건 배치 처리
    * 동시 처리 최대 5건 (Promise.allSettled 사용)
+   *
+   * DAR-394(쿼터 최적): 선택을 거래대상(신호 생산) 우선으로 정렬한다. 한정된 DART
+   *   일일 fetch 쿼터를 신호를 만드는 공시(공급계약·자사주·유상증자·CB/BW·실적 등)에
+   *   먼저 쓰기 위함. 거래대상은 보고서명 메타데이터만으로 fetch 전에 선별하므로 추가
+   *   쿼터 소모가 없다. 기본은 비거래대상도 후순위로 채워(skipNonTrade=false) 전량
+   *   커버리지를 보존한다 — 순서만 바뀌고 누락은 없다(회귀 0).
    */
   async processPendingBatch(
     limit = DEFAULT_BATCH_LIMIT,
-  ): Promise<{ success: number; failed: number; durationMs: number }> {
+    options: ProcessPendingOptions = {},
+  ): Promise<ProcessPendingResult> {
+    const { prioritizeTradeRelevant = true, skipNonTrade = false } = options;
     const safeLimit = Math.min(limit, MAX_BATCH_LIMIT);
     const startTime = Date.now();
 
-    const pendingDocs = await this.prisma.disclosureDocument.findMany({
-      where: { parseStatus: ParseStatus.PENDING },
-      take: safeLimit,
-      orderBy: { createdAt: 'asc' },
-      select: { rcpNo: true },
-    });
+    const selection = prioritizeTradeRelevant
+      ? await this.selectPrioritizedPending(safeLimit, skipNonTrade)
+      : { rcpNos: await this.selectPendingFifo(safeLimit), tradeRelevant: 0 };
 
-    if (pendingDocs.length === 0) {
-      return { success: 0, failed: 0, durationMs: Date.now() - startTime };
+    const rcpNos = selection.rcpNos;
+    if (rcpNos.length === 0) {
+      return {
+        success: 0,
+        failed: 0,
+        durationMs: Date.now() - startTime,
+        tradeRelevant: 0,
+      };
     }
 
-    this.logger.log(`배치 파싱 시작: ${pendingDocs.length}건`);
+    this.logger.log(
+      `배치 파싱 시작: ${rcpNos.length}건` +
+        (prioritizeTradeRelevant
+          ? ` (거래대상 우선=${selection.tradeRelevant}, 비거래=${rcpNos.length - selection.tradeRelevant})`
+          : ''),
+    );
 
     let success = 0;
     let failed = 0;
 
     // BATCH_CONCURRENCY 단위로 청크 분할
-    const chunks = chunkArray(
-      pendingDocs.map((d) => d.rcpNo),
-      BATCH_CONCURRENCY,
-    );
+    const chunks = chunkArray(rcpNos, BATCH_CONCURRENCY);
 
     for (const chunk of chunks) {
       const results = await Promise.allSettled(
@@ -379,7 +418,78 @@ export class DisclosureDocumentsService {
       `배치 파싱 완료: 성공=${success}, 실패=${failed}, 소요=${durationMs}ms`,
     );
 
-    return { success, failed, durationMs };
+    return { success, failed, durationMs, tradeRelevant: selection.tradeRelevant };
+  }
+
+  /** PENDING 문서를 enqueue 순(createdAt asc)으로 선택 — 우선순위 미적용 경로. */
+  private async selectPendingFifo(limit: number): Promise<string[]> {
+    const docs = await this.prisma.disclosureDocument.findMany({
+      where: { parseStatus: ParseStatus.PENDING },
+      take: limit,
+      orderBy: { createdAt: 'asc' },
+      select: { rcpNo: true },
+    });
+    return docs.map((d) => d.rcpNo);
+  }
+
+  /**
+   * DAR-394: PENDING 문서를 거래대상(신호 생산) 우선으로 선택한다.
+   *
+   * 1) 거래대상 후보를 보고서명 키워드로 DB 사전선별(상위집합) 후, 정밀 정규식
+   *    (isTradeRelevantReportName, classifier SSOT)으로 확정. 최신 접수일(rcpDt desc)
+   *    우선 — 백테스트 최근 구간을 빠르게 채운다.
+   * 2) 거래대상이 limit 미만이고 skipNonTrade=false 면, 나머지를 비거래 PENDING
+   *    (enqueue 순 createdAt asc)으로 채워 전량 커버리지를 보존한다.
+   *
+   * 멱등·read-only 선택(상태 전이는 parseDisclosure 가 수행). 쿼터는 본 선택에서
+   * 소모되지 않는다(보고서명은 이미 백필된 메타데이터).
+   */
+  private async selectPrioritizedPending(
+    limit: number,
+    skipNonTrade: boolean,
+  ): Promise<{ rcpNos: string[]; tradeRelevant: number }> {
+    // 1) 거래대상 후보 prefilter — 키워드 매칭 PENDING 을 최신 접수일 우선으로.
+    //    take 를 약간 넉넉히(×1.5) 잡아 정밀 정규식이 일부 거짓양성을 떨궈도
+    //    limit 을 채울 거래대상 풀을 확보한다(MAX_BATCH_LIMIT×2 상한).
+    const prefilterTake = Math.min(Math.ceil(limit * 1.5), MAX_BATCH_LIMIT * 2);
+    const candidates = await this.prisma.disclosureDocument.findMany({
+      where: {
+        parseStatus: ParseStatus.PENDING,
+        disclosure: tradeRelevantReportNameFilter(),
+      },
+      take: prefilterTake,
+      // 최신 접수일 우선(백테스트 최근 구간 우선 충전). rcpNo 동률 정렬로 결정론 보장.
+      orderBy: [{ disclosure: { rcpDt: 'desc' } }, { rcpNo: 'desc' }],
+      select: { rcpNo: true, disclosure: { select: { reportName: true } } },
+    });
+
+    // 정밀 확정(정규식 SSOT) — 키워드 거짓양성 제거.
+    const tradeRelevant = candidates
+      .filter((d) => isTradeRelevantReportName(d.disclosure.reportName))
+      .map((d) => d.rcpNo)
+      .slice(0, limit);
+
+    if (tradeRelevant.length >= limit || skipNonTrade) {
+      return { rcpNos: tradeRelevant, tradeRelevant: tradeRelevant.length };
+    }
+
+    // 2) 비거래 fill — 거래대상으로 다 못 채운 잔여를 enqueue 순으로 보충.
+    //    notIn 으로 이미 선택한 거래대상은 배제(중복 방지).
+    const remaining = limit - tradeRelevant.length;
+    const fill = await this.prisma.disclosureDocument.findMany({
+      where: {
+        parseStatus: ParseStatus.PENDING,
+        rcpNo: { notIn: tradeRelevant },
+      },
+      take: remaining,
+      orderBy: { createdAt: 'asc' },
+      select: { rcpNo: true },
+    });
+
+    return {
+      rcpNos: [...tradeRelevant, ...fill.map((d) => d.rcpNo)],
+      tradeRelevant: tradeRelevant.length,
+    };
   }
 
   /**

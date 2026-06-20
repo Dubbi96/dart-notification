@@ -8,7 +8,7 @@ import { PipelineDrainResult } from './pipeline.types';
 describe('PipelineDrainScheduler (DAR-126)', () => {
   const drainResult: PipelineDrainResult = {
     enqueuedMissingDocuments: 1,
-    parse: { success: 3, failed: 1 },
+    parse: { success: 3, failed: 1, tradeRelevant: 3 },
     events: { success: 2, failed: 0, needsReview: 1 },
     durationMs: 10,
   };
@@ -102,14 +102,14 @@ describe('PipelineDrainScheduler (DAR-126)', () => {
   /** 고실패(표본 충분) 결과 — parse.failed/(success+failed) ≥ 0.5, attempts ≥ 20. */
   const highFailureResult: PipelineDrainResult = {
     enqueuedMissingDocuments: 0,
-    parse: { success: 10, failed: 40 }, // 50 시도 중 80% 실패
+    parse: { success: 10, failed: 40, tradeRelevant: 8 }, // 50 시도 중 80% 실패
     events: { success: 0, failed: 0, needsReview: 0 },
     durationMs: 100,
   };
   /** 건강한 결과(표본 충분, 저실패). */
   const healthyResult: PipelineDrainResult = {
     enqueuedMissingDocuments: 0,
-    parse: { success: 48, failed: 2 }, // 4% 실패
+    parse: { success: 48, failed: 2, tradeRelevant: 30 }, // 4% 실패
     events: { success: 5, failed: 0, needsReview: 1 },
     durationMs: 100,
   };
@@ -194,7 +194,7 @@ describe('PipelineDrainScheduler (DAR-126)', () => {
     // attempts = 2 + 3 = 5 < MIN_SAMPLES_FOR_BACKOFF(20) → 정상 idle 로 간주.
     const sparse: PipelineDrainResult = {
       enqueuedMissingDocuments: 0,
-      parse: { success: 2, failed: 3 },
+      parse: { success: 2, failed: 3, tradeRelevant: 2 },
       events: { success: 0, failed: 0, needsReview: 0 },
       durationMs: 10,
     };

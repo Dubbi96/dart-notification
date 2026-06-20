@@ -86,8 +86,8 @@ export interface PipelineHealth {
 export interface PipelineDrainResult {
   /** 파싱 큐에 신규 등록한 누락 공시 수(missingDocument backfill) */
   enqueuedMissingDocuments: number;
-  /** 파싱 배치: 성공/실패 */
-  parse: { success: number; failed: number };
+  /** 파싱 배치: 성공/실패 + DAR-394 이번 배치의 거래대상 우선 선택 수 */
+  parse: { success: number; failed: number; tradeRelevant: number };
   /** 이벤트 배치: 성공/실패/검토대기 */
   events: { success: number; failed: number; needsReview: number };
   /** 총 소요(ms) */
@@ -125,6 +125,20 @@ export interface DrainProgress {
   missingDocument: number;
   /** 파싱 DONE 에서 추출된 이벤트 수(SUCCESS|NEEDS_REVIEW). */
   eligibleEvents: number;
+  /**
+   * DAR-394 거래대상(신호 생산) 문서 커버리지 — 보고서명 키워드 prefilter 기반 추정.
+   * 한정 쿼터를 신호 공시에 집중한 효과를 추적한다(무차별 대비 거래대상 DONE% 가시화).
+   */
+  tradeRelevant: {
+    /** 거래대상 후보 문서 총수(키워드 매칭). */
+    total: number;
+    /** 그중 파싱 완료(DONE) 수. */
+    done: number;
+    /** 그중 미파싱(PENDING+FETCHING+PARSING) 수. */
+    pending: number;
+    /** done / total * 100 (소수 첫째자리). total=0 이면 0. */
+    donePercent: number;
+  };
   /** ETA 추정에 사용한 분당 공칭 파싱 처리량(관측 기반 상수, 레이트리밋/백오프 시 변동). */
   nominalParsePerMinute: number;
   /**

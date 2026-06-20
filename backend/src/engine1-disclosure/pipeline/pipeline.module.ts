@@ -5,6 +5,8 @@ import { DisclosureDocumentsModule } from '../disclosure-documents/disclosure-do
 import { DisclosureEventsModule } from '../disclosure-events/disclosure-events.module';
 import { PipelineIntegrityService } from './pipeline-integrity.service';
 import { PipelineDrainScheduler } from './pipeline-drain.scheduler';
+import { EventBackfillDrainService } from './event-backfill-drain.service';
+import { EventBackfillScheduler } from './event-backfill.scheduler';
 import { PipelineController } from './pipeline.controller';
 
 /**
@@ -17,6 +19,9 @@ import { PipelineController } from './pipeline.controller';
  *  - PrismaModule(@Global)·CronHealthModule(@Global, CronRunRecorder)는 import 불요.
  *
  * exports: PipelineIntegrityService — OpsMetricsService(/ops/metrics)가 단계 카운트를 재사용.
+ *
+ * DAR-391: EventBackfillDrainService/Scheduler 추가 — 과거 백필 공시의 이벤트 추출을 rcpDt
+ *   시간순으로 점진 백필(신호·백테스트 연중화 게이트). 동일 모듈의 documents/events 서비스를 재사용.
  */
 @Module({
   imports: [
@@ -25,7 +30,12 @@ import { PipelineController } from './pipeline.controller';
     BullModule.registerQueue({ name: QUEUE.AI_ANALYZE }),
   ],
   controllers: [PipelineController],
-  providers: [PipelineIntegrityService, PipelineDrainScheduler],
-  exports: [PipelineIntegrityService],
+  providers: [
+    PipelineIntegrityService,
+    PipelineDrainScheduler,
+    EventBackfillDrainService,
+    EventBackfillScheduler,
+  ],
+  exports: [PipelineIntegrityService, EventBackfillDrainService],
 })
 export class PipelineModule {}

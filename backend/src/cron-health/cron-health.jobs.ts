@@ -25,6 +25,8 @@ export const CRON_JOB_KEYS = {
   MINUTE_PRICE_COLLECT: 'market.minute-collect',
   // DAR-379: AI 평가 백필 드레인 — 과거 미분석 공시를 비용게이트 내 점진 드레인(평가자료 코퍼스 적재).
   AI_BACKFILL_DRAIN: 'ai.backfill-drain',
+  // DAR-391: 이벤트 추출 백필 드레인 — 과거 백필 공시를 rcpDt 시간순 추출/파싱등록(신호·백테스트 연중화 게이트).
+  EVENT_BACKFILL_DRAIN: 'event.backfill-drain',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -178,5 +180,16 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: 2_880, // 48시간 — 매일 02:00, 하루 누락까지 허용
     cadence: '매일 02:00',
+  },
+  {
+    // DAR-391: 이벤트 추출 백필 드레인. 가동이 멈추면 과거 백필 공시의 이벤트 추출 적체가
+    //   영구화되어 신호·백테스트 연중화가 정체된다(rcpDt 분포 비어있음). 매일 03:00 가동 —
+    //   하루 누락(48h)까지 허용.
+    jobKey: CRON_JOB_KEYS.EVENT_BACKFILL_DRAIN,
+    label: '이벤트 추출 백필 드레인',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: 2_880, // 48시간 — 매일 03:00, 하루 누락까지 허용
+    cadence: '매일 03:00',
   },
 ];

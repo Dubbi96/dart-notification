@@ -81,6 +81,10 @@ STORAGE_DRIVER=local
 # S3_PREFIX=prod               # (선택) 공유 버킷 환경 분리용 prefix
 # S3_ENDPOINT=                 # (선택) S3 호환 스토리지(MinIO 등) 커스텀 엔드포인트
 # S3_FORCE_PATH_STYLE=false    # (선택) path-style 강제(MinIO 등)
+
+# 저장소 계층화·로컬 최소화 (DAR-397)
+# PERSIST_RAW_FILES=false      # 다운로드 원시 HTML/XML 로컬 보존(읽는 코드 없음·기본 OFF). 감사/디버그 시만 true.
+# LOCAL_DB_SIZE_WARN_BYTES=5368709120   # GET /storage/health 로컬 DB 크기 경고 임계(기본 5GB)
 ```
 
 > S3 활성화 시 `cd backend && npm i @aws-sdk/client-s3 --legacy-peer-deps` 로 SDK 를 설치한다.
@@ -217,6 +221,67 @@ rawText 오프로드(위) 후에도 `disclosure_documents` 의 TOAST 진짜 bulk
 - **디스크 회수(VACUUM)**: 위 rawText 절차와 동일(`disclosure_documents` 대상). 오프로드가 충분히 진행된
   뒤 점검창에서 `VACUUM (FULL)` 수동 실행(휴먼 게이트). 실측 투영: tables 오프로드 + VACUUM 후
   `disclosure_documents` 1772MB → 약 85MB(heap 60 + index 18 + parsedJson 5).
+
+#### 저장소 계층화·로컬 최소화 운영 (DAR-397)
+
+목표: **대용량은 S3, 로컬 사용 용량은 최대한 줄인다.** 멀티이어 백필로 데이터가 폭증해도
+로컬 DB·디스크가 비대해지지 않도록 계층화(hot=로컬, cold=S3)하고, 회수·모니터링을 자동화한다.
+모든 `/storage/*` 엔드포인트는 JWT 필수(운영/내부 전용).
+
+- **신규 문서 rawText·tables·원본 HTML 로컬 0(이미 시행)**: 파싱 추출 시점에 rawText(DAR-395),
+  tables(DAR-399), 원본 HTML(DAR-401)을 즉시 S3 로 오프로드/고정하고 DB·로컬 디스크에 누적하지
+  않는다. 본 계층화 PR 은 이 개별 오프로드들을 **중복 구현하지 않으며**, 그 결과 계층화 상태를
+  운영·관측·회수하는 역할만 더한다.
+- **잔존 레거시 로컬 원시 파일(rawFilePath) 회수**: 원본 HTML 의 로컬 write 는 DAR-401 에서 이미
+  제거되어(`storage/{rcpNo}/index.html` 신규 기록 0) 신규 누적은 없다. DAR-401 이전에 쌓인 과거
+  로컬 산출물만 아래 정리 엔드포인트로 회수한다(멱등·배치).
+  ```bash
+  # 기존 로컬 원시 파일 삭제 + rawFilePath 컬럼 비움(멱등·배치):
+  curl -XPOST -H "Authorization: Bearer $JWT" \
+    "$API/storage/cleanup-local-artifacts?limit=1000"
+  ```
+- **용량 모니터링** — `GET /api/storage/health`(read-only):
+  - `database.sizeBytes` + 용량 상위 테이블(`pg_total_relation_size` desc),
+  - `rawTextOffload`(잔여/완료/완료율), `objectStorage`(드라이버·객체수·총바이트),
+  - `localArtifacts.rawFilesWithPath`, `thresholds.warnings`(로컬 DB 임계 초과 경고).
+  - 로컬 DB 경고 임계는 `LOCAL_DB_SIZE_WARN_BYTES`(기본 5GB)로 조정.
+- **디스크 회수(VACUUM, 자동화)** — 위 수동 psql 외에 운영 엔드포인트 제공(화이트리스트 테이블만):
+  ```bash
+  # VACUUM (FULL, ANALYZE) + 전후 크기/회수 바이트 리포트(★ACCESS EXCLUSIVE 락·오프피크):
+  curl -XPOST -H "Authorization: Bearer $JWT" \
+    "$API/storage/vacuum?table=disclosure_documents&full=true"
+  # 락이 부담되면 pg_repack(온라인 재작성)을 대안으로:
+  #   pg_repack -d dart_notification -t disclosure_documents
+  ```
+- **콜드 라이프사이클(S3, 비용↓)** — rawText 객체(`disclosure-rawtext/`)는 추출 후 콜드:
+  `STANDARD_IA(30일) → GLACIER(90일)` 자동 강등. 적용은 엔드포인트(idempotent) 또는 IaC:
+  ```bash
+  # 앱에서 적용(S3 드라이버만 실적용·로컬 no-op):
+  curl -XPOST -H "Authorization: Bearer $JWT" "$API/storage/lifecycle"
+  ```
+  AWS CLI(IaC) 등가 — `$S3_BUCKET`/`$S3_PREFIX` 치환:
+  ```bash
+  aws s3api put-bucket-lifecycle-configuration --bucket "$S3_BUCKET" \
+    --lifecycle-configuration '{
+      "Rules": [{
+        "ID": "dar397-rawtext-cold-tiering",
+        "Status": "Enabled",
+        "Filter": { "Prefix": "disclosure-rawtext/" },
+        "Transitions": [
+          { "Days": 30, "StorageClass": "STANDARD_IA" },
+          { "Days": 90, "StorageClass": "GLACIER" }
+        ]
+      }]
+    }'
+  ```
+  Terraform 등가(`aws_s3_bucket_lifecycle_configuration`)도 동일 prefix/전환을 사용한다.
+- **일봉/분봉(이번 범위 외)**: 자주 조회되는 hot 데이터로 DB 유지(TimescaleDB 압축으로 디스크↓).
+  아주 오래된 분봉 콜드분의 S3/tiered 오프로드는 향후 별도 이슈로 검토한다(이번은 원문 우선).
+
+> **실측(2026-06-20, 라이브 DB)**: 전체 4.30GB 중 `stock_daily_prices` 2018MB·
+> `disclosure_documents` 1772MB(rawText) 가 대부분. 격리 throwaway 테이블 데모에서
+> 컬럼 NULL 만으로는 56.93MB→56.93MB(회수 0%), `VACUUM (FULL)` 후 56.93MB→2.83MB(**회수 95%**).
+> → rawText 전량 오프로드 + VACUUM FULL 시 `disclosure_documents` 가 1.7GB→수십MB 로 수렴한다.
 
 #### Option 2: 로컬 PostgreSQL
 

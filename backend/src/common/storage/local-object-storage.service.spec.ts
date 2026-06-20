@@ -59,4 +59,40 @@ describe('LocalObjectStorageService (DAR-395)', () => {
       storage.put('../escape.txt', 'x', { compress: false }),
     ).rejects.toThrow(/루트 탈출/);
   });
+
+  // ─── DAR-397: 용량 통계 + 라이프사이클(no-op) ──────────────────────────────
+
+  it('stats: prefix 하위 객체수/바이트 재귀 합산', async () => {
+    await storage.put('disclosure-rawtext/a.txt.gz', 'aaa', { compress: false });
+    await storage.put('disclosure-rawtext/sub/b.txt.gz', 'bbbbb', {
+      compress: false,
+    });
+    await storage.put('other/c.txt', 'zzzz', { compress: false });
+
+    const st = await storage.stats('disclosure-rawtext/');
+    expect(st.prefix).toBe('disclosure-rawtext/');
+    expect(st.objectCount).toBe(2);
+    expect(st.totalBytes).toBe(
+      Buffer.byteLength('aaa') + Buffer.byteLength('bbbbb'),
+    );
+    expect(st.available).toBe(true);
+
+    // 전체(prefix 미지정) 는 3건.
+    const all = await storage.stats();
+    expect(all.objectCount).toBe(3);
+  });
+
+  it('stats: 디렉터리 부재 prefix 는 빈 통계(graceful)', async () => {
+    const st = await storage.stats('nonexistent/');
+    expect(st).toEqual({
+      prefix: 'nonexistent/',
+      objectCount: 0,
+      totalBytes: 0,
+      available: true,
+    });
+  });
+
+  it('applyLifecycle: 로컬은 미지원(no-op) → false', async () => {
+    expect(await storage.applyLifecycle([])).toBe(false);
+  });
 });

@@ -3,6 +3,7 @@
 
 import { S3Backend, S3ObjectStorageService } from './s3-object-storage.service';
 import { decodeFromStorage } from './gzip-codec';
+import { LifecycleRule } from './object-storage.types';
 
 /** 인메모리 가짜 S3 백엔드 — putObject 가 받은 바이트를 보관. */
 class FakeS3Backend implements S3Backend {
@@ -33,6 +34,23 @@ class FakeS3Backend implements S3Backend {
   }
   async deleteObject(key: string): Promise<void> {
     this.store.delete(key);
+  }
+  lifecycleRules: LifecycleRule[] | null = null;
+  async listObjects(
+    prefix: string,
+  ): Promise<{ count: number; totalBytes: number }> {
+    let count = 0;
+    let totalBytes = 0;
+    for (const [k, v] of this.store) {
+      if (k.startsWith(prefix)) {
+        count++;
+        totalBytes += v.body.length;
+      }
+    }
+    return { count, totalBytes };
+  }
+  async putLifecycleConfiguration(rules: LifecycleRule[]): Promise<void> {
+    this.lifecycleRules = rules;
   }
 }
 
@@ -81,5 +99,51 @@ describe('S3ObjectStorageService (DAR-395)', () => {
     await s3.put('plain.txt', 'hello', { compress: false });
     expect(backend.store.get('plain.txt')!.contentEncoding).toBeUndefined();
     expect(await s3.get('plain.txt')).toBe('hello');
+  });
+
+  // ─── DAR-397: 용량 통계 + 콜드 라이프사이클 ────────────────────────────────
+
+  it('stats: prefix 부착 후 backend.listObjects 합산', async () => {
+    const s3 = new S3ObjectStorageService(backend, 'prod');
+    await s3.put('disclosure-rawtext/a.txt.gz', 'aa', { compress: false });
+    await s3.put('disclosure-rawtext/b.txt.gz', 'bbbb', { compress: false });
+
+    const st = await s3.stats('disclosure-rawtext/');
+    expect(st.objectCount).toBe(2);
+    expect(st.available).toBe(true);
+    expect(st.totalBytes).toBeGreaterThan(0);
+  });
+
+  it('stats: backend list 실패 시 available=false graceful', async () => {
+    jest
+      .spyOn(backend, 'listObjects')
+      .mockRejectedValueOnce(new Error('AccessDenied'));
+    const s3 = new S3ObjectStorageService(backend);
+    const st = await s3.stats('disclosure-rawtext/');
+    expect(st).toEqual({
+      prefix: 'disclosure-rawtext/',
+      objectCount: 0,
+      totalBytes: 0,
+      available: false,
+    });
+  });
+
+  it('applyLifecycle: 규칙 prefix 에 버킷 prefix 부착 후 적용 → true', async () => {
+    const s3 = new S3ObjectStorageService(backend, 'prod');
+    const ok = await s3.applyLifecycle([
+      {
+        id: 'r',
+        prefix: 'disclosure-rawtext/',
+        transitions: [{ storageClass: 'GLACIER', days: 90 }],
+      },
+    ]);
+    expect(ok).toBe(true);
+    expect(backend.lifecycleRules).toEqual([
+      {
+        id: 'r',
+        prefix: 'prod/disclosure-rawtext/',
+        transitions: [{ storageClass: 'GLACIER', days: 90 }],
+      },
+    ]);
   });
 });

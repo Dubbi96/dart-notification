@@ -1,7 +1,11 @@
 // backend/src/common/storage/raw-text-store.service.spec.ts
 // DAR-395: RawTextStore 오프로드/lazy-load/캐시/컬럼 우선 폴백 단위 테스트.
 
-import { ObjectStorageService } from './object-storage.types';
+import {
+  LifecycleRule,
+  ObjectStorageService,
+  ObjectStorageStats,
+} from './object-storage.types';
 import { RawTextStoreService } from './raw-text-store.service';
 
 /** 인메모리 가짜 객체 스토리지(호출 횟수 관측 포함). */
@@ -26,6 +30,20 @@ class FakeStorage extends ObjectStorageService {
   }
   async delete(key: string): Promise<void> {
     this.map.delete(key);
+  }
+  async stats(prefix = ''): Promise<ObjectStorageStats> {
+    let totalBytes = 0;
+    let objectCount = 0;
+    for (const [k, v] of this.map) {
+      if (k.startsWith(prefix)) {
+        objectCount++;
+        totalBytes += Buffer.byteLength(v);
+      }
+    }
+    return { prefix, objectCount, totalBytes, available: true };
+  }
+  async applyLifecycle(_rules: LifecycleRule[]): Promise<boolean> {
+    return false;
   }
 }
 

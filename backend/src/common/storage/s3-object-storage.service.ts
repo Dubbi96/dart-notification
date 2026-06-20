@@ -7,8 +7,10 @@
 
 import { Logger } from '@nestjs/common';
 import {
+  LifecycleRule,
   ObjectStorageDriver,
   ObjectStorageService,
+  ObjectStorageStats,
   PutObjectOptions,
 } from './object-storage.types';
 import { decodeFromStorage, encodeForStorage, isGzipKey } from './gzip-codec';
@@ -27,6 +29,10 @@ export interface S3Backend {
   getObject(key: string): Promise<Buffer>;
   headObject(key: string): Promise<boolean>;
   deleteObject(key: string): Promise<void>;
+  /** DAR-397: prefix 하위 객체 수/총바이트(ListObjectsV2 페이지네이션 합산). */
+  listObjects(prefix: string): Promise<{ count: number; totalBytes: number }>;
+  /** DAR-397: 버킷 라이프사이클 구성 적용(PutBucketLifecycleConfiguration·idempotent). */
+  putLifecycleConfiguration(rules: LifecycleRule[]): Promise<void>;
 }
 
 /**
@@ -78,6 +84,34 @@ export class S3ObjectStorageService extends ObjectStorageService {
 
   async delete(key: string): Promise<void> {
     await this.backend.deleteObject(this.withPrefix(key));
+  }
+
+  /**
+   * DAR-397: prefix 하위 객체 용량 통계. list 실패(권한/네트워크)는 available=false graceful.
+   */
+  async stats(prefix = ''): Promise<ObjectStorageStats> {
+    try {
+      const { count, totalBytes } = await this.backend.listObjects(
+        this.withPrefix(prefix),
+      );
+      return { prefix, objectCount: count, totalBytes, available: true };
+    } catch (err) {
+      this.logger.warn(`S3 stats 실패(prefix=${prefix}): ${(err as Error).message}`);
+      return { prefix, objectCount: 0, totalBytes: 0, available: false };
+    }
+  }
+
+  /**
+   * DAR-397: 콜드 라이프사이클 적용 — 규칙 prefix 에 버킷 prefix 부착 후 backend 위임(idempotent).
+   */
+  async applyLifecycle(rules: LifecycleRule[]): Promise<boolean> {
+    const scoped = rules.map((r) => ({
+      ...r,
+      prefix: this.withPrefix(r.prefix),
+    }));
+    await this.backend.putLifecycleConfiguration(scoped);
+    this.logger.log(`S3 라이프사이클 적용: ${scoped.length}개 규칙`);
+    return true;
   }
 
   /** 논리 키에 버킷 내 prefix 부착(중복 슬래시 정규화). */

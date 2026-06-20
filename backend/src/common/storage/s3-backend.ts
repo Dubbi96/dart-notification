@@ -8,8 +8,25 @@
 
 import { Logger } from '@nestjs/common';
 import { S3Backend } from './s3-object-storage.service';
+import { LifecycleRule } from './object-storage.types';
 
 const logger = new Logger('AwsS3Backend');
+
+/**
+ * DAR-397: 공시 원문(rawText) 콜드 라이프사이클 규칙(SSOT).
+ * 추출 직후 원문은 콜드(재추출 드묾) → STANDARD_IA(30일)→GLACIER(90일) 자동 강등으로 비용↓.
+ * gzip 업로드(RawTextStoreService)와 결합해 저장 바이트도 최소화한다.
+ */
+export const RAWTEXT_LIFECYCLE_RULES: LifecycleRule[] = [
+  {
+    id: 'dar397-rawtext-cold-tiering',
+    prefix: 'disclosure-rawtext/',
+    transitions: [
+      { storageClass: 'STANDARD_IA', days: 30 },
+      { storageClass: 'GLACIER', days: 90 },
+    ],
+  },
+];
 
 /** S3 구성 — env 에서 해석. */
 export interface S3Config {
@@ -36,6 +53,10 @@ interface S3ClientLike {
       // Node Readable 폴백
       [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array>;
     };
+    // ListObjectsV2 응답(페이지네이션 합산용).
+    Contents?: Array<{ Size?: number }>;
+    IsTruncated?: boolean;
+    NextContinuationToken?: string;
   }>;
 }
 interface S3Sdk {
@@ -44,6 +65,8 @@ interface S3Sdk {
   GetObjectCommand: S3CommandCtor;
   HeadObjectCommand: S3CommandCtor;
   DeleteObjectCommand: S3CommandCtor;
+  ListObjectsV2Command: S3CommandCtor;
+  PutBucketLifecycleConfigurationCommand: S3CommandCtor;
 }
 
 /** 자격증명/버킷/리전이 모두 갖춰졌는지 — 미충족이면 S3 비활성(로컬 폴백). */
@@ -139,6 +162,45 @@ export function createAwsS3Backend(cfg: Partial<S3Config>): S3Backend | null {
     async deleteObject(key) {
       await client.send(
         new sdk.DeleteObjectCommand({ Bucket: bucket, Key: key }),
+      );
+    },
+    async listObjects(prefix) {
+      let count = 0;
+      let totalBytes = 0;
+      let token: string | undefined;
+      // 페이지네이션 — 1000개/페이지 한도를 따라 ContinuationToken 으로 끝까지 합산.
+      do {
+        const res = await client.send(
+          new sdk.ListObjectsV2Command({
+            Bucket: bucket,
+            Prefix: prefix,
+            ContinuationToken: token,
+          }),
+        );
+        for (const obj of res.Contents ?? []) {
+          count++;
+          totalBytes += obj.Size ?? 0;
+        }
+        token = res.IsTruncated ? res.NextContinuationToken : undefined;
+      } while (token);
+      return { count, totalBytes };
+    },
+    async putLifecycleConfiguration(rules) {
+      // ObjectStorage 추상 규칙 → S3 LifecycleConfiguration 매핑.
+      const Rules = rules.map((r) => ({
+        ID: r.id,
+        Filter: { Prefix: r.prefix },
+        Status: 'Enabled',
+        Transitions: r.transitions.map((t) => ({
+          Days: t.days,
+          StorageClass: t.storageClass,
+        })),
+      }));
+      await client.send(
+        new sdk.PutBucketLifecycleConfigurationCommand({
+          Bucket: bucket,
+          LifecycleConfiguration: { Rules },
+        }),
       );
     },
   };

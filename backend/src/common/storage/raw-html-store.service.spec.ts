@@ -1,7 +1,11 @@
 // backend/src/common/storage/raw-html-store.service.spec.ts
 // DAR-401: RawHtmlStore 저장/lazy-load/캐시/graceful 단위 테스트. (raw-text-store.spec 미러)
 
-import { ObjectStorageService } from './object-storage.types';
+import {
+  LifecycleRule,
+  ObjectStorageService,
+  ObjectStorageStats,
+} from './object-storage.types';
 import { RawHtmlStoreService } from './raw-html-store.service';
 
 /** 인메모리 가짜 객체 스토리지(호출 횟수 관측 포함). */
@@ -28,6 +32,20 @@ class FakeStorage extends ObjectStorageService {
   }
   async delete(key: string): Promise<void> {
     this.map.delete(key);
+  }
+  async stats(prefix = ''): Promise<ObjectStorageStats> {
+    let totalBytes = 0;
+    let objectCount = 0;
+    for (const [k, v] of this.map) {
+      if (k.startsWith(prefix)) {
+        objectCount++;
+        totalBytes += Buffer.byteLength(v);
+      }
+    }
+    return { prefix, objectCount, totalBytes, available: true };
+  }
+  async applyLifecycle(_rules: LifecycleRule[]): Promise<boolean> {
+    return false;
   }
 }
 

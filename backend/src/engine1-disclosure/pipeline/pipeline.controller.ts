@@ -17,6 +17,11 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { parsePaginationInt } from '../../common/pagination/parse-pagination';
 import { PipelineIntegrityService } from './pipeline-integrity.service';
 import {
+  EventBackfillDrainService,
+  EventBackfillDrainResult,
+  EventCoverageReport,
+} from './event-backfill-drain.service';
+import {
   AiReprocessResult,
   PipelineDrainResult,
   PipelineHealth,
@@ -44,7 +49,11 @@ const MAX_LIMIT = 500;
 @UseGuards(JwtAuthGuard)
 @Controller('pipeline')
 export class PipelineController {
-  constructor(private readonly pipeline: PipelineIntegrityService) {}
+  constructor(
+    private readonly pipeline: PipelineIntegrityService,
+    // DAR-391: 과거 공시 이벤트 추출 백필 — 수동 드레인·커버리지 리포트.
+    private readonly eventBackfill: EventBackfillDrainService,
+  ) {}
 
   @Get('health')
   @ApiOperation({
@@ -87,4 +96,42 @@ export class PipelineController {
     );
     return { success: true, data };
   }
+
+  // ─── DAR-391: 과거 공시 이벤트 추출 백필 ─────────────────────────────────────
+
+  @Get('event-coverage')
+  @ApiOperation({
+    summary:
+      'rcpDt 월(YYYYMM)별 이벤트 추출 커버리지 분포(read-only). 백필 공시 연중화 진척 검증용.',
+  })
+  async eventCoverage(): Promise<{ success: true; data: EventCoverageReport }> {
+    const data = await this.eventBackfill.getCoverageReport();
+    return { success: true, data };
+  }
+
+  @Post('event-backfill')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      '과거 백필 공시 이벤트 추출 백필 1회 실행(멱등): DONE 문서 무이벤트 추출(Rule)→미파싱 파싱등록. cron과 동일 경로. AI 신규 호출 0.',
+  })
+  @ApiQuery({ name: 'extractLimit', required: false, type: Number, example: 200 })
+  @ApiQuery({ name: 'parseEnqueueLimit', required: false, type: Number, example: 200 })
+  async eventBackfillDrain(
+    @Query('extractLimit') extractLimit?: string,
+    @Query('parseEnqueueLimit') parseEnqueueLimit?: string,
+  ): Promise<{ success: true; data: EventBackfillDrainResult }> {
+    const data = await this.eventBackfill.drainOnce({
+      extractLimit: parseOptionalInt(extractLimit),
+      parseEnqueueLimit: parseOptionalInt(parseEnqueueLimit),
+    });
+    return { success: true, data };
+  }
+}
+
+/** 쿼리 정수 옵션 파싱 — 미지정/불량은 undefined(서비스 기본값 사용). */
+function parseOptionalInt(raw?: string): number | undefined {
+  if (raw === undefined || raw === '') return undefined;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) ? n : undefined;
 }

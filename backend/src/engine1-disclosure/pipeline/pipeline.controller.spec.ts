@@ -8,6 +8,7 @@
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { PipelineController } from './pipeline.controller';
 import { PipelineIntegrityService } from './pipeline-integrity.service';
+import { EventBackfillDrainService } from './event-backfill-drain.service';
 
 describe('PipelineController', () => {
   let controller: PipelineController;
@@ -16,6 +17,10 @@ describe('PipelineController', () => {
     drainOnce: jest.Mock;
     reprocessMissingAi: jest.Mock;
   };
+  let eventBackfill: {
+    drainOnce: jest.Mock;
+    getCoverageReport: jest.Mock;
+  };
 
   beforeEach(() => {
     service = {
@@ -23,8 +28,13 @@ describe('PipelineController', () => {
       drainOnce: jest.fn(),
       reprocessMissingAi: jest.fn(),
     };
+    eventBackfill = {
+      drainOnce: jest.fn(),
+      getCoverageReport: jest.fn(),
+    };
     controller = new PipelineController(
       service as unknown as PipelineIntegrityService,
+      eventBackfill as unknown as EventBackfillDrainService,
     );
   });
 
@@ -90,6 +100,45 @@ describe('PipelineController', () => {
       // 비수치 → 기본 100
       expect(service.reprocessMissingAi).toHaveBeenCalledWith(100);
       expect(result).toEqual({ success: true, data: reprocessed });
+    });
+  });
+
+  // ── DAR-391: 이벤트 추출 백필 ─────────────────────────────────────
+  describe('GET /pipeline/event-coverage', () => {
+    it('커버리지 리포트를 success 봉투로 매핑한다', async () => {
+      const report = { generatedAt: 'x', totalDisclosures: 1, totalEvents: 1, months: [] };
+      eventBackfill.getCoverageReport.mockResolvedValue(report);
+
+      const result = await controller.eventCoverage();
+
+      expect(eventBackfill.getCoverageReport).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ success: true, data: report });
+    });
+  });
+
+  describe('POST /pipeline/event-backfill', () => {
+    it('미지정 한도는 undefined 로 위임(서비스 기본값 사용)', async () => {
+      const drained = { extractScanned: 0 };
+      eventBackfill.drainOnce.mockResolvedValue(drained);
+
+      const result = await controller.eventBackfillDrain();
+
+      expect(eventBackfill.drainOnce).toHaveBeenCalledWith({
+        extractLimit: undefined,
+        parseEnqueueLimit: undefined,
+      });
+      expect(result).toEqual({ success: true, data: drained });
+    });
+
+    it('수치 쿼리는 정수로 파싱해 위임, 비수치는 undefined', async () => {
+      eventBackfill.drainOnce.mockResolvedValue({});
+
+      await controller.eventBackfillDrain('150', 'nope');
+
+      expect(eventBackfill.drainOnce).toHaveBeenLastCalledWith({
+        extractLimit: 150,
+        parseEnqueueLimit: undefined,
+      });
     });
   });
 });

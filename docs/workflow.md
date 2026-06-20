@@ -472,6 +472,39 @@ async drainBackfill() {
 **AI 금지영역 불가침**: 생성되는 것은 참고 평가자료(`DisclosureAnalysis`/`PersonaAnalysis`)뿐이다.
 Buy/Exit Score·Risk 하드룰·주문 승인·손절에는 일절 개입하지 않는다.
 
+### 2.5 이벤트 추출 백필 드레인 (매일 03:00, DAR-391)
+
+**진단(상위 병목)**: 공시는 161K+ 연중 백필됐으나 `DisclosureEvent` 추출이 최근 월에만 집중되어
+(`202506`·`202507`·`202606`) **2025-08~2026-05 추출 0** → 신호·백테스트가 6월만 거래하는 진짜 게이트.
+라이브 공시는 수집 직후 `onDocumentParsed` 체이닝으로 즉시 추출되지만, 과거 백필 공시는 파싱·추출
+적체가 `rcpDt` 분포로 가시화되지 않아 사일런트로 비어 있었다. (실측: 백필 241,700건 중 문서 DONE
+648건뿐 → 174,772 PENDING + 65,903 문서레코드 부재가 **파싱 게이트**에 적체.)
+
+`EventBackfillScheduler`(`@Cron('0 3 * * *')`) → `EventBackfillDrainService.drainOnce()`. rcpDt 시간순 2단계:
+
+```typescript
+@Cron('0 3 * * *', { timeZone: KST })  // 매일 03:00
+async drainBackfill() {
+  // Phase 1 — 추출(AI 무관 Rule 우선, DART 호출 0): isBackfill 공시 중 문서는 DONE 이나
+  //   이벤트가 없는 건을 rcpDt 오름차순으로 processDisclosure(보유 parsedJson 재사용).
+  //   → DisclosureEvent rcpDt 분포를 과거로 직접 확장(멱등 upsert rcpNo).
+  // Phase 2 — 파싱 피드(throttle-safe): 문서 레코드가 없는 백필 공시를 rcpDt 오름차순으로
+  //   enqueueParsing(PENDING 등록)만. 실제 DART fetch·레이트리밋 준수는 기존 throttled
+  //   파싱 드레인(PipelineDrainScheduler)이 소유 → 중복 호출·폭주 없음.
+}
+```
+
+**진행성(정직)**: 1회 배치 상한(추출 200·파싱등록 1000) — 일배치로 점진. 즉시 전량 처리 불가이며
+잔여 백로그(`remainingUnextracted`/`remainingUnparsed`)로 정직 표기한다. 파싱 throughput(지배 게이트)은
+기존 파싱 드레인의 throttle(BATCH_CONCURRENCY=5)이 상한을 고정 → DART 레이트리밋 준수.
+
+**커버리지 가시화**: `GET /pipeline/event-coverage` 가 `rcpDt` 월(YYYYMM)별 공시 대비 이벤트 분포를
+LEFT JOIN 으로 노출(빈 구간 events=0 가시화) → '연중화' 진척을 측정한다. 수동 1회 실행은
+`POST /pipeline/event-backfill`(extractLimit·parseEnqueueLimit, 인증 필수).
+
+**AI 금지영역 불가침**: 추출은 전부 Rule(L0). AI는 기존 큐 체이닝(비용게이트 #335)에 위임 — 본 경로
+신규 AI 호출 0. 손절·주문(Engine5)과 무관.
+
 ---
 
 ## 3. 에러 처리 및 재시도 전략

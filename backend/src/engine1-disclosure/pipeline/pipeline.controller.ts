@@ -23,6 +23,7 @@ import {
 } from './event-backfill-drain.service';
 import {
   AiReprocessResult,
+  DrainProgress,
   PipelineDrainResult,
   PipelineHealth,
 } from './pipeline.types';
@@ -62,6 +63,16 @@ export class PipelineController {
   })
   async health(): Promise<{ success: true; data: PipelineHealth }> {
     const data = await this.pipeline.getHealth();
+    return { success: true, data };
+  }
+
+  @Get('drain-progress')
+  @ApiOperation({
+    summary:
+      'DAR-392 드레인 진행 리포트(read-only): 문서 파싱 DONE%·잔여 백로그·ETA. 백데이터 풀커버 진척 추적.',
+  })
+  async drainProgress(): Promise<{ success: true; data: DrainProgress }> {
+    const data = await this.pipeline.getDrainProgress();
     return { success: true, data };
   }
 

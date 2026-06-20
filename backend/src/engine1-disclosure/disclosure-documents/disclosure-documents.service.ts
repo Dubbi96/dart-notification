@@ -151,16 +151,29 @@ export class DisclosureDocumentsService {
         },
       });
     } catch (error) {
-      const errMsg =
+      const rawMsg =
         error instanceof DartApiUnavailableError
           ? error.message
-          : truncate((error as Error).message, MAX_LAST_ERROR_LENGTH);
+          : (error as Error).message;
+
+      // DAR-392: 레이트리밋/일일쿼터(020/021/429)는 '문서 결함' 이 아니라 '일시적 처리 한도' 다.
+      // retryCount 를 증가시키면 쿼터가 회복되기 전에 MAX_RETRY 를 소진해 멀쩡한 문서가 영구
+      // SKIPPED 된다(백데이터 풀커버를 사일런트로 갉아먹음). → FETCH_FAILED 로 두되 retryCount 는
+      // 소모하지 않아(countRetry=false) 재처리 큐가 계속 재시도하고, 다음날 쿼터 리셋 후 자동 회복.
+      // 진짜 결함(OTHER: EMPTY_ZIP·파싱불가 등)만 기존대로 retryCount 누적 → MAX 초과 시 SKIPPED 격리.
+      // ★FETCH_FAILED 로 두므로 배치 실패카운트에는 잡혀 스케줄러 적응형 백오프(실패율)는 그대로 작동.
+      const klass = classifyFetchError(rawMsg);
+      const errMsg = truncate(
+        klass === 'OTHER' ? rawMsg : `${klass}: ${rawMsg}`,
+        MAX_LAST_ERROR_LENGTH,
+      );
 
       return await this.updateDocFailed(
         rcpNo,
         ParseStatus.FETCH_FAILED,
         errMsg,
         doc.retryCount,
+        /* countRetry */ klass === 'OTHER',
       );
     }
 
@@ -537,12 +550,15 @@ export class DisclosureDocumentsService {
     status: 'FETCH_FAILED' | 'PARSE_FAILED',
     errorMsg: string,
     currentRetryCount: number,
+    // DAR-392: false 면 retryCount 를 소모하지 않는다(레이트리밋/쿼터 — 영구 SKIPPED 금지).
+    countRetry = true,
   ): Promise<DisclosureDocument> {
-    const newRetryCount = currentRetryCount + 1;
+    const newRetryCount = countRetry ? currentRetryCount + 1 : currentRetryCount;
 
-    // MAX_RETRY 초과 시 SKIPPED로 전환
+    // MAX_RETRY 초과 시 SKIPPED로 전환. retryCount 비소모(countRetry=false)면 SKIPPED 로 가지 않아
+    // 일시적 레이트리밋/쿼터로 멀쩡한 문서가 영구 격리되지 않는다(다음 재처리 사이클에서 재시도).
     const finalStatus =
-      newRetryCount >= MAX_RETRY ? ParseStatus.SKIPPED : status;
+      countRetry && newRetryCount >= MAX_RETRY ? ParseStatus.SKIPPED : status;
 
     return this.prisma.disclosureDocument.update({
       where: { rcpNo },
@@ -622,6 +638,43 @@ export class DisclosureDocumentsService {
 
 function truncate(str: string, maxLen: number): string {
   return str.length > maxLen ? str.slice(0, maxLen) : str;
+}
+
+/** DART fetch 실패 분류(DAR-392). QUOTA=일일쿼터·조회회사수 소진, RATE_LIMIT=일시 제한, OTHER=일반 결함. */
+type FetchErrorClass = 'QUOTA' | 'RATE_LIMIT' | 'OTHER';
+
+/**
+ * DART fetch 오류 메시지를 분류한다(DAR-392).
+ * downloadDocument 는 ZIP 이 아닌 응답에서 `dartStatus=NNN` 을 포함한 Error 를 던진다.
+ *  - 020(요청 제한 초과=일일쿼터 20,000건)·021(조회 가능 회사수 초과) → QUOTA
+ *  - HTTP 429 / "too many requests" / "rate limit" → RATE_LIMIT
+ *  - 그 외(EMPTY_ZIP·타임아웃·파싱불가·키 미설정 등) → OTHER(기존대로 retryCount 누적→SKIPPED)
+ *
+ * QUOTA·RATE_LIMIT 는 retryCount 를 소모하지 않게 처리해(updateDocFailed countRetry=false)
+ * 일시적 한도로 멀쩡한 문서가 영구 SKIPPED 되는 것을 막는다.
+ */
+function classifyFetchError(message: string): FetchErrorClass {
+  const raw = message ?? '';
+  const m = raw.toLowerCase();
+  // 일일 쿼터·조회회사수 초과(영구 SKIPPED 금지 — 다음날 회복).
+  if (
+    m.includes('dartstatus=020') ||
+    m.includes('dartstatus=021') ||
+    raw.includes('요청 제한') ||
+    raw.includes('요청제한')
+  ) {
+    return 'QUOTA';
+  }
+  // 일시적 레이트리밋(HTTP 429 등) — 짧은 회복 후 재시도.
+  if (
+    m.includes('429') ||
+    m.includes('too many requests') ||
+    m.includes('rate limit') ||
+    m.includes('rate-limit')
+  ) {
+    return 'RATE_LIMIT';
+  }
+  return 'OTHER';
 }
 
 function chunkArray<T>(arr: T[], size: number): T[][] {

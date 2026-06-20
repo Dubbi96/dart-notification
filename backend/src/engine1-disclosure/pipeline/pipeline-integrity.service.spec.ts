@@ -132,6 +132,54 @@ describe('PipelineIntegrityService (DAR-126)', () => {
     expect(health.recentFailures).toEqual([]);
   });
 
+  // ─── DAR-392 getDrainProgress ─────────────────────────────────────────────
+  it('파싱 DONE%·잔여 백로그·ETA 를 read-only 로 집계한다', async () => {
+    const prisma = makePrisma();
+    // groupBy: total=1000, done=700(70%), pending(PENDING+FETCHING)=300
+    (prisma.disclosureDocument.groupBy as jest.Mock).mockResolvedValue([
+      { parseStatus: ParseStatus.DONE, _count: { _all: 700 } },
+      { parseStatus: ParseStatus.PENDING, _count: { _all: 280 } },
+      { parseStatus: ParseStatus.FETCHING, _count: { _all: 20 } },
+    ]);
+    (prisma.disclosureDocument.count as jest.Mock).mockResolvedValueOnce(50); // retryable
+    (prisma.disclosure.count as jest.Mock).mockResolvedValueOnce(600); // missingDocument
+    (prisma.disclosureEvent.count as jest.Mock).mockResolvedValueOnce(648); // eligibleEvents
+
+    const service = new PipelineIntegrityService(
+      prisma,
+      makeDocs(),
+      makeEvents(),
+      null,
+    );
+
+    const p = await service.getDrainProgress(NOW);
+
+    expect(p.generatedAt).toBe(NOW.toISOString());
+    expect(p.parse.totalDocuments).toBe(1000);
+    expect(p.parse.done).toBe(700);
+    expect(p.parse.pending).toBe(300);
+    expect(p.parse.retryable).toBe(50);
+    expect(p.parse.donePercent).toBe(70);
+    expect(p.missingDocument).toBe(600);
+    expect(p.eligibleEvents).toBe(648);
+    expect(p.nominalParsePerMinute).toBe(140);
+    // backlog = pending(300)+missing(600)=900 → 900/140/60 ≈ 0.107 → 0.1h
+    expect(p.etaHours).toBe(0.1);
+  });
+
+  it('문서 0건이면 donePercent·etaHours 0(graceful)', async () => {
+    const service = new PipelineIntegrityService(
+      makePrisma(),
+      makeDocs(),
+      makeEvents(),
+      null,
+    );
+    const p = await service.getDrainProgress(NOW);
+    expect(p.parse.totalDocuments).toBe(0);
+    expect(p.parse.donePercent).toBe(0);
+    expect(p.etaHours).toBe(0);
+  });
+
   it('실패 행을 단계 혼합·최신순으로 가시화한다', async () => {
     const prisma = makePrisma();
     (prisma.disclosureDocument.findMany as jest.Mock).mockResolvedValue([

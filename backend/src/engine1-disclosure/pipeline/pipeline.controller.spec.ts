@@ -14,6 +14,7 @@ describe('PipelineController', () => {
   let controller: PipelineController;
   let service: {
     getHealth: jest.Mock;
+    getDrainProgress: jest.Mock;
     drainOnce: jest.Mock;
     reprocessMissingAi: jest.Mock;
   };
@@ -25,6 +26,7 @@ describe('PipelineController', () => {
   beforeEach(() => {
     service = {
       getHealth: jest.fn(),
+      getDrainProgress: jest.fn(),
       drainOnce: jest.fn(),
       reprocessMissingAi: jest.fn(),
     };
@@ -61,6 +63,18 @@ describe('PipelineController', () => {
 
       expect(service.getHealth).toHaveBeenCalledTimes(1);
       expect(result).toEqual({ success: true, data: snapshot });
+    });
+  });
+
+  describe('GET /pipeline/drain-progress', () => {
+    it('드레인 진행 리포트를 success 봉투로 매핑한다(DAR-392)', async () => {
+      const progress = { parse: { donePercent: 70 }, etaHours: 1.2 };
+      service.getDrainProgress.mockResolvedValue(progress);
+
+      const result = await controller.drainProgress();
+
+      expect(service.getDrainProgress).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ success: true, data: progress });
     });
   });
 

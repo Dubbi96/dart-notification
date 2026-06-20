@@ -9,6 +9,7 @@ import {
   DartApiUnavailableError,
 } from '../dart-api/dart-api.service';
 import { LocalStorageService } from './storage/storage.service';
+import { RawTextStoreService } from '../../common/storage/raw-text-store.service';
 import { cleanHtml } from './parsers/html-cleaner';
 import { parseXmlSections } from './parsers/xml.parser';
 import { parseTables } from './parsers/table.parser';
@@ -79,6 +80,9 @@ export class DisclosureDocumentsService {
     // DAR-95: 파싱 완료 후 표준 fact 영구 적재(@Optional — 미배포 시 무중단)
     @Optional()
     private readonly dartFiledFactService?: DartFiledFactService,
+    // DAR-395: 원문 rawText 객체 스토리지 오프로드(@Optional — StorageModule 미배선 시 기존 동작 보존).
+    @Optional()
+    private readonly rawTextStore?: RawTextStoreService,
   ) {}
 
   /**
@@ -296,11 +300,20 @@ export class DisclosureDocumentsService {
       // Step 6: 완료 저장
       const lastErrorMsg = wasTruncated ? 'TRUNCATED_AT_200KB' : null;
 
+      // DAR-395: 원문 rawText 오프로드 — 추출 시점에만 필요한 콜드 데이터를 객체 스토리지(S3/로컬)로
+      //   내보내고 DB rawText 컬럼은 비운다(멀티이어 백필 시 DB 폭증 방지). 오프로드 실패는 graceful:
+      //   rawText 를 DB 에 보존해 데이터 손실/기능 차단을 막는다(자격증명 후속 주입까지 안전).
+      const { rawTextColumn, rawTextS3Key } = await this.offloadRawText(
+        rcpNo,
+        rawText,
+      );
+
       const updatedDoc = await this.prisma.disclosureDocument.update({
         where: { rcpNo },
         data: {
           parseStatus: ParseStatus.DONE,
-          rawText,
+          rawText: rawTextColumn,
+          rawTextS3Key,
           wordCount,
           tables: tables as unknown as object,
           parsedJson: parsedJson as unknown as object,
@@ -347,6 +360,30 @@ export class DisclosureDocumentsService {
         truncate((error as Error).message, MAX_LAST_ERROR_LENGTH),
         doc.retryCount,
       );
+    }
+  }
+
+  /**
+   * DAR-395: rawText 오프로드 결정 — 객체 스토리지로 내보내고 DB 컬럼에 넣을 값을 산출한다.
+   * - rawTextStore 미주입(레거시 배선): 기존대로 rawText 를 DB 에 보존(오프로드 비활성).
+   * - 오프로드 성공: rawText=null(DB 경량화) + rawTextS3Key=객체 키.
+   * - 오프로드 실패(스토리지 오류): rawText 를 DB 에 보존(graceful·데이터 손실 0) + 키 null.
+   */
+  private async offloadRawText(
+    rcpNo: string,
+    rawText: string,
+  ): Promise<{ rawTextColumn: string | null; rawTextS3Key: string | null }> {
+    if (!this.rawTextStore) {
+      return { rawTextColumn: rawText, rawTextS3Key: null };
+    }
+    try {
+      const key = await this.rawTextStore.offload(rcpNo, rawText);
+      return { rawTextColumn: null, rawTextS3Key: key };
+    } catch (err) {
+      this.logger.warn(
+        `rawText 오프로드 실패 → DB 보존(graceful): rcpNo=${rcpNo}: ${(err as Error).message}`,
+      );
+      return { rawTextColumn: rawText, rawTextS3Key: null };
     }
   }
 

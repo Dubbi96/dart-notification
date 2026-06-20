@@ -531,6 +531,37 @@ fetch 해도 신호 0 → 쿼터 낭비. (라이브 dev DB 실측: PENDING 195,6
 
 ---
 
+### 2.6 공시 원문(rawText) S3 오프로드 드레인 (매 10분, DAR-395)
+
+**진단(용량)**: DB TOP `disclosure_documents` 약 1.7GB — `rawText` 원문이 본질이며 증가 중. 1년치만으로
+1.7GB → 멀티이어 백필 시 수십~수백 GB 폭증. rawText 는 추출 시점에만 필요한 콜드 데이터.
+
+**해법**: 원문을 객체 스토리지(S3/로컬)로 오프로드하고 DB 는 메타데이터 + 구조화 결과 + 포인터
+(`rawTextS3Key`)만 보유 → 로컬 DB 경량화. `common/storage` 의 `ObjectStorageService`(드라이버 선택
+팩토리: S3/로컬, 자격증명 미설정 시 graceful 로컬 폴백) + `RawTextStoreService`(오프로드/lazy fetch).
+
+- **쓰기(신규)**: 파싱 완료(`disclosure-documents.service`) 시점에 rawText 를 gzip 업로드 후 DB 컬럼
+  비움(멱등). 실패 시 graceful — rawText 보존(데이터 손실/차단 0).
+- **읽기**: Engine2 AI excerpt 조회가 `rawTextS3Key` 로 S3 lazy fetch(소량 캐시). 추출 완료분은 콜드.
+- **기존분 마이그레이션**: `RawTextOffloadScheduler`(`@Cron('*/10 * * * *')`) → `RawTextOffloadDrainService.drainOnce()`.
+  `parseStatus=DONE` + rawText 보유 문서를 rcpNo 오름차순 배치(기본 200)로 오프로드 후 컬럼 비움. 점진·재개가능·멱등.
+
+```typescript
+@Cron('*/10 * * * *', { timeZone: KST })  // 매 10분
+async drainOffload() {
+  // DONE + rawText 보유 문서를 배치만큼 gzip 업로드(disclosure-rawtext/{rcpNo}.txt.gz) 후 rawText=null.
+  // 한 건 실패는 배치를 깨지 않고 rawText 보존(다음 회차 재시도). 잔여 0이어도 cron 은 계속 RAN.
+}
+```
+
+**가시화/수동**: `GET /pipeline/rawtext-offload-progress`(잔여/완료율/활성 드라이버 s3|local),
+`POST /pipeline/rawtext-offload?limit=200`(멱등, 인증 필수). 디스크 회수(VACUUM)는 운영 단계
+(docs/deployment.md). S3 수명주기(표준→IA→Glacier)·gzip 으로 콜드 원문 비용 절감.
+
+**AI/Risk 무관**: 순수 인프라/용량 작업. 신규 AI 호출 0, Engine5 하드룰과 무관.
+
+---
+
 ## 3. 에러 처리 및 재시도 전략
 
 ### 3.1 DART API 호출 실패

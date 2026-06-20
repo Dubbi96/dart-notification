@@ -22,6 +22,11 @@ import {
   EventCoverageReport,
 } from './event-backfill-drain.service';
 import {
+  RawTextOffloadDrainResult,
+  RawTextOffloadDrainService,
+  RawTextOffloadProgress,
+} from './rawtext-offload-drain.service';
+import {
   AiReprocessResult,
   DrainProgress,
   PipelineDrainResult,
@@ -54,6 +59,8 @@ export class PipelineController {
     private readonly pipeline: PipelineIntegrityService,
     // DAR-391: 과거 공시 이벤트 추출 백필 — 수동 드레인·커버리지 리포트.
     private readonly eventBackfill: EventBackfillDrainService,
+    // DAR-395: 과거 rawText 객체 스토리지 오프로드 — 수동 드레인·진행 리포트.
+    private readonly rawTextOffload: RawTextOffloadDrainService,
   ) {}
 
   @Get('health')
@@ -135,6 +142,37 @@ export class PipelineController {
     const data = await this.eventBackfill.drainOnce({
       extractLimit: parseOptionalInt(extractLimit),
       parseEnqueueLimit: parseOptionalInt(parseEnqueueLimit),
+    });
+    return { success: true, data };
+  }
+
+  // ─── DAR-395: 과거 rawText 객체 스토리지 오프로드(DB 경량화) ─────────────────
+
+  @Get('rawtext-offload-progress')
+  @ApiOperation({
+    summary:
+      'rawText 오프로드 진행 리포트(read-only): 잔여/오프로드 완료/완료율·활성 드라이버(s3|local). DB 경량화 진척 추적.',
+  })
+  async rawTextOffloadProgress(): Promise<{
+    success: true;
+    data: RawTextOffloadProgress;
+  }> {
+    const data = await this.rawTextOffload.getProgress();
+    return { success: true, data };
+  }
+
+  @Post('rawtext-offload')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      '과거 rawText → 객체 스토리지(S3/로컬) 1회 오프로드(멱등): rawText 보유 DONE 문서를 배치만큼 업로드 후 DB 컬럼 비움. cron과 동일 경로. AI 신규 호출 0.',
+  })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 200 })
+  async rawTextOffloadDrain(
+    @Query('limit') limit?: string,
+  ): Promise<{ success: true; data: RawTextOffloadDrainResult }> {
+    const data = await this.rawTextOffload.drainOnce({
+      limit: parseOptionalInt(limit),
     });
     return { success: true, data };
   }

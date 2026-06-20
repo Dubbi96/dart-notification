@@ -311,7 +311,10 @@ model DisclosureDocument {
   attachmentPaths String[]
 
   // 파싱 결과
-  rawText    String? @db.Text // 태그 제거 후 순수 텍스트 (200KB 상한 truncate)
+  // DAR-395: rawText 는 추출 시점에만 필요한 콜드 데이터 → 객체 스토리지(S3/로컬)로 오프로드.
+  //   오프로드되면 rawText=null + rawTextS3Key 포인터 보유(DB 경량화). 미오프로드분은 rawText 유지.
+  rawText      String? @db.Text // 태그 제거 후 순수 텍스트 (200KB 상한 truncate). 오프로드 시 null.
+  rawTextS3Key String? // 오프로드된 원문 객체 키(disclosure-rawtext/{rcpNo}.txt.gz). 미오프로드면 null.
   tables     Json? // 추출된 표 목록: Table[] (하단 JSON 스키마 참고)
   parsedJson Json? // 핵심 key-value 구조화 결과 (하단 parsedJson 스키마 참고)
   wordCount  Int? // rawText 글자 수 (AI 입력 비용 예측, M3/M4 비용 게이트용)

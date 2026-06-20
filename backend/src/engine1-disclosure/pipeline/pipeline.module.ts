@@ -7,6 +7,8 @@ import { PipelineIntegrityService } from './pipeline-integrity.service';
 import { PipelineDrainScheduler } from './pipeline-drain.scheduler';
 import { EventBackfillDrainService } from './event-backfill-drain.service';
 import { EventBackfillScheduler } from './event-backfill.scheduler';
+import { RawTextOffloadDrainService } from './rawtext-offload-drain.service';
+import { RawTextOffloadScheduler } from './rawtext-offload.scheduler';
 import { PipelineController } from './pipeline.controller';
 
 /**
@@ -22,6 +24,8 @@ import { PipelineController } from './pipeline.controller';
  *
  * DAR-391: EventBackfillDrainService/Scheduler 추가 — 과거 백필 공시의 이벤트 추출을 rcpDt
  *   시간순으로 점진 백필(신호·백테스트 연중화 게이트). 동일 모듈의 documents/events 서비스를 재사용.
+ * DAR-395: RawTextOffloadDrainService/Scheduler 추가 — 과거 rawText 를 객체 스토리지(S3/로컬)로
+ *   점진 이전 후 DB 컬럼 비움(경량화). RawTextStoreService 는 StorageModule(@Global)에서 주입.
  */
 @Module({
   imports: [
@@ -35,7 +39,13 @@ import { PipelineController } from './pipeline.controller';
     PipelineDrainScheduler,
     EventBackfillDrainService,
     EventBackfillScheduler,
+    RawTextOffloadDrainService,
+    RawTextOffloadScheduler,
   ],
-  exports: [PipelineIntegrityService, EventBackfillDrainService],
+  exports: [
+    PipelineIntegrityService,
+    EventBackfillDrainService,
+    RawTextOffloadDrainService,
+  ],
 })
 export class PipelineModule {}

@@ -9,6 +9,7 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { PipelineController } from './pipeline.controller';
 import { PipelineIntegrityService } from './pipeline-integrity.service';
 import { EventBackfillDrainService } from './event-backfill-drain.service';
+import { RawTextOffloadDrainService } from './rawtext-offload-drain.service';
 
 describe('PipelineController', () => {
   let controller: PipelineController;
@@ -22,6 +23,10 @@ describe('PipelineController', () => {
     drainOnce: jest.Mock;
     getCoverageReport: jest.Mock;
   };
+  let rawTextOffload: {
+    drainOnce: jest.Mock;
+    getProgress: jest.Mock;
+  };
 
   beforeEach(() => {
     service = {
@@ -34,9 +39,14 @@ describe('PipelineController', () => {
       drainOnce: jest.fn(),
       getCoverageReport: jest.fn(),
     };
+    rawTextOffload = {
+      drainOnce: jest.fn(),
+      getProgress: jest.fn(),
+    };
     controller = new PipelineController(
       service as unknown as PipelineIntegrityService,
       eventBackfill as unknown as EventBackfillDrainService,
+      rawTextOffload as unknown as RawTextOffloadDrainService,
     );
   });
 

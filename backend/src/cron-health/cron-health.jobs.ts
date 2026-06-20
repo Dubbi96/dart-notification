@@ -27,6 +27,8 @@ export const CRON_JOB_KEYS = {
   AI_BACKFILL_DRAIN: 'ai.backfill-drain',
   // DAR-391: 이벤트 추출 백필 드레인 — 과거 백필 공시를 rcpDt 시간순 추출/파싱등록(신호·백테스트 연중화 게이트).
   EVENT_BACKFILL_DRAIN: 'event.backfill-drain',
+  // DAR-395: rawText 객체 스토리지 오프로드 드레인 — 과거 원문을 S3/로컬로 이전 후 DB 컬럼 비움(경량화).
+  RAWTEXT_OFFLOAD_DRAIN: 'rawtext.offload-drain',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -193,5 +195,16 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: 2_880, // 48시간 — 매일 03:00, 하루 누락까지 허용
     cadence: '매일 03:00',
+  },
+  {
+    // DAR-395: rawText 오프로드 드레인. 가동이 멈추면 과거 원문 이전이 정체되어 DB 경량화가
+    //   진행되지 않는다(멀티이어 백필 시 폭증 위험). 매 10분 가동 — 1시간 무가동이면 stale.
+    //   잔여가 0이 되면 더 옮길 게 없어도 cron 은 계속 RAN(드레인 0건)이므로 신선도는 유지된다.
+    jobKey: CRON_JOB_KEYS.RAWTEXT_OFFLOAD_DRAIN,
+    label: 'rawText 오프로드 드레인',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: 60, // 10분 간격 — 1시간 무가동이면 정체
+    cadence: '매 10분',
   },
 ];

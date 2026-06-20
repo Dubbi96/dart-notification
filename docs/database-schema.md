@@ -1401,8 +1401,23 @@ DART 정형 엔드포인트 2종을 수집·정규화한 행. 미공개 펀더�
 - EventType 가산 3종: `INSIDER_BUY`(POSITIVE)·`INSIDER_SELL`(NEGATIVE)·`MAJOR_HOLDER_5PCT`.
 - 마이그레이션: `20260607100000_dar87_insider_holding_change` (★파일만 생성 — 휴먼 적용).
 
+## 20. Engine1 — DisclosureDocument.rawText S3 오프로드 (DAR-395, 용량/경량화)
+
+대용량 공시 원문(`disclosure_documents.rawText`, 약 1.7GB·증가중)은 추출 시점에만 필요한 콜드
+데이터다. 멀티이어 백필 시 수십~수백 GB 로 폭증하므로 객체 스토리지(S3/로컬)로 오프로드하고 DB 는
+메타데이터 + 구조화 결과(`parsedJson`/`tables`) + 포인터만 보유한다.
+
+- 신규 컬럼: `rawTextS3Key String?` — 오프로드된 원문 객체 키(`disclosure-rawtext/{rcpNo}.txt.gz`).
+  미오프로드 행은 NULL(이 경우 `rawText` 컬럼이 원문 보유).
+- `rawText String?` 의미 변경: 오프로드 완료 시 NULL 로 비운다(미오프로드/오프로드 실패분은 유지).
+  → DB 행 경량화. AI excerpt 조회는 `rawTextS3Key` 로 lazy fetch(`RawTextStoreService`).
+- 쓰기: 파싱 완료 시점 gzip 업로드 후 컬럼 비움(멱등). 실패 시 graceful(rawText 보존·데이터 손실 0).
+- 마이그레이션: `20260620010000_dar395_rawtext_s3_key` (★파일만 생성 — 휴먼 적용, 순수 가산 nullable 컬럼).
+  기존분 이전은 `RawTextOffloadScheduler`(매 10분)·`POST /api/pipeline/rawtext-offload`(멱등) 가 담당.
+  디스크 회수는 운영 `VACUUM`(docs/deployment.md §객체 원문 S3 오프로드 운영).
+
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-06-20 (DAR-377 StockMinutePrice 추가)
-**버전**: 2.3 (DAR-87: Engine1 InsiderHoldingChange + EventType 지분변동 3종 추가; 본문은 refresh_tokens·WatchList.lastViewedRcpNo·Disclosure[corpCode,rcpNo] 인덱스까지 이미 반영 — DAR-222 날짜 동기화)
+**최종 수정일**: 2026-06-20 (DAR-395 DisclosureDocument.rawTextS3Key 추가 — rawText S3 오프로드)
+**버전**: 2.4 (DAR-395: rawText 객체 스토리지 오프로드 + rawTextS3Key 포인터 컬럼; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)

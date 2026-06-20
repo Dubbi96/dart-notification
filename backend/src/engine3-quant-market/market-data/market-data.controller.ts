@@ -209,6 +209,29 @@ export class MarketDataController {
     return { success: true, data: result };
   }
 
+  @Post('backfill/indices')
+  @ApiOperation({
+    summary:
+      '시장지수 과거 깊이 백필 (DAR-398) — stock_daily_prices 거래일 중 market_indices 결손분을 ' +
+      '오래된 순으로 멱등 수집. EventStudy 초과수익(AR)의 시장 기준선 결측(noIndexPrices) 해소.',
+  })
+  @ApiQuery({ name: 'fromDate', required: false, description: '거래일 하한 YYYYMMDD' })
+  @ApiQuery({ name: 'toDate', required: false, description: '거래일 상한 YYYYMMDD' })
+  @ApiQuery({ name: 'maxDays', required: false, description: '1회 수집 상한(기본 500)' })
+  async backfillIndices(
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('maxDays') maxDays?: string,
+  ) {
+    const result = await this.scheduler.backfillMarketIndexHistory({
+      fromDate,
+      toDate,
+      maxDays: maxDays ? parseInt(maxDays, 10) : undefined,
+      triggeredBy: 'MANUAL',
+    });
+    return { success: true, data: result };
+  }
+
   @Post('collect/status')
   @ApiOperation({ summary: 'KRX 종목상태 수동 수집' })
   @ApiQuery({ name: 'basDd', required: true, description: '기준일 YYYYMMDD' })

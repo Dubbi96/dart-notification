@@ -279,6 +279,83 @@ describe('KrxMarketDataScheduler.collectMarketIndicesForDate', () => {
   });
 });
 
+// ─── backfillMarketIndexHistory (DAR-398) ───────────────────────────────────────
+describe('KrxMarketDataScheduler.backfillMarketIndexHistory', () => {
+  const sampleKospi: KrxIndexDailyRow = {
+    indexCode: '0001',
+    indexName: 'KOSPI',
+    openIndex: 2700,
+    highIndex: 2750,
+    lowIndex: 2680,
+    closeIndex: 2720,
+    volume: 500_000_000,
+    tradingValue: 10_000_000_000_000,
+  };
+
+  /** stock_daily_prices 거래일과 market_indices 보유일을 주입한 prisma 목 */
+  function makePrismaWithCalendar(stockDates: string[], indexDates: string[]) {
+    const prisma = makePrisma();
+    (prisma.stockDailyPrice.findMany as jest.Mock) = jest
+      .fn()
+      .mockResolvedValue(stockDates.map((d) => ({ tradeDate: d })));
+    (prisma.marketIndex.findMany as jest.Mock) = jest
+      .fn()
+      .mockResolvedValue(indexDates.map((d) => ({ tradeDate: d })));
+    return prisma;
+  }
+
+  it('stock 거래일 중 지수 결손분만 오래된 순으로 수집한다 (멱등 결손 메우기)', async () => {
+    // 거래일 3일 중 지수는 마지막 1일만 보유 → 앞 2일 결손
+    const prisma = makePrismaWithCalendar(
+      ['20250701', '20250702', '20250703'],
+      ['20250703'],
+    );
+    const fetchIndexDaily = jest.fn().mockResolvedValue([sampleKospi]);
+    const krx = makeKrxApi({ fetchIndexDaily });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.backfillMarketIndexHistory({ triggeredBy: 'MANUAL' });
+
+    expect(result.tradingDays).toBe(3);
+    expect(result.missing).toBe(2);
+    // 결손 2일 × (KOSPI+KOSDAQ) = 4 fetch, 4 upsert
+    expect(fetchIndexDaily).toHaveBeenCalledTimes(4);
+    expect(prisma.marketIndex.upsert).toHaveBeenCalledTimes(4);
+    // 오래된 순으로 채움(연속성 가드 자연 성립)
+    expect(fetchIndexDaily.mock.calls[0][1]).toBe('20250701');
+    expect(result.filledDates).toEqual(['20250701', '20250702']);
+    expect(result.totalSaved).toBe(4);
+  });
+
+  it('결손이 없으면 no-op (멱등)', async () => {
+    const prisma = makePrismaWithCalendar(['20250701'], ['20250701']);
+    const fetchIndexDaily = jest.fn().mockResolvedValue([sampleKospi]);
+    const krx = makeKrxApi({ fetchIndexDaily });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.backfillMarketIndexHistory();
+
+    expect(result.missing).toBe(0);
+    expect(fetchIndexDaily).not.toHaveBeenCalled();
+    expect(prisma.marketIndex.upsert).not.toHaveBeenCalled();
+  });
+
+  it('maxDays 상한으로 1회 수집량을 제한한다 (쿼터 보호)', async () => {
+    const prisma = makePrismaWithCalendar(
+      ['20250701', '20250702', '20250703'],
+      [],
+    );
+    const fetchIndexDaily = jest.fn().mockResolvedValue([sampleKospi]);
+    const krx = makeKrxApi({ fetchIndexDaily });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    const result = await scheduler.backfillMarketIndexHistory({ maxDays: 1 });
+
+    expect(result.missing).toBe(1); // 상한으로 1일만
+    expect(fetchIndexDaily).toHaveBeenCalledTimes(2); // 1일 × KOSPI+KOSDAQ
+  });
+});
+
 // ─── collectStockStatusesForDate ─────────────────────────────────────────────
 
 describe('KrxMarketDataScheduler.collectStockStatusesForDate', () => {

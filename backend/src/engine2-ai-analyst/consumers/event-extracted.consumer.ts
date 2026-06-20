@@ -1,7 +1,8 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Logger } from '@nestjs/common';
+import { Logger, Optional } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { AiAnalystService, SummaryRequest } from '../ai-analyst.service';
+import { RawTextStoreService } from '../../common/storage/raw-text-store.service';
 import { AiGateInput } from '../types/ai-analyst.types';
 import { QUEUE, JOB, AiAnalyzeJobData } from '../../common/queues/queue.constants';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -54,6 +55,8 @@ export class EventExtractedConsumer extends WorkerHost {
     private readonly aiAnalyst: AiAnalystService,
     private readonly prisma: PrismaService,
     private readonly dartStockStatus: DartStockStatusService,
+    // DAR-395: 원문 rawText 오프로드 읽기 경로(@Optional — 미배선 시 DB 컬럼 직접 사용).
+    @Optional() private readonly rawTextStore?: RawTextStoreService,
   ) {
     super();
   }
@@ -286,13 +289,22 @@ export class EventExtractedConsumer extends WorkerHost {
     let tradingValue = 0;
 
     // 1) excerpt — DisclosureDocument.rawText 핵심 단락(절단)
+    // DAR-395: rawText 가 오프로드되면 컬럼은 null·rawTextS3Key 포인터만 남는다 → RawTextStore 로
+    //   lazy fetch(미오프로드분은 컬럼 그대로). 스토어 미배선 시 기존 컬럼 직접 사용 폴백.
     try {
       const doc = await this.prisma.disclosureDocument.findUnique({
         where: { rcpNo },
-        select: { rawText: true },
+        select: { rawText: true, rawTextS3Key: true },
       });
-      if (doc?.rawText) {
-        excerpt = buildExcerpt(doc.rawText);
+      const rawText = this.rawTextStore
+        ? await this.rawTextStore.load({
+            rcpNo,
+            rawText: doc?.rawText,
+            rawTextS3Key: doc?.rawTextS3Key,
+          })
+        : (doc?.rawText ?? null);
+      if (rawText) {
+        excerpt = buildExcerpt(rawText);
       } else {
         this.logger.warn(`[Engine2] excerpt 결측: rcpNo=${rcpNo} (DisclosureDocument.rawText 없음)`);
       }

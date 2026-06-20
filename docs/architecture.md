@@ -128,6 +128,11 @@ External APIs:
 - `auth` · `users` · `companies` · `watchlist` · `notifications` · `notification-settings` · `expo-push` · `devices` · `saved-disclosures` · `prisma` · `common`
 - 모든 엔진이 공유하는 인증·알림·기업 마스터 등을 담당한다.
 - Scheduler는 engine1-disclosure/scheduler/로 흡수·래핑됨.
+- **객체 스토리지 추상화 (DAR-395)**: `common/storage` 의 `StorageModule`(@Global)이 드라이버 비의존
+  `ObjectStorageService`(S3/로컬 팩토리, 자격증명 미설정 시 graceful 로컬 폴백) + `RawTextStoreService`
+  (공시 원문 오프로드/lazy fetch)를 제공한다. 대용량 콜드 데이터(`DisclosureDocument.rawText`)를 로컬 DB
+  밖 객체 스토리지로 내보내 멀티이어 백필 시 DB 폭증을 막는다(쓰기=파싱 완료 시점, 읽기=Engine2 AI excerpt
+  lazy fetch, 기존분=`RawTextOffloadScheduler` 점진 마이그레이션). 상세: `docs/workflow.md §2.6`.
 
 ### 2.3 Database (PostgreSQL + Prisma)
 

@@ -68,7 +68,23 @@ EXPO_PUSH_ACCESS_TOKEN="your-expo-access-token"
 # Rate Limiting
 THROTTLE_TTL=60
 THROTTLE_LIMIT=60
+
+# 객체 스토리지 (DAR-395) — 공시 원문(rawText) 오프로드
+# STORAGE_DRIVER=local 이면 로컬 파일(LOCAL_STORAGE_PATH/objects)에 저장(개발/기본).
+# STORAGE_DRIVER=s3 + 아래 자격증명 설정 시 S3 로 오프로드. 미설정/SDK 부재면 로컬로 graceful 폴백(비차단).
+STORAGE_DRIVER=local
+# OBJECT_STORAGE_LOCAL_PATH=./storage/objects   # 로컬 객체 루트(미설정 시 LOCAL_STORAGE_PATH/objects)
+# AWS_REGION=ap-northeast-2
+# S3_BUCKET=dart-disclosure-rawtext
+# AWS_ACCESS_KEY_ID=...        # 미지정 시 IAM 역할/인스턴스 프로파일(기본 자격증명 체인) 사용
+# AWS_SECRET_ACCESS_KEY=...
+# S3_PREFIX=prod               # (선택) 공유 버킷 환경 분리용 prefix
+# S3_ENDPOINT=                 # (선택) S3 호환 스토리지(MinIO 등) 커스텀 엔드포인트
+# S3_FORCE_PATH_STYLE=false    # (선택) path-style 강제(MinIO 등)
 ```
+
+> S3 활성화 시 `cd backend && npm i @aws-sdk/client-s3 --legacy-peer-deps` 로 SDK 를 설치한다.
+> SDK 가 없거나 자격증명이 미설정이면 기능을 차단하지 않고 로컬 파일로 폴백한다(자격증명만 후속 주입 가능).
 
 #### Mobile (.env)
 
@@ -155,6 +171,34 @@ psql "$DATABASE_URL" -c "SELECT * FROM chunk_compression_stats('stock_minute_pri
 - 검증: 컨테이너/인스턴스 재생성 후
   `psql "$DATABASE_URL" -c "SHOW shared_preload_libraries;"` 출력에 `timescaledb` 포함 →
   `CREATE EXTENSION IF NOT EXISTS timescaledb;` 성공.
+
+#### 공시 원문(rawText) S3 오프로드 운영 (DAR-395)
+
+대용량 콜드 데이터(`disclosure_documents.rawText`, 추출 시점에만 필요)를 로컬 DB 밖 객체
+스토리지로 내보내 DB 를 경량화한다. 멀티이어 공시 백필 시 원문이 수십~수백 GB 로 폭증하는
+것을 막는 용량 전략이다.
+
+- **활성화**: `.env` 에 `STORAGE_DRIVER=s3` + `AWS_REGION`/`S3_BUCKET`(+ 자격증명) 설정,
+  `npm i @aws-sdk/client-s3 --legacy-peer-deps`. 미설정 시 로컬 파일 폴백(기능 비차단).
+- **쓰기 경로**: 신규 파싱 완료 시점에 rawText 를 gzip 압축해 객체(`disclosure-rawtext/{rcpNo}.txt.gz`)
+  로 업로드하고 DB `rawText` 컬럼은 비운다(`rawTextS3Key` 포인터만 보유). 오프로드 실패는
+  graceful — rawText 를 DB 에 보존해 데이터 손실/기능 차단을 막는다.
+- **읽기 경로**: AI 재추출/excerpt 조회 시 포인터로 S3 에서 lazy fetch(소량 캐시). 추출 완료분은
+  거의 재조회되지 않는 콜드 데이터.
+- **기존분 마이그레이션**: `RawTextOffloadScheduler`(매 10분 cron) 또는
+  `POST /api/pipeline/rawtext-offload?limit=200`(JWT, 멱등)가 과거 rawText 를 점진·재개가능하게
+  S3 로 이전 후 컬럼을 비운다. 진척은 `GET /api/pipeline/rawtext-offload-progress`(잔여/완료율/드라이버).
+- **S3 수명주기(비용)**: 콜드 원문이므로 버킷 수명주기 규칙으로 표준 → IA(예: 30일) → Glacier(예: 90일)
+  전환을 권장한다. gzip 업로드로 저장/전송 비용을 추가 절감(실측 반복 텍스트 압축률 ≈ 99%).
+- **★디스크 회수(VACUUM)**: 컬럼을 NULL 로 비워도 PostgreSQL 은 죽은 튜플 공간을 OS 로 즉시
+  반환하지 않는다. autovacuum 은 공간을 재사용 대상으로만 표시한다. 물리 디스크를 회수하려면
+  마이그레이션이 충분히 진행된 뒤 운영 점검창에서 수동 실행한다(휴먼 게이트):
+  ```bash
+  # 재사용 표시(논블로킹, 권장 1차):
+  psql "$DATABASE_URL" -c "VACUUM (VERBOSE, ANALYZE) disclosure_documents;"
+  # OS 로 물리 회수(★테이블 ACCESS EXCLUSIVE 락 — 저트래픽 점검창에서만):
+  psql "$DATABASE_URL" -c "VACUUM (FULL, VERBOSE) disclosure_documents;"
+  ```
 
 #### Option 2: 로컬 PostgreSQL
 

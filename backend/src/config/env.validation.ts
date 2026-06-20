@@ -58,6 +58,17 @@ export const envValidationSchema = Joi.object({
   API_BASE_URL: Joi.string().uri().default('http://localhost:3000/api'),
   STORAGE_DRIVER: Joi.string().valid('local', 's3').default('local'),
   LOCAL_STORAGE_PATH: Joi.string().default('./storage'),
+  // DAR-395: 객체 스토리지(공시 원문 오프로드). 로컬 객체 루트는 LOCAL_STORAGE_PATH/objects 기본.
+  OBJECT_STORAGE_LOCAL_PATH: Joi.string().optional(),
+  // S3(또는 호환) — STORAGE_DRIVER=s3 시 사용. 미설정이면 로컬 폴백(graceful·비차단).
+  // 자격증명 미지정 시 SDK 기본 자격증명 체인(IAM 역할 등) 사용.
+  AWS_REGION: Joi.string().allow('').optional(),
+  AWS_ACCESS_KEY_ID: Joi.string().allow('').optional(),
+  AWS_SECRET_ACCESS_KEY: Joi.string().allow('').optional(),
+  S3_BUCKET: Joi.string().allow('').optional(),
+  S3_ENDPOINT: Joi.string().allow('').optional(),
+  S3_PREFIX: Joi.string().allow('').optional(),
+  S3_FORCE_PATH_STYLE: Joi.string().valid('true', 'false').optional(),
 });
 
 /**

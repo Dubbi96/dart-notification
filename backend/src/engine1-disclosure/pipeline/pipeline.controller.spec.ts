@@ -10,6 +10,7 @@ import { PipelineController } from './pipeline.controller';
 import { PipelineIntegrityService } from './pipeline-integrity.service';
 import { EventBackfillDrainService } from './event-backfill-drain.service';
 import { RawTextOffloadDrainService } from './rawtext-offload-drain.service';
+import { TablesOffloadDrainService } from './tables-offload-drain.service';
 
 describe('PipelineController', () => {
   let controller: PipelineController;
@@ -24,6 +25,10 @@ describe('PipelineController', () => {
     getCoverageReport: jest.Mock;
   };
   let rawTextOffload: {
+    drainOnce: jest.Mock;
+    getProgress: jest.Mock;
+  };
+  let tablesOffload: {
     drainOnce: jest.Mock;
     getProgress: jest.Mock;
   };
@@ -43,10 +48,15 @@ describe('PipelineController', () => {
       drainOnce: jest.fn(),
       getProgress: jest.fn(),
     };
+    tablesOffload = {
+      drainOnce: jest.fn(),
+      getProgress: jest.fn(),
+    };
     controller = new PipelineController(
       service as unknown as PipelineIntegrityService,
       eventBackfill as unknown as EventBackfillDrainService,
       rawTextOffload as unknown as RawTextOffloadDrainService,
+      tablesOffload as unknown as TablesOffloadDrainService,
     );
   });
 

@@ -27,6 +27,11 @@ import {
   RawTextOffloadProgress,
 } from './rawtext-offload-drain.service';
 import {
+  TablesOffloadDrainResult,
+  TablesOffloadDrainService,
+  TablesOffloadProgress,
+} from './tables-offload-drain.service';
+import {
   AiReprocessResult,
   DrainProgress,
   PipelineDrainResult,
@@ -61,6 +66,8 @@ export class PipelineController {
     private readonly eventBackfill: EventBackfillDrainService,
     // DAR-395: 과거 rawText 객체 스토리지 오프로드 — 수동 드레인·진행 리포트.
     private readonly rawTextOffload: RawTextOffloadDrainService,
+    // DAR-399: 과거 tables 객체 스토리지 오프로드(TOAST 진짜 bulk) — 수동 드레인·진행 리포트.
+    private readonly tablesOffload: TablesOffloadDrainService,
   ) {}
 
   @Get('health')
@@ -172,6 +179,37 @@ export class PipelineController {
     @Query('limit') limit?: string,
   ): Promise<{ success: true; data: RawTextOffloadDrainResult }> {
     const data = await this.rawTextOffload.drainOnce({
+      limit: parseOptionalInt(limit),
+    });
+    return { success: true, data };
+  }
+
+  // ─── DAR-399: 과거 tables 객체 스토리지 오프로드(TOAST 진짜 bulk ~1.6GB 해소) ──────
+
+  @Get('tables-offload-progress')
+  @ApiOperation({
+    summary:
+      'tables 오프로드 진행 리포트(read-only): 잔여/오프로드 완료/완료율·활성 드라이버(s3|local). DB 경량화 진척 추적.',
+  })
+  async tablesOffloadProgress(): Promise<{
+    success: true;
+    data: TablesOffloadProgress;
+  }> {
+    const data = await this.tablesOffload.getProgress();
+    return { success: true, data };
+  }
+
+  @Post('tables-offload')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      '과거 tables → 객체 스토리지(S3/로컬) 1회 오프로드(멱등): tables 보유 DONE 문서를 배치만큼 업로드 후 DB 컬럼 비움. cron과 동일 경로. AI 신규 호출 0.',
+  })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 200 })
+  async tablesOffloadDrain(
+    @Query('limit') limit?: string,
+  ): Promise<{ success: true; data: TablesOffloadDrainResult }> {
+    const data = await this.tablesOffload.drainOnce({
       limit: parseOptionalInt(limit),
     });
     return { success: true, data };

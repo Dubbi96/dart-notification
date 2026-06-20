@@ -11,6 +11,7 @@ import { LocalObjectStorageService } from './local-object-storage.service';
 import { S3ObjectStorageService } from './s3-object-storage.service';
 import { createAwsS3Backend, S3Config } from './s3-backend';
 import { RawTextStoreService } from './raw-text-store.service';
+import { TablesStoreService } from './tables-store.service';
 
 /**
  * env → ObjectStorageService 인스턴스 해석.
@@ -61,7 +62,8 @@ export function resolveObjectStorage(
       useFactory: resolveObjectStorage,
     },
     RawTextStoreService,
+    TablesStoreService,
   ],
-  exports: [ObjectStorageService, RawTextStoreService],
+  exports: [ObjectStorageService, RawTextStoreService, TablesStoreService],
 })
 export class StorageModule {}

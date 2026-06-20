@@ -7,6 +7,8 @@ import { DisclosureDocumentsService } from '../disclosure-documents/disclosure-d
 // DAR-293: 파싱 재시도 캡 SSOT — disclosure-documents.service와 공유(발산 방지)
 import { PARSE_MAX_RETRY } from '../disclosure-documents/disclosure-documents.constants';
 import { DisclosureEventsService } from '../disclosure-events/disclosure-events.service';
+// DAR-394: 거래대상(신호 생산) 문서 커버리지 추적 — 보고서명 키워드 prefilter SSOT
+import { tradeRelevantReportNameFilter } from '../disclosure-events/extractors/trade-relevance';
 import {
   QUEUE,
   JOB,
@@ -179,29 +181,56 @@ export class PipelineIntegrityService {
    * `now` 주입 가능(테스트 결정론). 부작용 0.
    */
   async getDrainProgress(now: Date = new Date()): Promise<DrainProgress> {
-    const [parseGroups, retryable, missingDocument, eligibleEvents] =
-      await Promise.all([
-        this.prisma.disclosureDocument.groupBy({
-          by: ['parseStatus'],
-          _count: { _all: true },
-        }),
-        this.prisma.disclosureDocument.count({
-          where: {
-            parseStatus: {
-              in: [ParseStatus.FETCH_FAILED, ParseStatus.PARSE_FAILED],
-            },
-            retryCount: { lt: PARSE_MAX_RETRY },
+    // DAR-394: 거래대상(신호 생산) 문서 커버리지 — 보고서명 키워드 prefilter 기반.
+    const tradeRelevantDoc = {
+      disclosure: tradeRelevantReportNameFilter(),
+    };
+    const [
+      parseGroups,
+      retryable,
+      missingDocument,
+      eligibleEvents,
+      tradeRelevantTotal,
+      tradeRelevantDone,
+      tradeRelevantPending,
+    ] = await Promise.all([
+      this.prisma.disclosureDocument.groupBy({
+        by: ['parseStatus'],
+        _count: { _all: true },
+      }),
+      this.prisma.disclosureDocument.count({
+        where: {
+          parseStatus: {
+            in: [ParseStatus.FETCH_FAILED, ParseStatus.PARSE_FAILED],
           },
-        }),
-        this.prisma.disclosure.count({ where: { document: { is: null } } }),
-        this.prisma.disclosureEvent.count({
-          where: {
-            extractionStatus: {
-              in: [ExtractionStatus.SUCCESS, ExtractionStatus.NEEDS_REVIEW],
-            },
+          retryCount: { lt: PARSE_MAX_RETRY },
+        },
+      }),
+      this.prisma.disclosure.count({ where: { document: { is: null } } }),
+      this.prisma.disclosureEvent.count({
+        where: {
+          extractionStatus: {
+            in: [ExtractionStatus.SUCCESS, ExtractionStatus.NEEDS_REVIEW],
           },
-        }),
-      ]);
+        },
+      }),
+      this.prisma.disclosureDocument.count({ where: tradeRelevantDoc }),
+      this.prisma.disclosureDocument.count({
+        where: { ...tradeRelevantDoc, parseStatus: ParseStatus.DONE },
+      }),
+      this.prisma.disclosureDocument.count({
+        where: {
+          ...tradeRelevantDoc,
+          parseStatus: {
+            in: [
+              ParseStatus.PENDING,
+              ParseStatus.FETCHING,
+              ParseStatus.PARSING,
+            ],
+          },
+        },
+      }),
+    ]);
 
     const parse = this.tallyParse(parseGroups);
     const totalDocuments =
@@ -225,6 +254,11 @@ export class PipelineIntegrityService {
         ? Math.round((backlog / NOMINAL_PARSE_PER_MINUTE / 60) * 10) / 10
         : 0;
 
+    const tradeRelevantDonePercent =
+      tradeRelevantTotal > 0
+        ? Math.round((tradeRelevantDone / tradeRelevantTotal) * 1000) / 10
+        : 0;
+
     return {
       generatedAt: now.toISOString(),
       parse: {
@@ -236,6 +270,12 @@ export class PipelineIntegrityService {
       },
       missingDocument,
       eligibleEvents,
+      tradeRelevant: {
+        total: tradeRelevantTotal,
+        done: tradeRelevantDone,
+        pending: tradeRelevantPending,
+        donePercent: tradeRelevantDonePercent,
+      },
       nominalParsePerMinute: NOMINAL_PARSE_PER_MINUTE,
       etaHours,
     };
@@ -261,8 +301,9 @@ export class PipelineIntegrityService {
     );
 
     const parse = await this.safe(
+      // DAR-394: 거래대상(신호 생산) 공시 우선 fetch — 한정 DART 쿼터를 신호에 집중.
       () => this.documentsService.processPendingBatch(limit),
-      { success: 0, failed: 0, durationMs: 0 },
+      { success: 0, failed: 0, durationMs: 0, tradeRelevant: 0 },
       'processPendingBatch',
     );
 
@@ -274,7 +315,11 @@ export class PipelineIntegrityService {
 
     const result: PipelineDrainResult = {
       enqueuedMissingDocuments,
-      parse: { success: parse.success, failed: parse.failed },
+      parse: {
+        success: parse.success,
+        failed: parse.failed,
+        tradeRelevant: parse.tradeRelevant,
+      },
       events: {
         success: events.success,
         failed: events.failed,
@@ -285,7 +330,7 @@ export class PipelineIntegrityService {
 
     this.logger.log(
       `폐루프 드레인 완료: 큐등록=${result.enqueuedMissingDocuments}, ` +
-        `파싱(성공=${result.parse.success}/실패=${result.parse.failed}), ` +
+        `파싱(성공=${result.parse.success}/실패=${result.parse.failed}/거래대상우선=${result.parse.tradeRelevant}), ` +
         `이벤트(성공=${result.events.success}/검토=${result.events.needsReview}/실패=${result.events.failed}), ` +
         `소요=${result.durationMs}ms`,
     );

@@ -300,6 +300,28 @@ export class BacktestController {
 }
 ```
 
+#### 4-3b. (DAR-385 구현) 1년 자동매매 point-in-time 리플레이 엔드포인트
+
+`BacktestRunnerService`(lookahead-safe) + 백필 일봉(`StockDailyPrice`)을 재사용해 "1년 전에 시작했다 치고" 미래모름 백테스트를 실행·저장·조회한다. 라이브 모의(`PaperSimulationService`)와 격리된 별도 `BacktestRun`/`BacktestTrade` 포트폴리오.
+
+```
+POST /api/backtest/replay            (JWT)  { startDate, endDate, name? } → BacktestTrackRecord
+GET  /api/backtest/track-record       (게스트)  최신 완료 트랙레코드
+GET  /api/backtest/track-record/:id   (게스트)  id별 트랙레코드
+```
+
+`BacktestTrackRecord = { runId, name, startDate, endDate, initialCapital, status, totalSignals, metrics(PerformanceMetrics), equityCurve(EquityCurvePoint[]), strategy, costs, completedAt }`
+
+구성요소(`engine3-quant-market/backtest/`):
+- `ports/prisma-price-data.adapter.ts` — `StockDailyPrice` 위 DB 백엔드 `PriceDataPort`. **asOf 상한 가드**로 미래 일봉 절단. 일별 상태(거래정지/관리/상하한가) 미저장 → 현재 `StockStatus` 소급 적용 금지(lookahead 차단).
+- `replay/backtest-signal-assembly.service.ts` — **point-in-time 신호 조립**: `Disclosure.rcpDt` 구간 내 `TradingSignal`(영속 buyScore·eventType·persona)만 시간순 반환. rcpDt 경계를 DB where 로 강제 → 미래 공시 미참조.
+- `replay/backtest-replay.service.ts` — 오케스트레이터: 신호조립 → `PrismaBacktestPriceAdapter(asOf=endDate)` → `BacktestRunnerService.run`(다음 거래일 시가 진입·당일 종가 진입 금지) → `PerformanceCalculatorService` + 자산곡선 → `BacktestRun`/`BacktestTrade` 영속.
+- `replay/backtest-equity-curve.ts` — 청산 누적 평가액·낙폭 시계열(앱 트랙레코드 곡선용).
+
+기본 전략은 라이브 시스템 하드룰과 정렬(손절 -8% / 익절 +20% / 최대보유 20일 / 최소매수점수 50 / 초기자본 1천만 / 최대보유 50). **AI 금지영역 불가침** — 신호·체결·손절·청산 전부 순수 Rule.
+
+> ★ 남은 작업(자식 이슈): ① 과거 1년 공시 전수 이벤트추출·스코어링(현재 추출분만 신호화 → 실데이터 1년 트랙레코드는 추출 커버리지에 비례, `#335` AI 드레이너 정합) ② 모바일 '1년 백테스트 트랙레코드' 카드·곡선 화면(이 API 소비) + 에뮬 검증.
+
 ---
 
 ### 4-4. 시뮬레이션 엔진 핵심 의사코드

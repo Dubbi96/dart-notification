@@ -7,7 +7,7 @@
  * - 매수 점수 변환 (getEventStudyScore)
  */
 import { Injectable } from '@nestjs/common';
-import { mean, variance, tStatistic, tDistPValue } from './utils/statistics';
+import { mean, median, winsorizedMean, variance, tStatistic, tDistPValue } from './utils/statistics';
 import { calcAR, PriceWindow, ARResult } from './utils/abnormal-return';
 
 /** READY(완전 반영) 게이트 — 통계적 유의성 판단을 위한 최소 표본 수 */
@@ -64,6 +64,15 @@ export interface AggregatedResult {
   avgArD3: number;
   avgArD5: number;
   avgArD20: number;
+  // ── 강건(robust) 통계 (DAR-402) — 이상치 오염을 표면화·차단 ──
+  /** D+5 누적 AR 중앙값. 산술평균(avgArD5)과 괴리가 크면 이상치 오염 신호. */
+  medianArD5: number;
+  /** D+20 누적 AR 중앙값. */
+  medianArD20: number;
+  /** D+5 누적 AR winsorized 평균(5%/95% clip). 신호 스코어링의 event edge 입력. */
+  winsorizedMeanArD5: number;
+  /** D+20 누적 AR winsorized 평균(5%/95% clip). */
+  winsorizedMeanArD20: number;
   upProbD5: number;
   crashProbD5: number;
   avgMaxDrawdown: number;
@@ -128,6 +137,10 @@ export class EventStudyService {
         avgArD3: 0,
         avgArD5: 0,
         avgArD20: 0,
+        medianArD5: 0,
+        medianArD20: 0,
+        winsorizedMeanArD5: 0,
+        winsorizedMeanArD20: 0,
         upProbD5: 0,
         crashProbD5: 0,
         avgMaxDrawdown: 0,
@@ -156,6 +169,15 @@ export class EventStudyService {
     // 알려진 트레이드오프: D+1 무유의·D+5 유의 버킷은 0점 게이트되고, 반대로
     // D+1만 유의한 노이즈가 통과할 수 있다. D+5 게이트(tStatistic(arD5s))로의 정렬은
     // announcement-effect 의미를 잃으므로 채택하지 않았다.
+    //
+    // ★ DAR-402 — "avgArD20 양수인데 tStatistic 음수" 부호 불일치 규명:
+    //   두 수치는 **서로 다른 측정**이다 — tStatistic 은 D+1 CAR(arD1s) 기준, avgArD20 은
+    //   D+20 CAR 의 산술평균이다. 따라서 부호가 갈리는 것은 버그가 아니라 두 원인의 복합이다:
+    //     (a) 다른 지평/필드: t 는 D+1 즉각반응 방향, avgArD20 은 D+20 누적 크기.
+    //     (b) 산술평균의 이상치 지배: 유동성 낮은 KOSDAQ 소형주 폭등이 avgArD20 평균을
+    //         +로 끌어올리지만, 중앙값(medianArD20)·winsorized 평균은 음수로 남는다.
+    //   robust 통계(아래 median/winsorized)를 함께 영속해 (b)를 표면화하고, 신호 스코어가
+    //   산술평균 대신 winsorized 평균을 event edge 로 쓰도록 전환한다(historical-event.scorer).
     const tStat = tStatistic(arD1s);
     const pVal = tDistPValue(tStat, n - 1);
     const varD1 = variance(arD1s);
@@ -181,6 +203,12 @@ export class EventStudyService {
       avgArD3: mean(arD3s),
       avgArD5: mean(arD5s),
       avgArD20: mean(arD20s),
+
+      // 강건(robust) 통계 (DAR-402) — 동일 표본(arD5s/arD20s)에서 중앙값·winsorized 평균.
+      medianArD5: median(arD5s),
+      medianArD20: median(arD20s),
+      winsorizedMeanArD5: winsorizedMean(arD5s),
+      winsorizedMeanArD20: winsorizedMean(arD20s),
 
       // 분포 지표
       upProbD5: ars.filter(a => a.isUpD5).length / n,

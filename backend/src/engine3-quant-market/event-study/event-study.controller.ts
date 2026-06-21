@@ -70,6 +70,20 @@ export class EventStudyController {
     return { success: true, data };
   }
 
+  @Get(':bucketKey/distribution')
+  @ApiOperation({
+    summary: '버킷 D+N 초과수익 분포 요약 (DAR-402 — 평균 vs 중앙값 괴리로 이상치 오염 표면화)',
+  })
+  @ApiParam({ name: 'bucketKey', description: '버킷 식별자 (예: SUPPLY_CONTRACT__ratio_5to20)' })
+  @ApiQuery({ name: 'eventType', required: false, description: '이벤트 유형 추가 필터(선택)' })
+  async getDistribution(
+    @Param('bucketKey') bucketKey: string,
+    @Query('eventType') eventType?: string,
+  ) {
+    const data = await this.eventStudyQueryService.getDistribution({ bucketKey, eventType });
+    return { success: true, data };
+  }
+
   @Post('calculate')
   @ApiOperation({
     summary: 'Event Study 산출 실행 (백필+실데이터 baseline 집계 → EventStudyResult 영속)',

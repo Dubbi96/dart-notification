@@ -191,4 +191,38 @@ describe('scoreHistoricalEvent (DAR-70)', () => {
       expect(scoreHistoricalEvent({ avgArD5: -5, isSignificant: true, sampleCount: 50 })).toBe(-70);
     });
   });
+
+  // ─── DAR-402: 강건(robust) event edge 우선 ───
+  describe('DAR-402 — robustArD5 우선 (이상치 오염 차단)', () => {
+    it('robustArD5 미제공 시 avgArD5 로 동작 (회귀 0)', () => {
+      const base: HistoricalEventInput = { avgArD5: 5, isSignificant: true, sampleCount: 50 };
+      expect(scoreHistoricalEvent(base)).toBe(70);
+      // robustArD5: undefined 명시도 동일
+      expect(scoreHistoricalEvent({ ...base, robustArD5: undefined })).toBe(70);
+    });
+
+    it('robustArD5 제공 시 baseScore 입력으로 avgArD5 대신 robustArD5 사용', () => {
+      // 산술평균은 양수(+8 → base 70)지만, 강건 추정치는 음수(-4 → base -70)인 오염 버킷.
+      const contaminated: HistoricalEventInput = {
+        avgArD5: 8,
+        robustArD5: -4,
+        isSignificant: true,
+        sampleCount: 50,
+      };
+      // robustArD5(-4)로 채점 → 음의 base. 산술평균(+8)으로 채점했다면 +70 이었을 것.
+      expect(scoreHistoricalEvent(contaminated)).toBe(-70);
+      expect(scoreHistoricalEvent({ ...contaminated, robustArD5: undefined })).toBe(70);
+    });
+
+    it('결측 게이트는 여전히 avgArD5 로 판정 (robustArD5 만으론 통과 못 함)', () => {
+      // avgArD5=null → 통계 가용성 없음 → 0점 (robustArD5 가 있어도 데이터 결측 게이트 우선)
+      expect(scoreHistoricalEvent({ avgArD5: null, robustArD5: 5 })).toBe(0);
+    });
+
+    it('robustArD5=0 도 유효값으로 사용 (null 폴백과 구분)', () => {
+      // robustArD5=0 → base 10(0~2 구간). avgArD5=8 이었다면 70. 0 을 폴백 아닌 실값으로 처리.
+      const r = scoreHistoricalEvent({ avgArD5: 8, robustArD5: 0, isSignificant: true, sampleCount: 50 });
+      expect(r).toBe(10);
+    });
+  });
 });

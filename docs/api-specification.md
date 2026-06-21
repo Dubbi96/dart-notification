@@ -1527,6 +1527,35 @@ GET /api/event-study/:bucketKey/observations   (JWT 필수)
 > 관측치 모델은 `marketType`이 없어 시장 무관 풀(= `ALL` 버킷과 동일 표본)이다. 빈 버킷이면 `items: []`.
 > 관측치는 `POST /api/event-study/calculate` 산출 시 영속된다(스키마 변경 없음, 기존 `EventStudyObservation` 모델 사용).
 
+### 16.2-b 버킷 D+N 초과수익 분포 (DAR-402)
+
+```
+GET /api/event-study/:bucketKey/distribution   (JWT 필수)
+```
+
+산술평균(`avgArD20`)이 극단 이상치에 지배돼 거짓 매수신호를 만드는지 검증하기 위해, 버킷 관측치
+(`EventStudyObservation.cumulativeAR`)에서 D+5/D+20 누적 초과수익의 **분포**(평균·중앙값·분위수)를 직접 산출한다.
+평균과 중앙값의 괴리가 크면 그 버킷이 소수 이상치에 오염됐다는 신호다.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `bucketKey` (path) | string | 필수 | 버킷 식별자 (예: `SUPPLY_CONTRACT__ratio_5to20`) |
+| `eventType` | string | 선택 | 이벤트 유형 추가 필터 |
+
+**응답 `data`**
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `bucketKey` | string | 요청 버킷 |
+| `count` | number | 관측치 행 수 |
+| `d5` / `d20` | object | D+5 / D+20 누적 AR 분포 요약 |
+| `d5.count` | number | 유효 값 수 |
+| `d5.mean` | number\|null | 산술평균(이상치 지배 가능) |
+| `d5.median` | number\|null | 중앙값(이상치 강건) |
+| `d5.p5` / `p25` / `p75` / `p95` | number\|null | 분위수(선형 보간) |
+
+> 표본이 비면 모든 분포 필드 null(에러 아님). 관측치 모델은 `marketType`이 없어 시장 무관 풀이다.
+
 ### 16.3 기업별 이벤트 스터디 통계 (DAR-190)
 
 ```
@@ -1608,4 +1637,4 @@ OHLCV 롤업 규칙(연속집계): open=first(ts)·high=max·low=min·close=last
 ---
 
 **작성일**: 2026-06-20
-**버전**: 1.11 (구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)
+**버전**: 1.12 (이벤트 스터디 분포 §16.2-b — DAR-402: 버킷 D+N 초과수익 분포(평균/중앙값/분위수) 산출로 이상치 오염 표면화 + event_study_results robust 컬럼(median/winsorized) 추가·신호 스코어 event edge 강건화; 1.11 구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)

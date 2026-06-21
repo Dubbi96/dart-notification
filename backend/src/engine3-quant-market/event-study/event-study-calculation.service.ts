@@ -456,6 +456,11 @@ export class EventStudyCalculationService {
       avgArD3: agg.avgArD3,
       avgArD5: agg.avgArD5,
       avgArD20: agg.avgArD20,
+      // 강건(robust) 통계 (DAR-402)
+      medianArD5: agg.medianArD5,
+      medianArD20: agg.medianArD20,
+      winsorizedMeanArD5: agg.winsorizedMeanArD5,
+      winsorizedMeanArD20: agg.winsorizedMeanArD20,
       upProbD5: agg.upProbD5,
       crashProbD5: agg.crashProbD5,
       avgMaxDrawdown: agg.avgMaxDrawdown,

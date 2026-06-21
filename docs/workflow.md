@@ -616,6 +616,23 @@ list/document 공유 일일 쿼터(20,000건)가 자주 소진되어 일회성 �
 **대용량 주의**: 과거 다년치 수집 시 `disclosure_documents` 가 폭증한다 → 문서 본문 S3 오프로드(§2.6 DAR-395)
 및 파싱 표 오프로드(§2.7 DAR-399)로 흡수. **메타 수집(본 경로)은 경량(list API)이라 우선 진행 가능**하다.
 
+### 2.9 전략 변형 다중 트랙 갱신 (매일 05:00, DAR-404)
+
+**배경**: 단일 모의매매(라이브 1년 리플레이, DAR-385)를 진입/청산/사이징 룰이 다른 **전략 변형 4종**
+(`event-edge`/`short-momentum`/`conservative-value`/`aggressive-diversified`)으로 분기해 각각
+point-in-time 백테스트 트랙을 쌓는다. 과거 공시 신호·일봉이 누적될수록 더 깊은 표본을 반영하도록
+매일 새벽 트랙을 재산출한다.
+
+```typescript
+@Cron('0 5 * * *', { timeZone: KST })  // 매일 05:00 (off-hours)
+async refreshDaily() { /* StrategyTrackService.refreshAll() */ }
+```
+
+- **멱등**: 전략별 직전 run 은 새 run 성공 후 정리(최신 1개 유지). `BacktestRun.strategyKey` 그룹핑.
+- **부분 성공**: 한 전략 실패해도 나머지는 계속(throw 금지 — cron 유지, recorder FAILED 기록).
+- **point-in-time 불가침**: 실행은 BacktestReplayService(다음 거래일 시가 진입·asOf 절단)에 위임 — 미래정보 0.
+- **신선도**: cron-health `strategy.track-refresh`(48h 임계). 비교/거래내역 엔드포인트는 항상 최신 완료 트랙을 읽는다.
+
 ---
 
 ## 3. 에러 처리 및 재시도 전략

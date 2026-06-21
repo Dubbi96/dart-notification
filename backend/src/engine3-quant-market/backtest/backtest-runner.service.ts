@@ -11,6 +11,26 @@ import { MarketCalendarService } from './constraint/market-calendar.service';
 import { PriceConstraintService } from './constraint/price-constraint.service';
 
 /**
+ * 사이징 룰별 포지션 예산 산정 (순수 함수, point-in-time 안전 — 해당 신호의 buyScore 만 사용).
+ *
+ * - EQUAL_WEIGHT: 균등배분. baseBudget = capital / maxPositions.
+ * - SCORE_WEIGHT: 점수가중. buyScore(0~100) 를 [0.5, 1.5] 배수로 환산해 강한 촉매에 더 싣는다
+ *   (score 50 → 1.0배, 100 → 1.5배, 0 → 0.5배). 미래 정보 미참조 — 진입 시점의 자기 점수만 본다.
+ */
+export function resolvePositionBudget(
+  capital: number,
+  maxPositions: number,
+  sizeRule: StrategyParams['sizeRule'],
+  buyScore: number,
+): number {
+  const baseBudget = capital / maxPositions;
+  if (sizeRule !== 'SCORE_WEIGHT') return baseBudget;
+  const score = Number.isFinite(buyScore) ? Math.max(0, Math.min(100, buyScore)) : 0;
+  const weight = 0.5 + score / 100; // [0.5, 1.5]
+  return baseBudget * weight;
+}
+
+/**
  * 백테스트 실행 엔진 (순수 Rule)
  *
  * lookahead bias 방지 설계:
@@ -107,9 +127,14 @@ export class BacktestRunnerService {
         // 슬리피지 반영 진입가 (시가 기준)
         const entryPrice = this.constraint.applySlippage(rawEntryPrice, costs.slippagePct, true);
 
-        // 포지션 크기 결정
+        // 포지션 크기 결정 (사이징 룰 반영 — EQUAL_WEIGHT / SCORE_WEIGHT)
         const capital = strategy.initialCapital;
-        const positionSize = capital / strategy.maxPositions;
+        const positionSize = resolvePositionBudget(
+          capital,
+          strategy.maxPositions,
+          strategy.sizeRule,
+          signal.buyScore,
+        );
         const rawShares = Math.floor(positionSize / entryPrice);
         if (rawShares <= 0) continue;
 

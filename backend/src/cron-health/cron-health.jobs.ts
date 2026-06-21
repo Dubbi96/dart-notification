@@ -33,6 +33,8 @@ export const CRON_JOB_KEYS = {
   TABLES_OFFLOAD_DRAIN: 'tables.offload-drain',
   // DAR-396: 연속 과거 확장 백필 — 공시 메타데이터를 DART 가용 최초까지 월 단위로 내려가며 수집(쿼터 인지).
   DISCLOSURE_BACKFILL_EXTEND: 'disclosure.backfill-extend',
+  // DAR-404: 전략 변형 4종 다중 트랙 갱신 — 데이터 누적분을 반영해 1일 1회 백테스트 트랙 재산출.
+  STRATEGY_TRACK_REFRESH: 'strategy.track-refresh',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -232,5 +234,15 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: 1_560, // 26시간 — 매시간 가동, 일일 쿼터 소진 구간 흡수
     cadence: '매시간(쿼터 소진 시 다음 리셋 후 재개)',
+  },
+  {
+    // DAR-404: 전략 변형 4종 다중 트랙 갱신. 가동이 멈추면 데이터가 늘어도 트랙이 오래된 채 고정된다.
+    //   매일 05:00 가동(off-hours·저부하) — 하루 누락(48h)까지 허용.
+    jobKey: CRON_JOB_KEYS.STRATEGY_TRACK_REFRESH,
+    label: '전략 변형 다중 트랙 갱신',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: 2_880, // 48시간 — 매일 05:00, 하루 누락까지 허용
+    cadence: '매일 05:00',
   },
 ];

@@ -1075,6 +1075,7 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 | id | String (PK, cuid) | |
 | name | String | 실행 이름 (예: "SUPPLY_CONTRACT_GROWTH_2023") |
 | description | String? | 설명 |
+| strategyKey | String? | **DAR-404** 트레이딩 로직(전략 변형) 식별 키. `event-edge`/`short-momentum`/`conservative-value`/`aggressive-diversified`. 단일 트랙 리플레이(DAR-385)는 NULL. `@@index([strategyKey])` |
 | strategyParams | Json | 전략 파라미터 (eventTypes·personas·minBuyScore·entryRule·exitRules·sizeRule·maxPositions·initialCapital) |
 | startDate / endDate | DateTime | 백테스트 기간 |
 | universe | String | "WATCHLIST" / "KOSPI200" / "ALL_LISTED" |
@@ -1454,5 +1455,5 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-06-21 (DAR-401 DisclosureDocument.rawHtmlS3Key 추가 — 원본 HTML 저장 S3 고정)
-**버전**: 2.6 (DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)
+**최종 수정일**: 2026-06-21 (DAR-404 BacktestRun.strategyKey 추가 — 전략 변형 4종 다중 트랙 그룹핑)
+**버전**: 2.7 (DAR-404: BacktestRun.strategyKey 비파괴 추가 + @@index — 트레이딩 로직 축 다중 트랙; DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)

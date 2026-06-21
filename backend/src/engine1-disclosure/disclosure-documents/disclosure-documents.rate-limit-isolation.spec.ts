@@ -5,7 +5,6 @@
 import { ParseStatus, DisclosureDocument } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DartApiService } from '../dart-api/dart-api.service';
-import { LocalStorageService } from './storage/storage.service';
 import { DisclosureDocumentsService } from './disclosure-documents.service';
 
 const MAX_RETRY = 3;
@@ -51,11 +50,7 @@ describe('DisclosureDocumentsService 레이트리밋/쿼터 retryCount 격리 (D
       downloadDocument: jest.fn().mockRejectedValue(downloadError),
     } as unknown as DartApiService;
 
-    service = new DisclosureDocumentsService(
-      prisma,
-      dartApi,
-      {} as unknown as LocalStorageService,
-    );
+    service = new DisclosureDocumentsService(prisma, dartApi);
   }
 
   it('일일쿼터(dartStatus=020) 실패 → FETCH_FAILED, retryCount 비소모·QUOTA 마커', async () => {

@@ -137,6 +137,11 @@ External APIs:
     JSONB(실측 ~1.6GB)였다. 동일 추상화에 `TablesStoreService` + `TablesOffloadScheduler` 를 추가해
     파싱 표를 객체 스토리지로 오프로드(`tablesS3Key` 포인터, SHARE_BUYBACK 폴백만 lazy fetch).
     상세: `docs/workflow.md §2.7`.
+  - **원본 HTML 저장 S3 고정 (DAR-401)**: 공시 원본 HTML 저장 장소를 S3/객체 스토리지로 **고정**하고
+    레거시 로컬 디스크(`storage/{rcpNo}/index.html`·23GB 누적·쓰기전용) 저장/조회를 제거한다. 동일
+    추상화에 `RawHtmlStoreService`(키 `disclosure-rawhtml/{rcpNo}.html.gz`, gzip) 를 추가해 fetch 시점에
+    저장하고 `rawHtmlS3Key` 포인터만 DB 에 보유(`rawFilePath` 신규 기록 중단). `LocalStorageService` 는
+    `@deprecated`(provider 해제). 저장 실패는 graceful(파이프라인 무중단).
 
 ### 2.3 Database (PostgreSQL + Prisma)
 

@@ -5,7 +5,6 @@
 import { ParseStatus, DisclosureDocument } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DartApiService } from '../dart-api/dart-api.service';
-import { LocalStorageService } from './storage/storage.service';
 import { DisclosureDocumentsService } from './disclosure-documents.service';
 
 describe('DisclosureDocumentsService 거래대상 우선 fetch (DAR-394)', () => {
@@ -49,7 +48,6 @@ describe('DisclosureDocumentsService 거래대상 우선 fetch (DAR-394)', () =>
     const service = new DisclosureDocumentsService(
       prisma,
       {} as unknown as DartApiService,
-      {} as unknown as LocalStorageService,
     );
 
     // parseDisclosure 를 스텁 — 실제 fetch 없이 선택 순서만 검증(DONE 처리).

@@ -1432,8 +1432,25 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
   기존분 이전은 `TablesOffloadScheduler`(매 10분)·`POST /api/pipeline/tables-offload`(멱등) 가 담당.
   디스크 회수는 운영 `VACUUM`(docs/deployment.md §객체 원문 S3 오프로드 운영).
 
+## 22. Engine1 — DisclosureDocument 원본 HTML 저장 S3 고정 (DAR-401, 로컬 디스크 제거)
+
+공시 원본 HTML 은 fetch 시 `LocalStorageService` 가 로컬 디스크 `storage/{rcpNo}/index.html` 에 쓰고
+경로를 `rawFilePath` 에 기록했다(23GB·58,683건 누적·런타임 미사용 쓰기전용). 저장 장소를 S3/객체
+스토리지로 **고정**하고 로컬 디스크 저장/조회 경로를 제거한다.
+
+- 신규 컬럼: `rawHtmlS3Key String?` — 저장된 원본 HTML 객체 키(`disclosure-rawhtml/{rcpNo}.html.gz`, gzip).
+  미저장/레거시 행은 NULL.
+- `rawFilePath String?` 의미 변경: 레거시 로컬 디스크 경로였으며 **더 이상 신규 기록하지 않는다**(fetch 시 NULL).
+  과거 행의 값은 보존(비파괴).
+- 쓰기: fetch 단계에서 원본 HTML 을 gzip 업로드(`RawHtmlStoreService.save`) 후 키만 기록(로컬 디스크 write 0).
+  실패 시 graceful(키 NULL·파이프라인 무중단 — 원본 HTML 은 쓰기전용 콜드 데이터). 읽기(재파싱 등)는
+  `rawHtmlS3Key` 로 lazy fetch(`RawHtmlStoreService.load`).
+- 마이그레이션: `20260621020000_dar401_raw_html_s3_key` (★파일만 생성 — 휴먼 적용, 순수 가산 nullable 컬럼).
+  기존 23GB 로컬분의 S3 이전은 별도 데이터 마이그레이션이 담당한다.
+- `LocalStorageService`(engine1-disclosure/.../storage/storage.service.ts)는 `@deprecated` — provider 등록 해제.
+
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-06-21 (DAR-399 DisclosureDocument.tablesS3Key 추가 — tables S3 오프로드)
-**버전**: 2.5 (DAR-399: tables 객체 스토리지 오프로드 + tablesS3Key 포인터 컬럼; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)
+**최종 수정일**: 2026-06-21 (DAR-401 DisclosureDocument.rawHtmlS3Key 추가 — 원본 HTML 저장 S3 고정)
+**버전**: 2.6 (DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)

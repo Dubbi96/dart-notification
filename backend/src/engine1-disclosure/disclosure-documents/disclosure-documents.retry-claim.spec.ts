@@ -4,7 +4,6 @@
 import { ParseStatus, DisclosureDocument } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DartApiService } from '../dart-api/dart-api.service';
-import { LocalStorageService } from './storage/storage.service';
 import { DisclosureDocumentsService } from './disclosure-documents.service';
 
 const MAX_RETRY = 3;
@@ -89,7 +88,6 @@ describe('DisclosureDocumentsService.runRetryQueue claim (DAR-283)', () => {
     service = new DisclosureDocumentsService(
       prisma as unknown as PrismaService,
       {} as unknown as DartApiService,
-      {} as unknown as LocalStorageService,
     );
   });
 

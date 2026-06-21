@@ -8,9 +8,9 @@ import {
   DartApiService,
   DartApiUnavailableError,
 } from '../dart-api/dart-api.service';
-import { LocalStorageService } from './storage/storage.service';
 import { RawTextStoreService } from '../../common/storage/raw-text-store.service';
 import { TablesStoreService } from '../../common/storage/tables-store.service';
+import { RawHtmlStoreService } from '../../common/storage/raw-html-store.service';
 import { cleanHtml } from './parsers/html-cleaner';
 import { parseXmlSections } from './parsers/xml.parser';
 import { parseTables } from './parsers/table.parser';
@@ -74,7 +74,6 @@ export class DisclosureDocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly dartApiService: DartApiService,
-    private readonly storageService: LocalStorageService,
     // M2 체이닝: DisclosureEventsService가 없어도(미배포 시) 정상 동작하도록 @Optional() 사용
     @Optional()
     private readonly disclosureEventsService?: DisclosureEventsService,
@@ -87,6 +86,10 @@ export class DisclosureDocumentsService {
     // DAR-399: 파싱 표(tables) 객체 스토리지 오프로드(@Optional — 미배선 시 기존 동작 보존).
     @Optional()
     private readonly tablesStore?: TablesStoreService,
+    // DAR-401: 공시 원본 HTML 저장을 S3/객체 스토리지로 고정(로컬 디스크 write 제거).
+    //   @Optional — StorageModule(@Global) 미배선 시 원본 HTML 저장만 비활성(파이프라인 무중단).
+    @Optional()
+    private readonly rawHtmlStore?: RawHtmlStoreService,
   ) {}
 
   /**
@@ -146,7 +149,7 @@ export class DisclosureDocumentsService {
     // ─── Step 1: 원문 다운로드 ─────────────────────────────────────────────
     let html: string | undefined;
     let xml: string | undefined;
-    let rawFilePath: string | undefined;
+    let rawHtmlS3Key: string | null = null;
 
     try {
       const zipBuffer = await this.dartApiService.downloadDocument(rcpNo);
@@ -167,21 +170,20 @@ export class DisclosureDocumentsService {
         );
       }
 
-      // 로컬 저장 (개발 환경)
+      // DAR-401: 원본 HTML 저장을 S3/객체 스토리지로 고정(로컬 디스크 storage/{rcpNo}/index.html 제거).
+      //   gzip 업로드 후 반환 S3 키를 rawHtmlS3Key 포인터에 기록한다. 저장 실패는 graceful(키 null,
+      //   파이프라인 무중단). rawFilePath 는 더 이상 신규 기록하지 않는다(레거시 로컬 경로 — null 고정).
       const content = html ?? xml ?? '';
       if (content) {
-        rawFilePath = await this.storageService.save(
-          rcpNo,
-          'index.html',
-          content,
-        );
+        rawHtmlS3Key = await this.saveRawHtml(rcpNo, content);
       }
 
       await this.prisma.disclosureDocument.update({
         where: { rcpNo },
         data: {
           fetchedAt: new Date(),
-          rawFilePath: rawFilePath ?? null,
+          rawHtmlS3Key,
+          rawFilePath: null,
         },
       });
     } catch (error) {
@@ -373,6 +375,31 @@ export class DisclosureDocumentsService {
         truncate((error as Error).message, MAX_LAST_ERROR_LENGTH),
         doc.retryCount,
       );
+    }
+  }
+
+  /**
+   * DAR-401: 원본 HTML 저장 결정 — 객체 스토리지(S3/로컬 폴백)로 gzip 업로드하고 DB rawHtmlS3Key 에
+   *   넣을 포인터를 산출한다. 로컬 디스크 write 는 하지 않는다.
+   * - rawHtmlStore 미주입(레거시 배선): 저장 비활성(키 null) — 파이프라인은 무중단(원본 HTML 은
+   *   런타임에서 재사용되지 않는 쓰기전용 데이터라 저장 누락이 기능을 막지 않는다).
+   * - 저장 성공: rawHtmlS3Key=객체 키.
+   * - 저장 실패(스토리지 오류): 키 null(graceful) — fetch/파싱은 계속 진행.
+   */
+  private async saveRawHtml(
+    rcpNo: string,
+    html: string,
+  ): Promise<string | null> {
+    if (!this.rawHtmlStore) {
+      return null;
+    }
+    try {
+      return await this.rawHtmlStore.save(rcpNo, html);
+    } catch (err) {
+      this.logger.warn(
+        `원본 HTML 저장 실패 → 건너뜀(graceful): rcpNo=${rcpNo}: ${(err as Error).message}`,
+      );
+      return null;
     }
   }
 

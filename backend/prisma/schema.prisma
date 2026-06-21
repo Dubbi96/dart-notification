@@ -302,10 +302,12 @@ model DisclosureDocument {
   // 역정규화: 조회 성능을 위해 corpCode 중복 저장
   corpCode String
 
-  // 원문 파일 저장 위치
-  // 개발: backend/storage/{rcpNo}/index.html (gitignored)
-  // 프로덕션: S3 key = dart-documents/{rcpNo}/index.html (후속 M)
-  rawFilePath String?
+  // 원문 HTML 저장 위치
+  // DAR-401: 원본 HTML 저장을 S3/객체 스토리지로 고정 → rawHtmlS3Key 포인터 사용.
+  //   rawFilePath 는 레거시 로컬 디스크 경로(storage/{rcpNo}/index.html)였으며 더 이상 신규 기록하지
+  //   않는다(쓰기 시 null). 과거 행의 값은 보존(비파괴).
+  rawFilePath  String?
+  rawHtmlS3Key String? // 저장된 원본 HTML 객체 키(disclosure-rawhtml/{rcpNo}.html.gz). 미저장이면 null.
 
   // 첨부 ZIP 내 추출 파일 경로 목록 (없으면 빈 배열)
   attachmentPaths String[]

@@ -229,3 +229,55 @@ describe('EventStudyQueryService.findResultsByCorpCode()', () => {
     });
   });
 });
+
+// ─── DAR-402: D+N 초과수익 분포(median/p95) 산출 ───
+describe('EventStudyQueryService.getDistribution()', () => {
+  function makePrismaObs(rows: any[]) {
+    return {
+      eventStudyObservation: {
+        findMany: jest.fn(async () => rows),
+      },
+    };
+  }
+
+  it('관측치 cumulativeAR 에서 D+5/D+20 분포(평균·중앙값·분위수) 산출', async () => {
+    // d5: [-3,-3,-3,...(18개), 120, 140] → 산술평균 양수지만 중앙값 음수(오염 표면화)
+    const rows = [
+      ...Array.from({ length: 18 }, () => ({ cumulativeAR: { d5: -3, d20: -3 } })),
+      { cumulativeAR: { d5: 120, d20: 120 } },
+      { cumulativeAR: { d5: 140, d20: 140 } },
+    ];
+    const svc = new EventStudyQueryService(makePrismaObs(rows) as any);
+    const dist = await svc.getDistribution({ bucketKey: 'SUPPLY_CONTRACT__ratio_5to20' });
+
+    expect(dist.count).toBe(20);
+    expect(dist.d5.count).toBe(20);
+    expect(dist.d5.mean).toBeGreaterThan(0); // 이상치 지배
+    expect(dist.d5.median).toBeLessThan(0); // 전형값 음수
+    expect(dist.d5.median).toBeCloseTo(-3, 6);
+    expect(dist.d5.p95).toBeGreaterThan(0); // 상위 분위는 이상치
+    expect(dist.d20.median).toBeCloseTo(-3, 6);
+  });
+
+  it('빈 버킷은 count=0 + null 분포 (에러 아님)', async () => {
+    const svc = new EventStudyQueryService(makePrismaObs([]) as any);
+    const dist = await svc.getDistribution({ bucketKey: 'EMPTY__bucket' });
+    expect(dist.count).toBe(0);
+    expect(dist.d5.median).toBeNull();
+    expect(dist.d5.p95).toBeNull();
+    expect(dist.d20.mean).toBeNull();
+  });
+
+  it('cumulativeAR 결측 키는 분포에서 제외 (방어)', async () => {
+    const rows = [
+      { cumulativeAR: { d5: 1, d20: 2 } },
+      { cumulativeAR: {} }, // d5/d20 결측
+      { cumulativeAR: { d5: 3, d20: 4 } },
+    ];
+    const svc = new EventStudyQueryService(makePrismaObs(rows) as any);
+    const dist = await svc.getDistribution({ bucketKey: 'X' });
+    expect(dist.count).toBe(3); // 행 수
+    expect(dist.d5.count).toBe(2); // 유효 d5 값만
+    expect(dist.d5.median).toBeCloseTo(2, 6);
+  });
+});

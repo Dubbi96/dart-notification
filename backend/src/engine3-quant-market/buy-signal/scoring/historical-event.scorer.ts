@@ -24,6 +24,14 @@ export interface HistoricalEventInput {
   /** D+5 평균 초과수익 (%). Phase 9 미완료·결측 시 null → 0점 + 결측 처리 */
   avgArD5: number | null;
 
+  /**
+   * DAR-402: 이상치에 강건한 D+5 초과수익(winsorized 평균 우선, median 폴백).
+   * 제공되면 baseScore 입력으로 avgArD5 대신 이 값을 쓴다(이상치 오염 차단).
+   * 미제공(레거시 호출)이면 avgArD5 로 동작 — 회귀 0. 단, 결측 게이트는 여전히 avgArD5 로 판정해
+   * "통계 산출 여부(데이터 가용성)"와 "강건 추정치"를 분리한다.
+   */
+  robustArD5?: number | null;
+
   // ── DAR-70 정밀화 신호 (모두 optional; 미제공 시 기존 동작 보존) ──
   /** p<0.05 통계적 유의성. false면 표본이 무의미 → 강한 감쇠 */
   isSignificant?: boolean;
@@ -50,9 +58,12 @@ function baseScore(ar5: number): number {
 }
 
 export function scoreHistoricalEvent(input: HistoricalEventInput): number {
+  // 결측 게이트는 avgArD5(통계 가용성)로 판정 — 데이터가 없으면 강건 추정도 없다.
   if (input.avgArD5 == null) return 0;
 
-  const base = baseScore(input.avgArD5);
+  // DAR-402: baseScore 입력은 강건 추정치(robustArD5) 우선. 미제공 시 산술평균 폴백(회귀 0).
+  const edge = input.robustArD5 != null ? input.robustArD5 : input.avgArD5;
+  const base = baseScore(edge);
 
   // 확장 신호 미제공 → 기존 동작 그대로 (회귀 0)
   const hasEnrichment =

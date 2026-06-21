@@ -921,6 +921,13 @@ model EventStudyResult {
   avgArD5  Float // D+5 누적 평균 AR
   avgArD20 Float // D+20 누적 평균 AR
 
+  // 강건(robust) 통계 (DAR-402) — 이상치 오염 표면화·신호 스코어링 입력.
+  // 비파괴 추가(nullable): 기존 행은 재계산 전까지 null → 스코어러가 avgArD5 로 폴백.
+  medianArD5          Float? // D+5 누적 AR 중앙값
+  medianArD20         Float? // D+20 누적 AR 중앙값
+  winsorizedMeanArD5  Float? // D+5 누적 AR winsorized 평균(5%/95% clip)
+  winsorizedMeanArD20 Float? // D+20 누적 AR winsorized 평균(5%/95% clip)
+
   // 분포 지표
   upProbD5       Float // D+5 기준 상승 확률 (0~1)
   crashProbD5    Float // D+5 기준 급락(-5% 이상) 확률 (0~1)

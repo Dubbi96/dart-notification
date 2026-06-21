@@ -84,6 +84,11 @@ function deriveImpactMagnitude(
  */
 interface EventStudyStats {
   avgArD5: number;
+  /**
+   * 이상치에 강건한 D+5 초과수익(DAR-402) — winsorizedMeanArD5 우선, 결측 시 medianArD5,
+   * 둘 다 결측(재계산 전 레거시 행)이면 avgArD5 폴백. 신호 스코어의 event edge 입력.
+   */
+  robustArD5: number;
   isSignificant: boolean;
   upProbD5: number;
   crashProbD5: number;
@@ -827,6 +832,9 @@ export class SignalGenerationService {
         marketType: true,
         bucketKey: true,
         avgArD5: true,
+        // DAR-402: 이상치에 강건한 event edge — winsorized 평균 우선, median 폴백.
+        winsorizedMeanArD5: true,
+        medianArD5: true,
         isSignificant: true,
         upProbD5: true,
         crashProbD5: true,
@@ -842,6 +850,8 @@ export class SignalGenerationService {
     for (const r of rows) {
       const stats: EventStudyStats = {
         avgArD5: r.avgArD5,
+        // DAR-402: winsorized 평균 우선 → median → avgArD5(레거시 폴백). 재계산 전 행도 안전.
+        robustArD5: r.winsorizedMeanArD5 ?? r.medianArD5 ?? r.avgArD5,
         isSignificant: r.isSignificant,
         upProbD5: r.upProbD5,
         crashProbD5: r.crashProbD5,
@@ -879,6 +889,7 @@ export class SignalGenerationService {
     };
     return {
       avgArD5: w((x) => x.avgArD5),
+      robustArD5: w((x) => x.robustArD5),
       upProbD5: w((x) => x.upProbD5),
       crashProbD5: w((x) => x.crashProbD5),
       sampleCount: totalN,
@@ -1191,6 +1202,8 @@ export class SignalGenerationService {
       historicalEvent: esrStats
         ? {
             avgArD5: esrStats.avgArD5,
+            // DAR-402: 산술평균 대신 이상치에 강건한 event edge 를 baseScore 입력으로 쓴다.
+            robustArD5: esrStats.robustArD5,
             isSignificant: esrStats.isSignificant,
             upProbD5: esrStats.upProbD5,
             crashProbD5: esrStats.crashProbD5,

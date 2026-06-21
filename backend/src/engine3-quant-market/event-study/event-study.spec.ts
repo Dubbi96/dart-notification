@@ -616,6 +616,103 @@ describe('EventStudyService', () => {
     });
   });
 
+  // ─── DAR-402: robust 통계(median/winsorized) — 이상치 오염 표면화 ───
+  describe('aggregate() — robust 통계 (DAR-402)', () => {
+    /**
+     * D+1 에 pct% 단일 점프(이후 flat) 관측치. cumulativeAR d1..d20 = pct.
+     * 시장은 항상 flat → AR = 종목수익률.
+     */
+    const makeObsPct = (idx: number, pct: number): EventObservationInput => {
+      const d1Price = 100 * (1 + pct / 100);
+      const stockPrices: PriceWindow[] = [
+        ...Array(21).fill(100),
+        ...Array(20).fill(d1Price),
+      ].map((price, i) => {
+        const d = new Date(2025, 0, 3 + i);
+        const da = `${d.getFullYear()}${(d.getMonth() + 1)
+          .toString()
+          .padStart(2, '0')}${d.getDate().toString().padStart(2, '0')}`;
+        return { date: da, closePrice: price };
+      });
+      const marketPrices: PriceWindow[] = Array(41)
+        .fill(100)
+        .map((price, i) => {
+          const d = new Date(2025, 0, 3 + i);
+          const da = `${d.getFullYear()}${(d.getMonth() + 1)
+            .toString()
+            .padStart(2, '0')}${d.getDate().toString().padStart(2, '0')}`;
+          return { date: da, closePrice: price };
+        });
+      return {
+        eventId: `evt-${idx}`,
+        rcpNo: `rcp-${idx}`,
+        corpCode: `corp-${idx}`,
+        stockCode: `stock-${idx}`,
+        eventType: 'SUPPLY_CONTRACT',
+        bucketKey: 'SUPPLY_CONTRACT__ratio_5to20',
+        d0Date: '20250123',
+        stockPrices,
+        marketPrices,
+      };
+    };
+
+    it('균일 표본: median/winsorized ≈ mean (이상치 없을 때 일치)', () => {
+      const observations = Array.from({ length: 35 }, (_, i) => makeObsPct(i, 5));
+      const r = service.aggregate({
+        eventType: 'SUPPLY_CONTRACT',
+        bucketKey: 'SUPPLY_CONTRACT__ratio_5to20',
+        marketType: 'ALL',
+        observations,
+        dataFromDate: '20250101',
+        dataToDate: '20250630',
+      });
+      expect(r.avgArD5).toBeCloseTo(5, 3);
+      expect(r.medianArD5).toBeCloseTo(5, 3);
+      expect(r.winsorizedMeanArD5).toBeCloseTo(5, 3);
+      expect(r.medianArD20).toBeCloseTo(5, 3);
+      expect(r.winsorizedMeanArD20).toBeCloseTo(5, 3);
+    });
+
+    it('★ SUPPLY_CONTRACT 오염 재현: 산술평균 양수인데 median/winsorized 음수', () => {
+      // 30개 소폭 음수(전형 -3%) + 5개 극단 양 이상치(+200%) → 산술평균 부풀림.
+      // 이상치 비중을 winsorized clip 한도(5%) 이하로 둔다(3/63≈4.8%): 산술평균은 이상치에
+      // 지배돼 양수지만 median·winsorized 는 음수로 남아 오염을 표면화한다.
+      const typical = Array.from({ length: 60 }, (_, i) => makeObsPct(i, -3));
+      const outliers = Array.from({ length: 3 }, (_, i) => makeObsPct(100 + i, 200));
+      const r = service.aggregate({
+        eventType: 'SUPPLY_CONTRACT',
+        bucketKey: 'SUPPLY_CONTRACT__ratio_5to20',
+        marketType: 'ALL',
+        observations: [...typical, ...outliers],
+        dataFromDate: '20250101',
+        dataToDate: '20250630',
+      });
+      // 산술평균: 이상치 5개에 지배되어 양수
+      expect(r.avgArD20).toBeGreaterThan(0);
+      // robust: 전형값(음수) 유지 → 오염 표면화
+      expect(r.medianArD20).toBeLessThan(0);
+      expect(r.winsorizedMeanArD20).toBeLessThan(0);
+      expect(r.medianArD20).toBeCloseTo(-3, 3);
+    });
+
+    it('INSUFFICIENT(n<10)는 robust 통계도 0', () => {
+      const observations = Array.from({ length: 5 }, (_, i) => makeObsPct(i, 5));
+      const r = service.aggregate({
+        eventType: 'SUPPLY_CONTRACT',
+        bucketKey: 'SUPPLY_CONTRACT__ratio_5to20',
+        marketType: 'ALL',
+        observations,
+        dataFromDate: '20250101',
+        dataToDate: '20250630',
+      });
+      expect(r.status).toBe('INSUFFICIENT');
+      expect(r.medianArD5).toBe(0);
+      expect(r.medianArD20).toBe(0);
+      expect(r.winsorizedMeanArD5).toBe(0);
+      expect(r.winsorizedMeanArD20).toBe(0);
+    });
+  });
+
   describe('aggregate() — READY (n=35)', () => {
     it('should return status=READY for n=35', () => {
       const observations = Array.from({ length: 35 }, (_, i) => makeObservation(i));
@@ -761,6 +858,10 @@ describe('EventStudyService', () => {
         avgArD3: 8,
         avgArD5: 6,
         avgArD20: 10,
+        medianArD5: 6,
+        medianArD20: 10,
+        winsorizedMeanArD5: 6,
+        winsorizedMeanArD20: 10,
         upProbD5: 0.7,
         crashProbD5: 0.1,
         avgMaxDrawdown: 5,
@@ -795,6 +896,10 @@ describe('EventStudyService', () => {
         avgArD3: 8,
         avgArD5: 6,
         avgArD20: 10,
+        medianArD5: 6,
+        medianArD20: 10,
+        winsorizedMeanArD5: 6,
+        winsorizedMeanArD20: 10,
         upProbD5: 0.7,
         crashProbD5: 0.05,
         avgMaxDrawdown: 5,
@@ -827,6 +932,10 @@ describe('EventStudyService', () => {
         avgArD3: -8,
         avgArD5: -10,
         avgArD20: -10,
+        medianArD5: -10,
+        medianArD20: -10,
+        winsorizedMeanArD5: -10,
+        winsorizedMeanArD20: -10,
         upProbD5: 0.30,
         crashProbD5: 0.25,
         avgMaxDrawdown: 20,
@@ -854,6 +963,7 @@ describe('EventStudyService', () => {
       variance: 1.0,
       avgReturnD1: 6, avgReturnD3: 8, avgReturnD5: 6, avgReturnD20: 10,
       avgArD1: 6, avgArD3: 8, avgArD5: 6, avgArD20: 10,
+      medianArD5: 6, medianArD20: 10, winsorizedMeanArD5: 6, winsorizedMeanArD20: 10,
       upProbD5: 0.7, crashProbD5: 0.05,
       avgMaxDrawdown: 5, avgVolumeRatioD1: 2.0, avgVolumeRatioD3: 1.5,
       dataFromDate: '20250101', dataToDate: '20250630',

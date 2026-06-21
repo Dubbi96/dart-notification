@@ -1,5 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { mean, median, percentile } from './utils/statistics';
+
+/** D+N 초과수익 분포 요약 (DAR-402). 표본 없으면 null 필드. */
+export interface ArDistribution {
+  count: number;
+  mean: number | null;
+  median: number | null;
+  p5: number | null;
+  p25: number | null;
+  p75: number | null;
+  p95: number | null;
+}
 
 @Injectable()
 export class EventStudyQueryService {
@@ -142,6 +154,65 @@ export class EventStudyQueryService {
       items,
     };
   }
+
+  /**
+   * 버킷의 D+N 초과수익 **분포** 요약 (DAR-402).
+   *
+   * 산술평균(EventStudyResult.avgArD20)은 극단 이상치에 지배돼 거짓 신호를 만든다.
+   * 개별 관측치(EventStudyObservation.cumulativeAR)에서 D+5/D+20 누적 AR 의 중앙값·분위수를
+   * 직접 산출해, 평균과 중앙값의 괴리(=이상치 오염)를 표면화한다.
+   *
+   * 관측치 모델은 marketType 이 없어 시장 무관 풀(= ALL 버킷 표본)이다.
+   * 표본이 비면 모든 분포 필드 null(에러 아님).
+   */
+  async getDistribution(params: { bucketKey: string; eventType?: string }): Promise<{
+    bucketKey: string;
+    count: number;
+    d5: ArDistribution;
+    d20: ArDistribution;
+  }> {
+    const { bucketKey, eventType } = params;
+    const where = {
+      bucketKey,
+      ...(eventType ? { eventType } : {}),
+    };
+
+    const rows = await this.prisma.eventStudyObservation.findMany({
+      where,
+      select: { cumulativeAR: true },
+    });
+
+    const d5s: number[] = [];
+    const d20s: number[] = [];
+    for (const r of rows) {
+      const car = (r.cumulativeAR ?? {}) as Record<string, number>;
+      if (typeof car['d5'] === 'number') d5s.push(car['d5']);
+      if (typeof car['d20'] === 'number') d20s.push(car['d20']);
+    }
+
+    return {
+      bucketKey,
+      count: rows.length,
+      d5: summarizeDistribution(d5s),
+      d20: summarizeDistribution(d20s),
+    };
+  }
+}
+
+/** 수익률 배열 → 분포 요약(평균·중앙값·분위수). 빈 배열은 count=0 + null 필드. */
+function summarizeDistribution(values: number[]): ArDistribution {
+  if (values.length === 0) {
+    return { count: 0, mean: null, median: null, p5: null, p25: null, p75: null, p95: null };
+  }
+  return {
+    count: values.length,
+    mean: mean(values),
+    median: median(values),
+    p5: percentile(values, 0.05),
+    p25: percentile(values, 0.25),
+    p75: percentile(values, 0.75),
+    p95: percentile(values, 0.95),
+  };
 }
 
 /** 페이지 크기 보정: 1~100, 기본 20 */

@@ -758,7 +758,9 @@ Engine 3 (Quant Market)의 모든 지표 계산은 **순수 Rule 기반**. LLM/A
 | pValue | FLOAT? | p-값 (INSUFFICIENT시 null) |
 | variance | FLOAT? | D+1 AR 분산 (과신 방지용) |
 | avgReturnD1 / D3 / D5 / D20 | FLOAT | D+N 평균 수익률 (%) |
-| avgArD1 / D3 / D5 / D20 | FLOAT | D+N 평균 초과수익 AR (%) |
+| avgArD1 / D3 / D5 / D20 | FLOAT | D+N 평균(산술) 초과수익 AR (%) |
+| medianArD5 / D20 | FLOAT? | **DAR-402** D+N 누적 AR 중앙값 — 이상치 강건. 재계산 전 행은 null |
+| winsorizedMeanArD5 / D20 | FLOAT? | **DAR-402** D+N 누적 AR winsorized 평균(5%/95% clip) — 신호 스코어링 event edge 입력. 재계산 전 행은 null |
 | upProbD5 | FLOAT | D+5 기준 상승 확률 (0~1) |
 | crashProbD5 | FLOAT | D+5 기준 급락(-5% 이상) 확률 (0~1) |
 | avgMaxDrawdown | FLOAT | D0~D+20 평균 최대낙폭 MDD (%) |
@@ -894,7 +896,7 @@ Buy Score = W1×C1 + W2×C2 + W3×C3 + W4×C4 + W5×C5 + W6×C6 + W7×C7 − Ris
 | C1 DisclosureEventScore | 0.25 | 이벤트 타입 기본 점수 + polarity 보정 |
 | C2 KeyMetricScore | 0.20 | 핵심 수치 점수 (계약금액/희석률 등) |
 | C3 PersonaFitScore | 0.15 | Phase 4 AI personaViews → Rule 변환 |
-| C4 HistoricalEventScore | 0.10 | EventStudyResult avgArD5 기반 |
+| C4 HistoricalEventScore | 0.10 | EventStudyResult robust event edge(winsorizedMeanArD5→medianArD5→avgArD5 폴백) 기반 — DAR-402 이상치 강건화 |
 | C5 ChartScore | 0.15 | 기술지표 (MA/RSI/MACD/BB) |
 | C6 VolumeLiquidityScore | 0.10 | 거래량·거래대금 수급 |
 | C7 MarketSectorScore | 0.05 | KOSPI/KOSDAQ/업종/VIX |

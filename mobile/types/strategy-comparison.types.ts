@@ -2,7 +2,9 @@
 // GET /paper-trading/simulation/strategies/comparison 응답과 1:1.
 // GET /paper-trading/simulation/strategies/:key/trade-history 응답과 1:1.
 // 거장철학(DAR-76 style)·페르소나 축과 별개의 '트레이딩 로직(진입/청산/사이징 룰)' 축.
-// 백엔드 StrategyComparisonService(DAR-404)와 동기화 — 두 이슈 공통 계약.
+// ★ 이 파일이 응답 계약의 SSOT(DAR-407) — 백엔드 StrategyTrackService 직렬화가 여기에 1:1 정렬한다.
+//   필드명/구조를 바꿀 때는 반드시 백엔드 StrategyComparisonResult/StrategyTradeHistoryResult 도 함께
+//   갱신할 것. 한쪽만 바뀌면 전략탭이 Render Error(Cannot read 'ranking' of undefined)로 크래시한다.
 
 import type { EquityCurvePoint } from '@app-types/simulation.types';
 

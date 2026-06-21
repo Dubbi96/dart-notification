@@ -125,7 +125,7 @@ export function findPreset(key: string): StrategyPreset | undefined {
   return STRATEGY_PRESETS.find((p) => p.key === key);
 }
 
-/** 진입/청산 룰 요약 문자열(비교 카드 노출용). */
+/** 진입/청산 룰 요약 문자열(비교 카드 노출용·단일 문자열 — 레거시/요약 표기). */
 export function summarizeRules(params: StrategyParams): string {
   const { exitRules, minBuyScore, maxPositions, sizeRule } = params;
   const sizeLabel = sizeRule === 'SCORE_WEIGHT' ? '점수가중' : '균등';
@@ -134,5 +134,32 @@ export function summarizeRules(params: StrategyParams): string {
     `${eventLabel}점수 ≥${minBuyScore} · 익절 +${exitRules.takeProfitPct}% / ` +
     `손절 ${exitRules.stopLossPct}% · 최대보유 ${exitRules.maxHoldDays}일 · ` +
     `최대 ${maxPositions}종목 · ${sizeLabel}배분`
+  );
+}
+
+/**
+ * 진입 룰 평문(모바일 StrategyRules.entry 와 1:1). 무엇을 언제 얼마나 사는가.
+ * 이벤트 집합·매수점수 문턱·사이징·최대종목수.
+ */
+export function summarizeEntryRule(params: StrategyParams): string {
+  const { minBuyScore, maxPositions, sizeRule } = params;
+  const sizeLabel = sizeRule === 'SCORE_WEIGHT' ? '점수가중 배분' : '균등 배분';
+  const eventLabel = params.eventTypes?.length
+    ? `양(+) 촉매 이벤트 ${params.eventTypes.length}종 한정 · `
+    : '전 이벤트 대상 · ';
+  return `${eventLabel}매수점수 ≥${minBuyScore} · ${sizeLabel} · 최대 ${maxPositions}종목`;
+}
+
+/**
+ * 청산 룰 평문(모바일 StrategyRules.exit 와 1:1). 언제 파는가.
+ * 익절/손절/(트레일링)/최대보유.
+ */
+export function summarizeExitRule(params: StrategyParams): string {
+  const { exitRules } = params;
+  const trailing =
+    exitRules.trailingStopPct != null ? ` · 트레일링 ${exitRules.trailingStopPct}%` : '';
+  return (
+    `익절 +${exitRules.takeProfitPct}% / 손절 ${exitRules.stopLossPct}%` +
+    `${trailing} · 최대보유 ${exitRules.maxHoldDays}거래일`
   );
 }

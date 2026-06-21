@@ -3,12 +3,14 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { MarketCalendarService } from '../constraint/market-calendar.service';
 import { BacktestReplayService } from '../replay/backtest-replay.service';
 import { EquityCurvePoint } from '../replay/backtest-equity-curve';
-import { PerformanceMetrics, StrategyParams } from '../ports/backtest.types';
+import { PerformanceMetrics } from '../ports/backtest.types';
 import {
   STRATEGY_PRESETS,
+  STRATEGY_INITIAL_CAPITAL,
   StrategyPreset,
   findPreset,
-  summarizeRules,
+  summarizeEntryRule,
+  summarizeExitRule,
 } from './strategy-presets';
 
 /**
@@ -17,62 +19,93 @@ import {
  */
 export const LOW_SAMPLE_TRADES = 20;
 
-export interface StrategyComparisonEntry {
-  strategyKey: string;
+/**
+ * ★ 응답 계약 SSOT = 모바일 `mobile/types/strategy-comparison.types.ts`(DAR-405).
+ *   아래 인터페이스들은 그 타입과 1:1 로 정렬한다(DAR-407 계약 정합). 필드명·구조를 바꿀 때는
+ *   반드시 양쪽을 함께 갱신할 것 — 한쪽만 바뀌면 전략탭이 Render Error 로 크래시한다.
+ */
+
+/** 전략별 자산곡선 1점 — 모바일 EquityCurvePoint(snapshotDate·totalValue·returnPct) 와 1:1. */
+export interface StrategyEquityPoint {
+  /** 청산일(YYYY-MM-DD). */
+  snapshotDate: string;
+  /** 해당 시점 누적 평가액(초기자본 + 누적 netPnl). */
+  totalValue: number;
+  /** 초기자본 대비 누적 수익률(%). */
+  returnPct: number;
+}
+
+/** 전략 1종 성과 — 모바일 StrategyPerformance 와 1:1. */
+export interface StrategyPerformanceDto {
+  key: string;
   label: string;
-  description: string;
-  rulesSummary: string;
-  /** 트랙이 아직 산출되지 않았으면 false(게스트 데모 — 빈 곡선). */
-  hasTrack: boolean;
-  equityCurve: EquityCurvePoint[];
+  /** 한 줄 컨셉(모바일 tagline = preset.description). */
+  tagline: string;
+  initialCapital: number;
+  equityCurve: StrategyEquityPoint[];
   cumulativeReturnPct: number;
-  winRate: number;
-  sampleCount: number;
-  sharpe: number;
-  mdd: number;
+  /** 승률(0~1 비율) — 청산 표본 0이면 null. */
+  winRate: number | null;
+  /** 총 트레이드 수(진입 기준). */
+  tradeCount: number;
+  /** 청산 완료 표본 수. */
+  sampleSize: number;
+  /** Sharpe — 표본 0이면 null. */
+  sharpe: number | null;
+  /** 최대낙폭 MDD(%, 0 이하) — 표본 0이면 null. */
+  maxDrawdownPct: number | null;
+  /** 벤치마크(KOSPI) 대비 초과수익(%p) — 미산출이면 null(정직). */
+  benchmarkAlphaPct: number | null;
+  /** 진입/청산 룰 평문(모바일 StrategyRules). */
+  rules: { entry: string; exit: string };
+  /** 청산 표본 < 임계 — 과신 방지. */
   lowSample: boolean;
-  /** 누적수익 내림차순 순위(1=최고). 트랙 없으면 null. */
-  rank: number | null;
-  /** 최고 누적수익 전략 여부. */
-  bestStrategy: boolean;
-  startDate: string | null;
-  endDate: string | null;
-  completedAt: string | null;
 }
 
+/** 전략 비교 랭킹 — 모바일 StrategyRanking 와 1:1. */
+export interface StrategyRankingDto {
+  /** 표시 순서(표본 있는 전략 누적수익 내림차순 → 미산출 후순위) 전략 key 목록(전체). */
+  ranking: string[];
+  /** 표본 있는 전략 중 최고 누적수익 key(없으면 null). */
+  bestKey: string | null;
+  /** 표본 있는 전략이 모두 LOW_SAMPLE 이면 true(과신 금지). */
+  allLowSample: boolean;
+}
+
+/** 전략 비교 응답 — 모바일 StrategyComparison 와 1:1(GET /strategies/comparison). */
 export interface StrategyComparisonResult {
-  /** 비교 기준 시점(가장 최근 완료 트랙 기준). */
-  generatedAt: string | null;
-  strategies: StrategyComparisonEntry[];
+  initialCapital: number;
+  strategies: StrategyPerformanceDto[];
+  ranking: StrategyRankingDto;
+  /** 표본 부족 임계(LOW_SAMPLE_TRADES). */
+  lowSampleThreshold: number;
 }
 
+/** 드릴다운 매수/매도 1행 — 모바일 StrategyTrade 와 1:1. */
 export interface StrategyTradeRow {
+  /** 행 식별자(BacktestTrade id). */
+  id: string;
+  stockCode: string;
+  /** 종목명(없으면 stockCode 폴백). */
+  stockName: string;
+  eventType: string;
   entryDate: string;
   exitDate: string | null;
-  corpName: string;
-  corpCode: string;
-  stockCode: string;
-  eventType: string;
-  persona: string;
-  buyScoreSnapshot: number | null;
   entryPrice: number;
   exitPrice: number | null;
   returnPct: number | null;
-  netPnl: number | null;
   exitReason: string | null;
   holdDays: number | null;
+  /** 포지션 상태. */
+  status: 'OPEN' | 'CLOSED';
 }
 
+/** 전략 매수/매도 타임라인 응답 — 모바일 StrategyTradeHistory 와 1:1(GET /strategies/:key/trade-history). */
 export interface StrategyTradeHistoryResult {
-  strategyKey: string;
+  key: string;
   label: string;
-  description: string;
-  rulesSummary: string;
-  hasTrack: boolean;
-  runId: string | null;
-  startDate: string | null;
-  endDate: string | null;
-  totalTrades: number;
+  tagline: string;
+  rules: { entry: string; exit: string };
   trades: StrategyTradeRow[];
 }
 
@@ -160,31 +193,42 @@ export class StrategyTrackService {
     return { startDate, endDate, results };
   }
 
-  /** 전략 4종 비교 — 누적수익 내림차순 ranking + bestStrategy 플래그. 게스트 조회 가능. */
+  /**
+   * 전략 4종 비교 — 모바일 StrategyComparison 계약과 1:1. 게스트 조회 가능.
+   * ranking.ranking = 표본 있는 전략(누적수익 내림차순) → 미산출 전략 후순위. bestKey/allLowSample 은
+   * '표본 있는(청산 표본>0)' 전략만으로 판정해 과신을 막는다.
+   */
   async getComparison(): Promise<StrategyComparisonResult> {
     const latestByKey = await this.loadLatestRunsByKey();
 
-    const raw: StrategyComparisonEntry[] = STRATEGY_PRESETS.map((preset) => {
-      const run = latestByKey.get(preset.key);
-      return this.toComparisonEntry(preset, run);
-    });
+    const strategies: StrategyPerformanceDto[] = STRATEGY_PRESETS.map((preset) =>
+      this.toComparisonEntry(preset, latestByKey.get(preset.key)),
+    );
 
-    // 트랙이 있는 전략만 누적수익 내림차순으로 순위 부여.
-    const ranked = raw
-      .filter((e) => e.hasTrack)
-      .sort((a, b) => b.cumulativeReturnPct - a.cumulativeReturnPct);
-    ranked.forEach((entry, idx) => {
-      entry.rank = idx + 1;
-      entry.bestStrategy = idx === 0;
-    });
+    // 표본 있는(청산 표본>0) 전략만으로 best / allLowSample 판정.
+    const sampled = strategies.filter((s) => s.sampleSize > 0);
+    const best = sampled.reduce<StrategyPerformanceDto | null>(
+      (top, s) => (top === null || s.cumulativeReturnPct > top.cumulativeReturnPct ? s : top),
+      null,
+    );
+    const bestKey = best ? best.key : null;
+    const allLowSample = sampled.length === 0 ? true : sampled.every((s) => s.lowSample);
 
-    const generatedAt = raw
-      .map((e) => e.completedAt)
-      .filter((v): v is string => v != null)
-      .sort()
-      .pop() ?? null;
+    // 카드 표시 순서: 표본 있는 전략 먼저(누적수익 내림차순) → 미산출 전략 후순위.
+    const ranking = [...strategies]
+      .sort(
+        (a, b) =>
+          Number(b.sampleSize > 0) - Number(a.sampleSize > 0) ||
+          b.cumulativeReturnPct - a.cumulativeReturnPct,
+      )
+      .map((s) => s.key);
 
-    return { generatedAt, strategies: raw };
+    return {
+      initialCapital: STRATEGY_INITIAL_CAPITAL,
+      strategies,
+      ranking: { ranking, bestKey, allLowSample },
+      lowSampleThreshold: LOW_SAMPLE_TRADES,
+    };
   }
 
   /** 전략별 과거 매수/매도 트랙(BacktestTrade) 최신순. 게스트 조회 가능. */
@@ -197,20 +241,21 @@ export class StrategyTrackService {
     const run = await this.prisma.backtestRun.findFirst({
       where: { strategyKey: key, status: 'COMPLETED' },
       orderBy: { completedAt: 'desc' },
-      select: { id: true, startDate: true, endDate: true },
+      select: { id: true },
+    });
+
+    const rulesOf = (p: StrategyPreset) => ({
+      entry: summarizeEntryRule(p.params),
+      exit: summarizeExitRule(p.params),
     });
 
     if (!run) {
+      // 트랙 미산출 — graceful 빈 타임라인(게스트 데모).
       return {
-        strategyKey: key,
+        key,
         label: preset.label,
-        description: preset.description,
-        rulesSummary: summarizeRules(preset.params),
-        hasTrack: false,
-        runId: null,
-        startDate: null,
-        endDate: null,
-        totalTrades: 0,
+        tagline: preset.description,
+        rules: rulesOf(preset),
         trades: [],
       };
     }
@@ -230,32 +275,25 @@ export class StrategyTrackService {
     const nameMap = new Map(companies.map((c) => [c.corpCode, c.corpName]));
 
     const rows: StrategyTradeRow[] = trades.map((t) => ({
+      id: t.id,
+      stockCode: t.stockCode,
+      stockName: nameMap.get(t.corpCode) ?? t.stockCode,
+      eventType: t.eventType,
       entryDate: this.calendar.formatDate(t.entryDate),
       exitDate: t.exitDate ? this.calendar.formatDate(t.exitDate) : null,
-      corpName: nameMap.get(t.corpCode) ?? t.corpCode,
-      corpCode: t.corpCode,
-      stockCode: t.stockCode,
-      eventType: t.eventType,
-      persona: t.persona,
-      buyScoreSnapshot: t.buyScoreSnapshot ?? null,
       entryPrice: Number(t.entryPrice),
       exitPrice: t.exitPrice != null ? Number(t.exitPrice) : null,
       returnPct: t.returnPct != null ? Number(t.returnPct) : null,
-      netPnl: t.netPnl != null ? Number(t.netPnl) : null,
       exitReason: t.exitReason ?? null,
       holdDays: t.holdDays ?? null,
+      status: t.exitDate ? 'CLOSED' : 'OPEN',
     }));
 
     return {
-      strategyKey: key,
+      key,
       label: preset.label,
-      description: preset.description,
-      rulesSummary: summarizeRules(preset.params),
-      hasTrack: true,
-      runId: run.id,
-      startDate: this.calendar.formatDate(run.startDate),
-      endDate: this.calendar.formatDate(run.endDate),
-      totalTrades: rows.length,
+      tagline: preset.description,
+      rules: rulesOf(preset),
       trades: rows,
     };
   }
@@ -308,52 +346,55 @@ export class StrategyTrackService {
   private toComparisonEntry(
     preset: StrategyPreset,
     run?: { id: string; startDate: Date; endDate: Date; summary: unknown; completedAt: Date | null },
-  ): StrategyComparisonEntry {
+  ): StrategyPerformanceDto {
     const base = {
-      strategyKey: preset.key,
+      key: preset.key,
       label: preset.label,
-      description: preset.description,
-      rulesSummary: summarizeRules(preset.params as StrategyParams),
+      tagline: preset.description,
+      initialCapital: preset.params.initialCapital,
+      rules: { entry: summarizeEntryRule(preset.params), exit: summarizeExitRule(preset.params) },
     };
 
     if (!run) {
+      // 트랙 미산출 — 빈 곡선·표본 0·지표 null(과신 방지). lowSample true.
       return {
         ...base,
-        hasTrack: false,
         equityCurve: [],
         cumulativeReturnPct: 0,
-        winRate: 0,
-        sampleCount: 0,
-        sharpe: 0,
-        mdd: 0,
+        winRate: null,
+        tradeCount: 0,
+        sampleSize: 0,
+        sharpe: null,
+        maxDrawdownPct: null,
+        benchmarkAlphaPct: null,
         lowSample: true,
-        rank: null,
-        bestStrategy: false,
-        startDate: null,
-        endDate: null,
-        completedAt: null,
       };
     }
 
     const summary = (run.summary ?? {}) as BacktestRunSummary;
     const metrics = summary.metrics;
-    const sampleCount = metrics?.totalTrades ?? 0;
-
+    // 이 엔진의 metrics.totalTrades 는 청산 완료 트레이드 수(자산곡선·승률의 표본). 진입 수와 동일
+    // (윈도 종료 시 전 포지션 청산) — tradeCount/sampleSize 둘 다 여기서 끌어온다.
+    const sampleSize = metrics?.totalTrades ?? 0;
+    const winRatePct = metrics?.winRate; // % 단위
     return {
       ...base,
-      hasTrack: true,
-      equityCurve: summary.equityCurve ?? [],
+      // BE 자산곡선(date·equity) → 모바일 계약(snapshotDate·totalValue) 으로 정렬.
+      equityCurve: (summary.equityCurve ?? []).map((p) => ({
+        snapshotDate: p.date,
+        totalValue: p.equity,
+        returnPct: p.returnPct,
+      })),
       cumulativeReturnPct: metrics?.totalReturn ?? 0,
-      winRate: metrics?.winRate ?? 0,
-      sampleCount,
-      sharpe: metrics?.sharpe ?? 0,
-      mdd: metrics?.mdd ?? 0,
-      lowSample: sampleCount < LOW_SAMPLE_TRADES,
-      rank: null,
-      bestStrategy: false,
-      startDate: this.calendar.formatDate(run.startDate),
-      endDate: this.calendar.formatDate(run.endDate),
-      completedAt: run.completedAt ? run.completedAt.toISOString() : null,
+      // 모바일은 승률을 0~1 비율로 소비 — % → 비율 변환. 표본 0이면 null.
+      winRate: sampleSize > 0 && winRatePct != null ? winRatePct / 100 : null,
+      tradeCount: sampleSize,
+      sampleSize,
+      sharpe: sampleSize > 0 ? (metrics?.sharpe ?? null) : null,
+      maxDrawdownPct: sampleSize > 0 ? (metrics?.mdd ?? null) : null,
+      // KOSPI 대비 초과수익은 현재 트랙 메트릭에 미산출 — 정직하게 측정 불가(null).
+      benchmarkAlphaPct: null,
+      lowSample: sampleSize < LOW_SAMPLE_TRADES,
     };
   }
 

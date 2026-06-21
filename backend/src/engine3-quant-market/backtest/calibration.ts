@@ -65,9 +65,15 @@ export interface EventScoreCalibration {
   lowSample: boolean;
   /** t-검정 유의(p<0.05) 여부 */
   significant: boolean;
-  /** 평균 실현 초과수익(%). 표본 0이면 null */
+  /** 평균 실현 초과수익(%). 표본 0이면 null. ★이상치 오염 가능(투명성·참고용) */
   avgExcessReturn: number | null;
-  /** 실현수익 환산 점수(-100..100). 표본 0이면 null */
+  /**
+   * ★강건 실현 초과수익(%) — median(DAR-410). 표본 0이면 null.
+   * impliedScore·gap·delta 산출의 ★기본 입력. 산술평균(avgExcessReturn)이 소수 극단치에
+   * 오염돼 위험 이벤트(DELISTING_RISK/TRADING_SUSPENSION)에 거짓 양(+) 권고를 내는 것을 차단.
+   */
+  robustExcessReturn: number | null;
+  /** 강건 실현수익 환산 점수(-100..100) — robustExcessReturn 기반. 표본 0이면 null */
   impliedScore: number | null;
   /** 괴리 = impliedScore - currentBaseScore. 산출불가 null */
   gap: number | null;
@@ -173,7 +179,9 @@ export function calibrateEventScore(
     lowSample: h.sampleCount < LOW_SAMPLE_THRESHOLD,
     significant: h.isSignificant,
     avgExcessReturn: h.avgExcessReturn,
-    impliedScore: impliedScoreFromReturn(h.avgExcessReturn),
+    robustExcessReturn: h.robustExcessReturn,
+    // ★impliedScore 는 강건(robust) 초과수익 기반 — 이상치 오염 차단(DAR-410)
+    impliedScore: impliedScoreFromReturn(h.robustExcessReturn),
     gap: null,
     suggestedDelta: 0,
     suggestedNewScore: currentBaseScore,

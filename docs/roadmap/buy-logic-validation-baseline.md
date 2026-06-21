@@ -33,6 +33,30 @@
 - 전체 신호 d20 avgExcess **-4.23%, 유의(p=0)**. 다수 이벤트 base score 미설정(null/HOLD) → calibration impliedScore만 존재.
 - **고칠 것:** EVENT_BASE_SCORES를 calibration impliedScore/suggestedDelta로 보정, 등급↔수익 단조성 회복(높은등급→높은수익). 부호 역전 원인 조사.
 
+#### ★DAR-410 규명·해소 (2026-06-22, live 실측 :3001 신규코드)
+**근본원인 = 산술평균 이상치 오염 아티팩트(코드 부호버그 아님).** byGrade d20 을 평균이 아닌 **강건(median)·승률**로 보면 역전이 사라지고 등급 단조가 **이미 성립**한다:
+
+| grade | rank | MEAN(오염) | **MEDIAN(robust)** | **winRate** |
+|---|---|---|---|---|
+| WATCH | 2(우수) | -4.26 | **-4.63** | **0.303** |
+| NEUTRAL | 3 | -5.33 | **-6.71** | **0.220** |
+| BLOCKED | 5(열위) | **+7.69**(거짓) | **-6.71** | **0.105** |
+
+- BLOCKED 의 mean +7.69 는 표본 76건 중 소수 극단 폭등(win 10.5%뿐)이 끌어올린 거짓값. median/winRate 로는 BLOCKED 가 **정확히 최악** = 회피 룰은 제대로 작동 중(부호/조건 정상).
+- 지표: `isMonotonic`(mean)=false·avgReturnRankCorr **-0.5** → **`isRobustMonotonic`(median)=true·robustReturnRankCorr +0.866·winRateRankCorr +1.0**.
+- ★winsorizedMean(5/95)은 단일 극단치에 잔존(BLOCKED winsor -4.91 > NEUTRAL -5.76 → 위반)하므로 **median 을 권위 강건축으로 채택**(DAR-402 "median 이 진짜 강건" 일치).
+
+**코드 수정(DAR-410, point-in-time 안전 — 진단/calibration 층, 백테스트 엔진·라이브 신호생성 무변경):**
+1. `signal-accuracy.ts`: HorizonAccuracy·GradeMonotonicity 에 `robustExcessReturn`(=median)·`winsorizedMeanExcessReturn`·`robustReturnViolations`·`robustReturnRankCorrelation`·**`isRobustMonotonic`** 추가. 단조성 권위 판정을 robust 로.
+2. `calibration.ts`: `impliedScore`/gap/delta 를 **robust(median) 기반**으로 전환. → 위험 이벤트 거짓 상향권고 제거:
+   - `TRADING_SUSPENSION` impliedScore **+100(mean +34.71) → -67(median)** [base -100 상향 권고 차단]
+   - `OWNERSHIP_DISCLOSURE` **+100 → -92**, `DELISTING_RISK` 완화권고(Δ+17)는 **n=12 윈도노이즈로 사람 게이트에서 거부(base -100 불변)**.
+3. `EVENT_BASE_SCORES`(buy-signal.config): 미등재(base 0)였던 **희석·재무부담 이벤트 보강** — 도메인 1차원칙 + robust 음·유의 정렬:
+   - `SECURITIES_OFFERING` -50 (median -30, n20 win0) · `CONVERTIBLE_EXERCISE` -35 (median -25, n16) · `DEBT_GUARANTEE` -30 (median -12, n25 win0.16).
+   - ★curated 양(+) 촉매(SUPPLY_CONTRACT 70·EARNINGS_SURPRISE 75 등)는 robust 로 이 7개월 윈도 음수이나 **단일 장세 과적합 회피 위해 미반영**(§3-2 결론 일치). 백테스트 replay 는 **영속 buyScore** 를 읽어 base 재계산 안 함 → base 변경의 in-window 재검증은 신호 재생성(=in-sample)이 필요해 보류, 효과는 **전향적 라이브 개선**으로 평가.
+
+**결론:** 보고된 "등급 역예측"은 **측정 오염**이 본질이며 **robust 측정으로 단조성 성립(해소)**. 회피 룰 부호/조건은 정상. base score 는 회피룰 공백(희석/distress)만 보수적 보강.
+
 ## 3. 재검증 프로토콜 (데이터 늘 때마다·주기적)
 1. `POST /event-study/calculate` — 근거 재계산 (READY 수·관측수 갱신).
 2. `POST /signals/generate` — 신호 재생성.
@@ -62,23 +86,11 @@ robust median D20 기준 **모든 공시 이벤트유형이 음수**:
 - **공시→D+20 매수 edge가 현 7개월 윈도(주로 H2 2025)에 없음.** event-edge -20%의 근본 원인 = 살 양-edge 이벤트가 없는데 거짓 평균 추종. → **로직 수정 DAR-407**(robust 게이트, 양-edge 없으면 진입 0). 
 - ★함의: edge는 장세 의존적일 수 있어 **더 긴 과거·다양한 장세 데이터(백필) 필수**. 현재 백필 frontier 2024-02 전진 중, 문서 드레인이 임계경로(쿼터).
 
+## 3-3. event-edge robust 게이트 검증 (2026-06-22, DAR-408 머지 후)
+- DAR-408은 event-edge eventTypes를 정적 `POSITIVE_CATALYST_EVENT_TYPES`로 정렬(런타임 robust 조회 없음). 검증: event-edge 여전히 **SUPPLY_CONTRACT 87/104 매수**(robust median -4.6%) → -18.5%. 거짓 양 이벤트 매수 0이라는 당초 DoD 미달.
+- **그러나 point-in-time 엄격성상 동적 robust 게이트는 현재 불가**: 7개월 데이터에 학습/검증 분리 구간이 없어, 전체표본 EventStudy로 백테스트를 필터하면 미래정보 누수(테제 위반). → 정적 a-priori 촉매집합이 현 제약하 정직한 최선. **-18.5%는 "순진한 긍정촉매 추종이 이 장세에 통하지 않는다"는 정직한 검증 결과.**
+- ★후속(데이터 충분 시): rolling/as-of EventStudy로 진입시점 직전 데이터만으로 robust 게이트 → point-in-time 유지하며 동적 선별. 백필로 다장세 history 확보가 선행조건.
+
 ## 4. 가설: 데이터가 더 들어오면
 - 표본↑ → PRELIMINARY→READY 전환, 이상치 영향 희석(robust 통계로). 결함 A는 표본보다 **방법론(중앙값)** 문제라 데이터만으론 안 풀림 → 코드 수정 필요.
 - 결함 B(등급 역전)는 calibration이 표본↑로 안정화되면 base score 보정 정밀도↑. 단 역전 자체는 로직 버그 가능성 → 코드 조사.
-
-## 3-3. event-edge robust 선별 적용 (DAR-408, 2026-06-22)
-§3-2 의 진단(거짓 평균 추종)을 코드로 고정. event-edge 의 매수 이벤트 선별을 **하드코딩 6종 → EventStudy robust 통계 주도**로 전환했다.
-
-**선별 규칙(`EventEdgeSelectorService`, engine3 backtest/strategies):**
-- robust 지표 = `winsorizedMeanArD20 ?? medianArD20` (DAR-402 컬럼). 오염 가능한 산술평균 `avgArD20` 은 폴백조차 안 함.
-- eventType별 대표 버킷 = coarse(`__ALL__`) 우선 → 표본 최다 fine 버킷(`EventStudyQueryService.findRobustEdges`, marketType=ALL).
-- 매수 조건: `robust > POSITIVE_EDGE_THRESHOLD_PCT`(=0, 양수) **AND** `sampleCount >= MIN_EDGE_SAMPLE_COUNT`(=20, 소표본 노이즈 배제).
-- 양-edge 그룹이 0이면 빈 allowlist → 러너가 진입 0(**do-no-harm**). `eventTypes: []` = 허용 0종 의미로 러너 필터를 정정(undefined=무제한, []=진입 0).
-
-**현재 데이터 결과:** §3-2 대로 모든 이벤트 robust median/winsorized D20 ≤ 0 → event-edge 매수 0종. SUPPLY_CONTRACT(산술평균 +23%지만 winsorized -2.6) 등 **거짓 양 이벤트 매수 0**. 손실 회피 달성.
-
-**점진 확장(사용자 테제):** 백필로 데이터·장세가 늘어 진짜 양-edge 이벤트(robust>0, n≥20)가 생기면 refresh 시 자동으로 매수 대상에 편입된다. 코드 변경 없이 데이터 주도로 활성.
-
-**범위:** event-edge 만 robust 게이트. short-momentum·conservative-value·aggressive-diversified 3전략은 무변경. minBuyScore·exitRules 유지.
-
-**검증:** tsc0 · nest build0 · jest engine3 backtest+event-study 357/357(신규: 선별기 6·runner allowlist 3·query 3·track 2·preset 1). 결정론 단위 증거 — winsorized<0 거짓 양 제외, median 폴백, 소표본 배제, 전부 음수 → 진입 0.

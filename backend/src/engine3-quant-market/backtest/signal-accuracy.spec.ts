@@ -96,6 +96,18 @@ describe('computeHorizonAccuracy', () => {
     expect(one.isSignificant).toBe(false);
     expect(one.winRate).toBe(1);
   });
+
+  // DAR-410 — 이상치 오염 차단: robust(median) 축이 산술평균과 분리되는지.
+  it('이상치 오염 시 avgExcessReturn 은 양(+)이지만 robust(median) 은 음(-)', () => {
+    // 90% 음수 + 소수 극단 폭등(BLOCKED 등급 실측 패턴 재현): 다수 손실인데 평균만 양.
+    const vals = [-6, -7, -5, -6, -8, -6, -7, -5, -6, +200]; // 9개 음수 + 1개 폭등
+    const h = computeHorizonAccuracy(vals);
+    expect(h.avgExcessReturn).toBeGreaterThan(0); // 평균은 폭등 1개에 오염되어 양(+)
+    expect(h.medianExcessReturn).toBeLessThan(0); // 중앙값은 음(-) = 전형적 손실
+    expect(h.robustExcessReturn).toBe(h.medianExcessReturn); // ★robust = median(이상치 불변)
+    expect(h.robustExcessReturn).toBeLessThan(0); // 단일 폭등에도 음(-) 유지
+    expect(h.winRate).toBe(0.1); // 10%만 양수익 — 회피 등급의 진짜 모습
+  });
 });
 
 describe('aggregateBucket — LOW_SAMPLE 표기 + null 제외', () => {

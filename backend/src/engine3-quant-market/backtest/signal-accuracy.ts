@@ -11,7 +11,7 @@
  *   표본<LOW_SAMPLE_THRESHOLD 는 lowSample=true 로 표기하여 과신을 방지한다.
  */
 
-import { mean, tStatistic, tDistPValue } from '../event-study/utils/statistics';
+import { mean, tStatistic, tDistPValue, winsorizedMean } from '../event-study/utils/statistics';
 import { SIGNAL_GRADE_THRESHOLDS } from '../buy-signal/config/buy-signal.config';
 
 /** 표본이 이 수 미만이면 LOW_SAMPLE 로 표기(과신 방지, 정직 표기). trade-scorecard 와 동일 기준. */
@@ -38,10 +38,21 @@ export interface SignalRealizedReturn {
 export interface HorizonAccuracy {
   /** 해당 지평에서 실현수익을 산출할 수 있었던 표본 수 */
   sampleCount: number;
-  /** 평균 초과수익(%). 표본 0이면 null */
+  /** 평균 초과수익(%). 표본 0이면 null. ★이상치 오염 가능(robustExcessReturn 우선 사용) */
   avgExcessReturn: number | null;
   /** 중앙값 초과수익(%). 표본 0이면 null */
   medianExcessReturn: number | null;
+  /** winsorized(5/95) 평균 초과수익(%). 표본 0이면 null — DAR-410(투명성·참고) */
+  winsorizedMeanExcessReturn: number | null;
+  /**
+   * ★강건(robust) 대표 초과수익(%) — DAR-410. **중앙값(median)** 채택.
+   * 산술평균(avgExcessReturn)이 소수 극단치(유동성 낮은 소형주 폭등/폭락)에 오염되는 것을
+   * 막기 위한 단조성·calibration 의 ★기본 축. 표본 0이면 null.
+   * ★winsorizedMean 이 아닌 median 채택 이유: 극단치가 표본의 5% 를 넘으면(예: BLOCKED 등급
+   *   상위 10% 폭등) winsorize 5/95 캡으로도 평균이 양(+)으로 잔존한다. 중앙값은 그런 단일·소수
+   *   극단치에 불변이라 진짜 전형값을 준다(DAR-402 "median 이 진짜 강건" 교훈 일치).
+   */
+  robustExcessReturn: number | null;
   /** 승률(초과수익>0 비율, 0~1). 표본 0이면 null */
   winRate: number | null;
   /** t-검정 p<0.05 (표본≥SIGNIFICANCE_MIN_SAMPLE 일 때만 평가) */
@@ -109,6 +120,8 @@ export function computeHorizonAccuracy(values: number[]): HorizonAccuracy {
       sampleCount: 0,
       avgExcessReturn: null,
       medianExcessReturn: null,
+      winsorizedMeanExcessReturn: null,
+      robustExcessReturn: null,
       winRate: null,
       isSignificant: false,
       pValue: null,
@@ -123,10 +136,14 @@ export function computeHorizonAccuracy(values: number[]): HorizonAccuracy {
     pValue = tDistPValue(t, n - 1);
     isSignificant = n >= SIGNIFICANCE_MIN_SAMPLE && pValue < 0.05;
   }
+  const med = round2(median(values));
   return {
     sampleCount: n,
     avgExcessReturn: round2(mean(values)),
-    medianExcessReturn: round2(median(values)),
+    medianExcessReturn: med,
+    winsorizedMeanExcessReturn: round2(winsorizedMean(values)),
+    // ★robust 축 = median(단일·소수 극단치에 불변). 단조성·calibration 의 권위 입력.
+    robustExcessReturn: med,
     winRate: Math.round((wins / n) * 1000) / 1000,
     isSignificant,
     pValue: pValue === null ? null : Math.round(pValue * 10000) / 10000,
@@ -274,8 +291,10 @@ export interface GradeMonotonicityRow {
   /** 해당 지평 실현수익 산출 가능 표본 */
   sampleCount: number;
   lowSample: boolean;
-  /** 평균 초과수익(%). 표본 0이면 null */
+  /** 평균 초과수익(%). 표본 0이면 null. ★이상치 오염 가능 */
   avgExcessReturn: number | null;
+  /** ★강건 대표 초과수익(%) — median. DAR-410 단조성 판정의 기본 축(이상치 불변). */
+  robustExcessReturn: number | null;
   /** 승률(초과수익>0 비율). 표본 0이면 null */
   winRate: number | null;
 }
@@ -290,16 +309,28 @@ export interface GradeMonotonicity {
   orderedGrades: GradeMonotonicityRow[];
   /** 단조성 평가에 쓴 인접 등급쌍 수(양쪽 metric 모두 non-null) */
   comparedPairs: number;
-  /** 평균AR 단조 위반 수(열위 등급이 우수 등급보다 평균AR 높음) */
+  /** 평균AR 단조 위반 수(열위 등급이 우수 등급보다 평균AR 높음). ★이상치 오염 가능 */
   avgReturnViolations: number;
+  /**
+   * ★강건AR(robustExcessReturn=winsorizedMean) 단조 위반 수 — DAR-410.
+   * 산술평균이 소수 이상치에 오염돼 거짓 역전을 만드는 것을 배제한 권위 지표.
+   */
+  robustReturnViolations: number;
   /** 승률 단조 위반 수(열위 등급이 우수 등급보다 승률 높음) */
   winRateViolations: number;
-  /** 등급우수도 vs 평균AR Spearman 순위상관(+면 우수등급=고수익). 산출불가 null */
+  /** 등급우수도 vs 평균AR Spearman 순위상관(+면 우수등급=고수익). 산출불가 null. ★오염 가능 */
   avgReturnRankCorrelation: number | null;
+  /** 등급우수도 vs 강건AR Spearman 순위상관(+면 우수등급=고수익) — DAR-410. 산출불가 null */
+  robustReturnRankCorrelation: number | null;
   /** 등급우수도 vs 승률 Spearman 순위상관. 산출불가 null */
   winRateRankCorrelation: number | null;
-  /** 평균AR 완전 단조(비교쌍≥1 & 위반 0). 등급 변별력 통과 신호. */
+  /** 평균AR 완전 단조(비교쌍≥1 & 평균AR위반 0). ★이상치 오염 가능(참고용). */
   isMonotonic: boolean;
+  /**
+   * ★강건AR 완전 단조(비교쌍≥1 & robustReturnViolations 0) — DAR-410.
+   * 등급 변별력의 **권위 판정**: 이상치 오염을 배제한 단조성. 단조성 성립 DoD 의 기준.
+   */
+  isRobustMonotonic: boolean;
 }
 
 /** 등급 정밀도 매트릭스 묶음(D+5·D+20) */
@@ -425,6 +456,7 @@ export function computeGradeMonotonicity(
         sampleCount: vals.length,
         lowSample: vals.length < LOW_SAMPLE_THRESHOLD,
         avgExcessReturn: round2(mean(vals)),
+        robustExcessReturn: round2(median(vals)), // ★median = 단조성 권위 축(이상치 불변)
         winRate: Math.round((wins / vals.length) * 1000) / 1000,
       };
     })
@@ -433,6 +465,7 @@ export function computeGradeMonotonicity(
   // 인접쌍(우수→열위) 단조 위반: 열위 등급 metric > 우수 등급 metric
   let comparedPairs = 0;
   let avgReturnViolations = 0;
+  let robustReturnViolations = 0;
   let winRateViolations = 0;
   for (let i = 0; i + 1 < orderedGrades.length; i++) {
     const better = orderedGrades[i];
@@ -440,6 +473,13 @@ export function computeGradeMonotonicity(
     if (better.avgExcessReturn !== null && worse.avgExcessReturn !== null) {
       comparedPairs++;
       if (worse.avgExcessReturn > better.avgExcessReturn) avgReturnViolations++;
+      if (
+        better.robustExcessReturn !== null &&
+        worse.robustExcessReturn !== null &&
+        worse.robustExcessReturn > better.robustExcessReturn
+      ) {
+        robustReturnViolations++;
+      }
       if (
         better.winRate !== null &&
         worse.winRate !== null &&
@@ -453,10 +493,15 @@ export function computeGradeMonotonicity(
   // 순위상관: 등급우수도(서열 역순) vs metric. +면 우수등급=고수익.
   const quality = orderedGrades.map((g) => -g.rank);
   const avgs = orderedGrades.map((g) => g.avgExcessReturn);
+  const robusts = orderedGrades.map((g) => g.robustExcessReturn);
   const wins = orderedGrades.map((g) => g.winRate);
   const avgReturnRankCorrelation =
     avgs.every((v): v is number => v !== null) && quality.length >= 2
       ? spearmanRankCorrelation(quality, avgs as number[])
+      : null;
+  const robustReturnRankCorrelation =
+    robusts.every((v): v is number => v !== null) && quality.length >= 2
+      ? spearmanRankCorrelation(quality, robusts as number[])
       : null;
   const winRateRankCorrelation =
     wins.every((v): v is number => v !== null) && quality.length >= 2
@@ -468,10 +513,13 @@ export function computeGradeMonotonicity(
     orderedGrades,
     comparedPairs,
     avgReturnViolations,
+    robustReturnViolations,
     winRateViolations,
     avgReturnRankCorrelation,
+    robustReturnRankCorrelation,
     winRateRankCorrelation,
     isMonotonic: comparedPairs >= 1 && avgReturnViolations === 0,
+    isRobustMonotonic: comparedPairs >= 1 && robustReturnViolations === 0,
   };
 }
 

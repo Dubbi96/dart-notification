@@ -52,6 +52,13 @@ export const EVENT_BASE_SCORES: Record<string, number> = {
   DELISTING_RISK:          -100,
   LAWSUIT:                  -30,
   MAJOR_SHAREHOLDER_CHANGE:  10,
+  // ── DAR-410: 미등재(base 0) 였던 희석·재무부담 이벤트 보강 ──────────────────
+  //   근거 ①도메인 1차원칙(희석/distress 는 본질적 음(-)) ②robust(median D20) 실측 음·유의
+  //   (signal-accuracy byEventType). 크기는 기존 동류 상수에 보수적으로 정렬(윈도 과적합 회피 —
+  //   robust impliedScore 는 더 음이지만 채택하지 않음). 회피 룰 공백을 메워 등급 변별력 강화.
+  SECURITIES_OFFERING:      -50, // 증권신고서·발행/모집 = 자본조달 희석 (robust median -30, n=20 win0). PAID_IN 동급
+  CONVERTIBLE_EXERCISE:     -35, // 전환청구권 행사 = 신주 희석 실현 (robust median -25, n=16). CB/BW_ISSUANCE 동급
+  DEBT_GUARANTEE:           -30, // 채무보증·담보·차입 = 재무부담/distress (robust median -12, n=25 win0.16). LAWSUIT 동급
 };
 
 export const PERSONA_TYPES = ['GROWTH', 'VALUE', 'MOMENTUM', 'EVENT_DRIVEN'] as const;

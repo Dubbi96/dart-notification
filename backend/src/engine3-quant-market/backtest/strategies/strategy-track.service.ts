@@ -3,7 +3,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { MarketCalendarService } from '../constraint/market-calendar.service';
 import { BacktestReplayService } from '../replay/backtest-replay.service';
 import { EquityCurvePoint } from '../replay/backtest-equity-curve';
-import { PerformanceMetrics } from '../ports/backtest.types';
+import { PerformanceMetrics, StrategyParams } from '../ports/backtest.types';
 import {
   STRATEGY_PRESETS,
   STRATEGY_INITIAL_CAPITAL,
@@ -12,6 +12,7 @@ import {
   summarizeEntryRule,
   summarizeExitRule,
 } from './strategy-presets';
+import { EventEdgeSelectorService } from './event-edge-selector.service';
 
 /**
  * 표본이 이 거래 수 미만이면 승률·Sharpe 등 지표가 통계적으로 빈약하다고 보고 lowSample 플래그를 켠다.
@@ -147,6 +148,7 @@ export class StrategyTrackService {
     private readonly prisma: PrismaService,
     private readonly replay: BacktestReplayService,
     private readonly calendar: MarketCalendarService,
+    private readonly eventEdgeSelector: EventEdgeSelectorService,
   ) {}
 
   /**
@@ -159,13 +161,17 @@ export class StrategyTrackService {
 
     for (const preset of STRATEGY_PRESETS) {
       try {
+        // DAR-408: robustEventGate 전략(event-edge)은 매수 eventTypes 를 robust 통계로 동적 주입.
+        //   다른 3전략은 무변경(preset.params 그대로). 양-edge 없으면 빈 allowlist → 진입 0.
+        const params = await this.resolveParams(preset);
+
         const record = await this.replay.run({
           startDate,
           endDate,
           strategyKey: preset.key,
           name: `[${preset.label}] 전략 트랙 ${startDate}~${endDate}`,
           description: `DAR-404 전략 변형 트랙(${preset.key}) — point-in-time 리플레이(미래모름)`,
-          strategy: preset.params,
+          strategy: params,
         });
 
         // 멱등: 직전 동일 전략 run 정리(최신 1개만 유지). 트레이드는 cascade 삭제.
@@ -191,6 +197,18 @@ export class StrategyTrackService {
     }
 
     return { startDate, endDate, results };
+  }
+
+  /**
+   * DAR-408: robustEventGate 전략은 EventStudy robust 통계로 매수 eventTypes 를 동적 선별해 주입한다.
+   * 양-edge 가 없으면 eventTypes=[] (빈 allowlist) → 러너가 진입 0(do-no-harm). 게이트 없는 전략은
+   * preset.params 를 그대로 반환(다른 3전략 무변경).
+   */
+  private async resolveParams(preset: StrategyPreset): Promise<StrategyParams> {
+    if (!preset.robustEventGate) return preset.params;
+
+    const selection = await this.eventEdgeSelector.selectPositiveEdgeEventTypes();
+    return { ...preset.params, eventTypes: selection.eventTypes };
   }
 
   /**

@@ -2,7 +2,6 @@ import {
   STRATEGY_PRESETS,
   STRATEGY_KEYS,
   STRATEGY_INITIAL_CAPITAL,
-  POSITIVE_CATALYST_EVENT_TYPES,
   findPreset,
   summarizeRules,
 } from './strategy-presets';
@@ -45,8 +44,9 @@ describe('STRATEGY_PRESETS (DAR-404)', () => {
   it('각 프리셋의 핵심 파라미터가 이슈 설계와 일치한다', () => {
     const byKey = Object.fromEntries(STRATEGY_PRESETS.map((p) => [p.key, p.params]));
 
-    // event-edge: 양(+) 이벤트 한정 · 점수가중 · 익절20/손절-10 · 20일
-    expect(byKey['event-edge'].eventTypes).toEqual([...POSITIVE_CATALYST_EVENT_TYPES]);
+    // event-edge: robust 게이트로 eventTypes 동적 선별(정적 하드코딩 없음) · 점수가중 · 익절20/손절-10 · 20일
+    expect(byKey['event-edge'].eventTypes).toBeUndefined();
+    expect(findPreset('event-edge')!.robustEventGate).toBe(true);
     expect(byKey['event-edge'].sizeRule).toBe('SCORE_WEIGHT');
     expect(byKey['event-edge'].exitRules).toMatchObject({ takeProfitPct: 20, stopLossPct: -10, maxHoldDays: 20 });
 
@@ -79,6 +79,14 @@ describe('STRATEGY_PRESETS (DAR-404)', () => {
     expect(summary).toContain('익절 +20%');
     expect(summary).toContain('손절 -10%');
     expect(summary).toContain('점수가중배분');
-    expect(summary).toContain('이벤트 6종 한정');
+  });
+
+  it('robustEventGate 옵션이면 동적 선별 라벨을 표기한다(DAR-408)', () => {
+    const summary = summarizeRules(findPreset('event-edge')!.params, { robustEventGate: true });
+    expect(summary).toContain('robust 양-edge 이벤트 동적 선별');
+    // event-edge 만 게이트, 나머지 3전략은 무변경
+    expect(findPreset('short-momentum')!.robustEventGate).toBeUndefined();
+    expect(findPreset('conservative-value')!.robustEventGate).toBeUndefined();
+    expect(findPreset('aggressive-diversified')!.robustEventGate).toBeUndefined();
   });
 });

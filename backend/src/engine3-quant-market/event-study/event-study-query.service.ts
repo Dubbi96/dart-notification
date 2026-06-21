@@ -197,6 +197,73 @@ export class EventStudyQueryService {
       d20: summarizeDistribution(d20s),
     };
   }
+
+  /**
+   * eventType별 대표 robust D+20 초과수익 (DAR-408 — event-edge 전략 선별 입력).
+   *
+   * 러너의 신호 필터는 eventType 단위라(버킷 무관) eventType별 단일 대표값이 필요하다.
+   * 같은 eventType 에 fine 버킷이 여럿이면 coarse(__ALL__) 부모 버킷이 전체 표본 집계라 우선,
+   * 없으면(단일 fine 버킷) 표본 최다 버킷을 대표로 쓴다. status READY/INSUFFICIENT 모두 포함하되
+   * 선별 게이트(임계치·최소표본)는 호출 측(EventEdgeSelectorService)이 적용한다.
+   *
+   * marketType 기본 ALL(시장 무관 풀). 표본 없으면 빈 배열(에러 아님).
+   */
+  async findRobustEdges(marketType = 'ALL'): Promise<RobustEdge[]> {
+    const rows = await this.prisma.eventStudyResult.findMany({
+      where: { marketType, status: { in: ['READY', 'INSUFFICIENT'] } },
+      select: {
+        eventType: true,
+        bucketKey: true,
+        winsorizedMeanArD20: true,
+        medianArD20: true,
+        avgArD20: true,
+        sampleCount: true,
+        status: true,
+      },
+    });
+
+    // eventType별 대표 버킷 선택: __ALL__ coarse 우선 → 표본 최다.
+    const byEventType = new Map<string, RobustEdge>();
+    for (const r of rows) {
+      const candidate: RobustEdge = {
+        eventType: r.eventType,
+        bucketKey: r.bucketKey,
+        winsorizedMeanArD20: r.winsorizedMeanArD20,
+        medianArD20: r.medianArD20,
+        avgArD20: r.avgArD20,
+        sampleCount: r.sampleCount,
+        status: r.status,
+      };
+      const existing = byEventType.get(r.eventType);
+      if (!existing || isPreferredRepresentative(candidate, existing)) {
+        byEventType.set(r.eventType, candidate);
+      }
+    }
+    return Array.from(byEventType.values());
+  }
+}
+
+/** 동일 eventType 두 버킷 중 대표 선택: __ALL__ coarse 우선 → 표본 최다. */
+function isPreferredRepresentative(candidate: RobustEdge, existing: RobustEdge): boolean {
+  const COARSE = '__ALL__';
+  const candCoarse = candidate.bucketKey === COARSE;
+  const existCoarse = existing.bucketKey === COARSE;
+  if (candCoarse !== existCoarse) return candCoarse; // coarse 우선
+  return candidate.sampleCount > existing.sampleCount; // 동급이면 표본 최다
+}
+
+/** event-edge robust 선별용 eventType별 대표 robust D+20 초과수익 (DAR-408). */
+export interface RobustEdge {
+  eventType: string;
+  bucketKey: string;
+  /** winsorized 평균(5%/95% clip) — 없으면 null(미재계산 행). */
+  winsorizedMeanArD20: number | null;
+  /** 중앙값 — winsorized 폴백. */
+  medianArD20: number | null;
+  /** 참고용 산술평균(오염 가능 — 선별엔 미사용). */
+  avgArD20: number;
+  sampleCount: number;
+  status: string;
 }
 
 /** 수익률 배열 → 분포 요약(평균·중앙값·분위수). 빈 배열은 count=0 + null 필드. */

@@ -281,3 +281,68 @@ describe('EventStudyQueryService.getDistribution()', () => {
     expect(dist.d5.median).toBeCloseTo(2, 6);
   });
 });
+
+describe('EventStudyQueryService.findRobustEdges() (DAR-408)', () => {
+  function makeResultRow(over: Record<string, unknown>) {
+    return {
+      eventType: 'X',
+      bucketKey: '__ALL__',
+      winsorizedMeanArD20: null,
+      medianArD20: null,
+      avgArD20: 0,
+      sampleCount: 30,
+      status: 'READY',
+      ...over,
+    };
+  }
+
+  function makePrismaResults(rows: any[]) {
+    let where: any = null;
+    return {
+      eventStudyResult: {
+        findMany: jest.fn(async (arg: any) => {
+          where = arg.where;
+          return rows;
+        }),
+      },
+      getWhere: () => where,
+    };
+  }
+
+  it('eventType별 대표 버킷으로 robust D+20을 반환하고 marketType/status로 필터한다', async () => {
+    const prisma = makePrismaResults([
+      makeResultRow({ eventType: 'A', bucketKey: 'A__fine', winsorizedMeanArD20: 1.1, sampleCount: 40 }),
+      makeResultRow({ eventType: 'B', bucketKey: 'B__fine', medianArD20: -2.0, sampleCount: 25 }),
+    ]);
+    const svc = new EventStudyQueryService(prisma as any);
+
+    const edges = await svc.findRobustEdges('ALL');
+    expect(edges).toHaveLength(2);
+    expect(prisma.getWhere()).toEqual({ marketType: 'ALL', status: { in: ['READY', 'INSUFFICIENT'] } });
+  });
+
+  it('동일 eventType 에 coarse(__ALL__) 버킷이 있으면 대표로 우선한다', async () => {
+    const prisma = makePrismaResults([
+      makeResultRow({ eventType: 'A', bucketKey: 'A__fine', winsorizedMeanArD20: 9, sampleCount: 100 }),
+      makeResultRow({ eventType: 'A', bucketKey: '__ALL__', winsorizedMeanArD20: 1, sampleCount: 30 }),
+    ]);
+    const svc = new EventStudyQueryService(prisma as any);
+
+    const edges = await svc.findRobustEdges();
+    expect(edges).toHaveLength(1);
+    expect(edges[0].bucketKey).toBe('__ALL__'); // 표본 적어도 coarse 우선
+    expect(edges[0].winsorizedMeanArD20).toBe(1);
+  });
+
+  it('coarse 가 없으면 표본 최다 fine 버킷을 대표로 쓴다', async () => {
+    const prisma = makePrismaResults([
+      makeResultRow({ eventType: 'A', bucketKey: 'A__small', winsorizedMeanArD20: 9, sampleCount: 10 }),
+      makeResultRow({ eventType: 'A', bucketKey: 'A__large', winsorizedMeanArD20: 2, sampleCount: 80 }),
+    ]);
+    const svc = new EventStudyQueryService(prisma as any);
+
+    const edges = await svc.findRobustEdges();
+    expect(edges).toHaveLength(1);
+    expect(edges[0].bucketKey).toBe('A__large');
+  });
+});

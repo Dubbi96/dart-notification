@@ -7,22 +7,15 @@ import { StrategyParams } from '../ports/backtest.types';
  * 분기한다. 각 프리셋은 동일한 point-in-time 리플레이 머신(미래모름)으로 돌려 BacktestRun 한 개씩
  * 트랙을 쌓는다. 거장철학(DAR-76)·페르소나 축과 별개의 '트레이딩 로직' 축이다.
  *
- * ★ 합리적 기본값으로 상수화 — 추후 calibration 으로 조정 가능. eventTypes 의 양(+) 이벤트 집합은
- *   persona-view.rule 의 EVENT_DRIVEN FAVORED 집합(긍정 촉매)과 정렬한다(DAR-402 robust 통계가
- *   유의성을 재확인하면 그 기준으로 좁힐 수 있게 한 곳에 모은다).
+ * ★ 합리적 기본값으로 상수화 — 추후 calibration 으로 조정 가능.
+ *
+ * DAR-408 — event-edge 의 매수 이벤트 선별은 더 이상 하드코딩 6종이 아니다. EventStudy robust
+ *   통계(winsorizedMeanArD20 ?? medianArD20, DAR-402)가 양(+)으로 확인한 이벤트 유형만 동적으로
+ *   매수한다(robustEventGate). 산술평균(avgArD20)은 이상치에 오염돼 거짓 양 신호를 만들므로 쓰지
+ *   않는다. 양-edge 그룹이 없으면 진입 0(do-no-harm). 데이터가 쌓여 양-edge 가 생기면 자동 활성된다.
  *
  * AI 금지영역: 순수 Rule 상수. AI 개입 0.
  */
-
-/** 이벤트엣지 전략이 추종하는 양(+) 촉매 이벤트 유형 — persona-view EVENT_DRIVEN FAVORED 와 정렬. */
-export const POSITIVE_CATALYST_EVENT_TYPES = [
-  'SUPPLY_CONTRACT',
-  'EARNINGS_SURPRISE',
-  'DIVIDEND_INCREASE',
-  'SHARE_BUYBACK',
-  'SHARE_CANCELLATION',
-  'MAJOR_SHAREHOLDER_CHANGE',
-] as const;
 
 /** 모든 전략 공통 초기자본(라이브 리플레이 DEFAULT 와 정렬). */
 export const STRATEGY_INITIAL_CAPITAL = 10_000_000;
@@ -36,6 +29,11 @@ export interface StrategyPreset {
   description: string;
   /** 리플레이 머신에 그대로 주입되는 완전한 전략 파라미터. */
   params: StrategyParams;
+  /**
+   * DAR-408 — true 면 refresh 시 EventStudy robust 통계로 매수 eventTypes 를 동적 선별한다
+   * (정적 params.eventTypes 무시). 양-edge 그룹이 없으면 빈 allowlist → 진입 0(do-no-harm).
+   */
+  robustEventGate?: boolean;
 }
 
 /**
@@ -46,9 +44,10 @@ export const STRATEGY_PRESETS: readonly StrategyPreset[] = [
     key: 'event-edge',
     label: '이벤트엣지',
     description:
-      'EventStudy 유의 양(+) 이벤트(공급계약·실적서프라이즈·자사주 등)만 추종. 점수가중 배분으로 강한 촉매에 더 싣고, 익절 +20% / 손절 -10% / 최대보유 20거래일.',
+      'EventStudy robust 통계(winsorized/중앙값)가 양(+) 초과수익을 확인한 이벤트만 데이터 주도로 추종. 양-edge 이벤트가 없으면 진입 안 함(손실 회피). 점수가중 배분, 익절 +20% / 손절 -10% / 최대보유 20거래일.',
+    robustEventGate: true,
     params: {
-      eventTypes: [...POSITIVE_CATALYST_EVENT_TYPES],
+      // eventTypes 는 refresh 시 robust 게이트가 동적 주입(정적 하드코딩 없음, DAR-408).
       minBuyScore: 50,
       entryRule: 'NEXT_OPEN',
       exitRules: {
@@ -125,11 +124,15 @@ export function findPreset(key: string): StrategyPreset | undefined {
   return STRATEGY_PRESETS.find((p) => p.key === key);
 }
 
-/** 진입/청산 룰 요약 문자열(비교 카드 노출용·단일 문자열 — 레거시/요약 표기). */
-export function summarizeRules(params: StrategyParams): string {
+/** 진입/청산 룰 요약 문자열(비교 카드 노출용). */
+export function summarizeRules(params: StrategyParams, opts?: { robustEventGate?: boolean }): string {
   const { exitRules, minBuyScore, maxPositions, sizeRule } = params;
   const sizeLabel = sizeRule === 'SCORE_WEIGHT' ? '점수가중' : '균등';
-  const eventLabel = params.eventTypes?.length ? `이벤트 ${params.eventTypes.length}종 한정 · ` : '';
+  const eventLabel = opts?.robustEventGate
+    ? 'robust 양-edge 이벤트 동적 선별 · '
+    : params.eventTypes?.length
+      ? `이벤트 ${params.eventTypes.length}종 한정 · `
+      : '';
   return (
     `${eventLabel}점수 ≥${minBuyScore} · 익절 +${exitRules.takeProfitPct}% / ` +
     `손절 ${exitRules.stopLossPct}% · 최대보유 ${exitRules.maxHoldDays}일 · ` +

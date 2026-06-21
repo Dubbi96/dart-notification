@@ -44,32 +44,45 @@ describe('StrategyTrackService (DAR-404)', () => {
   });
 
   describe('getComparison', () => {
-    it('전략별 최신 트랙을 누적수익 내림차순으로 ranking + bestStrategy 부여', async () => {
+    it('모바일 계약 — 표본 있는 전략 누적수익 내림차순 ranking.ranking + bestKey + 미산출 후순위', async () => {
       prisma.backtestRun.findMany.mockResolvedValue([
         runRow({ strategyKey: 'event-edge', summary: { metrics: makeMetrics(12.5, 55, 40), equityCurve: [] } }),
         runRow({ strategyKey: 'short-momentum', summary: { metrics: makeMetrics(-3.2, 30, 60), equityCurve: [] } }),
         runRow({ strategyKey: 'conservative-value', summary: { metrics: makeMetrics(8.1, 50, 25), equityCurve: [] } }),
-        // aggressive-diversified 없음 → hasTrack false
+        // aggressive-diversified 없음 → 미산출(표본 0) 후순위
       ]);
 
       const res = await service.getComparison();
       expect(res.strategies).toHaveLength(4);
+      expect(res.initialCapital).toBe(10_000_000);
+      expect(res.lowSampleThreshold).toBe(LOW_SAMPLE_TRADES);
 
-      const ranked = res.strategies.filter((s) => s.rank != null).sort((a, b) => a.rank! - b.rank!);
-      expect(ranked.map((s) => s.strategyKey)).toEqual([
+      // 표시 순서: 표본 있는 전략(누적수익 내림차순) → 미산출 후순위.
+      expect(res.ranking.ranking).toEqual([
         'event-edge', // +12.5
         'conservative-value', // +8.1
         'short-momentum', // -3.2
+        'aggressive-diversified', // 미산출(표본 0) → 후순위
       ]);
-      expect(ranked[0].bestStrategy).toBe(true);
-      expect(ranked.slice(1).every((s) => !s.bestStrategy)).toBe(true);
+      expect(res.ranking.bestKey).toBe('event-edge');
+      expect(res.ranking.allLowSample).toBe(false);
 
-      const missing = res.strategies.find((s) => s.strategyKey === 'aggressive-diversified')!;
-      expect(missing.hasTrack).toBe(false);
-      expect(missing.rank).toBeNull();
-      expect(missing.bestStrategy).toBe(false);
+      const missing = res.strategies.find((s) => s.key === 'aggressive-diversified')!;
       expect(missing.equityCurve).toEqual([]);
+      expect(missing.sampleSize).toBe(0);
+      expect(missing.tradeCount).toBe(0);
+      expect(missing.winRate).toBeNull();
+      expect(missing.sharpe).toBeNull();
+      expect(missing.maxDrawdownPct).toBeNull();
       expect(missing.lowSample).toBe(true);
+
+      // 승률 % → 0~1 비율 변환 · MDD/룰 정합.
+      const ee = res.strategies.find((s) => s.key === 'event-edge')!;
+      expect(ee.winRate).toBeCloseTo(0.55);
+      expect(ee.maxDrawdownPct).toBe(-10);
+      expect(ee.benchmarkAlphaPct).toBeNull();
+      expect(ee.rules.entry).toContain('매수점수');
+      expect(ee.rules.exit).toContain('익절');
     });
 
     it('표본 수가 임계 미만이면 lowSample 플래그를 켠다', async () => {
@@ -78,10 +91,19 @@ describe('StrategyTrackService (DAR-404)', () => {
         runRow({ strategyKey: 'short-momentum', summary: { metrics: makeMetrics(5, 50, LOW_SAMPLE_TRADES), equityCurve: [] } }),
       ]);
       const res = await service.getComparison();
-      const ee = res.strategies.find((s) => s.strategyKey === 'event-edge')!;
-      const sm = res.strategies.find((s) => s.strategyKey === 'short-momentum')!;
+      const ee = res.strategies.find((s) => s.key === 'event-edge')!;
+      const sm = res.strategies.find((s) => s.key === 'short-momentum')!;
       expect(ee.lowSample).toBe(true);
       expect(sm.lowSample).toBe(false);
+    });
+
+    it('표본 있는 전략이 모두 임계 미만이면 ranking.allLowSample 을 켠다', async () => {
+      prisma.backtestRun.findMany.mockResolvedValue([
+        runRow({ strategyKey: 'event-edge', summary: { metrics: makeMetrics(5, 50, LOW_SAMPLE_TRADES - 1), equityCurve: [] } }),
+      ]);
+      const res = await service.getComparison();
+      expect(res.ranking.allLowSample).toBe(true);
+      expect(res.ranking.bestKey).toBe('event-edge'); // 표본>0 이라 best 는 부여
     });
 
     it('전략별 가장 최근 완료 run 1개만 사용한다(중복 키 중 첫 값)', async () => {
@@ -90,8 +112,25 @@ describe('StrategyTrackService (DAR-404)', () => {
         runRow({ id: 'old', strategyKey: 'event-edge', summary: { metrics: makeMetrics(1, 10, 30), equityCurve: [] } }),
       ]);
       const res = await service.getComparison();
-      const ee = res.strategies.find((s) => s.strategyKey === 'event-edge')!;
+      const ee = res.strategies.find((s) => s.key === 'event-edge')!;
       expect(ee.cumulativeReturnPct).toBe(20);
+    });
+
+    it('자산곡선을 모바일 계약(snapshotDate·totalValue·returnPct)으로 정렬한다', async () => {
+      prisma.backtestRun.findMany.mockResolvedValue([
+        runRow({
+          strategyKey: 'event-edge',
+          summary: {
+            metrics: makeMetrics(5, 50, 30),
+            equityCurve: [{ date: '2025-06-21', equity: 10_000_000, returnPct: 0, drawdownPct: 0 }],
+          },
+        }),
+      ]);
+      const res = await service.getComparison();
+      const ee = res.strategies.find((s) => s.key === 'event-edge')!;
+      expect(ee.equityCurve).toEqual([
+        { snapshotDate: '2025-06-21', totalValue: 10_000_000, returnPct: 0 },
+      ]);
     });
   });
 
@@ -100,23 +139,22 @@ describe('StrategyTrackService (DAR-404)', () => {
       await expect(service.getTradeHistory('bogus')).rejects.toBeInstanceOf(NotFoundException);
     });
 
-    it('트랙이 없으면 graceful 빈 결과(게스트 데모)', async () => {
+    it('트랙이 없으면 graceful 빈 결과(게스트 데모) — 모바일 계약', async () => {
       prisma.backtestRun.findFirst.mockResolvedValue(null);
       const res = await service.getTradeHistory('event-edge');
-      expect(res.hasTrack).toBe(false);
-      expect(res.trades).toEqual([]);
-      expect(res.totalTrades).toBe(0);
+      expect(res.key).toBe('event-edge');
       expect(res.label).toBe('이벤트엣지');
+      expect(res.tagline).toBeTruthy();
+      expect(res.rules.entry).toContain('매수점수');
+      expect(res.rules.exit).toContain('익절');
+      expect(res.trades).toEqual([]);
     });
 
-    it('트랙의 거래를 corpName 결합 + Decimal 숫자화해 최신순 반환', async () => {
-      prisma.backtestRun.findFirst.mockResolvedValue({
-        id: 'run-1',
-        startDate: new Date(Date.UTC(2025, 5, 21)),
-        endDate: new Date(Date.UTC(2026, 5, 21)),
-      });
+    it('트랙의 거래를 stockName 결합 + Decimal 숫자화 + status 부여해 최신순 반환', async () => {
+      prisma.backtestRun.findFirst.mockResolvedValue({ id: 'run-1' });
       prisma.backtestTrade.findMany.mockResolvedValue([
         {
+          id: 'trade-0',
           corpCode: 'A005930',
           stockCode: '005930',
           eventType: 'SUPPLY_CONTRACT',
@@ -132,6 +170,7 @@ describe('StrategyTrackService (DAR-404)', () => {
           holdDays: 9,
         },
         {
+          id: 'trade-1',
           corpCode: 'B000660',
           stockCode: '000660',
           eventType: 'EARNINGS_SURPRISE',
@@ -149,26 +188,28 @@ describe('StrategyTrackService (DAR-404)', () => {
       ]);
       prisma.company.findMany.mockResolvedValue([
         { corpCode: 'A005930', corpName: '삼성전자' },
-        // B000660 회사명 결측 → corpCode 폴백
+        // B000660 회사명 결측 → stockCode 폴백
       ]);
 
       const res = await service.getTradeHistory('event-edge');
-      expect(res.hasTrack).toBe(true);
-      expect(res.runId).toBe('run-1');
-      expect(res.totalTrades).toBe(2);
+      expect(res.key).toBe('event-edge');
+      expect(res.trades).toHaveLength(2);
 
       const [t0, t1] = res.trades;
-      expect(t0.corpName).toBe('삼성전자');
+      expect(t0.id).toBe('trade-0');
+      expect(t0.stockName).toBe('삼성전자');
       expect(t0.entryPrice).toBe(70000);
       expect(t0.returnPct).toBe(9.5);
       expect(t0.exitReason).toBe('TAKE_PROFIT');
       expect(t0.entryDate).toBe('2025-07-01');
       expect(t0.exitDate).toBe('2025-07-10');
+      expect(t0.status).toBe('CLOSED');
 
-      expect(t1.corpName).toBe('B000660'); // 회사명 결측 폴백
+      expect(t1.stockName).toBe('000660'); // 회사명 결측 → stockCode 폴백
       expect(t1.exitPrice).toBeNull();
       expect(t1.returnPct).toBeNull();
       expect(t1.exitDate).toBeNull();
+      expect(t1.status).toBe('OPEN');
 
       // 최신순 정렬을 prisma orderBy 로 위임 — entryDate desc, createdAt desc
       expect(prisma.backtestTrade.findMany).toHaveBeenCalledWith(

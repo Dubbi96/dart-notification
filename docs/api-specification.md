@@ -1652,36 +1652,47 @@ OHLCV 롤업 규칙(연속집계): open=first(ts)·high=max·low=min·close=last
 GET /api/paper-trading/simulation/strategies/comparison   (OptionalJwt — 게스트 데모 열람)
 ```
 
-전략별 최신 완료 트랙을 모아 **누적수익 내림차순 ranking + `bestStrategy` 플래그**로 반환한다. 트랙이
-아직 산출되지 않은 전략은 `hasTrack:false`(빈 곡선) graceful. 표본(거래 수)이 20 미만이면 `lowSample:true`.
+전략별 최신 완료 트랙을 모아 **표본 있는 전략 누적수익 내림차순 `ranking.ranking` + `ranking.bestKey`**로
+반환한다. 트랙 미산출 전략은 빈 곡선·`sampleSize:0`·지표 null 로 graceful(후순위). 청산 표본이
+`lowSampleThreshold`(20) 미만이면 `lowSample:true`.
+
+★ **응답 계약 SSOT = 모바일 `mobile/types/strategy-comparison.types.ts`(DAR-405)** — 백엔드
+`StrategyTrackService` 직렬화는 그 타입과 1:1(DAR-407 정합). `winRate`는 0~1 비율, `equityCurve`는
+`{snapshotDate,totalValue,returnPct}`(모바일 EquityCurvePoint).
 
 ```jsonc
 {
   "success": true,
   "data": {
-    "generatedAt": "2026-06-21T05:00:00.000Z",
+    "initialCapital": 10000000,
     "strategies": [
       {
-        "strategyKey": "event-edge",
+        "key": "event-edge",
         "label": "이벤트엣지",
-        "description": "EventStudy 유의 양(+) 이벤트만 추종 …",
-        "rulesSummary": "이벤트 6종 한정 · 점수 ≥50 · 익절 +20% / 손절 -10% · 최대보유 20일 · 최대 20종목 · 점수가중배분",
-        "hasTrack": true,
-        "equityCurve": [ { "date": "2025-06-21", "equity": 10000000, "returnPct": 0, "drawdownPct": 0 } ],
+        "tagline": "EventStudy 유의 양(+) 이벤트만 추종 …",
+        "initialCapital": 10000000,
+        "equityCurve": [ { "snapshotDate": "2025-06-21", "totalValue": 10000000, "returnPct": 0 } ],
         "cumulativeReturnPct": 12.5,
-        "winRate": 55.0,
-        "sampleCount": 40,
+        "winRate": 0.55,
+        "tradeCount": 40,
+        "sampleSize": 40,
         "sharpe": 0.8,
-        "mdd": -9.3,
-        "lowSample": false,
-        "rank": 1,
-        "bestStrategy": true,
-        "startDate": "2025-06-21",
-        "endDate": "2026-06-21",
-        "completedAt": "2026-06-21T05:00:00.000Z"
+        "maxDrawdownPct": -9.3,
+        "benchmarkAlphaPct": null,
+        "rules": {
+          "entry": "양(+) 촉매 이벤트 6종 한정 · 매수점수 ≥50 · 점수가중 배분 · 최대 20종목",
+          "exit": "익절 +20% / 손절 -10% · 최대보유 20거래일"
+        },
+        "lowSample": false
       }
       /* … 나머지 3종 … */
-    ]
+    ],
+    "ranking": {
+      "ranking": ["event-edge", "conservative-value", "short-momentum", "aggressive-diversified"],
+      "bestKey": "event-edge",
+      "allLowSample": false
+    },
+    "lowSampleThreshold": 20
   }
 }
 ```
@@ -1693,27 +1704,28 @@ GET /api/paper-trading/simulation/strategies/:key/trade-history   (OptionalJwt �
 ```
 
 해당 전략 최신 트랙의 `BacktestTrade`(과거 매수/매도)를 **최신순(entryDate desc)**으로 반환한다.
-알 수 없는 키는 404, 트랙 미산출은 `hasTrack:false`(빈 배열) graceful.
+알 수 없는 키는 404, 트랙 미산출은 빈 `trades` 배열 graceful. 응답은 모바일 `StrategyTradeHistory`
+계약과 1:1(SSOT 동일). `status`는 `exitDate` 유무로 `OPEN`/`CLOSED`.
 
 ```jsonc
 {
   "success": true,
   "data": {
-    "strategyKey": "event-edge",
+    "key": "event-edge",
     "label": "이벤트엣지",
-    "rulesSummary": "…",
-    "hasTrack": true,
-    "runId": "ckxxx…",
-    "startDate": "2025-06-21",
-    "endDate": "2026-06-21",
-    "totalTrades": 40,
+    "tagline": "EventStudy 유의 양(+) 이벤트만 추종 …",
+    "rules": {
+      "entry": "양(+) 촉매 이벤트 6종 한정 · 매수점수 ≥50 · 점수가중 배분 · 최대 20종목",
+      "exit": "익절 +20% / 손절 -10% · 최대보유 20거래일"
+    },
     "trades": [
       {
+        "id": "ckxtrade…",
+        "stockCode": "005930", "stockName": "삼성전자",
+        "eventType": "SUPPLY_CONTRACT",
         "entryDate": "2025-07-01", "exitDate": "2025-07-10",
-        "corpName": "삼성전자", "corpCode": "A005930", "stockCode": "005930",
-        "eventType": "SUPPLY_CONTRACT", "persona": "GROWTH",
-        "buyScoreSnapshot": 72, "entryPrice": 70000, "exitPrice": 77000,
-        "returnPct": 9.5, "netPnl": 120000, "exitReason": "TAKE_PROFIT", "holdDays": 9
+        "entryPrice": 70000, "exitPrice": 77000,
+        "returnPct": 9.5, "exitReason": "TAKE_PROFIT", "holdDays": 9, "status": "CLOSED"
       }
       /* … 최신순 … */
     ]

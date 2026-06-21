@@ -73,6 +73,7 @@ function AppContent() {
             <Stack.Screen name="portfolio/trade-history" />
             <Stack.Screen name="portfolio/auto-trading" />
             <Stack.Screen name="portfolio/backtest-track-record" />
+            <Stack.Screen name="portfolio/strategy/[key]" />
             <Stack.Screen name="company/[corpCode]" />
             <Stack.Screen name="philosophy/index" />
             <Stack.Screen name="philosophy/[id]" />

@@ -2,6 +2,11 @@ import type { ApiResponse } from '@app-types/api.types';
 import type { EquityCurve, SimulationStatus } from '@app-types/simulation.types';
 import type { TradeHistory } from '@app-types/trade-rationale.types';
 import type { StyleComparison } from '@app-types/style-comparison.types';
+import type {
+  StrategyComparison,
+  StrategyKey,
+  StrategyTradeHistory,
+} from '@app-types/strategy-comparison.types';
 
 import { api } from './api';
 
@@ -29,5 +34,19 @@ export const simulationService = {
   getStyleComparison: () =>
     api
       .get<ApiResponse<StyleComparison>>('/paper-trading/simulation/styles/comparison')
+      .then((r) => r.data.data),
+
+  // 시스템 트레이딩 전략 변형 4종 비교 — OptionalJwt(게스트 데모 가능). DAR-405(BE: DAR-404).
+  getStrategyComparison: () =>
+    api
+      .get<ApiResponse<StrategyComparison>>('/paper-trading/simulation/strategies/comparison')
+      .then((r) => r.data.data),
+
+  // 전략별 과거 매수/매도 타임라인(BacktestTrade) — OptionalJwt. DAR-405(BE: DAR-404).
+  getStrategyTradeHistory: (key: StrategyKey) =>
+    api
+      .get<ApiResponse<StrategyTradeHistory>>(
+        `/paper-trading/simulation/strategies/${key}/trade-history`,
+      )
       .then((r) => r.data.data),
 };

@@ -15,6 +15,7 @@ import { SkeletonList } from '@components/common/SkeletonCard';
 import { useAuthStore } from '@stores/authStore';
 import { SimulationStatusSection } from '@components/portfolio/SimulationStatusSection';
 import { StyleComparisonSection } from '@components/portfolio/StyleComparisonSection';
+import { StrategyComparisonSection } from '@components/portfolio/StrategyComparisonSection';
 import { PersonaTrackSection } from '@components/portfolio/PersonaTrackSection';
 import { TodayCheckSlot } from '@components/portfolio/TodayCheckSlot';
 import { PositionSearchBar } from '@components/portfolio/PositionSearchBar';
@@ -375,9 +376,11 @@ export default function PortfolioScreen() {
                 ? renderPaper()
                 : subTab === 'sim'
                   ? <SimulationStatusSection />
-                  : subTab === 'persona'
-                    ? <PersonaTrackSection />
-                    : <StyleComparisonSection />}
+                  : subTab === 'strategy'
+                    ? <StrategyComparisonSection />
+                    : subTab === 'persona'
+                      ? <PersonaTrackSection />
+                      : <StyleComparisonSection />}
           </View>
         </>
       )}

@@ -8,7 +8,7 @@
 // '실전'(live)은 실제 주문 엔드포인트가 없어(Engine5 게이트) 항상 빈 상태일 수 있으므로
 // 빈 상태를 '준비 중'으로 정직하게 안내한다(매수 유도 CTA 금지).
 
-export type PortfolioSubTab = 'live' | 'paper' | 'sim' | 'persona' | 'style';
+export type PortfolioSubTab = 'live' | 'paper' | 'sim' | 'strategy' | 'persona' | 'style';
 
 export interface PortfolioTabDef {
   value: PortfolioSubTab;
@@ -22,6 +22,8 @@ export const PORTFOLIO_TABS: PortfolioTabDef[] = [
   { value: 'live', label: '실전', a11y: '실전 계좌 탭 — 실제 주문 기능은 준비 중' },
   { value: 'paper', label: '내 모의', a11y: '내 모의투자 탭 — AI 신호 기반 가상 주문' },
   { value: 'sim', label: '시스템 모의', a11y: '시스템 모의운용 탭 — 엔진이 일일 사이클로 운용하는 가상 포트폴리오' },
+  // DAR-405: '트레이딩 로직(진입/청산/사이징 룰)' 축 — 거장철학(style)·페르소나와 별개 비교.
+  { value: 'strategy', label: '전략', a11y: '시스템 트레이딩 전략 변형 비교 탭 — 진입/청산 룰이 다른 4종 비교' },
   { value: 'persona', label: '페르소나', a11y: '페르소나 트랙 비교 탭' },
   { value: 'style', label: '스타일', a11y: '스타일 성과 비교 탭' },
 ];

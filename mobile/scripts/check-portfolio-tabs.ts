@@ -56,13 +56,23 @@ const a11ys = PORTFOLIO_TABS.map((t) => t.a11y);
 check('A3b a11y 라벨 중복 없음', new Set(a11ys).size === a11ys.length);
 check('A3c 모든 탭 a11y 라벨 비어있지 않음', a11ys.every((a) => a.trim().length > 0));
 
-// A4: 5개 탭 존재(순서/값)
-const expectedValues: PortfolioSubTab[] = ['live', 'paper', 'sim', 'persona', 'style'];
+// A4: 6개 탭 존재(순서/값) — DAR-405: 'strategy'(전략)를 sim과 persona 사이에 추가.
+const expectedValues: PortfolioSubTab[] = [
+  'live',
+  'paper',
+  'sim',
+  'strategy',
+  'persona',
+  'style',
+];
 check(
-  'A4 탭 값 5개 일치',
-  PORTFOLIO_TABS.length === 5 && expectedValues.every((v, i) => PORTFOLIO_TABS[i].value === v),
+  'A4 탭 값 6개 일치',
+  PORTFOLIO_TABS.length === 6 && expectedValues.every((v, i) => PORTFOLIO_TABS[i].value === v),
   `values=${PORTFOLIO_TABS.map((t) => t.value).join('/')}`,
 );
+
+// A5: DAR-405 — 전략 탭 라벨 = '전략'(거장철학 'style'·페르소나와 구분).
+check('A5 strategy 라벨 = "전략"', byValue.strategy?.label === '전략', `label=${byValue.strategy?.label}`);
 
 // B: 빈 실전탭 분기 진리표
 const liveCases: { positions: number; expect: 'preparing' | 'noSearchResult' }[] = [

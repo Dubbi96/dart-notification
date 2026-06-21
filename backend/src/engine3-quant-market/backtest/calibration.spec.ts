@@ -30,10 +30,14 @@ import {
 import { EVENT_BASE_SCORES } from '../buy-signal/config/buy-signal.config';
 
 function horizon(partial: Partial<HorizonAccuracy> = {}): HorizonAccuracy {
+  const avg = partial.avgExcessReturn !== undefined ? partial.avgExcessReturn : 0;
   return {
     sampleCount: 10,
-    avgExcessReturn: 0,
-    medianExcessReturn: 0,
+    avgExcessReturn: avg,
+    medianExcessReturn: avg,
+    winsorizedMeanExcessReturn: avg,
+    // ★impliedScore 는 robustExcessReturn 기반(DAR-410). 미지정 시 avg 를 미러(기존 검증축 보존).
+    robustExcessReturn: avg,
     winRate: 0.5,
     isSignificant: true,
     pValue: 0.01,
@@ -154,6 +158,27 @@ describe('calibrateEventScore (EVENT_BASE_SCORES 괴리·권장 delta)', () => {
     );
     expect(calibrateEventScore(b, 'd20').impliedScore).toBe(20);
     expect(calibrateEventScore(b, 'd5').impliedScore).toBe(70);
+  });
+
+  // DAR-410 — impliedScore 는 robustExcessReturn 기반(이상치 오염 차단).
+  it('★위험 이벤트 안전: 산술평균은 양(+)이어도 robust 가 음이면 impliedScore 음 → 거짓 상향 권고 차단', () => {
+    // DELISTING_RISK base=-100. 산술평균 +5%(소수 폭등 오염)이지만 robust -6% → impliedScore -60.
+    // robust 미반영(구버전)이면 implied +50, gap +150 → -100 을 상향(완화)하는 치명적 권고가 났을 것.
+    const c = calibrateEventScore(
+      bucket('DELISTING_RISK', {
+        avgExcessReturn: 5,
+        robustExcessReturn: -6,
+        sampleCount: 20,
+        isSignificant: true,
+      }),
+      'd20',
+    );
+    expect(c.avgExcessReturn).toBe(5); // 투명성: 오염된 평균도 노출
+    expect(c.robustExcessReturn).toBe(-6);
+    expect(c.impliedScore).toBe(-60); // ★robust 기반 — 상향 아님
+    expect(c.impliedScore as number).toBeLessThan(0);
+    // gap = -60 - (-100) = +40 → 여전히 base 가 robust 보다 과도하게 음, 소폭 완화는 가능하나 양전환 아님
+    expect(c.suggestedNewScore as number).toBeLessThan(0);
   });
 });
 

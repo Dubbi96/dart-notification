@@ -144,6 +144,30 @@ describe('computeGradeMonotonicity (등급 단조성)', () => {
     expect(m.avgReturnRankCorrelation).toBe(1); // 우수등급=고수익 완전단조
   });
 
+  // DAR-410 — 등급 역전이 이상치 오염 아티팩트임을 증명: 산술평균은 거짓 역전(isMonotonic=false)
+  //   이지만 강건(median) 축은 단조 성립(isRobustMonotonic=true). 실측(BLOCKED +7.69 mean,
+  //   med/win 은 최저) 패턴 재현.
+  it('이상치 오염 시 평균AR 단조는 거짓 위반·강건AR 단조는 성립(isRobustMonotonic)', () => {
+    const watch = Array.from({ length: 8 }, (_, i) => ({ v: [-3, -5, -4, -6, -2, -7, -4, 3][i] }));
+    const blocked = Array.from({ length: 8 }, (_, i) => ({ v: [-6, -7, -8, -6, -7, -5, -6, 200][i] })); // 7손실 + 1폭등(오염)
+    const returns: SignalRealizedReturn[] = [
+      ...watch.map((x) => sig({ signalGrade: 'WATCH', arD20: x.v })),
+      ...blocked.map((x) => sig({ signalGrade: 'BLOCKED', arD20: x.v })),
+    ];
+    const m = computeGradeMonotonicity(returns, 'd20');
+    const [w, b] = m.orderedGrades; // WATCH(rank2) → BLOCKED(rank5)
+    expect(w.grade).toBe('WATCH');
+    expect(b.grade).toBe('BLOCKED');
+    // 산술평균: BLOCKED 가 폭등 1개로 더 높아 거짓 역전 → 평균AR 위반
+    expect(b.avgExcessReturn as number).toBeGreaterThan(w.avgExcessReturn as number);
+    expect(m.avgReturnViolations).toBe(1);
+    expect(m.isMonotonic).toBe(false); // 평균 기준 = 거짓 역전(오염)
+    // 강건AR: BLOCKED 의 median 은 음수로 WATCH 보다 낮음 → 위반 0, 단조 성립
+    expect(b.robustExcessReturn as number).toBeLessThan(w.robustExcessReturn as number);
+    expect(m.robustReturnViolations).toBe(0);
+    expect(m.isRobustMonotonic).toBe(true); // ★권위 판정: 등급 단조 성립
+  });
+
   it('열위 등급이 우수 등급보다 평균AR 높으면 위반 카운트', () => {
     const returns: SignalRealizedReturn[] = [
       sig({ signalGrade: 'STRONG_BUY_CANDIDATE', arD5: 1 }),

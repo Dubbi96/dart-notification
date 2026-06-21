@@ -193,7 +193,7 @@ dart-notification/
 │   │   │   ├── signals/
 │   │   │   │   └── index.tsx  # 신호 피드 (매수/매도 서브탭) [DAR-21]
 │   │   │   ├── portfolio/
-│   │   │   │   └── index.tsx  # 포트폴리오 (실전/모의 서브탭) [DAR-21]
+│   │   │   │   └── index.tsx  # 포트폴리오 (실전/내모의/시스템모의/전략/페르소나/스타일 서브탭) [DAR-21, DAR-405: 전략 탭]
 │   │   │   ├── settings/
 │   │   │   │   └── index.tsx  # 설정 화면
 │   │   │   └── _layout.tsx    # 신호(zap)·포트폴리오(briefcase) 탭 추가 [DAR-21]
@@ -206,9 +206,11 @@ dart-notification/
 │   │   ├── signals/
 │   │   │   └── [id].tsx       # 매수 후보 상세 [DAR-21]
 │   │   ├── portfolio/
-│   │   │   └── [portfolioId]/position/[positionId]/
-│   │   │       ├── index.tsx  # 포지션 상세 [DAR-21]
-│   │   │       └── thesis.tsx # Thesis 상세 [DAR-21]
+│   │   │   ├── [portfolioId]/position/[positionId]/
+│   │   │   │   ├── index.tsx  # 포지션 상세 [DAR-21]
+│   │   │   │   └── thesis.tsx # Thesis 상세 [DAR-21]
+│   │   │   └── strategy/
+│   │   │       └── [key].tsx  # 전략 드릴다운 — 과거 매수/매도 타임라인 [DAR-405]
 │   │   ├── onboarding/
 │   │   │   └── index.tsx      # 온보딩
 │   │   ├── legal/             # 법적 문서

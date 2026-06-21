@@ -1,0 +1,440 @@
+import React, { useMemo, useCallback, useState } from 'react';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
+import { Surface, Banner } from 'react-native-paper';
+import { Feather } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { useTheme } from '@theme';
+import { spacing, radius } from '@theme/spacing';
+import { PriceChangeChip } from '@components/common/PriceChangeChip';
+import { EmptyState, ErrorState } from '@components/common/StateView';
+import { SkeletonList } from '@components/common/SkeletonCard';
+import { EquityCurveChart } from '@components/portfolio/EquityCurveChart';
+import { DataLimitBadge } from '@components/common/DataLimitBadge';
+import { useStrategyComparison } from '@hooks/useStrategyComparison';
+import { formatReturnPct, formatWinRate } from '@utils/numberFormat';
+
+import type {
+  StrategyComparison,
+  StrategyPerformance,
+} from '@app-types/strategy-comparison.types';
+
+// 시스템 트레이딩 전략 변형 4종 비교 — DAR-405 (BE: DAR-404).
+// 진입/청산/사이징 룰이 다른 4개 백테스트 트랙을 한눈에 비교하고, 탭하면 각 전략의 과거
+// 매수/매도 타임라인으로 드릴다운한다. 거장철학(StyleComparisonSection)·페르소나와 별개의
+// '트레이딩 로직' 축. 표본 부족은 LOW_SAMPLE 배지로 과신 방지(정직 표기). 테마 토큰만·
+// 하드코딩 색상 0·접근성 라벨·44pt 터치영역.
+
+/** Sharpe·MDD·alpha — 측정 불가(null)는 정직하게 '측정 불가'. */
+function formatSharpe(value: number | null): string {
+  return value === null ? '측정 불가' : value.toFixed(2);
+}
+function formatSignedPct(value: number | null): string {
+  return value === null ? '측정 불가' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+}
+
+/** 우승 배지 — 표본 있는 전략 중 최고 누적수익률(🥇). */
+function BestBadge() {
+  const { colors, typography: typo } = useTheme();
+  return (
+    <View
+      style={[styles.badge, { backgroundColor: colors.successSurface }]}
+      accessibilityRole="text"
+      accessibilityLabel="현재 최고 수익 전략"
+    >
+      <Text style={[typo.small, { color: colors.success }]}>🥇 최고 수익</Text>
+    </View>
+  );
+}
+
+function StatPair({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  const { colors, typography: typo } = useTheme();
+  return (
+    <View
+      style={styles.statPair}
+      accessibilityRole="text"
+      accessibilityLabel={`${label} ${value}${sub ? ` ${sub}` : ''}`}
+    >
+      <Text style={[typo.small, { color: colors.textSecondary }]}>{label}</Text>
+      <Text style={[typo.captionMedium, { color: colors.text }]}>
+        {value}
+        {sub ? (
+          <Text style={[typo.small, { color: colors.textTertiary }]}>{`  ${sub}`}</Text>
+        ) : null}
+      </Text>
+    </View>
+  );
+}
+
+/** 1차 핵심 지표 — 값을 라벨보다 명확히 키운 위계. */
+function PrimaryStat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  const { colors, typography: typo } = useTheme();
+  return (
+    <View
+      style={styles.primaryStat}
+      accessibilityRole="text"
+      accessibilityLabel={`${label} ${value}${sub ? ` ${sub}` : ''}`}
+    >
+      <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+        {label}
+      </Text>
+      <Text style={[typo.body, styles.primaryValue, { color: colors.text }]} numberOfLines={1}>
+        {value}
+      </Text>
+      {sub ? (
+        <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={1}>
+          {sub}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+// 인라인 접기(DAR-194 패턴) — 전문/희귀 지표·룰을 '한 탭 뒤'로 숨겨 카드 과밀을 줄인다.
+// 색 단독 의미 금지 — 아이콘(형태)+평문 병행. 44pt 터치영역.
+function InlineDisclosure({
+  label,
+  icon,
+  children,
+}: {
+  label: string;
+  icon?: keyof typeof Feather.glyphMap;
+  children: React.ReactNode;
+}) {
+  const { colors, typography: typo } = useTheme();
+  const [expanded, setExpanded] = useState(false);
+  const toggle = useCallback(() => setExpanded((v) => !v), []);
+  return (
+    <View>
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={toggle}
+        style={styles.discHeader}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityLabel={`${label}, ${expanded ? '펼침' : '접힘'}`}
+      >
+        <View style={styles.discHeaderLeft}>
+          {icon ? <Feather name={icon} size={14} color={colors.textTertiary} /> : null}
+          <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+            {label}
+          </Text>
+        </View>
+        <Feather
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={16}
+          color={colors.textTertiary}
+        />
+      </TouchableOpacity>
+      {expanded ? <View style={styles.discBody}>{children}</View> : null}
+    </View>
+  );
+}
+
+function StrategyCard({ perf, isBest }: { perf: StrategyPerformance; isBest: boolean }) {
+  const { colors, typography: typo } = useTheme();
+  const openDrilldown = useCallback(() => {
+    router.push(`/portfolio/strategy/${perf.key}`);
+  }, [perf.key]);
+
+  return (
+    <Surface
+      elevation={1}
+      style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
+    >
+      {/* 카드 본문 탭 → 매수/매도 타임라인 드릴다운(InlineDisclosure 토글은 자체 터치로 독립). */}
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={openDrilldown}
+        accessibilityRole="button"
+        accessibilityLabel={`${perf.label} 전략 — 매수/매도 타임라인 보기. 누적수익 ${formatReturnPct(
+          perf.cumulativeReturnPct,
+        )}`}
+        style={styles.cardTap}
+      >
+        <View style={styles.cardHead}>
+          <View style={styles.cardTitleRow}>
+            <Text style={[typo.bodyMedium, { color: colors.text }]}>{perf.label}</Text>
+            {isBest ? <BestBadge /> : null}
+            {perf.lowSample ? <DataLimitBadge /> : null}
+          </View>
+          <PriceChangeChip value={perf.cumulativeReturnPct} />
+        </View>
+
+        <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={2}>
+          {perf.tagline}
+        </Text>
+
+        {/* 전략별 미니 자산곡선(점 0·1개도 정직하게). */}
+        {perf.equityCurve.length > 0 ? (
+          <EquityCurveChart points={perf.equityCurve} initialCapital={perf.initialCapital} />
+        ) : (
+          <Text style={[typo.small, { color: colors.textTertiary, paddingVertical: spacing.sm }]}>
+            아직 자산곡선 데이터가 없습니다 — 백테스트 트랙이 누적되면 표시됩니다.
+          </Text>
+        )}
+
+        {/* 1차: 카드 순위를 정하는 핵심 3수치(값 위계 강화). */}
+        <View style={styles.primaryRow}>
+          <PrimaryStat label="누적수익" value={formatReturnPct(perf.cumulativeReturnPct)} />
+          <PrimaryStat
+            label="승률"
+            value={formatWinRate(perf.winRate, { fallback: '표본 부족' })}
+            sub={`n=${perf.sampleSize}`}
+          />
+          <PrimaryStat label="트레이드" value={`${perf.tradeCount}건`} />
+        </View>
+      </TouchableOpacity>
+
+      {/* 2차: 전문/희귀 지표 + 룰은 한 탭 뒤로(progressive disclosure). */}
+      <InlineDisclosure label="상세 — Sharpe·MDD·vs KOSPI·진입/청산 룰" icon="info">
+        <View style={styles.statGrid}>
+          <StatPair label="Sharpe" value={formatSharpe(perf.sharpe)} />
+          <StatPair label="MDD" value={formatSignedPct(perf.maxDrawdownPct)} />
+          <StatPair label="vs KOSPI" value={formatSignedPct(perf.benchmarkAlphaPct)} />
+          <StatPair label="청산 표본" value={`${perf.sampleSize}건`} />
+        </View>
+        <View style={styles.ruleBox}>
+          <Text style={[typo.small, { color: colors.textSecondary }]}>
+            진입 룰 · <Text style={{ color: colors.text }}>{perf.rules.entry}</Text>
+          </Text>
+          <Text style={[typo.small, { color: colors.textSecondary }]}>
+            청산 룰 · <Text style={{ color: colors.text }}>{perf.rules.exit}</Text>
+          </Text>
+        </View>
+      </InlineDisclosure>
+
+      {/* 드릴다운 명시 어포던스 — 카드 본문 탭과 동일 동선(중복 진입점, 발견성↑). */}
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={openDrilldown}
+        style={[styles.drilldownRow, { borderTopColor: colors.borderLight }]}
+        accessibilityRole="button"
+        accessibilityLabel={`${perf.label} 매수/매도 타임라인 보기`}
+      >
+        <Feather name="list" size={14} color={colors.primary} />
+        <Text style={[typo.small, { color: colors.primary, flex: 1 }]}>매수/매도 타임라인 보기</Text>
+        <Feather name="chevron-right" size={16} color={colors.primary} />
+      </TouchableOpacity>
+    </Surface>
+  );
+}
+
+function ComparisonHeader({ data }: { data: StrategyComparison }) {
+  const { colors, typography: typo } = useTheme();
+  const best = data.ranking.bestKey
+    ? data.strategies.find((s) => s.key === data.ranking.bestKey)
+    : null;
+  return (
+    <View style={styles.headerBox}>
+      <Banner
+        visible
+        actions={[]}
+        icon="flask"
+        style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}
+      >
+        <Text style={[typo.small, { color: colors.info }]}>
+          시스템 트레이딩 전략 변형 백테스트 비교 — 실제 주문이 아닙니다. 과거 성과는 미래를
+          보장하지 않습니다.
+        </Text>
+      </Banner>
+
+      <Surface
+        elevation={1}
+        style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}
+      >
+        <Text style={[typo.small, { color: colors.textSecondary }]}>현재 선두 전략</Text>
+        {best ? (
+          <>
+            <Text style={[typo.h3, { color: colors.text, marginTop: spacing.xs }]}>
+              {best.label}
+            </Text>
+            <Text
+              style={[typo.captionMedium, { color: colors.textSecondary, marginTop: spacing.xs }]}
+            >
+              누적수익 {formatReturnPct(best.cumulativeReturnPct)} · 표본 {best.sampleSize}건
+            </Text>
+          </>
+        ) : (
+          <Text style={[typo.captionMedium, { color: colors.textTertiary, marginTop: spacing.xs }]}>
+            아직 청산 표본이 없어 우열을 가릴 수 없습니다.
+          </Text>
+        )}
+        <View style={styles.headerDisclosure}>
+          <InlineDisclosure
+            label={
+              data.ranking.allLowSample ? '표본 적음 · 비교 방법 보기' : '비교 방법 보기'
+            }
+            icon={data.ranking.allLowSample ? 'alert-triangle' : 'info'}
+          >
+            <View style={styles.headerDiscRows}>
+              {data.ranking.allLowSample ? (
+                <Text style={[typo.small, { color: colors.warning }]}>
+                  표본이 적어 결론을 과신하지 마세요(표본 {data.lowSampleThreshold}건 미만).
+                </Text>
+              ) : null}
+              <Text style={[typo.small, { color: colors.textTertiary }]}>
+                동일 초기자본 {data.initialCapital.toLocaleString('ko-KR')}원으로 진입/청산/사이징
+                룰만 달리한 4개 백테스트 트랙을 누적수익률 내림차순으로 비교합니다. 카드를 탭하면
+                각 전략의 과거 매수/매도 타임라인을 볼 수 있어요.
+              </Text>
+            </View>
+          </InlineDisclosure>
+        </View>
+      </Surface>
+    </View>
+  );
+}
+
+export function StrategyComparisonSection() {
+  const { colors } = useTheme();
+  const query = useStrategyComparison();
+
+  // 랭킹(누적수익률 내림차순)대로 카드 정렬.
+  const ordered = useMemo<StrategyPerformance[]>(() => {
+    const data = query.data;
+    if (!data) return [];
+    const byKey = new Map(data.strategies.map((s) => [s.key, s]));
+    return data.ranking.ranking
+      .map((key) => byKey.get(key))
+      .filter((s): s is StrategyPerformance => !!s);
+  }, [query.data]);
+
+  const renderCard = useCallback(
+    ({ item }: { item: StrategyPerformance }) => (
+      <StrategyCard perf={item} isBest={item.key === query.data?.ranking.bestKey} />
+    ),
+    [query.data?.ranking.bestKey],
+  );
+
+  if (query.isLoading) return <SkeletonList variant="buyScore" />;
+  if (query.isError) {
+    return <ErrorState title="전략별 성과를 불러오지 못했습니다." onRetry={query.refetch} />;
+  }
+
+  const data = query.data;
+
+  return (
+    <FlatList
+      data={ordered}
+      renderItem={renderCard}
+      keyExtractor={(item) => item.key}
+      initialNumToRender={4}
+      maxToRenderPerBatch={4}
+      windowSize={5}
+      contentContainerStyle={styles.listContent}
+      showsVerticalScrollIndicator={false}
+      refreshing={query.isRefetching}
+      onRefresh={query.refetch}
+      ListHeaderComponent={data ? <ComparisonHeader data={data} /> : null}
+      ListEmptyComponent={
+        <EmptyState
+          icon="bar-chart-2"
+          title="아직 전략별 데이터가 없습니다."
+          description="전략 변형 백테스트 트랙이 누적되면 비교가 표시됩니다."
+        />
+      }
+      style={{ backgroundColor: colors.background }}
+    />
+  );
+}
+
+const styles = StyleSheet.create({
+  listContent: {
+    padding: spacing.lg,
+    gap: spacing.md,
+    flexGrow: 1,
+  },
+  headerBox: {
+    gap: spacing.md,
+    marginBottom: spacing.md,
+  },
+  banner: {
+    borderRadius: radius.md,
+  },
+  summary: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.base,
+  },
+  card: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.base,
+    gap: spacing.sm,
+  },
+  cardTap: {
+    gap: spacing.sm,
+  },
+  cardHead: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flexShrink: 1,
+  },
+  badge: {
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+  },
+  primaryRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  primaryStat: {
+    flex: 1,
+    gap: 2,
+  },
+  primaryValue: {
+    fontWeight: '700',
+  },
+  discHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 44,
+    gap: spacing.sm,
+  },
+  discHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flexShrink: 1,
+  },
+  discBody: {
+    paddingBottom: spacing.xs,
+    gap: spacing.sm,
+  },
+  ruleBox: {
+    gap: spacing.xs,
+  },
+  drilldownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    minHeight: 44,
+    borderTopWidth: 1,
+    paddingTop: spacing.xs,
+  },
+  headerDisclosure: {
+    marginTop: spacing.xs,
+  },
+  headerDiscRows: {
+    gap: spacing.xs,
+  },
+  statGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    rowGap: spacing.xs,
+  },
+  statPair: {
+    width: '50%',
+    paddingVertical: spacing.xs / 2,
+    gap: 2,
+  },
+});

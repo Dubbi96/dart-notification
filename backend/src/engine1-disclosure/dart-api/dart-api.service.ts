@@ -188,6 +188,10 @@ export class DartApiService {
     end_de: string;
     page_no?: number;
     page_count?: number;
+    /** 정렬 기준(date=접수일자). 미지정 시 DART 기본(date). */
+    sort?: string;
+    /** 정렬 방향(desc=최신순). 미지정 시 DART 기본. */
+    sort_mth?: 'asc' | 'desc';
   }): Promise<DartListResponse> {
     try {
       const response = await this.httpClient.get('/list.json', {
@@ -249,6 +253,81 @@ export class DartApiService {
     }
 
     return allItems;
+  }
+
+  /**
+   * DART 공시 목록 전체 조회 — 쿼터 인지(quota-aware) 변형 (DAR-396).
+   *
+   * getAllDisclosures 와 동일하게 전 페이지를 모으되, ★종료 사유를 호출자에게 노출한다:
+   *  - status "020"(일일 요청한도 20,000건 초과)·"021"(조회 가능 회사수 초과) → quotaExceeded=true.
+   *    일일 쿼터 소진 신호다. 이 경우 누적된 (그때까지 받은) 페이지만 반환하고 페이지네이션을 멈춘다.
+   *  - 그 외 비정상 status(예: 800/900대) → abnormalStatus 로 노출(throw 금지, 누적분 반환).
+   *  - "013"(데이터 없음)·정상 완주 → quotaExceeded=false, abnormalStatus=null.
+   *
+   * ★정렬을 date/desc(최신순)로 고정한다. 과거 확장 백필 드레이너는 쿼터가 페이지네이션을
+   *   중도 끊었을 때 '받은 페이지 = 윈도의 최신 구간'임을 전제로 안전 재개하므로, 정렬 방향을
+   *   명시해 그 전제를 보장한다(미지정 시 DART 기본도 date/desc 이나 의존하지 않고 고정).
+   *
+   * 기존 getAllDisclosures(라이브 수집 경로)는 변경하지 않는다 — 본 메서드는 백필 전용.
+   */
+  async getAllDisclosuresWithMeta(
+    bgnDe: string,
+    endDe: string,
+  ): Promise<{
+    items: DartDisclosureItem[];
+    /** 일일 쿼터(020/021) 소진으로 페이지네이션이 중단되었는가. true면 백오프 신호. */
+    quotaExceeded: boolean;
+    /** 쿼터 외 비정상 종료 status(있으면). 정상/데이터없음/쿼터면 null. */
+    abnormalStatus: string | null;
+  }> {
+    const allItems: DartDisclosureItem[] = [];
+    let pageNo = 1;
+    const pageCount = 100;
+    let quotaExceeded = false;
+    let abnormalStatus: string | null = null;
+
+    while (true) {
+      const response = await this.getDisclosureList({
+        bgn_de: bgnDe,
+        end_de: endDe,
+        page_no: pageNo,
+        page_count: pageCount,
+        sort: 'date',
+        sort_mth: 'desc',
+      });
+
+      // "000" = 정상, "013" = 조회된 데이터 없음(정상 종료).
+      if (response.status === '013') {
+        break;
+      }
+
+      if (response.status !== '000') {
+        // 020/021 = 일일 쿼터·조회회사수 초과 → 백오프 신호.
+        if (response.status === '020' || response.status === '021') {
+          quotaExceeded = true;
+          this.logger.warn(
+            `DART list 쿼터 소진 감지(status=${response.status}) — ${bgnDe}~${endDe} ` +
+              `page ${pageNo}까지 누적(${allItems.length}건) 후 중단. 다음 리셋 후 재개.`,
+          );
+        } else {
+          abnormalStatus = response.status;
+          this.logger.warn(
+            `DART list 비정상 응답: ${response.status} - ${response.message} (${bgnDe}~${endDe})`,
+          );
+        }
+        break;
+      }
+
+      allItems.push(...response.list);
+
+      if (pageNo >= response.total_page) {
+        break;
+      }
+
+      pageNo++;
+    }
+
+    return { items: allItems, quotaExceeded, abnormalStatus };
   }
 
   /**

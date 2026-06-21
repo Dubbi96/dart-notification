@@ -583,6 +583,39 @@ async drainOffload() {
 
 **AI/Risk 무관**: 순수 인프라/용량 작업. 신규 AI 호출 0, Engine5 하드룰과 무관.
 
+### 2.8 과거 메타데이터 연속 확장 백필 (매시간, DAR-396)
+
+**진단**: 공시 `rcpDt` 범위가 최근 1년(`20250619~20260619`)에 머물러 있다(실측: 총 247,766건, 그중
+백필 241,700건, 최소 rcpDt 20250619). DART 는 과거 수년치(대략 1999~)를 제공하나, 기존 백필(DAR-129
+manual / DAR-391 event)은 '1년 윈도'를 채우는 데 그쳤고 **더 과거로 연속 내려가는 자동화가 없었다**.
+list/document 공유 일일 쿼터(20,000건)가 자주 소진되어 일회성 스크립트로는 멈추기 쉬웠다.
+
+**해법**: `ContinuousBackfillScheduler`(`@Cron('0 * * * *')`, 매시간) → `ContinuousBackfillDrainService.drainOnce()`.
+현재 프런티어(가장 과거 완주 스캔 지점) 직전부터 **월(30일) 단위 청크로 과거로 내려가며** 수집한다.
+
+```
+프런티어 = min( status='SUCCESS' 인 BACKFILL_EXTEND 수집로그의 최소 bgnDe,
+                전체 공시 최소 rcpDt )   // 둘 중 더 과거(작은 값)
+윈도 endDe = 프런티어 하루 전,  윈도 bgnDe = max(하한 19990101, endDe − 29일)
+→ getAllDisclosuresWithMeta(쿼터 인지) → dedup createMany(isBackfill=true) → enqueueParsing(#344 체이닝)
+→ DisclosureCollectionLog(triggeredBy='BACKFILL_EXTEND') 기록
+```
+
+- **쿼터 인지**: `DartApiService.getAllDisclosuresWithMeta` 가 list 응답 `020`(일일한도)·`021`(회사수) 을
+  감지하면 `quotaExceeded=true` — 그 윈도를 **PARTIAL** 로 남기고(프런티어 미advance) 드레인을 멈춘다.
+  **throw 금지**. 다음 정각 사이클(자정 리셋 후)이 그 윈도를 처음부터 재시도 → 완주하면 SUCCESS 가 되어
+  비로소 프런티어가 내려간다(문서 드레인 #344 와 동일 정신).
+- **멱등·재개**: rcpNo dedup(createMany skipDuplicates) — 중단 후 재실행 = 재개. **완주(SUCCESS)한 윈도만
+  프런티어를 내린다** → 쿼터로 절단된 윈도는 재시도되어 갭이 생기지 않는다. 빈 윈도(0건이지만 완주)도
+  SUCCESS 로 기록되어 프런티어가 계속 내려가다 하한(19990101)에서 `reachedEarliest` 로 종료된다.
+- **체이닝**: 신규 저장분은 문서 드레인(#344)+거래대상 우선 fetch→이벤트 추출(2.5)→신호·백테스트로 흐른다.
+- **격리**: `isBackfill=true` — 라이브 신호·푸시 알림 불간섭(DAR-129). 과거 공시 푸시 폭탄 방지(알림 미발송).
+- **진행 가시성**: `GET /scheduler/backfill-coverage`(최소·최대 rcpDt·총건수·프런티어·하한 도달).
+  수동 드레인 `POST /scheduler/backfill-extend`(maxChunks, 인증 필수).
+
+**대용량 주의**: 과거 다년치 수집 시 `disclosure_documents` 가 폭증한다 → 문서 본문 S3 오프로드(§2.6 DAR-395)
+및 파싱 표 오프로드(§2.7 DAR-399)로 흡수. **메타 수집(본 경로)은 경량(list API)이라 우선 진행 가능**하다.
+
 ---
 
 ## 3. 에러 처리 및 재시도 전략

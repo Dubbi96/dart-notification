@@ -31,6 +31,8 @@ export const CRON_JOB_KEYS = {
   RAWTEXT_OFFLOAD_DRAIN: 'rawtext.offload-drain',
   // DAR-399: tables(파싱 표 JSONB·TOAST 진짜 bulk) 객체 스토리지 오프로드 드레인 — S3/로컬 이전 후 컬럼 비움.
   TABLES_OFFLOAD_DRAIN: 'tables.offload-drain',
+  // DAR-396: 연속 과거 확장 백필 — 공시 메타데이터를 DART 가용 최초까지 월 단위로 내려가며 수집(쿼터 인지).
+  DISCLOSURE_BACKFILL_EXTEND: 'disclosure.backfill-extend',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -219,5 +221,16 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: 60, // 10분 간격 — 1시간 무가동이면 정체
     cadence: '매 10분',
+  },
+  {
+    // DAR-396: 연속 과거 확장 백필. 매시간 가동하나 일일 쿼터 소진 시 PARTIAL 로 멈췄다 다음
+    //   리셋(자정) 후 정각 사이클에 재개된다. 쿼터 소진 구간(최대 ~하루)을 정상으로 흡수하도록
+    //   임계를 넉넉히(26시간). 하한 도달 후엔 no-op 이라 기록이 멈출 수 있으나 그건 '완료'다.
+    jobKey: CRON_JOB_KEYS.DISCLOSURE_BACKFILL_EXTEND,
+    label: '연속 과거 확장 백필',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: 1_560, // 26시간 — 매시간 가동, 일일 쿼터 소진 구간 흡수
+    cadence: '매시간(쿼터 소진 시 다음 리셋 후 재개)',
   },
 ];

@@ -1416,8 +1416,24 @@ DART 정형 엔드포인트 2종을 수집·정규화한 행. 미공개 펀더�
   기존분 이전은 `RawTextOffloadScheduler`(매 10분)·`POST /api/pipeline/rawtext-offload`(멱등) 가 담당.
   디스크 회수는 운영 `VACUUM`(docs/deployment.md §객체 원문 S3 오프로드 운영).
 
+## 21. Engine1 — DisclosureDocument.tables S3 오프로드 (DAR-399, TOAST 진짜 bulk 해소)
+
+rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔존했다. TOAST 분해(실측)
+결과 **진짜 bulk 는 rawText 가 아니라 `tables` JSONB(약 1,619MB·58k 문서)** 였다(`parsedJson` 은 5MB뿐
+이라 콜드가 아니며 DB 유지). 따라서 `tables` 도 rawText 와 동일 패턴으로 객체 스토리지로 오프로드한다.
+
+- 신규 컬럼: `tablesS3Key String?` — 오프로드된 표 객체 키(`disclosure-tables/{rcpNo}.json.gz`, JSON+gzip).
+  미오프로드 행은 NULL(이 경우 `tables` 컬럼이 표 보유).
+- `tables Json?` 의미 변경: 오프로드 완료 시 `Prisma.DbNull`(SQL NULL)로 비운다(미오프로드/실패분은 유지).
+  → DB 행 경량화. SHARE_BUYBACK 폴백 스캔(재추출)은 `tablesS3Key` 로 lazy fetch(`TablesStoreService`).
+  추출 hot read 입력인 `parsedJson` 은 오프로드하지 않는다(5MB·매 추출 조회).
+- 쓰기: 파싱 완료 시점 JSON+gzip 업로드 후 컬럼 비움(멱등). 실패 시 graceful(tables 보존·데이터 손실 0).
+- 마이그레이션: `20260621010000_dar399_tables_s3_key` (★파일만 생성 — 휴먼 적용, 순수 가산 nullable 컬럼).
+  기존분 이전은 `TablesOffloadScheduler`(매 10분)·`POST /api/pipeline/tables-offload`(멱등) 가 담당.
+  디스크 회수는 운영 `VACUUM`(docs/deployment.md §객체 원문 S3 오프로드 운영).
+
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-06-20 (DAR-395 DisclosureDocument.rawTextS3Key 추가 — rawText S3 오프로드)
-**버전**: 2.4 (DAR-395: rawText 객체 스토리지 오프로드 + rawTextS3Key 포인터 컬럼; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)
+**최종 수정일**: 2026-06-21 (DAR-399 DisclosureDocument.tablesS3Key 추가 — tables S3 오프로드)
+**버전**: 2.5 (DAR-399: tables 객체 스토리지 오프로드 + tablesS3Key 포인터 컬럼; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)

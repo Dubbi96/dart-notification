@@ -29,6 +29,8 @@ export const CRON_JOB_KEYS = {
   EVENT_BACKFILL_DRAIN: 'event.backfill-drain',
   // DAR-395: rawText 객체 스토리지 오프로드 드레인 — 과거 원문을 S3/로컬로 이전 후 DB 컬럼 비움(경량화).
   RAWTEXT_OFFLOAD_DRAIN: 'rawtext.offload-drain',
+  // DAR-399: tables(파싱 표 JSONB·TOAST 진짜 bulk) 객체 스토리지 오프로드 드레인 — S3/로컬 이전 후 컬럼 비움.
+  TABLES_OFFLOAD_DRAIN: 'tables.offload-drain',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -202,6 +204,17 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     //   잔여가 0이 되면 더 옮길 게 없어도 cron 은 계속 RAN(드레인 0건)이므로 신선도는 유지된다.
     jobKey: CRON_JOB_KEYS.RAWTEXT_OFFLOAD_DRAIN,
     label: 'rawText 오프로드 드레인',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: 60, // 10분 간격 — 1시간 무가동이면 정체
+    cadence: '매 10분',
+  },
+  {
+    // DAR-399: tables 오프로드 드레인. tables JSONB 가 disclosure_documents TOAST 의 진짜 bulk(~1.6GB).
+    //   가동이 멈추면 과거 tables 이전이 정체되어 DB 경량화가 진행되지 않는다. 매 10분 가동.
+    //   잔여가 0이 되면 더 옮길 게 없어도 cron 은 계속 RAN(드레인 0건)이므로 신선도는 유지된다.
+    jobKey: CRON_JOB_KEYS.TABLES_OFFLOAD_DRAIN,
+    label: 'tables 오프로드 드레인',
     source: 'CRON_RUN_LOG',
     window: 'ALWAYS',
     staleAfterMinutes: 60, // 10분 간격 — 1시간 무가동이면 정체

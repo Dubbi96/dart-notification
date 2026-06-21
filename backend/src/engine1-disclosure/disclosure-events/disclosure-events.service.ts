@@ -12,6 +12,7 @@ import { computeDilutionRate } from '../disclosure-documents/utils/dilution.util
 import { classifyEventType } from './extractors/event-classifier';
 import { extractEventData } from './extractors/index';
 import { QUEUE, JOB, AiAnalyzeJobData, AI_ANALYZE_JOB_OPTIONS, aiAnalyzeJobId } from '../../common/queues/queue.constants';
+import { TablesStoreService } from '../../common/storage/tables-store.service';
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 
@@ -61,6 +62,9 @@ export class DisclosureEventsService {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() @InjectQueue(QUEUE.AI_ANALYZE) private readonly aiQueue: Queue | null,
+    // DAR-399: tables 오프로드 시 SHARE_BUYBACK 폴백 스캔용 표를 객체 스토리지에서 lazy fetch
+    //   (@Optional — StorageModule 미배선 시 DB tables 컬럼만 사용, 기존 동작 보존).
+    @Optional() private readonly tablesStore?: TablesStoreService,
   ) {}
 
   /**
@@ -89,7 +93,14 @@ export class DisclosureEventsService {
       // DAR-339: tables(영속 원본 표)는 SHARE_BUYBACK 추출 폴백 스캔에 사용 → select 포함.
       const doc = await this.prisma.disclosureDocument.findUnique({
         where: { rcpNo },
-        select: { parsedJson: true, tables: true, isAmendment: true, originalRcpNo: true },
+        // DAR-399: tablesS3Key 포함 — tables 가 오프로드(null)된 경우 키로 lazy fetch 한다.
+        select: {
+          parsedJson: true,
+          tables: true,
+          tablesS3Key: true,
+          isAmendment: true,
+          originalRcpNo: true,
+        },
       });
       if (!doc || !doc.parsedJson) {
         return this.upsertFailed(rcpNo, disclosure.corpCode, 'NO_PARSED_DOC');
@@ -120,8 +131,17 @@ export class DisclosureEventsService {
 
       // Step 4: 수치 추출 + 파생값 보정(서비스 레이어, 계약 §4-2 Step 4)
       // DAR-339: 영속 tables를 폴백 스캔용으로 전달(SHARE_BUYBACK FAILED 복구). 신규 DART 호출 0.
-      const tables = Array.isArray(doc.tables)
-        ? (doc.tables as unknown as Table[])
+      // DAR-399: tables 가 오프로드(null)된 경우 tablesS3Key 로 객체 스토리지에서 lazy fetch.
+      //   스토어 미배선/미오프로드분은 DB tables 컬럼을 그대로 사용(기존 동작 보존).
+      const resolvedTables = this.tablesStore
+        ? await this.tablesStore.load({
+            rcpNo,
+            tables: doc.tables,
+            tablesS3Key: doc.tablesS3Key,
+          })
+        : doc.tables;
+      const tables = Array.isArray(resolvedTables)
+        ? (resolvedTables as unknown as Table[])
         : undefined;
       const { data: rawExtracted, confidence: extractConfidence } =
         extractEventData(eventType, parsedJson, disclosure.reportName, tables);

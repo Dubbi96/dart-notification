@@ -560,6 +560,29 @@ async drainOffload() {
 
 **AI/Risk 무관**: 순수 인프라/용량 작업. 신규 AI 호출 0, Engine5 하드룰과 무관.
 
+### 2.7 공시 파싱 표(tables) S3 오프로드 드레인 (매 10분, DAR-399)
+
+**진단(용량)**: rawText 전량 오프로드(§2.6) 후에도 `disclosure_documents` 가 1.7GB 잔존. TOAST 분해
+실측 — **진짜 bulk 는 rawText 가 아니라 `tables` JSONB(약 1,619MB·58k 문서)**. `parsedJson` 은 5MB뿐
+(콜드 아님 → DB 유지). 즉 로컬 대용량은 파싱된 표였다.
+
+**해법**: rawText 와 동일 패턴으로 `tables` 를 객체 스토리지로 오프로드하고 DB 는 `tablesS3Key` 포인터만
+보유. `common/storage` 의 `TablesStoreService`(JSON 직렬화 + gzip, key `disclosure-tables/{rcpNo}.json.gz`,
+오프로드/lazy fetch + 읽기 캐시).
+
+- **쓰기(신규)**: 파싱 완료(`disclosure-documents.service`) 시점에 `tables` 를 JSON+gzip 업로드 후 DB 컬럼을
+  `Prisma.DbNull` 로 비움(멱등) → 신규 문서 로컬 누적 0. 실패 시 graceful(tables 보존).
+- **읽기**: `disclosure-events.service` SHARE_BUYBACK 폴백 스캔이 `tablesS3Key` 로 lazy fetch. 추출 입력
+  `parsedJson` 은 그대로 DB 에서 읽으므로 추출 동작 무변경.
+- **기존분 마이그레이션**: `TablesOffloadScheduler`(`@Cron('*/10 * * * *')`) → `TablesOffloadDrainService.drainOnce()`.
+  `parseStatus=DONE` + `tables` 보유 문서를 rcpNo 오름차순 배치(기본 200)로 오프로드 후 컬럼 비움. 점진·재개가능·멱등.
+
+**가시화/수동**: `GET /pipeline/tables-offload-progress`, `POST /pipeline/tables-offload?limit=200`(멱등, 인증
+필수). 디스크 회수(VACUUM)는 운영 단계(docs/deployment.md). 실측: live 200문서 byte-identical 라운드트립
+200/200·gzip 4.2x. 투영: `disclosure_documents` 1772MB → 약 85MB(offload + VACUUM 후).
+
+**AI/Risk 무관**: 순수 인프라/용량 작업. 신규 AI 호출 0, Engine5 하드룰과 무관.
+
 ---
 
 ## 3. 에러 처리 및 재시도 전략

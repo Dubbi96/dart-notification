@@ -9,6 +9,8 @@ import { EventBackfillDrainService } from './event-backfill-drain.service';
 import { EventBackfillScheduler } from './event-backfill.scheduler';
 import { RawTextOffloadDrainService } from './rawtext-offload-drain.service';
 import { RawTextOffloadScheduler } from './rawtext-offload.scheduler';
+import { TablesOffloadDrainService } from './tables-offload-drain.service';
+import { TablesOffloadScheduler } from './tables-offload.scheduler';
 import { PipelineController } from './pipeline.controller';
 
 /**
@@ -41,11 +43,14 @@ import { PipelineController } from './pipeline.controller';
     EventBackfillScheduler,
     RawTextOffloadDrainService,
     RawTextOffloadScheduler,
+    TablesOffloadDrainService,
+    TablesOffloadScheduler,
   ],
   exports: [
     PipelineIntegrityService,
     EventBackfillDrainService,
     RawTextOffloadDrainService,
+    TablesOffloadDrainService,
   ],
 })
 export class PipelineModule {}

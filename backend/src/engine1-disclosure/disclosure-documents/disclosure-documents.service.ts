@@ -2,7 +2,7 @@
 // 파싱 파이프라인 오케스트레이터 (M1)
 
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { ParseStatus, DisclosureDocument } from '@prisma/client';
+import { ParseStatus, DisclosureDocument, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   DartApiService,
@@ -10,6 +10,7 @@ import {
 } from '../dart-api/dart-api.service';
 import { LocalStorageService } from './storage/storage.service';
 import { RawTextStoreService } from '../../common/storage/raw-text-store.service';
+import { TablesStoreService } from '../../common/storage/tables-store.service';
 import { cleanHtml } from './parsers/html-cleaner';
 import { parseXmlSections } from './parsers/xml.parser';
 import { parseTables } from './parsers/table.parser';
@@ -83,6 +84,9 @@ export class DisclosureDocumentsService {
     // DAR-395: 원문 rawText 객체 스토리지 오프로드(@Optional — StorageModule 미배선 시 기존 동작 보존).
     @Optional()
     private readonly rawTextStore?: RawTextStoreService,
+    // DAR-399: 파싱 표(tables) 객체 스토리지 오프로드(@Optional — 미배선 시 기존 동작 보존).
+    @Optional()
+    private readonly tablesStore?: TablesStoreService,
   ) {}
 
   /**
@@ -308,6 +312,14 @@ export class DisclosureDocumentsService {
         rawText,
       );
 
+      // DAR-399: 파싱 표(tables)도 즉시 오프로드 — disclosure_documents TOAST 의 진짜 bulk(~1.6GB).
+      //   신규 문서가 로컬 DB 에 tables 를 누적하지 않도록 파싱 완료 시점에 객체 스토리지로 내보낸다.
+      //   이후 SHARE_BUYBACK 폴백 스캔(M2)은 tablesS3Key 로 lazy fetch. 오프로드 실패는 graceful(DB 보존).
+      const { tablesColumn, tablesS3Key } = await this.offloadTables(
+        rcpNo,
+        tables,
+      );
+
       const updatedDoc = await this.prisma.disclosureDocument.update({
         where: { rcpNo },
         data: {
@@ -315,7 +327,8 @@ export class DisclosureDocumentsService {
           rawText: rawTextColumn,
           rawTextS3Key,
           wordCount,
-          tables: tables as unknown as object,
+          tables: tablesColumn,
+          tablesS3Key,
           parsedJson: parsedJson as unknown as object,
           isAmendment,
           originalRcpNo,
@@ -384,6 +397,35 @@ export class DisclosureDocumentsService {
         `rawText 오프로드 실패 → DB 보존(graceful): rcpNo=${rcpNo}: ${(err as Error).message}`,
       );
       return { rawTextColumn: rawText, rawTextS3Key: null };
+    }
+  }
+
+  /**
+   * DAR-399: tables 오프로드 결정 — 객체 스토리지로 내보내고 DB 컬럼에 넣을 값을 산출한다.
+   * - tablesStore 미주입(레거시 배선): 기존대로 tables 를 DB 에 보존(오프로드 비활성).
+   * - 오프로드 성공: tables=null(DB 경량화·TOAST bulk 해소) + tablesS3Key=객체 키.
+   * - 오프로드 실패(스토리지 오류): tables 를 DB 에 보존(graceful·데이터 손실 0) + 키 null.
+   */
+  private async offloadTables(
+    rcpNo: string,
+    tables: Table[],
+  ): Promise<{
+    tablesColumn: Prisma.InputJsonValue | typeof Prisma.DbNull;
+    tablesS3Key: string | null;
+  }> {
+    const keep = tables as unknown as Prisma.InputJsonValue;
+    if (!this.tablesStore) {
+      return { tablesColumn: keep, tablesS3Key: null };
+    }
+    try {
+      const key = await this.tablesStore.offload(rcpNo, tables);
+      // 오프로드 성공 → DB 컬럼은 SQL NULL(Prisma.DbNull)로 비워 TOAST 용량을 회수 대상에 둔다.
+      return { tablesColumn: Prisma.DbNull, tablesS3Key: key };
+    } catch (err) {
+      this.logger.warn(
+        `tables 오프로드 실패 → DB 보존(graceful): rcpNo=${rcpNo}: ${(err as Error).message}`,
+      );
+      return { tablesColumn: keep, tablesS3Key: null };
     }
   }
 

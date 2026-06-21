@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { StrategyTrackService, LOW_SAMPLE_TRADES } from './strategy-track.service';
 import { MarketCalendarService } from '../constraint/market-calendar.service';
 import { BacktestReplayService } from '../replay/backtest-replay.service';
+import { EventEdgeSelectorService } from './event-edge-selector.service';
 
 /**
  * DAR-404 — 전략 변형 다중 트랙 비교/거래내역/갱신 서비스 단위 테스트.
@@ -10,6 +11,7 @@ describe('StrategyTrackService (DAR-404)', () => {
   let prisma: any;
   let replay: jest.Mocked<Pick<BacktestReplayService, 'run'>>;
   let calendar: MarketCalendarService;
+  let selector: jest.Mocked<Pick<EventEdgeSelectorService, 'selectPositiveEdgeEventTypes'>>;
   let service: StrategyTrackService;
 
   function runRow(over: Record<string, unknown>) {
@@ -40,7 +42,11 @@ describe('StrategyTrackService (DAR-404)', () => {
     };
     replay = { run: jest.fn() } as any;
     calendar = new MarketCalendarService();
-    service = new StrategyTrackService(prisma, replay as any, calendar);
+    // 기본: robust 양-edge 없음(do-no-harm) → 빈 allowlist. 특정 테스트에서 override.
+    selector = {
+      selectPositiveEdgeEventTypes: jest.fn().mockResolvedValue({ eventTypes: [], evaluated: [] }),
+    } as any;
+    service = new StrategyTrackService(prisma, replay as any, calendar, selector as any);
   });
 
   describe('getComparison', () => {
@@ -242,6 +248,47 @@ describe('StrategyTrackService (DAR-404)', () => {
       });
       expect(res.results).toHaveLength(4);
       expect(res.results.every((r) => r.status === 'COMPLETED')).toBe(true);
+    });
+
+    it('event-edge 는 robust 선별 eventTypes 를 동적 주입하고 다른 전략은 무변경(DAR-408)', async () => {
+      selector.selectPositiveEdgeEventTypes.mockResolvedValue({
+        eventTypes: ['EARNINGS_SURPRISE'],
+        evaluated: [],
+      });
+      replay.run.mockImplementation(async (input: any) => ({
+        runId: `run-${input.strategyKey}`,
+        metrics: makeMetrics(5, 50, 30),
+      }) as any);
+
+      await service.refreshAll({ startDate: '2025-06-21', endDate: '2026-06-21' });
+
+      const calls = replay.run.mock.calls.map((c) => c[0] as any);
+      const ee = calls.find((c) => c.strategyKey === 'event-edge')!;
+      // robust 선별 결과가 그대로 주입(데이터 주도)
+      expect(ee.strategy.eventTypes).toEqual(['EARNINGS_SURPRISE']);
+      // 다른 3전략은 eventTypes 미지정(무변경)
+      for (const key of ['short-momentum', 'conservative-value', 'aggressive-diversified']) {
+        const other = calls.find((c) => c.strategyKey === key)!;
+        expect(other.strategy.eventTypes).toBeUndefined();
+      }
+      // 선별은 event-edge 한 번만 수행(게이트 전략만)
+      expect(selector.selectPositiveEdgeEventTypes).toHaveBeenCalledTimes(1);
+    });
+
+    it('robust 양-edge 가 없으면 event-edge 는 빈 allowlist 로 진입 0(do-no-harm, DAR-408)', async () => {
+      selector.selectPositiveEdgeEventTypes.mockResolvedValue({ eventTypes: [], evaluated: [] });
+      replay.run.mockImplementation(async (input: any) => ({
+        runId: `run-${input.strategyKey}`,
+        metrics: makeMetrics(0, 0, 0),
+      }) as any);
+
+      await service.refreshAll({ startDate: '2025-06-21', endDate: '2026-06-21' });
+
+      const ee = (replay.run.mock.calls.map((c) => c[0] as any)).find(
+        (c) => c.strategyKey === 'event-edge',
+      )!;
+      // 빈 배열 = 허용 0종 → 러너 allowlist 의미상 진입 0(거짓 양 이벤트 매수 0)
+      expect(ee.strategy.eventTypes).toEqual([]);
     });
 
     it('한 전략이 실패해도 나머지는 계속 진행(부분 성공)', async () => {

@@ -755,3 +755,74 @@ describe('통합 플로우 — 알려진 fixture 시퀀스 → 기대 체결/성
     expect(metrics.winRate).toBeCloseTo(66.67, 1);
   });
 });
+
+// ==========================
+// DAR-408 — eventTypes allowlist 의미(빈 배열 = 진입 0)
+// ==========================
+
+describe('BacktestRunnerService — eventTypes allowlist (DAR-408)', () => {
+  function twoStockPrices(): Record<string, DailyPrice[]> {
+    return {
+      '005930': [
+        makePrice('2024-01-08', 70000, 70000),
+        makePrice('2024-01-09', 70000, 70000), // 진입
+        makePrice('2024-01-10', 78000, 78000), // 익절
+      ],
+      '000660': [
+        makePrice('2024-01-08', 50000, 50000),
+        makePrice('2024-01-09', 50000, 50000), // 진입
+        makePrice('2024-01-10', 56000, 56000), // 익절
+      ],
+    };
+  }
+
+  const supplySignal = makeSignal({
+    corpCode: 'A005930',
+    stockCode: '005930',
+    eventType: 'SUPPLY_CONTRACT',
+    disclosureAt: new Date('2024-01-08T10:00:00+09:00'),
+  });
+  const earningsSignal = makeSignal({
+    corpCode: 'B000660',
+    stockCode: '000660',
+    eventType: 'EARNINGS_SURPRISE',
+    disclosureAt: new Date('2024-01-08T10:00:00+09:00'),
+  });
+
+  it('eventTypes 미지정(undefined)이면 모든 이벤트 진입', async () => {
+    const { runner } = buildRunner(twoStockPrices());
+    const trades = await runner.run(
+      [supplySignal, earningsSignal],
+      { ...DEFAULT_STRATEGY, eventTypes: undefined },
+      ZERO_COST,
+      '2024-01-08',
+      '2024-01-19',
+    );
+    expect(trades).toHaveLength(2);
+  });
+
+  it('eventTypes 지정 시 멤버십만 진입(allowlist)', async () => {
+    const { runner } = buildRunner(twoStockPrices());
+    const trades = await runner.run(
+      [supplySignal, earningsSignal],
+      { ...DEFAULT_STRATEGY, eventTypes: ['EARNINGS_SURPRISE'] },
+      ZERO_COST,
+      '2024-01-08',
+      '2024-01-19',
+    );
+    expect(trades).toHaveLength(1);
+    expect(trades[0].stockCode).toBe('000660');
+  });
+
+  it('eventTypes 빈 배열 = 허용 0종 → 진입 0(do-no-harm)', async () => {
+    const { runner } = buildRunner(twoStockPrices());
+    const trades = await runner.run(
+      [supplySignal, earningsSignal],
+      { ...DEFAULT_STRATEGY, eventTypes: [] },
+      ZERO_COST,
+      '2024-01-08',
+      '2024-01-19',
+    );
+    expect(trades).toHaveLength(0);
+  });
+});

@@ -75,7 +75,9 @@ export class BacktestRunnerService {
     // 신호 필터: 전략 조건 충족 여부
     const qualifiedSignals = signals.filter((s) => {
       if (s.buyScore < strategy.minBuyScore) return false;
-      if (strategy.eventTypes?.length && !strategy.eventTypes.includes(s.eventType)) return false;
+      // eventTypes 는 allowlist 의미 — 지정되면(빈 배열 포함) 멤버십 필수. 빈 배열 = 허용 0종
+      // = 진입 0(DAR-408 do-no-harm: robust 양-edge 이벤트가 없으면 매수하지 않음). undefined = 무제한.
+      if (strategy.eventTypes && !strategy.eventTypes.includes(s.eventType)) return false;
       if (strategy.personas?.length && !strategy.personas.includes(s.persona)) return false;
       return true;
     });

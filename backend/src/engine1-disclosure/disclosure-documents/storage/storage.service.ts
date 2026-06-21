@@ -1,6 +1,10 @@
 // backend/src/disclosure-documents/storage/storage.service.ts
 // StorageService 추상화 인터페이스 + LocalStorageService 구현 (M1)
-// 프로덕션 S3 구현체는 후속 Milestone에서 추가 예정
+//
+// @deprecated DAR-401: 공시 원본 HTML 저장이 S3/객체 스토리지(common/storage RawHtmlStoreService,
+//   키 disclosure-rawhtml/{rcpNo}.html.gz)로 고정되면서 이 로컬 디스크 저장/조회 경로(storage/{rcpNo}/
+//   index.html)는 더 이상 파이프라인에서 사용되지 않는다. provider 등록도 해제됨(disclosure-documents.module).
+//   신규 코드는 LocalStorageService.read/exists/save 에 의존하지 말 것 — RawHtmlStoreService.load() 사용.
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';

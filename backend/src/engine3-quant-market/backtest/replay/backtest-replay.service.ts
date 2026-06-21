@@ -49,6 +49,10 @@ export interface ReplayInput {
   name?: string;
   strategy?: Partial<StrategyParams>;
   costs?: Partial<BacktestCostParams>;
+  /** DAR-404: 트레이딩 로직(전략 변형) 식별 키. 단일 트랙 리플레이는 미지정(NULL). */
+  strategyKey?: string;
+  /** 영속 description override(전략 변형 트랙 식별용). */
+  description?: string;
 }
 
 export interface BacktestTrackRecord {
@@ -133,7 +137,9 @@ export class BacktestReplayService {
     const run = await this.prisma.backtestRun.create({
       data: {
         name,
-        description: 'DAR-385 point-in-time 1년 리플레이(미래모름 백테스트)',
+        description:
+          input.description ?? 'DAR-385 point-in-time 1년 리플레이(미래모름 백테스트)',
+        strategyKey: input.strategyKey ?? null,
         strategyParams: strategy as unknown as object,
         startDate: this.calendar.parseDate(input.startDate),
         endDate: this.calendar.parseDate(input.endDate),

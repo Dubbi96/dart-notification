@@ -1408,6 +1408,10 @@ model BacktestRun {
   name        String
   description String?
 
+  // DAR-404: 트레이딩 로직(전략 변형) 식별 키. 다중 트랙 비교/거래내역 조회의 자연 그룹핑 키.
+  //   라이브 1년 리플레이(DAR-385, 단일 트랙)는 NULL 로 남아 기존 동작과 격리된다.
+  strategyKey String?
+
   // 전략 파라미터 JSON
   strategyParams Json
 
@@ -1437,6 +1441,7 @@ model BacktestRun {
 
   @@index([status])
   @@index([startDate, endDate])
+  @@index([strategyKey])
   @@map("backtest_runs")
 }
 

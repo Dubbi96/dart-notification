@@ -1636,5 +1636,114 @@ OHLCV 롤업 규칙(연속집계): open=first(ts)·high=max·low=min·close=last
 
 ---
 
-**작성일**: 2026-06-20
-**버전**: 1.12 (이벤트 스터디 분포 §16.2-b — DAR-402: 버킷 D+N 초과수익 분포(평균/중앙값/분위수) 산출로 이상치 오염 표면화 + event_study_results robust 컬럼(median/winsorized) 추가·신호 스코어 event edge 강건화; 1.11 구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)
+## 18. 시스템 트레이딩 전략 변형 트랙 (Strategy Tracks, DAR-404)
+
+단일 모의매매(라이브 1년 리플레이, DAR-385)를 **진입/청산/사이징 룰이 다른 전략 변형 4종**으로 분기해
+각각 point-in-time(미래모름) 백테스트 트랙(`BacktestRun`/`BacktestTrade`·`strategyKey`)을 쌓고 비교한다.
+거장철학(DAR-76)·페르소나 축과 별개의 **'트레이딩 로직' 축**이다. URL 네임스페이스는 `paper-trading`을
+쓰되 산출/조회는 engine3(backtest) 소속이다(엔진 간 직접호출 0).
+
+**전략 4종**: `event-edge`(이벤트엣지) · `short-momentum`(단기모멘텀) · `conservative-value`(보수가치) ·
+`aggressive-diversified`(공격분산). 파라미터는 합리적 기본값으로 상수화(추후 calibration 조정).
+
+### 18.1 전략 4종 비교
+
+```
+GET /api/paper-trading/simulation/strategies/comparison   (OptionalJwt — 게스트 데모 열람)
+```
+
+전략별 최신 완료 트랙을 모아 **누적수익 내림차순 ranking + `bestStrategy` 플래그**로 반환한다. 트랙이
+아직 산출되지 않은 전략은 `hasTrack:false`(빈 곡선) graceful. 표본(거래 수)이 20 미만이면 `lowSample:true`.
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "generatedAt": "2026-06-21T05:00:00.000Z",
+    "strategies": [
+      {
+        "strategyKey": "event-edge",
+        "label": "이벤트엣지",
+        "description": "EventStudy 유의 양(+) 이벤트만 추종 …",
+        "rulesSummary": "이벤트 6종 한정 · 점수 ≥50 · 익절 +20% / 손절 -10% · 최대보유 20일 · 최대 20종목 · 점수가중배분",
+        "hasTrack": true,
+        "equityCurve": [ { "date": "2025-06-21", "equity": 10000000, "returnPct": 0, "drawdownPct": 0 } ],
+        "cumulativeReturnPct": 12.5,
+        "winRate": 55.0,
+        "sampleCount": 40,
+        "sharpe": 0.8,
+        "mdd": -9.3,
+        "lowSample": false,
+        "rank": 1,
+        "bestStrategy": true,
+        "startDate": "2025-06-21",
+        "endDate": "2026-06-21",
+        "completedAt": "2026-06-21T05:00:00.000Z"
+      }
+      /* … 나머지 3종 … */
+    ]
+  }
+}
+```
+
+### 18.2 전략별 과거 매수/매도 트랙
+
+```
+GET /api/paper-trading/simulation/strategies/:key/trade-history   (OptionalJwt — 게스트 데모 열람)
+```
+
+해당 전략 최신 트랙의 `BacktestTrade`(과거 매수/매도)를 **최신순(entryDate desc)**으로 반환한다.
+알 수 없는 키는 404, 트랙 미산출은 `hasTrack:false`(빈 배열) graceful.
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "strategyKey": "event-edge",
+    "label": "이벤트엣지",
+    "rulesSummary": "…",
+    "hasTrack": true,
+    "runId": "ckxxx…",
+    "startDate": "2025-06-21",
+    "endDate": "2026-06-21",
+    "totalTrades": 40,
+    "trades": [
+      {
+        "entryDate": "2025-07-01", "exitDate": "2025-07-10",
+        "corpName": "삼성전자", "corpCode": "A005930", "stockCode": "005930",
+        "eventType": "SUPPLY_CONTRACT", "persona": "GROWTH",
+        "buyScoreSnapshot": 72, "entryPrice": 70000, "exitPrice": 77000,
+        "returnPct": 9.5, "netPnl": 120000, "exitReason": "TAKE_PROFIT", "holdDays": 9
+      }
+      /* … 최신순 … */
+    ]
+  }
+}
+```
+
+### 18.3 전략 트랙 즉시 갱신 (운영 트리거)
+
+```
+POST /api/paper-trading/simulation/strategies/refresh   (JWT 필수 — 쓰기·비용)
+```
+
+4 프리셋을 각각 리플레이 재실행해 트랙을 새로 산출한다(전략별 최신 1개 유지, 멱등). 한 전략이 실패해도
+나머지는 계속 진행(부분 성공). 스케줄러가 매일 05:00(KST) 자동 갱신하므로 평시엔 호출 불필요.
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "startDate": "2025-06-21", "endDate": "2026-06-21",
+    "results": [
+      { "strategyKey": "event-edge", "status": "COMPLETED", "runId": "ckxxx…", "totalTrades": 40, "cumulativeReturnPct": 12.5 }
+      /* … 나머지 3종 … */
+    ]
+  }
+}
+```
+
+---
+
+**작성일**: 2026-06-21
+**버전**: 1.12 (전략 변형 트랙 §18 — DAR-404: 시스템 트레이딩 전략 변형 4종 다중 트랙 비교/거래내역/갱신 엔드포인트·strategyKey 그룹핑·누적수익 ranking·게스트 데모; 이벤트 스터디 분포 §16.2-b — DAR-402: 버킷 D+N 초과수익 분포(평균/중앙값/분위수) 산출로 이상치 오염 표면화 + event_study_results robust 컬럼(median/winsorized) 추가·신호 스코어 event edge 강건화; 1.11 구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)

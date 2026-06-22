@@ -31,10 +31,30 @@ function toDateKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/** YYYY-MM-DD 의 직전 달력일(YYYY-MM-DD). 월/연 경계 안전(UTC 산술). */
+function dayBefore(dateKey: string): string {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
 /**
- * 청산 거래 목록 → 자산곡선.
- * 첫 점은 초기자본(거래 전, date='start')으로 고정해 곡선 시작점을 명시한다.
+ * 청산 거래 목록 → 자산곡선 (DAR-412: 일별 flat-fill).
+ *
+ * 첫 점은 초기자본(거래 전, date=startDate)으로 고정해 곡선 시작점을 명시한다.
  * 같은 날 복수 청산은 하나의 점으로 합산(누적)한다.
+ *
+ * **flat-fill 앵커**: 평가액이 변동하는 청산일마다 "그 직전 달력일"에
+ * 변동 직전 평가액을 유지하는 앵커 점을 추가한다. 이렇게 하면 거래가 없던
+ * 구간이 직선 보간으로 뭉개지지 않고 **평평(원금/직전 평가액 유지) → 청산 시점
+ * 계단**으로 그려진다(모바일 EquityCurveChart 는 점을 인덱스 균등 간격으로 잇는다).
+ * 앵커일이 직전 점의 날짜보다 엄격히 이후일 때만 추가(중복·역순 방지).
+ *
+ * lookahead 무관(사후 집계) — 이미 확정된 청산 결과만 사용한다.
  */
 export function buildEquityCurve(
   trades: SimulatedTrade[],
@@ -43,7 +63,19 @@ export function buildEquityCurve(
 ): EquityCurvePoint[] {
   const closed = trades
     .filter((t) => t.exitDate && t.netPnl !== undefined)
-    .sort((a, b) => (a.exitDate!.getTime() - b.exitDate!.getTime()));
+    .sort((a, b) => a.exitDate!.getTime() - b.exitDate!.getTime());
+
+  // 청산일(KST 거래일) 단위로 netPnl 합산 — 시간순 보존
+  const byDay = new Map<string, number>();
+  const order: string[] = [];
+  for (const t of closed) {
+    const key = toDateKey(t.exitDate!);
+    if (!byDay.has(key)) {
+      byDay.set(key, 0);
+      order.push(key);
+    }
+    byDay.set(key, byDay.get(key)! + (t.netPnl ?? 0));
+  }
 
   const curve: EquityCurvePoint[] = [
     { date: startDate, equity: initialCapital, returnPct: 0, drawdownPct: 0 },
@@ -51,25 +83,35 @@ export function buildEquityCurve(
 
   let equity = initialCapital;
   let peak = initialCapital;
-  let lastKey: string | null = null;
 
-  for (const t of closed) {
-    equity += t.netPnl ?? 0;
-    const key = toDateKey(t.exitDate!);
+  for (const key of order) {
+    const prev = curve[curve.length - 1];
+
+    // flat 앵커 — 변동 직전 평가액을 직전 달력일에 유지(평평 구간 보존).
+    const anchorDate = dayBefore(key);
+    if (anchorDate > prev.date) {
+      curve.push({
+        date: anchorDate,
+        equity: prev.equity,
+        returnPct: prev.returnPct,
+        drawdownPct: prev.drawdownPct,
+      });
+    }
+
+    equity += byDay.get(key)!;
     if (equity > peak) peak = equity;
     const drawdownPct = peak > 0 ? ((equity - peak) / peak) * 100 : 0;
     const returnPct =
       initialCapital > 0 ? ((equity - initialCapital) / initialCapital) * 100 : 0;
 
-    if (key === lastKey) {
-      // 같은 날 추가 청산 — 마지막 점 갱신(중복 점 생성 금지)
-      const last = curve[curve.length - 1];
+    const last = curve[curve.length - 1];
+    if (key === last.date) {
+      // 청산일이 직전 점(예: 시작일 당일 청산)과 동일 — 점 갱신(중복 생성 금지)
       last.equity = equity;
       last.returnPct = returnPct;
       last.drawdownPct = drawdownPct;
     } else {
       curve.push({ date: key, equity, returnPct, drawdownPct });
-      lastKey = key;
     }
   }
 

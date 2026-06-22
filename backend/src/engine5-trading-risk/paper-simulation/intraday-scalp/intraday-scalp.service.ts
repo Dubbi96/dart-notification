@@ -85,6 +85,19 @@ function toNum(v: unknown): number {
   return Number(v);
 }
 
+/** 'YYYYMMDD' 의 직전 달력일('YYYYMMDD'). 월/연 경계 안전(UTC 산술). DAR-412 flat-fill 앵커. */
+function compactDayBefore(yyyymmdd: string): string {
+  const y = Number(yyyymmdd.slice(0, 4));
+  const m = Number(yyyymmdd.slice(4, 6));
+  const d = Number(yyyymmdd.slice(6, 8));
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}${mm}${dd}`;
+}
+
 @Injectable()
 export class IntradayScalpService {
   private readonly logger = new Logger(IntradayScalpService.name);
@@ -431,9 +444,18 @@ export class IntradayScalpService {
     const winRate = closed.length > 0 ? wins / closed.length : 0;
     const cumulativeReturnPct = (realizedPnl / SCALP_INITIAL_CAPITAL) * 100;
 
+    // DAR-412: 일별 flat-fill. 손익 변동일마다 "직전 달력일"에 변동 직전 누적수익률을
+    // 유지하는 flat 앵커를 넣어, 거래 없는 구간이 직선 보간으로 뭉개지지 않고
+    // 평평 → 청산 시점 계단으로 그려지게 한다(forward-only 트랙, 차트는 인덱스 균등 간격).
     let cum = 0;
     const equityCurve: ScalpStatusEquityPoint[] = [];
     for (const [tradeDate, pnl] of [...byDate.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      const prevCumPct = (cum / SCALP_INITIAL_CAPITAL) * 100;
+      const anchorDate = compactDayBefore(tradeDate);
+      const lastDate = equityCurve.length > 0 ? equityCurve[equityCurve.length - 1].tradeDate : '';
+      if (anchorDate > lastDate) {
+        equityCurve.push({ tradeDate: anchorDate, realizedPnl: 0, cumulativeReturnPct: prevCumPct });
+      }
       cum += pnl;
       equityCurve.push({
         tradeDate,

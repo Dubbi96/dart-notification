@@ -234,4 +234,46 @@ describe('IntradayScalpService — 1사이클', () => {
     expect(status.closedTrades).toBe(0);
     expect(status.equityCurve).toEqual([]);
   });
+
+  it('getStatus equityCurve: DAR-412 일별 flat-fill — 거래 없는 구간 평평 + 청산일 계단', async () => {
+    const { prisma, trades } = buildPrismaMock({ universe: [], candlesByStock: {} });
+    const closedRow = (tradeDate: string, netPnl: number, returnPct: number): ScalpRow => ({
+      id: `c-${tradeDate}`,
+      corpCode: 'C1',
+      stockCode: '000001',
+      tradeDate,
+      entryTs: kstMonday('0930'),
+      entryPrice: 100,
+      shares: 10,
+      entryReason: 'TEST',
+      commission: 0,
+      tax: 0,
+      slippage: 0,
+      status: 'CLOSED',
+      styleTag: INTRADAY_SCALP_STYLE_TAG,
+      netPnl,
+      returnPct,
+    });
+    // 두 청산일이 멀리 떨어져 있음(6/01, 6/15) — 직선 보간 방지 검증
+    trades.push(closedRow('20260601', 50_000, 2));
+    trades.push(closedRow('20260615', -20_000, -1));
+
+    const svc = new IntradayScalpService(prisma);
+    const status = await svc.getStatus();
+
+    // 앵커(직전 달력일) + 변동일 × 2 = 4점
+    expect(status.equityCurve.map((p) => p.tradeDate)).toEqual([
+      '20260531', // 첫 변동 직전 앵커 — 0% flat
+      '20260601',
+      '20260614', // 둘째 변동 직전 앵커 — 직전 누적(첫 청산 후) 유지
+      '20260615',
+    ]);
+    expect(status.equityCurve[0]).toMatchObject({ realizedPnl: 0, cumulativeReturnPct: 0 });
+    // 앵커[2]는 첫 청산 후 누적수익률을 그대로 유지(평평) → 직선 보간 아님
+    expect(status.equityCurve[2].cumulativeReturnPct).toBeCloseTo(
+      status.equityCurve[1].cumulativeReturnPct,
+      6,
+    );
+    expect(status.equityCurve[2].realizedPnl).toBe(0);
+  });
 });

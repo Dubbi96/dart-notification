@@ -35,6 +35,8 @@ export const CRON_JOB_KEYS = {
   DISCLOSURE_BACKFILL_EXTEND: 'disclosure.backfill-extend',
   // DAR-404: 전략 변형 4종 다중 트랙 갱신 — 데이터 누적분을 반영해 1일 1회 백테스트 트랙 재산출.
   STRATEGY_TRACK_REFRESH: 'strategy.track-refresh',
+  // DAR-411: 분봉 단타 모의전략 — 정규장 매 10분 유니버스→진입→청산 평가(forward-only 페이퍼 트랙).
+  INTRADAY_SCALP: 'paper.intraday-scalp',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -244,5 +246,16 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: 2_880, // 48시간 — 매일 05:00, 하루 누락까지 허용
     cadence: '매일 05:00',
+  },
+  {
+    // DAR-411: 분봉 단타 모의전략. 정규장(09:00~15:30) 내 10분 간격 진입·청산 평가.
+    //   장 마감 후 공백을 흡수하도록 임계를 넉넉히(3h). 장외/주말/휴장/분봉 미수집엔 스킵이라
+    //   기록이 없으므로 장중 무가동만 stale 로 표면화한다.
+    jobKey: CRON_JOB_KEYS.INTRADAY_SCALP,
+    label: '분봉 단타 진입·청산 평가',
+    source: 'CRON_RUN_LOG',
+    window: 'WEEKDAY_INTRADAY',
+    staleAfterMinutes: 180, // 3시간 — 장 마감(15:30)~윈도 끝 공백 흡수
+    cadence: '평일 09:02~15:52 / 10분 간격',
   },
 ];

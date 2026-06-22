@@ -94,3 +94,11 @@ robust median D20 기준 **모든 공시 이벤트유형이 음수**:
 ## 4. 가설: 데이터가 더 들어오면
 - 표본↑ → PRELIMINARY→READY 전환, 이상치 영향 희석(robust 통계로). 결함 A는 표본보다 **방법론(중앙값)** 문제라 데이터만으론 안 풀림 → 코드 수정 필요.
 - 결함 B(등급 역전)는 calibration이 표본↑로 안정화되면 base score 보정 정밀도↑. 단 역전 자체는 로직 버그 가능성 → 코드 조사.
+
+## 5. 분봉 단타(intraday scalping) 트랙 — forward-only 별도 축 (DAR-411)
+- §1~3의 일봉(공시→D+N) 축과 **완전히 별개**의 트레이딩 로직 축: 분봉(stock_minute_prices) 기반 **당일 진입·당일 청산**.
+- ★**백테스트 불가**: 분봉은 당일 forward-only(KIS, 과거 분봉 없음). 위 baseline 리플레이(일봉 point-in-time)에 편입 불가 → **정규장 중 실시간 모의로만 누적**(`backtestable:false`, equityCurve 오늘부터 forward, 표본0/저표본 graceful).
+- 진입 3조건 AND(순수 Rule·AI 0): 거래량 폭발(직전 20분 평균×2.5) AND 돌파(직전 15분 고가 초과) AND VWAP 상회. 유니버스 = 당일 공시 ∪ buy-signal 후보 중 분봉 수집 종목.
+- 청산: 익절 +2% / 손절 -1.2% / **15:20 전량 강제청산**(오버나잇 금지, 손익 무관 최우선). engine5 Risk 하드룰(1회매수 3%·동시보유 5·일일손실 한도) 적용. ★실주문 0(순수 시뮬).
+- 검증 방법: 분봉 fixture 기반 결정론 단위테스트(진입 3조건·15:20 강제청산·당일 청산 보장)로 로직을 고정. 실데이터 성과는 정규장 누적분으로 재검증(forward). 표면화: `GET /paper-trading/simulation/intraday-scalp/status`.
+- ★함의: 단타 edge 유무는 일봉 baseline과 독립적으로, forward 누적 표본이 쌓인 뒤에야 판정 가능(현재 표본 0 = 정직). 일봉 축의 "양-edge 부재" 결론을 단타 축에 전이하지 않는다.

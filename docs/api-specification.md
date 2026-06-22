@@ -1783,7 +1783,10 @@ POST /api/paper-trading/simulation/strategies/refresh   (JWT 필수 — 쓰기·
     해소. engine5 가 **종목별 스캔 커서**(다음 스캔 시작 인덱스, 거래일 전환 시 리셋)로 중복 평가를 막고,
     **종목당 1라운드트립**(OPEN/CLOSED 무관 당일 진입 이력 있으면 스킵)으로 과진입을 막는다.
     진입가 = 충족봉 종가(슬리피지 반영), 진입 ts = **충족봉 시각**(사이클 발화 시각이 아님).
-- **청산**: 익절 +2% / 손절 -1.2% / **15:20 전량 강제청산**(단타=오버나잇 금지, 손익 무관 최우선). 15:20 이후 신규 진입 금지.
+- **청산(순/net 기준 — DAR-418)**: 익절 **순 +2%** / 손절 **순 -1.2%** / **15:20 전량 강제청산**(단타=오버나잇 금지, 손익 무관 최우선). 15:20 이후 신규 진입 금지.
+  - ★단타는 매도마다 비용이 부과되므로 TP/SL 임계를 **순(net) 기준**으로 둔다. gross 가격수익률에서 **왕복 거래비용율**(매수 수수료+슬리피지 + 매도 수수료+세금+슬리피지 = `2·0.015% + 0.18% + 2·0.05% = 0.31%`)을 차감한 net 수익률로 익절/손절을 판정한다. 즉 순 +2% 익절은 **gross +2.31%**에서, 순 -1.2% 손절은 **gross -0.89%**에서 발동(손절 임계를 비용만큼 좁혀 과손실 방지). `+2% gross` 소액 익절이 수수료에 먹혀 적자전환(net +1.69%)하던 문제를 차단한다.
+  - **비용율 SSOT**: 왕복비용율은 engine5 체결 파라미터(`FillParams` — `commissionRate`·`sellTaxRate`·`slippagePct`)에서 `roundTripCostPct()` 로 산출한다(하드코딩 금지).
+- **진입 fee 허들 게이트(DAR-418, 선택·권장)**: 진입 시 기대이동(gross 익절폭)이 `왕복비용 + 최소마진(0.3%)`을 넘지 못하면 진입 보류(수수료만 내는 무의미 거래 차단). 마진은 작게 둬 정상 거래를 과도하게 막지 않는다.
 - **체결**: 분봉 종가/실시간 시세 기준 paper 체결(수수료·세금·슬리피지 반영). ★실주문 0(순수 시뮬).
 - **거래일(tradeDate) 소스 — DAR-414**: 진입·청산·강제청산·유니버스(당일 공시 `rcpDt` 필터 포함)가 사용하는
   거래일은 분봉 수집기(`StockMinutePriceCollector`)와 **동일한 해석기**(`resolveLatestAvailableTradeDate()`,
@@ -1817,6 +1820,10 @@ GET /api/paper-trading/simulation/intraday-scalp/status   (게스트 허용)
     "lowSample": true,             // 표본 < 20 (forward 초기 graceful)
     "lowSampleThreshold": 20,
     "backtestable": false,         // ★분봉 단타는 백테스트 불가(forward-only)
+    "roundTripCostPct": 0.31,      // ★DAR-418 왕복 거래비용율(%) — 수수료·세금·슬리피지 SSOT
+    "takeProfitNetPct": 2.0,       // 순(net) 익절 목표(%)
+    "stopLossNetPct": -1.2,        // 순(net) 손절 목표(%)
+    "totalFees": 4300,             // 청산 완료 거래 총수수료(수수료+세금) 합(KRW)
     "equityCurve": [               // 일별 실현 누적(오늘부터 forward) — DAR-412 flat-fill 앵커 포함
       { "tradeDate": "20260621", "realizedPnl": 0, "cumulativeReturnPct": 0 },     // 변동 직전 달력일 앵커(평평)
       { "tradeDate": "20260622", "realizedPnl": -12000, "cumulativeReturnPct": -0.12 }
@@ -1836,7 +1843,7 @@ GET /api/paper-trading/simulation/intraday-scalp/status   (게스트 허용)
 GET /api/paper-trading/simulation/intraday-scalp/trade-history   (게스트 허용)
 ```
 
-최신 진입순(`entryTs` 내림차순) 종목별 1행. OPEN 포지션은 청산 필드(`exitTs`/`exitPrice`/`exitReason`/`returnPct`/`netPnl`)가 `null`(보유 중). 종목명은 `Company.corpName` 결합(없으면 `stockCode` 폴백). 응답은 **`{ success, data }` 래핑**(§19.1·DAR-417 동일 계약).
+최신 진입순(`entryTs` 내림차순) 종목별 1행. OPEN 포지션은 청산 필드(`exitTs`/`exitPrice`/`exitReason`/`returnPct`/`grossReturnPct`/`netReturnPct`/`netPnl`/`totalFees`)가 `null`(보유 중). 종목명은 `Company.corpName` 결합(없으면 `stockCode` 폴백). 응답은 **`{ success, data }` 래핑**(§19.1·DAR-417 동일 계약). 최상위 `roundTripCostPct`(왕복 거래비용율 %) 로 '순수익(수수료 후)'임을 고지한다(DAR-418).
 
 ```jsonc
 {
@@ -1845,6 +1852,7 @@ GET /api/paper-trading/simulation/intraday-scalp/trade-history   (게스트 허�
     "styleTag": "intraday-scalp",
     "strategyKey": "intraday-scalp",
     "tagline": "분봉 단타 — 거래량 폭발+돌파+VWAP 진입, 당일 청산(오버나잇 금지)",
+    "roundTripCostPct": 0.31,                       // ★DAR-418 왕복 거래비용율(%)
     "trades": [
       {
         "id": "clx...",
@@ -1857,8 +1865,11 @@ GET /api/paper-trading/simulation/intraday-scalp/trade-history   (게스트 허�
         "exitReason": "TAKE_PROFIT",               // TAKE_PROFIT | STOP_LOSS | FORCE_CLOSE_EOD | null(OPEN)
         "entryPrice": 10500,
         "exitPrice": 10710,                         // OPEN 이면 null
-        "returnPct": 1.5,                           // 순수익률(%) — OPEN 이면 null
+        "returnPct": 2.0,                           // 순수익률(%, =netReturnPct) — OPEN 이면 null
+        "grossReturnPct": 2.31,                     // ★DAR-418 gross 수익률(%, 비용 전) — OPEN 이면 null
+        "netReturnPct": 2.0,                        // ★DAR-418 순(net) 수익률(%) — OPEN 이면 null
         "netPnl": 18000,                            // 순손익(KRW) — OPEN 이면 null
+        "totalFees": 430,                           // ★DAR-418 총수수료(수수료+세금, KRW) — OPEN 이면 null
         "status": "CLOSED"                          // OPEN | CLOSED
       }
     ]
@@ -1868,9 +1879,9 @@ GET /api/paper-trading/simulation/intraday-scalp/trade-history   (게스트 허�
 
 표본 0(미진입)에도 `trades:[]` 로 graceful 응답한다(모바일 빈상태 '장중 모의 누적 예정').
 
-모바일 표면화(DAR-416): '전략' 탭(`StrategyComparisonSection`) 하단 별도 섹션 `IntradayScalpSection` 카드 — 일봉 4종 백테스트와 시각 구분(`실시간 모의`·백테스트 불가 고지)·`/status` 누적수익·승률·미니 forward 곡선. 카드 탭 → `app/portfolio/strategy/intraday-scalp.tsx` 거래 타임라인 드릴다운.
+모바일 표면화(DAR-416): '전략' 탭(`StrategyComparisonSection`) 하단 별도 섹션 `IntradayScalpSection` 카드 — 일봉 4종 백테스트와 시각 구분(`실시간 모의`·백테스트 불가 고지)·`/status` 누적수익·승률·미니 forward 곡선. 카드 탭 → `app/portfolio/strategy/intraday-scalp.tsx` 거래 타임라인 드릴다운. **DAR-418**: 카드에 '순수익(수수료 후) 기준 · 왕복비용 0.31% · 누적 수수료 N원' 고지, 타임라인 각 행에 메인 수익률을 순(net)으로 표기하고 '세전(gross)·수수료·순손익' 상세를 노출.
 
 ---
 
 **작성일**: 2026-06-22
-**버전**: 1.18 (분봉 단타 응답 계약 래핑 §19.1·§19.2 — DAR-417: `intraday-scalp` `status`·`trade-history` 컨트롤러 반환을 `{ success, data }` 로 래핑(strategy-track 등 전 엔드포인트 일관) — 모바일 `simulation.service.ts` 가 `r.data.data` 로 추출하는데 래핑이 없어 `r.data.data`=undefined → React Query `Query data cannot be undefined` 로 '전략' 탭 단타 트랙 카드가 로드 실패하던 블로킹 버그 해소; 1.17 분봉 단타 거래 타임라인 §19.2 — DAR-416: `GET /intraday-scalp/trade-history`(최신 진입순·종목명 결합·OPEN 청산필드 null·게스트 허용) 추가 + 모바일 '전략' 탭 단타 트랙 표면화(`IntradayScalpSection` 별도 섹션·`intraday-scalp.tsx` 드릴다운·실시간 모의/백테스트 불가 시각 구분); 1.16 분봉 단타 진입평가 윈도우 스캔 §19 — DAR-415: 진입 평가가 최신 1봉이 아니라 직전 사이클 이후 도착 분봉 윈도우 전체를 순회(engine3 `scanEntrySignals(candles, fromIndex)` point-in-time 첫 충족봉)·engine5 종목별 스캔 커서로 중복평가 차단·종목당 1라운드트립(OPEN/CLOSED) 과진입 차단·진입ts=충족봉 시각 — 10분 간격 평가가 사이클 사이 충족 순간을 놓쳐 거래 0이던 버그 해소; 1.15 분봉 단타 tradeDate SSOT 정렬 §19 — DAR-414: 단타 진입·청산·강제청산·유니버스가 분봉 수집기와 동일 해석기(`resolveLatestAvailableTradeDate()`, KRX 실 가용 거래일)로 거래일을 해석 — 환경시계 today 직접사용 제거로 분봉 라벨 불일치(거래 0) 버그 해소; 1.14 자산곡선 일별 flat-fill — DAR-412: backtest `buildEquityCurve` + 분봉 단타 `equityCurve` 가 변동 청산일마다 직전 달력일 flat 앵커를 추가해 거래 없는 구간 직선 보간 제거(평평→계단)·4종 전략·단타 동일 적용·표본0/저표본 graceful 유지; 1.13 분봉 단타 트랙 §19 — DAR-411: 분봉(stock_minute_prices) 기반 당일 진입·당일 청산 forward-only 페이퍼 트랙 — 거래량 폭발+돌파+VWAP 3조건 진입·익절+2%/손절-1.2%/15:20 강제청산·engine5 Risk 하드룰·★실주문 0·전용 status 엔드포인트·백테스트 불가 graceful; 1.12 전략 변형 트랙 §18 — DAR-404: 시스템 트레이딩 전략 변형 4종 다중 트랙 비교/거래내역/갱신 엔드포인트·strategyKey 그룹핑·누적수익 ranking·게스트 데모; 이벤트 스터디 분포 §16.2-b — DAR-402: 버킷 D+N 초과수익 분포(평균/중앙값/분위수) 산출로 이상치 오염 표면화 + event_study_results robust 컬럼(median/winsorized) 추가·신호 스코어 event edge 강건화; 1.11 구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)
+**버전**: 1.19 (분봉 단타 수수료 인지 거래 §19 — DAR-418: TP/SL 청산 임계를 **순(net) 기준**으로 환산 — gross 가격수익률에서 왕복 거래비용율(`2·수수료+매도세+2·슬리피지=0.31%`, 체결 파라미터 `FillParams`에서 `roundTripCostPct()` 산출 SSOT)을 차감한 net 수익률로 익절 +2%/손절 -1.2% 판정(순 +2% 익절=gross +2.31%·순 -1.2% 손절=gross -0.89%로 과손실 방지)·`gross +2%` 소액 익절이 수수료에 먹혀 net +1.69% 적자전환하던 문제 차단; 진입 fee 허들 게이트(기대이동 < 왕복비용+최소마진 0.3% 면 진입 보류); 표시 투명화 — `status`에 `roundTripCostPct`·`takeProfitNetPct`·`stopLossNetPct`·`totalFees`, `trade-history`에 `roundTripCostPct`·행별 `grossReturnPct`·`netReturnPct`·`totalFees` 노출, 모바일 카드/타임라인 '순수익(수수료 후)' 명시; 15:20 강제청산·당일청산·리스크 하드룰 무변경; 1.18 분봉 단타 응답 계약 래핑 §19.1·§19.2 — DAR-417: `intraday-scalp` `status`·`trade-history` 컨트롤러 반환을 `{ success, data }` 로 래핑(strategy-track 등 전 엔드포인트 일관) — 모바일 `simulation.service.ts` 가 `r.data.data` 로 추출하는데 래핑이 없어 `r.data.data`=undefined → React Query `Query data cannot be undefined` 로 '전략' 탭 단타 트랙 카드가 로드 실패하던 블로킹 버그 해소; 1.17 분봉 단타 거래 타임라인 §19.2 — DAR-416: `GET /intraday-scalp/trade-history`(최신 진입순·종목명 결합·OPEN 청산필드 null·게스트 허용) 추가 + 모바일 '전략' 탭 단타 트랙 표면화(`IntradayScalpSection` 별도 섹션·`intraday-scalp.tsx` 드릴다운·실시간 모의/백테스트 불가 시각 구분); 1.16 분봉 단타 진입평가 윈도우 스캔 §19 — DAR-415: 진입 평가가 최신 1봉이 아니라 직전 사이클 이후 도착 분봉 윈도우 전체를 순회(engine3 `scanEntrySignals(candles, fromIndex)` point-in-time 첫 충족봉)·engine5 종목별 스캔 커서로 중복평가 차단·종목당 1라운드트립(OPEN/CLOSED) 과진입 차단·진입ts=충족봉 시각 — 10분 간격 평가가 사이클 사이 충족 순간을 놓쳐 거래 0이던 버그 해소; 1.15 분봉 단타 tradeDate SSOT 정렬 §19 — DAR-414: 단타 진입·청산·강제청산·유니버스가 분봉 수집기와 동일 해석기(`resolveLatestAvailableTradeDate()`, KRX 실 가용 거래일)로 거래일을 해석 — 환경시계 today 직접사용 제거로 분봉 라벨 불일치(거래 0) 버그 해소; 1.14 자산곡선 일별 flat-fill — DAR-412: backtest `buildEquityCurve` + 분봉 단타 `equityCurve` 가 변동 청산일마다 직전 달력일 flat 앵커를 추가해 거래 없는 구간 직선 보간 제거(평평→계단)·4종 전략·단타 동일 적용·표본0/저표본 graceful 유지; 1.13 분봉 단타 트랙 §19 — DAR-411: 분봉(stock_minute_prices) 기반 당일 진입·당일 청산 forward-only 페이퍼 트랙 — 거래량 폭발+돌파+VWAP 3조건 진입·익절+2%/손절-1.2%/15:20 강제청산·engine5 Risk 하드룰·★실주문 0·전용 status 엔드포인트·백테스트 불가 graceful; 1.12 전략 변형 트랙 §18 — DAR-404: 시스템 트레이딩 전략 변형 4종 다중 트랙 비교/거래내역/갱신 엔드포인트·strategyKey 그룹핑·누적수익 ranking·게스트 데모; 이벤트 스터디 분포 §16.2-b — DAR-402: 버킷 D+N 초과수익 분포(평균/중앙값/분위수) 산출로 이상치 오염 표면화 + event_study_results robust 컬럼(median/winsorized) 추가·신호 스코어 event edge 강건화; 1.11 구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)

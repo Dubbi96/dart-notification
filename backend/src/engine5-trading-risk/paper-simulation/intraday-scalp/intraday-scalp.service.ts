@@ -29,8 +29,11 @@ import {
   MAX_OPEN_POSITIONS,
   PER_POSITION_BUDGET_PCT,
   SCALP_INITIAL_CAPITAL,
+  DEFAULT_SCALP_EXIT_PARAMS,
   ScalpExitReason,
   evaluateScalpExit,
+  grossTakeProfitThresholdPct,
+  passesEntryFeeHurdle,
   isPastEntryCutoff,
 } from './intraday-scalp-exit';
 import {
@@ -78,6 +81,15 @@ export interface ScalpStatus {
   lowSample: boolean; // 표본 < 20
   lowSampleThreshold: number;
   backtestable: false; // ★분봉 단타는 백테스트 불가(forward-only)
+  // ★DAR-418 fee-aware 투명화: 비용 인지 거래임을 표면화.
+  /** 왕복(매수+매도) 거래비용율(%) — TP/SL net 환산 기준(수수료·세금·슬리피지 SSOT). */
+  roundTripCostPct: number;
+  /** 순(net) 익절 목표(%) — 비용 차감 후 달성 목표. */
+  takeProfitNetPct: number;
+  /** 순(net) 손절 목표(%, 음수). */
+  stopLossNetPct: number;
+  /** 청산 완료 거래의 총수수료(수수료+세금) 합(원). */
+  totalFees: number;
   equityCurve: ScalpStatusEquityPoint[];
 }
 
@@ -103,10 +115,16 @@ export interface ScalpTradeRow {
   entryPrice: number;
   /** 청산 체결가 — OPEN 이면 null. */
   exitPrice: number | null;
-  /** 순수익률(%) — OPEN 이면 null. */
+  /** 순수익률(%) — net(=netReturnPct). OPEN 이면 null. (기존 FE 호환 — net 의미). */
   returnPct: number | null;
+  /** gross 수익률(%) — 비용 미반영(가격 기준). OPEN 이면 null. (DAR-418) */
+  grossReturnPct: number | null;
+  /** 순(net) 수익률(%) — returnPct 와 동일 값(명시 별칭). OPEN 이면 null. (DAR-418) */
+  netReturnPct: number | null;
   /** 순손익(원) — OPEN 이면 null. */
   netPnl: number | null;
+  /** 총수수료(수수료+세금) 합(원) — OPEN 이면 null. (DAR-418) */
+  totalFees: number | null;
   /** 포지션 상태. */
   status: 'OPEN' | 'CLOSED';
 }
@@ -116,6 +134,8 @@ export interface ScalpTradeHistory {
   styleTag: string;
   strategyKey: string;
   tagline: string;
+  /** 왕복 거래비용율(%) — '순수익(수수료 후)' 고지·비용 인지 표면화(DAR-418). */
+  roundTripCostPct: number;
   trades: ScalpTradeRow[];
 }
 
@@ -304,6 +324,17 @@ export class IntradayScalpService {
     const nowHhmm = this.hhmm(now);
     if (isPastEntryCutoff(nowHhmm)) {
       return { ...base, reason: '진입 마감(15:20 이후) — 당일 청산 보장' };
+    }
+
+    // ★DAR-418 진입 fee 허들 게이트: 기대이동(gross 익절폭)이 왕복비용+최소마진을 넘지 못하면
+    //   진입 보류(수수료만 내는 무의미 거래 차단). 비용율 SSOT = 체결 파라미터에서 산출.
+    //   고정 설정(순 +2% 익절)이라 사이클 단위 상수 — 후보 루프 전 1회 평가.
+    const grossTpPct = grossTakeProfitThresholdPct(DEFAULT_SCALP_EXIT_PARAMS);
+    if (!passesEntryFeeHurdle(grossTpPct, DEFAULT_SCALP_EXIT_PARAMS.roundTripCostPct)) {
+      return {
+        ...base,
+        reason: `진입 fee 허들 미달 — 기대이동 ${grossTpPct.toFixed(2)}% ≤ 왕복비용 ${DEFAULT_SCALP_EXIT_PARAMS.roundTripCostPct.toFixed(2)}%+마진`,
+      };
     }
 
     // 동시 보유 상한 게이트(현재 OPEN 수 기준).
@@ -533,17 +564,19 @@ export class IntradayScalpService {
     const rows = await this.prisma.intradayScalpTrade.findMany({
       where: { styleTag: INTRADAY_SCALP_STYLE_TAG },
       orderBy: { tradeDate: 'asc' },
-      select: { status: true, tradeDate: true, netPnl: true, returnPct: true },
+      select: { status: true, tradeDate: true, netPnl: true, returnPct: true, commission: true, tax: true },
     });
     const open = rows.filter((r) => r.status === 'OPEN');
     const closed = rows.filter((r) => r.status === 'CLOSED');
 
     let realizedPnl = 0;
+    let totalFees = 0;
     let wins = 0;
     const byDate = new Map<string, number>();
     for (const r of closed) {
       const net = toNum(r.netPnl);
       realizedPnl += net;
+      totalFees += toNum(r.commission) + toNum(r.tax); // ★DAR-418 총수수료(수수료+세금)
       if (toNum(r.returnPct) > 0) wins += 1;
       byDate.set(r.tradeDate, (byDate.get(r.tradeDate) ?? 0) + net);
     }
@@ -583,6 +616,10 @@ export class IntradayScalpService {
       lowSample: closed.length < IntradayScalpService.LOW_SAMPLE_THRESHOLD,
       lowSampleThreshold: IntradayScalpService.LOW_SAMPLE_THRESHOLD,
       backtestable: false,
+      roundTripCostPct: DEFAULT_SCALP_EXIT_PARAMS.roundTripCostPct,
+      takeProfitNetPct: DEFAULT_SCALP_EXIT_PARAMS.takeProfitPct,
+      stopLossNetPct: DEFAULT_SCALP_EXIT_PARAMS.stopLossPct,
+      totalFees,
       equityCurve,
     };
   }
@@ -603,12 +640,16 @@ export class IntradayScalpService {
         tradeDate: true,
         entryTs: true,
         entryPrice: true,
+        shares: true,
         entryReason: true,
         exitTs: true,
         exitPrice: true,
         exitReason: true,
         returnPct: true,
+        grossPnl: true,
         netPnl: true,
+        commission: true,
+        tax: true,
         status: true,
       },
     });
@@ -622,26 +663,39 @@ export class IntradayScalpService {
       : [];
     const nameMap = new Map(companies.map((c) => [c.corpCode, c.corpName]));
 
-    const trades: ScalpTradeRow[] = rows.map((r) => ({
-      id: r.id,
-      stockCode: r.stockCode,
-      corpName: nameMap.get(r.corpCode) ?? r.stockCode,
-      tradeDate: r.tradeDate,
-      entryTs: r.entryTs.toISOString(),
-      exitTs: r.exitTs ? r.exitTs.toISOString() : null,
-      entryReason: r.entryReason,
-      exitReason: (r.exitReason as ScalpExitReason | null) ?? null,
-      entryPrice: toNum(r.entryPrice),
-      exitPrice: r.exitPrice != null ? toNum(r.exitPrice) : null,
-      returnPct: r.returnPct != null ? toNum(r.returnPct) : null,
-      netPnl: r.netPnl != null ? toNum(r.netPnl) : null,
-      status: r.status === 'CLOSED' ? 'CLOSED' : 'OPEN',
-    }));
+    const trades: ScalpTradeRow[] = rows.map((r) => {
+      const isClosed = r.status === 'CLOSED';
+      const netReturnPct = r.returnPct != null ? toNum(r.returnPct) : null;
+      // ★DAR-418 gross 수익률 = grossPnl / 진입원가(진입가×수량). 비용 미반영(net 과 대비).
+      const entryCost = toNum(r.entryPrice) * r.shares;
+      const grossReturnPct =
+        isClosed && r.grossPnl != null && entryCost > 0 ? (toNum(r.grossPnl) / entryCost) * 100 : null;
+      const totalFees = isClosed ? toNum(r.commission) + toNum(r.tax) : null;
+      return {
+        id: r.id,
+        stockCode: r.stockCode,
+        corpName: nameMap.get(r.corpCode) ?? r.stockCode,
+        tradeDate: r.tradeDate,
+        entryTs: r.entryTs.toISOString(),
+        exitTs: r.exitTs ? r.exitTs.toISOString() : null,
+        entryReason: r.entryReason,
+        exitReason: (r.exitReason as ScalpExitReason | null) ?? null,
+        entryPrice: toNum(r.entryPrice),
+        exitPrice: r.exitPrice != null ? toNum(r.exitPrice) : null,
+        returnPct: netReturnPct,
+        grossReturnPct,
+        netReturnPct,
+        netPnl: r.netPnl != null ? toNum(r.netPnl) : null,
+        totalFees,
+        status: isClosed ? 'CLOSED' : 'OPEN',
+      };
+    });
 
     return {
       styleTag: INTRADAY_SCALP_STYLE_TAG,
       strategyKey: INTRADAY_SCALP_STYLE_TAG,
       tagline: '분봉 단타 — 거래량 폭발+돌파+VWAP 진입, 당일 청산(오버나잇 금지)',
+      roundTripCostPct: DEFAULT_SCALP_EXIT_PARAMS.roundTripCostPct,
       trades,
     };
   }

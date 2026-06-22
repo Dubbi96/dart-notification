@@ -11,6 +11,28 @@ export const DEFAULT_FILL_PARAMS: FillParams = {
 };
 
 /**
+ * 왕복(매수→매도) 거래비용율 — 체결금액 대비 분율(0~1). 비용율 SSOT(DAR-418).
+ *
+ * 단타는 매수·매도마다 비용이 발생하므로, gross 가격수익률과 net 순수익률의 간극이
+ * 작은 익절폭을 적자로 뒤집을 수 있다. 그 간극이 정확히 이 왕복비용율이다.
+ *   매수: 수수료(commissionRate) + 슬리피지(slippagePct)
+ *   매도: 수수료(commissionRate) + 매도세(sellTaxRate) + 슬리피지(slippagePct)
+ * → 합 = 2·commissionRate + sellTaxRate + 2·slippagePct
+ *
+ * ★하드코딩 금지: 항상 FillParams(체결 파라미터)에서 산출한다(TP/SL net 환산·진입 fee 허들 SSOT).
+ */
+export function roundTripCostRate(params: FillParams): number {
+  const buy = params.commissionRate + params.slippagePct;
+  const sell = params.commissionRate + params.sellTaxRate + params.slippagePct;
+  return buy + sell;
+}
+
+/** 왕복 거래비용율을 백분율(%)로 — TP/SL net 환산·표시(gross↔net 간극)·진입 fee 허들에서 사용. */
+export function roundTripCostPct(params: FillParams): number {
+  return roundTripCostRate(params) * 100;
+}
+
+/**
  * 체결 시뮬레이션 (순수 함수 — AI 개입 없음)
  *
  * 슬리피지 모델: 매수는 기준가 × (1 + slippagePct), 매도는 기준가 × (1 - slippagePct)

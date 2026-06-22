@@ -133,6 +133,15 @@ function ScalpCard({ status }: { status: ScalpStatus }) {
             sub={status.openPositions > 0 ? `보유 ${status.openPositions}` : '청산 완료'}
           />
         </View>
+
+        {/* ★DAR-418 fee-aware 고지 — 누적수익은 순수익(수수료 후) 기준임을 명시 + 총수수료·왕복비용. */}
+        <View style={[styles.feeNote, { backgroundColor: colors.surfaceSecondary }]}>
+          <Feather name="info" size={11} color={colors.textTertiary} />
+          <Text style={[typo.small, styles.feeNoteText, { color: colors.textTertiary }]} numberOfLines={2}>
+            순수익(수수료 후) 기준 · 왕복비용 {status.roundTripCostPct.toFixed(2)}%
+            {status.totalFees > 0 ? ` · 누적 수수료 ${Math.round(status.totalFees).toLocaleString('ko-KR')}원` : ''}
+          </Text>
+        </View>
       </TouchableOpacity>
 
       {/* 드릴다운 어포던스 — 오늘 거래 타임라인. */}
@@ -246,6 +255,17 @@ const styles = StyleSheet.create({
   primaryRow: {
     flexDirection: 'row',
     gap: spacing.sm,
+  },
+  feeNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  feeNoteText: {
+    flex: 1,
   },
   primaryStat: {
     flex: 1,

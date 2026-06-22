@@ -28,6 +28,10 @@ describe('IntradayScalpController — 응답 계약 {success,data} 래핑(DAR-41
     lowSample: true,
     lowSampleThreshold: 20,
     backtestable: false,
+    roundTripCostPct: 0.31,
+    takeProfitNetPct: 2.0,
+    stopLossNetPct: -1.2,
+    totalFees: 540,
     equityCurve: [
       { tradeDate: '20260622', realizedPnl: 12_345, cumulativeReturnPct: 0.12 },
     ],
@@ -37,6 +41,7 @@ describe('IntradayScalpController — 응답 계약 {success,data} 래핑(DAR-41
     styleTag: '분봉 단타',
     strategyKey: 'intraday-scalp',
     tagline: '거래량 돌파 + VWAP 단타',
+    roundTripCostPct: 0.31,
     trades: [
       {
         id: 'trade-1',
@@ -50,7 +55,10 @@ describe('IntradayScalpController — 응답 계약 {success,data} 래핑(DAR-41
         entryPrice: 105.05,
         exitPrice: 119.69,
         returnPct: 13.93,
+        grossReturnPct: 14.24,
+        netReturnPct: 13.93,
         netPnl: 12_345,
+        totalFees: 540,
         status: 'CLOSED',
       },
     ],

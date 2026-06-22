@@ -68,6 +68,33 @@ function triggerCandles(close: number, high: number, volume: number) {
   return rows;
 }
 
+/**
+ * DAR-415 윈도우 스캔용 시계열: 평탄 base + 지정 인덱스에 트리거 + 평탄 tail.
+ *   최신봉(마지막)은 평탄(미충족)이라, '최신 1봉만' 보면 진입 0(버그 재현).
+ */
+function windowCandles(triggerIdx: number, total = 40) {
+  const rows: Array<{
+    ts: Date;
+    openPrice: number;
+    highPrice: number;
+    lowPrice: number;
+    closePrice: number;
+    volume: number;
+  }> = [];
+  for (let i = 0; i < total; i++) {
+    const isTrig = i === triggerIdx;
+    rows.push({
+      ts: new Date(Date.UTC(2026, 5, 22, 0, i)),
+      openPrice: isTrig ? 105 : 100,
+      highPrice: isTrig ? 106 : 100,
+      lowPrice: isTrig ? 99 : 100,
+      closePrice: isTrig ? 105 : 100,
+      volume: isTrig ? 300 : 100,
+    });
+  }
+  return rows;
+}
+
 /** 상태 보존 Prisma 목 — intradayScalpTrade 는 in-memory 배열로 진입/청산 라운드트립을 재현. */
 function buildPrismaMock(opts: {
   universe: Array<{ stockCode: string; corpCode: string }>;
@@ -104,6 +131,14 @@ function buildPrismaMock(opts: {
           if (w.tradeDate) out = out.filter((t) => t.tradeDate === w.tradeDate);
           if (w.styleTag) out = out.filter((t) => t.styleTag === w.styleTag);
           return out.map((t) => ({ ...t }));
+        }),
+        count: jest.fn(async (args: any) => {
+          let out = trades;
+          const w = args?.where ?? {};
+          if (w.status) out = out.filter((t) => t.status === w.status);
+          if (w.tradeDate) out = out.filter((t) => t.tradeDate === w.tradeDate);
+          if (w.styleTag) out = out.filter((t) => t.styleTag === w.styleTag);
+          return out.length;
         }),
         create: jest.fn(async (args: any) => {
           const row: ScalpRow = { id: `t${++seq}`, ...args.data };
@@ -338,5 +373,89 @@ describe('IntradayScalpService — DAR-414 tradeDate 해석기 정렬', () => {
     const r = await svc.runEntryCycle(kstMonday('1000'));
     expect(r.tradeDate).toBe('20260622');
     expect(r.entered).toBe(1);
+  });
+});
+
+// DAR-415 — 윈도우 스캔: 사이클 사이에 발생한 충족봉(최신봉 아님)을 포착해 진입.
+//   기존 버그: evaluateScalpEntry 가 최신 1봉만 봐서, 충족 순간이 :X2분 스냅샷과 어긋나면 누락(진입 0).
+describe('IntradayScalpService — DAR-415 윈도우 스캔 진입', () => {
+  it('최신봉은 미충족이어도 윈도우 중간 충족봉을 포착해 진입(진입 ts=충족봉 시각)', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': windowCandles(25) }, // 충족=25, 최신봉(39)=평탄
+    });
+    const svc = new IntradayScalpService(mock.prisma);
+    const r = await svc.runEntryCycle(kstMonday('1000'));
+
+    expect(r.entered).toBe(1);
+    expect(mock.trades).toHaveLength(1);
+    const t = mock.trades[0];
+    expect(t.status).toBe('OPEN');
+    expect(t.entryReason).toBe('VOLUME_BREAKOUT_VWAP');
+    // ★진입 ts = 충족봉(인덱스 25) 시각 — 사이클 발화 시각(now=10:00)이 아님.
+    expect(t.entryTs).toEqual(new Date(Date.UTC(2026, 5, 22, 0, 25)));
+    // 진입가 = 충족봉 종가 105 × (1+슬리피지)
+    expect(t.entryPrice).toBeGreaterThan(105);
+  });
+
+  it('중복 진입 방지: 같은 데이터로 두 사이클 실행해도 종목당 1진입(라운드트립)', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': windowCandles(25) },
+    });
+    const svc = new IntradayScalpService(mock.prisma);
+    const r1 = await svc.runEntryCycle(kstMonday('1000'));
+    const r2 = await svc.runEntryCycle(kstMonday('1010'));
+    expect(r1.entered).toBe(1);
+    expect(r2.entered).toBe(0); // 이미 보유 → 재진입 0
+    expect(mock.trades).toHaveLength(1);
+  });
+
+  it('종목당 1라운드트립: 당일 이미 청산(CLOSED)된 종목은 재진입 안 함', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': windowCandles(25) },
+    });
+    // 같은 종목이 오늘 이미 한 번 라운드트립(CLOSED)한 상태를 선주입.
+    mock.trades.push({
+      id: 'closed-1',
+      corpCode: 'C1',
+      stockCode: '000001',
+      tradeDate: '20260622',
+      entryTs: kstMonday('0935'),
+      entryPrice: 100,
+      shares: 10,
+      entryReason: 'VOLUME_BREAKOUT_VWAP',
+      commission: 0,
+      tax: 0,
+      slippage: 0,
+      status: 'CLOSED',
+      styleTag: INTRADAY_SCALP_STYLE_TAG,
+      netPnl: 5000,
+      returnPct: 1,
+    });
+    const svc = new IntradayScalpService(mock.prisma);
+    const r = await svc.runEntryCycle(kstMonday('1000'));
+    expect(r.entered).toBe(0); // CLOSED 이력 있어 재진입 금지
+    expect(mock.trades.filter((t) => t.status === 'OPEN')).toHaveLength(0);
+  });
+
+  it('과진입 방지: 다수 종목이 충족해도 동시보유 상한(5)까지만 진입', async () => {
+    const codes = ['000001', '000002', '000003', '000004', '000005', '000006', '000007'];
+    const universe = codes.map((c, i) => ({ stockCode: c, corpCode: `C${i}` }));
+    const candlesByStock: Record<string, ReturnType<typeof windowCandles>> = {};
+    for (const c of codes) candlesByStock[c] = windowCandles(25);
+    const mock = buildPrismaMock({
+      universe,
+      signals: universe.map((u) => ({ corpCode: u.corpCode, stockCode: u.stockCode })),
+      candlesByStock,
+    });
+    const svc = new IntradayScalpService(mock.prisma);
+    const r = await svc.runEntryCycle(kstMonday('1000'));
+    expect(r.entered).toBe(5); // MAX_OPEN_POSITIONS
+    expect(mock.trades).toHaveLength(5);
   });
 });

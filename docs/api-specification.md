@@ -1776,6 +1776,13 @@ POST /api/paper-trading/simulation/strategies/refresh   (JWT 필수 — 쓰기·
   3. 추세: 현재가 > 당일 VWAP
   - 유니버스 = 당일 공시 종목 ∪ buy-signal(STRONG_BUY/BUY/WATCH) 후보, **분봉 수집된 종목만**, buyScore 우선.
   - 종목당 1포지션·동시보유 ≤5·종목당 예산 3%(engine5 Risk 하드룰 적용·veto).
+  - **윈도우 스캔 — DAR-415**: 진입 평가는 최신 1봉이 아니라 **직전 사이클 이후 도착한 분봉 윈도우 전체**를
+    순회한다(engine3 `scanEntrySignals(candles, fromIndex)` 순수 함수 — 각 분봉을 그 시점 '현재'로 두고
+    point-in-time 평가, **첫 충족봉**에서 진입). 10분 간격 평가가 최신 1봉만 보면 사이클 사이(10봉)에
+    발생한 충족 순간이 ':X2분 스냅샷'의 최신봉일 때만 잡혀 대부분 누락되던 버그(0619 실측 215 충족 → 진입 0)를
+    해소. engine5 가 **종목별 스캔 커서**(다음 스캔 시작 인덱스, 거래일 전환 시 리셋)로 중복 평가를 막고,
+    **종목당 1라운드트립**(OPEN/CLOSED 무관 당일 진입 이력 있으면 스킵)으로 과진입을 막는다.
+    진입가 = 충족봉 종가(슬리피지 반영), 진입 ts = **충족봉 시각**(사이클 발화 시각이 아님).
 - **청산**: 익절 +2% / 손절 -1.2% / **15:20 전량 강제청산**(단타=오버나잇 금지, 손익 무관 최우선). 15:20 이후 신규 진입 금지.
 - **체결**: 분봉 종가/실시간 시세 기준 paper 체결(수수료·세금·슬리피지 반영). ★실주문 0(순수 시뮬).
 - **거래일(tradeDate) 소스 — DAR-414**: 진입·청산·강제청산·유니버스(당일 공시 `rcpDt` 필터 포함)가 사용하는
@@ -1819,4 +1826,4 @@ GET /api/paper-trading/simulation/intraday-scalp/status   (게스트 허용)
 ---
 
 **작성일**: 2026-06-22
-**버전**: 1.15 (분봉 단타 tradeDate SSOT 정렬 §19 — DAR-414: 단타 진입·청산·강제청산·유니버스가 분봉 수집기와 동일 해석기(`resolveLatestAvailableTradeDate()`, KRX 실 가용 거래일)로 거래일을 해석 — 환경시계 today 직접사용 제거로 분봉 라벨 불일치(거래 0) 버그 해소; 1.14 자산곡선 일별 flat-fill — DAR-412: backtest `buildEquityCurve` + 분봉 단타 `equityCurve` 가 변동 청산일마다 직전 달력일 flat 앵커를 추가해 거래 없는 구간 직선 보간 제거(평평→계단)·4종 전략·단타 동일 적용·표본0/저표본 graceful 유지; 1.13 분봉 단타 트랙 §19 — DAR-411: 분봉(stock_minute_prices) 기반 당일 진입·당일 청산 forward-only 페이퍼 트랙 — 거래량 폭발+돌파+VWAP 3조건 진입·익절+2%/손절-1.2%/15:20 강제청산·engine5 Risk 하드룰·★실주문 0·전용 status 엔드포인트·백테스트 불가 graceful; 1.12 전략 변형 트랙 §18 — DAR-404: 시스템 트레이딩 전략 변형 4종 다중 트랙 비교/거래내역/갱신 엔드포인트·strategyKey 그룹핑·누적수익 ranking·게스트 데모; 이벤트 스터디 분포 §16.2-b — DAR-402: 버킷 D+N 초과수익 분포(평균/중앙값/분위수) 산출로 이상치 오염 표면화 + event_study_results robust 컬럼(median/winsorized) 추가·신호 스코어 event edge 강건화; 1.11 구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)
+**버전**: 1.16 (분봉 단타 진입평가 윈도우 스캔 §19 — DAR-415: 진입 평가가 최신 1봉이 아니라 직전 사이클 이후 도착 분봉 윈도우 전체를 순회(engine3 `scanEntrySignals(candles, fromIndex)` point-in-time 첫 충족봉)·engine5 종목별 스캔 커서로 중복평가 차단·종목당 1라운드트립(OPEN/CLOSED) 과진입 차단·진입ts=충족봉 시각 — 10분 간격 평가가 사이클 사이 충족 순간을 놓쳐 거래 0이던 버그 해소; 1.15 분봉 단타 tradeDate SSOT 정렬 §19 — DAR-414: 단타 진입·청산·강제청산·유니버스가 분봉 수집기와 동일 해석기(`resolveLatestAvailableTradeDate()`, KRX 실 가용 거래일)로 거래일을 해석 — 환경시계 today 직접사용 제거로 분봉 라벨 불일치(거래 0) 버그 해소; 1.14 자산곡선 일별 flat-fill — DAR-412: backtest `buildEquityCurve` + 분봉 단타 `equityCurve` 가 변동 청산일마다 직전 달력일 flat 앵커를 추가해 거래 없는 구간 직선 보간 제거(평평→계단)·4종 전략·단타 동일 적용·표본0/저표본 graceful 유지; 1.13 분봉 단타 트랙 §19 — DAR-411: 분봉(stock_minute_prices) 기반 당일 진입·당일 청산 forward-only 페이퍼 트랙 — 거래량 폭발+돌파+VWAP 3조건 진입·익절+2%/손절-1.2%/15:20 강제청산·engine5 Risk 하드룰·★실주문 0·전용 status 엔드포인트·백테스트 불가 graceful; 1.12 전략 변형 트랙 §18 — DAR-404: 시스템 트레이딩 전략 변형 4종 다중 트랙 비교/거래내역/갱신 엔드포인트·strategyKey 그룹핑·누적수익 ranking·게스트 데모; 이벤트 스터디 분포 §16.2-b — DAR-402: 버킷 D+N 초과수익 분포(평균/중앙값/분위수) 산출로 이상치 오염 표면화 + event_study_results robust 컬럼(median/winsorized) 추가·신호 스코어 event edge 강건화; 1.11 구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)

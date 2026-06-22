@@ -1757,5 +1757,50 @@ POST /api/paper-trading/simulation/strategies/refresh   (JWT 필수 — 쓰기·
 
 ---
 
-**작성일**: 2026-06-21
-**버전**: 1.12 (전략 변형 트랙 §18 — DAR-404: 시스템 트레이딩 전략 변형 4종 다중 트랙 비교/거래내역/갱신 엔드포인트·strategyKey 그룹핑·누적수익 ranking·게스트 데모; 이벤트 스터디 분포 §16.2-b — DAR-402: 버킷 D+N 초과수익 분포(평균/중앙값/분위수) 산출로 이상치 오염 표면화 + event_study_results robust 컬럼(median/winsorized) 추가·신호 스코어 event edge 강건화; 1.11 구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)
+## 19. 분봉 단타 모의전략 트랙 (Intraday Scalp, DAR-411)
+
+분봉(stock_minute_prices) 기반 **당일 진입·당일 청산** 실시간 페이퍼 트랙. 기존 4종 일봉 전략(§18)과
+별개의 트랙이다. ★분봉은 당일 forward-only(KIS, 과거 분봉 없음)라 **백테스트 불가** → 정규장 중
+실시간 모의(paper)로만 누적한다(`backtestable: false`, equityCurve 는 오늘부터 forward).
+
+- **진입(정규장 매 10분, 09:02~15:52 — 분봉수집기 직후 +2분 오프셋)** — 3조건 AND:
+  1. 거래량 폭발: 현재 분 거래량 ≥ 직전 20분 평균 거래량 × 2.5
+  2. 돌파: 현재가(분봉 종가) > 직전 15분 고가
+  3. 추세: 현재가 > 당일 VWAP
+  - 유니버스 = 당일 공시 종목 ∪ buy-signal(STRONG_BUY/BUY/WATCH) 후보, **분봉 수집된 종목만**, buyScore 우선.
+  - 종목당 1포지션·동시보유 ≤5·종목당 예산 3%(engine5 Risk 하드룰 적용·veto).
+- **청산**: 익절 +2% / 손절 -1.2% / **15:20 전량 강제청산**(단타=오버나잇 금지, 손익 무관 최우선). 15:20 이후 신규 진입 금지.
+- **체결**: 분봉 종가/실시간 시세 기준 paper 체결(수수료·세금·슬리피지 반영). ★실주문 0(순수 시뮬).
+
+### 19.1 분봉 단타 트랙 현황 조회
+
+```
+GET /api/paper-trading/simulation/intraday-scalp/status   (게스트 허용)
+```
+
+```jsonc
+{
+  "styleTag": "intraday-scalp",
+  "strategyKey": "intraday-scalp",
+  "tagline": "분봉 단타 — 거래량 폭발+돌파+VWAP 진입, 당일 청산(오버나잇 금지)",
+  "initialCapital": 10000000,
+  "openPositions": 2,            // 현재 보유(장중)
+  "closedTrades": 5,             // 청산 완료 누적
+  "realizedPnl": -12000,         // 실현 손익(KRW)
+  "winRate": 0.4,                // 0~1
+  "cumulativeReturnPct": -0.12,
+  "lowSample": true,             // 표본 < 20 (forward 초기 graceful)
+  "lowSampleThreshold": 20,
+  "backtestable": false,         // ★분봉 단타는 백테스트 불가(forward-only)
+  "equityCurve": [               // 일별 실현 누적(오늘부터 forward)
+    { "tradeDate": "20260622", "realizedPnl": -12000, "cumulativeReturnPct": -0.12 }
+  ]
+}
+```
+
+표본 0(장 시작 전·미진입)에도 `openPositions:0`/`equityCurve:[]`/`lowSample:true` 로 graceful 응답한다.
+
+---
+
+**작성일**: 2026-06-22
+**버전**: 1.13 (분봉 단타 트랙 §19 — DAR-411: 분봉(stock_minute_prices) 기반 당일 진입·당일 청산 forward-only 페이퍼 트랙 — 거래량 폭발+돌파+VWAP 3조건 진입·익절+2%/손절-1.2%/15:20 강제청산·engine5 Risk 하드룰·★실주문 0·전용 status 엔드포인트·백테스트 불가 graceful; 1.12 전략 변형 트랙 §18 — DAR-404: 시스템 트레이딩 전략 변형 4종 다중 트랙 비교/거래내역/갱신 엔드포인트·strategyKey 그룹핑·누적수익 ranking·게스트 데모; 이벤트 스터디 분포 §16.2-b — DAR-402: 버킷 D+N 초과수익 분포(평균/중앙값/분위수) 산출로 이상치 오염 표면화 + event_study_results robust 컬럼(median/winsorized) 추가·신호 스코어 event edge 강건화; 1.11 구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)

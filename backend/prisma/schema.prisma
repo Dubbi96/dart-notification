@@ -1904,3 +1904,51 @@ model CronRunLog {
   @@index([status])
   @@map("cron_run_logs")
 }
+
+// DAR-411: 분봉 단타(intraday scalping) 모의전략 트랙.
+//   당일 진입·당일 청산 forward-only 페이퍼 트랙(백테스트 불가 — 분봉은 당일 forward-only).
+//   기존 PaperTrade(per-fill)와 달리 1행=1라운드트립(진입+청산) — 진입/청산 사유·분봉시각·일별 성과 기록.
+//   자연키 corpCode/stockCode 는 인덱스만(StockMinutePrice 와 동일 패턴, FK 관계 없음=Company 무변경).
+//   가산형 신규 테이블 — 기존 스키마 무변경.
+model IntradayScalpTrade {
+  id        String @id @default(cuid())
+  corpCode  String // 기업 고유번호(자연키, 인덱스)
+  stockCode String // 종목코드 6자리
+
+  tradeDate String // YYYYMMDD (KST 거래일) — 당일 진입·당일 청산
+
+  // 진입 (분봉 신호)
+  entryTs          DateTime // 진입 분봉 시각(체결 기준)
+  entryPrice       Decimal  @db.Decimal(12, 2) // 진입 체결가(슬리피지 반영)
+  shares           Int // 체결 수량
+  entryReason      String // 진입 사유 태그(예: VOLUME_BREAKOUT_VWAP)
+  entryVwap        Decimal? @db.Decimal(12, 2) // 진입 시 당일 VWAP
+  entryVolumeRatio Decimal? @db.Decimal(8, 2) // 진입 시 거래량/직전평균 배수
+
+  // 청산
+  exitTs      DateTime? // 청산 분봉 시각
+  exitPrice   Decimal?  @db.Decimal(12, 2) // 청산 체결가
+  exitReason  String? // TAKE_PROFIT | STOP_LOSS | FORCE_CLOSE_EOD
+  holdMinutes Int? // 보유 분
+
+  // 비용·손익 (KRW)
+  commission Decimal  @default(0) @db.Decimal(12, 2) // 수수료(진입+청산)
+  tax        Decimal  @default(0) @db.Decimal(12, 2) // 매도 증권거래세
+  slippage   Decimal  @default(0) @db.Decimal(12, 2) // 슬리피지 비용(진입+청산)
+  grossPnl   Decimal? @db.Decimal(14, 2) // 총손익(비용 전)
+  netPnl     Decimal? @db.Decimal(14, 2) // 순손익(비용 후)
+  returnPct  Decimal? @db.Decimal(8, 4) // 순수익률(%)
+
+  status   String @default("OPEN") // OPEN | CLOSED
+  styleTag String @default("intraday-scalp") // 트랙 식별 태그(SSOT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([tradeDate])
+  @@index([stockCode])
+  @@index([corpCode])
+  @@index([styleTag])
+  @@map("intraday_scalp_trades")
+}

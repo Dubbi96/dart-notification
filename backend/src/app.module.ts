@@ -34,6 +34,7 @@ import { PaperSimulationModule } from './engine5-trading-risk/paper-simulation/p
 import { GraduationModule } from './engine5-trading-risk/simulation/graduation.module';
 import { PhilosophyStyleSimulationModule } from './engine5-trading-risk/paper-simulation/philosophy-style-simulation.module';
 import { PersonaTradingModule } from './engine5-trading-risk/paper-simulation/persona/persona-trading.module';
+import { IntradayScalpModule } from './engine5-trading-risk/paper-simulation/intraday-scalp/intraday-scalp.module';
 import { CollectionStatusModule } from './collection-status/collection-status.module';
 import { CronHealthModule } from './cron-health/cron-health.module';
 import { OpsModule } from './ops/ops.module';
@@ -122,6 +123,9 @@ import {
 
     // Engine 5 — 일일 모의운용 오케스트레이터 (M10 모의운용, DAR-40)
     PaperSimulationModule,
+
+    // Engine 5 — 분봉 단타 모의전략 (forward-only 페이퍼 트랙, DAR-411)
+    IntradayScalpModule,
 
     // Engine 5 — 졸업 게이트 G1~G5 측정 REST 노출 (M10 졸업 측정, DAR-67)
     GraduationModule,

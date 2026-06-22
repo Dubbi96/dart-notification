@@ -162,13 +162,12 @@ export function IntradayScalpSection() {
 
   return (
     <View style={styles.section}>
-      <View style={[styles.divider, { borderTopColor: colors.border }]} />
       <View style={styles.sectionHead}>
         <Feather name="zap" size={14} color={colors.info} />
         <Text style={[typo.captionMedium, { color: colors.text }]}>단타 트랙 (분봉·실시간 모의)</Text>
       </View>
       <Text style={[typo.small, { color: colors.textTertiary, marginBottom: spacing.sm }]}>
-        위 4종은 과거 백테스트 비교, 아래 단타는 장중 forward 누적이라 성격이 다릅니다.
+        위 단타는 장중 forward 누적, 아래 4종은 과거 백테스트 비교라 성격이 다릅니다.
       </Text>
 
       {query.isLoading ? (
@@ -194,6 +193,9 @@ export function IntradayScalpSection() {
       ) : (
         <ScalpCard status={query.data} />
       )}
+
+      {/* ★DAR-419: 단타가 최상단으로 올라오면서 구분선을 하단으로 옮겨 아래 4종 비교와 분리 */}
+      <View style={[styles.divider, { borderTopColor: colors.border }]} />
     </View>
   );
 }
@@ -201,11 +203,11 @@ export function IntradayScalpSection() {
 const styles = StyleSheet.create({
   section: {
     gap: spacing.sm,
-    marginTop: spacing.md,
+    marginBottom: spacing.md,
   },
   divider: {
     borderTopWidth: 1,
-    marginBottom: spacing.sm,
+    marginTop: spacing.sm,
   },
   sectionHead: {
     flexDirection: 'row',

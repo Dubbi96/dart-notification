@@ -326,7 +326,16 @@ export function StrategyComparisonSection() {
       showsVerticalScrollIndicator={false}
       refreshing={query.isRefetching}
       onRefresh={query.refetch}
-      ListHeaderComponent={data ? <ComparisonHeader data={data} /> : null}
+      // ★DAR-419: 분봉 단타(forward·실시간 모의) 트랙을 최상단으로 이동.
+      //   단타 섹션 → (구분선) → 4종 백테스트 비교 헤더 순. 성격이 달라 같은 카드
+      //   랭킹에 섞지 않되, 위계상 단타를 상단에 강조한다. 단타는 자체 훅이라 data
+      //   유무와 무관하게 항상 렌더하고, ComparisonHeader 만 data 가드를 유지한다.
+      ListHeaderComponent={
+        <>
+          <IntradayScalpSection />
+          {data ? <ComparisonHeader data={data} /> : null}
+        </>
+      }
       ListEmptyComponent={
         <EmptyState
           icon="bar-chart-2"
@@ -334,9 +343,6 @@ export function StrategyComparisonSection() {
           description="전략 변형 백테스트 트랙이 누적되면 비교가 표시됩니다."
         />
       }
-      // ★DAR-416: 분봉 단타(forward·실시간 모의) 트랙을 하단 별도 섹션으로 표면화.
-      //   백테스트 4종과 성격이 달라 같은 카드 랭킹에 섞지 않고 footer 로 분리한다.
-      ListFooterComponent={<IntradayScalpSection />}
       style={{ backgroundColor: colors.background }}
     />
   );

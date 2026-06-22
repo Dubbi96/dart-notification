@@ -1660,6 +1660,13 @@ GET /api/paper-trading/simulation/strategies/comparison   (OptionalJwt — 게�
 `StrategyTrackService` 직렬화는 그 타입과 1:1(DAR-407 정합). `winRate`는 0~1 비율, `equityCurve`는
 `{snapshotDate,totalValue,returnPct}`(모바일 EquityCurvePoint).
 
+★ **자산곡선 일별 flat-fill (DAR-412)** — `equityCurve`(원천 `backtest-equity-curve.ts buildEquityCurve`)는
+평가액이 변동하는 청산일마다 **"그 직전 달력일"에 변동 직전 평가액을 유지하는 flat 앵커 점**을 함께
+넣는다. 거래가 없던 구간이 직선 보간으로 뭉개지지 않고 **평평(원금/직전 평가액 유지) → 청산 시점
+계단**으로 그려진다(모바일 `EquityCurveChart` 는 점을 인덱스 균등 간격으로 잇는다). 예: 시작 2025-06-22
+1000만 → 앵커 2026-06-14 1000만(flat) → 청산 2026-06-15 1030만(계단). 4종 전략·분봉 단타
+(`intraday-scalp` forward 트랙) 동일 적용.
+
 ```jsonc
 {
   "success": true,
@@ -1792,15 +1799,19 @@ GET /api/paper-trading/simulation/intraday-scalp/status   (게스트 허용)
   "lowSample": true,             // 표본 < 20 (forward 초기 graceful)
   "lowSampleThreshold": 20,
   "backtestable": false,         // ★분봉 단타는 백테스트 불가(forward-only)
-  "equityCurve": [               // 일별 실현 누적(오늘부터 forward)
+  "equityCurve": [               // 일별 실현 누적(오늘부터 forward) — DAR-412 flat-fill 앵커 포함
+    { "tradeDate": "20260621", "realizedPnl": 0, "cumulativeReturnPct": 0 },     // 변동 직전 달력일 앵커(평평)
     { "tradeDate": "20260622", "realizedPnl": -12000, "cumulativeReturnPct": -0.12 }
   ]
 }
 ```
+
+`equityCurve` 는 손익 변동일마다 **그 직전 달력일에 변동 직전 누적수익률을 유지하는 flat 앵커**를 함께
+넣어(DAR-412), 거래 없던 구간이 직선 보간으로 뭉개지지 않고 평평 → 청산 시점 계단으로 그려진다.
 
 표본 0(장 시작 전·미진입)에도 `openPositions:0`/`equityCurve:[]`/`lowSample:true` 로 graceful 응답한다.
 
 ---
 
 **작성일**: 2026-06-22
-**버전**: 1.13 (분봉 단타 트랙 §19 — DAR-411: 분봉(stock_minute_prices) 기반 당일 진입·당일 청산 forward-only 페이퍼 트랙 — 거래량 폭발+돌파+VWAP 3조건 진입·익절+2%/손절-1.2%/15:20 강제청산·engine5 Risk 하드룰·★실주문 0·전용 status 엔드포인트·백테스트 불가 graceful; 1.12 전략 변형 트랙 §18 — DAR-404: 시스템 트레이딩 전략 변형 4종 다중 트랙 비교/거래내역/갱신 엔드포인트·strategyKey 그룹핑·누적수익 ranking·게스트 데모; 이벤트 스터디 분포 §16.2-b — DAR-402: 버킷 D+N 초과수익 분포(평균/중앙값/분위수) 산출로 이상치 오염 표면화 + event_study_results robust 컬럼(median/winsorized) 추가·신호 스코어 event edge 강건화; 1.11 구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)
+**버전**: 1.14 (자산곡선 일별 flat-fill — DAR-412: backtest `buildEquityCurve` + 분봉 단타 `equityCurve` 가 변동 청산일마다 직전 달력일 flat 앵커를 추가해 거래 없는 구간 직선 보간 제거(평평→계단)·4종 전략·단타 동일 적용·표본0/저표본 graceful 유지; 1.13 분봉 단타 트랙 §19 — DAR-411: 분봉(stock_minute_prices) 기반 당일 진입·당일 청산 forward-only 페이퍼 트랙 — 거래량 폭발+돌파+VWAP 3조건 진입·익절+2%/손절-1.2%/15:20 강제청산·engine5 Risk 하드룰·★실주문 0·전용 status 엔드포인트·백테스트 불가 graceful; 1.12 전략 변형 트랙 §18 — DAR-404: 시스템 트레이딩 전략 변형 4종 다중 트랙 비교/거래내역/갱신 엔드포인트·strategyKey 그룹핑·누적수익 ranking·게스트 데모; 이벤트 스터디 분포 §16.2-b — DAR-402: 버킷 D+N 초과수익 분포(평균/중앙값/분위수) 산출로 이상치 오염 표면화 + event_study_results robust 컬럼(median/winsorized) 추가·신호 스코어 event edge 강건화; 1.11 구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)

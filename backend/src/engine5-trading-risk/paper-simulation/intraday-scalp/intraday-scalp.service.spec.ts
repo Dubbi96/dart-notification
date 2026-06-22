@@ -459,3 +459,119 @@ describe('IntradayScalpService — DAR-415 윈도우 스캔 진입', () => {
     expect(mock.trades).toHaveLength(5);
   });
 });
+
+// DAR-416 — 거래 타임라인(getTradeHistory): 모바일 '전략' 탭 단타 드릴다운 표면화.
+//   최신 진입순·종목별 1행·종목명 결합(Company.corpName)·OPEN 청산필드 null.
+describe('IntradayScalpService — DAR-416 거래 타임라인(getTradeHistory)', () => {
+  /** company.findMany 를 포함한 타임라인 전용 프리즈마 목(상태 보존 배열). */
+  function buildHistoryMock(rows: Partial<ScalpRow>[], companies: Array<{ corpCode: string; corpName: string }>) {
+    return {
+      intradayScalpTrade: {
+        findMany: jest.fn(async (args: any) => {
+          let out = rows as ScalpRow[];
+          const w = args?.where ?? {};
+          if (w.styleTag) out = out.filter((t) => t.styleTag === w.styleTag);
+          // orderBy entryTs desc 재현(서비스 계약 — 최신 진입순).
+          const sorted = [...out].sort((a, b) => b.entryTs.getTime() - a.entryTs.getTime());
+          return sorted.map((t) => ({ ...t }));
+        }),
+      },
+      company: {
+        findMany: jest.fn(async (args: any) => {
+          const wanted: string[] = args?.where?.corpCode?.in ?? [];
+          return companies.filter((c) => wanted.includes(c.corpCode));
+        }),
+      },
+    } as any;
+  }
+
+  const baseRow = (over: Partial<ScalpRow>): ScalpRow => ({
+    id: 'x',
+    corpCode: 'C1',
+    stockCode: '000001',
+    tradeDate: '20260622',
+    entryTs: kstMonday('1000'),
+    entryPrice: 100,
+    shares: 10,
+    entryReason: 'VOLUME_BREAKOUT_VWAP',
+    commission: 0,
+    tax: 0,
+    slippage: 0,
+    status: 'CLOSED',
+    styleTag: INTRADAY_SCALP_STYLE_TAG,
+    ...over,
+  });
+
+  it('CLOSED/OPEN 혼합: 최신 진입순·종목명 결합·OPEN 청산필드 null', async () => {
+    const rows = [
+      baseRow({
+        id: 'closed-1',
+        corpCode: 'C1',
+        stockCode: '000001',
+        entryTs: kstMonday('0935'),
+        entryPrice: 100,
+        status: 'CLOSED',
+        exitTs: kstMonday('0950'),
+        exitPrice: 102,
+        exitReason: 'TAKE_PROFIT',
+        returnPct: 1.5,
+        netPnl: 18000,
+      }),
+      baseRow({
+        id: 'open-1',
+        corpCode: 'C2',
+        stockCode: '000002',
+        entryTs: kstMonday('1010'),
+        entryPrice: 200,
+        status: 'OPEN',
+        exitTs: null,
+        exitPrice: null,
+        exitReason: null,
+        returnPct: null,
+        netPnl: null,
+      }),
+    ];
+    const prisma = buildHistoryMock(rows, [
+      { corpCode: 'C1', corpName: '가나기업' },
+      { corpCode: 'C2', corpName: '다라기업' },
+    ]);
+    const svc = new IntradayScalpService(prisma);
+    const hist = await svc.getTradeHistory();
+
+    expect(hist.styleTag).toBe(INTRADAY_SCALP_STYLE_TAG);
+    expect(hist.trades).toHaveLength(2);
+    // 최신 진입순 — open-1(10:10) 먼저.
+    expect(hist.trades[0].id).toBe('open-1');
+    expect(hist.trades[0].corpName).toBe('다라기업');
+    expect(hist.trades[0].status).toBe('OPEN');
+    expect(hist.trades[0].exitTs).toBeNull();
+    expect(hist.trades[0].exitReason).toBeNull();
+    expect(hist.trades[0].returnPct).toBeNull();
+    // CLOSED — 청산 필드·종목명 결합.
+    expect(hist.trades[1].id).toBe('closed-1');
+    expect(hist.trades[1].corpName).toBe('가나기업');
+    expect(hist.trades[1].status).toBe('CLOSED');
+    expect(hist.trades[1].exitReason).toBe('TAKE_PROFIT');
+    expect(hist.trades[1].returnPct).toBeCloseTo(1.5, 6);
+    expect(hist.trades[1].entryReason).toBe('VOLUME_BREAKOUT_VWAP');
+    // ISO 문자열 직렬화.
+    expect(typeof hist.trades[1].entryTs).toBe('string');
+    expect(hist.trades[1].exitTs).toBe(kstMonday('0950').toISOString());
+  });
+
+  it('종목명 미존재: stockCode 폴백', async () => {
+    const rows = [baseRow({ id: 't1', corpCode: 'CX', stockCode: '009999' })];
+    const prisma = buildHistoryMock(rows, []); // 매핑 없음
+    const svc = new IntradayScalpService(prisma);
+    const hist = await svc.getTradeHistory();
+    expect(hist.trades[0].corpName).toBe('009999');
+  });
+
+  it('표본 0: 빈 타임라인 graceful(company 조회 스킵)', async () => {
+    const prisma = buildHistoryMock([], []);
+    const svc = new IntradayScalpService(prisma);
+    const hist = await svc.getTradeHistory();
+    expect(hist.trades).toEqual([]);
+    expect(prisma.company.findMany).not.toHaveBeenCalled();
+  });
+});

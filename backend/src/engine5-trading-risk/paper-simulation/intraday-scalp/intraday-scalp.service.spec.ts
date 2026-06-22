@@ -277,3 +277,66 @@ describe('IntradayScalpService — 1사이클', () => {
     expect(status.equityCurve[2].realizedPnl).toBe(0);
   });
 });
+
+// DAR-414 — tradeDate SSOT 정렬: 환경 시계 today(월 6/22)와 분봉 라벨(KRX 실가용일 6/19)이
+//   어긋날 때, 단타가 분봉 collector와 동일 해석기(resolveLatestAvailableTradeDate)를 써서
+//   6/19 라벨 분봉/유니버스를 읽어 진입을 평가하는지 검증(버그: today 직접사용 시 빈 결과 → 0거래).
+describe('IntradayScalpService — DAR-414 tradeDate 해석기 정렬', () => {
+  /** 분봉 collector와 동일한 KRX 실가용 거래일을 반환하는 해석기 스텁. */
+  function resolverStub(tradeDate: string) {
+    return { resolveLatestAvailableTradeDate: jest.fn(async () => tradeDate) } as any;
+  }
+
+  it('진입: 해석기가 준 거래일(6/19)로 분봉/유니버스 조회·진입 — 환경시계 today 미사용', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': triggerCandles(105, 106, 300) },
+    });
+    const svc = new IntradayScalpService(mock.prisma, undefined, resolverStub('20260619'));
+
+    // 환경시계 today = 6/22(월). 해석기는 KRX 실가용일 6/19 반환.
+    const r = await svc.runEntryCycle(kstMonday('1000'));
+
+    expect(r.skipped).toBe(false);
+    expect(r.tradeDate).toBe('20260619'); // ★환경시계(6/22) 아님
+    expect(r.entered).toBe(1);
+    expect(mock.trades[0].tradeDate).toBe('20260619'); // 영속 거래일도 분봉 라벨과 일치
+
+    // 분봉 로드(loadTodayCandles)·당일 공시 필터 모두 6/19 로 조회됐는지 확인.
+    const minuteCalls = mock.prisma.stockMinutePrice.findMany.mock.calls.map((c: any[]) => c[0]);
+    const candleLoad = minuteCalls.find((a: any) => a?.where?.stockCode === '000001');
+    expect(candleLoad.where.tradeDate).toBe('20260619');
+    const discCall = mock.prisma.disclosure.findMany.mock.calls[0][0];
+    expect(discCall.where.rcpDt.startsWith).toBe('20260619');
+  });
+
+  it('해석기 미주입(단위 테스트): 환경시계 today 폴백 — 기존 동작 보존', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': triggerCandles(105, 106, 300) },
+    });
+    const svc = new IntradayScalpService(mock.prisma);
+    const r = await svc.runEntryCycle(kstMonday('1000'));
+    expect(r.tradeDate).toBe('20260622'); // today 폴백
+    expect(r.entered).toBe(1);
+  });
+
+  it('해석기 throw 시 환경시계 today 폴백(graceful)', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': triggerCandles(105, 106, 300) },
+    });
+    const throwing = {
+      resolveLatestAvailableTradeDate: jest.fn(async () => {
+        throw new Error('KRX 일시 오류');
+      }),
+    } as any;
+    const svc = new IntradayScalpService(mock.prisma, undefined, throwing);
+    const r = await svc.runEntryCycle(kstMonday('1000'));
+    expect(r.tradeDate).toBe('20260622');
+    expect(r.entered).toBe(1);
+  });
+});

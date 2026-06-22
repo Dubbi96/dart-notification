@@ -16,7 +16,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
-  evaluateScalpEntry,
+  scanEntrySignals,
   ScalpCandle,
   SCALP_ENTRY_TAG,
 } from '../../../engine3-quant-market/intraday-scalp/intraday-scalp-signal';
@@ -104,6 +104,15 @@ export class IntradayScalpService {
   private readonly logger = new Logger(IntradayScalpService.name);
   static readonly LOW_SAMPLE_THRESHOLD = 20;
   static readonly TIMEZONE = KST_TIMEZONE;
+
+  /**
+   * ★DAR-415 윈도우 스캔 커서 — 종목별 '다음 스캔 시작 인덱스'(이미 평가한 분봉 재평가 방지).
+   *   forward-only 단일 스케줄러 프로세스 가정 — 인메모리로 충분(재시작 시 빈 커서=처음부터 스캔도
+   *   종목당-1라운드트립 게이트가 중복 진입을 막는다). 거래일 전환 시 전일 커서를 폐기한다.
+   */
+  private readonly scanCursor = new Map<string, number>();
+  /** 커서가 속한 거래일(전환 감지용). */
+  private scanCursorDate: string | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -259,31 +268,53 @@ export class IntradayScalpService {
       return { ...base, reason: '진입 마감(15:20 이후) — 당일 청산 보장' };
     }
 
-    const openTrades = await this.prisma.intradayScalpTrade.findMany({
+    // 동시 보유 상한 게이트(현재 OPEN 수 기준).
+    const openCount = await this.prisma.intradayScalpTrade.count({
       where: { status: 'OPEN', styleTag: INTRADAY_SCALP_STYLE_TAG },
-      select: { stockCode: true },
     });
-    const openCount = openTrades.length;
-    const openStocks = new Set(openTrades.map((t) => t.stockCode));
     if (openCount >= MAX_OPEN_POSITIONS) {
       return { ...base, ran: true, skipped: false, openAfter: openCount, reason: '동시 보유 상한 도달' };
     }
 
+    // ★DAR-415 dedup: 당일 진입 이력이 있는 종목(OPEN/CLOSED 무관)은 스킵 → 종목당 1라운드트립.
+    const todayTrades = await this.prisma.intradayScalpTrade.findMany({
+      where: { tradeDate, styleTag: INTRADAY_SCALP_STYLE_TAG },
+      select: { stockCode: true },
+    });
+    const enteredTodayStocks = new Set(todayTrades.map((t) => t.stockCode));
+
+    // 거래일 전환 시 커서 리셋(전일 종목 커서 폐기).
+    if (this.scanCursorDate !== tradeDate) {
+      this.scanCursor.clear();
+      this.scanCursorDate = tradeDate;
+    }
+
     const universe = await this.resolveUniverse(tradeDate);
     const { realized, count } = await this.todayRealizedAndCount(tradeDate);
-    const nowMs = now.getTime();
     const budget = SCALP_INITIAL_CAPITAL * PER_POSITION_BUDGET_PCT;
 
     let entered = 0;
+    let scannedStocks = 0;
     for (const cand of universe) {
       if (openCount + entered >= MAX_OPEN_POSITIONS) break;
-      if (openStocks.has(cand.stockCode)) continue; // 종목당 1포지션
+      if (enteredTodayStocks.has(cand.stockCode)) continue; // 종목당 1라운드트립
 
       const candles = await this.loadTodayCandles(cand.stockCode, tradeDate);
-      const decision = evaluateScalpEntry(candles);
-      if (!decision.triggered || decision.currentPrice === null) continue;
+      // ★DAR-415 윈도우 스캔: 직전 스캔 이후 도착 분봉부터 각 봉을 '현재'로 평가, 첫 충족봉 포착.
+      const fromIndex = this.scanCursor.get(cand.stockCode) ?? 0;
+      const scan = scanEntrySignals(candles, fromIndex);
+      scannedStocks += 1;
 
-      const price = decision.currentPrice;
+      if (scan.index < 0 || scan.candle === null || scan.decision.currentPrice === null) {
+        // 비충족 — 평가한 봉까지 커서 전진(재평가 방지). 다음 사이클은 신규 도착 분봉만 스캔.
+        this.scanCursor.set(cand.stockCode, candles.length);
+        continue;
+      }
+      // 충족봉 발견 — 커서는 충족봉 인덱스에 두어, 아래 리스크 거부 시 다음 사이클 재시도를 보존.
+      this.scanCursor.set(cand.stockCode, scan.index);
+
+      const decision = scan.decision;
+      const price = scan.candle.close; // 충족봉 종가(체결 기준가) — currentPrice 와 동일, non-null
       const shares = Math.floor(budget / price);
       if (shares <= 0) continue;
 
@@ -321,7 +352,8 @@ export class IntradayScalpService {
           corpCode: cand.corpCode,
           stockCode: cand.stockCode,
           tradeDate,
-          entryTs: now,
+          // ★DAR-415 진입ts = 충족봉 시각(사이클 발화 시각 now 가 아님). 진입가 = 충족봉 종가.
+          entryTs: scan.candle.ts,
           entryPrice: fill.filledPrice,
           shares: fill.filledShares,
           entryReason: SCALP_ENTRY_TAG,
@@ -335,13 +367,18 @@ export class IntradayScalpService {
         },
       });
       entered += 1;
-      openStocks.add(cand.stockCode);
-      this.logger.log(`[Scalp] 진입 ${cand.stockCode} ${fill.filledShares}주 @${fill.filledPrice} (${decision.detail})`);
+      enteredTodayStocks.add(cand.stockCode); // 같은 사이클 내 재진입 방지
+      this.logger.log(
+        `[Scalp] 진입 ${cand.stockCode} ${fill.filledShares}주 @${fill.filledPrice} ` +
+          `(충족봉 ${scan.candle.ts.toISOString()}·${decision.detail})`,
+      );
     }
 
-    // ★DAR-414 가시성: 진입 0이어도 '데이터 연결·평가함'이 로그에 보이게(유니버스/분봉 라벨 확인).
+    // ★DAR-414/415 가시성: 진입 0이어도 '데이터 연결·윈도우 스캔함'이 로그에 보이게.
+    //   스캔종목=종목당 1라운드트립 dedup 통과해 윈도우 스캔한 종목 수(진입은 충족·리스크 통과분).
     this.logger.log(
-      `[Scalp] 진입 사이클 tradeDate=${tradeDate} 유니버스=${universe.length} 평가완료 진입=${entered}`,
+      `[Scalp] 진입 사이클 tradeDate=${tradeDate} 유니버스=${universe.length} ` +
+        `윈도우스캔=${scannedStocks} 진입=${entered}`,
     );
 
     return {

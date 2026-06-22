@@ -156,3 +156,55 @@ export function evaluateScalpEntry(
     detail,
   };
 }
+
+/** 윈도우 스캔 결과(DAR-415). */
+export interface ScalpScanResult {
+  /** 윈도우 내 **첫 충족봉** 인덱스(없으면 -1). */
+  index: number;
+  /** 첫 충족봉(없으면 null). 진입가=candle.close, 진입ts=candle.ts. */
+  candle: ScalpCandle | null;
+  /** 첫 충족봉의 진입 판정(없으면 평가한 마지막 봉의 판정 — 미충족 사유 표면화). */
+  decision: ScalpEntryDecision;
+  /** 이번 호출에서 평가한 분봉 수(fromIndex 이후). 커서 전진·가시성용. */
+  scanned: number;
+}
+
+/**
+ * 분봉 윈도우 스캔 — `fromIndex` 이후의 **각 분봉을 '현재'로 두고**(그 시점 직전 N분 윈도우로)
+ * 3조건을 순회 평가, **첫 충족 분봉**을 반환한다(순수 함수, DAR-415).
+ *
+ * 배경(DAR-415 버그): 스케줄러는 10분마다 1회만 평가하는데 `evaluateScalpEntry`는 **최신 1봉만**
+ * 검사한다. 사이클 사이(10봉)에 발생한 충족 순간이 ':X2분 스냅샷'의 최신봉일 때만 잡혀
+ * 대부분 누락된다(0619 실측: 215 stock-min 충족 → 진입 0). 사이클당 신규 도착 분봉을
+ * 전부 스캔해 충족 순간을 빠짐없이 포착한다.
+ *
+ * point-in-time 안전: 인덱스 i 평가는 `candles.slice(0, i+1)`만 사용 — 미래 분봉을 보지 않는다
+ * (VWAP·평균거래량·돌파고가 모두 i 시점까지의 데이터로만 산출). `evaluateScalpEntry`를 그대로
+ * 재사용하므로 단봉 판정과 완전히 동일한 규칙이다(신호 정의 SSOT).
+ *
+ * 순수 함수 — 상태·부수효과 0. 커서 관리(미평가 구간)·dedup(종목당 1라운드트립)·체결·리스크·청산은
+ * engine5 가 강제한다.
+ *
+ * @param candles  당일 분봉(시간 오름차순).
+ * @param fromIndex 평가 시작 인덱스(직전 사이클까지 평가해 비충족 확정된 구간은 건너뛴다). 기본 0.
+ * @param params    진입 파라미터(미지정 시 DEFAULT_SCALP_ENTRY_PARAMS).
+ */
+export function scanEntrySignals(
+  candles: readonly ScalpCandle[],
+  fromIndex = 0,
+  params: ScalpEntryParams = DEFAULT_SCALP_ENTRY_PARAMS,
+): ScalpScanResult {
+  const start = Math.max(0, fromIndex);
+  // 평가 봉이 하나도 없을 때를 위한 폴백 판정(전체 기준 = 최신 상태, 미충족 사유 표면화용).
+  let lastDecision = evaluateScalpEntry(candles, params);
+  let scanned = 0;
+  for (let i = start; i < candles.length; i++) {
+    scanned++;
+    const decision = evaluateScalpEntry(candles.slice(0, i + 1), params);
+    lastDecision = decision;
+    if (decision.triggered && decision.currentPrice !== null) {
+      return { index: i, candle: candles[i], decision, scanned };
+    }
+  }
+  return { index: -1, candle: null, decision: lastDecision, scanned };
+}

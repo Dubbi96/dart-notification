@@ -7,6 +7,7 @@ import type {
   StrategyKey,
   StrategyTradeHistory,
 } from '@app-types/strategy-comparison.types';
+import type { ScalpStatus, ScalpTradeHistory } from '@app-types/intraday-scalp.types';
 
 import { api } from './api';
 
@@ -48,5 +49,17 @@ export const simulationService = {
       .get<ApiResponse<StrategyTradeHistory>>(
         `/paper-trading/simulation/strategies/${key}/trade-history`,
       )
+      .then((r) => r.data.data),
+
+  // 분봉 단타 forward 누적 성과·보유 현황 — OptionalJwt(게스트 데모 가능). DAR-416(BE: DAR-411).
+  getIntradayScalpStatus: () =>
+    api
+      .get<ApiResponse<ScalpStatus>>('/paper-trading/simulation/intraday-scalp/status')
+      .then((r) => r.data.data),
+
+  // 분봉 단타 거래 타임라인(최신 진입순) — OptionalJwt. DAR-416(BE: DAR-411).
+  getIntradayScalpTrades: () =>
+    api
+      .get<ApiResponse<ScalpTradeHistory>>('/paper-trading/simulation/intraday-scalp/trade-history')
       .then((r) => r.data.data),
 };

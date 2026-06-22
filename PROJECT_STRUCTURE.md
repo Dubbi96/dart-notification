@@ -210,7 +210,8 @@ dart-notification/
 │   │   │   │   ├── index.tsx  # 포지션 상세 [DAR-21]
 │   │   │   │   └── thesis.tsx # Thesis 상세 [DAR-21]
 │   │   │   └── strategy/
-│   │   │       └── [key].tsx  # 전략 드릴다운 — 과거 매수/매도 타임라인 [DAR-405]
+│   │   │       ├── [key].tsx          # 전략 드릴다운 — 과거 매수/매도 타임라인 [DAR-405]
+│   │   │       └── intraday-scalp.tsx # 분봉 단타 드릴다운 — 오늘 거래 타임라인 [DAR-416]
 │   │   ├── onboarding/
 │   │   │   └── index.tsx      # 온보딩
 │   │   ├── legal/             # 법적 문서

@@ -81,6 +81,44 @@ export interface ScalpStatus {
   equityCurve: ScalpStatusEquityPoint[];
 }
 
+/**
+ * 단타 거래 1행(드릴다운 타임라인) — DAR-416 모바일 표면화.
+ *   진입/청산 시각·사유·가격·손익을 종목별로 노출(최신 진입순). OPEN 포지션은 청산 필드 null.
+ */
+export interface ScalpTradeRow {
+  /** 행 식별자(IntradayScalpTrade id). */
+  id: string;
+  stockCode: string;
+  /** 종목명(Company.corpName, 없으면 stockCode 폴백). */
+  corpName: string;
+  tradeDate: string;
+  /** 진입 분봉 시각(ISO 8601). */
+  entryTs: string;
+  /** 청산 분봉 시각(ISO 8601) — OPEN 이면 null. */
+  exitTs: string | null;
+  /** 진입 사유 태그(VOLUME_BREAKOUT_VWAP). */
+  entryReason: string;
+  /** 청산 사유 — OPEN 이면 null. */
+  exitReason: ScalpExitReason | null;
+  entryPrice: number;
+  /** 청산 체결가 — OPEN 이면 null. */
+  exitPrice: number | null;
+  /** 순수익률(%) — OPEN 이면 null. */
+  returnPct: number | null;
+  /** 순손익(원) — OPEN 이면 null. */
+  netPnl: number | null;
+  /** 포지션 상태. */
+  status: 'OPEN' | 'CLOSED';
+}
+
+/** 단타 거래 타임라인 응답 — GET /intraday-scalp/trade-history(최신 진입순). */
+export interface ScalpTradeHistory {
+  styleTag: string;
+  strategyKey: string;
+  tagline: string;
+  trades: ScalpTradeRow[];
+}
+
 function toNum(v: unknown): number {
   if (v === null || v === undefined) return 0;
   return Number(v);
@@ -546,6 +584,65 @@ export class IntradayScalpService {
       lowSampleThreshold: IntradayScalpService.LOW_SAMPLE_THRESHOLD,
       backtestable: false,
       equityCurve,
+    };
+  }
+
+  /**
+   * 단타 거래 타임라인(표면화) — DAR-416. 최신 진입순(entryTs desc) 종목별 1행.
+   *   OPEN 포지션은 청산 필드 null(보유 중). 종목명은 Company.corpName 결합(없으면 stockCode).
+   *   게스트 조회 가능(컨트롤러 OptionalJwt) — forward 모의 트랙은 공개 성과.
+   */
+  async getTradeHistory(): Promise<ScalpTradeHistory> {
+    const rows = await this.prisma.intradayScalpTrade.findMany({
+      where: { styleTag: INTRADAY_SCALP_STYLE_TAG },
+      orderBy: [{ entryTs: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        id: true,
+        stockCode: true,
+        corpCode: true,
+        tradeDate: true,
+        entryTs: true,
+        entryPrice: true,
+        entryReason: true,
+        exitTs: true,
+        exitPrice: true,
+        exitReason: true,
+        returnPct: true,
+        netPnl: true,
+        status: true,
+      },
+    });
+
+    const corpCodes = Array.from(new Set(rows.map((r) => r.corpCode)));
+    const companies = corpCodes.length
+      ? await this.prisma.company.findMany({
+          where: { corpCode: { in: corpCodes } },
+          select: { corpCode: true, corpName: true },
+        })
+      : [];
+    const nameMap = new Map(companies.map((c) => [c.corpCode, c.corpName]));
+
+    const trades: ScalpTradeRow[] = rows.map((r) => ({
+      id: r.id,
+      stockCode: r.stockCode,
+      corpName: nameMap.get(r.corpCode) ?? r.stockCode,
+      tradeDate: r.tradeDate,
+      entryTs: r.entryTs.toISOString(),
+      exitTs: r.exitTs ? r.exitTs.toISOString() : null,
+      entryReason: r.entryReason,
+      exitReason: (r.exitReason as ScalpExitReason | null) ?? null,
+      entryPrice: toNum(r.entryPrice),
+      exitPrice: r.exitPrice != null ? toNum(r.exitPrice) : null,
+      returnPct: r.returnPct != null ? toNum(r.returnPct) : null,
+      netPnl: r.netPnl != null ? toNum(r.netPnl) : null,
+      status: r.status === 'CLOSED' ? 'CLOSED' : 'OPEN',
+    }));
+
+    return {
+      styleTag: INTRADAY_SCALP_STYLE_TAG,
+      strategyKey: INTRADAY_SCALP_STYLE_TAG,
+      tagline: '분봉 단타 — 거래량 폭발+돌파+VWAP 진입, 당일 청산(오버나잇 금지)',
+      trades,
     };
   }
 }

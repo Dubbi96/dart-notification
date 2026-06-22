@@ -10,6 +10,7 @@ import { EmptyState, ErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { EquityCurveChart } from '@components/portfolio/EquityCurveChart';
 import { DataLimitBadge } from '@components/common/DataLimitBadge';
+import { IntradayScalpSection } from '@components/portfolio/IntradayScalpSection';
 import { useStrategyComparison } from '@hooks/useStrategyComparison';
 import { formatReturnPct, formatWinRate } from '@utils/numberFormat';
 
@@ -333,6 +334,9 @@ export function StrategyComparisonSection() {
           description="전략 변형 백테스트 트랙이 누적되면 비교가 표시됩니다."
         />
       }
+      // ★DAR-416: 분봉 단타(forward·실시간 모의) 트랙을 하단 별도 섹션으로 표면화.
+      //   백테스트 4종과 성격이 달라 같은 카드 랭킹에 섞지 않고 footer 로 분리한다.
+      ListFooterComponent={<IntradayScalpSection />}
       style={{ backgroundColor: colors.background }}
     />
   );

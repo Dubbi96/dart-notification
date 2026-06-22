@@ -45,27 +45,45 @@ describe('STRATEGY_PRESETS (DAR-404)', () => {
     const byKey = Object.fromEntries(STRATEGY_PRESETS.map((p) => [p.key, p.params]));
 
     // event-edge: robust 게이트로 eventTypes 동적 선별(정적 하드코딩 없음) · 점수가중 · 익절20/손절-10 · 20일
+    // DAR-413: 임계 ≥35(상위 ~4%).
     expect(byKey['event-edge'].eventTypes).toBeUndefined();
     expect(findPreset('event-edge')!.robustEventGate).toBe(true);
+    expect(byKey['event-edge'].minBuyScore).toBe(35);
     expect(byKey['event-edge'].sizeRule).toBe('SCORE_WEIGHT');
     expect(byKey['event-edge'].exitRules).toMatchObject({ takeProfitPct: 20, stopLossPct: -10, maxHoldDays: 20 });
 
-    // short-momentum: ≥70 · 익절10/손절-5 · 5일 · 균등
-    expect(byKey['short-momentum'].minBuyScore).toBe(70);
+    // short-momentum: ≥40(DAR-413, 상위 ~3%) · 익절10/손절-5 · 5일 · 균등
+    expect(byKey['short-momentum'].minBuyScore).toBe(40);
     expect(byKey['short-momentum'].exitRules).toMatchObject({ takeProfitPct: 10, stopLossPct: -5, maxHoldDays: 5 });
     expect(byKey['short-momentum'].sizeRule).toBe('EQUAL_WEIGHT');
 
-    // conservative-value: ≥70 · 손절-10 · 20일 · 최대10 · 점수가중
-    expect(byKey['conservative-value'].minBuyScore).toBe(70);
+    // conservative-value: ≥50(DAR-413, 상위 ~0.6% 최고 확신) · 손절-10 · 20일 · 최대10 · 점수가중
+    expect(byKey['conservative-value'].minBuyScore).toBe(50);
     expect(byKey['conservative-value'].exitRules.stopLossPct).toBe(-10);
     expect(byKey['conservative-value'].maxPositions).toBe(10);
     expect(byKey['conservative-value'].sizeRule).toBe('SCORE_WEIGHT');
 
-    // aggressive-diversified: ≥50 · 손절-8 · 최대50 · 균등
-    expect(byKey['aggressive-diversified'].minBuyScore).toBe(50);
+    // aggressive-diversified: ≥30(DAR-413, 상위 ~6.6% 하한) · 손절-8 · 최대50 · 균등
+    expect(byKey['aggressive-diversified'].minBuyScore).toBe(30);
     expect(byKey['aggressive-diversified'].exitRules.stopLossPct).toBe(-8);
     expect(byKey['aggressive-diversified'].maxPositions).toBe(50);
     expect(byKey['aggressive-diversified'].sizeRule).toBe('EQUAL_WEIGHT');
+  });
+
+  it('DAR-413: 임계값이 분포 기반 상대 엄격도 사다리(보수 > 단기 > 엣지 > 공격)를 만족한다', () => {
+    const byKey = Object.fromEntries(STRATEGY_PRESETS.map((p) => [p.key, p.params]));
+    // 상대적 엄격도(percentile rank) = 전략 정체성. 보수가치가 가장 엄격, 공격분산이 가장 넓다.
+    expect(byKey['conservative-value'].minBuyScore).toBeGreaterThan(byKey['short-momentum'].minBuyScore);
+    expect(byKey['short-momentum'].minBuyScore).toBeGreaterThan(byKey['event-edge'].minBuyScore);
+    expect(byKey['event-edge'].minBuyScore).toBeGreaterThan(byKey['aggressive-diversified'].minBuyScore);
+    // '아무거나 매수' 방지 하한 — 분포 상위 ~6.6%(≥30)보다 낮은 임계는 없다.
+    for (const p of STRATEGY_PRESETS) {
+      expect(p.params.minBuyScore).toBeGreaterThanOrEqual(30);
+    }
+    // 과거 비활성 임계(상위 0.01%, 연 1거래)였던 70 을 더 이상 쓰지 않는다.
+    for (const p of STRATEGY_PRESETS) {
+      expect(p.params.minBuyScore).toBeLessThan(70);
+    }
   });
 
   it('findPreset 는 유효 키만 찾는다', () => {
@@ -75,7 +93,7 @@ describe('STRATEGY_PRESETS (DAR-404)', () => {
 
   it('summarizeRules 가 핵심 룰을 한국어로 요약한다', () => {
     const summary = summarizeRules(findPreset('event-edge')!.params);
-    expect(summary).toContain('점수 ≥50');
+    expect(summary).toContain('점수 ≥35');
     expect(summary).toContain('익절 +20%');
     expect(summary).toContain('손절 -10%');
     expect(summary).toContain('점수가중배분');

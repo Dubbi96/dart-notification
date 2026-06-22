@@ -268,6 +268,11 @@ describe('IntradayScalpService — 1사이클', () => {
     expect(status.lowSample).toBe(true);
     expect(status.closedTrades).toBe(0);
     expect(status.equityCurve).toEqual([]);
+    // DAR-418 fee 투명화 필드(SSOT 비용율·순 목표·총수수료).
+    expect(status.roundTripCostPct).toBeCloseTo(0.31, 6);
+    expect(status.takeProfitNetPct).toBe(2.0);
+    expect(status.stopLossNetPct).toBe(-1.2);
+    expect(status.totalFees).toBe(0);
   });
 
   it('getStatus equityCurve: DAR-412 일별 flat-fill — 거래 없는 구간 평평 + 청산일 계단', async () => {
@@ -557,6 +562,47 @@ describe('IntradayScalpService — DAR-416 거래 타임라인(getTradeHistory)'
     // ISO 문자열 직렬화.
     expect(typeof hist.trades[1].entryTs).toBe('string');
     expect(hist.trades[1].exitTs).toBe(kstMonday('0950').toISOString());
+  });
+
+  it('DAR-418 fee 투명화: gross/net 수익률·총수수료(수수료+세금) 노출', async () => {
+    const rows = [
+      baseRow({
+        id: 'closed-fee',
+        corpCode: 'C1',
+        stockCode: '000001',
+        entryPrice: 100,
+        shares: 10, // 진입원가 1000
+        status: 'CLOSED',
+        exitPrice: 102,
+        exitReason: 'TAKE_PROFIT',
+        grossPnl: 25, // gross 2.5%
+        netPnl: 20, // net 2.0%
+        returnPct: 2.0,
+        commission: 3,
+        tax: 2,
+      }),
+    ];
+    const prisma = buildHistoryMock(rows, [{ corpCode: 'C1', corpName: '가나기업' }]);
+    const svc = new IntradayScalpService(prisma);
+    const hist = await svc.getTradeHistory();
+    const t = hist.trades[0];
+    expect(t.grossReturnPct).toBeCloseTo(2.5, 6); // 25 / 1000 * 100
+    expect(t.netReturnPct).toBeCloseTo(2.0, 6);
+    expect(t.returnPct).toBeCloseTo(2.0, 6); // 기존 FE 호환(net 별칭)
+    expect(t.totalFees).toBe(5); // 수수료 3 + 세금 2
+    // 왕복 거래비용율은 응답 최상위에 노출(비용 인지 고지).
+    expect(hist.roundTripCostPct).toBeCloseTo(0.31, 6);
+  });
+
+  it('OPEN 포지션: gross/net/총수수료 모두 null(미청산)', async () => {
+    const rows = [baseRow({ id: 'open-fee', status: 'OPEN', exitPrice: null, exitReason: null, returnPct: null, netPnl: null })];
+    const prisma = buildHistoryMock(rows, [{ corpCode: 'C1', corpName: '가나기업' }]);
+    const svc = new IntradayScalpService(prisma);
+    const hist = await svc.getTradeHistory();
+    const t = hist.trades[0];
+    expect(t.grossReturnPct).toBeNull();
+    expect(t.netReturnPct).toBeNull();
+    expect(t.totalFees).toBeNull();
   });
 
   it('종목명 미존재: stockCode 폴백', async () => {

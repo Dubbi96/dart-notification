@@ -53,6 +53,18 @@ function priceText(value: number | null): string {
   return value === null ? '—' : `${value.toLocaleString('ko-KR')}원`;
 }
 
+/** 원(KRW) 정수 표기 — null 은 '—'. */
+function wonText(value: number | null): string {
+  return value === null ? '—' : `${Math.round(value).toLocaleString('ko-KR')}원`;
+}
+
+/** gross 수익률(%) 표기 — null 은 '—'. */
+function grossPctText(value: number | null): string {
+  if (value === null) return '—';
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value.toFixed(2)}%`;
+}
+
 /**
  * 청산 사유별 색조 — 익절(success)·손절(error)·장마감(중립)·보유중(중립).
  * 색 단독 의미 금지 원칙은 라벨(평문)+태그로 병행하므로, 여기선 수익률 텍스트 색조로만 사용.
@@ -75,7 +87,8 @@ function TradeRow({ trade }: { trade: ScalpTrade }) {
   const { colors, typography: typo } = useTheme();
   const isOpen = trade.status === 'OPEN';
   const tone = returnTone(trade, colors);
-  const returnText = isOpen ? '보유 중' : formatReturnPct(trade.returnPct, { digits: 2 });
+  // ★DAR-418 메인 수익률 = 순수익(수수료 후) net.
+  const returnText = isOpen ? '보유 중' : formatReturnPct(trade.netReturnPct ?? trade.returnPct, { digits: 2 });
 
   return (
     <Surface
@@ -92,9 +105,14 @@ function TradeRow({ trade }: { trade: ScalpTrade }) {
             {trade.stockCode} · {shortDate(trade.tradeDate)}
           </Text>
         </View>
-        <Text style={[typo.bodyMedium, { color: tone }]} accessibilityLabel={`수익률 ${returnText}`}>
-          {returnText}
-        </Text>
+        <View style={styles.returnCol}>
+          <Text style={[typo.bodyMedium, { color: tone }]} accessibilityLabel={`순수익률 ${returnText}`}>
+            {returnText}
+          </Text>
+          {!isOpen ? (
+            <Text style={[typo.small, { color: colors.textTertiary }]}>순(수수료 후)</Text>
+          ) : null}
+        </View>
       </View>
 
       {/* 중단: 진입 → 청산 시각/가격 */}
@@ -123,6 +141,21 @@ function TradeRow({ trade }: { trade: ScalpTrade }) {
           <Text style={[typo.small, { color: colors.textSecondary }]}>{exitReasonLabel(trade.exitReason)}</Text>
         </View>
       </View>
+
+      {/* ★DAR-418 비용 투명화 — gross(비용 전) 대비 net·총수수료(CLOSED 만). */}
+      {!isOpen ? (
+        <View style={[styles.feeRow, { borderTopColor: colors.borderLight }]}>
+          <Text style={[typo.small, { color: colors.textTertiary }]}>
+            세전 {grossPctText(trade.grossReturnPct)}
+          </Text>
+          <Text style={[typo.small, { color: colors.textTertiary }]}>
+            수수료 {wonText(trade.totalFees)}
+          </Text>
+          <Text style={[typo.small, { color: colors.textTertiary }]}>
+            순손익 {wonText(trade.netPnl)}
+          </Text>
+        </View>
+      ) : null}
     </Surface>
   );
 }
@@ -151,6 +184,10 @@ export default function IntradayScalpTimelineScreen() {
             style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
           >
             <Text style={[typo.small, { color: colors.textTertiary }]}>{history.tagline}</Text>
+            {/* ★DAR-418 비용 인지 고지 — 수익률은 순(수수료 후), 왕복비용율 명시. */}
+            <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
+              수익률은 순수익(수수료 후) 기준 · 왕복 거래비용 약 {history.roundTripCostPct.toFixed(2)}%(수수료·세금·슬리피지)
+            </Text>
           </Surface>
           <Text style={[typo.captionMedium, { color: colors.text, marginTop: spacing.xs }]}>
             거래 타임라인 · {history.trades.length}건
@@ -230,6 +267,18 @@ const styles = StyleSheet.create({
   tradeTitleCol: {
     flexShrink: 1,
     gap: 2,
+  },
+  returnCol: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  feeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderTopWidth: 1,
+    paddingTop: spacing.xs,
   },
   tradeFlowRow: {
     flexDirection: 'row',

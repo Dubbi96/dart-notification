@@ -38,6 +38,14 @@ export interface ScalpStatus {
   lowSampleThreshold: number;
   /** ★항상 false — 분봉 단타는 백테스트 불가(forward-only). */
   backtestable: false;
+  /** ★DAR-418 왕복(매수+매도) 거래비용율(%) — 수수료·세금·슬리피지 합. '순수익(수수료 후)' 고지. */
+  roundTripCostPct: number;
+  /** 순(net) 익절 목표(%) — 비용 차감 후 달성 목표. */
+  takeProfitNetPct: number;
+  /** 순(net) 손절 목표(%, 음수). */
+  stopLossNetPct: number;
+  /** 청산 완료 거래의 총수수료(수수료+세금) 합(원). */
+  totalFees: number;
   /** forward 자산곡선(오름차순; 0·1개도 정직하게). */
   equityCurve: ScalpEquityPoint[];
 }
@@ -65,10 +73,16 @@ export interface ScalpTrade {
   entryPrice: number;
   /** 청산가 — OPEN 이면 null. */
   exitPrice: number | null;
-  /** 순수익률(%) — OPEN 이면 null. */
+  /** 순수익률(%) — net(=netReturnPct). OPEN 이면 null. */
   returnPct: number | null;
+  /** ★DAR-418 gross 수익률(%) — 비용 미반영(가격 기준). OPEN 이면 null. */
+  grossReturnPct: number | null;
+  /** ★DAR-418 순(net) 수익률(%) — returnPct 와 동일 값(명시 별칭). OPEN 이면 null. */
+  netReturnPct: number | null;
   /** 순손익(원) — OPEN 이면 null. */
   netPnl: number | null;
+  /** ★DAR-418 총수수료(수수료+세금) 합(원) — OPEN 이면 null. */
+  totalFees: number | null;
   /** 포지션 상태. */
   status: 'OPEN' | 'CLOSED';
 }
@@ -78,6 +92,8 @@ export interface ScalpTradeHistory {
   styleTag: string;
   strategyKey: string;
   tagline: string;
+  /** ★DAR-418 왕복 거래비용율(%) — '순수익(수수료 후)' 고지. */
+  roundTripCostPct: number;
   /** 거래 타임라인(최신 진입순). */
   trades: ScalpTrade[];
 }

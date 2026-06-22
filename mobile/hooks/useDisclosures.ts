@@ -19,6 +19,19 @@ export function useDisclosures(
   });
 }
 
+/**
+ * '오늘의 공시' 집계 (GET /disclosures/today-count, DAR-420).
+ * 홈 요약 카드의 '오늘의 공시'는 전체 누적(meta.total)이 아니라 최신 가용 공시일 건수를 쓴다.
+ * 게스트 조회 가능. 시간 경과로 최신일이 바뀔 수 있어 5분 staleTime으로 가볍게 캐시.
+ */
+export function useTodayDisclosureCount() {
+  return useQuery({
+    queryKey: ['disclosures', 'today-count'],
+    queryFn: () => disclosureService.getTodayCount(),
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
 export function useDisclosureSearch(
   query: string,
   disclosureType?: string,

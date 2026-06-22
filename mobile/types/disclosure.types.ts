@@ -13,6 +13,17 @@ export interface Disclosure {
   dartUrl?: string;
 }
 
+/**
+ * '오늘의 공시' 집계 (GET /disclosures/today-count, DAR-420).
+ * '오늘' = 최신 가용 공시일(max rcpDt의 날짜). 전체 누적이 아님.
+ */
+export interface TodayDisclosureCount {
+  /** 최신 가용 공시일 YYYYMMDD (데이터 없으면 null). 라벨 보조표기용. */
+  date: string | null;
+  /** 그 날짜의 공시 건수. */
+  count: number;
+}
+
 /** 공시 AI 이벤트 분석 결과 (GET /disclosure-events/:rcpNo 실연동) */
 export interface DisclosureEvent {
   id: string;

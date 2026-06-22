@@ -21,6 +21,7 @@ import {
   SCALP_ENTRY_TAG,
 } from '../../../engine3-quant-market/intraday-scalp/intraday-scalp-signal';
 import { RealtimeQuoteCache } from '../../../engine3-quant-market/market-data/realtime-quote.cache';
+import { KrxMarketDataScheduler } from '../../../engine3-quant-market/market-data/krx-market-data.scheduler';
 import { simulateFill, DEFAULT_FILL_PARAMS } from '../../domain/fill-simulator';
 import { checkRisk } from '../../domain/risk-check.service';
 import {
@@ -108,7 +109,32 @@ export class IntradayScalpService {
     private readonly prisma: PrismaService,
     // 실시간 시세 캐시(@Global). 신선분이 있으면 우선 사용, 없으면 분봉 종가로 폴백.
     @Optional() private readonly realtimeCache?: RealtimeQuoteCache,
+    // ★DAR-414: 분봉 collector(engine3)와 동일한 거래일 해석기 — tradeDate SSOT 정렬.
+    //   환경 시계 today 가 KRX 실 가용 거래일보다 앞설 수 있어, 분봉은
+    //   resolveLatestAvailableTradeDate() 로 라벨링되어 적재된다. 단타가 환경시계 today 를
+    //   직접 쓰면 그 라벨과 어긋나 분봉을 못 찾아(빈 유니버스) 거래가 0이 된다(이 버그).
+    //   동일 해석기를 공유해 라벨 불일치를 구조적으로 차단한다.
+    @Optional() private readonly tradeDateResolver?: KrxMarketDataScheduler,
   ) {}
+
+  /**
+   * ★DAR-414 tradeDate SSOT — 분봉 collector(StockMinutePriceCollector)와 동일 소스.
+   *   해석기가 주입돼 있으면 KRX 실 가용 거래일을 사용(분봉 라벨과 일치 보장),
+   *   미주입(단위 테스트 등) 시에만 환경 시계 today 로 폴백한다.
+   *   해석기 자체에 KRX 프로브 실패·DB 폴백·미래일 클램프가 내장돼 있어 graceful.
+   */
+  private async resolveTradeDate(now: Date): Promise<string> {
+    if (this.tradeDateResolver) {
+      try {
+        return await this.tradeDateResolver.resolveLatestAvailableTradeDate();
+      } catch (e) {
+        this.logger.warn(
+          `[Scalp] tradeDate 해석 실패 — 환경시계 today 폴백: ${(e as Error).message}`,
+        );
+      }
+    }
+    return formatKstDateCompact(now);
+  }
 
   /** 현재 KST 벽시계 'HHMM'(zero-padded). */
   private hhmm(now: Date): string {
@@ -215,7 +241,7 @@ export class IntradayScalpService {
    * 정규장 외/진입 마감(15:20 이후)/동시보유 상한이면 graceful 스킵.
    */
   async runEntryCycle(now: Date = new Date()): Promise<ScalpEntryCycleResult> {
-    const tradeDate = formatKstDateCompact(now);
+    const tradeDate = await this.resolveTradeDate(now);
     const base: ScalpEntryCycleResult = {
       ran: false,
       skipped: true,
@@ -313,6 +339,11 @@ export class IntradayScalpService {
       this.logger.log(`[Scalp] 진입 ${cand.stockCode} ${fill.filledShares}주 @${fill.filledPrice} (${decision.detail})`);
     }
 
+    // ★DAR-414 가시성: 진입 0이어도 '데이터 연결·평가함'이 로그에 보이게(유니버스/분봉 라벨 확인).
+    this.logger.log(
+      `[Scalp] 진입 사이클 tradeDate=${tradeDate} 유니버스=${universe.length} 평가완료 진입=${entered}`,
+    );
+
     return {
       ran: true,
       skipped: false,
@@ -379,7 +410,7 @@ export class IntradayScalpService {
    * 정규장 외면 graceful 스킵.
    */
   async runExitCycle(now: Date = new Date()): Promise<ScalpExitCycleResult> {
-    const tradeDate = formatKstDateCompact(now);
+    const tradeDate = await this.resolveTradeDate(now);
     if (!isKstRegularMarketHours(now)) {
       return { ran: false, skipped: true, tradeDate, evaluated: 0, exited: 0, reason: '정규장 외 — 청산 스킵' };
     }
@@ -405,7 +436,7 @@ export class IntradayScalpService {
    * 정규장 게이트 없이 항상 실행(15:20 잡 전용) — 오버나잇 절대 금지.
    */
   async forceCloseAll(now: Date = new Date()): Promise<ScalpExitCycleResult> {
-    const tradeDate = formatKstDateCompact(now);
+    const tradeDate = await this.resolveTradeDate(now);
     const open = await this.prisma.intradayScalpTrade.findMany({
       where: { status: 'OPEN', styleTag: INTRADAY_SCALP_STYLE_TAG },
     });

@@ -21,26 +21,33 @@ import {
 export class IntradayScalpController {
   constructor(private readonly scalp: IntradayScalpService) {}
 
-  /** GET /paper-trading/simulation/intraday-scalp/status — forward 누적 성과·보유 현황. */
+  /**
+   * GET /paper-trading/simulation/intraday-scalp/status — forward 누적 성과·보유 현황.
+   *   ★ 응답은 `{ success, data }` 래핑(strategy-track 컨트롤러와 동일 계약) — 모바일
+   *     simulation.service.ts 가 `r.data.data` 로 추출하므로 전 엔드포인트 일관(DAR-417).
+   */
   @Get('status')
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({
     summary: '분봉 단타 forward 누적 성과·보유 현황·자산곡선(게스트 데모 가능)',
   })
-  async getStatus(): Promise<ScalpStatus> {
-    return this.scalp.getStatus();
+  async getStatus(): Promise<{ success: true; data: ScalpStatus }> {
+    const data = await this.scalp.getStatus();
+    return { success: true, data };
   }
 
   /**
    * GET /paper-trading/simulation/intraday-scalp/trade-history — 단타 거래 타임라인(최신 진입순).
    *   DAR-416 모바일 표면화 — 종목·진입/청산 시각·사유·수익률을 종목별 1행으로 드릴다운.
+   *   ★ 응답은 `{ success, data }` 래핑(status 와 동일 계약, DAR-417).
    */
   @Get('trade-history')
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({
     summary: '분봉 단타 거래 타임라인(종목·진입/청산 시각·사유·수익률, 최신 진입순, 게스트 데모 가능)',
   })
-  async getTradeHistory(): Promise<ScalpTradeHistory> {
-    return this.scalp.getTradeHistory();
+  async getTradeHistory(): Promise<{ success: true; data: ScalpTradeHistory }> {
+    const data = await this.scalp.getTradeHistory();
+    return { success: true, data };
   }
 }

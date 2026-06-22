@@ -27,7 +27,7 @@ import { MarketIndexBadge } from '@components/home/MarketIndexBadge';
 import { GraduationTracker } from '@components/home/GraduationTracker';
 import { FirstWatchCoachmark } from '@components/home/FirstWatchCoachmark';
 import { DisclosureFeedCard } from '@components/home/DisclosureFeedCard';
-import { useDisclosures } from '@hooks/useDisclosures';
+import { useDisclosures, useTodayDisclosureCount } from '@hooks/useDisclosures';
 import { useWatchlist } from '@hooks/useWatchlist';
 import { useSavedDisclosures } from '@hooks/useSavedDisclosures';
 import { useUnreadCount } from '@hooks/useNotifications';
@@ -99,7 +99,19 @@ export default function HomeScreen() {
     });
   }, [data]);
 
-  const totalCount = data?.pages[0]?.meta.total ?? 0;
+  // DAR-420: '오늘의 공시'는 전체 누적(meta.total=137만)이 아니라 최신 가용 공시일 건수.
+  //   별도 today-count 쿼리로 분리(피드 무한쿼리의 total과 무관).
+  const {
+    data: todayCountData,
+    isLoading: todayCountLoading,
+    isError: todayCountError,
+  } = useTodayDisclosureCount();
+  const todayCount = todayCountData?.count ?? 0;
+  // 최신 가용일 라벨(MM/DD) — env 시계와 데이터 괴리 투명화. 날짜 미상이면 생략.
+  const todayDateLabel =
+    todayCountData?.date && todayCountData.date.length === 8
+      ? `${todayCountData.date.slice(4, 6)}/${todayCountData.date.slice(6, 8)}`
+      : null;
 
   const {
     data: savedData,
@@ -111,7 +123,8 @@ export default function HomeScreen() {
   // DAR-108(#10): 로딩/에러 시 수치를 '—'로 표기해 '0건' 오인을 방지한다.
   // 비로그인은 로딩이 아니라 인증 게이트이므로 기존 '-' 표기를 유지한다.
   const EM_DASH = '—';
-  const disclosuresCountDisplay = isLoading || isError ? EM_DASH : String(totalCount);
+  const disclosuresCountDisplay =
+    todayCountLoading || todayCountError ? EM_DASH : String(todayCount);
   const watchlistCountDisplay = !isAuthenticated
     ? '-'
     : watchlistLoading || watchlistError
@@ -344,13 +357,15 @@ export default function HomeScreen() {
               onPress={() => router.push('/disclosures')}
               accessibilityRole="button"
               accessibilityLabel={
-                isLoading || isError
+                todayCountLoading || todayCountError
                   ? '오늘의 공시 집계 불러오는 중, 공시 목록 열기'
-                  : `오늘의 공시 ${totalCount}건, 공시 목록 열기`
+                  : `오늘의 공시${todayDateLabel ? ` ${todayDateLabel} 기준` : ''} ${todayCount}건, 공시 목록 열기`
               }
             >
               <Text style={[typo.h2, { color: colors.onColor }]}>{disclosuresCountDisplay}</Text>
-              <Text style={[typo.small, { color: colors.onColorMuted }]}>오늘의 공시</Text>
+              <Text style={[typo.small, { color: colors.onColorMuted }]}>
+                {todayDateLabel ? `오늘의 공시 (${todayDateLabel})` : '오늘의 공시'}
+              </Text>
             </TouchableOpacity>
             <View style={[styles.summaryDivider, { backgroundColor: colors.hairlineOnColor }]} />
             <TouchableOpacity style={styles.summaryItem} onPress={() => {

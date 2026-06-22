@@ -67,6 +67,30 @@ export class DisclosuresService {
     };
   }
 
+  /**
+   * '오늘의 공시' 집계 (DAR-420)
+   * - '오늘' = 최신 가용 공시일 = max(rcpDt)의 날짜 파트(YYYYMMDD).
+   *   환경시계 today가 아니라 실제 데이터 최신일을 쓴다(env-today 0건 / 전체 누적 1.37M 둘 다 오답).
+   *   단타 tradeDate가 최신 가용일 기준인 것과 동일한 point-in-time 정합.
+   * - 게스트 조회 가능. 백필 여부 무관(홈 피드와 동일하게 전량 카운트).
+   * - rcpDt는 'YYYYMMDD' 또는 'YYYYMMDDHHmmss' 혼재 → 날짜 prefix(앞 8자리)로 동일일 판정.
+   *   startsWith(LIKE 'date%')는 @@index([rcpDt]) 범위 스캔으로 커버된다.
+   */
+  async getTodayCount(): Promise<{ date: string | null; count: number }> {
+    const latest = await this.prisma.disclosure.findFirst({
+      orderBy: [{ rcpDt: 'desc' }],
+      select: { rcpDt: true },
+    });
+    if (!latest) {
+      return { date: null, count: 0 };
+    }
+    const date = latest.rcpDt.slice(0, 8); // YYYYMMDD
+    const count = await this.prisma.disclosure.count({
+      where: { rcpDt: { startsWith: date } },
+    });
+    return { date, count };
+  }
+
   async findOne(rcpNo: string) {
     const disclosure = await this.prisma.disclosure.findUnique({
       where: { rcpNo },

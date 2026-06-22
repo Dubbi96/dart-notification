@@ -1,6 +1,13 @@
 import { api } from './api';
 import type { ApiResponse, PaginationMeta } from '@app-types/api.types';
-import type { Disclosure, DisclosureAnalysis, DisclosureEvent, DisclosureType, FiledFact } from '@app-types/disclosure.types';
+import type {
+  Disclosure,
+  DisclosureAnalysis,
+  DisclosureEvent,
+  DisclosureType,
+  FiledFact,
+  TodayDisclosureCount,
+} from '@app-types/disclosure.types';
 
 export const disclosureService = {
   getTypes: () =>
@@ -31,6 +38,15 @@ export const disclosureService = {
 
   getDetail: (rcpNo: string) =>
     api.get<ApiResponse<Disclosure>>(`/disclosures/${rcpNo}`).then((r) => r.data.data),
+
+  /**
+   * '오늘의 공시' 집계 (GET /disclosures/today-count, DAR-420).
+   * 전체 누적(meta.total)이 아니라 최신 가용 공시일 건수. 게스트 조회 가능.
+   */
+  getTodayCount: () =>
+    api
+      .get<ApiResponse<TodayDisclosureCount>>('/disclosures/today-count')
+      .then((r) => r.data.data),
 
   search: (
     q: string,

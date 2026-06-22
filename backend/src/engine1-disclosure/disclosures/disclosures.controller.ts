@@ -17,6 +17,17 @@ export class DisclosuresController {
     return { success: true, data: DISCLOSURE_TYPES };
   }
 
+  @Get('today-count')
+  @ApiOperation({
+    summary: "'오늘의 공시' 수 조회 (최신 가용일 기준)",
+    description:
+      "'오늘' = 최신 가용 공시일(max rcpDt의 날짜)의 공시 건수. 게스트 조회 가능. date는 라벨용 YYYYMMDD(데이터 없으면 null).",
+  })
+  async getTodayCount() {
+    const data = await this.disclosuresService.getTodayCount();
+    return { success: true, data };
+  }
+
   @Get()
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({ summary: '공시 목록 조회' })

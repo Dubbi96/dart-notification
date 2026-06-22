@@ -124,6 +124,49 @@ describe('DisclosuresService.findAll (DAR-45 기간 필터)', () => {
   });
 });
 
+describe("DisclosuresService.getTodayCount '오늘의 공시' (DAR-420)", () => {
+  function makeService(findFirst: jest.Mock, count: jest.Mock) {
+    const prisma = { disclosure: { findFirst, count } } as unknown as PrismaService;
+    return new DisclosuresService(prisma);
+  }
+
+  it('최신 가용일(max rcpDt) 날짜 prefix로 동일일 건수를 센다 — 전체 누적이 아님', async () => {
+    const findFirst = jest.fn().mockResolvedValue({ rcpDt: '20260619151230' });
+    const count = jest.fn().mockResolvedValue(151);
+    const service = makeService(findFirst, count);
+
+    const res = await service.getTodayCount();
+
+    // 최신 행은 rcpDt desc 정렬 첫 행으로 resolve.
+    expect(findFirst.mock.calls[0][0].orderBy).toEqual([{ rcpDt: 'desc' }]);
+    // 카운트 where는 날짜 prefix(앞 8자리) startsWith — 시각 파트는 무시.
+    expect(count.mock.calls[0][0].where).toEqual({ rcpDt: { startsWith: '20260619' } });
+    expect(res).toEqual({ date: '20260619', count: 151 });
+  });
+
+  it('YYYYMMDD 형식(시각 없음)도 그대로 날짜 prefix로 처리한다', async () => {
+    const findFirst = jest.fn().mockResolvedValue({ rcpDt: '20260619' });
+    const count = jest.fn().mockResolvedValue(7);
+    const service = makeService(findFirst, count);
+
+    const res = await service.getTodayCount();
+
+    expect(count.mock.calls[0][0].where).toEqual({ rcpDt: { startsWith: '20260619' } });
+    expect(res).toEqual({ date: '20260619', count: 7 });
+  });
+
+  it('공시가 하나도 없으면 date=null·count=0 (count 미호출)', async () => {
+    const findFirst = jest.fn().mockResolvedValue(null);
+    const count = jest.fn();
+    const service = makeService(findFirst, count);
+
+    const res = await service.getTodayCount();
+
+    expect(res).toEqual({ date: null, count: 0 });
+    expect(count).not.toHaveBeenCalled();
+  });
+});
+
 describe('DisclosuresService.findOne 종목코드 평탄화 (DAR-188)', () => {
   function makeService(findUnique: jest.Mock) {
     const prisma = { disclosure: { findUnique } } as unknown as PrismaService;

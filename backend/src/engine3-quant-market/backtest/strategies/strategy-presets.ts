@@ -14,6 +14,24 @@ import { StrategyParams } from '../ports/backtest.types';
  *   매수한다(robustEventGate). 산술평균(avgArD20)은 이상치에 오염돼 거짓 양 신호를 만들므로 쓰지
  *   않는다. 양-edge 그룹이 없으면 진입 0(do-no-harm). 데이터가 쌓여 양-edge 가 생기면 자동 활성된다.
  *
+ * DAR-413 — minBuyScore 임계값을 buyScore 실측 분포에 맞춰 재보정한다(미스캘리브레이션 해소).
+ *   배경: DAR-404 당시 70/50 으로 하드코딩했으나, DAR-410 의 등급/스코어 robust 재보정 이후
+ *   buyScore 분포가 낮게 이동(curated 양 촉매 base 미반영 → 대부분 base 0)했다. 실측 분포
+ *   (trading_signals 89,754건, max=88, p95=33):
+ *     ≥70: 9건(0.01%) · ≥50: 580건(0.65%) · ≥40: 2,870건(3.2%) · ≥35: 3,910건(4.4%) ·
+ *     ≥33: 4,620건(p95, 5.2%) · ≥30: 5,943건(6.6%).
+ *   → 70 은 상위 0.01%(연 1거래)로 사실상 비활성. 분포 기반 절대값 사다리로 재설정한다:
+ *     보수가치 50(상위 ~0.6%, 최고 확신·소수집중) > 단기모멘텀 40(상위 ~3%) >
+ *     이벤트엣지 35(상위 ~4%, robust 게이트가 추가로 좁힘) > 공격분산 30(상위 ~6.6%, 최광).
+ *   각 전략은 '상대적 엄격도(percentile rank)'로 정체성을 유지하되 통계적으로 의미있는
+ *   거래수(수십건+)를 확보한다. 임계 완화가 '아무거나 매수'가 되지 않게 최저 30(p93~, 상위
+ *   ~6.6%)을 하한으로 둔다 — 분포 중앙값(~0)보다 한참 위, 여전히 '상위 점수' 우선이다.
+ *
+ *   ★ point-in-time(불가침): 임계값은 런타임에 백테스트 윈도 분포에서 계산하지 않는다(그러면
+ *   초기 진입 결정이 윈도 후반 신호 분포에 의존 → 미래정보 누수, baseline §3-3 도구 반대).
+ *   분포를 개발 시점에 1회 관측해 a-priori 상수로 고정(frozen)한다. 스코어가 재보정되면
+ *   재검증 프로토콜(buy-logic-validation-baseline.md §3)에서 본 상수를 갱신한다.
+ *
  * AI 금지영역: 순수 Rule 상수. AI 개입 0.
  */
 
@@ -48,7 +66,8 @@ export const STRATEGY_PRESETS: readonly StrategyPreset[] = [
     robustEventGate: true,
     params: {
       // eventTypes 는 refresh 시 robust 게이트가 동적 주입(정적 하드코딩 없음, DAR-408).
-      minBuyScore: 50,
+      // DAR-413: 상위 ~4%(≥35). robust 양-edge 게이트가 매수 이벤트를 추가로 좁힌다.
+      minBuyScore: 35,
       entryRule: 'NEXT_OPEN',
       exitRules: {
         takeProfitPct: 20,
@@ -64,9 +83,10 @@ export const STRATEGY_PRESETS: readonly StrategyPreset[] = [
     key: 'short-momentum',
     label: '단기모멘텀',
     description:
-      '고점수(≥70) 신호만 짧게. 익절 +10% / 손절 -5% / 최대보유 5거래일, 균등배분으로 회전을 빠르게.',
+      '상위권 점수(≥40, 분포 상위 ~3%) 신호만 짧게. 익절 +10% / 손절 -5% / 최대보유 5거래일, 균등배분으로 회전을 빠르게.',
     params: {
-      minBuyScore: 70,
+      // DAR-413: 상위 ~3%(≥40). 빠른 회전(5일 보유)에 맞춰 보수가치보다 한 단계 넓게.
+      minBuyScore: 40,
       entryRule: 'NEXT_OPEN',
       exitRules: {
         takeProfitPct: 10,
@@ -82,9 +102,10 @@ export const STRATEGY_PRESETS: readonly StrategyPreset[] = [
     key: 'conservative-value',
     label: '보수가치',
     description:
-      '고점수(≥70) 신호를 소수(최대 10종목) 집중. 점수가중 배분, 익절 +20% / 손절 -10% / 최대보유 20거래일로 느긋하게.',
+      '최고 확신 점수(≥50, 분포 상위 ~0.6%) 신호를 소수(최대 10종목) 집중. 점수가중 배분, 익절 +20% / 손절 -10% / 최대보유 20거래일로 느긋하게.',
     params: {
-      minBuyScore: 70,
+      // DAR-413: 상위 ~0.6%(≥50). 가장 엄격한 임계 + 소수 집중 = 최고 확신 전략.
+      minBuyScore: 50,
       entryRule: 'NEXT_OPEN',
       exitRules: {
         takeProfitPct: 20,
@@ -100,9 +121,10 @@ export const STRATEGY_PRESETS: readonly StrategyPreset[] = [
     key: 'aggressive-diversified',
     label: '공격분산',
     description:
-      '문턱을 낮춰(≥50) 폭넓게(최대 50종목) 분산. 균등배분, 익절 +20% / 손절 -8% / 최대보유 20거래일.',
+      '문턱을 낮춰(≥30, 분포 상위 ~6.6%) 폭넓게(최대 50종목) 분산. 균등배분, 익절 +20% / 손절 -8% / 최대보유 20거래일.',
     params: {
-      minBuyScore: 50,
+      // DAR-413: 상위 ~6.6%(≥30, 하한). 가장 넓은 임계 + 50종목 분산 = 다수·공격 전략.
+      minBuyScore: 30,
       entryRule: 'NEXT_OPEN',
       exitRules: {
         takeProfitPct: 20,

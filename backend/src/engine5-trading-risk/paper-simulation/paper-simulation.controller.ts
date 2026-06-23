@@ -21,6 +21,11 @@ interface RunOnceDto {
   date?: string;
 }
 
+interface ResetDto {
+  /** DAR-429: 오발 방지 확인 토큰 — 반드시 'RESET' 이어야 실행(휴먼 승인 게이트). */
+  confirm?: string;
+}
+
 @ApiTags('Paper Trading')
 @ApiBearerAuth()
 @Controller('paper-trading/simulation')
@@ -62,6 +67,29 @@ export class PaperSimulationController {
   async runOnce(@Body() body: RunOnceDto) {
     const tradeDate = body?.date ?? this.todayBasDd();
     const data = await this.sim.runDailyCycle(tradeDate);
+    return { success: true, data };
+  }
+
+  /**
+   * DAR-429: 시스템 모의 클린 리셋 — 오염 이력 제거·초기상태(현금 10M·0포지션) 복원.
+   * ★운영영향 → 휴먼 승인 게이트: JWT 필수(인증) + body.confirm='RESET' 필수(오발 방지 플래그).
+   *   cron 은 호출하지 않는다(자동 파괴 금지). 사용자/오케스트레이터가 수동 트리거만.
+   */
+  @Post('reset')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary:
+      'DAR-429 시스템 모의 클린 리셋 — 오염 이력 제거·초기상태 복원(인증+확인 토큰 보호·휴먼 승인 게이트)',
+  })
+  async reset(@Body() body: ResetDto) {
+    if (body?.confirm !== 'RESET') {
+      return {
+        success: false,
+        error:
+          '리셋 확인 토큰 불일치 — body.confirm="RESET" 이 필요합니다(오발 방지 게이트). 변경 없음.',
+      };
+    }
+    const data = await this.sim.resetSimulation();
     return { success: true, data };
   }
 

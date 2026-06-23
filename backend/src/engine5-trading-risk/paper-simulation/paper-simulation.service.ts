@@ -75,6 +75,24 @@ export interface DailyCycleResult {
   message?: string;
 }
 
+/** DAR-429: 시스템 모의 클린 리셋 결과(삭제 건수 + 리셋 후 불변식 확인값). */
+export interface SimulationResetResult {
+  portfolioId: string;
+  deletedPositions: number;
+  /** Position 삭제로 캐스케이드된 일일 스냅샷 수(삭제 직전 카운트). */
+  deletedDailySnapshots: number;
+  /** Position 삭제로 캐스케이드된 Exit 신호 수(삭제 직전 카운트). */
+  deletedExitSignals: number;
+  /** sim 포지션 thesis 에 연결된 PaperTrade 원장 삭제 수. */
+  deletedPaperTrades: number;
+  deletedRiskSnapshots: number;
+  deletedFunnelDaily: number;
+  /** 리셋 후 가용현금(불변식: = INITIAL_CAPITAL). */
+  cashAfter: number;
+  /** 리셋 후 OPEN 포지션 수(불변식: = 0). */
+  openPositionsAfter: number;
+}
+
 const EXIT_ACTIONS = new Set(['EXIT', 'BLOCK_REBUY']);
 
 @Injectable()
@@ -150,6 +168,96 @@ export class PaperSimulationService {
       });
     }
     return pf;
+  }
+
+  /**
+   * DAR-429 — 시스템 모의 포트폴리오 클린 리셋.
+   *
+   * 과레버리지(DAR-426 이전 현금 -11.3M·자본초과 보유)+리베이스로 오염된 이력을 제거하고
+   * 초기상태(현금 = 초기자본 10,000,000 · OPEN 0)로 되돌린다. 이후 cron 은 현재 코드의
+   * 현금가드(DAR-426 openNewPositions 가용현금 가드) + 매수기준(SIM_MIN_ENTRY_GRADE/buyScore)
+   * 적용 상태로 0포지션·현금 10M 에서 원칙적으로 재누적한다.
+   *
+   * 안전 규칙(이슈 제약):
+   *   - ★해당 sim 유저(paper-sim@system.local)의 단일 포트폴리오 범위 DELETE 만.
+   *     DB 전역 파괴(truncate/drop) 금지. portfolioId 가 모든 삭제의 가드.
+   *   - 멱등: 재실행 시 0건 삭제·현금 10M 유지(이미 비어 있으면 no-op).
+   *   - 트랜잭션: 부분 실패 시 전체 롤백(중간 상태로 남지 않게 한다).
+   *   - 자연키 정합: Position 삭제는 PositionDailySnapshot·ExitSignal 을 캐스케이드(스키마
+   *     onDelete: Cascade). PaperTrade 는 포트폴리오 컬럼이 없으므로 sim 포지션의 positionThesisId
+   *     (Position 당 @unique → 타 트랙 무침범)로만 한정 삭제(thesis 미연결 행은 식별 불가라 보존).
+   *   - 자동 실행 금지: 이 메서드는 cron 이 호출하지 않는다. 컨트롤러의 인증·확인 게이트를 통해서만 트리거.
+   *
+   * 현금 정의는 computeMetrics/openNewPositions 와 동일한 SSOT(저장 컬럼 아님 · 파생):
+   *   cash = INITIAL_CAPITAL + 실현손익(CLOSED net) − 보유 진입원가(OPEN entryAmount)
+   * → 모든 Position 삭제 시 realized=0·invested=0 → cash = INITIAL_CAPITAL 로 자동 복원.
+   */
+  async resetSimulation(): Promise<SimulationResetResult> {
+    const pf = await this.getOrCreateSimPortfolio();
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 1) sim 포지션 + 연결 thesis id 수집(PaperTrade 한정·캐스케이드 카운트용).
+      const positions = await tx.position.findMany({
+        where: { portfolioId: pf.id },
+        select: { id: true, positionThesisId: true },
+      });
+      const positionIds = positions.map((p) => p.id);
+      const thesisIds = positions
+        .map((p) => p.positionThesisId)
+        .filter((x): x is string => !!x);
+
+      // 캐스케이드로 사라질 자식 건수를 삭제 직전에 카운트(증거·반환용).
+      const deletedDailySnapshots = positionIds.length
+        ? await tx.positionDailySnapshot.count({
+            where: { positionId: { in: positionIds } },
+          })
+        : 0;
+      const deletedExitSignals = positionIds.length
+        ? await tx.exitSignal.count({ where: { positionId: { in: positionIds } } })
+        : 0;
+
+      // 2) PaperTrade 원장 — sim 포지션 thesis 에 연결된 행만 삭제(타 트랙·전역 원장 무침범).
+      const paperTrades = thesisIds.length
+        ? await tx.paperTrade.deleteMany({
+            where: { positionThesisId: { in: thesisIds } },
+          })
+        : { count: 0 };
+
+      // 3) Position 삭제 → PositionDailySnapshot·ExitSignal 캐스케이드(onDelete: Cascade).
+      const deletedPositions = await tx.position.deleteMany({
+        where: { portfolioId: pf.id },
+      });
+
+      // 4) 포트폴리오 스냅샷·신호퍼널 일별 계측 초기화(포트폴리오 범위 — 자산곡선/진척 리셋).
+      const riskSnaps = await tx.portfolioRiskSnapshot.deleteMany({
+        where: { portfolioId: pf.id },
+      });
+      const funnel = await tx.signalEntryFunnelDaily.deleteMany({
+        where: { portfolioId: pf.id },
+      });
+
+      return {
+        deletedPositions: deletedPositions.count,
+        deletedDailySnapshots,
+        deletedExitSignals,
+        deletedPaperTrades: paperTrades.count,
+        deletedRiskSnapshots: riskSnaps.count,
+        deletedFunnelDaily: funnel.count,
+      };
+    });
+
+    this.logger.log(
+      `[PaperSim][리셋] 포트폴리오=${pf.id} 포지션=${result.deletedPositions} ` +
+        `스냅샷=${result.deletedDailySnapshots} Exit=${result.deletedExitSignals} ` +
+        `PaperTrade=${result.deletedPaperTrades} 리스크스냅=${result.deletedRiskSnapshots} ` +
+        `퍼널=${result.deletedFunnelDaily} → 현금=${PaperSimulationService.INITIAL_CAPITAL} 보유=0`,
+    );
+    return {
+      portfolioId: pf.id,
+      ...result,
+      // 리셋 후 불변식: 포지션 0 → cash = INITIAL_CAPITAL · OPEN 0.
+      cashAfter: PaperSimulationService.INITIAL_CAPITAL,
+      openPositionsAfter: 0,
+    };
   }
 
   /** 한 사이클 실행 (수동 run-once / Cron 공통 진입점) */

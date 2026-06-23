@@ -1,5 +1,5 @@
 import { NotificationType } from '@prisma/client';
-import { NotifyConsumer } from './notify.consumer';
+import { NotifyConsumer, formatKrw, signedPct } from './notify.consumer';
 import { NOTIFY_JOB } from '../common/queues/queue.constants';
 
 /**
@@ -16,7 +16,13 @@ const makePrisma = () => ({
   watchList: { findMany: jest.fn().mockResolvedValue([]) },
   position: { findUnique: jest.fn() },
   positionThesis: { findUnique: jest.fn() },
-  notificationSettings: { findUnique: jest.fn().mockResolvedValue(null) },
+  notificationSettings: {
+    findUnique: jest.fn().mockResolvedValue(null),
+    // DAR-424: 체결 알림은 수신자 토글을 일괄 조회한다.
+    findMany: jest.fn().mockResolvedValue([]),
+  },
+  // DAR-424: 체결 알림은 실제 앱 사용자 전원에게 브로드캐스트.
+  user: { findMany: jest.fn().mockResolvedValue([]) },
   userDevice: { findMany: jest.fn().mockResolvedValue([]) },
 });
 
@@ -294,6 +300,153 @@ describe('NotifyConsumer (DAR-85)', () => {
         type: NotificationType.THESIS_VIOLATED,
         refId: 't-1',
       });
+    });
+  });
+
+  // ── TRADE_ENTRY / TRADE_EXIT (DAR-424) ────────────────────────────────────
+  describe('TRADE 체결 알림 (DAR-424)', () => {
+    const entryJob = {
+      kind: 'ENTRY' as const,
+      refId: 'trade-1',
+      strategyKey: 'intraday-scalp',
+      strategyLabel: '분봉 단타',
+      corpCode: 'c1',
+      stockCode: '005930',
+      corpName: '삼성전자',
+      price: 105000,
+      shares: 10,
+      cash: 9500000,
+      totalValue: 10200000,
+      deepLink: '/portfolio/strategy/intraday-scalp',
+    };
+    const exitJob = {
+      ...entryJob,
+      kind: 'EXIT' as const,
+      pnlPct: 2.1,
+      exitReason: 'TAKE_PROFIT',
+      price: 107000,
+    };
+
+    it('실제 사용자 전원에게 브로드캐스트 인박스(매수) — 종목명·가격·현금·평가금 본문', async () => {
+      const { consumer, prisma, notifications } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }, { id: 'u2' }]);
+
+      await consumer.process(job(NOTIFY_JOB.TRADE_ENTRY, entryJob));
+
+      // 합성 시스템 유저 제외 조건으로 조회
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { provider: { not: 'system' } } }),
+      );
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledTimes(2);
+      const first = notifications.createNotificationIfAbsent.mock.calls[0][0];
+      expect(first).toMatchObject({
+        userId: 'u1',
+        type: NotificationType.TRADE_ENTRY,
+        refId: 'trade-1',
+        deepLink: '/portfolio/strategy/intraday-scalp',
+      });
+      expect(first.title).toBe('[분봉 단타] 삼성전자 매수');
+      expect(first.body).toBe('체결 ₩105,000 × 10주 · 현금 ₩9,500,000 · 평가금 ₩10,200,000');
+    });
+
+    it('매도 알림 — 제목에 손익%·본문에 손익(사유)·전체평가금', async () => {
+      const { consumer, prisma, notifications } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+
+      await consumer.process(job(NOTIFY_JOB.TRADE_EXIT, exitJob));
+
+      const call = notifications.createNotificationIfAbsent.mock.calls[0][0];
+      expect(call.type).toBe(NotificationType.TRADE_EXIT);
+      expect(call.title).toBe('[분봉 단타] 삼성전자 매도 +2.10%');
+      expect(call.body).toBe(
+        '체결 ₩107,000 × 10주 · 손익 +2.10%(TAKE_PROFIT) · 현금 ₩9,500,000 · 전체평가금 ₩10,200,000',
+      );
+    });
+
+    it('tradePushEnabled=false 인 사용자는 인박스도 생략(과알림 방지)', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }, { id: 'u2' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: true, tradePushEnabled: false },
+        { userId: 'u2', isEnabled: true, tradePushEnabled: true },
+      ]);
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+
+      await consumer.process(job(NOTIFY_JOB.TRADE_ENTRY, entryJob));
+
+      // u1 은 OFF → 스킵, u2 만 인박스
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledTimes(1);
+      expect(notifications.createNotificationIfAbsent.mock.calls[0][0]).toMatchObject({
+        userId: 'u2',
+      });
+      // u2 는 master ON + 토큰 → 푸시 발송
+      expect(expoPush.sendPushNotifications).toHaveBeenCalledTimes(1);
+    });
+
+    it('설정행 미존재 → 기본 ON(인박스+푸시 진입)', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([]); // 설정 없음
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+
+      await consumer.process(job(NOTIFY_JOB.TRADE_ENTRY, entryJob));
+
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledTimes(1);
+      expect(expoPush.sendPushNotifications).toHaveBeenCalledTimes(1);
+      const msg = expoPush.sendPushNotifications.mock.calls[0][0][0];
+      expect(msg.data).toMatchObject({ type: NotificationType.TRADE_ENTRY, refId: 'trade-1' });
+    });
+
+    it('master isEnabled=false → 인박스만, 푸시 미발송', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: false, tradePushEnabled: true },
+      ]);
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+
+      await consumer.process(job(NOTIFY_JOB.TRADE_ENTRY, entryJob));
+
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledTimes(1);
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('멱등: created=false 면 푸시 재발송 스킵', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: true, tradePushEnabled: true },
+      ]);
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+      notifications.createNotificationIfAbsent.mockResolvedValue({
+        notification: { id: 'n1' },
+        created: false,
+      });
+
+      await consumer.process(job(NOTIFY_JOB.TRADE_ENTRY, entryJob));
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('수신 사용자 0명 → graceful no-op', async () => {
+      const { consumer, prisma, notifications } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([]);
+      await consumer.process(job(NOTIFY_JOB.TRADE_ENTRY, entryJob));
+      expect(notifications.createNotificationIfAbsent).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('포맷 헬퍼 (DAR-424)', () => {
+    it('formatKrw — 천단위 구분·반올림', () => {
+      expect(formatKrw(9500000)).toBe('9,500,000');
+      expect(formatKrw(105000.7)).toBe('105,001');
+      expect(formatKrw(-12345)).toBe('-12,345');
+    });
+    it('signedPct — 부호 포함 소수 2자리, 결측은 빈 문자열', () => {
+      expect(signedPct(2.1)).toBe('+2.10%');
+      expect(signedPct(-1.2)).toBe('-1.20%');
+      expect(signedPct(0)).toBe('+0.00%');
+      expect(signedPct(undefined)).toBe('');
+      expect(signedPct(null)).toBe('');
     });
   });
 

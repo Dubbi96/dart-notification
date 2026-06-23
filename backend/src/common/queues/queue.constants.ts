@@ -93,6 +93,10 @@ export const NOTIFY_JOB = {
   EXIT: 'notify.exit',
   /** engine4 투자논리 훼손(ACTIVE→INVALIDATED) */
   THESIS_VIOLATED: 'notify.thesis-violated',
+  /** DAR-424 engine5 라이브 페이퍼 매수 체결(분봉 단타·시스템 모의) */
+  TRADE_ENTRY: 'notify.trade-entry',
+  /** DAR-424 engine5 라이브 페이퍼 매도 체결(손익% 포함) */
+  TRADE_EXIT: 'notify.trade-exit',
 } as const;
 
 /** QUEUE.AI_ANALYZE 잡 페이로드 */
@@ -139,10 +143,49 @@ export interface NotifyThesisViolatedJobData {
   reason?: string;
 }
 
+/**
+ * DAR-424: NOTIFY_JOB.TRADE_ENTRY / TRADE_EXIT 페이로드 — engine5 라이브 페이퍼 체결 직후 발행.
+ *
+ * ★시스템 모의/분봉 단타는 전역(단일) 시뮬이므로 체결 시점의 포트폴리오 스냅샷(현금·평가금)을
+ *   발행 측이 산출해 페이로드에 담는다(consumer 가 시점 상태를 재계산하지 않는다 — point-in-time 보존).
+ * ★수신자는 포지션 소유자(합성 시스템 유저)가 아니라 실제 앱 사용자 전원(브로드캐스트)이다.
+ *   consumer 가 tradePushEnabled(기본 ON) 토글로 인박스·푸시를 게이트한다.
+ * ★알림은 통지일 뿐 — 주문 결정/실주문과 무관(AI 금지영역 불침범).
+ */
+export interface NotifyTradeJobData {
+  /** 'ENTRY' = 매수 체결, 'EXIT' = 매도 체결 */
+  kind: 'ENTRY' | 'EXIT';
+  /** 멱등 자연키 — 체결 단위 식별(분봉 단타 trade id / 시스템 모의 position id). */
+  refId: string;
+  /** 트랙 식별 키(딥링크·data 페이로드용). 예: 'intraday-scalp' | 'paper-simulation' */
+  strategyKey: string;
+  /** 사용자 표시 트랙 라벨. 예: '분봉 단타' | '시스템 모의' */
+  strategyLabel: string;
+  corpCode: string;
+  stockCode: string;
+  /** 종목명(없으면 stockCode 폴백을 발행 측이 적용). */
+  corpName: string;
+  /** 체결가(매수=진입 체결가 / 매도=청산 체결가, KRW). */
+  price: number;
+  /** 체결 수량(주). */
+  shares: number;
+  /** 매도 순수익률(%). 매수면 생략. */
+  pnlPct?: number;
+  /** 매도 사유 태그(TAKE_PROFIT/STOP_LOSS/FORCE_CLOSE_EOD 등). 매수면 생략. */
+  exitReason?: string;
+  /** 체결 직후 현금 잔액(KRW). */
+  cash: number;
+  /** 체결 직후 전체 평가금(보유 평가합 + 현금, KRW). */
+  totalValue: number;
+  /** 인앱 딥링크(해당 전략/단타 화면). */
+  deepLink: string;
+}
+
 export type NotifyJobData =
   | NotifySignalJobData
   | NotifyExitJobData
-  | NotifyThesisViolatedJobData;
+  | NotifyThesisViolatedJobData
+  | NotifyTradeJobData;
 
 // ─── DAR-230: 자연키 기반 dedup jobId ───────────────────────────────────────
 //
@@ -183,6 +226,11 @@ export function notifyJobId(
       return `exit-${(data as NotifyExitJobData).positionId}`;
     case NOTIFY_JOB.THESIS_VIOLATED:
       return `thesis-${(data as NotifyThesisViolatedJobData).positionThesisId}`;
+    // DAR-424: 체결 단위 자연키 — 매수/매도를 분리(같은 refId 라도 kind 가 달라 별개 잡).
+    case NOTIFY_JOB.TRADE_ENTRY:
+      return `trade-entry-${(data as NotifyTradeJobData).refId}`;
+    case NOTIFY_JOB.TRADE_EXIT:
+      return `trade-exit-${(data as NotifyTradeJobData).refId}`;
     default:
       return undefined;
   }

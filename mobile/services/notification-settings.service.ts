@@ -18,6 +18,7 @@ export const notificationSettingsService = {
         | 'signalPushEnabled'
         | 'exitPushEnabled'
         | 'thesisPushEnabled'
+        | 'tradePushEnabled'
       >
     >,
   ) =>

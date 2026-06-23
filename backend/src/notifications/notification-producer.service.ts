@@ -7,6 +7,7 @@ import {
   NotifySignalJobData,
   NotifyExitJobData,
   NotifyThesisViolatedJobData,
+  NotifyTradeJobData,
   NotifyJobData,
   notifyJobId,
 } from '../common/queues/queue.constants';
@@ -44,6 +45,16 @@ export class NotificationProducerService {
   /** engine4: 투자논리 훼손(ACTIVE→INVALIDATED) 시점 */
   async enqueueThesisViolated(data: NotifyThesisViolatedJobData): Promise<void> {
     await this.enqueue(NOTIFY_JOB.THESIS_VIOLATED, data);
+  }
+
+  /** DAR-424 engine5: 라이브 페이퍼 매수 체결 직후 */
+  async enqueueTradeEntry(data: NotifyTradeJobData): Promise<void> {
+    await this.enqueue(NOTIFY_JOB.TRADE_ENTRY, { ...data, kind: 'ENTRY' });
+  }
+
+  /** DAR-424 engine5: 라이브 페이퍼 매도 체결 직후 */
+  async enqueueTradeExit(data: NotifyTradeJobData): Promise<void> {
+    await this.enqueue(NOTIFY_JOB.TRADE_EXIT, { ...data, kind: 'EXIT' });
   }
 
   private async enqueue(jobName: string, data: NotifyJobData): Promise<void> {

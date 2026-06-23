@@ -621,3 +621,98 @@ describe('IntradayScalpService — DAR-416 거래 타임라인(getTradeHistory)'
     expect(prisma.company.findMany).not.toHaveBeenCalled();
   });
 });
+
+// ── DAR-424: 체결 알림 발행(진입/청산) ────────────────────────────────────────
+describe('IntradayScalpService — DAR-424 체결 알림 발행', () => {
+  it('진입 체결 시 enqueueTradeEntry 호출(현금·평가금 스냅샷 포함)', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': triggerCandles(105, 106, 300) },
+    });
+    // 종목명 조회 스텁(emitTradeEntry 가 사용).
+    mock.prisma.company = { findUnique: jest.fn(async () => ({ corpName: '가나기업' })) };
+    const producer = {
+      enqueueTradeEntry: jest.fn().mockResolvedValue(undefined),
+      enqueueTradeExit: jest.fn().mockResolvedValue(undefined),
+    };
+    const svc = new IntradayScalpService(
+      mock.prisma,
+      undefined,
+      undefined,
+      producer as any,
+    );
+
+    await svc.runEntryCycle(kstMonday('1000'));
+
+    expect(producer.enqueueTradeEntry).toHaveBeenCalledTimes(1);
+    const payload = producer.enqueueTradeEntry.mock.calls[0][0];
+    expect(payload).toMatchObject({
+      kind: 'ENTRY',
+      strategyKey: INTRADAY_SCALP_STYLE_TAG,
+      strategyLabel: '분봉 단타',
+      stockCode: '000001',
+      corpName: '가나기업',
+      deepLink: '/portfolio/strategy/intraday-scalp',
+    });
+    expect(payload.shares).toBe(mock.trades[0].shares);
+    // 현금 = 초기자본 − 진입원가(<초기자본), 평가금 = 현금 + 보유평가합(>0).
+    expect(payload.cash).toBeLessThan(10_000_000);
+    expect(payload.totalValue).toBeGreaterThan(0);
+    expect(producer.enqueueTradeExit).not.toHaveBeenCalled();
+  });
+
+  it('청산(강제) 체결 시 enqueueTradeExit 호출(손익%·사유 포함)', async () => {
+    const mock = buildPrismaMock({
+      universe: [],
+      candlesByStock: { '000001': triggerCandles(105, 106, 300) },
+    });
+    // 보유 포지션 1건 선적재(진입가 100·10주).
+    mock.trades.push({
+      id: 't-open',
+      corpCode: 'C1',
+      stockCode: '000001',
+      tradeDate: '20260622',
+      entryTs: new Date('2026-06-22T01:00:00Z'),
+      entryPrice: 100,
+      shares: 10,
+      entryReason: 'VOLUME_BREAKOUT_VWAP',
+      commission: 0,
+      tax: 0,
+      slippage: 0,
+      status: 'OPEN',
+      styleTag: INTRADAY_SCALP_STYLE_TAG,
+    });
+    mock.prisma.company = { findUnique: jest.fn(async () => ({ corpName: '가나기업' })) };
+    const producer = {
+      enqueueTradeEntry: jest.fn().mockResolvedValue(undefined),
+      enqueueTradeExit: jest.fn().mockResolvedValue(undefined),
+    };
+    const svc = new IntradayScalpService(mock.prisma, undefined, undefined, producer as any);
+
+    // 15:20 강제청산(손익 무관 전량 청산).
+    await svc.forceCloseAll(kstMonday('1520'));
+
+    expect(producer.enqueueTradeExit).toHaveBeenCalledTimes(1);
+    const payload = producer.enqueueTradeExit.mock.calls[0][0];
+    expect(payload).toMatchObject({
+      kind: 'EXIT',
+      strategyKey: INTRADAY_SCALP_STYLE_TAG,
+      exitReason: 'FORCE_CLOSE_EOD',
+      stockCode: '000001',
+    });
+    expect(typeof payload.pnlPct).toBe('number');
+    expect(typeof payload.cash).toBe('number');
+  });
+
+  it('producer 미주입(@Optional)이어도 체결은 graceful 진행', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': triggerCandles(105, 106, 300) },
+    });
+    const svc = new IntradayScalpService(mock.prisma);
+    const r = await svc.runEntryCycle(kstMonday('1000'));
+    expect(r.entered).toBe(1); // 알림 미발행이어도 진입 정상
+  });
+});

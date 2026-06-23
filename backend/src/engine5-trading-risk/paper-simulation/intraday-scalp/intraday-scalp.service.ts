@@ -15,6 +15,7 @@
 
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { NotificationProducerService } from '../../../notifications/notification-producer.service';
 import {
   scanEntrySignals,
   ScalpCandle,
@@ -180,7 +181,14 @@ export class IntradayScalpService {
     //   분봉/단타는 인트라데이 해석(resolveIntradayTradeDate)으로 장중엔 today, 장외엔 직전
     //   거래일을 쓴다. 동일 해석기를 공유해 분봉 라벨과 단타 조회 라벨 불일치를 구조적으로 차단한다.
     @Optional() private readonly tradeDateResolver?: KrxMarketDataScheduler,
+    // ★DAR-424: 체결 알림 producer(@Optional — 큐 미설정 환경/테스트에선 미주입, graceful no-op).
+    //   진입/청산 체결 직후 TRADE_ENTRY/TRADE_EXIT 발행. 알림은 통지일 뿐 — 체결을 깨지 않는다.
+    @Optional() private readonly notifyProducer?: NotificationProducerService,
   ) {}
+
+  /** DAR-424 체결 알림 — 트랙 식별·딥링크 상수(분봉 단타). */
+  private static readonly STRATEGY_LABEL = '분봉 단타';
+  private static readonly DEEP_LINK = '/portfolio/strategy/intraday-scalp';
 
   /**
    * ★DAR-414/423 tradeDate SSOT — 분봉 collector(StockMinutePriceCollector)와 동일 소스.
@@ -304,6 +312,123 @@ export class IntradayScalpService {
   }
 
   /**
+   * DAR-424: 체결 알림용 포트폴리오 스냅샷 — 현금·전체 평가금(현재가 기준).
+   *   cash = 초기자본 + 실현손익(CLOSED net) − 보유 진입원가(OPEN 진입가×수량)
+   *   totalValue = cash + 보유 평가합(OPEN 현재가×수량). (현재가=실시간 신선분 우선·없으면 분봉 종가)
+   */
+  private async computeScalpSnapshot(now: Date): Promise<{ cash: number; totalValue: number }> {
+    const rows = await this.prisma.intradayScalpTrade.findMany({
+      where: { styleTag: INTRADAY_SCALP_STYLE_TAG },
+      select: {
+        status: true,
+        netPnl: true,
+        entryPrice: true,
+        shares: true,
+        corpCode: true,
+        stockCode: true,
+        tradeDate: true,
+      },
+    });
+    let realized = 0;
+    let openCost = 0;
+    const openTrades = rows.filter((r) => r.status === 'OPEN');
+    for (const r of rows) {
+      if (r.status === 'CLOSED') realized += toNum(r.netPnl);
+      else openCost += toNum(r.entryPrice) * r.shares;
+    }
+    const nowMs = now.getTime();
+    let openValue = 0;
+    for (const t of openTrades) {
+      const candles = await this.loadTodayCandles(t.stockCode, t.tradeDate);
+      const price = this.currentPrice(t.corpCode, candles, nowMs) ?? toNum(t.entryPrice);
+      openValue += price * t.shares;
+    }
+    const cash = SCALP_INITIAL_CAPITAL + realized - openCost;
+    return { cash, totalValue: cash + openValue };
+  }
+
+  /** DAR-424: 종목명(Company.corpName) — 없으면 stockCode 폴백. */
+  private async corpNameOf(corpCode: string, stockCode: string): Promise<string> {
+    const c = await this.prisma.company.findUnique({
+      where: { corpCode },
+      select: { corpName: true },
+    });
+    return c?.corpName ?? stockCode;
+  }
+
+  /** DAR-424: 매수 체결 알림 발행(graceful — 실패해도 체결을 깨지 않는다). */
+  private async emitTradeEntry(
+    refId: string,
+    corpCode: string,
+    stockCode: string,
+    price: number,
+    shares: number,
+    now: Date,
+  ): Promise<void> {
+    if (!this.notifyProducer) return;
+    try {
+      const [snapshot, corpName] = await Promise.all([
+        this.computeScalpSnapshot(now),
+        this.corpNameOf(corpCode, stockCode),
+      ]);
+      await this.notifyProducer.enqueueTradeEntry({
+        kind: 'ENTRY',
+        refId,
+        strategyKey: INTRADAY_SCALP_STYLE_TAG,
+        strategyLabel: IntradayScalpService.STRATEGY_LABEL,
+        corpCode,
+        stockCode,
+        corpName,
+        price,
+        shares,
+        cash: snapshot.cash,
+        totalValue: snapshot.totalValue,
+        deepLink: IntradayScalpService.DEEP_LINK,
+      });
+    } catch (e) {
+      this.logger.warn(`[Scalp] 매수 체결 알림 발행 실패(graceful): ${(e as Error).message}`);
+    }
+  }
+
+  /** DAR-424: 매도 체결 알림 발행(graceful). */
+  private async emitTradeExit(
+    refId: string,
+    corpCode: string,
+    stockCode: string,
+    price: number,
+    shares: number,
+    pnlPct: number,
+    exitReason: ScalpExitReason,
+    now: Date,
+  ): Promise<void> {
+    if (!this.notifyProducer) return;
+    try {
+      const [snapshot, corpName] = await Promise.all([
+        this.computeScalpSnapshot(now),
+        this.corpNameOf(corpCode, stockCode),
+      ]);
+      await this.notifyProducer.enqueueTradeExit({
+        kind: 'EXIT',
+        refId,
+        strategyKey: INTRADAY_SCALP_STYLE_TAG,
+        strategyLabel: IntradayScalpService.STRATEGY_LABEL,
+        corpCode,
+        stockCode,
+        corpName,
+        price,
+        shares,
+        pnlPct,
+        exitReason,
+        cash: snapshot.cash,
+        totalValue: snapshot.totalValue,
+        deepLink: IntradayScalpService.DEEP_LINK,
+      });
+    } catch (e) {
+      this.logger.warn(`[Scalp] 매도 체결 알림 발행 실패(graceful): ${(e as Error).message}`);
+    }
+  }
+
+  /**
    * 진입 사이클: 정규장 매 사이클 유니버스→진입 평가→리스크→모의 체결→OPEN 영속.
    * 정규장 외/진입 마감(15:20 이후)/동시보유 상한이면 graceful 스킵.
    */
@@ -416,7 +541,7 @@ export class IntradayScalpService {
       );
       if (fill.filledShares <= 0) continue;
 
-      await this.prisma.intradayScalpTrade.create({
+      const createdTrade = await this.prisma.intradayScalpTrade.create({
         data: {
           corpCode: cand.corpCode,
           stockCode: cand.stockCode,
@@ -434,12 +559,22 @@ export class IntradayScalpService {
           status: 'OPEN',
           styleTag: INTRADAY_SCALP_STYLE_TAG,
         },
+        select: { id: true },
       });
       entered += 1;
       enteredTodayStocks.add(cand.stockCode); // 같은 사이클 내 재진입 방지
       this.logger.log(
         `[Scalp] 진입 ${cand.stockCode} ${fill.filledShares}주 @${fill.filledPrice} ` +
           `(충족봉 ${scan.candle.ts.toISOString()}·${decision.detail})`,
+      );
+      // DAR-424 매수 체결 알림(graceful — OPEN 영속 직후 스냅샷 산출).
+      await this.emitTradeEntry(
+        createdTrade.id,
+        cand.corpCode,
+        cand.stockCode,
+        fill.filledPrice,
+        fill.filledShares,
+        now,
       );
     }
 
@@ -464,6 +599,7 @@ export class IntradayScalpService {
   private async closePosition(
     trade: {
       id: string;
+      corpCode: string;
       stockCode: string;
       entryPrice: unknown;
       shares: number;
@@ -509,6 +645,17 @@ export class IntradayScalpService {
       },
     });
     this.logger.log(`[Scalp] 청산 ${trade.stockCode} @${exitPrice.toFixed(0)} ${reason} 수익률 ${returnPct.toFixed(2)}%`);
+    // DAR-424 매도 체결 알림(graceful — CLOSED 영속 직후 스냅샷 산출).
+    await this.emitTradeExit(
+      trade.id,
+      trade.corpCode,
+      trade.stockCode,
+      exitPrice,
+      trade.shares,
+      returnPct,
+      reason,
+      now,
+    );
   }
 
   /**

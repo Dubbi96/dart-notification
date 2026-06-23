@@ -20,6 +20,8 @@ export interface NotificationSettings {
   signalPushEnabled: boolean;
   exitPushEnabled: boolean;
   thesisPushEnabled: boolean;
+  // DAR-424: 라이브 페이퍼 체결 알림 토글(기본 ON). OFF면 인박스·푸시 모두 생략.
+  tradePushEnabled: boolean;
   updatedAt: string;
 }
 

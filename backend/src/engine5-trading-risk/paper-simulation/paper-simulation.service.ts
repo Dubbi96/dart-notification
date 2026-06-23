@@ -92,6 +92,10 @@ export class PaperSimulationService {
   static readonly DEFAULT_STOP_LOSS_PCT = 8;
   static readonly DEFAULT_TAKE_PROFIT_PCT = 20;
   static readonly DEFAULT_MAX_HOLD_DAYS = 20;
+  // DAR-424 체결 알림 — 트랙 식별·딥링크 상수(시스템 모의).
+  static readonly TRADE_STRATEGY_KEY = 'paper-simulation';
+  static readonly TRADE_STRATEGY_LABEL = '시스템 모의';
+  static readonly TRADE_DEEP_LINK = '/portfolio';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -762,8 +766,9 @@ export class PaperSimulationService {
       if (trade.filledShares <= 0) continue;
 
       const fillPrice = trade.filledPrice ?? price;
+      let createdPositionId: string | null = null;
       try {
-        await this.prisma.position.create({
+        const createdPos = await this.prisma.position.create({
           data: {
             portfolioId: pf.id,
             corpCode: sig.corpCode,
@@ -784,7 +789,9 @@ export class PaperSimulationService {
             maxHoldDays,
             status: 'OPEN',
           },
+          select: { id: true },
         });
+        createdPositionId = createdPos.id;
       } catch (err) {
         // DAR-122: 부분 유니크 인덱스(portfolioId, stockCode WHERE status='OPEN') 충돌 →
         //   동시/재실행으로 이미 동일 종목 OPEN 포지션 존재 → 멱등 스킵.
@@ -806,6 +813,17 @@ export class PaperSimulationService {
         );
       }
       opened++;
+      // DAR-424 매수 체결 알림(graceful — OPEN 영속 직후 스냅샷 산출).
+      if (createdPositionId) {
+        await this.emitTradeEntry({
+          portfolioId: pf.id,
+          refId: createdPositionId,
+          corpCode: sig.corpCode,
+          stockCode: sig.stockCode,
+          price: fillPrice,
+          shares: trade.filledShares,
+        });
+      }
     }
     return opened;
   }
@@ -982,9 +1000,137 @@ export class PaperSimulationService {
           },
         });
         exited++;
+        // DAR-424 매도 체결 알림(graceful — CLOSED 영속 직후 스냅샷 산출).
+        //   exitReason 은 주 트리거(없으면 exitAction) 사용.
+        await this.emitTradeExit({
+          portfolioId,
+          refId: p.id,
+          corpCode: p.corpCode,
+          stockCode: p.stockCode,
+          price: sellPrice,
+          shares: sell.filledShares,
+          pnlPct: returnPct,
+          exitReason: exit.primaryTrigger ?? exit.exitAction,
+        });
       }
     }
     return exited;
+  }
+
+  // ─── DAR-424 체결 알림 ────────────────────────────────────────────────
+  /**
+   * 체결 알림용 포트폴리오 스냅샷 — 현금·전체 평가금. computeMetrics 의 equity 정의와 일치:
+   *   totalValue = 초기자본 + 실현손익(CLOSED unrealizedPnl) + 미실현손익(OPEN unrealizedPnl)
+   *   cash = totalValue − 보유 평가합(OPEN currentValue)
+   *   (저장 스냅샷값 사용 — 보유 종목 시세 재조회 없음·N+1 미발생.)
+   */
+  private async computeSimSnapshot(
+    portfolioId: string,
+  ): Promise<{ cash: number; totalValue: number }> {
+    const [open, closed] = await Promise.all([
+      this.prisma.position.findMany({
+        where: { portfolioId, status: 'OPEN' },
+        select: { currentValue: true, entryAmount: true, unrealizedPnl: true },
+      }),
+      this.prisma.position.findMany({
+        where: { portfolioId, status: 'CLOSED' },
+        select: { unrealizedPnl: true },
+      }),
+    ]);
+    const realizedNetPnl = closed.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
+    const unrealizedPnl = open.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
+    const totalValue =
+      PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl + unrealizedPnl;
+    const openValue = open.reduce(
+      (s, p) => s + (p.currentValue ?? p.entryAmount ?? 0),
+      0,
+    );
+    return { cash: totalValue - openValue, totalValue };
+  }
+
+  /** DAR-424: 종목명(Company.corpName) — 없으면 stockCode 폴백. */
+  private async corpNameOf(corpCode: string, stockCode: string): Promise<string> {
+    const c = await this.prisma.company.findUnique({
+      where: { corpCode },
+      select: { corpName: true },
+    });
+    return c?.corpName ?? stockCode;
+  }
+
+  /** DAR-424: 매수 체결 알림 발행(graceful — 체결을 깨지 않는다). */
+  private async emitTradeEntry(args: {
+    portfolioId: string;
+    refId: string;
+    corpCode: string;
+    stockCode: string;
+    price: number;
+    shares: number;
+  }): Promise<void> {
+    if (!this.notifyProducer) return;
+    try {
+      const [snapshot, corpName] = await Promise.all([
+        this.computeSimSnapshot(args.portfolioId),
+        this.corpNameOf(args.corpCode, args.stockCode),
+      ]);
+      await this.notifyProducer.enqueueTradeEntry({
+        kind: 'ENTRY',
+        refId: args.refId,
+        strategyKey: PaperSimulationService.TRADE_STRATEGY_KEY,
+        strategyLabel: PaperSimulationService.TRADE_STRATEGY_LABEL,
+        corpCode: args.corpCode,
+        stockCode: args.stockCode,
+        corpName,
+        price: args.price,
+        shares: args.shares,
+        cash: snapshot.cash,
+        totalValue: snapshot.totalValue,
+        deepLink: PaperSimulationService.TRADE_DEEP_LINK,
+      });
+    } catch (e) {
+      this.logger.warn(
+        `[PaperSim] 매수 체결 알림 발행 실패(graceful): ${(e as Error).message}`,
+      );
+    }
+  }
+
+  /** DAR-424: 매도 체결 알림 발행(graceful). */
+  private async emitTradeExit(args: {
+    portfolioId: string;
+    refId: string;
+    corpCode: string;
+    stockCode: string;
+    price: number;
+    shares: number;
+    pnlPct: number;
+    exitReason: string;
+  }): Promise<void> {
+    if (!this.notifyProducer) return;
+    try {
+      const [snapshot, corpName] = await Promise.all([
+        this.computeSimSnapshot(args.portfolioId),
+        this.corpNameOf(args.corpCode, args.stockCode),
+      ]);
+      await this.notifyProducer.enqueueTradeExit({
+        kind: 'EXIT',
+        refId: args.refId,
+        strategyKey: PaperSimulationService.TRADE_STRATEGY_KEY,
+        strategyLabel: PaperSimulationService.TRADE_STRATEGY_LABEL,
+        corpCode: args.corpCode,
+        stockCode: args.stockCode,
+        corpName,
+        price: args.price,
+        shares: args.shares,
+        pnlPct: args.pnlPct,
+        exitReason: args.exitReason,
+        cash: snapshot.cash,
+        totalValue: snapshot.totalValue,
+        deepLink: PaperSimulationService.TRADE_DEEP_LINK,
+      });
+    } catch (e) {
+      this.logger.warn(
+        `[PaperSim] 매도 체결 알림 발행 실패(graceful): ${(e as Error).message}`,
+      );
+    }
   }
 
   // ─── 4) 누적 지표 ─────────────────────────────────────────────────────

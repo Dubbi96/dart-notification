@@ -36,17 +36,21 @@ interface NotificationSettingsForm {
   signalPushEnabled: boolean;
   exitPushEnabled: boolean;
   thesisPushEnabled: boolean;
+  // DAR-424: 라이브 페이퍼 체결 알림 토글(기본 ON)
+  tradePushEnabled: boolean;
 }
 
 // DAR-85: 투자 신호 푸시 토글 정의(기본 OFF — 스팸 차단·안전)
+// DAR-424: 체결 알림(매수/매도) 토글 추가 — 기본 ON(체결 통지 기본 수신·과알림은 OFF로 차단).
 const SIGNAL_PUSH_TOGGLES: {
-  name: 'signalPushEnabled' | 'exitPushEnabled' | 'thesisPushEnabled';
+  name: 'signalPushEnabled' | 'exitPushEnabled' | 'thesisPushEnabled' | 'tradePushEnabled';
   label: string;
   description: string;
 }[] = [
   { name: 'signalPushEnabled', label: '매수 신호', description: '강력매수·매수 신호 발생 시 알림' },
   { name: 'exitPushEnabled', label: '청산 권고', description: '청산 조건 충족 시 알림 (권고 — 자동 주문 아님)' },
   { name: 'thesisPushEnabled', label: '투자논리 훼손', description: '매수 논리의 무효 조건 충족 시 알림' },
+  { name: 'tradePushEnabled', label: '체결 알림', description: '모의투자 매수/매도 체결 시 알림 (기본 켜짐)' },
 ];
 
 export default function NotificationSettingsScreen() {
@@ -64,6 +68,8 @@ export default function NotificationSettingsScreen() {
       signalPushEnabled: false,
       exitPushEnabled: false,
       thesisPushEnabled: false,
+      // DAR-424: 체결 알림 기본 ON.
+      tradePushEnabled: true,
     },
   });
 
@@ -77,6 +83,8 @@ export default function NotificationSettingsScreen() {
         signalPushEnabled: settings.signalPushEnabled ?? false,
         exitPushEnabled: settings.exitPushEnabled ?? false,
         thesisPushEnabled: settings.thesisPushEnabled ?? false,
+        // DAR-424: 체결 알림은 기본 ON — 서버가 필드를 안 주는 구버전 호환 위해 ?? true.
+        tradePushEnabled: settings.tradePushEnabled ?? true,
       });
     }
   }, [settings, reset]);
@@ -108,6 +116,7 @@ export default function NotificationSettingsScreen() {
         signalPushEnabled: data.signalPushEnabled,
         exitPushEnabled: data.exitPushEnabled,
         thesisPushEnabled: data.thesisPushEnabled,
+        tradePushEnabled: data.tradePushEnabled,
       },
       {
         onSuccess: () => {

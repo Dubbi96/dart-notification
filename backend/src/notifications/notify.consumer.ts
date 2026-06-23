@@ -11,7 +11,20 @@ import {
   NotifySignalJobData,
   NotifyExitJobData,
   NotifyThesisViolatedJobData,
+  NotifyTradeJobData,
 } from '../common/queues/queue.constants';
+
+/** DAR-424: KRW 천단위 구분 표기(반올림·정수). 음수는 '-' 유지. */
+export function formatKrw(n: number): string {
+  return Math.round(n).toLocaleString('en-US');
+}
+
+/** DAR-424: 부호 포함 퍼센트(소수 2자리). undefined/null 이면 빈 문자열. 예: +2.10% / -1.20% */
+export function signedPct(pct?: number | null): string {
+  if (pct === undefined || pct === null || Number.isNaN(pct)) return '';
+  const sign = pct >= 0 ? '+' : '';
+  return `${sign}${pct.toFixed(2)}%`;
+}
 
 /**
  * DAR-85 — 알림 consumer (QUEUE.NOTIFY 단독 소비자).
@@ -46,6 +59,9 @@ export class NotifyConsumer extends WorkerHost {
         return this.handleExit(job.data as NotifyExitJobData);
       case NOTIFY_JOB.THESIS_VIOLATED:
         return this.handleThesisViolated(job.data as NotifyThesisViolatedJobData);
+      case NOTIFY_JOB.TRADE_ENTRY:
+      case NOTIFY_JOB.TRADE_EXIT:
+        return this.handleTrade(job.data as NotifyTradeJobData);
       default:
         this.logger.warn(`알 수 없는 NOTIFY 잡: ${job.name}`);
         return;
@@ -168,6 +184,85 @@ export class NotifyConsumer extends WorkerHost {
       deepLink,
     );
     this.logger.log(`[NOTIFY:THESIS] ${positionThesisId} → user=${userId} 통지`);
+  }
+
+  // ── TRADE_ENTRY / TRADE_EXIT (DAR-424) ──────────────────────────────────────
+  //
+  // 라이브 페이퍼 체결(분봉 단타·시스템 모의)을 ★실제 앱 사용자 전원에게 브로드캐스트한다.
+  //   - 시스템 모의/단타는 전역 단일 시뮬이라 포지션 소유자(합성 시스템 유저)가 아닌
+  //     실 사용자 전원이 수신 대상이다(provider='system' 합성 유저는 제외).
+  //   - tradePushEnabled(기본 ON) 토글로 인박스·푸시를 함께 게이트한다(SIGNAL/EXIT 와 달리
+  //     OFF면 인박스도 남기지 않는다 — 브로드캐스트 과알림 방지). 설정행 미존재=기본 ON.
+  //   - 푸시는 추가로 master isEnabled + 유효 디바이스 토큰 필요.
+  //   - 멱등: (userId, type, refId) NotificationHistory unique. type 이 ENTRY/EXIT 로 갈려
+  //     같은 체결 단위(refId)라도 매수/매도가 별개로 적재된다.
+  // ★알림은 통지일 뿐 — 주문 결정/실주문과 무관(AI 금지영역 불침범).
+  private async handleTrade(data: NotifyTradeJobData): Promise<void> {
+    const type =
+      data.kind === 'ENTRY'
+        ? NotificationType.TRADE_ENTRY
+        : NotificationType.TRADE_EXIT;
+    const label = data.corpName || data.stockCode || data.corpCode;
+    const priceStr = formatKrw(data.price);
+    const cashStr = formatKrw(data.cash);
+    const totalStr = formatKrw(data.totalValue);
+
+    let title: string;
+    let body: string;
+    if (data.kind === 'ENTRY') {
+      title = `[${data.strategyLabel}] ${label} 매수`;
+      body = `체결 ₩${priceStr} × ${data.shares}주 · 현금 ₩${cashStr} · 평가금 ₩${totalStr}`;
+    } else {
+      const pct = signedPct(data.pnlPct);
+      const reason = data.exitReason ? `(${data.exitReason})` : '';
+      title = `[${data.strategyLabel}] ${label} 매도${pct ? ` ${pct}` : ''}`;
+      body = `체결 ₩${priceStr} × ${data.shares}주 · 손익 ${pct || '—'}${reason} · 현금 ₩${cashStr} · 전체평가금 ₩${totalStr}`;
+    }
+    const deepLink = data.deepLink;
+
+    // 수신자 = 실제 앱 사용자 전원(브로드캐스트). 합성 시스템 유저(provider='system') 제외.
+    const users = await this.prisma.user.findMany({
+      where: { provider: { not: 'system' } },
+      select: { id: true },
+    });
+    if (users.length === 0) {
+      this.logger.debug(`[NOTIFY:TRADE:${data.kind}] 수신 대상 사용자 없음 — 스킵`);
+      return;
+    }
+
+    // 토글 일괄 조회(설정행 미존재=기본값으로 간주).
+    const settingsRows = await this.prisma.notificationSettings.findMany({
+      where: { userId: { in: users.map((u) => u.id) } },
+      select: { userId: true, isEnabled: true, tradePushEnabled: true },
+    });
+    const settingsByUser = new Map(settingsRows.map((s) => [s.userId, s]));
+
+    let inboxed = 0;
+    for (const u of users) {
+      const s = settingsByUser.get(u.id);
+      // ★기본 ON: 설정행 미존재 시 tradePushEnabled=true 로 간주.
+      const tradeOn = s ? s.tradePushEnabled : true;
+      if (!tradeOn) continue; // 인박스·푸시 모두 생략(과알림 방지).
+
+      const { created } = await this.notifications.createNotificationIfAbsent({
+        userId: u.id,
+        type,
+        refId: data.refId,
+        title,
+        body,
+        deepLink,
+      });
+      if (!created) continue; // 멱등 — 이미 통지(잡 재시도 등) → 푸시 재발송 스킵.
+      inboxed += 1;
+
+      // 푸시는 master isEnabled(기본 true) + 유효 토큰일 때만(체결 토글은 위에서 통과).
+      const masterOn = s ? s.isEnabled : true;
+      if (!masterOn) continue;
+      await this.sendPush(u.id, title, body, deepLink, type, data.refId);
+    }
+    this.logger.log(
+      `[NOTIFY:TRADE:${data.kind}] ref=${data.refId} 수신자=${users.length} 신규인박스=${inboxed}`,
+    );
   }
 
   // ── 공통: 인박스 기록(항상) + 토글 ON 시에만 실발송 ──────────────────────────

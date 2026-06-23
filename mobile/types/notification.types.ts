@@ -1,5 +1,12 @@
 // DAR-84: 통합 알림 인박스 — 공시 외 신호·청산·논리훼손 통지를 한 타입으로 수용
-export type NotificationType = 'DISCLOSURE' | 'SIGNAL' | 'EXIT' | 'THESIS_VIOLATED';
+// DAR-424: 라이브 페이퍼 체결(매수/매도) 알림 타입 추가.
+export type NotificationType =
+  | 'DISCLOSURE'
+  | 'SIGNAL'
+  | 'EXIT'
+  | 'THESIS_VIOLATED'
+  | 'TRADE_ENTRY'
+  | 'TRADE_EXIT';
 
 export interface Notification {
   id: string;

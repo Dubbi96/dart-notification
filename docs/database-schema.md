@@ -193,7 +193,15 @@ model NotificationSettings {
   userId          String   @id // User와 1:1, Natural Key
   disclosureTypes String[] // ["정기공시", "주요사항보고", "발행공시", "지분공시", "기타공시"]
   keywords        String[] // 키워드 배열 (예: ["증자", "배당"])
-  isEnabled       Boolean  @default(true)
+  isEnabled       Boolean  @default(true) // master 푸시 스위치
+
+  // DAR-85: 신호·청산·논리훼손 푸시 토글(기본 OFF). master isEnabled ON일 때만 발송.
+  signalPushEnabled Boolean @default(false)
+  exitPushEnabled   Boolean @default(false)
+  thesisPushEnabled Boolean @default(false)
+  // DAR-424: 라이브 페이퍼 체결 알림 토글(기본 ON). OFF면 인박스·푸시 모두 생략(과알림 방지).
+  tradePushEnabled  Boolean @default(true)
+
   updatedAt       DateTime @updatedAt
 
   // Relations
@@ -201,6 +209,11 @@ model NotificationSettings {
 
   @@map("notification_settings")
 }
+
+// 통합 알림 유형 (DAR-84/85/424)
+// DISCLOSURE(공시)·SIGNAL(매수신호)·EXIT(청산권고)·THESIS_VIOLATED(논리훼손)
+// ·TRADE_ENTRY(라이브 페이퍼 매수 체결)·TRADE_EXIT(라이브 페이퍼 매도 체결, DAR-424)
+// NotificationHistory.type 으로 사용. 멱등 키 @@unique([userId, type, refId]).
 
 // ====================================
 // 공시 데이터
@@ -1455,5 +1468,5 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-06-21 (DAR-404 BacktestRun.strategyKey 추가 — 전략 변형 4종 다중 트랙 그룹핑)
-**버전**: 2.7 (DAR-404: BacktestRun.strategyKey 비파괴 추가 + @@index — 트레이딩 로직 축 다중 트랙; DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)
+**최종 수정일**: 2026-06-23 (DAR-424 체결 알림 — NotificationType TRADE_ENTRY/TRADE_EXIT enum 추가 + NotificationSettings.tradePushEnabled(기본 ON) 컬럼 추가, 모두 비파괴)
+**버전**: 2.8 (DAR-424: NotificationType 에 TRADE_ENTRY/TRADE_EXIT 가산(enum ADD VALUE) + notification_settings.tradePushEnabled BOOLEAN DEFAULT true 추가 — 라이브 페이퍼 체결 알림; 2.7 DAR-404: BacktestRun.strategyKey 비파괴 추가 + @@index — 트레이딩 로직 축 다중 트랙; DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)

@@ -3,6 +3,7 @@ import { MarketCalendarService } from './constraint/market-calendar.service';
 import { PriceConstraintService } from './constraint/price-constraint.service';
 import { PerformanceCalculatorService } from './metrics/performance-calculator.service';
 import { SignalAccuracyService } from './signal-accuracy.service';
+import { EvaluationCorpusService } from './evaluation-corpus.service';
 import { SignalAccuracyController } from './signal-accuracy.controller';
 import { BacktestSignalAssemblyService } from './replay/backtest-signal-assembly.service';
 import { BacktestReplayService } from './replay/backtest-replay.service';
@@ -26,6 +27,7 @@ import { EventStudyModule } from '../event-study/event-study.module';
     PriceConstraintService,
     PerformanceCalculatorService,
     SignalAccuracyService,
+    EvaluationCorpusService,
     BacktestSignalAssemblyService,
     BacktestReplayService,
     StrategyTrackService,
@@ -37,6 +39,7 @@ import { EventStudyModule } from '../event-study/event-study.module';
     PriceConstraintService,
     PerformanceCalculatorService,
     SignalAccuracyService,
+    EvaluationCorpusService,
     BacktestSignalAssemblyService,
     BacktestReplayService,
     StrategyTrackService,

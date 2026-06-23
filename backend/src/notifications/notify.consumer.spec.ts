@@ -154,6 +154,8 @@ describe('NotifyConsumer (DAR-85)', () => {
       const msgs = expoPush.sendPushNotifications.mock.calls[0][0];
       expect(msgs[0]).toMatchObject({ to: 'ExponentPushToken[x]' });
       expect(msgs[0].data).toMatchObject({ type: NotificationType.SIGNAL, refId: 's1' });
+      // DAR-430: SIGNAL → '신호' 카테고리 → 'signal' 채널.
+      expect(msgs[0].channelId).toBe('signal');
     });
 
     it('토글 ON 이지만 유효 토큰 없음 → 발송 호출 안 함(인박스만)', async () => {
@@ -345,8 +347,11 @@ describe('NotifyConsumer (DAR-85)', () => {
         refId: 'trade-1',
         deepLink: '/portfolio/strategy/intraday-scalp',
       });
-      expect(first.title).toBe('[분봉 단타] 삼성전자 매수');
-      expect(first.body).toBe('체결 ₩105,000 × 10주 · 현금 ₩9,500,000 · 평가금 ₩10,200,000');
+      // DAR-430: 제목 [ ]프리픽스 제거 — 출처(분봉 단타)는 본문 앞에 둔다.
+      expect(first.title).toBe('삼성전자 매수');
+      expect(first.body).toBe(
+        '분봉 단타 · 체결 ₩105,000 × 10주 · 현금 ₩9,500,000 · 평가금 ₩10,200,000',
+      );
     });
 
     it('매도 알림 — 제목에 손익%·본문에 손익(사유)·전체평가금', async () => {
@@ -357,9 +362,10 @@ describe('NotifyConsumer (DAR-85)', () => {
 
       const call = notifications.createNotificationIfAbsent.mock.calls[0][0];
       expect(call.type).toBe(NotificationType.TRADE_EXIT);
-      expect(call.title).toBe('[분봉 단타] 삼성전자 매도 +2.10%');
+      // DAR-430: 제목 [ ]프리픽스 제거 — 손익%는 제목 유지, 출처는 본문 앞으로.
+      expect(call.title).toBe('삼성전자 매도 +2.10%');
       expect(call.body).toBe(
-        '체결 ₩107,000 × 10주 · 손익 +2.10%(TAKE_PROFIT) · 현금 ₩9,500,000 · 전체평가금 ₩10,200,000',
+        '분봉 단타 · 체결 ₩107,000 × 10주 · 손익 +2.10%(TAKE_PROFIT) · 현금 ₩9,500,000 · 전체평가금 ₩10,200,000',
       );
     });
 
@@ -395,6 +401,13 @@ describe('NotifyConsumer (DAR-85)', () => {
       expect(expoPush.sendPushNotifications).toHaveBeenCalledTimes(1);
       const msg = expoPush.sendPushNotifications.mock.calls[0][0][0];
       expect(msg.data).toMatchObject({ type: NotificationType.TRADE_ENTRY, refId: 'trade-1' });
+      // DAR-430: 체결 카테고리 → 'trade' 채널 + 출처(strategyLabel) data 전달.
+      expect(msg.channelId).toBe('trade');
+      expect(msg.data).toMatchObject({
+        channelId: 'trade',
+        source: '분봉 단타',
+        strategyKey: 'intraday-scalp',
+      });
     });
 
     // DAR-431: 체결 푸시 data 에 트랙 식별자(strategyKey/strategyName)+딥링크 동봉 →

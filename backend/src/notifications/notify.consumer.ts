@@ -5,6 +5,7 @@ import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ExpoPushService } from '../expo-push/expo-push.service';
 import { NotificationsService } from './notifications.service';
+import { channelIdForType } from './notification-category';
 import {
   QUEUE,
   NOTIFY_JOB,
@@ -207,18 +208,27 @@ export class NotifyConsumer extends WorkerHost {
     const cashStr = formatKrw(data.cash);
     const totalStr = formatKrw(data.totalValue);
 
+    // DAR-430: 제목 [ ]프리픽스 제거 — 출처(시스템 모의/단타)는 본문·data 로 전달하고
+    // 카테고리는 Android 채널·인앱 아이콘으로 구분한다. 제목은 '종목 매수/매도'만.
     let title: string;
     let body: string;
     if (data.kind === 'ENTRY') {
-      title = `[${data.strategyLabel}] ${label} 매수`;
-      body = `체결 ₩${priceStr} × ${data.shares}주 · 현금 ₩${cashStr} · 평가금 ₩${totalStr}`;
+      title = `${label} 매수`;
+      body = `${data.strategyLabel} · 체결 ₩${priceStr} × ${data.shares}주 · 현금 ₩${cashStr} · 평가금 ₩${totalStr}`;
     } else {
       const pct = signedPct(data.pnlPct);
       const reason = data.exitReason ? `(${data.exitReason})` : '';
-      title = `[${data.strategyLabel}] ${label} 매도${pct ? ` ${pct}` : ''}`;
-      body = `체결 ₩${priceStr} × ${data.shares}주 · 손익 ${pct || '—'}${reason} · 현금 ₩${cashStr} · 전체평가금 ₩${totalStr}`;
+      title = `${label} 매도${pct ? ` ${pct}` : ''}`;
+      body = `${data.strategyLabel} · 체결 ₩${priceStr} × ${data.shares}주 · 손익 ${pct || '—'}${reason} · 현금 ₩${cashStr} · 전체평가금 ₩${totalStr}`;
     }
     const deepLink = data.deepLink;
+    // 출처를 푸시 data 에 실어 클라이언트가 채널/딥링크 외에도 식별할 수 있게 한다.
+    // DAR-430 출처(source) + DAR-431 트랙 식별자(strategyKey/strategyName) 동봉.
+    const extraData = {
+      source: data.strategyLabel,
+      strategyKey: data.strategyKey,
+      strategyName: data.strategyLabel,
+    };
 
     // 수신자 = 실제 앱 사용자 전원(브로드캐스트). 합성 시스템 유저(provider='system') 제외.
     const users = await this.prisma.user.findMany({
@@ -258,11 +268,8 @@ export class NotifyConsumer extends WorkerHost {
       // 푸시는 master isEnabled(기본 true) + 유효 토큰일 때만(체결 토글은 위에서 통과).
       const masterOn = s ? s.isEnabled : true;
       if (!masterOn) continue;
-      // DAR-431: 트랙 식별자 동봉 — 클라이언트 전략별 라우팅/필터용.
-      await this.sendPush(u.id, title, body, deepLink, type, data.refId, {
-        strategyKey: data.strategyKey,
-        strategyName: data.strategyLabel,
-      });
+      // DAR-430 채널 + DAR-431 트랙 식별자 동봉 — 출처/전략 라우팅·필터용.
+      await this.sendPush(u.id, title, body, deepLink, type, data.refId, extraData);
     }
     this.logger.log(
       `[NOTIFY:TRADE:${data.kind}] ref=${data.refId} 수신자=${users.length} 신규인박스=${inboxed}`,
@@ -341,7 +348,7 @@ export class NotifyConsumer extends WorkerHost {
     deepLink: string,
     type: NotificationType,
     refId: string,
-    // DAR-431: 체결 알림은 트랙 식별자(strategyKey/strategyName)를 push data 에 동봉해
+    // DAR-431: 체결 알림은 트랙 식별자(strategyKey/strategyName/source)를 push data 에 동봉해
     //   클라이언트가 전략별로 라우팅·필터링할 수 있게 한다(undefined 키는 제외).
     extraData?: Record<string, string | undefined>,
   ): Promise<void> {
@@ -357,6 +364,10 @@ export class NotifyConsumer extends WorkerHost {
       return;
     }
 
+    // DAR-430: 카테고리(공시/신호/체결)에 매핑된 Android 알림 채널로 발송한다.
+    // OS 가 channelId 별로 묶어 표시·누적·중요도 분리(앱이 등록한 채널과 ID 일치 필수).
+    const channelId = channelIdForType(type);
+    // DAR-431: undefined/빈 값 키는 push data 에서 제외.
     const extra = extraData
       ? Object.fromEntries(
           Object.entries(extraData).filter(([, v]) => v != null && v !== ''),
@@ -367,9 +378,10 @@ export class NotifyConsumer extends WorkerHost {
       tokens.map((to) => ({
         to,
         sound: 'default' as const,
+        channelId,
         title,
         body,
-        data: { deepLink, type, refId, ...extra },
+        data: { deepLink, type, refId, channelId, ...extra },
       })),
     );
   }

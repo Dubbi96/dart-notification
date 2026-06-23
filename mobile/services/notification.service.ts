@@ -1,13 +1,13 @@
 import { api } from './api';
 import type { ApiResponse, PaginationMeta } from '@app-types/api.types';
-import type { Notification, NotificationType } from '@app-types/notification.types';
+import type { Notification, NotificationCategory } from '@app-types/notification.types';
 
 export const notificationService = {
-  // DAR-161: type 미지정 시 전체 타입 조회, 지정 시 해당 타입만.
-  getList: (page = 1, limit = 20, type?: NotificationType) =>
+  // DAR-430: category 미지정 시 전체 조회, 지정 시 해당 카테고리(3 버킷)만.
+  getList: (page = 1, limit = 20, category?: NotificationCategory) =>
     api
       .get<ApiResponse<Notification[]>>('/notifications', {
-        params: { page, limit, ...(type ? { type } : {}) },
+        params: { page, limit, ...(category ? { category } : {}) },
       })
       .then((r) => ({ data: r.data.data, meta: r.data.meta as PaginationMeta })),
 

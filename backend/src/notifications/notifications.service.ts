@@ -2,6 +2,11 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { NotificationType, NotificationHistory, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueryNotificationDto } from './dto/query-notification.dto';
+import {
+  NotificationCategory,
+  NOTIFICATION_CATEGORY,
+  CATEGORY_TYPES,
+} from './notification-category';
 
 /**
  * 통합 알림 생성 입력 (DAR-84)
@@ -106,14 +111,17 @@ export class NotificationsService {
   }
 
   async findAll(userId: string, query: QueryNotificationDto) {
-    const { page = 1, limit = 20, isRead, type } = query;
+    const { page = 1, limit = 20, isRead, type, category } = query;
 
     const where: any = { userId };
     if (isRead !== undefined) {
       where.isRead = isRead === 'true';
     }
-    // DAR-161: 타입 필터(공시/신호/청산/논리훼손). 미지정 시 전체 타입.
-    if (type !== undefined) {
+    // DAR-430: 카테고리 필터(공시/신호/체결) 우선 — 여러 타입을 한 버킷으로 묶어 조회.
+    // DAR-161: 단일 타입 필터(하위호환). category 미지정 시에만 적용.
+    if (category !== undefined) {
+      where.type = { in: CATEGORY_TYPES[category] };
+    } else if (type !== undefined) {
       where.type = type;
     }
 
@@ -163,6 +171,16 @@ export class NotificationsService {
       unreadByType[row.type] = row._count._all;
     }
 
+    // DAR-430: 카테고리(3 버킷)별 미읽음 — 타입별 집계를 카테고리로 합산(필터칩 배지용).
+    const unreadByCategory: Record<NotificationCategory, number> = {
+      disclosure: 0,
+      signal: 0,
+      trade: 0,
+    };
+    for (const t of Object.keys(unreadByType) as NotificationType[]) {
+      unreadByCategory[NOTIFICATION_CATEGORY[t]] += unreadByType[t];
+    }
+
     return {
       items,
       meta: {
@@ -171,6 +189,7 @@ export class NotificationsService {
         total,
         unreadCount,
         unreadByType,
+        unreadByCategory,
       },
     };
   }

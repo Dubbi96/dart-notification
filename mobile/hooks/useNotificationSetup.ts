@@ -14,6 +14,19 @@ import { REGISTER_BACKOFF_MS, shouldRetryOnReconnect } from '@utils/pushTokenRet
 
 const PROJECT_ID = 'dbdd30ba-72aa-4f90-ae45-54aa8fd43aa7';
 
+// DAR-430: Android 알림 채널(카테고리 3 버킷). 채널 ID 는 백엔드 Expo push channelId 와
+// 정확히 일치해야 OS 가 채널별로 묶어 표시·누적·중요도를 분리한다(공시=기본·신호/체결=높음·소리).
+// importanceKey 는 런타임에 Notifications.AndroidImportance[key] 로 해소(모듈 미평가 환경 회피).
+const ANDROID_CHANNELS: ReadonlyArray<{
+  id: string;
+  name: string;
+  importanceKey: 'HIGH' | 'DEFAULT';
+}> = [
+  { id: 'disclosure', name: '공시', importanceKey: 'DEFAULT' },
+  { id: 'signal', name: '신호', importanceKey: 'HIGH' },
+  { id: 'trade', name: '체결', importanceKey: 'HIGH' },
+];
+
 // Expo Go(안드로이드)는 SDK 53부터 expo-notifications 가 **import(모듈 평가) 시점에 throw**한다.
 // 따라서 정적 import 하지 말고, 지원 환경에서만 조건부 require 로 모듈을 불러온다.
 // (Metro require 는 호출 시점에만 모듈을 평가하므로, 미지원 환경에선 아예 평가되지 않아 throw 회피)
@@ -57,6 +70,32 @@ export function useNotificationSetup() {
   // 이번 디바이스에 이미 등록 완료한 토큰(미등록=null). onlineManager 복구 콜백이 중복 등록을
   // 피하고, 콜드스타트 단절로 미등록이면 복구 후 재시도할지 판정하는 데 쓴다(DAR-225).
   const registeredTokenRef = useRef<string | null>(null);
+
+  // DAR-430: Android 알림 채널(공시/신호/체결) 등록 — 앱 시작 시 1회. OS 가 채널별로 묶어
+  // 표시·누적하고 중요도를 분리한다. iOS 는 채널 개념이 없어 no-op(채널은 push payload 의
+  // channelId 가 무시됨) — 카테고리 구분은 인앱 아이콘·필터가 담당한다(크로스플랫폼 폴백).
+  useEffect(() => {
+    if (!Notifications || Platform.OS !== 'android') return;
+    const N = Notifications;
+    let cancelled = false;
+    (async () => {
+      try {
+        for (const ch of ANDROID_CHANNELS) {
+          if (cancelled) return;
+          await N.setNotificationChannelAsync(ch.id, {
+            name: ch.name,
+            importance: N.AndroidImportance[ch.importanceKey],
+            sound: 'default',
+          });
+        }
+      } catch (err) {
+        console.warn('Android 알림 채널 등록 실패:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 이미 권한이 있는 경우만 토큰 등록 (권한 요청은 온보딩에서 처리)
   // DAR-225: 콜드스타트시 네트워크가 잠깐 끊겨 1회 실패하면 deps=[isAuthenticated]만으론

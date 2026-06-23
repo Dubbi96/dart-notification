@@ -106,3 +106,30 @@ export function isKstRegularMarketHours(date: Date): boolean {
     weekday === 'Thu' || weekday === 'Fri';
   return isWeekday && minutes >= KRX_REGULAR_OPEN_MIN && minutes <= KRX_REGULAR_CLOSE_MIN;
 }
+
+/**
+ * 인트라데이(분봉·단타) 세션 거래일 — '오늘이 거래일이고 장이 개장했으면(KST≥09:00) 오늘'(DAR-423).
+ *
+ * 배경: 일봉 발행 기준 resolver(`resolveLatestAvailableTradeDate`)는 '오늘 일봉 미게시'면
+ *   직전 거래일을 반환한다. 그러나 일봉은 장 마감 후 발행이라 장중엔 항상 미게시 → 인트라데이
+ *   분봉/단타를 어제 라벨로 잘못 폴백한다. 인트라데이는 일봉 발행과 무관하게 '오늘 라이브 세션'이
+ *   거래일이므로, 분봉/단타 라벨링은 이 함수로 분리한다(일봉 맥락의 resolver 는 무변경).
+ *
+ * 판정: 평일(월~금)이고 KST 벽시계가 정규장 개장 시각(09:00) 이상이면 오늘(YYYYMMDD).
+ *   장 마감 후(15:30~)도 같은 세션일이므로 오늘을 유지한다(개장 이후 = 오늘 거래일).
+ *
+ * ★공휴일/임시휴장은 미반영(달력 비의존·주말만 판정). 실제 휴장이면 KIS 가 빈 분봉을 반환해
+ *   유니버스가 비고 신규 거래 0 으로 graceful 하다(거짓 진입 없음).
+ *
+ * @returns 장중/장마감후(개장 이후) 평일이면 'YYYYMMDD'(오늘), 장외(개장전·주말)면 null.
+ */
+export function kstIntradaySessionDate(date: Date): string | null {
+  const { weekday, minutes } = kstClock(date);
+  const isWeekday =
+    weekday === 'Mon' || weekday === 'Tue' || weekday === 'Wed' ||
+    weekday === 'Thu' || weekday === 'Fri';
+  if (isWeekday && minutes >= KRX_REGULAR_OPEN_MIN) {
+    return formatKstDateCompact(date);
+  }
+  return null;
+}

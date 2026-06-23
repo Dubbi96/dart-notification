@@ -26,6 +26,8 @@ function sampleCandles(): KisMinuteCandle[] {
 
 function makeScheduler(tradeDate = '20260619'): KrxMarketDataScheduler {
   return {
+    // ★DAR-423: 분봉 collector 는 인트라데이 전용 해석기를 사용(장중 today, 장외 직전 거래일).
+    resolveIntradayTradeDate: jest.fn().mockResolvedValue(tradeDate),
     resolveLatestAvailableTradeDate: jest.fn().mockResolvedValue(tradeDate),
   } as unknown as KrxMarketDataScheduler;
 }
@@ -172,7 +174,7 @@ describe('StockMinutePriceCollector.collectOnce — 수집·커버리지 (DAR-37
     const res = await collector.collectOnce({ tradeDate: '20260101', sleep: noSleep });
 
     expect(res.tradeDate).toBe('20260101');
-    expect(scheduler.resolveLatestAvailableTradeDate).not.toHaveBeenCalled();
+    expect(scheduler.resolveIntradayTradeDate).not.toHaveBeenCalled();
   });
 
   it('기본 cap 은 MINUTE_COLLECT_DEFAULT_CAP(100)', () => {

@@ -176,24 +176,24 @@ export class IntradayScalpService {
     private readonly prisma: PrismaService,
     // 실시간 시세 캐시(@Global). 신선분이 있으면 우선 사용, 없으면 분봉 종가로 폴백.
     @Optional() private readonly realtimeCache?: RealtimeQuoteCache,
-    // ★DAR-414: 분봉 collector(engine3)와 동일한 거래일 해석기 — tradeDate SSOT 정렬.
-    //   환경 시계 today 가 KRX 실 가용 거래일보다 앞설 수 있어, 분봉은
-    //   resolveLatestAvailableTradeDate() 로 라벨링되어 적재된다. 단타가 환경시계 today 를
-    //   직접 쓰면 그 라벨과 어긋나 분봉을 못 찾아(빈 유니버스) 거래가 0이 된다(이 버그).
-    //   동일 해석기를 공유해 라벨 불일치를 구조적으로 차단한다.
+    // ★DAR-414/423: 분봉 collector(engine3)와 동일한 거래일 해석기 — tradeDate SSOT 정렬.
+    //   분봉/단타는 인트라데이 해석(resolveIntradayTradeDate)으로 장중엔 today, 장외엔 직전
+    //   거래일을 쓴다. 동일 해석기를 공유해 분봉 라벨과 단타 조회 라벨 불일치를 구조적으로 차단한다.
     @Optional() private readonly tradeDateResolver?: KrxMarketDataScheduler,
   ) {}
 
   /**
-   * ★DAR-414 tradeDate SSOT — 분봉 collector(StockMinutePriceCollector)와 동일 소스.
-   *   해석기가 주입돼 있으면 KRX 실 가용 거래일을 사용(분봉 라벨과 일치 보장),
+   * ★DAR-414/423 tradeDate SSOT — 분봉 collector(StockMinutePriceCollector)와 동일 소스.
+   *   해석기가 주입돼 있으면 인트라데이 거래일(resolveIntradayTradeDate)을 사용(분봉 라벨과 일치
+   *   보장). 장중(평일·KST≥09:00)이면 오늘, 장외면 직전 거래일이다 — 일봉 발행 기준
+   *   resolveLatestAvailableTradeDate 가 장중 어제를 반환하던 버그(DAR-423)를 분리 해소한다.
    *   미주입(단위 테스트 등) 시에만 환경 시계 today 로 폴백한다.
    *   해석기 자체에 KRX 프로브 실패·DB 폴백·미래일 클램프가 내장돼 있어 graceful.
    */
   private async resolveTradeDate(now: Date): Promise<string> {
     if (this.tradeDateResolver) {
       try {
-        return await this.tradeDateResolver.resolveLatestAvailableTradeDate();
+        return await this.tradeDateResolver.resolveIntradayTradeDate(now);
       } catch (e) {
         this.logger.warn(
           `[Scalp] tradeDate 해석 실패 — 환경시계 today 폴백: ${(e as Error).message}`,

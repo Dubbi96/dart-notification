@@ -825,6 +825,65 @@ describe('KrxMarketDataScheduler.resolveLatestAvailableTradeDate', () => {
   });
 });
 
+// ─── resolveIntradayTradeDate (DAR-423) ──────────────────────────────────────
+// 인트라데이(분봉/단타)는 일봉 발행과 무관 — 장중엔 today, 장외엔 직전 거래일(일봉 resolver 위임).
+// now 주입은 UTC 'Z' → Intl 이 Asia/Seoul KST 로 환산(시스템 TZ 무관). 6/23=화(오늘).
+
+describe('KrxMarketDataScheduler.resolveIntradayTradeDate (DAR-423)', () => {
+  it('장중(화 12:00 KST) → 오늘(20260623), 일봉 resolver 미호출(직전거래일 폴백 안함)', async () => {
+    const krx = makeKrxApi();
+    const prisma = makePrisma();
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+    const latestSpy = jest.spyOn(scheduler, 'resolveLatestAvailableTradeDate');
+
+    // KST 화 12:00 = UTC 03:00
+    const result = await scheduler.resolveIntradayTradeDate(new Date('2026-06-23T03:00:00Z'));
+
+    expect(result).toBe('20260623');
+    expect(latestSpy).not.toHaveBeenCalled();
+  });
+
+  it('개장 경계(화 09:00 KST) → 오늘(20260623)', async () => {
+    const scheduler = new KrxMarketDataScheduler(makePrisma(), makeKrxApi(), makeDart());
+    // KST 화 09:00 = UTC 00:00
+    expect(await scheduler.resolveIntradayTradeDate(new Date('2026-06-23T00:00:00Z'))).toBe(
+      '20260623',
+    );
+  });
+
+  it('장 마감 후(화 16:00 KST, 일봉 미게시 시각)도 같은 세션일 오늘(20260623)', async () => {
+    const scheduler = new KrxMarketDataScheduler(makePrisma(), makeKrxApi(), makeDart());
+    // KST 화 16:00 = UTC 07:00
+    expect(await scheduler.resolveIntradayTradeDate(new Date('2026-06-23T07:00:00Z'))).toBe(
+      '20260623',
+    );
+  });
+
+  it('개장 전(화 08:00 KST·장외) → 직전 거래일(일봉 resolver 위임)', async () => {
+    const krx = makeKrxApi();
+    const prisma = makePrisma();
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+    jest.spyOn(scheduler, 'resolveLatestAvailableTradeDate').mockResolvedValue('20260622');
+
+    // KST 화 08:00 = UTC 월 23:00
+    const result = await scheduler.resolveIntradayTradeDate(new Date('2026-06-22T23:00:00Z'));
+
+    expect(result).toBe('20260622');
+    expect(scheduler.resolveLatestAvailableTradeDate).toHaveBeenCalled();
+  });
+
+  it('주말(토 12:00 KST·장외) → 직전 거래일(일봉 resolver 위임)', async () => {
+    const scheduler = new KrxMarketDataScheduler(makePrisma(), makeKrxApi(), makeDart());
+    jest.spyOn(scheduler, 'resolveLatestAvailableTradeDate').mockResolvedValue('20260619');
+
+    // KST 토 12:00 = UTC 03:00 (6/20=토)
+    const result = await scheduler.resolveIntradayTradeDate(new Date('2026-06-20T03:00:00Z'));
+
+    expect(result).toBe('20260619');
+    expect(scheduler.resolveLatestAvailableTradeDate).toHaveBeenCalled();
+  });
+});
+
 // ─── DAR-375: 최신 가용일 프로브 + 갭 캐치업 ──────────────────────────────────
 
 describe('KrxMarketDataScheduler — DAR-375 최신 가용일 프로브 / 갭 캐치업', () => {

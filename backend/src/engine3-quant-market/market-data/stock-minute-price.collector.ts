@@ -121,7 +121,10 @@ export class StockMinutePriceCollector {
     const pageDelayMs = opts.pageDelayMs ?? 150;
     const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 
-    const tradeDate = opts.tradeDate ?? (await this.scheduler.resolveLatestAvailableTradeDate());
+    // ★DAR-423: 분봉은 '오늘 라이브' 세션 데이터다. 일봉 발행 기준 resolveLatestAvailableTradeDate
+    //   는 장중 '오늘 일봉 미게시'로 어제를 반환해 라벨을 어긋나게 한다(분봉 ts 는 오늘 advancing).
+    //   인트라데이 전용 해석기로 장중엔 today, 장외엔 직전 거래일을 라벨링한다.
+    const tradeDate = opts.tradeDate ?? (await this.scheduler.resolveIntradayTradeDate());
 
     if (!this.kis.isConfigured) {
       return {

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KrxApiService, KrxApiUnavailableError } from './krx-api.service';
@@ -7,6 +7,8 @@ import type { Prisma } from '@prisma/client';
 import { KST_TIMEZONE, kstIntradaySessionDate } from '../../common/time/kst';
 import { MAX_INDEX_DAILY_CHANGE_PCT, isImplausibleIndexChange } from './index-sanity';
 import { isValidDailyOhlc } from './daily-price-sanity';
+import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
+import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
 
 /**
  * KRX 시세 일괄 수집 Cron 스케줄러.
@@ -30,6 +32,9 @@ export class KrxMarketDataScheduler {
     private readonly prisma: PrismaService,
     private readonly krx: KrxApiService,
     private readonly dartStockStatus: DartStockStatusService,
+    // DAR-428: EOD 일봉 캐치업 크론의 실행 헬스를 CronRunLog 에 기록(분봉과 대칭).
+    //   @Global CronHealthModule 제공 — 미주입(테스트 등) 시 graceful 생략.
+    @Optional() private readonly cronRunRecorder?: CronRunRecorderService,
   ) {}
 
   /**
@@ -47,7 +52,16 @@ export class KrxMarketDataScheduler {
     totalSkipped: number;
     message?: string;
   }> {
-    return this.catchUpDailyPrices('CRON');
+    // DAR-428: 캐치업 본체(MarketDataCollectionLog 기록)는 그대로 두고, cron 실행 헬스를
+    //   CronRunLog(market.daily-collect)에 추가로 남긴다 — EOD 일봉 크론이 조용히 멈춘
+    //   (일봉 6/18 정체) 사건을 신선도 안전망(cron-health)에 분봉과 동일하게 표면화하기 위함.
+    //   recorder 미주입 시 기존 거동(직접 호출) 보존. 락 조기반환은 SKIPPED 로 기록.
+    const run = () => this.catchUpDailyPrices('CRON');
+    if (!this.cronRunRecorder) return run();
+    return this.cronRunRecorder.record(CRON_JOB_KEYS.DAILY_PRICE_COLLECT, run, {
+      countOf: (r) => r.totalSaved,
+      isSkipped: (r) => r.message === '이전 작업 진행 중',
+    });
   }
 
   /**

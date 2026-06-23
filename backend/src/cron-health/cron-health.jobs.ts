@@ -23,6 +23,11 @@ export const CRON_JOB_KEYS = {
   INTRADAY_EXIT_MONITOR: 'paper.intraday-exit',
   // DAR-377: 분봉 수집 — KIS 당일 분봉을 StockMinutePrice 에 forward 축적(장중 공시반응 분석 기반).
   MINUTE_PRICE_COLLECT: 'market.minute-collect',
+  // DAR-428: 일봉 전진수집 — 평일 EOD(18:30) KRX 일봉 캐치업의 cron 실행 헬스를 CronRunLog 에
+  //   first-class 로 남긴다(분봉과 대칭). 도메인 MarketDataCollectionLog 는 '무엇을 적재했나'를,
+  //   이 키는 '크론이 살아 돌았나'를 본다 — 이 둘이 분리돼 있어야 EOD 크론이 조용히 멈춘
+  //   (일봉 6/18 정체) 사건이 신선도 안전망에 표면화된다.
+  DAILY_PRICE_COLLECT: 'market.daily-collect',
   // DAR-379: AI 평가 백필 드레인 — 과거 미분석 공시를 비용게이트 내 점진 드레인(평가자료 코퍼스 적재).
   AI_BACKFILL_DRAIN: 'ai.backfill-drain',
   // DAR-391: 이벤트 추출 백필 드레인 — 과거 백필 공시를 rcpDt 시간순 추출/파싱등록(신호·백테스트 연중화 게이트).
@@ -182,6 +187,18 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'WEEKDAY_INTRADAY',
     staleAfterMinutes: 180, // 3시간 — 장 마감(15:30)~윈도 끝 공백 흡수
     cadence: '평일 09:00~15:30 / 10분 간격',
+  },
+  {
+    // DAR-428: 일봉 전진수집 EOD 크론. 평일 18:30 가동(KRX 일봉 캐치업). 장 마감 후 발행~익일
+    //   가동까지의 공백 + 주말(금 성공→월 평가 ≈72h)을 흡수하도록 임계를 넉넉히(72h). 키
+    //   미설정(KRX 미구성) 환경에선 본 작업이 graceful no-op 이라 CronRunLog 에 SUCCESS(적재 0)
+    //   를 남겨 '크론은 살아 있음'이 유지된다 — 가동 자체가 멈춰야만 stale 로 표면화한다.
+    jobKey: CRON_JOB_KEYS.DAILY_PRICE_COLLECT,
+    label: '일봉 전진수집(EOD)',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 18:30, 주말 공백 흡수
+    cadence: '평일 18:30 EOD',
   },
   {
     // DAR-379: AI 평가 백필 드레인. 가동이 멈추면 과거 미분석 공시 적체가 영구화되어

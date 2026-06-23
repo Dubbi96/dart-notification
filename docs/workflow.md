@@ -750,16 +750,31 @@ datasource db {
 ### 5.1 EOD 일봉 캐치업 수집 (평일 18:30, DAR-375)
 
 ```
-KrxMarketDataScheduler.collectDailyPrices() → catchUpDailyPrices()
-  ├─ target = resolveLatestAvailableTradeDate()  // ★KRX 프로브로 실제 최신 가용일 산출
-  ├─ lastLoaded = StockDailyPrice 최신 tradeDate
-  ├─ dates = (lastLoaded, target] 평일 갭 전체  // 단일일이 아니라 누락분 전부
-  ├─ MarketDataCollectionLog(RUNNING) 기록
-  └─ for each basDd in dates:
-       collectDailyPricesBulkForDate(basDd)  // createMany skipDuplicates(멱등)
-         └─ KRX fetchStockDaily/fetchKosqdaqDaily → rowsFetched=0 면 휴장일 스킵(emptyDates)
-     → MarketDataCollectionLog(SUCCESS, savedCount)
+@Cron('30 18 * * 1-5')  KrxMarketDataScheduler.collectDailyPrices()
+  └─ CronRunRecorder.record(DAILY_PRICE_COLLECT='market.daily-collect')  // ★DAR-428 헬스 래핑
+       → catchUpDailyPrices()
+            ├─ target = resolveLatestAvailableTradeDate()  // ★KRX 프로브로 실제 최신 가용일 산출
+            ├─ lastLoaded = StockDailyPrice 최신 tradeDate
+            ├─ dates = (lastLoaded, target] 평일 갭 전체  // 단일일이 아니라 누락분 전부
+            ├─ MarketDataCollectionLog(RUNNING) 기록
+            └─ for each basDd in dates:
+                 collectDailyPricesBulkForDate(basDd)  // createMany skipDuplicates(멱등)
+                   └─ KRX fetchStockDaily/fetchKosqdaqDaily → rowsFetched=0 면 휴장일 스킵(emptyDates)
+               → MarketDataCollectionLog(SUCCESS, savedCount)
+       → CronRunLog(market.daily-collect, SUCCESS, itemCount=totalSaved)  // 락 조기반환만 SKIPPED
 ```
+
+> **DAR-428 — EOD 일봉 크론이 조용히 멈춘 정체를 안전망에 표면화.** 일봉 전진수집 cron 은
+> DAR-8 이래 존재하나(`@Cron 30 18`), 그 헬스는 `MarketDataCollectionLog`(= '무엇을 적재했나')
+> 에만 남고 `CronRunLog`(= '크론이 살아 돌았나')엔 없어, 분봉(`market.minute-collect`)과 달리
+> cron-health 의 CronRunLog 기반 잡 목록에 부재했다. 그 결과 EOD 일봉 cron 이 가동을 멈춰
+> **일봉이 6/18 에 정체**(분봉/단타는 KIS 로 6/23 진행)돼도 표면 신호가 약했다. 처방: `collectDailyPrices`
+> 를 `CronRunRecorder(DAILY_PRICE_COLLECT='market.daily-collect')` 로 감싸 분봉과 대칭으로
+> cron 실행 헬스를 남기고, `FRESHNESS_JOB_SPECS` 에 동일 키(EOD·72h 임계)를 추가해 가동 중단을
+> stale 로 표면화한다. 캐치업 본문·MarketDataCollectionLog 는 무변경(이중 기록 = 데이터 신선도 +
+> cron 생존 분리 관측). 실측(2026-06-23 라이브): before daily_max=6/18 → catchUp filled=[6/19,6/22]
+> saved=5065 → after daily_max=**6/22**(최신 완료 거래일·6/23 미게시는 제외) → CronRunLog
+> market.daily-collect SUCCESS itemCount=5065.
 
 > **DAR-375 근본 버그 — 최신일이 6/5 에 영원히 정체.** 과거 `resolveLatestAvailableTradeDate`
 > 는 "최신 가용일"을 **StockDailyPrice 최신 tradeDate**(= 마지막으로 적재한 날)로 해석했다.

@@ -43,4 +43,10 @@ export class UpdateNotificationSettingsDto {
   @IsBoolean()
   @IsOptional()
   thesisPushEnabled?: boolean;
+
+  // DAR-424: 라이브 페이퍼 체결 알림 토글(기본 ON). OFF면 인박스·푸시 모두 생략.
+  @ApiProperty({ example: true, required: false, description: '매수/매도 체결 알림(기본 ON)' })
+  @IsBoolean()
+  @IsOptional()
+  tradePushEnabled?: boolean;
 }

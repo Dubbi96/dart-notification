@@ -39,6 +39,9 @@ const NOTIFICATION_TYPE_META: Record<NotificationType, TypeMeta> = {
   SIGNAL: { icon: 'trending-up-outline', colorKey: 'success', label: '신호' },
   EXIT: { icon: 'log-out-outline', colorKey: 'warning', label: '청산' },
   THESIS_VIOLATED: { icon: 'alert-circle-outline', colorKey: 'error', label: '논리훼손' },
+  // DAR-424: 라이브 페이퍼 체결 — 매수(녹색 매수 진입)·매도(주황 청산 확정).
+  TRADE_ENTRY: { icon: 'arrow-down-circle-outline', colorKey: 'success', label: '매수 체결' },
+  TRADE_EXIT: { icon: 'arrow-up-circle-outline', colorKey: 'warning', label: '매도 체결' },
 };
 const getTypeMeta = (type: NotificationType): TypeMeta =>
   NOTIFICATION_TYPE_META[type] ?? NOTIFICATION_TYPE_META.DISCLOSURE;

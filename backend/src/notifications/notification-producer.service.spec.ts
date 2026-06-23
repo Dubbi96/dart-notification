@@ -44,6 +44,35 @@ describe('NotificationProducerService (DAR-85)', () => {
     expect(queue.add.mock.calls[1][0]).toBe(NOTIFY_JOB.THESIS_VIOLATED);
   });
 
+  it('DAR-424: enqueueTradeEntry/Exit → TRADE_ENTRY/TRADE_EXIT 잡·kind 강제·자연키 jobId', async () => {
+    const queue = makeQueue();
+    const svc = new NotificationProducerService(queue as any);
+    const base = {
+      refId: 'trade-1',
+      strategyKey: 'intraday-scalp',
+      strategyLabel: '분봉 단타',
+      corpCode: 'c1',
+      stockCode: '005930',
+      corpName: '삼성전자',
+      price: 105000,
+      shares: 10,
+      cash: 9_500_000,
+      totalValue: 10_200_000,
+      deepLink: '/portfolio/strategy/intraday-scalp',
+    };
+    // kind 는 producer 가 강제(호출자가 잘못 넣어도 보정).
+    await svc.enqueueTradeEntry({ ...base, kind: 'EXIT' } as any);
+    await svc.enqueueTradeExit({ ...base, kind: 'ENTRY', pnlPct: 2.1, exitReason: 'TAKE_PROFIT' } as any);
+
+    expect(queue.add.mock.calls[0][0]).toBe(NOTIFY_JOB.TRADE_ENTRY);
+    expect(queue.add.mock.calls[0][1]).toMatchObject({ kind: 'ENTRY', refId: 'trade-1' });
+    expect(queue.add.mock.calls[0][2].jobId).toBe('trade-entry-trade-1');
+
+    expect(queue.add.mock.calls[1][0]).toBe(NOTIFY_JOB.TRADE_EXIT);
+    expect(queue.add.mock.calls[1][1]).toMatchObject({ kind: 'EXIT', pnlPct: 2.1 });
+    expect(queue.add.mock.calls[1][2].jobId).toBe('trade-exit-trade-1');
+  });
+
   it('큐 미설정(null)이어도 enqueue 는 throw 하지 않는다(graceful no-op)', async () => {
     const svc = new NotificationProducerService(null as any);
     await expect(svc.enqueueSignal({ signalId: 's1', corpCode: 'c1' })).resolves.toBeUndefined();

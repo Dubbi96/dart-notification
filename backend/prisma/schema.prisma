@@ -168,6 +168,10 @@ model NotificationSettings {
   exitPushEnabled   Boolean @default(false) // 청산 권고(EXIT) 푸시
   thesisPushEnabled Boolean @default(false) // 투자논리 훼손(THESIS_VIOLATED) 푸시
 
+  // DAR-424: 라이브 페이퍼 체결 알림(TRADE_ENTRY/TRADE_EXIT) 토글. ★기본 ON(체결 통지 기본 수신).
+  //   OFF면 인박스 기록·푸시 모두 생략(과알림 방지). 설정행 미존재 시에도 기본 ON으로 간주한다.
+  tradePushEnabled Boolean @default(true) // 매수/매도 체결(TRADE_ENTRY/TRADE_EXIT) 알림
+
   updatedAt       DateTime @updatedAt
 
   // Relations
@@ -250,6 +254,8 @@ enum NotificationType {
   SIGNAL // 매매 신호 (engine3/6)
   EXIT // 청산 신호 (engine4)
   THESIS_VIOLATED // 투자논리 훼손 (engine4)
+  TRADE_ENTRY // DAR-424: 라이브 페이퍼 매수 체결(분봉 단타·시스템 모의)
+  TRADE_EXIT // DAR-424: 라이브 페이퍼 매도 체결(손익% 포함)
 }
 
 model NotificationHistory {

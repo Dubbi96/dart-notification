@@ -23,6 +23,7 @@ export function useUpdateNotificationSettings() {
           | 'signalPushEnabled'
           | 'exitPushEnabled'
           | 'thesisPushEnabled'
+          | 'tradePushEnabled'
         >
       >,
     ) => notificationSettingsService.update(settings),

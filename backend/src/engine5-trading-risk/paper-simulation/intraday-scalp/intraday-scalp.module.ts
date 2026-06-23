@@ -9,12 +9,14 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../../prisma/prisma.module';
 import { MarketDataModule } from '../../../engine3-quant-market/market-data/market-data.module';
+import { NotificationProducerModule } from '../../../notifications/notification-producer.module';
 import { IntradayScalpService } from './intraday-scalp.service';
 import { IntradayScalpController } from './intraday-scalp.controller';
 import { IntradayScalpScheduler } from './intraday-scalp.scheduler';
 
 @Module({
-  imports: [PrismaModule, MarketDataModule],
+  // DAR-424: NotificationProducerModule — 체결 알림(TRADE_ENTRY/TRADE_EXIT) 발행.
+  imports: [PrismaModule, MarketDataModule, NotificationProducerModule],
   controllers: [IntradayScalpController],
   providers: [IntradayScalpService, IntradayScalpScheduler],
   exports: [IntradayScalpService],

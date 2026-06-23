@@ -19,6 +19,7 @@ import { formatKstDateCompact, isKstRegularMarketHours } from '../../common/time
 import { KisApiService } from '../../engine3-quant-market/market-data/kis-api.service';
 import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realtime-quote.cache';
 import { PaperTradeService } from '../services/paper-trade.service';
+import { DEFAULT_FILL_PARAMS } from '../domain/fill-simulator';
 import { NotificationProducerService } from '../../notifications/notification-producer.service';
 import { PrismaExitSignalRepository } from '../../engine4-portfolio-exit/repositories/prisma-exit-signal.repository';
 import { calculateExitScore } from '../../engine4-portfolio-exit/domain/exit-score.calculator';
@@ -638,6 +639,28 @@ export class PaperSimulationService {
     if (available <= 0) return 0;
     const openCorpCodes = openPositions.map((p) => p.corpCode);
 
+    // DAR-426(★핵심): 가용현금 가드 준비 — 사이징(가상원금×비율) 만으로는
+    //   MAX_HOLDINGS(50) × 종목당 비율(maxSinglePositionPct 10% × 등급계수)의 합이 100%
+    //   자본을 초과해 현금이 음수가 된다(실측 -11M). 현 가용현금을 산정하고 진입마다 차감해,
+    //   매수 예산을 절대 가용현금 이내로 묶는다(cash ≥ 0 불변식 — 페이퍼심 정합성의 하드룰).
+    //   현금 정의(SSOT, computeMetrics/computeSimSnapshot 와 동일):
+    //     cash = 초기자본 + 실현손익(CLOSED net) − 보유 진입원가(OPEN entryAmount)
+    //   진입 직후 currentValue=entryAmount·미실현 0 이므로, 신규 진입원가 차감분이 곧 현금 감소분.
+    const closedForCash = await this.prisma.position.findMany({
+      where: { portfolioId: pf.id, status: 'CLOSED' },
+      select: { unrealizedPnl: true },
+    });
+    const realizedNetPnl = closedForCash.reduce(
+      (s, p) => s + (p.unrealizedPnl ?? 0),
+      0,
+    );
+    const investedPrincipal = openPositions.reduce(
+      (s, p) => s + (p.entryAmount ?? 0),
+      0,
+    );
+    let availableCash =
+      PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl - investedPrincipal;
+
     // DAR-362: 후보 pool 확대 — entryReady=true 만으로는 BUY 희소 시 pool이 인위적으로 협소.
     //   ① entryReady WATCH+ 후보를 우선 채우고(진입품질 우선),
     //   ② 슬롯이 남으면 entryReady 아니어도 buyScore≥ENTRY_FALLBACK_MIN_BUY_SCORE 인 상위
@@ -722,6 +745,9 @@ export class PaperSimulationService {
 
     let opened = 0;
     for (const sig of candidates) {
+      // DAR-426: 현금 소진 시 추가 매수 중단(현금<0 절대 금지). 후보는 buyScore desc 정렬이라
+      //   남은 현금으로 가장 확신 높은 종목부터 채운다.
+      if (availableCash <= 0) break;
       // DAR-122: 같은 종목 재진입 방지(동일 사이클 내 중복 0).
       if (openedCorpCodes.has(sig.corpCode)) continue;
       const price = await this.latestClose(sig.corpCode, tradeDate);
@@ -743,7 +769,13 @@ export class PaperSimulationService {
         );
         budget = Math.min(budget, headroom);
       }
-      const shares = Math.floor(budget / price);
+      // DAR-426(★핵심): 가용현금 가드 — 예산을 남은 현금 이내로 묶는다.
+      budget = Math.min(budget, availableCash);
+      if (budget <= 0) continue;
+      // 체결가는 슬리피지가 더해진다(BUY = price×(1+slippage)). 진입원가가 예산을 넘지 않도록
+      //   슬리피지 반영가로 수량을 산정한다 → 진입원가(=체결가×수량) ≤ budget ≤ availableCash 보장.
+      const effPrice = price * (1 + DEFAULT_FILL_PARAMS.slippagePct);
+      const shares = Math.floor(budget / effPrice);
       if (shares <= 0) continue;
 
       const thesis = await this.prisma.positionThesis.findUnique({
@@ -805,6 +837,9 @@ export class PaperSimulationService {
         throw err;
       }
       openedCorpCodes.add(sig.corpCode);
+      // DAR-426: 진입원가(=체결가×체결수량, Position.entryAmount 와 동일)만큼 가용현금 차감.
+      //   슬리피지 반영가로 산정했으므로 차감분 ≤ budget ≤ 직전 availableCash → 현금 음수 불가.
+      availableCash -= fillPrice * trade.filledShares;
       // DAR-362: 이번 사이클에 담은 가치를 섹터 노출에 누적(다음 후보의 섹터 가드에 반영).
       if (sector) {
         sectorValue.set(

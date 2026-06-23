@@ -487,6 +487,19 @@ export class IntradayScalpService {
     const { realized, count } = await this.todayRealizedAndCount(tradeDate);
     const budget = SCALP_INITIAL_CAPITAL * PER_POSITION_BUDGET_PCT;
 
+    // DAR-426: 가용현금 가드(방어선) — 단타는 MAX_OPEN_POSITIONS(5)×PER_POSITION_BUDGET_PCT(3%)
+    //   =15% < 100% 라 구조적으로 음수 현금이 불가능하지만, 시스템모의와 동일한 현금 불변식
+    //   (cash = 초기자본 + 실현손익 − 보유 진입원가 ≥ 0)을 명시적으로 enforce 한다.
+    const allTrades = await this.prisma.intradayScalpTrade.findMany({
+      where: { styleTag: INTRADAY_SCALP_STYLE_TAG },
+      select: { status: true, netPnl: true, entryPrice: true, shares: true },
+    });
+    let availableCash = SCALP_INITIAL_CAPITAL;
+    for (const t of allTrades) {
+      if (t.status === 'CLOSED') availableCash += toNum(t.netPnl);
+      else availableCash -= toNum(t.entryPrice) * t.shares;
+    }
+
     let entered = 0;
     let scannedStocks = 0;
     for (const cand of universe) {
@@ -509,7 +522,11 @@ export class IntradayScalpService {
 
       const decision = scan.decision;
       const price = scan.candle.close; // 충족봉 종가(체결 기준가) — currentPrice 와 동일, non-null
-      const shares = Math.floor(budget / price);
+      // DAR-426: 현금 소진 시 추가 진입 중단(현금<0 절대 금지).
+      if (availableCash <= 0) break;
+      // 슬리피지 반영가로 수량 산정 → 진입원가(=체결가×수량) ≤ 가용현금 보장.
+      const effPrice = price * (1 + DEFAULT_FILL_PARAMS.slippagePct);
+      const shares = Math.floor(Math.min(budget, availableCash) / effPrice);
       if (shares <= 0) continue;
 
       // engine5 Risk 하드룰(순수 Rule) — 위반 시 진입 거부(veto).
@@ -562,6 +579,8 @@ export class IntradayScalpService {
         select: { id: true },
       });
       entered += 1;
+      // DAR-426: 진입원가만큼 가용현금 차감(슬리피지 반영가 산정 → 현금 음수 불가).
+      availableCash -= fill.filledPrice * fill.filledShares;
       enteredTodayStocks.add(cand.stockCode); // 같은 사이클 내 재진입 방지
       this.logger.log(
         `[Scalp] 진입 ${cand.stockCode} ${fill.filledShares}주 @${fill.filledPrice} ` +

@@ -200,6 +200,36 @@ describe('IntradayScalpService — 1사이클', () => {
     expect(mock.trades).toHaveLength(0);
   });
 
+  it('DAR-426 현금 가드: 가용현금이 음수면(기보유 진입원가>자본) 충족 종목도 진입 0', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': triggerCandles(105, 106, 300) }, // 3조건 충족
+    });
+    // 기보유 OPEN(다른 종목)이 자본(1천만)을 초과하는 진입원가를 점유 → 가용현금<0.
+    mock.trades.push({
+      id: 'seed',
+      corpCode: 'CX',
+      stockCode: '999999',
+      tradeDate: '20260101',
+      entryTs: kstMonday('0930'),
+      entryPrice: 60_000,
+      shares: 200, // 진입원가 12,000,000 > 자본 10,000,000
+      entryReason: 'SEED',
+      commission: 0,
+      tax: 0,
+      slippage: 0,
+      status: 'OPEN',
+      styleTag: INTRADAY_SCALP_STYLE_TAG,
+    } as ScalpRow);
+
+    const svc = new IntradayScalpService(mock.prisma);
+    const r = await svc.runEntryCycle(kstMonday('1000'));
+    // 충족 종목이 있어도 현금 소진 → 신규 진입 0(현금 음수 절대 금지).
+    expect(r.entered).toBe(0);
+    expect(mock.trades.filter((t) => t.status === 'OPEN' && t.corpCode === 'C1')).toHaveLength(0);
+  });
+
   it('진입 후 익절(+2%) 청산 — CLOSED·netPnl·returnPct 기록', async () => {
     const mock = buildPrismaMock({
       universe: [{ stockCode: '000001', corpCode: 'C1' }],

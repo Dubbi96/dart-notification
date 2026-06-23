@@ -751,6 +751,151 @@ eas submit --platform android
 
 ---
 
+### 3.6 무료클라우드 배포 — Oracle Cloud Always Free (ARM64) · docker-compose.prod (DAR-427)
+
+비용 0원으로 백엔드 + Postgres(TimescaleDB) + Redis 를 **단일 VM 에 24/7** 구동하는 절차다.
+Oracle Cloud 의 **Always Free** 등급은 Ampere A1(ARM64) VM 을 영구 무료로 제공한다(최대 4 OCPU /
+24GB RAM). 본 저장소의 `docker-compose.prod.yml` · `backend/.env.prod.example` 로 바로 띄운다.
+
+> 사용 자산: `docker-compose.prod.yml`(repo 루트) · `backend/.env.prod.example`.
+> 외부로 여는 포트는 backend `3000` 하나뿐(Postgres·Redis 는 컨테이너 내부 통신만 — 공격면 최소화).
+> 시각/시간대는 backend 이미지에 `TZ=Asia/Seoul`(KST) 고정.
+
+#### ① Oracle Cloud 계정 생성
+
+1. <https://www.oracle.com/cloud/free/> 에서 가입(신용카드 본인확인 필요, **Always Free 자원은 과금 안 됨**).
+2. 홈 리전(예: `Asia Pacific (Seoul)` / `ap-seoul-1` 또는 `Chuncheon`)을 선택한다.
+
+#### ② Always Free ARM VM(Ampere A1 · Ubuntu) 생성
+
+1. 콘솔 → **Compute → Instances → Create instance**.
+2. **Image**: Ubuntu 22.04(LTS). **Shape**: `VM.Standard.A1.Flex`(Ampere, ARM64) — Always Free 한도 내
+   예: **2 OCPU / 12GB RAM**(여유 있으면 4 OCPU / 24GB).
+3. **SSH 키**: 로컬 공개키 업로드(또는 콘솔 생성 키 다운로드).
+4. 생성 후 인스턴스의 **공인 IP(Public IP)** 를 기록한다.
+
+> A1 용량이 가끔 "Out of capacity" 면 다른 가용 도메인(AD)·리전으로 재시도하거나 잠시 후 재시도.
+
+#### ③ Docker / Docker Compose 설치 (VM 접속 후)
+
+```bash
+# 로컬에서 SSH 접속 (Ubuntu 기본 사용자 ubuntu)
+ssh ubuntu@<공인IP>
+
+# Docker Engine + compose plugin 설치 (공식 편의 스크립트)
+curl -fsSL https://get.docker.com | sudo sh
+
+# 현재 사용자를 docker 그룹에 추가 (sudo 없이 docker 사용) → 재로그인 필요
+sudo usermod -aG docker $USER
+exit
+ssh ubuntu@<공인IP>
+
+# 설치 확인 (arm64 / docker compose v2)
+docker version
+docker compose version
+uname -m   # aarch64 → ARM64 확인
+```
+
+#### ④ 저장소 클론
+
+```bash
+sudo apt-get update && sudo apt-get install -y git
+git clone https://github.com/your-org/dart-notification.git
+cd dart-notification
+```
+
+#### ⑤ 운영 환경변수(.env.prod) 작성
+
+```bash
+# 템플릿 복사 후 실제 시크릿으로 채운다 (발급처는 파일 내 주석 참조)
+cp backend/.env.prod.example backend/.env.prod
+
+# 강한 시크릿 생성 예시
+openssl rand -base64 48   # JWT_SECRET / JWT_REFRESH_SECRET / DB·Redis 비밀번호용
+
+nano backend/.env.prod
+```
+
+채워야 하는 핵심 값:
+
+- `POSTGRES_PASSWORD` 와 `DATABASE_URL` 의 비밀번호를 **동일하게** 맞춘다(불일치 시 DB 인증 실패).
+- `JWT_SECRET` / `JWT_REFRESH_SECRET`(각 최소 16자), `DART_API_KEY`, `LLM_API_KEY`,
+  `KAKAO_REST_API_KEY` 는 **부팅 필수**(누락 시 backend 가 부팅 단계에서 fail-fast).
+- `REDIS_PASSWORD`(권장), `CORS_ALLOWED_ORIGINS`(운영 화이트리스트), `API_BASE_URL`(공인 IP/도메인).
+- S3 오프로드 사용 시 `STORAGE_DRIVER=s3` + `AWS_REGION`/`S3_BUCKET`(+자격증명).
+
+> `backend/.env.prod` 는 `.gitignore` 로 커밋되지 않는다(저장소에는 `.env.prod.example` 만 존재).
+
+#### ⑥ 컨테이너 기동 (docker compose up -d)
+
+```bash
+# 이미지 빌드(arm64 호스트에서 backend 로컬 빌드) + 백그라운드 기동
+docker compose -f docker-compose.prod.yml up -d --build
+
+# 상태 확인 (postgres·redis 가 healthy 된 뒤 backend 가 뜬다)
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml logs -f backend
+```
+
+#### ⑦ DB 스키마 반영 (prisma migrate deploy — 1회성, 운영 안전 분리)
+
+자동 마이그레이션은 운영 안전을 위해 기동 경로에서 분리했다. **명시적으로 1회** 실행한다(스키마 변경 시 반복):
+
+```bash
+docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate
+# → npx prisma migrate deploy 가 postgres(healthy) 에 대해 실행되고 컨테이너는 종료/삭제(--rm).
+```
+
+> ★TimescaleDB 확장: 본 compose 의 postgres 는 `shared_preload_libraries=timescaledb` 로 기동하므로
+> `CREATE EXTENSION timescaledb` 마이그레이션이 그대로 성공한다(별도 조치 불요 · 위 1.4 DAR-382 절 참조).
+
+#### ⑧ 방화벽 / 보안 목록에서 3000 포트 개방
+
+Oracle 은 **두 겹**의 방화벽이 있다 — 둘 다 열어야 외부 접속이 된다.
+
+1. **VCN Security List(또는 NSG) — 콘솔**: 인스턴스의 VCN → Security Lists → Default →
+   **Ingress Rule 추가**: Source `0.0.0.0/0`, IP Protocol `TCP`, Destination Port `3000`.
+2. **VM 내부 OS 방화벽**: Ubuntu(Oracle 이미지)는 iptables 에 기본 차단 규칙이 있다.
+
+```bash
+# Ubuntu(Oracle 이미지) — netfilter-persistent 로 3000 인바운드 허용 후 영구 저장
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 3000 -j ACCEPT
+sudo netfilter-persistent save
+```
+
+> (선택·권장) 외부에 80/443 만 노출하고 backend 3000 은 내부로 두려면 nginx + Let's Encrypt 역프록시를
+> 앞단에 둔다. 위 2.2 staging compose 의 nginx 패턴 참고. 최소 구성은 3000 직노출로 충분하다.
+
+#### ⑨ 헬스체크 (배포 검증)
+
+```bash
+# VM 내부
+curl -i http://localhost:3000/health
+# → 200 OK (글로벌 prefix 제외 경로. liveness 는 /health/live)
+
+# 로컬 PC / 모바일 — 공인 IP 로
+curl -i http://<공인IP>:3000/health
+
+# 컨테이너 헬스 상태(모두 healthy 여야 정상)
+docker compose -f docker-compose.prod.yml ps
+```
+
+이후 모바일 앱의 `EXPO_PUBLIC_API_URL` 을 `http://<공인IP>:3000/api`(또는 도메인/HTTPS)로 가리키면 된다.
+
+#### 운영 명령 모음
+
+```bash
+docker compose -f docker-compose.prod.yml up -d            # 기동(+--build 로 재빌드)
+docker compose -f docker-compose.prod.yml down             # 정지(볼륨 postgres_data/redis_data 유지)
+docker compose -f docker-compose.prod.yml logs -f backend  # 로그 추적
+git pull && docker compose -f docker-compose.prod.yml up -d --build  # 코드 갱신 후 재배포
+docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate  # 스키마 재반영
+```
+
+> **실제 배포·시크릿 발급/입력은 사용자 몫**이다. 본 절은 복붙 가능한 절차/자산을 제공한다.
+
+---
+
 ## 4. 모니터링 및 로깅
 
 ### 4.1 백엔드 모니터링 (향후)

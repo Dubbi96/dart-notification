@@ -24,6 +24,9 @@ out/
 .env.development
 .env.staging
 .env.production
+.env.prod
+# DAR-427: 운영 env 는 커밋 금지. 템플릿(.env.prod.example)만 커밋한다.
+!.env.prod.example
 
 # OS
 .DS_Store

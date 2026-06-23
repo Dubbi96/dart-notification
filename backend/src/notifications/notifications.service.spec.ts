@@ -1,4 +1,4 @@
-import { NotificationType } from '@prisma/client';
+import { NotificationType, Prisma } from '@prisma/client';
 import { NotificationsService } from './notifications.service';
 
 /**
@@ -99,6 +99,72 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
       expect(created).toBe(false);
       expect(notification).toBe(existing);
       expect(prisma.notificationHistory.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── DAR-425: 경합(TOCTOU) 멱등 — 동일 (userId,type,refId) 다중 호출/동시 생성 → 정확히 1행 ─
+  // 증상이었던 '체결 1건당 알림 x4' 는 실측상 4명 실사용자 브로드캐스트(refId당 사용자별 1건,
+  // (userId,type,refId) 중복 0)였다. 진짜 중복은 check-then-act 경합 시에만 가능하므로, 그
+  // 경합 경로(P2002)를 멱등 성공으로 흡수함을 회귀 고정한다.
+  describe('createNotificationIfAbsent — DAR-425 경합 멱등(P2002 흡수)', () => {
+    const p2002 = () =>
+      new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: 'test',
+        meta: { target: ['userId', 'type', 'refId'] },
+      });
+
+    it('동시 생성 경합: findUnique=null 이지만 create 가 P2002 → 승자 행 재조회·created=false (중복 0)', async () => {
+      const { service, prisma } = buildService();
+      const winner = { id: 'winner-1', userId: 'u1', type: NotificationType.TRADE_ENTRY, refId: 'trade-1' };
+      // 1차 findUnique: 아직 없음(둘 다 통과) → create 시도 → 경합 패배(P2002)
+      prisma.notificationHistory.findUnique
+        .mockResolvedValueOnce(null) // 진입 가드
+        .mockResolvedValueOnce(winner); // P2002 후 승자 재조회
+      prisma.notificationHistory.create.mockRejectedValueOnce(p2002());
+
+      const { notification, created } = await service.createNotificationIfAbsent({
+        userId: 'u1',
+        type: NotificationType.TRADE_ENTRY,
+        refId: 'trade-1',
+      });
+
+      expect(created).toBe(false); // 멱등: 푸시 재발송 안 함
+      expect(notification).toBe(winner);
+      expect(prisma.notificationHistory.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('동일 refId 를 순차 2회 호출(잡 재시도 등) → 두번째는 created=false (refId당 1행)', async () => {
+      const { service, prisma } = buildService();
+      const row = { id: 'r1', userId: 'u1', type: NotificationType.TRADE_EXIT, refId: 'trade-2' };
+      // 1회차: 없음 → 생성. 2회차: 존재 → 멱등 스킵.
+      prisma.notificationHistory.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(row);
+      prisma.notificationHistory.create.mockResolvedValueOnce(row);
+
+      const first = await service.createNotificationIfAbsent({
+        userId: 'u1', type: NotificationType.TRADE_EXIT, refId: 'trade-2',
+      });
+      const second = await service.createNotificationIfAbsent({
+        userId: 'u1', type: NotificationType.TRADE_EXIT, refId: 'trade-2',
+      });
+
+      expect(first.created).toBe(true);
+      expect(second.created).toBe(false);
+      expect(prisma.notificationHistory.create).toHaveBeenCalledTimes(1); // 1행만
+    });
+
+    it('P2002 가 아닌 오류는 흡수하지 않고 그대로 전파(데이터 손상 은폐 금지)', async () => {
+      const { service, prisma } = buildService();
+      prisma.notificationHistory.findUnique.mockResolvedValueOnce(null);
+      prisma.notificationHistory.create.mockRejectedValueOnce(new Error('DB down'));
+
+      await expect(
+        service.createNotificationIfAbsent({
+          userId: 'u1', type: NotificationType.SIGNAL, refId: 'sig-x',
+        }),
+      ).rejects.toThrow('DB down');
     });
   });
 

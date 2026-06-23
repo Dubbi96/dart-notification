@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { NotificationType, NotificationHistory } from '@prisma/client';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { NotificationType, NotificationHistory, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueryNotificationDto } from './dto/query-notification.dto';
 
@@ -21,6 +21,8 @@ export interface CreateNotificationInput {
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -39,6 +41,13 @@ export class NotificationsService {
    * 동일 (userId,type,refId) 가 이미 있으면 created=false → 호출측(NotifyConsumer)이
    * 푸시 재발송을 건너뛴다. BullMQ 잡 재시도(attempts:3)가 부분 실패 후 재실행돼도
    * 이미 통지된 사용자에게 **중복 푸시가 가지 않도록** 보장한다(인박스 중복 0 + 푸시 중복 0).
+   *
+   * DAR-425: 위 findUnique→create 는 check-then-act 라 동시 잡(브로드캐스트 사이클 겹침·
+   * 잡 동시 처리)에서 둘 다 exists=null 을 본 뒤 둘 다 create 를 시도할 수 있다(TOCTOU).
+   * @@unique([userId, type, refId]) DB 제약이 이를 막지만, 진 쪽 create 는 P2002 로 throw 되어
+   * 잡이 불필요하게 실패·재시도된다. 여기서 P2002 를 **멱등 성공**으로 흡수해 기존 행을 재조회·
+   * created=false 로 반환한다(=upsert/skipDuplicates 등가). 이로써 동일 (userId,type,refId) 는
+   * 경합 하에서도 정확히 1 행만 남는다(중복 인박스 0 보장이 check-then-act → 원자 등가로 강화).
    */
   async createNotificationIfAbsent(
     input: CreateNotificationInput,
@@ -50,19 +59,38 @@ export class NotificationsService {
     });
     if (exists) return { notification: exists, created: false };
 
-    const notification = await this.prisma.notificationHistory.create({
-      data: {
-        userId,
-        type,
-        refId,
-        title: title ?? null,
-        body: body ?? null,
-        deepLink: deepLink ?? null,
-        disclosureRcpNo:
-          type === NotificationType.DISCLOSURE ? (disclosureRcpNo ?? refId) : null,
-      },
-    });
-    return { notification, created: true };
+    try {
+      const notification = await this.prisma.notificationHistory.create({
+        data: {
+          userId,
+          type,
+          refId,
+          title: title ?? null,
+          body: body ?? null,
+          deepLink: deepLink ?? null,
+          disclosureRcpNo:
+            type === NotificationType.DISCLOSURE ? (disclosureRcpNo ?? refId) : null,
+        },
+      });
+      return { notification, created: true };
+    } catch (err) {
+      // DAR-425: 경합 패자의 unique 위반(P2002) 은 '이미 누가 통지함' 과 동치 → 멱등 성공.
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const winner = await this.prisma.notificationHistory.findUnique({
+          where: { userId_type_refId: { userId, type, refId } },
+        });
+        if (winner) {
+          this.logger.debug(
+            `[NOTIFY] 동시 생성 경합(P2002) 멱등 흡수: user=${userId} type=${type} ref=${refId}`,
+          );
+          return { notification: winner, created: false };
+        }
+      }
+      throw err;
+    }
   }
 
   /**

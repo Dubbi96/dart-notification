@@ -99,8 +99,11 @@ export default function HomeScreen() {
     });
   }, [data]);
 
-  // DAR-420: '오늘의 공시'는 전체 누적(meta.total=137만)이 아니라 최신 가용 공시일 건수.
+  // DAR-420: 전체 누적(meta.total=137만)이 아니라 최신 가용 공시일 건수.
   //   별도 today-count 쿼리로 분리(피드 무한쿼리의 total과 무관).
+  // DAR-422: 라벨을 '오늘의 공시'→'최신 공시'로 변경. DART 데이터 최신일(예: 06/19)이
+  //   달력 today(예: 06/23)보다 뒤처질 수 있어 '오늘' 표현이 오해를 유발했음. '최신'은
+  //   데이터 소스 지연을 자연스럽게 전달하고, 옆 날짜칩(MM/DD)이 기준일을 명시한다.
   const {
     data: todayCountData,
     isLoading: todayCountLoading,
@@ -358,13 +361,13 @@ export default function HomeScreen() {
               accessibilityRole="button"
               accessibilityLabel={
                 todayCountLoading || todayCountError
-                  ? '오늘의 공시 집계 불러오는 중, 공시 목록 열기'
-                  : `오늘의 공시${todayDateLabel ? ` ${todayDateLabel} 기준` : ''} ${todayCount}건, 공시 목록 열기`
+                  ? '최신 공시 집계 불러오는 중, 공시 목록 열기'
+                  : `최신 공시${todayDateLabel ? ` ${todayDateLabel} 기준` : ''} ${todayCount}건, 공시 목록 열기`
               }
             >
               <Text style={[typo.h2, { color: colors.onColor }]}>{disclosuresCountDisplay}</Text>
               <Text style={[typo.small, { color: colors.onColorMuted }]}>
-                {todayDateLabel ? `오늘의 공시 (${todayDateLabel})` : '오늘의 공시'}
+                {todayDateLabel ? `최신 공시 (${todayDateLabel})` : '최신 공시'}
               </Text>
             </TouchableOpacity>
             <View style={[styles.summaryDivider, { backgroundColor: colors.hairlineOnColor }]} />

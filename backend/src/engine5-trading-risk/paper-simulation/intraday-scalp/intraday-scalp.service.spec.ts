@@ -318,13 +318,13 @@ describe('IntradayScalpService — 1사이클', () => {
   });
 });
 
-// DAR-414 — tradeDate SSOT 정렬: 환경 시계 today(월 6/22)와 분봉 라벨(KRX 실가용일 6/19)이
-//   어긋날 때, 단타가 분봉 collector와 동일 해석기(resolveLatestAvailableTradeDate)를 써서
-//   6/19 라벨 분봉/유니버스를 읽어 진입을 평가하는지 검증(버그: today 직접사용 시 빈 결과 → 0거래).
-describe('IntradayScalpService — DAR-414 tradeDate 해석기 정렬', () => {
-  /** 분봉 collector와 동일한 KRX 실가용 거래일을 반환하는 해석기 스텁. */
+// DAR-414/423 — tradeDate SSOT 정렬: 단타가 분봉 collector와 동일 해석기
+//   (resolveIntradayTradeDate, DAR-423 인트라데이 전용)를 써서 그 거래일 라벨 분봉/유니버스를
+//   읽어 진입을 평가하는지 검증(버그: today/일봉 라벨 직접사용 시 라벨 불일치 → 빈 결과 → 0거래).
+describe('IntradayScalpService — DAR-414/423 tradeDate 해석기 정렬', () => {
+  /** 분봉 collector와 동일한 인트라데이 거래일을 반환하는 해석기 스텁(DAR-423). */
   function resolverStub(tradeDate: string) {
-    return { resolveLatestAvailableTradeDate: jest.fn(async () => tradeDate) } as any;
+    return { resolveIntradayTradeDate: jest.fn(async () => tradeDate) } as any;
   }
 
   it('진입: 해석기가 준 거래일(6/19)로 분봉/유니버스 조회·진입 — 환경시계 today 미사용', async () => {
@@ -370,7 +370,7 @@ describe('IntradayScalpService — DAR-414 tradeDate 해석기 정렬', () => {
       candlesByStock: { '000001': triggerCandles(105, 106, 300) },
     });
     const throwing = {
-      resolveLatestAvailableTradeDate: jest.fn(async () => {
+      resolveIntradayTradeDate: jest.fn(async () => {
         throw new Error('KRX 일시 오류');
       }),
     } as any;

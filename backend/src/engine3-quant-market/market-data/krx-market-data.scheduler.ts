@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { KrxApiService, KrxApiUnavailableError } from './krx-api.service';
 import { DartStockStatusService, DerivedStockStatus } from './dart-stock-status.service';
 import type { Prisma } from '@prisma/client';
-import { KST_TIMEZONE } from '../../common/time/kst';
+import { KST_TIMEZONE, kstIntradaySessionDate } from '../../common/time/kst';
 import { MAX_INDEX_DAILY_CHANGE_PCT, isImplausibleIndexChange } from './index-sanity';
 import { isValidDailyOhlc } from './daily-price-sanity';
 
@@ -647,6 +647,30 @@ export class KrxMarketDataScheduler {
       );
     }
     return latest.tradeDate;
+  }
+
+  /**
+   * ★인트라데이(분봉·단타) 전용 거래일 해석 (DAR-423).
+   *
+   * `resolveLatestAvailableTradeDate` 는 'KRX 일봉 발행 여부' 프로브 기반이라, 일봉이 장 마감
+   * 후 발행되는 특성상 장중엔 '오늘 일봉 미게시'로 직전 거래일을 반환한다. 일봉 맥락
+   * (EventStudy·일봉 수집)에선 맞지만, 인트라데이(분봉/단타)는 일봉 발행과 무관하게 '오늘 라이브
+   * 세션'이 거래일이다 — 장중인데 어제 라벨을 붙이면 분봉/단타 보유가 어제 기준으로 표시되는 버그.
+   *
+   * 분리 처방: 평일이고 KST 가 개장(≥09:00)이면 오늘(YYYYMMDD)을 그대로 거래일로 쓴다.
+   *   장외(개장 전·주말·휴장)면 일봉 발행 기준(`resolveLatestAvailableTradeDate`)으로 폴백해
+   *   직전 가용 거래일을 쓴다. 일봉 resolver 는 무변경(이중 의미 분리).
+   *
+   * ★graceful: 실제 휴장(평일이지만 KRX 휴장)이면 KIS 가 빈 분봉을 반환 → 유니버스 비고 신규
+   *   거래 0 으로 안전(거짓 진입 없음). 휴장 캘린더 의존 없이 주말 + 빈 분봉으로 이중 보장.
+   *
+   * @param now 기준 시각(기본 현재) — 테스트에서 장중/장외 시각 주입.
+   */
+  async resolveIntradayTradeDate(now: Date = new Date()): Promise<string> {
+    const sessionDate = kstIntradaySessionDate(now);
+    if (sessionDate) return sessionDate;
+    // 장외(개장 전·주말) — 일봉 발행 기준 직전 가용 거래일로 폴백.
+    return this.resolveLatestAvailableTradeDate();
   }
 
   /**

@@ -1108,6 +1108,58 @@ describe('KrxMarketDataScheduler — DAR-375 최신 가용일 프로브 / 갭 �
     expect(result.filledDates).toEqual([]);
     expect(prisma.marketIndex.upsert).not.toHaveBeenCalled();
   });
+
+  // ─── DAR-428: EOD 일봉 전진수집 cron 을 CronRunLog(market.daily-collect)에 기록 ───
+  describe('collectDailyPrices — CronRunLog 헬스 기록 (DAR-428)', () => {
+    function makeRecorder() {
+      return {
+        record: jest.fn((_key: string, fn: () => Promise<unknown>) => fn()),
+      } as unknown as import('../../cron-health/cron-run-recorder.service').CronRunRecorderService;
+    }
+
+    it('recorder 주입 시: market.daily-collect 키로 캐치업을 감싸 기록(적재건수=countOf) + 6/18 정체 전진', async () => {
+      const krx = makeRealDateKrx({
+        fetchStockDaily: jest.fn().mockResolvedValue([sampleRow]),
+        fetchKosqdaqDaily: jest.fn().mockResolvedValue([]),
+      });
+      const prisma = makePrisma();
+      // 일봉 6/18 정체(이슈 실측). 캐치업이 6/18 너머로 전진하는지 확인.
+      (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue({ tradeDate: '20260605' });
+      const recorder = makeRecorder();
+      const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart(), recorder);
+
+      const result = await scheduler.collectDailyPrices();
+
+      // CronRunLog 래핑이 정확한 jobKey + countOf(totalSaved) 로 호출됨.
+      expect(recorder.record).toHaveBeenCalledTimes(1);
+      const [jobKey, , opts] = (recorder.record as jest.Mock).mock.calls[0];
+      expect(jobKey).toBe('market.daily-collect');
+      expect(opts.countOf(result)).toBe(result.totalSaved);
+      // 락 조기반환만 SKIPPED — 정상 캐치업은 SUCCESS.
+      expect(opts.isSkipped(result)).toBe(false);
+      expect(opts.isSkipped({ message: '이전 작업 진행 중' })).toBe(true);
+      // 일봉 6/5→6/18 갭 9 거래일 멱등 백필(정체 해소).
+      expect(result.lastLoaded).toBe('20260605');
+      expect(result.target).toBe('20260618');
+      expect(result.filledDates).toHaveLength(9);
+      expect(result.totalSaved).toBe(9);
+    });
+
+    it('recorder 미주입(테스트/배선 누락) 시: 기존 거동(직접 캐치업 호출) 보존', async () => {
+      const krx = makeRealDateKrx({
+        fetchStockDaily: jest.fn().mockResolvedValue([sampleRow]),
+        fetchKosqdaqDaily: jest.fn().mockResolvedValue([]),
+      });
+      const prisma = makePrisma();
+      (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue({ tradeDate: '20260617' });
+      const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+      const result = await scheduler.collectDailyPrices();
+
+      expect(result.filledDates).toEqual(['20260618']);
+      expect(result.totalSaved).toBe(1);
+    });
+  });
 });
 
 // ─── KrxApiService 단위 ──────────────────────────────────────────────────────

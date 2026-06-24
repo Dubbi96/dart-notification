@@ -19,13 +19,17 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { OptionalJwtAuthGuard } from '../../auth/guards/optional-jwt-auth.guard';
 import { SignalAccuracyService } from './signal-accuracy.service';
+import { EvaluationCorpusService } from './evaluation-corpus.service';
 import { parsePaginationInt } from '../../common/pagination/parse-pagination';
 
 @ApiTags('Backtest')
 @ApiBearerAuth()
 @Controller('backtest')
 export class SignalAccuracyController {
-  constructor(private readonly accuracy: SignalAccuracyService) {}
+  constructor(
+    private readonly accuracy: SignalAccuracyService,
+    private readonly corpus: EvaluationCorpusService,
+  ) {}
 
   @Get('signal-accuracy')
   @UseGuards(OptionalJwtAuthGuard)
@@ -86,6 +90,25 @@ export class SignalAccuracyController {
       limit,
       eventType: eventType?.trim() || undefined,
       signalGrade: signalGrade?.trim() || undefined,
+    });
+    return { success: true, data };
+  }
+
+  @Get('evaluation-corpus')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      '평가자료·인과코퍼스(DAR-379): 공시별 AI/Rule 사전평가(극성·신뢰도·AI분석 유무) + 실현 EventStudy 사후결과(D+5/D+20 초과수익) + 일치/괴리 라벨을 이벤트유형별로 집계. AI분석 커버리지·방향 적중률(hitRate) 통계근거(참고 평가자료, 주문 직접결정 금지, 게스트 데모 가능)',
+  })
+  async evaluationCorpus(
+    @Query('limit') limitStr?: string,
+    @Query('eventType') eventType?: string,
+  ) {
+    // DAR-273 패턴: 비숫자/음수 안전화 — 미지정·무효 → undefined(서비스 기본 표본).
+    const limit = parsePaginationInt(limitStr, {});
+    const data = await this.corpus.getCorpus({
+      limit,
+      eventType: eventType?.trim() || undefined,
     });
     return { success: true, data };
   }

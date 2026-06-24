@@ -823,7 +823,7 @@ GET /notifications?category=trade&page=1&limit=20
 >
 > `unreadByCategory` (DAR-430): 카테고리(3 버킷)별 미읽음 카운트 — `unreadByType` 를 `disclosure`/`signal`/`trade` 로 합산. 모바일 알림탭 카테고리 필터 칩의 unread 배지에 사용. 세 키 항상 존재(0 포함).
 
-> **Android 알림 채널화 (DAR-430)**: 푸시 발송 시 NotificationType → 카테고리 → 채널 ID(`disclosure`/`signal`/`trade`)를 산출해 Expo Push 메시지의 `channelId` 와 `data.channelId` 에 실어 보낸다. 모바일은 앱 시작 시 `setNotificationChannelAsync` 로 동일 ID 의 채널 3개를 등록(공시=DEFAULT 중요도, 신호·체결=HIGH·소리) → OS 가 채널별로 묶어 표시·누적·중요도를 분리한다. iOS 는 채널 개념이 없어 `channelId` 가 무시되며, 카테고리 구분은 인앱 아이콘·필터가 담당한다(크로스플랫폼 폴백). 체결 알림 제목의 `[전략]` 프리픽스는 제거되고 출처(전략 라벨)는 본문 앞과 `data.source`/`data.strategyKey` 로 전달된다.
+> **Android 알림 채널화 (DAR-430)**: 푸시 발송 시 NotificationType → 카테고리 → 채널 ID(`disclosure`/`signal`/`trade`)를 산출해 Expo Push 메시지의 `channelId` 와 `data.channelId` 에 실어 보낸다. 모바일은 앱 시작 시 `setNotificationChannelAsync` 로 동일 ID 의 채널 3개를 등록(공시=DEFAULT 중요도, 신호·체결=HIGH·소리) → OS 가 채널별로 묶어 표시·누적·중요도를 분리한다. iOS 는 채널 개념이 없어 `channelId` 가 무시되며, 카테고리 구분은 인앱 아이콘·필터가 담당한다(크로스플랫폼 폴백). 체결 알림 제목의 `[전략]` 대괄호 프리픽스는 제거됐고, 출처는 **고유 이모지+출처명**(예: `⚡ 단타 · 삼성전자 매수`)으로 제목 앞에 표기된다(DAR-432 §20.1)·`data.source`/`data.strategyKey` 동봉.
 
 ---
 
@@ -1942,10 +1942,12 @@ GET /api/paper-trading/simulation/intraday-scalp/trade-history   (게스트 허�
 
 **수신자**: ★실제 앱 사용자 **전원**(브로드캐스트). 시스템 모의/단타는 전역 단일 시뮬이라 포지션 소유자(합성 시스템 유저 `provider='system'`)가 아닌 실 사용자가 수신 대상이다. 사용자별 `tradePushEnabled` 토글(기본 ON·§6.2)로 게이트 — OFF면 인박스·푸시 모두 생략. 푸시는 추가로 master `isEnabled` + 유효 디바이스 토큰 필요. 멱등: `(userId, type, refId)` 유니크(refId = 분봉 단타 trade id / 시스템 모의 position id).
 
-**인박스/푸시 내용**:
-- 매수 — title `[{전략}] {종목명} 매수`, body `체결 ₩{체결가} × {수량}주 · 현금 ₩{현금} · 평가금 ₩{전체평가금}`
-- 매도 — title `[{전략}] {종목명} 매도 {±수익%}`, body `체결 ₩{체결가} × {수량}주 · 손익 {±%}({청산사유}) · 현금 ₩{현금} · 전체평가금 ₩{전체평가금}`
-- 푸시 `data`(DAR-431): `{ deepLink, type, refId, strategyKey, strategyName }` — 트랙 식별자를 동봉해 클라이언트가 전략별로 라우팅·필터링한다. `strategyKey`/`strategyName`이 빈 값이면 제외(legacy 호환). `deepLink`는 인박스(`NotificationHistory.deepLink`)에도 동일 충전돼 알림 탭 탭(tap) 라우팅에 쓰인다.
+**인박스/푸시 내용** (DAR-432 — 출처별 이모지+출처명, 한 줄 이해, 대괄호 0):
+- 매수 — title `{이모지} {출처명} · {종목명} 매수`, body `₩{체결가} × {수량}주 · 잔액 ₩{현금}`
+- 매도 — title `{이모지} {출처명} · {종목명} 매도 {±수익%}`, body `손익 {±%}({청산사유}) · 평가금 ₩{전체평가금}`
+- 출처(이모지+출처명)는 `strategyKey`로 SSOT(`notification-source.ts`)에서 매핑: 🤖 모의(`paper-simulation`)·⚡ 단타(`intraday-scalp`)·🎯 이벤트엣지(`event-edge`)·🛡️ 보수가치(`conservative-value`)·🚀 단기모멘텀(`short-momentum`)·💥 공격분산(`aggressive-diversified`); 미등록 키는 🔔 알림 폴백.
+- 예: `⚡ 단타 · 삼성전자 매수` / `₩105,000 × 10주 · 잔액 ₩9,500,000`, `🤖 모의 · 삼성전자 매도 +2.10%` / `손익 +2.10%(TAKE_PROFIT) · 평가금 ₩10,200,000`.
+- 푸시 `data`: `{ deepLink, type, refId, channelId, source, strategyKey, strategyName }` — 출처(source=SSOT 라벨)·트랙 식별자(strategyKey/strategyName)·채널을 동봉(DAR-430 채널·DAR-431 딥링크 정합). 빈 값 키는 제외(legacy 호환). `deepLink`는 인박스(`NotificationHistory.deepLink`)에도 동일 충전돼 알림 탭 탭(tap) 라우팅에 쓰인다.
 
 **딥링크 라우팅(DAR-431)**: 체결 알림 탭은 해당 트랙 화면으로 직행한다(포트폴리오 루트 폴백 제거).
 - 분봉 단타 → `/portfolio/strategy/intraday-scalp`
@@ -1960,67 +1962,21 @@ GET /api/paper-trading/simulation/intraday-scalp/trade-history   (게스트 허�
 
 모바일: 인앱 알림 탭에 `TRADE_ENTRY`(매수·녹색·`arrow-down-circle`)·`TRADE_EXIT`(매도·주황·`arrow-up-circle`) 렌더(제목 `[{전략}]` prefix 로 트랙 식별), 설정 화면에 '체결 알림' 토글(기본 ON). 트랙별 보유·체결 분리 조회는 포트폴리오 '시스템 모의'(`?tab=sim`)·'전략' 탭(단타 `IntradayScalpSection` + 4전략 비교)·각 드릴다운으로 제공한다. (인앱 알림 탭의 체결 카테고리 내 전략 서브필터는 DAR-430 카테고리 세그먼트 위에 합성 예정.)
 
----
+### 20.1 출처별 메시지 전략 재설계 (DAR-432)
 
-## 21. 시스템 모의 클린 리셋 (Paper-Simulation Reset, DAR-429)
+푸시·인앱 알림을 "어디서 발행했는지 한눈에"(고유 이모지+출처명) 보이고 한 줄로 이해하며 탭하면 상세(DAR-431 딥링크)로 가도록 재설계. `[ ]` 대괄호 대신 이모지+`·`(점) 구분(DAR-430 정합).
 
-```
-POST /api/paper-trading/simulation/reset   (JWT 필수 + body.confirm="RESET" 필수 — 휴먼 승인 게이트)
-```
+**출처→이모지·출처명 SSOT**: 백엔드 `backend/src/notifications/notification-source.ts` ↔ 모바일 `mobile/utils/notificationSource.ts`(이모지·라벨 1:1 동일, `mobile/scripts/check-notification-sources.ts` 결정론 검증). DAR-430 카테고리(3 버킷=채널·필터 축)와 **상호보완**(출처=세분화된 발행원 축).
 
-과레버리지(DAR-426 이전 현금 -11.3M·자본초과 보유)+리베이스로 오염된 시스템 모의 이력을
-제거하고 **현금가드(DAR-426) 적용 상태로 초기상태**(현금 = 초기자본 10,000,000원·OPEN 0)로
-되돌린다. '원칙만 남기고 다시 시작'. 이후 일일 cron(평일 19:30 KST)이 0포지션·현금 10M 에서
-현금가드 + 매수기준(`SIM_MIN_ENTRY_GRADE`/`buyScore`) 적용 상태로 **원칙적으로 재누적**한다.
+**출처별 템플릿**:
+- 📢 공시(`DISCLOSURE`): title `📢 {기업명} · {공시유형}` / body `{공시명}` (탭→`/disclosure/{rcpNo}`)
+- 📈 매수신호(`SIGNAL`): title `📈 {기업명} 매수신호 {등급(한국어)}` / body `{점수}점 · {근거}`
+- 🔻 청산(`EXIT`): title `🔻 {기업명} 청산 권고` · ⚠️ 논리훼손(`THESIS_VIOLATED`): title `⚠️ {기업명} 투자논리 훼손`
+- 체결(`TRADE_ENTRY`/`TRADE_EXIT`): 위 §20 트랙별 이모지 템플릿(🤖 모의·⚡ 단타·🎯/🛡️/🚀/💥 4전략)
 
-**요청 본문**:
-
-```json
-{ "confirm": "RESET" }
-```
-
-**승인 게이트(운영영향 — 자동 파괴 금지)**:
-- `JwtAuthGuard`(인증) + `body.confirm === "RESET"`(오발 방지 확인 토큰) 둘 다 충족해야 실행.
-- 토큰 불일치/누락 시 `{ success:false, error }`(서비스 미호출·**변경 없음**).
-- ★cron 은 이 엔드포인트를 호출하지 않는다. 사용자/오케스트레이터가 **수동 트리거**만.
-
-**삭제 범위(★해당 sim 유저 `paper-sim@system.local`의 단일 포트폴리오 범위 DELETE 만 — DB 전역
-파괴 금지)**:
-- `Position`(OPEN+CLOSED) — `portfolioId` 가드. 삭제 시 `PositionDailySnapshot`·`ExitSignal`
-  캐스케이드(`onDelete: Cascade`).
-- `PaperTrade` — 포트폴리오 컬럼이 없어 sim 포지션의 `positionThesisId`(Position 당 `@unique` →
-  타 트랙 무침범)로만 한정 삭제(thesis 미연결 행은 식별 불가라 보존).
-- `PortfolioRiskSnapshot`·`SignalEntryFunnelDaily` — `portfolioId` 범위(자산곡선·진척·퍼널 초기화).
-
-**불변식·특성**:
-- **멱등** — 재실행 시 0건 삭제·현금 10M 유지(이미 비어 있으면 no-op).
-- **트랜잭션** — `$transaction` 으로 전부-or-전무(부분 실패 시 전체 롤백).
-- 현금은 저장 컬럼이 아니라 파생(SSOT): `cash = 초기자본 + 실현손익(CLOSED net) − 보유
-  진입원가(OPEN entryAmount)` → 모든 Position 삭제 시 `cash = 초기자본` 으로 자동 복원.
-
-**응답**(`{ success:true, data }`):
-
-```json
-{
-  "portfolioId": "…",
-  "deletedPositions": 46,
-  "deletedDailySnapshots": 120,
-  "deletedExitSignals": 12,
-  "deletedPaperTrades": 46,
-  "deletedRiskSnapshots": 30,
-  "deletedFunnelDaily": 30,
-  "cashAfter": 10000000,
-  "openPositionsAfter": 0
-}
-```
-
-**단타(intraday-scalp)는 별개 — 리셋 대상 아님**. 단, 단타도 동일 현금가드(DAR-426)가
-이미 적용돼 있다(`intraday-scalp.service.ts` `availableCash` 가드: `MAX_OPEN_POSITIONS(5) ×
-PER_POSITION_BUDGET_PCT(3%) = 15% < 100%` 구조적 안전 + `cash ≥ 0` 불변식 명시 enforce).
-
-★AI 금지영역 불침범 — 리셋은 데이터 정리만(점수·체결·주문 결정 없음). 실주문 0.
+**렌더**: 인앱 알림탭은 비공시 타입은 백엔드 `title`(이모지 내장)을 그대로, 공시 행은 조인 데이터(`{기업명} · {공시유형}`)에 출처 이모지(📢)를 SSOT에서 덧붙여 렌더(DAR-430 카테고리 칩과 정합). 길이 가이드: 제목 ≤ 약 40자(잠금화면 잘림 고려), 본문 한 줄. 스키마·마이그레이션 무변경(문자열 템플릿만).
 
 ---
 
-**작성일**: 2026-06-23
-**버전**: 1.26 (알림 카테고리화 §8.1 — DAR-430: 푸시·인앱 알림을 3 버킷(공시/신호/체결)으로 카테고리화 — **Android 알림 채널 3개**(`disclosure`/`signal`/`trade`) 앱 시작 시 `setNotificationChannelAsync` 등록(공시=DEFAULT·신호/체결=HIGH·소리)·백엔드 `NotifyConsumer.sendPush` 가 NotificationType→카테고리→`channelId` 산출해 Expo Push `channelId`+`data.channelId` 지정 → OS 가 채널별 그룹화·누적·중요도 분리·iOS 는 무시(인앱 아이콘/필터 폴백); **체결 알림 제목 `[전략]` 프리픽스 제거**('[분봉 단타] 삼성전자 매수'→'삼성전자 매수')·출처는 본문 앞(`분봉 단타 · 체결…`)+`data.source`/`data.strategyKey` 로 전달; `GET /notifications?category=disclosure|signal|trade` 필터 파라미터 추가(category>type 우선·버킷 IN 조회)·응답 `meta.unreadByCategory`(3 버킷 미읽음 합산) 추가; 모바일 알림탭 상단 카테고리 칩(전체·공시·신호·체결) 필터·행 단위 타입 아이콘/색/라벨은 DAR-161 유지; 스키마 무변경(NotificationType enum 재사용·마이그 불요); 1.25 체결 알림 딥링크 라우팅 + 전략별 트랙 식별 §20 — DAR-431: 체결 알림 탭이 '포트폴리오 루트'로만 가던 버그 해소 — 시스템 모의 deepLink 를 `/portfolio`→**`/portfolio?tab=sim`**(포트폴리오 '시스템 모의' 서브탭 직행)으로 고정·분봉 단타는 기존 `/portfolio/strategy/intraday-scalp` 유지(둘 다 `@utils/deeplink` `/portfolio` prefix 화이트리스트 통과·루트 폴백 X); 푸시 `data` 에 `strategyKey`·`strategyName` 동봉(`NotifyConsumer.sendPush` extraData·빈 값 제외·legacy 호환)으로 클라이언트 전략별 라우팅/필터 지원; 포트폴리오 화면이 딥링크 `?tab=` 파라미터를 초기 서브탭으로 해석(`resolveInitialSubTab` — 허용 목록 밖/미지정은 `live` 폴백, 마운트 후 새 딥링크도 render-phase 동기화); 트랙 SSOT `@utils/tradeTracks`(5+1트랙 key/label/deepLink·`trackByKey`/`trackByDeepLink` 역식별·라이브 발행=단타·시스템 모의 2종만, 4전략은 백테스트 전용 드릴다운 경로만); 알림 제목 `[{전략}]` prefix 로 인박스 트랙 식별(기존)·트랙별 분리 조회는 포트폴리오 시스템 모의/전략 탭+드릴다운(기존); 인앱 알림 탭 전략 서브필터는 DAR-430 카테고리 세그먼트 합성으로 후속; 스키마 변경 0·실주문 0·AI 금지영역 불침범; BE tsc0·notifications jest 31/31(신규1)·engine5 paper-sim 264/264 회귀0; mobile tsc0·eslint0err·결정론 `check-trade-deeplink-routing` 45/45·`check-portfolio-tabs` 14/14 회귀0; 1.24 (시스템 모의 클린 리셋 §21 — DAR-429: `POST /api/paper-trading/simulation/reset`(JWT 필수 + `body.confirm="RESET"` 필수 — 휴먼 승인 게이트·cron 자동호출 0) 추가 — 과레버리지(DAR-426 이전 현금 -11.3M·자본초과)+리베이스로 오염된 시스템 모의 이력을 제거하고 초기상태(현금=초기자본 10,000,000·OPEN 0)로 복원('원칙만 남기고 다시 시작'); ★해당 sim 유저(`paper-sim@system.local`)의 단일 포트폴리오 범위 DELETE 만(DB 전역 파괴 금지) — `Position`(portfolioId 가드, `PositionDailySnapshot`·`ExitSignal` 캐스케이드)+`PaperTrade`(sim `positionThesisId` 한정·타 트랙 무침범)+`PortfolioRiskSnapshot`+`SignalEntryFunnelDaily`(portfolioId 범위); 멱등(재실행 0건·현금 10M 유지)·`$transaction` 전부-or-전무(부분실패 롤백); 현금은 파생 SSOT(`초기자본+실현손익−보유진입원가`)라 Position 삭제 시 10M 자동 복원; 리셋 후 cron 은 현금가드(DAR-426)+매수기준(`SIM_MIN_ENTRY_GRADE`/`buyScore`) 적용 상태로 0포지션·10M 에서 원칙적 재누적; 단타(intraday-scalp)는 별개(리셋 대상 아님)·동일 현금가드 이미 적용(`15% < 100%` 구조 안전+`cash≥0` enforce 재확인); 스키마 변경 0(데이터 정리만)·AI 금지영역 불침범·실주문 0; 1.23 (라이브 페이퍼 체결 알림 §20 — DAR-424: 모의투자 체결(분봉 단타·시스템 모의 진입/청산)을 종목별로 통지 — `NotificationType.TRADE_ENTRY`/`TRADE_EXIT` 추가(비파괴 enum ADD VALUE)·`NotificationSettings.tradePushEnabled` 토글(기본 ON·OFF면 인박스·푸시 모두 생략) 추가·엔진5 체결 직후 `NotificationProducerService.enqueueTradeEntry/Exit`→`QUEUE.NOTIFY`(`notify.trade-entry`/`notify.trade-exit`)→`NotifyConsumer`가 실 사용자 전원 브로드캐스트(합성 시스템 유저 제외)로 인박스 적재+Expo Push(토글 ON+master+토큰 시)·매수=체결가·수량·현금·평가금/매도=+손익%·청산사유 본문·멱등 `(userId,type,refId)`·발행 graceful(체결 무파손)·AI 금지영역 불침범; 모바일 인앱 알림 탭 TRADE 타입 렌더+설정 '체결 알림' 토글; 4종 백테스트 replay는 라이브 이벤트 아님 제외; 1.22 인트라데이 거래일 분리 §19 — DAR-423: 장중 분봉/단타 `tradeDate`가 어제로 라벨되던 버그 해소 — 일봉 발행 기준 `resolveLatestAvailableTradeDate()`(장중 '오늘 일봉 미게시'→직전 거래일)를 분봉/단타가 그대로 써서, 장중인데도 분봉/단타 보유가 어제(예 6/22) 기준으로 표시됐음. **인트라데이 전용 해석기 `resolveIntradayTradeDate()` 분리** — 평일이고 KST 개장(≥09:00)이면 오늘(today), 장외(개장 전·주말·휴장)면 직전 거래일 폴백; 분봉 수집기 `collectOnce`·단타 `resolveTradeDate`(진입·청산·강제청산·유니버스)가 이 해석기로 정렬; 일봉 resolver는 **무변경**(일봉 수집·EventStudy 등 일봉 맥락 유지·이중 의미 분리); 실제 휴장은 KIS 빈 분봉→유니버스 비고 거래 0 graceful; 이미 수집된 어제 라벨 데이터는 마이그레이션 불요(신규부터 today); 1.21 '최신 공시' 라벨 명확화 §7.5 — DAR-422: 모바일 홈 요약 카드 라벨을 '오늘의 공시 (MM/DD)'→**'최신 공시 (MM/DD)'**로 변경 — DART 공시 데이터 최신일(예 06/19)이 달력 today(예 06/23)보다 뒤처질 수 있어(주말·미게시 지연) '오늘' 표현이 '오늘은 today인데 왜 6/19?' 혼란을 유발했음. 집계 로직·`GET /disclosures/today-count` 응답(`date`/`count`)·숫자(건수) 모두 무변경 — 라벨/문구·accessibilityLabel('최신 공시 MM/DD 기준 N건')만 변경; 1.20 '오늘의 공시' 최신 가용일 집계 §7.5 — DAR-420: `GET /disclosures/today-count`(게스트 허용) 추가 — '오늘' = 최신 가용 공시일(`max(rcpDt)`의 날짜) 건수 반환(전체 누적 137만도, 환경시계 today 0건도 아님; 날짜 prefix `startsWith` 동일일 판정) + 모바일 홈 요약 카드 '오늘의 공시'가 무한쿼리 `meta.total`(전체 누적) 대신 이 집계를 사용·라벨에 최신일(MM/DD) 보조표기; 1.19 분봉 단타 수수료 인지 거래 §19 — DAR-418: TP/SL 청산 임계를 **순(net) 기준**으로 환산 — gross 가격수익률에서 왕복 거래비용율(`2·수수료+매도세+2·슬리피지=0.31%`, 체결 파라미터 `FillParams`에서 `roundTripCostPct()` 산출 SSOT)을 차감한 net 수익률로 익절 +2%/손절 -1.2% 판정(순 +2% 익절=gross +2.31%·순 -1.2% 손절=gross -0.89%로 과손실 방지)·`gross +2%` 소액 익절이 수수료에 먹혀 net +1.69% 적자전환하던 문제 차단; 진입 fee 허들 게이트(기대이동 < 왕복비용+최소마진 0.3% 면 진입 보류); 표시 투명화 — `status`에 `roundTripCostPct`·`takeProfitNetPct`·`stopLossNetPct`·`totalFees`, `trade-history`에 `roundTripCostPct`·행별 `grossReturnPct`·`netReturnPct`·`totalFees` 노출, 모바일 카드/타임라인 '순수익(수수료 후)' 명시; 15:20 강제청산·당일청산·리스크 하드룰 무변경; 1.18 분봉 단타 응답 계약 래핑 §19.1·§19.2 — DAR-417: `intraday-scalp` `status`·`trade-history` 컨트롤러 반환을 `{ success, data }` 로 래핑(strategy-track 등 전 엔드포인트 일관) — 모바일 `simulation.service.ts` 가 `r.data.data` 로 추출하는데 래핑이 없어 `r.data.data`=undefined → React Query `Query data cannot be undefined` 로 '전략' 탭 단타 트랙 카드가 로드 실패하던 블로킹 버그 해소; 1.17 분봉 단타 거래 타임라인 §19.2 — DAR-416: `GET /intraday-scalp/trade-history`(최신 진입순·종목명 결합·OPEN 청산필드 null·게스트 허용) 추가 + 모바일 '전략' 탭 단타 트랙 표면화(`IntradayScalpSection` 별도 섹션·`intraday-scalp.tsx` 드릴다운·실시간 모의/백테스트 불가 시각 구분); 1.16 분봉 단타 진입평가 윈도우 스캔 §19 — DAR-415: 진입 평가가 최신 1봉이 아니라 직전 사이클 이후 도착 분봉 윈도우 전체를 순회(engine3 `scanEntrySignals(candles, fromIndex)` point-in-time 첫 충족봉)·engine5 종목별 스캔 커서로 중복평가 차단·종목당 1라운드트립(OPEN/CLOSED) 과진입 차단·진입ts=충족봉 시각 — 10분 간격 평가가 사이클 사이 충족 순간을 놓쳐 거래 0이던 버그 해소; 1.15 분봉 단타 tradeDate SSOT 정렬 §19 — DAR-414: 단타 진입·청산·강제청산·유니버스가 분봉 수집기와 동일 해석기(`resolveLatestAvailableTradeDate()`, KRX 실 가용 거래일)로 거래일을 해석 — 환경시계 today 직접사용 제거로 분봉 라벨 불일치(거래 0) 버그 해소; 1.14 자산곡선 일별 flat-fill — DAR-412: backtest `buildEquityCurve` + 분봉 단타 `equityCurve` 가 변동 청산일마다 직전 달력일 flat 앵커를 추가해 거래 없는 구간 직선 보간 제거(평평→계단)·4종 전략·단타 동일 적용·표본0/저표본 graceful 유지; 1.13 분봉 단타 트랙 §19 — DAR-411: 분봉(stock_minute_prices) 기반 당일 진입·당일 청산 forward-only 페이퍼 트랙 — 거래량 폭발+돌파+VWAP 3조건 진입·익절+2%/손절-1.2%/15:20 강제청산·engine5 Risk 하드룰·★실주문 0·전용 status 엔드포인트·백테스트 불가 graceful; 1.12 전략 변형 트랙 §18 — DAR-404: 시스템 트레이딩 전략 변형 4종 다중 트랙 비교/거래내역/갱신 엔드포인트·strategyKey 그룹핑·누적수익 ranking·게스트 데모; 이벤트 스터디 분포 §16.2-b — DAR-402: 버킷 D+N 초과수익 분포(평균/중앙값/분위수) 산출로 이상치 오염 표면화 + event_study_results robust 컬럼(median/winsorized) 추가·신호 스코어 event edge 강건화; 1.11 구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)
+**작성일**: 2026-06-24
+**버전**: 1.27 (알림 메시지 전략 재설계 §20.1 — DAR-432: 푸시·인앱 알림을 **출처별 고유 이모지+출처명**으로 한눈 구분·한 줄 이해·탭→상세(DAR-431 딥링크)로 재설계 — be↔fe **출처 SSOT 공유**(`notification-source.ts`↔`notificationSource.ts`, parity 체크 `check-notification-sources.ts`): 📢 공시·📈 매수신호·🔻 청산·⚠️ 논리훼손·🤖 모의·⚡ 단타·🎯 이벤트엣지·🛡️ 보수가치·🚀 단기모멘텀·💥 공격분산(미상 🔔 폴백·이모지 고유); 체결 title `{이모지} {출처명} · {종목명} 매수/매도 {±%}`·body 핵심 수치 한 줄(`₩{가}×{수량}·잔액`/`손익 {±%}({사유})·평가금`), 신호 `📈 {기업명} 매수신호 {등급(한국어)}`·`{점수}점·{근거}`, 공시 `📢 {기업명}·{공시유형}`(DAR-430 채널·DAR-431 딥링크 data 동봉); **`[ ]`대괄호 전면 제거**(이모지+`·` 구분, DAR-430 정합); 모바일 알림탭은 비공시는 백엔드 title 그대로·공시 행은 조인 데이터에 📢 SSOT 프리픽스; 스키마·마이그 무변경(문자열 템플릿만)·AI 무관; 1.26 알림 카테고리화 §8.1 — DAR-430: 푸시·인앱 알림을 3 버킷(공시/신호/체결)으로 카테고리화 — **Android 알림 채널 3개**(`disclosure`/`signal`/`trade`) 앱 시작 시 `setNotificationChannelAsync` 등록(공시=DEFAULT·신호/체결=HIGH·소리)·백엔드 `NotifyConsumer.sendPush` 가 NotificationType→카테고리→`channelId` 산출해 Expo Push `channelId`+`data.channelId` 지정 → OS 가 채널별 그룹화·누적·중요도 분리·iOS 는 무시(인앱 아이콘/필터 폴백); **체결 알림 제목 `[전략]` 프리픽스 제거**('[분봉 단타] 삼성전자 매수'→'삼성전자 매수')·출처는 본문 앞(`분봉 단타 · 체결…`)+`data.source`/`data.strategyKey` 로 전달; `GET /notifications?category=disclosure|signal|trade` 필터 파라미터 추가(category>type 우선·버킷 IN 조회)·응답 `meta.unreadByCategory`(3 버킷 미읽음 합산) 추가; 모바일 알림탭 상단 카테고리 칩(전체·공시·신호·체결) 필터·행 단위 타입 아이콘/색/라벨은 DAR-161 유지; 스키마 무변경(NotificationType enum 재사용·마이그 불요); 1.25 체결 알림 딥링크 라우팅 + 전략별 트랙 식별 §20 — DAR-431: 체결 알림 탭이 '포트폴리오 루트'로만 가던 버그 해소 — 시스템 모의 deepLink 를 `/portfolio`→**`/portfolio?tab=sim`**(포트폴리오 '시스템 모의' 서브탭 직행)으로 고정·분봉 단타는 기존 `/portfolio/strategy/intraday-scalp` 유지(둘 다 `@utils/deeplink` `/portfolio` prefix 화이트리스트 통과·루트 폴백 X); 푸시 `data` 에 `strategyKey`·`strategyName` 동봉(`NotifyConsumer.sendPush` extraData·빈 값 제외·legacy 호환)으로 클라이언트 전략별 라우팅/필터 지원; 포트폴리오 화면이 딥링크 `?tab=` 파라미터를 초기 서브탭으로 해석(`resolveInitialSubTab` — 허용 목록 밖/미지정은 `live` 폴백, 마운트 후 새 딥링크도 render-phase 동기화); 트랙 SSOT `@utils/tradeTracks`(5+1트랙 key/label/deepLink·`trackByKey`/`trackByDeepLink` 역식별·라이브 발행=단타·시스템 모의 2종만, 4전략은 백테스트 전용 드릴다운 경로만); 알림 제목 `[{전략}]` prefix 로 인박스 트랙 식별(기존)·트랙별 분리 조회는 포트폴리오 시스템 모의/전략 탭+드릴다운(기존); 인앱 알림 탭 전략 서브필터는 DAR-430 카테고리 세그먼트 합성으로 후속; 스키마 변경 0·실주문 0·AI 금지영역 불침범; BE tsc0·notifications jest 31/31(신규1)·engine5 paper-sim 264/264 회귀0; mobile tsc0·eslint0err·결정론 `check-trade-deeplink-routing` 45/45·`check-portfolio-tabs` 14/14 회귀0; 1.24 (시스템 모의 클린 리셋 §21 — DAR-429: `POST /api/paper-trading/simulation/reset`(JWT 필수 + `body.confirm="RESET"` 필수 — 휴먼 승인 게이트·cron 자동호출 0) 추가 — 과레버리지(DAR-426 이전 현금 -11.3M·자본초과)+리베이스로 오염된 시스템 모의 이력을 제거하고 초기상태(현금=초기자본 10,000,000·OPEN 0)로 복원('원칙만 남기고 다시 시작'); ★해당 sim 유저(`paper-sim@system.local`)의 단일 포트폴리오 범위 DELETE 만(DB 전역 파괴 금지) — `Position`(portfolioId 가드, `PositionDailySnapshot`·`ExitSignal` 캐스케이드)+`PaperTrade`(sim `positionThesisId` 한정·타 트랙 무침범)+`PortfolioRiskSnapshot`+`SignalEntryFunnelDaily`(portfolioId 범위); 멱등(재실행 0건·현금 10M 유지)·`$transaction` 전부-or-전무(부분실패 롤백); 현금은 파생 SSOT(`초기자본+실현손익−보유진입원가`)라 Position 삭제 시 10M 자동 복원; 리셋 후 cron 은 현금가드(DAR-426)+매수기준(`SIM_MIN_ENTRY_GRADE`/`buyScore`) 적용 상태로 0포지션·10M 에서 원칙적 재누적; 단타(intraday-scalp)는 별개(리셋 대상 아님)·동일 현금가드 이미 적용(`15% < 100%` 구조 안전+`cash≥0` enforce 재확인); 스키마 변경 0(데이터 정리만)·AI 금지영역 불침범·실주문 0; 1.23 (라이브 페이퍼 체결 알림 §20 — DAR-424: 모의투자 체결(분봉 단타·시스템 모의 진입/청산)을 종목별로 통지 — `NotificationType.TRADE_ENTRY`/`TRADE_EXIT` 추가(비파괴 enum ADD VALUE)·`NotificationSettings.tradePushEnabled` 토글(기본 ON·OFF면 인박스·푸시 모두 생략) 추가·엔진5 체결 직후 `NotificationProducerService.enqueueTradeEntry/Exit`→`QUEUE.NOTIFY`(`notify.trade-entry`/`notify.trade-exit`)→`NotifyConsumer`가 실 사용자 전원 브로드캐스트(합성 시스템 유저 제외)로 인박스 적재+Expo Push(토글 ON+master+토큰 시)·매수=체결가·수량·현금·평가금/매도=+손익%·청산사유 본문·멱등 `(userId,type,refId)`·발행 graceful(체결 무파손)·AI 금지영역 불침범; 모바일 인앱 알림 탭 TRADE 타입 렌더+설정 '체결 알림' 토글; 4종 백테스트 replay는 라이브 이벤트 아님 제외; 1.22 인트라데이 거래일 분리 §19 — DAR-423: 장중 분봉/단타 `tradeDate`가 어제로 라벨되던 버그 해소 — 일봉 발행 기준 `resolveLatestAvailableTradeDate()`(장중 '오늘 일봉 미게시'→직전 거래일)를 분봉/단타가 그대로 써서, 장중인데도 분봉/단타 보유가 어제(예 6/22) 기준으로 표시됐음. **인트라데이 전용 해석기 `resolveIntradayTradeDate()` 분리** — 평일이고 KST 개장(≥09:00)이면 오늘(today), 장외(개장 전·주말·휴장)면 직전 거래일 폴백; 분봉 수집기 `collectOnce`·단타 `resolveTradeDate`(진입·청산·강제청산·유니버스)가 이 해석기로 정렬; 일봉 resolver는 **무변경**(일봉 수집·EventStudy 등 일봉 맥락 유지·이중 의미 분리); 실제 휴장은 KIS 빈 분봉→유니버스 비고 거래 0 graceful; 이미 수집된 어제 라벨 데이터는 마이그레이션 불요(신규부터 today); 1.21 '최신 공시' 라벨 명확화 §7.5 — DAR-422: 모바일 홈 요약 카드 라벨을 '오늘의 공시 (MM/DD)'→**'최신 공시 (MM/DD)'**로 변경 — DART 공시 데이터 최신일(예 06/19)이 달력 today(예 06/23)보다 뒤처질 수 있어(주말·미게시 지연) '오늘' 표현이 '오늘은 today인데 왜 6/19?' 혼란을 유발했음. 집계 로직·`GET /disclosures/today-count` 응답(`date`/`count`)·숫자(건수) 모두 무변경 — 라벨/문구·accessibilityLabel('최신 공시 MM/DD 기준 N건')만 변경; 1.20 '오늘의 공시' 최신 가용일 집계 §7.5 — DAR-420: `GET /disclosures/today-count`(게스트 허용) 추가 — '오늘' = 최신 가용 공시일(`max(rcpDt)`의 날짜) 건수 반환(전체 누적 137만도, 환경시계 today 0건도 아님; 날짜 prefix `startsWith` 동일일 판정) + 모바일 홈 요약 카드 '오늘의 공시'가 무한쿼리 `meta.total`(전체 누적) 대신 이 집계를 사용·라벨에 최신일(MM/DD) 보조표기; 1.19 분봉 단타 수수료 인지 거래 §19 — DAR-418: TP/SL 청산 임계를 **순(net) 기준**으로 환산 — gross 가격수익률에서 왕복 거래비용율(`2·수수료+매도세+2·슬리피지=0.31%`, 체결 파라미터 `FillParams`에서 `roundTripCostPct()` 산출 SSOT)을 차감한 net 수익률로 익절 +2%/손절 -1.2% 판정(순 +2% 익절=gross +2.31%·순 -1.2% 손절=gross -0.89%로 과손실 방지)·`gross +2%` 소액 익절이 수수료에 먹혀 net +1.69% 적자전환하던 문제 차단; 진입 fee 허들 게이트(기대이동 < 왕복비용+최소마진 0.3% 면 진입 보류); 표시 투명화 — `status`에 `roundTripCostPct`·`takeProfitNetPct`·`stopLossNetPct`·`totalFees`, `trade-history`에 `roundTripCostPct`·행별 `grossReturnPct`·`netReturnPct`·`totalFees` 노출, 모바일 카드/타임라인 '순수익(수수료 후)' 명시; 15:20 강제청산·당일청산·리스크 하드룰 무변경; 1.18 분봉 단타 응답 계약 래핑 §19.1·§19.2 — DAR-417: `intraday-scalp` `status`·`trade-history` 컨트롤러 반환을 `{ success, data }` 로 래핑(strategy-track 등 전 엔드포인트 일관) — 모바일 `simulation.service.ts` 가 `r.data.data` 로 추출하는데 래핑이 없어 `r.data.data`=undefined → React Query `Query data cannot be undefined` 로 '전략' 탭 단타 트랙 카드가 로드 실패하던 블로킹 버그 해소; 1.17 분봉 단타 거래 타임라인 §19.2 — DAR-416: `GET /intraday-scalp/trade-history`(최신 진입순·종목명 결합·OPEN 청산필드 null·게스트 허용) 추가 + 모바일 '전략' 탭 단타 트랙 표면화(`IntradayScalpSection` 별도 섹션·`intraday-scalp.tsx` 드릴다운·실시간 모의/백테스트 불가 시각 구분); 1.16 분봉 단타 진입평가 윈도우 스캔 §19 — DAR-415: 진입 평가가 최신 1봉이 아니라 직전 사이클 이후 도착 분봉 윈도우 전체를 순회(engine3 `scanEntrySignals(candles, fromIndex)` point-in-time 첫 충족봉)·engine5 종목별 스캔 커서로 중복평가 차단·종목당 1라운드트립(OPEN/CLOSED) 과진입 차단·진입ts=충족봉 시각 — 10분 간격 평가가 사이클 사이 충족 순간을 놓쳐 거래 0이던 버그 해소; 1.15 분봉 단타 tradeDate SSOT 정렬 §19 — DAR-414: 단타 진입·청산·강제청산·유니버스가 분봉 수집기와 동일 해석기(`resolveLatestAvailableTradeDate()`, KRX 실 가용 거래일)로 거래일을 해석 — 환경시계 today 직접사용 제거로 분봉 라벨 불일치(거래 0) 버그 해소; 1.14 자산곡선 일별 flat-fill — DAR-412: backtest `buildEquityCurve` + 분봉 단타 `equityCurve` 가 변동 청산일마다 직전 달력일 flat 앵커를 추가해 거래 없는 구간 직선 보간 제거(평평→계단)·4종 전략·단타 동일 적용·표본0/저표본 graceful 유지; 1.13 분봉 단타 트랙 §19 — DAR-411: 분봉(stock_minute_prices) 기반 당일 진입·당일 청산 forward-only 페이퍼 트랙 — 거래량 폭발+돌파+VWAP 3조건 진입·익절+2%/손절-1.2%/15:20 강제청산·engine5 Risk 하드룰·★실주문 0·전용 status 엔드포인트·백테스트 불가 graceful; 1.12 전략 변형 트랙 §18 — DAR-404: 시스템 트레이딩 전략 변형 4종 다중 트랙 비교/거래내역/갱신 엔드포인트·strategyKey 그룹핑·누적수익 ranking·게스트 데모; 이벤트 스터디 분포 §16.2-b — DAR-402: 버킷 D+N 초과수익 분포(평균/중앙값/분위수) 산출로 이상치 오염 표면화 + event_study_results robust 컬럼(median/winsorized) 추가·신호 스코어 event edge 강건화; 1.11 구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)

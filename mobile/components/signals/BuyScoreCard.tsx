@@ -72,25 +72,9 @@ function BuyScoreCardBase({ signal, onPress }: BuyScoreCardProps) {
         ]}
       >
         <View style={styles.headerRow}>
-          <View style={styles.headerLeft}>
-            {signal.eventType ? (
-              // eventType 단일 노출(§3-d 중복 제거) — 헤더 칩 1곳만.
-              <Chip
-                compact
-                mode="flat"
-                // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
-                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-                style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
-                // DAR-143: surfaceSecondary 위 textSecondary 12px(≈4.4:1) 대비 여유 보강 — weight 500.
-                textStyle={[typo.small, styles.eventChipText, { color: colors.textSecondary }]}
-              >
-                {getEventTypeLabel(signal.eventType)}
-              </Chip>
-            ) : null}
-            <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
-              {signal.corpName}
-            </Text>
-          </View>
+          <Text style={[typo.bodyMedium, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+            {signal.corpName}
+          </Text>
           <Chip
             compact
             mode="flat"
@@ -102,6 +86,27 @@ function BuyScoreCardBase({ signal, onPress }: BuyScoreCardProps) {
             {gradeLabel(signal.grade)}
           </Chip>
         </View>
+
+        {/* DAR-437: 이벤트유형 칩을 기업명과 별도 행으로 분리(SignalExploreCard DAR-307 패턴).
+            같은 행에서 폭 경쟁(maxWidth 50%)으로 긴 라벨이 중간 잘리던 문제 해소 —
+            단독 행에서 내용폭으로 자연 정렬되어 짧은 라벨은 온전히, 극단 케이스만 꼬리 생략. */}
+        {signal.eventType ? (
+          <View style={styles.eventRow}>
+            <Chip
+              compact
+              mode="flat"
+              // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+              // DAR-437: 행 폭 초과 극단 케이스에서도 중간이 아닌 꼬리 생략으로 식별성 보존.
+              ellipsizeMode="tail"
+              style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
+              // DAR-143: surfaceSecondary 위 textSecondary 12px(≈4.4:1) 대비 여유 보강 — weight 500.
+              textStyle={[typo.small, styles.eventChipText, { color: colors.textSecondary }]}
+            >
+              {getEventTypeLabel(signal.eventType)}
+            </Chip>
+          </View>
+        ) : null}
 
         {/* DAR-99: 위험 배지(위험 없으면 미표시) — 단일 채널(riskFlags 평문 노출 제거) */}
         <RiskStatusBadges status={riskStatus} compact style={styles.riskBadges} />
@@ -174,19 +179,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
-  headerLeft: {
+  eventRow: {
+    // DAR-437: 이벤트 칩 전용 별도 행(기업명 아래). 기업명·등급 행과 폭 경쟁하지 않는다.
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    flex: 1,
+    marginTop: spacing.xs,
   },
   eventChip: {
     // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
     minHeight: 26,
-    // DAR-191: 긴 이벤트 라벨이 같은 행 기업명을 짓눌러 "삼…"으로 축약하던 문제 수정.
-    // flexShrink로 칩이 먼저 양보하고, maxWidth(행의 ~50%)로 칩 라벨이 대신 잘리게(기업명 우선).
-    flexShrink: 1,
-    maxWidth: '50%',
+    // DAR-437: 별도 행 단독 배치 — 행 폭에 맞춰 내용폭으로 자연 정렬(maxWidth 50% 강제압축 폐기).
+    alignSelf: 'flex-start',
   },
   // DAR-143: 이벤트 라벨칩 대비 보강(weight 500) — 인라인 스타일 경고 회피용 StyleSheet 분리.
   eventChipText: {

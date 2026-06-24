@@ -90,6 +90,8 @@ function CuratedSignalCardBase({ signal, onPress, cardWidth }: CuratedSignalCard
               mode="flat"
               // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
               maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+              // DAR-437: 고정폭 카루셀 카드라 라벨 폭 초과 위험이 가장 큼 — 꼬리 생략 명시(중간 잘림 방지).
+              ellipsizeMode="tail"
               style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
               textStyle={[typo.small, { color: colors.textSecondary }]}
             >
@@ -161,6 +163,8 @@ const styles = StyleSheet.create({
   eventChip: {
     // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).
     minHeight: 26,
+    // DAR-437: 카드 폭에 맞춰 내용폭으로 자연 정렬(짧은 라벨은 온전히, 초과 시 꼬리 생략).
+    alignSelf: 'flex-start',
   },
   gradeChip: {
     // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).

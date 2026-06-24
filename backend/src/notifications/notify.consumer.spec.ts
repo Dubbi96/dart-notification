@@ -347,11 +347,10 @@ describe('NotifyConsumer (DAR-85)', () => {
         refId: 'trade-1',
         deepLink: '/portfolio/strategy/intraday-scalp',
       });
-      // DAR-430: 제목 [ ]프리픽스 제거 — 출처(분봉 단타)는 본문 앞에 둔다.
-      expect(first.title).toBe('삼성전자 매수');
-      expect(first.body).toBe(
-        '분봉 단타 · 체결 ₩105,000 × 10주 · 현금 ₩9,500,000 · 평가금 ₩10,200,000',
-      );
+      // DAR-432: 출처 이모지(⚡ 단타)+기업명 제목 · 본문은 핵심 수치 한 줄(대괄호 0).
+      expect(first.title).toBe('⚡ 단타 · 삼성전자 매수');
+      expect(first.body).toBe('₩105,000 × 10주 · 잔액 ₩9,500,000');
+      expect(first.title).not.toContain('[');
     });
 
     it('매도 알림 — 제목에 손익%·본문에 손익(사유)·전체평가금', async () => {
@@ -362,11 +361,9 @@ describe('NotifyConsumer (DAR-85)', () => {
 
       const call = notifications.createNotificationIfAbsent.mock.calls[0][0];
       expect(call.type).toBe(NotificationType.TRADE_EXIT);
-      // DAR-430: 제목 [ ]프리픽스 제거 — 손익%는 제목 유지, 출처는 본문 앞으로.
-      expect(call.title).toBe('삼성전자 매도 +2.10%');
-      expect(call.body).toBe(
-        '분봉 단타 · 체결 ₩107,000 × 10주 · 손익 +2.10%(TAKE_PROFIT) · 현금 ₩9,500,000 · 전체평가금 ₩10,200,000',
-      );
+      // DAR-432: 출처 이모지(⚡ 단타)+기업명+손익% 제목 · 본문은 손익(사유)·평가금 한 줄.
+      expect(call.title).toBe('⚡ 단타 · 삼성전자 매도 +2.10%');
+      expect(call.body).toBe('손익 +2.10%(TAKE_PROFIT) · 평가금 ₩10,200,000');
     });
 
     it('tradePushEnabled=false 인 사용자는 인박스도 생략(과알림 방지)', async () => {
@@ -401,11 +398,11 @@ describe('NotifyConsumer (DAR-85)', () => {
       expect(expoPush.sendPushNotifications).toHaveBeenCalledTimes(1);
       const msg = expoPush.sendPushNotifications.mock.calls[0][0][0];
       expect(msg.data).toMatchObject({ type: NotificationType.TRADE_ENTRY, refId: 'trade-1' });
-      // DAR-430: 체결 카테고리 → 'trade' 채널 + 출처(strategyLabel) data 전달.
+      // DAR-430: 체결 카테고리 → 'trade' 채널. DAR-432: 출처 라벨(단타)+strategyKey data 전달.
       expect(msg.channelId).toBe('trade');
       expect(msg.data).toMatchObject({
         channelId: 'trade',
-        source: '분봉 단타',
+        source: '단타',
         strategyKey: 'intraday-scalp',
       });
     });
@@ -465,6 +462,122 @@ describe('NotifyConsumer (DAR-85)', () => {
       prisma.user.findMany.mockResolvedValue([]);
       await consumer.process(job(NOTIFY_JOB.TRADE_ENTRY, entryJob));
       expect(notifications.createNotificationIfAbsent).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── DAR-432: 출처별 이모지+출처명 메시지 템플릿 ──────────────────────────────
+  describe('출처별 메시지 템플릿 (DAR-432)', () => {
+    const baseEntry = {
+      kind: 'ENTRY' as const,
+      refId: 'trade-x',
+      corpCode: 'c1',
+      stockCode: '005930',
+      corpName: '삼성전자',
+      price: 70000,
+      shares: 5,
+      cash: 9650000,
+      totalValue: 10100000,
+      deepLink: '/portfolio?tab=sim',
+    };
+
+    async function titleFor(jobData: Record<string, unknown>): Promise<string> {
+      const { consumer, prisma, notifications } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      await consumer.process(job(NOTIFY_JOB.TRADE_ENTRY, jobData));
+      return notifications.createNotificationIfAbsent.mock.calls[0][0].title as string;
+    }
+
+    it('시스템 모의 → 🤖 모의 출처 제목', async () => {
+      const title = await titleFor({
+        ...baseEntry,
+        strategyKey: 'paper-simulation',
+        strategyLabel: '시스템 모의',
+      });
+      expect(title).toBe('🤖 모의 · 삼성전자 매수');
+    });
+
+    it('4전략(이벤트엣지) → 🎯 이벤트엣지 출처 제목', async () => {
+      const title = await titleFor({
+        ...baseEntry,
+        strategyKey: 'event-edge',
+        strategyLabel: '이벤트엣지',
+      });
+      expect(title).toBe('🎯 이벤트엣지 · 삼성전자 매수');
+    });
+
+    it('미등록 strategyKey → 🔔 알림 폴백(do-no-harm)', async () => {
+      const title = await titleFor({
+        ...baseEntry,
+        strategyKey: 'mystery-track',
+        strategyLabel: '미상',
+      });
+      expect(title).toBe('🔔 알림 · 삼성전자 매수');
+    });
+
+    it('SIGNAL → 📈 매수신호 제목(등급 한국어)+본문 점수·근거', async () => {
+      const { consumer, prisma, notifications } = makeDeps();
+      prisma.tradingSignal.findUnique.mockResolvedValue({ id: 's1', isNotified: false });
+      prisma.watchList.findMany.mockResolvedValue([{ userId: 'u1' }]);
+
+      await consumer.process(
+        job(NOTIFY_JOB.SIGNAL, {
+          signalId: 's1',
+          corpCode: 'c1',
+          corpName: '삼성전자',
+          grade: 'STRONG_BUY_CANDIDATE',
+          buyScore: 82,
+          eventType: 'SUPPLY_CONTRACT',
+        }),
+      );
+
+      const call = notifications.createNotificationIfAbsent.mock.calls[0][0];
+      expect(call.title).toBe('📈 삼성전자 매수신호 적극매수');
+      expect(call.body).toBe('82점 · SUPPLY_CONTRACT');
+      expect(call.title).not.toContain('[');
+    });
+
+    it('EXIT → 🔻 청산 권고 제목', async () => {
+      const { consumer, prisma, notifications } = makeDeps();
+      prisma.position.findUnique.mockResolvedValue({
+        corpCode: 'c1',
+        stockCode: '005930',
+        corpName: '삼성전자',
+        portfolio: { id: 'pf-1', userId: 'owner-1' },
+      });
+
+      await consumer.process(
+        job(NOTIFY_JOB.EXIT, {
+          positionId: 'pos-1',
+          corpCode: 'c1',
+          corpName: '삼성전자',
+          exitAction: 'EXIT',
+        }),
+      );
+      const call = notifications.createNotificationIfAbsent.mock.calls[0][0];
+      expect(call.title).toBe('🔻 삼성전자 청산 권고');
+    });
+
+    it('THESIS_VIOLATED → ⚠️ 투자논리 훼손 제목', async () => {
+      const { consumer, prisma, notifications } = makeDeps();
+      prisma.positionThesis.findUnique.mockResolvedValue({
+        corpCode: 'c1',
+        corpName: '삼성전자',
+        position: {
+          id: 'pos-9',
+          stockCode: '005930',
+          portfolio: { id: 'pf-2', userId: 'owner-2' },
+        },
+      });
+
+      await consumer.process(
+        job(NOTIFY_JOB.THESIS_VIOLATED, {
+          positionThesisId: 't-1',
+          corpCode: 'c1',
+          corpName: '삼성전자',
+        }),
+      );
+      const call = notifications.createNotificationIfAbsent.mock.calls[0][0];
+      expect(call.title).toBe('⚠️ 삼성전자 투자논리 훼손');
     });
   });
 

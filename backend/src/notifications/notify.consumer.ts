@@ -7,6 +7,12 @@ import { ExpoPushService } from '../expo-push/expo-push.service';
 import { NotificationsService } from './notifications.service';
 import { channelIdForType } from './notification-category';
 import {
+  sourceByKey,
+  sourceByType,
+  sourcePrefix,
+  gradeLabel,
+} from './notification-source';
+import {
   QUEUE,
   NOTIFY_JOB,
   NotifySignalJobData,
@@ -93,10 +99,13 @@ export class NotifyConsumer extends WorkerHost {
     });
 
     const label = data.corpName ?? data.stockCode ?? corpCode;
-    const title = `매수 신호 · ${label}`;
+    // DAR-432: 출처 이모지(📈)+출처명(매수신호) 한눈 식별 · 등급 한국어 · 본문은 점수+근거 한 줄.
+    //   제목: '📈 {기업명} 매수신호 {등급}' / 본문: '{점수}점 · {근거}'
+    const src = sourceByType(NotificationType.SIGNAL);
+    const grade = gradeLabel(data.grade);
+    const title = `${src.emoji} ${label} ${src.label}${grade ? ` ${grade}` : ''}`;
     const parts = [
-      data.grade,
-      data.buyScore != null ? `score ${data.buyScore}` : null,
+      data.buyScore != null ? `${data.buyScore}점` : null,
       data.eventType,
     ].filter(Boolean);
     const body = parts.join(' · ') || '신규 매수 신호가 도착했습니다.';
@@ -134,7 +143,8 @@ export class NotifyConsumer extends WorkerHost {
     }
 
     const label = data.corpName ?? data.stockCode ?? position.stockCode ?? data.corpCode;
-    const title = `청산 권고 · ${label}`;
+    // DAR-432: 출처 이모지(🔻)+기업명+동작 — '🔻 {기업명} 청산 권고'.
+    const title = `${sourceByType(NotificationType.EXIT).emoji} ${label} 청산 권고`;
     const triggers = (data.triggerTypes ?? []).join(', ');
     const body = [data.exitAction, triggers].filter(Boolean).join(' · ')
       || '청산 조건이 충족되었습니다. (권고 — 자동 주문 아님)';
@@ -171,7 +181,8 @@ export class NotifyConsumer extends WorkerHost {
     }
 
     const label = data.corpName ?? data.stockCode ?? pos?.stockCode ?? data.corpCode;
-    const title = `투자논리 훼손 · ${label}`;
+    // DAR-432: 출처 이모지(⚠️)+기업명+동작 — '⚠️ {기업명} 투자논리 훼손'.
+    const title = `${sourceByType(NotificationType.THESIS_VIOLATED).emoji} ${label} 투자논리 훼손`;
     const body = data.reason || '매수 논리의 무효 조건이 충족되었습니다.';
     // 청산 권고와 동일하게 포지션 상세로 딥링크(논리훼손→포지션 점검 동선).
     const deepLink = `/portfolio/${pos!.portfolio!.id}/position/${pos!.id}`;
@@ -208,24 +219,28 @@ export class NotifyConsumer extends WorkerHost {
     const cashStr = formatKrw(data.cash);
     const totalStr = formatKrw(data.totalValue);
 
-    // DAR-430: 제목 [ ]프리픽스 제거 — 출처(시스템 모의/단타)는 본문·data 로 전달하고
-    // 카테고리는 Android 채널·인앱 아이콘으로 구분한다. 제목은 '종목 매수/매도'만.
+    // DAR-432: 출처별 고유 이모지+출처명을 제목 앞에 둬 "어디서 발행했는지" 한눈에 보이게 한다.
+    //   출처(strategyKey) → 🤖 모의 / ⚡ 단타 / 🎯 이벤트엣지 등(SSOT notification-source).
+    //   제목: '{이모지} {출처명} · {기업명} 매수/매도 {±%}' / 본문은 핵심 수치 한 줄(대괄호 0).
+    //     매수 본문: '₩{가}×{수량} · 잔액 ₩{현금}'
+    //     매도 본문: '손익 {±%}({사유}) · 평가금 ₩{총}'
+    const src = sourceByKey(data.strategyKey);
     let title: string;
     let body: string;
     if (data.kind === 'ENTRY') {
-      title = `${label} 매수`;
-      body = `${data.strategyLabel} · 체결 ₩${priceStr} × ${data.shares}주 · 현금 ₩${cashStr} · 평가금 ₩${totalStr}`;
+      title = `${sourcePrefix(src)} · ${label} 매수`;
+      body = `₩${priceStr} × ${data.shares}주 · 잔액 ₩${cashStr}`;
     } else {
       const pct = signedPct(data.pnlPct);
       const reason = data.exitReason ? `(${data.exitReason})` : '';
-      title = `${label} 매도${pct ? ` ${pct}` : ''}`;
-      body = `${data.strategyLabel} · 체결 ₩${priceStr} × ${data.shares}주 · 손익 ${pct || '—'}${reason} · 현금 ₩${cashStr} · 전체평가금 ₩${totalStr}`;
+      title = `${sourcePrefix(src)} · ${label} 매도${pct ? ` ${pct}` : ''}`;
+      body = `손익 ${pct || '—'}${reason} · 평가금 ₩${totalStr}`;
     }
     const deepLink = data.deepLink;
-    // 출처를 푸시 data 에 실어 클라이언트가 채널/딥링크 외에도 식별할 수 있게 한다.
-    // DAR-430 출처(source) + DAR-431 트랙 식별자(strategyKey/strategyName) 동봉.
+    // 출처를 푸시 data 에 실어 클라이언트가 채널/딥링크 외에도 전략별로 식별하게 한다.
+    // DAR-432 출처명(source=SSOT 라벨) + DAR-431 트랙 식별자(strategyKey/strategyName) 동봉.
     const extraData = {
-      source: data.strategyLabel,
+      source: src.label,
       strategyKey: data.strategyKey,
       strategyName: data.strategyLabel,
     };

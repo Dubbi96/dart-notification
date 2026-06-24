@@ -5,7 +5,7 @@
  *  (1) 모든 NotificationType 이 정확히 한 카테고리(disclosure/signal/trade)로 매핑된다.
  *  (2) 버킷 구성: 공시=DISCLOSURE / 신호=SIGNAL·EXIT·THESIS_VIOLATED / 체결=TRADE_ENTRY·TRADE_EXIT.
  *  (3) Android 채널 ID(=백엔드 Expo push channelId)가 3개·고유·예상값('disclosure'/'signal'/'trade').
- *  (4) 체결 알림 제목에 [ ]프리픽스가 없다(출처는 본문/데이터로 전달).
+ *  (4) 체결 알림 제목에 [ ]대괄호가 없다(출처는 이모지+출처명으로 전달 — DAR-432 정합).
  *
  * 실행: npx tsx scripts/check-notification-categories.ts  (실패 시 exit 1)
  */
@@ -25,10 +25,11 @@ const ALL_TYPES: NotificationType[] = [
   'TRADE_EXIT',
 ];
 
-// 백엔드 notify.consumer.handleTrade 의 제목 산출(프리픽스 제거판)을 순수 재현.
-function tradeTitle(kind: 'ENTRY' | 'EXIT', label: string, pctText: string): string {
-  if (kind === 'ENTRY') return `${label} 매수`;
-  return `${label} 매도${pctText ? ` ${pctText}` : ''}`;
+// 백엔드 notify.consumer.handleTrade 의 제목 산출(DAR-432 이모지+출처명판)을 순수 재현.
+// 출처명(srcPrefix 예: '⚡ 단타')는 NOTIFICATION_SOURCES(SSOT)에서 오며, 여기서는 대괄호 부재만 본다.
+function tradeTitle(srcPrefix: string, kind: 'ENTRY' | 'EXIT', label: string, pctText: string): string {
+  if (kind === 'ENTRY') return `${srcPrefix} · ${label} 매수`;
+  return `${srcPrefix} · ${label} 매도${pctText ? ` ${pctText}` : ''}`;
 }
 
 let failures = 0;
@@ -73,12 +74,18 @@ check(
     CATEGORY_CHANNEL_ID.trade === 'trade',
 );
 
-// (4) 제목 [ ]프리픽스 제거
-const entryTitle = tradeTitle('ENTRY', '삼성전자', '');
-const exitTitle = tradeTitle('EXIT', '삼성전자', '+2.10%');
-check('매수 제목 = "삼성전자 매수"', entryTitle === '삼성전자 매수');
-check('매도 제목 = "삼성전자 매도 +2.10%"', exitTitle === '삼성전자 매도 +2.10%');
-check('제목에 [ ]프리픽스 없음', !entryTitle.includes('[') && !exitTitle.includes('['));
+// (4) 제목 [ ]대괄호 부재(출처는 이모지+출처명 프리픽스로 — DAR-432)
+const entryTitle = tradeTitle('⚡ 단타', 'ENTRY', '삼성전자', '');
+const exitTitle = tradeTitle('⚡ 단타', 'EXIT', '삼성전자', '+2.10%');
+check('매수 제목 = "⚡ 단타 · 삼성전자 매수"', entryTitle === '⚡ 단타 · 삼성전자 매수');
+check('매도 제목 = "⚡ 단타 · 삼성전자 매도 +2.10%"', exitTitle === '⚡ 단타 · 삼성전자 매도 +2.10%');
+check(
+  '제목에 [ ]대괄호 없음',
+  !entryTitle.includes('[') &&
+    !exitTitle.includes('[') &&
+    !entryTitle.includes(']') &&
+    !exitTitle.includes(']'),
+);
 
 if (failures > 0) {
   console.error(`\n실패 ${failures}건`);

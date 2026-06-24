@@ -9,6 +9,8 @@ import { ExpoPushService } from '../../expo-push/expo-push.service';
 import { ExpoPushMessage } from 'expo-server-sdk';
 import { DisclosureCollectionLog, NotificationType } from '@prisma/client';
 import { NotificationsService } from '../../notifications/notifications.service';
+import { channelIdForType } from '../../notifications/notification-category';
+import { sourceByType, truncateForTitle } from '../../notifications/notification-source';
 import { DisclosureDocumentsService } from '../disclosure-documents/disclosure-documents.service';
 import { KST_TIMEZONE, formatKstDateCompact } from '../../common/time/kst';
 import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
@@ -437,8 +439,15 @@ export class SchedulerService {
     for (const [, userData] of userDisclosureMap) {
       for (const disclosure of userData.disclosures) {
         const disclosureRcpNo = disclosure.rcept_no;
-        const title = `${disclosure.corp_name} 새 공시`;
+        const deepLink = `/disclosure/${disclosureRcpNo}`;
+        // DAR-432: 출처 이모지(📢)+기업명+공시유형을 제목에 — '📢 {기업명} · {공시유형}'.
+        //   공시유형(report_nm)은 제목 길이 가이드(≤약 40자)를 위해 절단하고, 본문에 전문(全文)을 둔다.
+        //   탭→공시 상세(deepLink). DAR-430 채널('disclosure')·DAR-431 딥링크 data 동봉(정합).
+        const emoji = sourceByType(NotificationType.DISCLOSURE).emoji;
+        const reportType = truncateForTitle(disclosure.report_nm, 24);
+        const title = `${emoji} ${disclosure.corp_name} · ${reportType}`;
         const body = disclosure.report_nm;
+        const channelId = channelIdForType(NotificationType.DISCLOSURE);
 
         // 중복 알림 방지 — DAR-84: (userId, type, refId) 멱등키. 공시는 refId=rcpNo
         const { notification, created } =
@@ -448,7 +457,7 @@ export class SchedulerService {
             refId: disclosureRcpNo,
             title,
             body,
-            deepLink: `/disclosure/${disclosureRcpNo}`,
+            deepLink,
             disclosureRcpNo,
           });
 
@@ -462,7 +471,14 @@ export class SchedulerService {
           to: token,
           title,
           body,
-          data: { disclosureRcpNo },
+          channelId,
+          data: {
+            disclosureRcpNo,
+            deepLink,
+            type: NotificationType.DISCLOSURE,
+            refId: disclosureRcpNo,
+            channelId,
+          },
         }));
 
         try {

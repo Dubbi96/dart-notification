@@ -747,7 +747,7 @@ datasource db {
 
 ## 5. KRX 시세 수집 플로우 (M4-C, DAR-8)
 
-### 5.1 EOD 일봉 캐치업 수집 (평일 18:30, DAR-375)
+### 5.1 EOD 일봉 캐치업 수집 (평일 18:30 + 재시도 21:00, DAR-375·DAR-438)
 
 ```
 @Cron('30 18 * * 1-5')  KrxMarketDataScheduler.collectDailyPrices()
@@ -784,7 +784,19 @@ datasource db {
 > 저장소 정체와 무관하게 전진, ②크론이 단일일이 아니라 `lastLoaded~target` **갭 전체를 멱등 백필**.
 > 실측(2026-06-19 라이브 KRX): 6/19=미게시, **6/18=가용(KOSPI close 9063.84)** → 프로브가 6/18 채택.
 
-### 5.2 시장지수 캐치업 수집 (평일 18:45, DAR-375)
+> **DAR-438 — KRX EOD 지연 게시 대비 당일 재시도 슬롯 추가.** KRX 는 EOD(종가) 일봉·지수를
+> 장 마감(15:30) 후 **지연 게시**하며 18:30/18:45 엔 미게시가 잦다. 그 경우 프로브 `target` 이
+> 직전 거래일에 머물러 캐치업이 `lastLoaded ≥ target` 으로 **noop(갭 0)** 되고, 당일분은 다음 평일
+> 18:30/18:45 까지(금요일분은 주말 건너 약 사흘) 스킵된다 — `1830 단일 발화`의 구조적 한계(갭 채움
+> 로직 자체는 정상). 처방: **평일 21:00(일봉)·21:05(지수) 재시도 슬롯**(`@Cron('0 21 …')`/`@Cron('5 21 …')`,
+> `retryCollectDailyPrices`/`retryCollectMarketIndices`)을 추가해 게시 완료된 저녁에 **동일 멱등 캐치업을
+> 재호출**한다. 그새 KRX 가 게시했으면 `target` 이 당일로 전진해 같은 날 자가복구되고, 이미 적재됐으면
+> `skipDuplicates`/upsert 로 무해(0건). 일봉 재시도는 18:30 정시와 **동일 경로**(`runDailyCollectWithHealth`
+> = CronRunLog `market.daily-collect` 헬스 래핑 SSOT)를 공유하고, 지수 재시도가 직후라 spine(일봉↔지수)이
+> 같은 날 함께 전진한다. 캐치업 본문·신선도 임계(72h)·도메인 로그 무변경(카덴스만 보강). 결정론 검증:
+> 프로브 2단계 mock(18:30→직전일 noop → 21:00→당일 fill)으로 같은 날 적재 증명(일봉·지수 양쪽).
+
+### 5.2 시장지수 캐치업 수집 (평일 18:45 + 재시도 21:05, DAR-375·DAR-438)
 
 ```
 KrxMarketDataScheduler.collectMarketIndices() → catchUpMarketIndices()

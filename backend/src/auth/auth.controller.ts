@@ -67,41 +67,23 @@ export class AuthController {
       // Store result temporarily with the state key
       this.authService.storeAuthResult(state, result);
 
-      // state 안에 인코딩된 앱 리턴 URL(Expo Go=exp://.../--/kakao, 빌드=gongsion://kakao)로 리다이렉트.
-      // openAuthSessionAsync가 이 URL을 감지해 브라우저를 자동 종료한다.
+      // state 안에 인코딩된 앱 리턴 URL(Expo Go=exp://.../--/kakao, 빌드=gongsion://kakao)로 302 리다이렉트.
+      // DAR-443: 인앱 브라우저(ASWebAuthenticationSession/Custom Tabs)는 사용자 제스처 없는
+      // custom-scheme 자동 이동(HTML interstitial + setTimeout)을 차단한다. HTTP 302 redirect 는
+      // OS 레벨에서 redirect_uri 네비게이션을 가로채므로 openAuthSessionAsync 가 즉시 감지해
+      // 브라우저를 자동 종료한다. 따라서 HTML 응답 대신 res.redirect(deepLink) 로 전환한다.
       const returnUrl = this.extractReturnUrl(state);
       const sep = returnUrl.includes('?') ? '&' : '?';
       const deepLink = `${returnUrl}${sep}state=${encodeURIComponent(state)}`;
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      return res.send(`
-        <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-        <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background:#F0FDFA;">
-          <div style="text-align:center;">
-            <p style="font-size:20px;color:#0D9488;">✓ 로그인 성공!</p>
-            <p style="color:#6B7280;">앱으로 돌아갑니다...</p>
-            <p style="margin-top:16px;"><a href="${deepLink}" style="color:#0D9488;font-weight:600;">돌아가지 않으면 여기를 누르세요</a></p>
-          </div>
-          <script>setTimeout(function(){window.location.href=${JSON.stringify(deepLink)};},300);</script>
-        </body></html>
-      `);
+      return res.redirect(deepLink);
     } catch (e) {
       this.logger.error('Kakao callback failed', { error: e?.message || String(e) });
       const errorMsg = e?.message || '알 수 없는 오류';
+      // DAR-443: 에러 케이스도 302 로 returnUrl?error= 를 전달해 사유 표면화를 유지한다.
       const returnUrl = this.extractReturnUrl(state);
       const sep = returnUrl.includes('?') ? '&' : '?';
       const deepLink = `${returnUrl}${sep}error=${encodeURIComponent(errorMsg)}`;
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      return res.send(`
-        <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-        <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background:#FEF2F2;">
-          <div style="text-align:center;">
-            <p style="font-size:20px;color:#DC2626;">로그인 실패</p>
-            <p style="color:#6B7280;">${errorMsg}</p>
-            <p style="margin-top:16px;"><a href="${deepLink}" style="color:#DC2626;font-weight:600;">앱으로 돌아가기</a></p>
-          </div>
-          <script>setTimeout(function(){window.location.href=${JSON.stringify(deepLink)};},300);</script>
-        </body></html>
-      `);
+      return res.redirect(deepLink);
     }
   }
 

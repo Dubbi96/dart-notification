@@ -336,6 +336,41 @@ describe('IntradayScalpService — 1사이클', () => {
     expect(t.holdMinutes).toBe(31);
   });
 
+  it('DAR-444 가드레일: 장외 시각 청산 발화여도 exitTs 는 정규장(≤15:30)으로 clamp — 00·01시 등 장외 시각 영속 봉인', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': triggerCandles(120, 121, 100) },
+    });
+    const entryTs = kstNaive('0951');
+    mock.trades.push({
+      id: 'open-guard',
+      corpCode: 'C1',
+      stockCode: '000001',
+      tradeDate: '20260622',
+      entryTs,
+      entryPrice: 100,
+      shares: 10,
+      entryReason: 'VOLUME_BREAKOUT_VWAP',
+      commission: 0,
+      tax: 0,
+      slippage: 0,
+      status: 'OPEN',
+      styleTag: INTRADAY_SCALP_STYLE_TAG,
+    });
+    const svc = new IntradayScalpService(mock.prisma);
+
+    // 청산 발화 = 환경시계 장외(KST 23:00). 가드레일이 없으면 23:00 또는 UTC 폴백(00~06시)이 영속될 위험.
+    await svc.forceCloseAll(kstMonday('2300'));
+    const t = mock.trades[0];
+    expect(t.status).toBe('CLOSED');
+    // exitTs 는 정규장 마감(15:30)으로 clamp — 장외 시각 절대 영속 안 됨.
+    expect(t.exitTs).toEqual(kstNaive('1530'));
+    // 불변식: exitTs ≥ entryTs, 그리고 정규장 시간(09:00~15:30 KST) 내.
+    expect((t.exitTs as Date).getTime()).toBeGreaterThanOrEqual(entryTs.getTime());
+    expect((t.holdMinutes as number)).toBeGreaterThanOrEqual(0);
+  });
+
   it('DAR-435 회귀: 진입 경로는 항상 분봉 충족봉 ts(scan.candle.ts)를 entryTs 로 영속(new Date 금지)', async () => {
     const mock = buildPrismaMock({
       universe: [{ stockCode: '000001', corpCode: 'C1' }],

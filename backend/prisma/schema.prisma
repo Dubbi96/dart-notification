@@ -1210,6 +1210,11 @@ model Position {
   quantity    Int
   entryAmount Float
 
+  // DAR-433: 진입가가 어느 시세 소스로 기록됐는지(REALTIME|REAL|SYNTHETIC). 청산/평가가
+  //   진입과 다른 소스로 떨어지는 cross-source 가짜손절을 막기 위해, 평가 시 진입 소스로 정렬한다.
+  //   nullable — 레거시 포지션(이 컬럼 이전 진입)은 null → 정렬 가드 면제(기존 동작 보존·회귀 0).
+  entryPriceSource String?
+
   currentPrice     Float?
   currentValue     Float?
   unrealizedPnl    Float?

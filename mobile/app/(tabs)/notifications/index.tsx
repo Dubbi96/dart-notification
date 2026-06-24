@@ -24,6 +24,7 @@ import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy
 import { useNotifications, useMarkAsRead, useMarkAllAsRead } from '@hooks/useNotifications';
 import { getTypeLabel } from '@utils/disclosureType';
 import { resolveDeepLink } from '@utils/deeplink';
+import { sourceByType } from '@utils/notificationSource';
 import { relativeTime } from '@utils/datetime';
 
 import type {
@@ -149,9 +150,11 @@ function NotificationRowBase({ item, onPress }: NotificationRowProps) {
   const { colors, typography: typo } = useTheme();
   const meta = getTypeMeta(item.type);
   const accent = colors[meta.colorKey];
-  // DAR-84 다형 표시: 공시는 조인 데이터 우선, 그 외 타입은 title/body 사용
+  // DAR-84 다형 표시: 공시는 조인 데이터 우선, 그 외 타입은 title/body 사용.
+  // DAR-432: 공시 행은 조인 데이터로 렌더하므로 출처 이모지(📢)를 SSOT 에서 직접 덧붙인다.
+  //   그 외 타입(신호/청산/논리훼손/체결)은 백엔드 title 이 이미 이모지+출처명을 포함해 그대로 렌더한다.
   const primaryText = item.disclosure
-    ? `${item.disclosure.corpName} · ${getTypeLabel(item.disclosure.disclosureType)}`
+    ? `${sourceByType('DISCLOSURE').emoji} ${item.disclosure.corpName} · ${getTypeLabel(item.disclosure.disclosureType)}`
     : (item.title ?? meta.label);
   const secondaryText = item.disclosure?.reportName ?? item.body ?? '';
   const sentAtLabel = relativeTime(item.sentAt);

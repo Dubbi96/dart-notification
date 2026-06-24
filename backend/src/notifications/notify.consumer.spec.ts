@@ -397,6 +397,26 @@ describe('NotifyConsumer (DAR-85)', () => {
       expect(msg.data).toMatchObject({ type: NotificationType.TRADE_ENTRY, refId: 'trade-1' });
     });
 
+    // DAR-431: 체결 푸시 data 에 트랙 식별자(strategyKey/strategyName)+딥링크 동봉 →
+    //   클라이언트가 전략별로 라우팅·필터링한다(포트폴리오 루트 폴백 제거).
+    it('체결 push data 에 strategyKey·strategyName·deepLink 동봉 (DAR-431)', async () => {
+      const { consumer, prisma, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([]); // 기본 ON
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+
+      await consumer.process(job(NOTIFY_JOB.TRADE_ENTRY, entryJob));
+
+      const msg = expoPush.sendPushNotifications.mock.calls[0][0][0];
+      expect(msg.data).toMatchObject({
+        type: NotificationType.TRADE_ENTRY,
+        refId: 'trade-1',
+        strategyKey: 'intraday-scalp',
+        strategyName: '분봉 단타',
+        deepLink: '/portfolio/strategy/intraday-scalp',
+      });
+    });
+
     it('master isEnabled=false → 인박스만, 푸시 미발송', async () => {
       const { consumer, prisma, notifications, expoPush } = makeDeps();
       prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);

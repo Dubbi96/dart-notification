@@ -112,9 +112,12 @@ export class PaperSimulationService {
   static readonly DEFAULT_TAKE_PROFIT_PCT = 20;
   static readonly DEFAULT_MAX_HOLD_DAYS = 20;
   // DAR-424 체결 알림 — 트랙 식별·딥링크 상수(시스템 모의).
+  // DAR-431: 딥링크를 포트폴리오 루트(`/portfolio`)에서 ★시스템 모의 서브탭(`?tab=sim`)으로
+  //   고정해 체결 알림 탭이 해당 트랙 보유·성과로 직행한다(루트 폴백 제거). 화이트리스트는
+  //   `/portfolio` prefix 로 쿼리(`?`)까지 허용(@utils/deeplink.isAllowedDeepLink).
   static readonly TRADE_STRATEGY_KEY = 'paper-simulation';
   static readonly TRADE_STRATEGY_LABEL = '시스템 모의';
-  static readonly TRADE_DEEP_LINK = '/portfolio';
+  static readonly TRADE_DEEP_LINK = '/portfolio?tab=sim';
 
   constructor(
     private readonly prisma: PrismaService,

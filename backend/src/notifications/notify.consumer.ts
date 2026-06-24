@@ -258,7 +258,11 @@ export class NotifyConsumer extends WorkerHost {
       // 푸시는 master isEnabled(기본 true) + 유효 토큰일 때만(체결 토글은 위에서 통과).
       const masterOn = s ? s.isEnabled : true;
       if (!masterOn) continue;
-      await this.sendPush(u.id, title, body, deepLink, type, data.refId);
+      // DAR-431: 트랙 식별자 동봉 — 클라이언트 전략별 라우팅/필터용.
+      await this.sendPush(u.id, title, body, deepLink, type, data.refId, {
+        strategyKey: data.strategyKey,
+        strategyName: data.strategyLabel,
+      });
     }
     this.logger.log(
       `[NOTIFY:TRADE:${data.kind}] ref=${data.refId} 수신자=${users.length} 신규인박스=${inboxed}`,
@@ -337,6 +341,9 @@ export class NotifyConsumer extends WorkerHost {
     deepLink: string,
     type: NotificationType,
     refId: string,
+    // DAR-431: 체결 알림은 트랙 식별자(strategyKey/strategyName)를 push data 에 동봉해
+    //   클라이언트가 전략별로 라우팅·필터링할 수 있게 한다(undefined 키는 제외).
+    extraData?: Record<string, string | undefined>,
   ): Promise<void> {
     const devices = await this.prisma.userDevice.findMany({
       where: { userId },
@@ -350,13 +357,19 @@ export class NotifyConsumer extends WorkerHost {
       return;
     }
 
+    const extra = extraData
+      ? Object.fromEntries(
+          Object.entries(extraData).filter(([, v]) => v != null && v !== ''),
+        )
+      : {};
+
     await this.expoPush.sendPushNotifications(
       tokens.map((to) => ({
         to,
         sound: 'default' as const,
         title,
         body,
-        data: { deepLink, type, refId },
+        data: { deepLink, type, refId, ...extra },
       })),
     );
   }

@@ -10,6 +10,11 @@
  * 공시 폴백으로도 대상을 못 만들어 무반응(dead tap)이 됐다. 알림 페이로드의 `type`·`refId`
  * 로 타입별 폴백 경로를 도출한다(SIGNAL → `/signals/{refId}`, EXIT/THESIS_VIOLATED →
  * 포지션 식별이 불가하므로 `/portfolio`). 도출 경로도 화이트리스트로 재검증한다.
+ *
+ * DAR-431: 체결 알림(TRADE_ENTRY/EXIT, DAR-424)은 트랙별 deepLink 로 라우팅한다 —
+ *   단타·4전략은 `/portfolio/strategy/<key>`, 시스템 모의는 `/portfolio?tab=sim`.
+ *   둘 다 `/portfolio` 허용 prefix 의 경로 경계(`/`)·쿼리(`?`) 규칙으로 통과하므로
+ *   포트폴리오 루트로 폴백하지 않는다(트랙별 SSOT 와 검증은 `@utils/tradeTracks`).
  */
 
 /** 라우팅 허용 prefix — 이 목록 밖 경로는 무시(임의 라우팅·신뢰 경계 방지) */

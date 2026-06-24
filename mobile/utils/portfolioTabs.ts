@@ -28,6 +28,19 @@ export const PORTFOLIO_TABS: PortfolioTabDef[] = [
   { value: 'style', label: '스타일', a11y: '스타일 성과 비교 탭' },
 ];
 
+const TAB_VALUES: ReadonlySet<string> = new Set(PORTFOLIO_TABS.map((t) => t.value));
+
+/**
+ * 딥링크 쿼리(`/portfolio?tab=sim`)의 `tab` 파라미터 → 유효 서브탭(순수, DAR-431).
+ *
+ * 체결 알림(시스템 모의 등)이 트랙 서브탭으로 직행하도록 진입 시 초기 탭을 결정한다.
+ * 허용 목록(PORTFOLIO_TABS) 밖 값·미지정은 기본 탭(`live`)으로 안전 폴백한다
+ * (임의 라우팅 방지 — 신뢰 경계).
+ */
+export function resolveInitialSubTab(tab: unknown): PortfolioSubTab {
+  return typeof tab === 'string' && TAB_VALUES.has(tab) ? (tab as PortfolioSubTab) : 'live';
+}
+
 /**
  * 실전 탭 빈 상태 분기(순수).
  * 보유 포지션이 0건이면 실제 주문 부재라 '준비 중'(preparing)을 안내하고,

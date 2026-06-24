@@ -3,7 +3,7 @@ import { View, Text, FlatList, ScrollView, TouchableOpacity, StyleSheet } from '
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { router, useScrollToTop } from 'expo-router';
+import { router, useScrollToTop, useLocalSearchParams } from 'expo-router';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { PositionCard } from '@components/portfolio/PositionCard';
@@ -30,7 +30,7 @@ import {
 import { pnlColor, formatPnlPercent } from '@utils/signalDisplay';
 import { currentPortfolioBasisLabel } from '@utils/marketQuoteDisplay';
 import { dedupeByStock } from '@utils/dedupe';
-import { PORTFOLIO_TABS, pickLiveEmptyState } from '@utils/portfolioTabs';
+import { PORTFOLIO_TABS, pickLiveEmptyState, resolveInitialSubTab } from '@utils/portfolioTabs';
 
 import type { Position } from '@app-types/portfolio.types';
 import type { SortKey } from '@components/portfolio/PositionSearchBar';
@@ -46,7 +46,21 @@ const STATUS_ORDER: Record<Position['thesisStatus'], number> = {
 
 export default function PortfolioScreen() {
   const { colors, typography: typo } = useTheme();
-  const [subTab, setSubTab] = useState<PortfolioSubTab>('live');
+  // DAR-431: 체결 알림 딥링크(`/portfolio?tab=sim` 등)가 해당 트랙 서브탭으로 직행하도록
+  //   초기 탭을 쿼리 파라미터에서 도출(허용 목록 밖/미지정은 'live' 폴백).
+  const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
+  const [subTab, setSubTab] = useState<PortfolioSubTab>(() => resolveInitialSubTab(tabParam));
+  // 이미 마운트된 포트폴리오 탭에 새 딥링크(`?tab=...`)가 도착하면 해당 트랙으로 전환.
+  //   렌더 단계에서 직전 파라미터와 비교해 동기화(React 권장 'derive-from-props' 패턴 —
+  //   useEffect+setState 의 추가 커밋/캐스케이드 렌더 회피). 유효한 tab 값이 올 때만 반응해
+  //   사용자의 수동 탭 전환을 덮어쓰지 않는다(파라미터 부재·불변=무동작).
+  const [seenTabParam, setSeenTabParam] = useState(tabParam);
+  if (tabParam !== seenTabParam) {
+    setSeenTabParam(tabParam);
+    if (typeof tabParam === 'string' && tabParam.length > 0) {
+      setSubTab(resolveInitialSubTab(tabParam));
+    }
+  }
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('urgency');
   // DAR-356: '오늘 점검할 포지션'은 요약 아래로 강등(세컨더리)하고 기본 접힘 — 요약 글랜스 보호.

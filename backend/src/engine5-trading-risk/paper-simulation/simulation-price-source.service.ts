@@ -191,18 +191,43 @@ export class SimulationPriceSourceService {
     }
 
     const src = await this.resolveSource(corpCode, tradeDate);
-    if (src === 'SYNTHETIC') {
-      // 합성은 시뮬 캘린더(2026)에 적재 — 매핑 없이 sim 날짜로 조회.
-      const row = await this.prisma.simulatedDailyPrice.findFirst({
-        where: { corpCode, tradeDate: { lte: tradeDate } },
-        orderBy: { tradeDate: 'desc' },
-        select: { ...this.rowSelect, tradeDate: true },
-      });
-      if (!row) return null;
-      const { tradeDate: rowDate, ...rest } = row;
-      return { ...rest, source: 'SYNTHETIC', sourceDate: rowDate };
-    }
-    // 실데이터: REAL_THEN_SYNTHETIC 모드는 시뮬 날짜를 실 거래일로 매핑(일별 전진 = 실가 변동).
+    if (src === 'SYNTHETIC') return this.syntheticRow(corpCode, tradeDate);
+    return this.realRow(corpCode, tradeDate);
+  }
+
+  /**
+   * DAR-433: 특정 소스(REALTIME|REAL|SYNTHETIC)로 고정해 일봉/현재가 1행을 가져온다.
+   *   진입가가 기록된 소스와 동일 소스로 청산/평가를 정렬해 cross-source 가짜손절을 막는 가드용.
+   *   - REALTIME: 신선한 실시간 현재가만(없으면 null → 호출측이 정렬 포기·기존 평가 유지).
+   *   - REAL: 실 KRX 일봉(SYNTHETIC 전용 모드여도 강제 실데이터 조회). 없으면 null.
+   *   - SYNTHETIC: 합성 일봉. 없으면 null.
+   *   latestPriceRow 의 폴백 체인(우선순위)과 달리, 여기서는 '요청 소스만' 조회한다(혼합 금지·정렬 전용).
+   */
+  async priceRowForSource(
+    corpCode: string,
+    tradeDate: string,
+    source: SimPriceSource,
+  ): Promise<SimPriceRow | null> {
+    if (source === 'REALTIME') return this.realtimeRowFor(corpCode);
+    if (source === 'SYNTHETIC') return this.syntheticRow(corpCode, tradeDate);
+    return this.realRow(corpCode, tradeDate);
+  }
+
+  /** 합성 일봉 1행(source=SYNTHETIC). 시뮬 캘린더(2026)에 적재 — 매핑 없이 sim 날짜로 조회. */
+  private async syntheticRow(corpCode: string, tradeDate: string): Promise<SimPriceRow | null> {
+    const row = await this.prisma.simulatedDailyPrice.findFirst({
+      where: { corpCode, tradeDate: { lte: tradeDate } },
+      orderBy: { tradeDate: 'desc' },
+      select: { ...this.rowSelect, tradeDate: true },
+    });
+    if (!row) return null;
+    const { tradeDate: rowDate, ...rest } = row;
+    return { ...rest, source: 'SYNTHETIC', sourceDate: rowDate };
+  }
+
+  /** 실 KRX 일봉 1행(source=REAL). REAL_THEN_SYNTHETIC 모드는 시뮬 날짜를 실 거래일로 매핑. */
+  private async realRow(corpCode: string, tradeDate: string): Promise<SimPriceRow | null> {
+    // REAL_THEN_SYNTHETIC 모드는 시뮬 날짜를 실 거래일로 매핑(일별 전진 = 실가 변동).
     //   매핑일 이하 최신 실 거래일 종가(공백일/주말은 lte 로 직전 거래일 종가 자동 사용).
     const realDate = this.realQueryDate(tradeDate);
     let row = await this.prisma.stockDailyPrice.findFirst({

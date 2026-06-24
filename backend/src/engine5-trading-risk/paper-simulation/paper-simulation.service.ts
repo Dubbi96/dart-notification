@@ -368,13 +368,28 @@ export class PaperSimulationService {
   private async refreshHoldingsRealtime(
     portfolioId: string,
   ): Promise<{ fetched: number; cached: number }> {
-    if (!this.kis?.isConfigured || !this.realtimeCache) return { fetched: 0, cached: 0 };
     const open = await this.prisma.position.findMany({
       where: { portfolioId, status: 'OPEN' },
       select: { corpCode: true, stockCode: true },
     });
+    return this.warmRealtimeQuotes(open);
+  }
+
+  /**
+   * DAR-433: 주어진 종목 목록의 실시간 현재가를 KIS 에서 능동 조회해 RealtimeQuoteCache 에 적재한다.
+   *   보유종목(refreshHoldingsRealtime)뿐 아니라 '진입 후보'도 진입 직전 동일하게 warm 해, 장중
+   *   진입이 청산과 같은 REALTIME 소스로 평가되도록(cross-source 비대칭 제거). 장외엔 실시간 부재라
+   *   no-op(fetched=0) → 진입·청산 모두 일봉(REAL)으로 대칭(정렬 가드가 추가 보장).
+   *   - KIS 미주입/키 미설정·캐시 미주입이면 no-op(fetched=0) → 평가는 priceSource 폴백(회귀 0).
+   *   - corpCode 중복 제거 → 레이트리밋·비용 가드. 순차 호출(겹침 락이 보호). 상한 MAX_HOLDINGS.
+   *   - 한 종목 실패는 건너뛰고 계속(graceful). ★시세 수집 primitive(HTTP/캐시)만 — AI 금지영역 미접촉.
+   */
+  private async warmRealtimeQuotes(
+    targets: Array<{ corpCode: string | null; stockCode: string | null }>,
+  ): Promise<{ fetched: number; cached: number }> {
+    if (!this.kis?.isConfigured || !this.realtimeCache) return { fetched: 0, cached: 0 };
     const byCorp = new Map<string, { corpCode: string; stockCode: string }>();
-    for (const r of open) {
+    for (const r of targets) {
       if (!r.corpCode || !r.stockCode) continue;
       if (!byCorp.has(r.corpCode)) byCorp.set(r.corpCode, { corpCode: r.corpCode, stockCode: r.stockCode });
       if (byCorp.size >= PaperSimulationService.MAX_HOLDINGS) break;
@@ -666,6 +681,7 @@ export class PaperSimulationService {
         currentValue: true,
         unrealizedPnl: true,
         unrealizedPnlPct: true,
+        entryPriceSource: true,
       },
       orderBy: { currentValue: 'desc' },
     });
@@ -686,7 +702,7 @@ export class PaperSimulationService {
     return Promise.all(
       deduped.map(async (r) => {
         const base = toSimPositionDetail(r, corpNameByCode);
-        const live = await this.revalueLive(r.corpCode, r.entryPrice, r.quantity, asOf);
+        const live = await this.revalueLive(r.corpCode, r.entryPrice, r.quantity, asOf, r.entryPriceSource);
         if (!live) return base;
         return {
           ...base,
@@ -714,6 +730,7 @@ export class PaperSimulationService {
     entryPrice: number,
     quantity: number,
     asOf: string,
+    entryPriceSource?: string | null,
   ): Promise<{
     currentPrice: number;
     currentValue: number;
@@ -722,7 +739,8 @@ export class PaperSimulationService {
     source: SimPriceRow['source'];
     sourceDate?: string;
   } | null> {
-    const row = await this.latestPriceRow(corpCode, asOf);
+    // DAR-433: 표시 현재가도 진입 소스로 정렬(표시=엔진 일관 — cross-source 가짜갭을 화면에도 안 보이게).
+    const row = await this.alignedPriceRow(corpCode, asOf, entryPriceSource);
     if (!row || row.closePrice <= 0) return null;
     const currentPrice = row.closePrice;
     return {
@@ -854,6 +872,10 @@ export class PaperSimulationService {
     const baseBudget =
       PaperSimulationService.INITIAL_CAPITAL * (pf.maxSinglePositionPct / 100);
 
+    // DAR-433: 진입 직전 후보 종목 실시간가 능동 warm — 장중 진입이 청산과 같은 REALTIME 소스로
+    //   기록되게 정렬(cross-source 비대칭 제거). 장외/키 미설정이면 no-op → 진입·청산 모두 일봉(REAL).
+    await this.warmRealtimeQuotes(candidates);
+
     let opened = 0;
     for (const sig of candidates) {
       // DAR-426: 현금 소진 시 추가 매수 중단(현금<0 절대 금지). 후보는 buyScore desc 정렬이라
@@ -861,8 +883,11 @@ export class PaperSimulationService {
       if (availableCash <= 0) break;
       // DAR-122: 같은 종목 재진입 방지(동일 사이클 내 중복 0).
       if (openedCorpCodes.has(sig.corpCode)) continue;
-      const price = await this.latestClose(sig.corpCode, tradeDate);
+      // DAR-433: 진입가와 그 시세 소스를 함께 취득(청산 정렬용으로 소스를 Position 에 영속).
+      const priceRow = await this.latestPriceRow(sig.corpCode, tradeDate);
+      const price = priceRow?.closePrice ?? null;
       if (price === null || price <= 0) continue;
+      const entryPriceSource = priceRow?.source ?? null;
       // DAR-362: 등급 + buyScore 차등 사이징(고확신 더, 저확신 덜 — 균일 탈피).
       let budget = entryBudgetScored(
         baseBudget,
@@ -919,6 +944,7 @@ export class PaperSimulationService {
             positionThesisId: thesis?.id ?? null,
             entryDate: new Date(),
             entryPrice: fillPrice,
+            entryPriceSource,
             quantity: trade.filledShares,
             entryAmount: fillPrice * trade.filledShares,
             currentPrice: fillPrice,
@@ -981,7 +1007,8 @@ export class PaperSimulationService {
     });
     let n = 0;
     for (const p of positions) {
-      const day = await this.latestPriceRow(p.corpCode, tradeDate);
+      // DAR-433: 스냅샷 평가가도 진입 소스로 정렬(영속 미실현손익이 cross-source 가짜갭으로 깔리지 않게).
+      const day = await this.alignedPriceRow(p.corpCode, tradeDate, p.entryPriceSource);
       if (!day) continue;
       const close = day.closePrice;
       const positionValue = close * p.quantity;
@@ -1040,7 +1067,8 @@ export class PaperSimulationService {
     let exited = 0;
 
     for (const p of positions) {
-      const day = await this.latestPriceRow(p.corpCode, tradeDate);
+      // DAR-433: 평가가를 진입 소스로 정렬 — '진입=정체 일봉 ↔ 청산=실시간' cross-source 가짜손절 차단.
+      const day = await this.alignedPriceRow(p.corpCode, tradeDate, p.entryPriceSource);
       if (!day) continue;
       const close = day.closePrice;
 
@@ -1451,6 +1479,34 @@ export class PaperSimulationService {
     });
     // 미주입 폴백은 StockDailyPrice(실 KRX) 직접 읽기 → source='REAL'.
     return row ? { ...row, source: 'REAL' } : null;
+  }
+
+  /**
+   * DAR-433: 보유 포지션 평가가를 '진입 소스'에 정렬해 cross-source 가짜손절을 막는다.
+   *   진입가가 정체 일봉(REAL)으로 기록됐는데 청산만 실시간(REALTIME)으로 평가되면, 일봉이
+   *   며칠 정체된 환경에서 진입 직후 -8~-18% 가짜손절이 발화한다(DAR-433 근본원인). 평가 소스를
+   *   진입 소스로 정렬해 '진입=일봉 ↔ 청산=실시간' 혼합을 원천 차단한다(같은 소스끼리만 비교).
+   *
+   *   동작:
+   *     - entrySource 미상(레거시 null)·priceSource 미주입: latestPriceRow 그대로(기존 동작·회귀 0).
+   *     - latestPriceRow 결과 소스가 진입 소스와 같으면 그대로.
+   *     - 다르면 진입 소스로 고정 조회(priceRowForSource). 조회 성공 시 그 행으로 평가(정렬),
+   *       실패(예: 진입=REALTIME인데 지금 실시간 stale)면 latestPriceRow 결과 유지(폴백·정직).
+   */
+  private async alignedPriceRow(
+    corpCode: string,
+    tradeDate: string,
+    entrySource: string | null | undefined,
+  ): Promise<SimPriceRow | null> {
+    const day = await this.latestPriceRow(corpCode, tradeDate);
+    if (!day || !entrySource || day.source === entrySource) return day;
+    if (!this.priceSource) return day;
+    const aligned = await this.priceSource.priceRowForSource(
+      corpCode,
+      tradeDate,
+      entrySource as SimPriceRow['source'],
+    );
+    return aligned ?? day;
   }
 
   /** 청산 후 N거래일 종가(소스 경유). priceSource 미주입이면 StockDailyPrice 폴백. */

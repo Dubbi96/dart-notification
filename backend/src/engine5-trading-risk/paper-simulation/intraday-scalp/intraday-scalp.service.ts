@@ -23,6 +23,10 @@ import {
 } from '../../../engine3-quant-market/intraday-scalp/intraday-scalp-signal';
 import { RealtimeQuoteCache } from '../../../engine3-quant-market/market-data/realtime-quote.cache';
 import { KrxMarketDataScheduler } from '../../../engine3-quant-market/market-data/krx-market-data.scheduler';
+import {
+  minuteTimestamp,
+  kstWallClockIso,
+} from '../../../engine3-quant-market/market-data/minute-timestamp';
 import { simulateFill, DEFAULT_FILL_PARAMS } from '../../domain/fill-simulator';
 import { checkRisk } from '../../domain/risk-check.service';
 import {
@@ -620,6 +624,7 @@ export class IntradayScalpService {
       id: string;
       corpCode: string;
       stockCode: string;
+      tradeDate: string;
       entryPrice: unknown;
       shares: number;
       entryTs: Date;
@@ -645,13 +650,21 @@ export class IntradayScalpService {
     const netPnl = grossPnl - fill.commission - entryCommission - tax;
     const cost = entryPrice * trade.shares;
     const returnPct = cost > 0 ? (netPnl / cost) * 100 : 0;
-    const holdMinutes = Math.max(0, Math.floor((now.getTime() - trade.entryTs.getTime()) / 60_000));
+    // ★DAR-435 청산 ts 를 entryTs(분봉 KST 벽시계 naive)와 동일 timebase 로 통일한다.
+    //   `now`(진짜 UTC instant)를 그대로 영속하면 entry 와 9시간 어긋나 exitTs<entryTs·holdMinutes=0 가 된다.
+    //   진입 거래일(trade.tradeDate) 기준 청산 KST 벽시계 HHMM 을 분봉 ts 로 산출(날짜 경계 교차 차단).
+    //   파싱 실패 시에만 graceful 폴백(now).
+    const exitTsKst = minuteTimestamp(trade.tradeDate, this.hhmm(now)) ?? now;
+    const holdMinutes = Math.max(
+      0,
+      Math.floor((exitTsKst.getTime() - trade.entryTs.getTime()) / 60_000),
+    );
 
     await this.prisma.intradayScalpTrade.update({
       where: { id: trade.id },
       data: {
         status: 'CLOSED',
-        exitTs: now,
+        exitTs: exitTsKst,
         exitPrice,
         exitReason: reason,
         holdMinutes,
@@ -842,8 +855,10 @@ export class IntradayScalpService {
         stockCode: r.stockCode,
         corpName: nameMap.get(r.corpCode) ?? r.stockCode,
         tradeDate: r.tradeDate,
-        entryTs: r.entryTs.toISOString(),
-        exitTs: r.exitTs ? r.exitTs.toISOString() : null,
+        // ★DAR-435 entry/exit 둘 다 분봉 KST 벽시계 naive → `+09:00` 오프셋 명시 ISO 로 직렬화.
+        //   `toISOString()`(UTC `Z`)은 클라이언트의 Asia/Seoul 변환과 이중 오프셋(+9 중복) → 19:14 류 표시.
+        entryTs: kstWallClockIso(r.entryTs),
+        exitTs: r.exitTs ? kstWallClockIso(r.exitTs) : null,
         entryReason: r.entryReason,
         exitReason: (r.exitReason as ScalpExitReason | null) ?? null,
         entryPrice: toNum(r.entryPrice),

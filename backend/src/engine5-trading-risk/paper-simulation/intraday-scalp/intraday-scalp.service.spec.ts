@@ -5,11 +5,21 @@
 import { IntradayScalpService } from './intraday-scalp.service';
 import { INTRADAY_SCALP_STYLE_TAG } from './intraday-scalp-exit';
 
-/** KST 평일 정규장 시각 헬퍼. 2026-06-22 = 월요일. */
+/** KST 평일 정규장 시각 헬퍼(진짜 UTC instant). 2026-06-22 = 월요일. `now` 인자용. */
 function kstMonday(hhmm: string): Date {
   const hh = hhmm.slice(0, 2);
   const mm = hhmm.slice(2, 4);
   return new Date(`2026-06-22T${hh}:${mm}:00+09:00`);
+}
+
+/**
+ * DAR-435: 분봉 KST 벽시계를 UTC 컴포넌트에 담은 naive instant — 영속 entryTs/exitTs 의 timebase.
+ *   minuteTimestamp('20260622', hhmm) 와 동일(분봉 수집기·진입 경로가 쓰는 규약).
+ */
+function kstNaive(hhmm: string): Date {
+  const hh = Number(hhmm.slice(0, 2));
+  const mm = Number(hhmm.slice(2, 4));
+  return new Date(Date.UTC(2026, 5, 22, hh, mm));
 }
 
 interface ScalpRow {
@@ -212,7 +222,7 @@ describe('IntradayScalpService — 1사이클', () => {
       corpCode: 'CX',
       stockCode: '999999',
       tradeDate: '20260101',
-      entryTs: kstMonday('0930'),
+      entryTs: kstNaive('0930'),
       entryPrice: 60_000,
       shares: 200, // 진입원가 12,000,000 > 자본 10,000,000
       entryReason: 'SEED',
@@ -289,6 +299,61 @@ describe('IntradayScalpService — 1사이클', () => {
     expect(mock.trades[0].exitReason).toBe('FORCE_CLOSE_EOD');
   });
 
+  it('DAR-435 청산 timebase 통일: exitTs 가 entryTs 와 동일 naive-KST·exitTs>entryTs·holdMinutes 정확', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': triggerCandles(120, 121, 100) }, // 현재가 120 → 익절 트리거
+    });
+    // 진입 KST 09:51(분봉 naive)인 OPEN 포지션 선주입.
+    const entryTs = kstNaive('0951');
+    mock.trades.push({
+      id: 'open-time',
+      corpCode: 'C1',
+      stockCode: '000001',
+      tradeDate: '20260622',
+      entryTs,
+      entryPrice: 100,
+      shares: 10,
+      entryReason: 'VOLUME_BREAKOUT_VWAP',
+      commission: 0,
+      tax: 0,
+      slippage: 0,
+      status: 'OPEN',
+      styleTag: INTRADAY_SCALP_STYLE_TAG,
+    });
+    const svc = new IntradayScalpService(mock.prisma);
+
+    // 청산 발화 = KST 10:22(= UTC 01:22Z). new Date() 라면 naive 01:22 로 영속돼 역전됐을 시각.
+    const exit = await svc.runExitCycle(kstMonday('1022'));
+    expect(exit.exited).toBe(1);
+    const t = mock.trades[0];
+    expect(t.status).toBe('CLOSED');
+    // exitTs 가 entryTs 와 동일 timebase(naive-KST 10:22)로 영속 — UTC 컴포넌트가 곧 KST 벽시계.
+    expect(t.exitTs).toEqual(kstNaive('1022'));
+    expect((t.exitTs as Date).getTime()).toBeGreaterThan(entryTs.getTime());
+    // holdMinutes = 10:22 − 09:51 = 31분(0 으로 clamp 되지 않음).
+    expect(t.holdMinutes).toBe(31);
+  });
+
+  it('DAR-435 회귀: 진입 경로는 항상 분봉 충족봉 ts(scan.candle.ts)를 entryTs 로 영속(new Date 금지)', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': triggerCandles(105, 106, 300) },
+    });
+    const svc = new IntradayScalpService(mock.prisma);
+    // 사이클 발화 now=10:00 이지만 entryTs 는 now 가 아니라 충족봉(triggerCandles 마지막 = naive 00:25)이어야 한다.
+    await svc.runEntryCycle(kstMonday('1000'));
+    const t = mock.trades[0];
+    // 분봉 ts = whole-minute(.000 fraction)·UTC 컴포넌트 = KST 벽시계. new Date() instant 가 아니다.
+    expect(t.entryTs).toEqual(new Date(Date.UTC(2026, 5, 22, 0, 25)));
+    expect(t.entryTs.getUTCSeconds()).toBe(0);
+    expect(t.entryTs.getMilliseconds()).toBe(0);
+    // now(10:00 KST = 01:00Z instant)와 달라야 함 — entryTs 가 now 로 오염되지 않음을 봉인.
+    expect(t.entryTs.getTime()).not.toBe(kstMonday('1000').getTime());
+  });
+
   it('getStatus: forward 누적·저표본 graceful(표본 0)', async () => {
     const { prisma } = buildPrismaMock({ universe: [], candlesByStock: {} });
     const svc = new IntradayScalpService(prisma);
@@ -312,7 +377,7 @@ describe('IntradayScalpService — 1사이클', () => {
       corpCode: 'C1',
       stockCode: '000001',
       tradeDate,
-      entryTs: kstMonday('0930'),
+      entryTs: kstNaive('0930'),
       entryPrice: 100,
       shares: 10,
       entryReason: 'TEST',
@@ -460,7 +525,7 @@ describe('IntradayScalpService — DAR-415 윈도우 스캔 진입', () => {
       corpCode: 'C1',
       stockCode: '000001',
       tradeDate: '20260622',
-      entryTs: kstMonday('0935'),
+      entryTs: kstNaive('0935'),
       entryPrice: 100,
       shares: 10,
       entryReason: 'VOLUME_BREAKOUT_VWAP',
@@ -525,7 +590,7 @@ describe('IntradayScalpService — DAR-416 거래 타임라인(getTradeHistory)'
     corpCode: 'C1',
     stockCode: '000001',
     tradeDate: '20260622',
-    entryTs: kstMonday('1000'),
+    entryTs: kstNaive('1000'),
     entryPrice: 100,
     shares: 10,
     entryReason: 'VOLUME_BREAKOUT_VWAP',
@@ -543,10 +608,10 @@ describe('IntradayScalpService — DAR-416 거래 타임라인(getTradeHistory)'
         id: 'closed-1',
         corpCode: 'C1',
         stockCode: '000001',
-        entryTs: kstMonday('0935'),
+        entryTs: kstNaive('0935'),
         entryPrice: 100,
         status: 'CLOSED',
-        exitTs: kstMonday('0950'),
+        exitTs: kstNaive('0950'),
         exitPrice: 102,
         exitReason: 'TAKE_PROFIT',
         returnPct: 1.5,
@@ -556,7 +621,7 @@ describe('IntradayScalpService — DAR-416 거래 타임라인(getTradeHistory)'
         id: 'open-1',
         corpCode: 'C2',
         stockCode: '000002',
-        entryTs: kstMonday('1010'),
+        entryTs: kstNaive('1010'),
         entryPrice: 200,
         status: 'OPEN',
         exitTs: null,
@@ -589,9 +654,10 @@ describe('IntradayScalpService — DAR-416 거래 타임라인(getTradeHistory)'
     expect(hist.trades[1].exitReason).toBe('TAKE_PROFIT');
     expect(hist.trades[1].returnPct).toBeCloseTo(1.5, 6);
     expect(hist.trades[1].entryReason).toBe('VOLUME_BREAKOUT_VWAP');
-    // ISO 문자열 직렬화.
+    // ★DAR-435 ISO 직렬화 = `+09:00` 오프셋 명시(naive-KST 벽시계를 클라이언트가 정확히 복원).
     expect(typeof hist.trades[1].entryTs).toBe('string');
-    expect(hist.trades[1].exitTs).toBe(kstMonday('0950').toISOString());
+    expect(hist.trades[1].entryTs).toBe('2026-06-22T09:35:00+09:00');
+    expect(hist.trades[1].exitTs).toBe('2026-06-22T09:50:00+09:00');
   });
 
   it('DAR-418 fee 투명화: gross/net 수익률·총수수료(수수료+세금) 노출', async () => {

@@ -902,6 +902,11 @@ docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs -f backend
 ```
 
+> ★prod 이미지 빌드는 `src/e2e`(수동 게이트 E2E 스크립트)를 컴파일 대상에서 제외한다
+> (`backend/tsconfig.build.json` exclude). 이 스크립트는 `.dockerignore` 로 제외된 `test/` 를
+> import 하므로 Docker 빌드 컨텍스트에서 모듈 해소가 깨진다(DAR-442). 런타임/dist 어디서도
+> 참조되지 않으며, 로컬에선 여전히 `npx ts-node src/e2e/integration-regression.ts` 로 직접 실행 가능하다.
+
 #### ⑦ DB 스키마 반영 (prisma migrate deploy — 1회성, 운영 안전 분리)
 
 자동 마이그레이션은 운영 안전을 위해 기동 경로에서 분리했다. **명시적으로 1회** 실행한다(스키마 변경 시 반복):

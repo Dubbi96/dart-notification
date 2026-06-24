@@ -9,6 +9,7 @@
 //   비용율 SSOT = engine5 체결 파라미터(FillParams) → roundTripCostPct(). 하드코딩 금지.
 
 import { DEFAULT_FILL_PARAMS, roundTripCostPct } from '../../domain/fill-simulator';
+import { minuteTimestamp } from '../../../engine3-quant-market/market-data/minute-timestamp';
 
 /** 영속·표면화 트랙 식별 태그(PaperTrade.styleTag / strategyKey SSOT). */
 export const INTRADAY_SCALP_STYLE_TAG = 'intraday-scalp';
@@ -116,6 +117,75 @@ export function isForceExitTime(nowHhmm: string, params: ScalpExitParams = DEFAU
 /** 신규 진입 마감 시각 도달 여부(이후 진입 금지). */
 export function isPastEntryCutoff(nowHhmm: string): boolean {
   return hhmmAtOrAfter(nowHhmm, ENTRY_CUTOFF_HHMM);
+}
+
+/** KRX 정규장 시작 KST 벽시계 HHMM(청산 ts 하한 경계). */
+export const KRX_REGULAR_OPEN_HHMM = '0900';
+/** KRX 정규장 종료 KST 벽시계 HHMM(청산 ts 상한 경계). */
+export const KRX_REGULAR_CLOSE_HHMM = '1530';
+
+/** 청산 ts 불변식 가드레일(DAR-444) 결과. */
+export interface ScalpExitTimebaseSeal {
+  /** 봉인된 청산 ts — 항상 entryTs 이후·장중(KST 09:00~15:30) naive instant. */
+  exitTs: Date;
+  /** 보유 시간(분, ≥0) = exitTs − entryTs. */
+  holdMinutes: number;
+  /** 불변식 위반으로 보정(clamp)됐는지. true 면 호출부가 ERROR 로그. */
+  clamped: boolean;
+  /** 위반 사유(로그용). 위반 없으면 null. */
+  violation: string | null;
+}
+
+/**
+ * 분봉 단타 청산 ts 불변식 가드레일(DAR-444) — 순수 함수(시계·DB 비의존).
+ *
+ * 영속 직전 exitTs 가 **(1) entryTs 이후**이고 **(2) 장중(KST 09:00~15:30)**인지 봉인한다.
+ * DAR-435 가 청산 timebase(naive-KST)를 통일했으나, timebase 회귀(예: exitTs=`new Date()`
+ * 진짜 UTC instant, 또는 minuteTimestamp 파싱 실패 폴백)가 또 생기면 장외(00~06시)·역전
+ * 시각이 DB 에 들어갈 수 있다. 이 가드가 영속 직전 마지막 방어선이다.
+ *
+ * 규약: entryTs·candidateExitTs 는 'KST 벽시계를 UTC 컴포넌트에 담은 naive instant'(minuteTimestamp
+ *   규약). 따라서 getTime() 비교가 곧 KST 벽시계 비교다. 실-UTC instant(now 폴백)는 같은 벽시계의
+ *   naive 보다 9h 뒤(작은 getTime)라, 항상 하한(entryTs) 미달 → 보정으로 흡수된다.
+ *
+ * 보정: 장중 경계 [max(entryTs, 09:00), 15:30] 로 clamp. entryTs 는 진입 충족봉(장중)이므로 하한으로
+ *   안전. minuteTimestamp 파싱 실패 시 graceful(해당 경계 미적용).
+ */
+export function sealScalpExitTimebase(
+  entryTs: Date,
+  candidateExitTs: Date,
+  tradeDate: string,
+): ScalpExitTimebaseSeal {
+  const openTs = minuteTimestamp(tradeDate, KRX_REGULAR_OPEN_HHMM);
+  const closeTs = minuteTimestamp(tradeDate, KRX_REGULAR_CLOSE_HHMM);
+  // 하한 = max(entryTs, 장시작). entryTs 가 장중이면 보통 entryTs(== 또는 > 09:00).
+  const lower = openTs && openTs.getTime() > entryTs.getTime() ? openTs : entryTs;
+  const upper = closeTs ?? candidateExitTs; // 파싱 실패 graceful — 상한 미적용.
+
+  const violations: string[] = [];
+  let sealed = candidateExitTs;
+  if (sealed.getTime() < lower.getTime()) {
+    violations.push(
+      `exitTs(${sealed.toISOString()}) < 하한 ${lower.toISOString()}(역전/장외-전)`,
+    );
+    sealed = lower;
+  }
+  if (sealed.getTime() > upper.getTime()) {
+    violations.push(
+      `exitTs(${sealed.toISOString()}) > 장마감 ${upper.toISOString()}(장외-후)`,
+    );
+    sealed = upper;
+  }
+  const holdMinutes = Math.max(
+    0,
+    Math.floor((sealed.getTime() - entryTs.getTime()) / 60_000),
+  );
+  return {
+    exitTs: sealed,
+    holdMinutes,
+    clamped: violations.length > 0,
+    violation: violations.length > 0 ? violations.join('; ') : null,
+  };
 }
 
 /**

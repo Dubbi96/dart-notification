@@ -40,6 +40,7 @@ import {
   grossTakeProfitThresholdPct,
   passesEntryFeeHurdle,
   isPastEntryCutoff,
+  sealScalpExitTimebase,
 } from './intraday-scalp-exit';
 import {
   KST_TIMEZONE,
@@ -654,11 +655,18 @@ export class IntradayScalpService {
     //   `now`(진짜 UTC instant)를 그대로 영속하면 entry 와 9시간 어긋나 exitTs<entryTs·holdMinutes=0 가 된다.
     //   진입 거래일(trade.tradeDate) 기준 청산 KST 벽시계 HHMM 을 분봉 ts 로 산출(날짜 경계 교차 차단).
     //   파싱 실패 시에만 graceful 폴백(now).
-    const exitTsKst = minuteTimestamp(trade.tradeDate, this.hhmm(now)) ?? now;
-    const holdMinutes = Math.max(
-      0,
-      Math.floor((exitTsKst.getTime() - trade.entryTs.getTime()) / 60_000),
-    );
+    const candidateExitTs = minuteTimestamp(trade.tradeDate, this.hhmm(now)) ?? now;
+    // ★DAR-444 가드레일(영속 직전 마지막 방어선): exitTs 가 entryTs 이후·장중(09:00~15:30 KST)인지
+    //   불변식 봉인. timebase 회귀로 장외/역전 시각이 들어오면 장중 경계로 clamp + ERROR 로그.
+    const seal = sealScalpExitTimebase(trade.entryTs, candidateExitTs, trade.tradeDate);
+    if (seal.clamped) {
+      this.logger.error(
+        `[Scalp] ★청산 ts 불변식 위반 보정 ${trade.stockCode} tradeDate=${trade.tradeDate}: ` +
+          `${seal.violation} → exitTs=${kstWallClockIso(seal.exitTs)}`,
+      );
+    }
+    const exitTsKst = seal.exitTs;
+    const holdMinutes = seal.holdMinutes;
 
     await this.prisma.intradayScalpTrade.update({
       where: { id: trade.id },

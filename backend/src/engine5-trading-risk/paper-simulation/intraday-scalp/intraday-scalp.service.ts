@@ -651,10 +651,31 @@ export class IntradayScalpService {
     const cost = entryPrice * trade.shares;
     const returnPct = cost > 0 ? (netPnl / cost) * 100 : 0;
     // ★DAR-435 청산 ts 를 entryTs(분봉 KST 벽시계 naive)와 동일 timebase 로 통일한다.
-    //   `now`(진짜 UTC instant)를 그대로 영속하면 entry 와 9시간 어긋나 exitTs<entryTs·holdMinutes=0 가 된다.
     //   진입 거래일(trade.tradeDate) 기준 청산 KST 벽시계 HHMM 을 분봉 ts 로 산출(날짜 경계 교차 차단).
-    //   파싱 실패 시에만 graceful 폴백(now).
-    const exitTsKst = minuteTimestamp(trade.tradeDate, this.hhmm(now)) ?? now;
+    // ★DAR-444 가드레일 — 장외/역전 청산시각이 절대 DB에 영속되지 않게 봉인(실투자 불변식).
+    //   ① `?? now`(UTC instant) 폴백 제거: 폴백이 발동하면 entry 와 9시간 어긋난 00~06시 청산이 재발하므로 금지.
+    //   ② 정규장(09:00~15:30 KST)·entryTs 이후로 clamp: timebase 오염·역전·장외가 들어와도 안전 경계로 보정.
+    const exitCandidate = minuteTimestamp(trade.tradeDate, this.hhmm(now));
+    const marketOpen = minuteTimestamp(trade.tradeDate, '0900');
+    const marketClose = minuteTimestamp(trade.tradeDate, '1530');
+    let exitTsKst: Date;
+    if (exitCandidate && marketOpen && marketClose) {
+      const lo = Math.max(trade.entryTs.getTime(), marketOpen.getTime());
+      const hi = marketClose.getTime();
+      const clamped = Math.min(Math.max(exitCandidate.getTime(), lo), hi);
+      if (clamped !== exitCandidate.getTime()) {
+        this.logger.warn(
+          `[Scalp][가드레일] 청산 ts 보정 ${trade.stockCode}: ${exitCandidate.toISOString()} → ${new Date(clamped).toISOString()} (entry=${trade.entryTs.toISOString()}, reason=${reason})`,
+        );
+      }
+      exitTsKst = new Date(clamped);
+    } else {
+      // tradeDate/hhmm 파싱 실패 — UTC now 폴백 금지. entryTs(분봉 KST)로 최소한 역전·장외 차단.
+      exitTsKst = trade.entryTs;
+      this.logger.error(
+        `[Scalp][가드레일] minuteTimestamp 파싱 실패 → exitTs=entryTs 폴백 ${trade.stockCode} (tradeDate=${trade.tradeDate}, hhmm=${this.hhmm(now)})`,
+      );
+    }
     const holdMinutes = Math.max(
       0,
       Math.floor((exitTsKst.getTime() - trade.entryTs.getTime()) / 60_000),

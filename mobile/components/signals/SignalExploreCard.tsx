@@ -105,6 +105,8 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
                 mode="flat"
                 // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
                 maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                // DAR-437: 행 폭 초과 극단 케이스에서도 중간이 아닌 꼬리 생략으로 식별성 보존.
+                ellipsizeMode="tail"
                 style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
                 textStyle={[typo.small, { color: colors.textSecondary }]}
               >

@@ -8,8 +8,10 @@ import { Logger } from '@nestjs/common';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import {
+  LifecycleRule,
   ObjectStorageDriver,
   ObjectStorageService,
+  ObjectStorageStats,
   PutObjectOptions,
 } from './object-storage.types';
 import { decodeFromStorage, encodeForStorage } from './gzip-codec';
@@ -66,6 +68,45 @@ export class LocalObjectStorageService extends ObjectStorageService {
     } catch {
       // 없으면 무시(멱등 삭제).
     }
+  }
+
+  /**
+   * DAR-397: prefix 하위 객체 용량 통계(재귀 walk). 디렉터리 부재면 빈 통계.
+   * 로컬은 압축 후 파일 크기를 그대로 합산(stat.size).
+   */
+  async stats(prefix = ''): Promise<ObjectStorageStats> {
+    const base = this.resolveKey(prefix === '' ? '.' : prefix);
+    let objectCount = 0;
+    let totalBytes = 0;
+    const walk = async (dir: string): Promise<void> => {
+      let entries: import('fs').Dirent[];
+      try {
+        entries = await fs.readdir(dir, { withFileTypes: true });
+      } catch {
+        return; // 디렉터리 부재 → 빈 통계.
+      }
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await walk(full);
+        } else if (entry.isFile()) {
+          try {
+            const st = await fs.stat(full);
+            objectCount++;
+            totalBytes += st.size;
+          } catch {
+            // 경합 삭제 등 — 건너뜀.
+          }
+        }
+      }
+    };
+    await walk(base);
+    return { prefix, objectCount, totalBytes, available: true };
+  }
+
+  /** DAR-397: 로컬은 라이프사이클 미지원(no-op) → false. */
+  async applyLifecycle(_rules: LifecycleRule[]): Promise<boolean> {
+    return false;
   }
 
   /** key → 절대경로. 루트 탈출(../) 방지. */

@@ -2,7 +2,11 @@
 // DAR-399: tables 오프로드 스토어 — JSON 직렬화 오프로드/lazy fetch/캐시/graceful 회귀.
 
 import { TablesStoreService } from './tables-store.service';
-import { ObjectStorageService } from './object-storage.types';
+import {
+  LifecycleRule,
+  ObjectStorageService,
+  ObjectStorageStats,
+} from './object-storage.types';
 import { encodeForStorage, decodeFromStorage } from './gzip-codec';
 
 /** 인메모리 객체 스토리지(드라이버 무관 동작 검증) — gzip 라운드트립 포함. */
@@ -29,6 +33,20 @@ class FakeStorage extends ObjectStorageService {
   }
   async delete(key: string): Promise<void> {
     this.store.delete(key);
+  }
+  async stats(prefix = ''): Promise<ObjectStorageStats> {
+    let totalBytes = 0;
+    let objectCount = 0;
+    for (const [k, v] of this.store) {
+      if (k.startsWith(prefix)) {
+        objectCount++;
+        totalBytes += v.byteLength;
+      }
+    }
+    return { prefix, objectCount, totalBytes, available: true };
+  }
+  async applyLifecycle(_rules: LifecycleRule[]): Promise<boolean> {
+    return false;
   }
 }
 

@@ -143,6 +143,18 @@ External APIs:
     저장하고 `rawHtmlS3Key` 포인터만 DB 에 보유(`rawFilePath` 신규 기록 중단). `LocalStorageService` 는
     `@deprecated`(provider 해제). 저장 실패는 graceful(파이프라인 무중단).
 
+- **저장소 계층화·디스크 회수·모니터링 (DAR-397)**: 개별 오프로드(rawText DAR-395, tables DAR-399,
+  원본 HTML DAR-401)가 *무엇*을 S3 로 내보낼지를 정했다면, `storage-ops` 모듈(`StorageOpsModule`)은
+  그 계층화(hot=로컬, cold=S3) 상태를 *운영·관측·회수*한다(개별 오프로드와 기능 중복 없음).
+  `StorageHealthService`(`GET /storage/health`)는 DB 총/테이블별 용량(`pg_total_relation_size`),
+  rawText 오프로드 진행, 객체 스토리지 용량(`ObjectStorageService.stats`), 로컬 임계 경고를 단일
+  스냅샷으로 제공한다. `StorageMaintenanceService` 는 디스크 실회수(`POST /storage/vacuum` =
+  `VACUUM FULL` 전후 리포트·화이트리스트 테이블), 잔존 레거시 로컬 원시 파일(`rawFilePath`) 회수
+  (`POST /storage/cleanup-local-artifacts` — DAR-401 이후 신규 write 는 0이므로 과거분만 정리),
+  콜드 라이프사이클 적용(`POST /storage/lifecycle` = `disclosure-rawtext/` 의
+  STANDARD_IA@30d→GLACIER@90d, S3만 실적용)을 담당한다. 운영 절차:
+  `docs/deployment.md §저장소 계층화·로컬 최소화 운영`.
+
 ### 2.3 Database (PostgreSQL + Prisma)
 
 **주요 역할**

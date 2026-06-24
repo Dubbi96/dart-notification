@@ -38,6 +38,7 @@ import { IntradayScalpModule } from './engine5-trading-risk/paper-simulation/int
 import { CollectionStatusModule } from './collection-status/collection-status.module';
 import { CronHealthModule } from './cron-health/cron-health.module';
 import { OpsModule } from './ops/ops.module';
+import { StorageOpsModule } from './storage-ops/storage-ops.module';
 import {
   envValidationSchema,
   envValidationOptions,
@@ -142,6 +143,7 @@ import {
 
     // 횡단 — 운영 헬스(/health)/메트릭(/ops/metrics) 엔드포인트 (DAR-111)
     OpsModule,
+    StorageOpsModule,
 
   ],
   providers: [

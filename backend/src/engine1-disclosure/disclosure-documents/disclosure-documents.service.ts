@@ -173,6 +173,9 @@ export class DisclosureDocumentsService {
       // DAR-401: 원본 HTML 저장을 S3/객체 스토리지로 고정(로컬 디스크 storage/{rcpNo}/index.html 제거).
       //   gzip 업로드 후 반환 S3 키를 rawHtmlS3Key 포인터에 기록한다. 저장 실패는 graceful(키 null,
       //   파이프라인 무중단). rawFilePath 는 더 이상 신규 기록하지 않는다(레거시 로컬 경로 — null 고정).
+      // DAR-397: 로컬 원시 파일(rawFilePath) write 는 #352(DAR-401)에서 이미 제거됨 — 본 계층화 PR은
+      //   로컬 최소화 의도를 그대로 충족(신규 write 0). 잔존 레거시 rawFilePath 회수는 storage-ops 의
+      //   POST /storage/cleanup-local-artifacts 가 담당한다.
       const content = html ?? xml ?? '';
       if (content) {
         rawHtmlS3Key = await this.saveRawHtml(rcpNo, content);

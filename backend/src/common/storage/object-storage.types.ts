@@ -18,6 +18,33 @@ export interface PutObjectOptions {
 /** 활성 드라이버 식별자(관측·진단용). */
 export type ObjectStorageDriver = 'local' | 's3';
 
+/** DAR-397: prefix 하위 객체 용량 통계(용량 모니터링 — 객체수/바이트). */
+export interface ObjectStorageStats {
+  /** 조회한 논리 prefix(예: 'disclosure-rawtext/'). */
+  prefix: string;
+  /** 객체(파일) 수. */
+  objectCount: number;
+  /** 총 바이트(gzip 압축 후 실제 저장 크기). */
+  totalBytes: number;
+  /** 산출 가능 여부 — S3 list 권한/네트워크 실패 시 false(부분 가용·graceful). */
+  available: boolean;
+}
+
+/** DAR-397: 콜드 라이프사이클 전환(추출 후 원문은 STANDARD_IA→GLACIER 로 자동 강등). */
+export interface LifecycleTransition {
+  storageClass: 'STANDARD_IA' | 'GLACIER' | 'DEEP_ARCHIVE';
+  /** 객체 생성 후 N일 경과 시 전환. */
+  days: number;
+}
+
+/** DAR-397: 버킷 라이프사이클 규칙(prefix 단위). */
+export interface LifecycleRule {
+  id: string;
+  /** 적용 대상 논리 prefix(드라이버가 버킷 prefix 부착). */
+  prefix: string;
+  transitions: LifecycleTransition[];
+}
+
 /**
  * 객체 스토리지 추상화.
  *
@@ -51,4 +78,16 @@ export abstract class ObjectStorageService {
 
   /** 객체 삭제(없어도 예외 없이 무시). */
   abstract delete(key: string): Promise<void>;
+
+  /**
+   * DAR-397: prefix 하위 객체 용량 통계(용량 모니터링).
+   * 실패/미지원 시 available=false 의 0 통계를 graceful 반환(모니터 비차단).
+   */
+  abstract stats(prefix?: string): Promise<ObjectStorageStats>;
+
+  /**
+   * DAR-397: 콜드 라이프사이클 규칙 적용(idempotent).
+   * 지원 드라이버(S3)만 실제 적용 → true. 로컬/미지원/미구성은 no-op → false.
+   */
+  abstract applyLifecycle(rules: LifecycleRule[]): Promise<boolean>;
 }

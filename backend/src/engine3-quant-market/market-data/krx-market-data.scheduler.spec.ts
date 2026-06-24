@@ -1109,6 +1109,68 @@ describe('KrxMarketDataScheduler — DAR-375 최신 가용일 프로브 / 갭 �
     expect(prisma.marketIndex.upsert).not.toHaveBeenCalled();
   });
 
+  // ─── DAR-438: KRX EOD 지연 게시 대비 당일 재시도 슬롯(21:00/21:05) 자가복구 ───
+  it('DAR-438 일봉: 18:30 미게시(target=직전일) noop → 21:00 재시도(target=당일) 같은 날 자가복구', async () => {
+    const krx = makeRealDateKrx({
+      fetchStockDaily: jest.fn().mockResolvedValue([sampleRow]),
+      fetchKosqdaqDaily: jest.fn().mockResolvedValue([]),
+      // 프로브를 스파이로 대체하므로 makeRealDateKrx 의 formatDate Once('20260620')를
+      // 소비하지 않는다 → 날짜 라벨 누수 방지 위해 실 포매터로 고정.
+      formatDate: jest.fn(realFormat),
+    });
+    const prisma = makePrisma();
+    // 저장소 최신 = 6/22 (당일 6/23 미적재 — 이슈 실측 재현)
+    (prisma.stockDailyPrice.findFirst as jest.Mock).mockResolvedValue({ tradeDate: '20260622' });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    // KRX EOD 지연 게시: 18:30 프로브는 아직 직전일(6/22), 21:00 프로브는 당일(6/23) 전진.
+    jest
+      .spyOn(scheduler, 'resolveLatestAvailableTradeDate')
+      .mockResolvedValueOnce('20260622')
+      .mockResolvedValue('20260623');
+
+    // 18:30 정시 슬롯: target=lastLoaded=6/22 → 갭 0 noop(당일분 미적재).
+    const first = await scheduler.collectDailyPrices();
+    expect(first.target).toBe('20260622');
+    expect(first.filledDates).toEqual([]);
+    expect(prisma.stockDailyPrice.createMany).not.toHaveBeenCalled();
+
+    // 21:00 재시도 슬롯: target 6/23 전진 → 당일분 멱등 적재(자가복구).
+    const retry = await scheduler.retryCollectDailyPrices();
+    expect(retry.target).toBe('20260623');
+    expect(retry.filledDates).toEqual(['20260623']);
+    expect(prisma.stockDailyPrice.createMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('DAR-438 지수: 18:45 미게시 noop → 21:05 재시도 당일 적재(일봉과 spine 동반 전진)', async () => {
+    const krx = makeRealDateKrx({
+      fetchIndexDaily: jest.fn().mockResolvedValue([sampleKospi]),
+      formatDate: jest.fn(realFormat),
+    });
+    const prisma = makePrisma();
+    // lastLoaded(6/22) + 연속성 가드 prev(close 2700, ±2%로 통과)
+    (prisma.marketIndex.findFirst as jest.Mock).mockResolvedValue({
+      tradeDate: '20260622',
+      closeIndex: 2700,
+    });
+    const scheduler = new KrxMarketDataScheduler(prisma, krx, makeDart());
+
+    jest
+      .spyOn(scheduler, 'resolveLatestAvailableTradeDate')
+      .mockResolvedValueOnce('20260622')
+      .mockResolvedValue('20260623');
+
+    // 18:45 정시 슬롯: target=lastLoaded=6/22 → noop.
+    const first = await scheduler.collectMarketIndices();
+    expect(first.filledDates).toEqual([]);
+    expect(prisma.marketIndex.upsert).not.toHaveBeenCalled();
+
+    // 21:05 재시도 슬롯: target 6/23 전진 → KOSPI+KOSDAQ 당일분 적재.
+    const retry = await scheduler.retryCollectMarketIndices();
+    expect(retry.filledDates).toEqual(['20260623']);
+    expect(prisma.marketIndex.upsert).toHaveBeenCalledTimes(2); // KOSPI+KOSDAQ
+  });
+
   // ─── DAR-428: EOD 일봉 전진수집 cron 을 CronRunLog(market.daily-collect)에 기록 ───
   describe('collectDailyPrices — CronRunLog 헬스 기록 (DAR-428)', () => {
     function makeRecorder() {

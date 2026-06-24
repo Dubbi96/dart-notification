@@ -52,10 +52,44 @@ export class KrxMarketDataScheduler {
     totalSkipped: number;
     message?: string;
   }> {
-    // DAR-428: 캐치업 본체(MarketDataCollectionLog 기록)는 그대로 두고, cron 실행 헬스를
-    //   CronRunLog(market.daily-collect)에 추가로 남긴다 — EOD 일봉 크론이 조용히 멈춘
-    //   (일봉 6/18 정체) 사건을 신선도 안전망(cron-health)에 분봉과 동일하게 표면화하기 위함.
-    //   recorder 미주입 시 기존 거동(직접 호출) 보존. 락 조기반환은 SKIPPED 로 기록.
+    return this.runDailyCollectWithHealth();
+  }
+
+  /**
+   * 평일 21:00(KST) — 일봉 EOD 재시도 슬롯 (DAR-438).
+   * KRX 는 EOD(종가) 일봉을 장 마감(15:30) 후 지연 게시하며 18:30 엔 미게시가 잦다.
+   * 그 경우 `resolveLatestAvailableTradeDate` 프로브 target 이 직전 거래일에 머물러
+   * 캐치업이 noop(갭 0) 되고, 당일분은 다음 평일 18:30 까지(금요일분은 주말 건너 약 사흘)
+   * 스킵된다(F1 동일 구조). 21:00 엔 KRX 가 게시 완료해 있어 동일 멱등 캐치업을 재호출하면
+   * target 이 당일로 전진해 같은 날 자가복구된다. 이미 적재됐으면 skipDuplicates 로 무해(0건).
+   */
+  @Cron('0 21 * * 1-5', { timeZone: KST_TIMEZONE })
+  async retryCollectDailyPrices(): Promise<{
+    target: string;
+    lastLoaded: string | null;
+    filledDates: string[];
+    emptyDates: string[];
+    totalSaved: number;
+    totalSkipped: number;
+    message?: string;
+  }> {
+    return this.runDailyCollectWithHealth();
+  }
+
+  /**
+   * 일봉 캐치업을 cron-health(CronRunLog) 래핑으로 실행 (DAR-428).
+   * 18:30 정시 슬롯과 21:00 재시도 슬롯이 동일 경로를 공유한다(SSOT).
+   * recorder 미주입 시 기존 거동(직접 호출) 보존. 락 조기반환은 SKIPPED 로 기록.
+   */
+  private runDailyCollectWithHealth(): Promise<{
+    target: string;
+    lastLoaded: string | null;
+    filledDates: string[];
+    emptyDates: string[];
+    totalSaved: number;
+    totalSkipped: number;
+    message?: string;
+  }> {
     const run = () => this.catchUpDailyPrices('CRON');
     if (!this.cronRunRecorder) return run();
     return this.cronRunRecorder.record(CRON_JOB_KEYS.DAILY_PRICE_COLLECT, run, {
@@ -121,6 +155,24 @@ export class KrxMarketDataScheduler {
    */
   @Cron('45 18 * * 1-5', { timeZone: KST_TIMEZONE })
   async collectMarketIndices(): Promise<{
+    target: string;
+    lastLoaded: string | null;
+    filledDates: string[];
+    totalSaved: number;
+    quarantined: number;
+    message?: string;
+  }> {
+    return this.catchUpMarketIndices('CRON');
+  }
+
+  /**
+   * 평일 21:05(KST) — 시장지수 EOD 재시도 슬롯 (DAR-438).
+   * 일봉(21:00)과 동일 근거 — 18:45 KRX 지수 미게시로 캐치업이 noop 된 당일분을
+   * 게시 완료된 21:05 에 동일 멱등 캐치업으로 자가복구한다(연속성 가드·휴장 스킵 동일 적용).
+   * 일봉 재시도 직후라 spine(일봉↔지수) 양쪽이 같은 날 함께 전진한다.
+   */
+  @Cron('5 21 * * 1-5', { timeZone: KST_TIMEZONE })
+  async retryCollectMarketIndices(): Promise<{
     target: string;
     lastLoaded: string | null;
     filledDates: string[];

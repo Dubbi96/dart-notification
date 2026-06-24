@@ -26,7 +26,11 @@ import { getTypeLabel } from '@utils/disclosureType';
 import { resolveDeepLink } from '@utils/deeplink';
 import { relativeTime } from '@utils/datetime';
 
-import type { Notification, NotificationType } from '@app-types/notification.types';
+import type {
+  Notification,
+  NotificationType,
+  NotificationCategory,
+} from '@app-types/notification.types';
 
 // DAR-84: 통합 인박스 — 타입별 아이콘/색상 토큰(하드코딩 색상 0) + 폴백 라벨
 type TypeMeta = {
@@ -46,19 +50,27 @@ const NOTIFICATION_TYPE_META: Record<NotificationType, TypeMeta> = {
 const getTypeMeta = (type: NotificationType): TypeMeta =>
   NOTIFICATION_TYPE_META[type] ?? NOTIFICATION_TYPE_META.DISCLOSURE;
 
-// DAR-161: 알림 인박스 타입 필터 세그먼트. null = 전체.
-type SegmentKey = NotificationType | null;
+// DAR-430: 알림 인박스 카테고리(3 버킷) 필터 세그먼트. null = 전체.
+// 신호 버킷은 SIGNAL·EXIT·THESIS_VIOLATED 를, 체결 버킷은 TRADE_ENTRY·TRADE_EXIT 를 묶는다.
+// (행 단위 아이콘·색·라벨은 타입별 유지 — DAR-161 정합.)
+type SegmentKey = NotificationCategory | null;
 interface Segment {
   key: SegmentKey;
   label: string;
 }
 const SEGMENTS: readonly Segment[] = [
   { key: null, label: '전체' },
-  { key: 'DISCLOSURE', label: '공시' },
-  { key: 'SIGNAL', label: '신호' },
-  { key: 'EXIT', label: '청산' },
-  { key: 'THESIS_VIOLATED', label: '논리훼손' },
+  { key: 'disclosure', label: '공시' },
+  { key: 'signal', label: '신호' },
+  { key: 'trade', label: '체결' },
 ];
+const CATEGORY_LABEL: Record<NotificationCategory, string> = {
+  disclosure: '공시',
+  signal: '신호',
+  trade: '체결',
+};
+const getCategoryLabel = (category: NotificationCategory): string =>
+  CATEGORY_LABEL[category];
 
 // DAR-161: 세그먼트 칩 — 타입별 미읽음 점 배지. 활성 시 primary 배경 + primaryForeground 텍스트.
 interface TypeSegmentChipProps {
@@ -202,8 +214,8 @@ export default function NotificationsScreen() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const { showSnackbar } = useSnackbar();
 
-  // DAR-161: 선택된 타입 세그먼트(null = 전체). queryKey에 반영돼 캐시가 분리된다.
-  const [selectedType, setSelectedType] = useState<SegmentKey>(null);
+  // DAR-430: 선택된 카테고리 세그먼트(null = 전체). queryKey에 반영돼 캐시가 분리된다.
+  const [selectedCategory, setSelectedCategory] = useState<SegmentKey>(null);
 
   // DAR-181: 탭 재탭 시 알림 리스트 최상단 복귀.
   const listRef = useRef<FlatList<Notification>>(null);
@@ -219,7 +231,7 @@ export default function NotificationsScreen() {
     error,
     isRefetching,
     refetch,
-  } = useNotifications({ enabled: isAuthenticated, type: selectedType ?? undefined });
+  } = useNotifications({ enabled: isAuthenticated, category: selectedCategory ?? undefined });
   const markAsRead = useMarkAsRead();
   const markAllAsRead = useMarkAllAsRead();
 
@@ -229,10 +241,10 @@ export default function NotificationsScreen() {
   );
 
   const unreadCount = data?.pages[0]?.meta.unreadCount ?? 0;
-  // 타입별 미읽음 — 세그먼트 점 배지용(전체 기준, 현재 필터와 무관).
-  const unreadByType = data?.pages[0]?.meta.unreadByType ?? {};
+  // DAR-430: 카테고리별 미읽음 — 세그먼트 점 배지용(전체 기준, 현재 필터와 무관).
+  const unreadByCategory = data?.pages[0]?.meta.unreadByCategory ?? {};
 
-  const handleSelectType = useCallback((key: SegmentKey) => setSelectedType(key), []);
+  const handleSelectCategory = useCallback((key: SegmentKey) => setSelectedCategory(key), []);
 
   // Hooks는 조건부 early return 위에서 호출(rules-of-hooks).
   const handleNotificationPress = useCallback(
@@ -324,7 +336,7 @@ export default function NotificationsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* DAR-161: 타입 세그먼트 칩 — 공시/신호/청산/논리훼손 + 전체, 타입별 미읽음 배지 */}
+      {/* DAR-430: 카테고리 세그먼트 칩 — 공시/신호/체결 + 전체, 카테고리별 미읽음 배지 */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -334,9 +346,9 @@ export default function NotificationsScreen() {
           <TypeSegmentChip
             key={segment.key ?? 'ALL'}
             segment={segment}
-            active={selectedType === segment.key}
-            unread={segment.key === null ? unreadCount : (unreadByType[segment.key] ?? 0)}
-            onSelect={handleSelectType}
+            active={selectedCategory === segment.key}
+            unread={segment.key === null ? unreadCount : (unreadByCategory[segment.key] ?? 0)}
+            onSelect={handleSelectCategory}
           />
         ))}
       </ScrollView>
@@ -385,12 +397,12 @@ export default function NotificationsScreen() {
         refreshing={isRefetching}
         onRefresh={refetch}
         ListEmptyComponent={
-          // 타입 필터 적용 중이면 '해당 타입 알림 없음'으로 정직하게 안내(장애 위장 방지).
-          selectedType ? (
+          // 카테고리 필터 적용 중이면 '해당 카테고리 알림 없음'으로 정직하게 안내(장애 위장 방지).
+          selectedCategory ? (
             <EmptyState
               icon="bell-off"
-              title={`${getTypeMeta(selectedType).label} 알림이 아직 없어요`}
-              description="다른 타입을 선택하거나 전체에서 확인해 보세요"
+              title={`${getCategoryLabel(selectedCategory)} 알림이 아직 없어요`}
+              description="다른 카테고리를 선택하거나 전체에서 확인해 보세요"
             />
           ) : (
             <EmptyState {...emptyStateCopy.notificationsEmpty} />

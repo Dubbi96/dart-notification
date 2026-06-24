@@ -287,6 +287,71 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
     });
   });
 
+  // ─── DAR-430: 카테고리(3 버킷) 필터 + 카테고리별 미읽음 ──────────────────────
+  describe('findAll — DAR-430 카테고리 필터 + 카테고리별 미읽음', () => {
+    it('category=signal 지정 시 where.type 에 신호 버킷(SIGNAL/EXIT/THESIS_VIOLATED) in 필터 반영', async () => {
+      const { service, prisma } = buildService();
+      prisma.notificationHistory.findMany.mockResolvedValueOnce([]);
+
+      await service.findAll('u1', { category: 'signal' });
+
+      const findArg = prisma.notificationHistory.findMany.mock.calls[0][0];
+      expect(findArg.where).toMatchObject({
+        userId: 'u1',
+        type: {
+          in: [
+            NotificationType.SIGNAL,
+            NotificationType.EXIT,
+            NotificationType.THESIS_VIOLATED,
+          ],
+        },
+      });
+    });
+
+    it('category=trade 지정 시 체결 버킷(TRADE_ENTRY/TRADE_EXIT) in 필터', async () => {
+      const { service, prisma } = buildService();
+
+      await service.findAll('u1', { category: 'trade' });
+
+      const findArg = prisma.notificationHistory.findMany.mock.calls[0][0];
+      expect(findArg.where.type).toEqual({
+        in: [NotificationType.TRADE_ENTRY, NotificationType.TRADE_EXIT],
+      });
+    });
+
+    it('category 가 type 보다 우선(둘 다 지정 시 카테고리 버킷으로 조회)', async () => {
+      const { service, prisma } = buildService();
+
+      await service.findAll('u1', {
+        category: 'disclosure',
+        type: NotificationType.SIGNAL,
+      });
+
+      const findArg = prisma.notificationHistory.findMany.mock.calls[0][0];
+      expect(findArg.where.type).toEqual({ in: [NotificationType.DISCLOSURE] });
+    });
+
+    it('카테고리별 미읽음 맵은 타입 집계를 3 버킷으로 합산한다', async () => {
+      const { service, prisma } = buildService();
+      prisma.notificationHistory.groupBy.mockResolvedValueOnce([
+        { type: NotificationType.DISCLOSURE, _count: { _all: 3 } },
+        { type: NotificationType.SIGNAL, _count: { _all: 1 } },
+        { type: NotificationType.EXIT, _count: { _all: 2 } },
+        { type: NotificationType.TRADE_ENTRY, _count: { _all: 4 } },
+        { type: NotificationType.TRADE_EXIT, _count: { _all: 1 } },
+      ]);
+
+      const result = await service.findAll('u1', {});
+
+      // 공시=3 / 신호=SIGNAL1+EXIT2=3 / 체결=ENTRY4+EXIT1=5
+      expect(result.meta.unreadByCategory).toEqual({
+        disclosure: 3,
+        signal: 3,
+        trade: 5,
+      });
+    });
+  });
+
   // ─── DAR-289: 페이지네이션 tie-break ─────────────────────────────────────────
   // sentAt 이 배치 발송으로 동값일 때, 유니크 tie-break(id) 없이는 동값 행 순서가
   // 미결정되어 페이지 경계에서 중복/누락이 난다. fake findMany 로 그 불안정성을 모델링.

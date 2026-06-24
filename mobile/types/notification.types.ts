@@ -8,6 +8,28 @@ export type NotificationType =
   | 'TRADE_ENTRY'
   | 'TRADE_EXIT';
 
+// DAR-430: 알림 카테고리(3 버킷) — Android 채널·인앱 필터의 단일 진실원천.
+//  - 공시(disclosure): DISCLOSURE
+//  - 신호(signal):    SIGNAL · EXIT · THESIS_VIOLATED
+//  - 체결(trade):     TRADE_ENTRY · TRADE_EXIT
+export type NotificationCategory = 'disclosure' | 'signal' | 'trade';
+
+export const NOTIFICATION_CATEGORY: Record<NotificationType, NotificationCategory> = {
+  DISCLOSURE: 'disclosure',
+  SIGNAL: 'signal',
+  EXIT: 'signal',
+  THESIS_VIOLATED: 'signal',
+  TRADE_ENTRY: 'trade',
+  TRADE_EXIT: 'trade',
+};
+
+// 카테고리 → Android 알림 채널 ID(=백엔드 Expo push channelId 와 정확히 일치).
+export const CATEGORY_CHANNEL_ID: Record<NotificationCategory, string> = {
+  disclosure: 'disclosure',
+  signal: 'signal',
+  trade: 'trade',
+};
+
 export interface Notification {
   id: string;
   userId: string;

@@ -1,15 +1,18 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { notificationService } from '@services/notification.service';
 
-import type { NotificationType } from '@app-types/notification.types';
+import type { NotificationCategory } from '@app-types/notification.types';
 
-// DAR-161: type 필터를 queryKey에 포함해 세그먼트 전환 시 캐시를 분리한다.
-export function useNotifications(options?: { enabled?: boolean; type?: NotificationType }) {
-  const type = options?.type;
+// DAR-430: category 필터를 queryKey에 포함해 세그먼트 전환 시 캐시를 분리한다.
+export function useNotifications(options?: {
+  enabled?: boolean;
+  category?: NotificationCategory;
+}) {
+  const category = options?.category;
 
   return useInfiniteQuery({
-    queryKey: ['notifications', type ?? 'ALL'],
-    queryFn: ({ pageParam = 1 }) => notificationService.getList(pageParam, 20, type),
+    queryKey: ['notifications', category ?? 'ALL'],
+    queryFn: ({ pageParam = 1 }) => notificationService.getList(pageParam, 20, category),
     getNextPageParam: (lastPage) => {
       if (lastPage.meta.page < (lastPage.meta.totalPages ?? 1)) return lastPage.meta.page + 1;
       return undefined;

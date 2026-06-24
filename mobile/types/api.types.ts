@@ -12,6 +12,8 @@ export interface PaginationMeta {
   unreadCount?: number;
   // DAR-161: 알림 인박스 타입별 미읽음 카운트(DISCLOSURE/SIGNAL/EXIT/THESIS_VIOLATED).
   unreadByType?: Record<string, number>;
+  // DAR-430: 카테고리(3 버킷)별 미읽음 카운트(disclosure/signal/trade).
+  unreadByCategory?: Record<string, number>;
 }
 
 export interface AiCostMetrics {

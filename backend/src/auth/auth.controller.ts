@@ -67,41 +67,23 @@ export class AuthController {
       // Store result temporarily with the state key
       this.authService.storeAuthResult(state, result);
 
-      // state 안에 인코딩된 앱 리턴 URL(Expo Go=exp://.../--/kakao, 빌드=gongsion://kakao)로 리다이렉트.
-      // openAuthSessionAsync가 이 URL을 감지해 브라우저를 자동 종료한다.
+      // state 안에 인코딩된 앱 리턴 URL(Expo Go=exp://.../--/kakao, 빌드=gongsion://kakao)로 복귀.
+      // DAR-443: HTTP 302 redirect 가 정본 패턴. openAuthSessionAsync 는 returnUrl 로의 네비게이션
+      //   (302 Location 포함)을 OS 레벨에서 가로채 인앱 브라우저를 자동 종료하고 앱으로 복귀시킨다.
+      //   기존 HTML+setTimeout(window.location=custom-scheme)은 모바일 인앱 브라우저가 사용자 제스처
+      //   없는 custom-scheme 자동 이동을 차단해 자동 복귀가 실패했다(성공 페이지에 멈춤).
       const returnUrl = this.extractReturnUrl(state);
       const sep = returnUrl.includes('?') ? '&' : '?';
       const deepLink = `${returnUrl}${sep}state=${encodeURIComponent(state)}`;
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      return res.send(`
-        <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-        <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background:#F0FDFA;">
-          <div style="text-align:center;">
-            <p style="font-size:20px;color:#0D9488;">✓ 로그인 성공!</p>
-            <p style="color:#6B7280;">앱으로 돌아갑니다...</p>
-            <p style="margin-top:16px;"><a href="${deepLink}" style="color:#0D9488;font-weight:600;">돌아가지 않으면 여기를 누르세요</a></p>
-          </div>
-          <script>setTimeout(function(){window.location.href=${JSON.stringify(deepLink)};},300);</script>
-        </body></html>
-      `);
+      return res.redirect(deepLink);
     } catch (e) {
       this.logger.error('Kakao callback failed', { error: e?.message || String(e) });
       const errorMsg = e?.message || '알 수 없는 오류';
       const returnUrl = this.extractReturnUrl(state);
       const sep = returnUrl.includes('?') ? '&' : '?';
+      // DAR-443: 에러도 302 redirect 로 returnUrl?error= 전달 → sign-in.tsx 가 사유 표면화(DAR-43 §3).
       const deepLink = `${returnUrl}${sep}error=${encodeURIComponent(errorMsg)}`;
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      return res.send(`
-        <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-        <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background:#FEF2F2;">
-          <div style="text-align:center;">
-            <p style="font-size:20px;color:#DC2626;">로그인 실패</p>
-            <p style="color:#6B7280;">${errorMsg}</p>
-            <p style="margin-top:16px;"><a href="${deepLink}" style="color:#DC2626;font-weight:600;">앱으로 돌아가기</a></p>
-          </div>
-          <script>setTimeout(function(){window.location.href=${JSON.stringify(deepLink)};},300);</script>
-        </body></html>
-      `);
+      return res.redirect(deepLink);
     }
   }
 

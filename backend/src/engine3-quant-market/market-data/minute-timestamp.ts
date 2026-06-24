@@ -41,3 +41,21 @@ export function tradeDateFromTs(ts: Date): string {
   const d = String(ts.getUTCDate()).padStart(2, '0');
   return `${y}${m}${d}`;
 }
+
+/**
+ * 분봉 ts(KST 벽시계를 UTC 컴포넌트에 담은 naive instant) → `+09:00` 오프셋 명시 ISO 문자열.
+ *
+ * DAR-435: `ts.toISOString()`은 naive 10:14 를 `...T10:14:00.000Z`(UTC)로 직렬화해
+ * 클라이언트가 Asia/Seoul 변환 시 +9 를 또 적용 → 19:14(이중 오프셋). UTC 컴포넌트가 곧
+ * KST 벽시계라는 규약을 직렬화에 명시(`...T10:14:00+09:00`)하면 클라이언트가 정확한
+ * instant 로 파싱하고 KST 변환 시 10:14 를 그대로 복원한다. entry/exit 동일 규칙 적용 필수.
+ */
+export function kstWallClockIso(ts: Date): string {
+  const y = String(ts.getUTCFullYear()).padStart(4, '0');
+  const m = String(ts.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(ts.getUTCDate()).padStart(2, '0');
+  const hh = String(ts.getUTCHours()).padStart(2, '0');
+  const mm = String(ts.getUTCMinutes()).padStart(2, '0');
+  const ss = String(ts.getUTCSeconds()).padStart(2, '0');
+  return `${y}-${m}-${d}T${hh}:${mm}:${ss}+09:00`;
+}

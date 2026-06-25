@@ -2,7 +2,11 @@
 // DAR-396: getAllDisclosuresWithMeta — 쿼터(020/021) 인지 종료, 정상 완주, 데이터없음, 비정상 status.
 
 import { ConfigService } from '@nestjs/config';
-import { DartApiService, DartListResponse } from './dart-api.service';
+import {
+  DartApiService,
+  DartListResponse,
+  DartQuotaReservedError,
+} from './dart-api.service';
 
 function listResponse(over: Partial<DartListResponse>): DartListResponse {
   return {
@@ -121,5 +125,80 @@ describe('DartApiService.getAllDisclosuresWithMeta (DAR-396)', () => {
     expect(result.quotaExceeded).toBe(false);
     expect(result.abnormalStatus).toBe('800');
     expect(result.items).toEqual([]);
+  });
+});
+
+describe('DartApiService 일일 콜 예산 + 라이브 수집 예약분 (DAR-445)', () => {
+  let service: DartApiService;
+  // 내부 httpClient 를 모킹해 실제 네트워크 없이 콜 발생/차단을 검증한다.
+  let httpGet: jest.SpyInstance;
+
+  beforeEach(() => {
+    const config = { get: jest.fn().mockReturnValue('TEST_KEY') } as unknown as ConfigService;
+    service = new DartApiService(config);
+    httpGet = jest
+      .spyOn((service as unknown as { httpClient: { get: jest.Mock } }).httpClient, 'get')
+      .mockResolvedValue({ status: 200, data: listResponse({ status: '000' }) });
+  });
+
+  /** 누적 콜을 벌크 상한(ceiling)까지 끌어올려 예약분만 남긴 상태로 만든다. */
+  function fillToBulkCeiling(): void {
+    const internal = service as unknown as {
+      callDayKey: string;
+      callsToday: number;
+      currentDayKey: () => string;
+    };
+    internal.callDayKey = internal.currentDayKey();
+    internal.callsToday = service.getQuotaBudgetStatus().bulkCeiling;
+  }
+
+  it('라이브 목록수집(bulk 기본=false)은 예약분에 닿아도 차단되지 않고 실제 호출된다', async () => {
+    fillToBulkCeiling();
+    expect(service.getQuotaBudgetStatus().bulkAllowed).toBe(false);
+
+    const res = await service.getDisclosureList({ bgn_de: '20260624', end_de: '20260624' });
+
+    expect(httpGet).toHaveBeenCalledTimes(1); // 라이브는 예약분으로 통과
+    expect(res.status).toBe('000');
+  });
+
+  it('벌크 list(getAllDisclosuresWithMeta)는 예약분 도달 시 HTTP 없이 합성 020 으로 종료', async () => {
+    fillToBulkCeiling();
+
+    const result = await service.getAllDisclosuresWithMeta('20250101', '20250131');
+
+    expect(result.quotaExceeded).toBe(true);
+    expect(result.items).toEqual([]);
+    expect(httpGet).not.toHaveBeenCalled(); // 사전 차단 = 쿼터 비소모
+  });
+
+  it('문서 fetch(downloadDocument)는 예약분 도달 시 QUOTA 로 분류되는 에러를 HTTP 없이 throw', async () => {
+    fillToBulkCeiling();
+
+    await expect(service.downloadDocument('20260619000100')).rejects.toBeInstanceOf(
+      DartQuotaReservedError,
+    );
+    // classifyFetchError 가 QUOTA 로 보도록 dartStatus=020 마커 포함(retryCount 비소모 보장)
+    await expect(service.downloadDocument('20260619000100')).rejects.toThrow(/dartStatus=020/);
+    expect(httpGet).not.toHaveBeenCalled();
+  });
+
+  it('실제 020 관측 시 그 날 벌크 하드스톱(누적 콜이 상한 미만이어도)', async () => {
+    // 라이브 list 가 실제 020 을 받으면 그 날 벌크는 즉시 막힌다.
+    httpGet.mockResolvedValueOnce({
+      status: 200,
+      data: listResponse({ status: '020', message: '사용한도를 초과하였습니다.' }),
+    });
+
+    await service.getDisclosureList({ bgn_de: '20260624', end_de: '20260624' });
+
+    const status = service.getQuotaBudgetStatus();
+    expect(status.quotaExhausted).toBe(true);
+    expect(status.bulkAllowed).toBe(false);
+    expect(status.callsToday).toBeLessThan(status.bulkCeiling); // 상한 전인데도 하드스톱
+    // 이후 문서 fetch 는 사전 차단
+    await expect(service.downloadDocument('20260619000100')).rejects.toBeInstanceOf(
+      DartQuotaReservedError,
+    );
   });
 });

@@ -173,6 +173,68 @@ describe('ExpoPushService — receipt durable화 (DAR-182)', () => {
     });
   });
 
+  // DAR-446 — 혼재 Expo 프로젝트 토큰으로 청크 일괄 발송이 거부될 때 메시지 단위 폴백.
+  //
+  // 한 요청에 서로 다른 프로젝트 토큰이 섞이면 Expo 가 "must be for the same project" 로
+  // 요청 전체를 거부한다(prod 에서 dev 스냅샷 구토큰 + 현 APK 토큰 혼재로 관측). 종전엔
+  // 그 청크의 멀쩡한 토큰까지 전부 푸시 누락 → 매수/매도 알림 전멸. 이제 이 충돌에 한해
+  // 메시지 단위로 폴백해(개별 요청은 단일 프로젝트) 정상 토큰 전달을 보존한다.
+  describe('혼재 프로젝트 토큰 — 청크 거부 시 메시지 단위 폴백 (DAR-446)', () => {
+    it('"same project" 거부 시 메시지 단위 폴백 — 정상 토큰은 전달(receipt enqueue), 충돌 토큰만 스킵', async () => {
+      const queue = { add: jest.fn().mockResolvedValue(undefined) };
+      const messages = [
+        { to: 'ExponentPushToken[projA-valid]', body: 'a' },
+        { to: 'ExponentPushToken[projB-conflict]', body: 'b' },
+      ] as any[];
+      const expo = makeFakeExpo({
+        chunkPushNotifications: jest.fn((m: unknown[]) => [m]), // 두 메시지가 한 청크
+        sendPushNotificationsAsync: jest
+          .fn()
+          // ① 청크 일괄 → 혼재 프로젝트로 요청 전체 거부
+          .mockRejectedValueOnce(
+            new Error(
+              'All push notification messages in the same request must be for the same project; check the details field to investigate conflicting tokens.',
+            ),
+          )
+          // ② 폴백: projA 개별 → ok
+          .mockResolvedValueOnce([{ status: 'ok', id: 'receipt-A' }])
+          // ③ 폴백: projB 개별 → 또 거부(잘못된 프로젝트) → 스킵
+          .mockRejectedValueOnce(new Error('not valid for this project')),
+      });
+      const { service } = makeService({ queue, expo });
+
+      await service.sendPushNotifications(messages);
+
+      // 일괄 1회 + 폴백 2회 = 3회.
+      expect(expo.sendPushNotificationsAsync).toHaveBeenCalledTimes(3);
+      // 정상 토큰(projA)만 ok ticket → receipt enqueue(전달 성공).
+      expect(queue.add).toHaveBeenCalledTimes(1);
+      const [, payload] = queue.add.mock.calls[0];
+      expect(payload).toEqual({
+        ticketIds: [{ id: 'receipt-A', token: 'ExponentPushToken[projA-valid]' }],
+      });
+    });
+
+    it('프로젝트 충돌이 아닌 일반 오류는 폴백 없이 로그만 (DAR-260 거동 보존)', async () => {
+      const messages = [
+        { to: 'ExponentPushToken[a]', body: 'a' },
+        { to: 'ExponentPushToken[b]', body: 'b' },
+      ] as any[];
+      const expo = makeFakeExpo({
+        chunkPushNotifications: jest.fn((m: unknown[]) => [m]),
+        sendPushNotificationsAsync: jest
+          .fn()
+          .mockRejectedValueOnce(new Error('network down')),
+      });
+      const { service } = makeService({ queue: null, expo });
+
+      await service.sendPushNotifications(messages);
+
+      // 일괄 1회만 — 네트워크 오류엔 메시지 단위 재시도 미발동.
+      expect(expo.sendPushNotificationsAsync).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('checkReceipts — dead-token 정리', () => {
     it('receipt 가 DeviceNotRegistered 면 해당 토큰을 UserDevice 에서 삭제', async () => {
       const expo = makeFakeExpo({

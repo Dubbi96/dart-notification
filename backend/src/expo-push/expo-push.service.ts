@@ -49,7 +49,36 @@ export class ExpoPushService {
           pairs.push({ ticket: ticketChunk[j], message: chunk[j] });
         }
       } catch (error) {
-        this.logger.error('Failed to send push notifications', error);
+        // DAR-446: 한 요청에 서로 다른 Expo 프로젝트 토큰이 섞이면 Expo 가 요청 전체를
+        //   거부한다 — "All push notification messages in the same request must be for the
+        //   same project". 구 Expo Go/이전 EAS 프로젝트 토큰 + 현 APK 토큰이 혼재할 때 발생하며,
+        //   종전엔 이 청크의 멀쩡한 토큰까지 전부 푸시 누락됐다.
+        //   → 이 충돌에 한해 메시지 단위로 폴백 발송한다(개별 요청은 항상 단일 프로젝트라
+        //     충돌 회피 + 정상 토큰 전달 보존). ★기타 오류(네트워크 등)는 종전대로 로그만 —
+        //     ticket↔message 정합(DAR-260)·재시도 비용 거동을 바꾸지 않는다.
+        const msg = (error as Error).message ?? '';
+        const isProjectConflict =
+          msg.includes('same project') ||
+          msg.toLowerCase().includes('conflicting tokens');
+        if (!isProjectConflict) {
+          this.logger.error('Failed to send push notifications', error);
+          continue;
+        }
+        this.logger.warn(
+          `혼재 프로젝트 토큰으로 청크 거부 — 메시지 단위 폴백 (${chunk.length}건)`,
+        );
+        for (const message of chunk) {
+          try {
+            const single = await this.expo.sendPushNotificationsAsync([message]);
+            if (single[0]) {
+              pairs.push({ ticket: single[0], message });
+            }
+          } catch (innerError) {
+            this.logger.error(
+              `개별 메시지 발송 실패(스킵): to=${String(message.to)} — ${(innerError as Error).message}`,
+            );
+          }
+        }
       }
     }
 

@@ -4,6 +4,7 @@ import axios, { AxiosInstance } from 'axios';
 import axiosRetry from 'axios-retry';
 import * as AdmZip from 'adm-zip';
 import { DISCLOSURE_TYPE_IDS } from '../disclosures/constants/disclosure-types.constant';
+import { formatKstDateCompact } from '../../common/time/kst';
 
 /**
  * DART API 키 미설정 또는 오프라인 환경에서 downloadDocument 호출 시 throw되는 에러
@@ -14,6 +15,37 @@ export class DartApiUnavailableError extends Error {
     this.name = 'DartApiUnavailableError';
   }
 }
+
+/**
+ * DAR-445: 일일 쿼터 예약분 보호로 ★벌크(문서fetch·백필·재무) 호출이 사전 차단될 때 throw.
+ *
+ * ★F1 근본수정: DART 무료키 일일한도(20,000콜)는 list·document·financials 가 공유한다.
+ *   문서 파싱 드레인(분당 최대 200 fetch)이 한도를 먼저 전부 태우면, 그 뒤 ★저렴한
+ *   라이브 목록수집(오늘치 list, 수십 콜)까지 020 을 맞아 신규 공시 유입이 굶는다
+ *   (관측: prod 공시 6/19 정체, documents 7,200건 전부 미파싱).
+ *   → 일일 예산에서 LIVE_RESERVE 를 라이브 목록수집 전용으로 남기고, 벌크 호출은
+ *     예산이 예약분에 닿으면 이 에러로 사전 중단한다(HTTP 미발생 = 쿼터 비소모).
+ *
+ * message 에 'dartStatus=020' 마커를 포함해 기존 classifyFetchError 가 QUOTA 로 분류하게 한다
+ * (retryCount 비소모 → 멀쩡한 문서가 영구 SKIPPED 되지 않음).
+ */
+export class DartQuotaReservedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DartQuotaReservedError';
+  }
+}
+
+/**
+ * DAR-445: DART 일일 콜 예산(KST 자정 리셋).
+ * - DAILY_BUDGET: DART 무료키 한도(20,000) 아래 보수 상한(시계 오차·키 공유 마진).
+ * - LIVE_RESERVE: ★라이브 목록수집(오늘치 공시) 전용 예약분. 벌크는 절대 침범 못 함.
+ *   라이브 list 1회 ≈ 수십 콜 × (10분 카덴스 ~60회/일) ≈ 1,200 콜 → 2,000 예약이면 충분.
+ * - BULK_CEILING = DAILY_BUDGET - LIVE_RESERVE: 벌크(문서/백필/재무) 누적 상한.
+ */
+const DART_DAILY_BUDGET = 19_000;
+const DART_LIVE_RESERVE = 2_000;
+const DART_BULK_CEILING = DART_DAILY_BUDGET - DART_LIVE_RESERVE;
 
 export interface DartDisclosureItem {
   corp_code: string;
@@ -166,6 +198,13 @@ export class DartApiService {
   private readonly httpClient: AxiosInstance;
   private readonly apiKey: string;
 
+  /** DAR-445: 일일 콜 예산 상태(KST 자정 리셋). 프로세스 메모리 — 재시작 시 0 으로 시작하되,
+   *  실제 020 관측 시 quotaExhaustedDay 가 하드스톱을 다시 건다(백스톱). */
+  private callDayKey = '';
+  private callsToday = 0;
+  /** 실제 DART 020/021(쿼터 소진) 을 관측한 KST 일자. 그 날은 벌크 호출을 하드스톱. */
+  private quotaExhaustedDay = '';
+
   constructor(private readonly configService: ConfigService) {
     this.apiKey = this.configService.get<string>('DART_API_KEY', '');
 
@@ -180,20 +219,114 @@ export class DartApiService {
     });
   }
 
+  /** 현재 KST 일자(YYYYMMDD). 테스트 결정론을 위해 분리(spyOn 대체 가능). */
+  private currentDayKey(): string {
+    return formatKstDateCompact(new Date());
+  }
+
+  /** KST 일자가 바뀌면 카운터·하드스톱을 리셋(자정 자동 재개). */
+  private rollDayIfNeeded(): void {
+    const day = this.currentDayKey();
+    if (day !== this.callDayKey) {
+      if (this.callDayKey) {
+        this.logger.log(
+          `DART 일일 콜 예산 리셋: ${this.callDayKey}(${this.callsToday}콜) → ${day}`,
+        );
+      }
+      this.callDayKey = day;
+      this.callsToday = 0;
+    }
+  }
+
+  /** 1콜 소비 기록(모든 DART API 호출 직전 호출). */
+  private recordCall(): void {
+    this.rollDayIfNeeded();
+    this.callsToday += 1;
+  }
+
+  /** DART 020/021(일일 쿼터·조회회사수 초과) 관측 시 그 날 벌크 호출을 하드스톱. */
+  private markQuotaExhausted(): void {
+    this.rollDayIfNeeded();
+    if (this.quotaExhaustedDay !== this.callDayKey) {
+      this.quotaExhaustedDay = this.callDayKey;
+      this.logger.warn(
+        `DART 일일 쿼터 소진 관측(${this.callDayKey}) — 벌크(문서/백필/재무) 호출 하드스톱. ` +
+          `라이브 목록수집만 시도, 자정(KST) 리셋 후 자동 재개.`,
+      );
+    }
+  }
+
+  /**
+   * 벌크(문서fetch·백필·재무) 호출을 지금 시도해도 되는가(DAR-445).
+   * false 면 라이브 목록수집용 예약분 보호 — 벌크는 사전 차단(쿼터 비소모).
+   *  - 그 날 020 관측 → 하드스톱.
+   *  - 또는 누적 콜이 BULK_CEILING(=예산-예약) 도달.
+   */
+  private canSpendBulk(): boolean {
+    this.rollDayIfNeeded();
+    if (this.quotaExhaustedDay === this.callDayKey) return false;
+    return this.callsToday < DART_BULK_CEILING;
+  }
+
+  /** DAR-445: 쿼터 예산 현황(관측·디버깅용). */
+  getQuotaBudgetStatus(): {
+    day: string;
+    callsToday: number;
+    dailyBudget: number;
+    liveReserve: number;
+    bulkCeiling: number;
+    bulkAllowed: boolean;
+    quotaExhausted: boolean;
+  } {
+    this.rollDayIfNeeded();
+    return {
+      day: this.callDayKey,
+      callsToday: this.callsToday,
+      dailyBudget: DART_DAILY_BUDGET,
+      liveReserve: DART_LIVE_RESERVE,
+      bulkCeiling: DART_BULK_CEILING,
+      bulkAllowed: this.canSpendBulk(),
+      quotaExhausted: this.quotaExhaustedDay === this.callDayKey,
+    };
+  }
+
   /**
    * DART 공시 목록 조회
    */
-  async getDisclosureList(params: {
-    bgn_de: string;
-    end_de: string;
-    page_no?: number;
-    page_count?: number;
-    /** 정렬 기준(date=접수일자). 미지정 시 DART 기본(date). */
-    sort?: string;
-    /** 정렬 방향(desc=최신순). 미지정 시 DART 기본. */
-    sort_mth?: 'asc' | 'desc';
-  }): Promise<DartListResponse> {
+  async getDisclosureList(
+    params: {
+      bgn_de: string;
+      end_de: string;
+      page_no?: number;
+      page_count?: number;
+      /** 정렬 기준(date=접수일자). 미지정 시 DART 기본(date). */
+      sort?: string;
+      /** 정렬 방향(desc=최신순). 미지정 시 DART 기본. */
+      sort_mth?: 'asc' | 'desc';
+    },
+    /**
+     * DAR-445: bulk=true(과거 백필 list)는 라이브 수집 예약분에 닿으면 사전 차단된다
+     *   — HTTP 미발생, 합성 020 응답을 반환해 호출자(getAllDisclosuresWithMeta)의
+     *     기존 quotaExceeded 경로가 깔끔히 멈춘다. bulk=false(라이브 오늘치 list, 기본)는
+     *     예약분으로 보호되어 절대 사전 차단되지 않는다.
+     */
+    opts: { bulk?: boolean } = {},
+  ): Promise<DartListResponse> {
+    // DAR-445: 벌크 list 는 예약분 보호 — 예산 소진 시 합성 020 으로 즉시 종료(쿼터 비소모).
+    if (opts.bulk && !this.canSpendBulk()) {
+      return {
+        status: '020',
+        message: '일일 쿼터 예약분 보호(벌크 list 사전 중단) — 라이브 수집 우선',
+        page_no: params.page_no ?? 1,
+        page_count: params.page_count ?? 100,
+        total_count: 0,
+        total_page: 0,
+        list: [],
+      };
+    }
+
     try {
+      this.recordCall();
       const response = await this.httpClient.get('/list.json', {
         params: {
           crtfc_key: this.apiKey,
@@ -201,6 +334,12 @@ export class DartApiService {
           page_count: params.page_count || 100,
         },
       });
+
+      // DAR-445: 실제 020/021 관측 시 그 날 벌크 하드스톱(라이브는 계속 시도).
+      const status = (response.data as DartListResponse)?.status;
+      if (status === '020' || status === '021') {
+        this.markQuotaExhausted();
+      }
 
       return response.data;
     } catch (error) {
@@ -287,14 +426,18 @@ export class DartApiService {
     let abnormalStatus: string | null = null;
 
     while (true) {
-      const response = await this.getDisclosureList({
-        bgn_de: bgnDe,
-        end_de: endDe,
-        page_no: pageNo,
-        page_count: pageCount,
-        sort: 'date',
-        sort_mth: 'desc',
-      });
+      const response = await this.getDisclosureList(
+        {
+          bgn_de: bgnDe,
+          end_de: endDe,
+          page_no: pageNo,
+          page_count: pageCount,
+          sort: 'date',
+          sort_mth: 'desc',
+        },
+        // DAR-445: 과거 백필 list 는 벌크 — 라이브 수집 예약분에 닿으면 사전 중단.
+        { bulk: true },
+      );
 
       // "000" = 정상, "013" = 조회된 데이터 없음(정상 종료).
       if (response.status === '013') {
@@ -334,13 +477,27 @@ export class DartApiService {
    * DART 기업개황 조회
    */
   async getCompanyOverview(corpCode: string): Promise<DartCompanyOverview | null> {
+    // DAR-445: 기업개황은 벌크 — 예약분 보호. 블록 시 null(이 메서드의 실패=null 계약과 일치).
+    if (!this.canSpendBulk()) {
+      this.logger.debug(
+        `기업개황 조회 예약분 보호로 건너뜀(벌크 중단, 라이브 수집 우선): ${corpCode}`,
+      );
+      return null;
+    }
+
     try {
+      this.recordCall();
       const response = await this.httpClient.get('/company.json', {
         params: {
           crtfc_key: this.apiKey,
           corp_code: corpCode,
         },
       });
+
+      // DAR-445: 020/021 관측 시 그 날 벌크 하드스톱.
+      if (response.data?.status === '020' || response.data?.status === '021') {
+        this.markQuotaExhausted();
+      }
 
       if (response.data.status !== '000') {
         this.logger.warn(`기업개황 조회 실패: ${response.data.status} - ${response.data.message}`);
@@ -376,8 +533,16 @@ export class DartApiService {
       throw new DartApiUnavailableError('DART_API_KEY가 설정되지 않았습니다');
     }
 
+    // DAR-445: 재무제표 수집은 벌크 — 라이브 목록수집 예약분 보호.
+    if (!this.canSpendBulk()) {
+      throw new DartQuotaReservedError(
+        `DART 재무제표 예약분 보호(벌크 중단): dartStatus=020, 요청 제한`,
+      );
+    }
+
     const fsDiv = params.fsDiv ?? 'CFS';
     try {
+      this.recordCall();
       const response = await this.httpClient.get('/fnlttSinglAcntAll.json', {
         params: {
           crtfc_key: this.apiKey,
@@ -389,6 +554,11 @@ export class DartApiService {
       });
 
       const data = response.data as DartFinancialResponse;
+
+      // DAR-445: 020/021 관측 시 그 날 벌크 하드스톱.
+      if (data.status === '020' || data.status === '021') {
+        this.markQuotaExhausted();
+      }
 
       // "013" = 조회된 데이터 없음(미제출 등) → 정상 흐름. 그 외 비정상 status만 경고.
       if (data.status !== '000' && data.status !== '013') {
@@ -538,7 +708,15 @@ export class DartApiService {
       throw new DartApiUnavailableError('DART_API_KEY가 설정되지 않았습니다');
     }
 
+    // DAR-445: 지분공시 수집은 벌크 — 라이브 목록수집 예약분 보호.
+    if (!this.canSpendBulk()) {
+      throw new DartQuotaReservedError(
+        `DART 지분공시 예약분 보호(벌크 중단): dartStatus=020, 요청 제한 (${path})`,
+      );
+    }
+
     try {
+      this.recordCall();
       const response = await this.httpClient.get(path, {
         params: {
           crtfc_key: this.apiKey,
@@ -547,6 +725,11 @@ export class DartApiService {
       });
 
       const data = response.data as DartHoldingListResponse<T>;
+
+      // DAR-445: 020/021 관측 시 그 날 벌크 하드스톱.
+      if (data.status === '020' || data.status === '021') {
+        this.markQuotaExhausted();
+      }
 
       // "013" = 조회된 데이터 없음 → 정상 흐름. 그 외 비정상 status만 경고.
       if (data.status !== '000' && data.status !== '013') {
@@ -576,6 +759,17 @@ export class DartApiService {
       throw new DartApiUnavailableError('DART_API_KEY가 설정되지 않았습니다');
     }
 
+    // DAR-445: 문서 fetch 는 일일 쿼터의 최대 소비자다. 예약분에 닿으면 사전 차단해
+    //   라이브 목록수집 몫을 남긴다(HTTP 미발생 = 쿼터 비소모). message 의 dartStatus=020
+    //   마커로 classifyFetchError 가 QUOTA 로 분류 → retryCount 비소모(영구 SKIPPED 방지).
+    if (!this.canSpendBulk()) {
+      throw new DartQuotaReservedError(
+        `DART 문서 fetch 예약분 보호(벌크 중단, 라이브 수집 우선): dartStatus=020, ` +
+          `요청 제한(callsToday=${this.callsToday}/${DART_BULK_CEILING})`,
+      );
+    }
+
+    this.recordCall();
     const response = await this.httpClient.get('/document.xml', {
       params: {
         crtfc_key: this.apiKey,
@@ -595,6 +789,10 @@ export class DartApiService {
       const head = buf.toString('utf-8', 0, 400);
       const statusMatch = head.match(/<status>(\d+)<\/status>/);
       const msgMatch = head.match(/<message>([^<]*)<\/message>/);
+      // DAR-445: 실제 020/021 관측 시 그 날 벌크 하드스톱.
+      if (statusMatch && (statusMatch[1] === '020' || statusMatch[1] === '021')) {
+        this.markQuotaExhausted();
+      }
       throw new Error(
         `DART document.xml 응답이 ZIP이 아님: httpStatus=${response.status}` +
           (statusMatch ? `, dartStatus=${statusMatch[1]}` : '') +

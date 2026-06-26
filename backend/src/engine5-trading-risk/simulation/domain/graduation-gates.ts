@@ -11,8 +11,12 @@
 import { GraduationMetrics } from '../graduation-metrics.service';
 import { SimulationProgress } from './graduation-metrics.calculator';
 
-/** 표본 기반 게이트(G1·G5)의 최소 표본수 — 미만이면 LOW_SAMPLE(과신 방지) */
-export const GRADUATION_MIN_SAMPLE = 5;
+/**
+ * 표본 기반 게이트(G1·G5)의 최소 표본수 — 미만이면 LOW_SAMPLE(과신 방지).
+ * F12(2026-06-26): 5→20 상향. n=5는 이항잡음이 압도(3/5=60%면 통과)해 졸업 go/no-go
+ * 근거로 부적절. 단타 트랙 LOW_SAMPLE_THRESHOLD(20)와 정합. (30일 윈도우 도달성 고려해 30 대신 20)
+ */
+export const GRADUATION_MIN_SAMPLE = 20;
 
 /**
  * 벤치마크 지수코드 — 0001=KOSPI(대표 시장지수). 졸업 alpha 게이트 기준 벤치마크.

@@ -39,10 +39,10 @@ describe('GraduationMetricsService — 진행률·G1/G2/G3 결합 (DAR-86)', () 
     });
     // 과거 시작일 → 측정대기 아님
     adapter.setStartDate('2026-05-22T00:00:00.000Z');
-    // G1: 적중률 표본(6/10 = 60%)
+    // G1: 적중률 표본(15/25 = 60%) — F12: 표본 하한 20 이상
     adapter.setHitRateSamples([
-      ...Array.from({ length: 6 }, () => ({ returnPct: 3 })),
-      ...Array.from({ length: 4 }, () => ({ returnPct: -2 })),
+      ...Array.from({ length: 15 }, () => ({ returnPct: 3 })),
+      ...Array.from({ length: 10 }, () => ({ returnPct: -2 })),
     ]);
 
     const m = await service(adapter).getMetrics();
@@ -59,7 +59,7 @@ describe('GraduationMetricsService — 진행률·G1/G2/G3 결합 (DAR-86)', () 
     // G1 적중률(60%) 결합
     const g1 = report.gates.find((g) => g.id === 'G1');
     expect(g1?.currentValue).toBeCloseTo(60, 5);
-    expect(g1?.sampleSize).toBe(10);
+    expect(g1?.sampleSize).toBe(25);
 
     // G2 누적수익(포지션 없음 → 0%)
     const g2 = report.gates.find((g) => g.id === 'G2');

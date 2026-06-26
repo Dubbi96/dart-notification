@@ -18,7 +18,7 @@ function sampleMetrics(): GraduationMetrics {
   return {
     portfolioId: 'pf-1',
     asOf: '2026-06-06T00:00:00.000Z',
-    hitRate: { evaluated: 10, hits: 6, hitRatePct: 60 },
+    hitRate: { evaluated: 25, hits: 15, hitRatePct: 60 },
     cumulativeReturn: {
       initialCapital: 10_000_000,
       currentValue: 10_500_000,
@@ -31,7 +31,7 @@ function sampleMetrics(): GraduationMetrics {
       netPnlAfterAiCost: 450_000,
       aiCostToNetPnlRatio: 0.1,
     },
-    exitAccuracy: { evaluated: 8, correct: 5, accuracyPct: 62.5 },
+    exitAccuracy: { evaluated: 25, correct: 16, accuracyPct: 64 },
     riskAdjusted: { sharpe: 1.4, mddPct: -8, observations: 20, measurable: true },
     benchmarkAlpha: {
       indexCode: '0001',

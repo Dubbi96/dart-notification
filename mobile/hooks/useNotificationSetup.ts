@@ -12,7 +12,12 @@ import { deviceService } from '@services/device.service';
 import { resolveDeepLink } from '@utils/deeplink';
 import { REGISTER_BACKOFF_MS, shouldRetryOnReconnect } from '@utils/pushTokenRetry';
 
-const PROJECT_ID = 'dbdd30ba-72aa-4f90-ae45-54aa8fd43aa7';
+// EAS projectId 는 app.json(extra.eas.projectId)에서 동적으로 읽는다 — 빌드된 프로젝트와
+// 항상 일치시켜 토큰 발급 프로젝트 불일치를 방지(프로젝트 재링크/소유자 변경에 자동 추종).
+const PROJECT_ID =
+  (Constants.expoConfig?.extra?.eas?.projectId as string | undefined) ??
+  Constants.easConfig?.projectId ??
+  '2807bcb5-05c4-479f-b3be-2b40686cc7ed';
 
 // DAR-430: Android 알림 채널(카테고리 3 버킷). 채널 ID 는 백엔드 Expo push channelId 와
 // 정확히 일치해야 OS 가 채널별로 묶어 표시·누적·중요도를 분리한다(공시=기본·신호/체결=높음·소리).

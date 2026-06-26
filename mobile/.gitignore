@@ -41,3 +41,10 @@ yarn-error.*
 /ios
 /android
 node_modules
+
+# Firebase / FCM secrets — 절대 커밋 금지 (DAR-447)
+google-services.json
+google-services*.json
+*firebase-adminsdk*.json
+*service-account*.json
+GoogleService-Info.plist

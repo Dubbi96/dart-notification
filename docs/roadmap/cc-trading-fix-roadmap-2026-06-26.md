@@ -2,7 +2,25 @@
 
 - 작성일: 2026-06-26
 - 작성 근거: 4축 코드 감사 → 13건 결함 심층 fix-spec 작성 → 적대적 검증 → 순서·릴리스 게이트 설계 (멀티에이전트 워크플로우 `trading-fix-roadmap`)
-- 상태: **계획 확정 대기** (Tier 1 결정 4건 미정 → §8)
+- 상태: **P0 + engine3 신호레인 구현 완료** (브랜치 `feat/trading-fixes-p0-engine3`) — 아래 진행 현황
+
+### 진행 현황 (2026-06-26)
+| Phase | fix | 상태 | 검증 |
+|---|---|---|---|
+| P0 | **F4** 통지 enum+dedup | ✅ 완료 | tsc 0 · 신규 통지 spec + 회귀 그린 |
+| P0 | **F12** 졸업 표본 5→20 | ✅ 완료 | 4 fixture spec 그린 |
+| P0 | **L[1]** 단타 가격결측 0% 날조 방지 | ✅ 완료 | 신규 spec 3건(동일 tradeDate 폴백) |
+| P0 | **L[2]** 유동성 오라벨 정정 | ✅ 완료 | 주석만(동작 0) |
+| 신호레인 | **F10** 거짓 corroboration 게이트 | ✅ 완료 | bucket-renorm spec 갱신+신규 |
+| 신호레인 | **F9** 등급 임계 50/45/30 | ✅ 완료 | 5 spec 갱신, DAR-322 경계 보존 |
+| — | **전체 회귀** | ✅ | `tsc 0` · `npm test` **242스위트 3200건 그린** · `npm run build` 통과 |
+| P1 | F2(부분익절)·F1·F3 청산엔진 | ⬜ 대기 | 다음 작업 |
+| P2 | F7·F8(Phase1) | ⬜ 대기 | |
+| P3 | (F5+F11)→F6 리스크 게이트 | ⬜ 대기 | |
+| 후속 | L[3] 강제청산 catch-up + 보류 5건 | ⬜ 백로그 | |
+| P5 | 재검증·릴리스(0.1.0) | ⬜ | 전 PR 머지 후 |
+
+> 커밋: F4 `608629d3` · F12 `5e28c147` · L `153ab9f4` · F10 `5b110087` · F9 `d71cf7c9` (브랜치 `feat/trading-fixes-p0-engine3`, main 미머지)
 - 관련 정본: `docs/roadmap/buy-logic-validation-baseline.md`(엣지 baseline), `docs/roadmap/01-execution-roadmap.md §3`(회귀 매트릭스), `docs/roadmap/cc-mvp-definition.md §9`(졸업 게이트)
 
 > 이 문서는 "직접 확인해가며 수정 → 새 버전 발행"의 기준선이다. 각 fix는 적대적 검증을 통과한 **교정안**을 기준으로 기술한다. 4건(F1·F3·F6·F9)은 1차 원안이 결함이 있어 폐기되었으니, 반드시 본 문서의 "수정안(교정)"을 따른다.

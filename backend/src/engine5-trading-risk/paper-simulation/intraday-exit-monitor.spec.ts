@@ -13,7 +13,7 @@
  * ★AI 금지영역 불가침: 손절은 순수 Rule(exit-score 하드 스탑) — AI 미개입.
  */
 
-import { PaperSimulationService } from './paper-simulation.service';
+import { PaperSimulationService, tradingDayDiff } from './paper-simulation.service';
 import { SimulationPriceSourceService } from './simulation-price-source.service';
 import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realtime-quote.cache';
 
@@ -183,5 +183,126 @@ describe('DAR-366 — 장중 손절 모니터(능동 fetch → 실가 -8% EXIT)'
     expect(r.ran).toBe(true);
     expect(r.fetched).toBe(0);
     expect(kis.fetchCurrentPrice).not.toHaveBeenCalled();
+  });
+});
+
+// ── F1(2026-06-26): 장중 실시간 손절 vs cross-source 가짜손절 (entry=REAL 신선도 가드) ──
+const ymdUtc = (d: Date) => {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}${m}${day}`;
+};
+
+describe('F1 — entry=REAL 장중 손절 신선도 가드', () => {
+  // REAL 일봉을 tradeDate(=sourceDate)로 통제. 실시간 sourceDate 는 오늘(fetchedAtMs=Date.now()).
+  function makePrismaReal(barClose: number, barTradeDate: string) {
+    const updates: Array<Record<string, unknown>> = [];
+    const state = { closed: false };
+    const POS_REAL = { ...POS, entryPriceSource: 'REAL' };
+    return {
+      _updates: updates,
+      user: { findFirst: jest.fn().mockResolvedValue({ id: 'u1' }), create: jest.fn() },
+      portfolio: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'pf1', maxSinglePositionPct: 10 }),
+        create: jest.fn(),
+      },
+      position: {
+        findMany: jest.fn(async ({ select }: { where?: any; select?: any }) => {
+          if (state.closed) return [];
+          if (select && select.corpCode && select.stockCode && !select.entryPrice) {
+            return [{ corpCode: POS.corpCode, stockCode: POS.stockCode }];
+          }
+          return [POS_REAL];
+        }),
+        update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          updates.push(data);
+          if (data.status === 'CLOSED') state.closed = true;
+          return {};
+        }),
+      },
+      positionThesis: { findUnique: jest.fn().mockResolvedValue(null) },
+      positionDailySnapshot: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      exitSignal: { create: jest.fn().mockResolvedValue({ id: 'ex1' }) },
+      paperTrade: { update: jest.fn().mockResolvedValue({}) },
+      // REAL 일봉 — entry 소스 정렬 조회 대상. tradeDate 로 신선/정체 통제.
+      stockDailyPrice: {
+        findFirst: jest.fn().mockResolvedValue({
+          openPrice: barClose,
+          highPrice: barClose,
+          lowPrice: barClose,
+          closePrice: barClose,
+          volume: BigInt(1000),
+          tradeDate: barTradeDate,
+        }),
+      },
+      simulatedDailyPrice: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+  }
+
+  it('신선한 일봉(당일) + 실시간 -10% → 실시간 손절 발화(F1 복원)', async () => {
+    const today = ymdUtc(new Date());
+    const prisma = makePrismaReal(10000, today); // REAL 일봉=진입가(손실 아님), 당일=신선
+    const cache = new RealtimeQuoteCache();
+    const priceSource = new SimulationPriceSourceService(prisma as never, cache);
+    const kis = kisStub(9000); // 실시간 -10%
+    const paperTrade = paperTradeStub();
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTrade as never,
+      undefined,
+      priceSource,
+      kis as never,
+      cache,
+    );
+
+    const r = await svc.runIntradayExitMonitor(MARKET_HOURS);
+
+    expect(r.exited).toBe(1); // 신선 → 실시간 9000 평가 → -10% EXIT
+    const sells = (paperTrade.placeOrder as jest.Mock).mock.calls.filter(
+      (c) => c[0].direction === 'SELL',
+    );
+    expect(sells[0][0].entryPrice).toBe(9000);
+  });
+
+  it('정체 일봉(40일 전) + 실시간 -10% → 미발화(DAR-433 가짜손절 가드 보존)', async () => {
+    const staleBar = ymdUtc(new Date(Date.now() - 40 * 86_400_000));
+    const prisma = makePrismaReal(10000, staleBar); // REAL 일봉=진입가(정체), 실시간만 9000
+    const cache = new RealtimeQuoteCache();
+    const priceSource = new SimulationPriceSourceService(prisma as never, cache);
+    const kis = kisStub(9000);
+    const paperTrade = paperTradeStub();
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTrade as never,
+      undefined,
+      priceSource,
+      kis as never,
+      cache,
+    );
+
+    const r = await svc.runIntradayExitMonitor(MARKET_HOURS);
+
+    expect(r.exited).toBe(0); // 정체 → 정렬된 REAL 10000 평가 → 손실 아님 → 미발화
+    expect(
+      (paperTrade.placeOrder as jest.Mock).mock.calls.filter(
+        (c) => c[0].direction === 'SELL',
+      ).length,
+    ).toBe(0);
+  });
+});
+
+describe('tradingDayDiff — 거래일 차(주말 흡수, 월요일 손절억제 회귀 차단)', () => {
+  it('금요일→월요일 = 1 거래일(달력 3일 아님)', () => {
+    expect(tradingDayDiff('20260619', '20260622')).toBe(1); // 금 → 월
+  });
+  it('목요일→월요일 = 2', () => {
+    expect(tradingDayDiff('20260618', '20260622')).toBe(2);
+  });
+  it('같은 날 = 0', () => {
+    expect(tradingDayDiff('20260622', '20260622')).toBe(0);
+  });
+  it('정체(달력 14일 초과) = 999', () => {
+    expect(tradingDayDiff('20260601', '20260626')).toBe(999);
   });
 });

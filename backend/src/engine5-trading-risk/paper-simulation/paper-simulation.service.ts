@@ -95,6 +95,29 @@ export interface SimulationResetResult {
 
 const EXIT_ACTIONS = new Set(['EXIT', 'BLOCK_REBUY']);
 
+/**
+ * F1(2026-06-26): 두 YYYYMMDD 사이의 '거래일(월~금) 차'. 금→월=1(주말 흡수), 같은날=0.
+ * 장중 실시간 손절의 'REAL 일봉 신선도' 판정에 쓴다. 달력일이 아니라 거래일로 계산해야
+ * 금→월(달력 3일)·연휴 직후가 가드를 오발동(실시간 손절 억제)시키지 않는다.
+ * (공휴일 미반영 — 거래일수를 과대평가하는 보수 방향이라 신선도 가드엔 안전.)
+ * 명백한 정체(달력 14일 초과)는 루프 회피 위해 999 반환.
+ */
+export function tradingDayDiff(earlierYmd: string, laterYmd: string): number {
+  const toUtc = (s: string) =>
+    Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+  const a = toUtc(earlierYmd);
+  const b = toUtc(laterYmd);
+  const calDays = Math.round((b - a) / 86_400_000);
+  if (calDays <= 0) return 0;
+  if (calDays > 14) return 999;
+  let count = 0;
+  for (let i = 1; i <= calDays; i++) {
+    const dow = new Date(a + i * 86_400_000).getUTCDay();
+    if (dow !== 0 && dow !== 6) count++;
+  }
+  return count;
+}
+
 @Injectable()
 export class PaperSimulationService {
   private readonly logger = new Logger(PaperSimulationService.name);
@@ -111,6 +134,10 @@ export class PaperSimulationService {
   static readonly DEFAULT_STOP_LOSS_PCT = 8;
   static readonly DEFAULT_TAKE_PROFIT_PCT = 20;
   static readonly DEFAULT_MAX_HOLD_DAYS = 20;
+  // F1(2026-06-26): 장중 실시간 손절 한정 — 진입소스(REAL) 일봉이 실시간 날짜 대비 며칠(거래일)까지
+  //   지연돼야 '신선'으로 보고 실시간 하락을 신뢰할지. 이하면 실시간 손절 발화, 초과(정체 일봉)면
+  //   DAR-433 정렬로 폴백(가짜손절 차단). 거래일 기준이라 금→월(1)·연휴가 가드를 오발동시키지 않음.
+  static readonly INTRADAY_REAL_FRESH_MAX_DAYS = 2;
   // DAR-424 체결 알림 — 트랙 식별·딥링크 상수(시스템 모의).
   // DAR-431: 딥링크를 포트폴리오 루트(`/portfolio`)에서 ★시스템 모의 서브탭(`?tab=sim`)으로
   //   고정해 체결 알림 탭이 해당 트랙 보유·성과로 직행한다(루트 폴백 제거). 화이트리스트는
@@ -341,8 +368,8 @@ export class PaperSimulationService {
       const pf = await this.getOrCreateSimPortfolio();
       // ② 보유 종목 실시간 현재가 능동 fetch → 캐시 적재(실가 1순위 평가의 전제).
       const { fetched, cached } = await this.refreshHoldingsRealtime(pf.id);
-      // ③ 실가 기준 Exit 평가 — evaluateExits 가 latestPriceRow(REALTIME 1순위)로 읽는다.
-      const exited = await this.evaluateExits(pf.id, tradeDate);
+      // ③ 실가 기준 Exit 평가 — F1: intraday=true 로 실시간 1순위 + REAL 신선도 가드 적용.
+      const exited = await this.evaluateExits(pf.id, tradeDate, { intraday: true });
       if (exited > 0 || cached > 0) {
         this.logger.log(
           `[PaperSim][장중모니터] tradeDate=${tradeDate} fetch=${fetched} cached=${cached} 매도=${exited}`,
@@ -1059,7 +1086,11 @@ export class PaperSimulationService {
   // DAR-364: 손절/익절 평가가 쓰는 현재가는 latestPriceRow = 실시간 실가(REALTIME) 1순위 →
   //   실 KRX 일봉(REAL) → 합성(SYNTHETIC) 폴백이다. 사용자가 화면에서 보는 실시간 실가가
   //   곧 하드 스탑로스 평가에 쓰이는 가격이므로(표시=엔진), 실가 -8% 이하면 손절 EXIT 이 발화한다.
-  private async evaluateExits(portfolioId: string, tradeDate: string): Promise<number> {
+  private async evaluateExits(
+    portfolioId: string,
+    tradeDate: string,
+    opts: { intraday?: boolean } = {},
+  ): Promise<number> {
     const positions = await this.prisma.position.findMany({
       where: { portfolioId, status: 'OPEN' },
     });
@@ -1067,8 +1098,14 @@ export class PaperSimulationService {
     let exited = 0;
 
     for (const p of positions) {
-      // DAR-433: 평가가를 진입 소스로 정렬 — '진입=정체 일봉 ↔ 청산=실시간' cross-source 가짜손절 차단.
-      const day = await this.alignedPriceRow(p.corpCode, tradeDate, p.entryPriceSource);
+      // DAR-433 + F1: 일일 경로는 진입소스 정렬(가짜손절 차단). 장중 경로는 실시간 1순위로 평가하되
+      //   진입=REAL 정체 일봉이면 신선도 가드로 폴백(장중 실시간 손절 복원 ↔ 가짜손절 차단 양립).
+      const day = await this.exitPriceRow(
+        p.corpCode,
+        tradeDate,
+        p.entryPriceSource,
+        opts.intraday === true,
+      );
       if (!day) continue;
       const close = day.closePrice;
 
@@ -1507,6 +1544,34 @@ export class PaperSimulationService {
       entrySource as SimPriceRow['source'],
     );
     return aligned ?? day;
+  }
+
+  /**
+   * F1(2026-06-26): 청산 평가가 해석. 일일 경로는 alignedPriceRow(DAR-433 정렬) 그대로.
+   * 장중(intraday) 경로는 실시간(REALTIME) 1순위로 평가하되, 진입소스=REAL(정체 일봉) 포지션은
+   * '일봉 신선도 가드'를 적용한다 — REAL 일봉 sourceDate 와 실시간 sourceDate 의 거래일 차가
+   * 임계(INTRADAY_REAL_FRESH_MAX_DAYS) 이하면 실시간 신뢰(장중 손절 발화), 초과(정체)면 정렬된
+   * REAL 로 폴백(DAR-433 가짜손절 차단). 진입=실시간/합성/레거시는 가드 없이 정렬 동작 유지.
+   */
+  private async exitPriceRow(
+    corpCode: string,
+    tradeDate: string,
+    entrySource: string | null | undefined,
+    intraday: boolean,
+  ): Promise<SimPriceRow | null> {
+    if (!intraday) return this.alignedPriceRow(corpCode, tradeDate, entrySource);
+    const day = await this.latestPriceRow(corpCode, tradeDate);
+    // 실시간 부재(REAL/SYNTHETIC 폴백) → 진입소스 정렬 보존(DAR-433).
+    if (!day || day.source !== 'REALTIME') {
+      return this.alignedPriceRow(corpCode, tradeDate, entrySource);
+    }
+    // 진입=실시간/합성/레거시(null) → 실시간 그대로(정렬 불요·기존 동작).
+    if (entrySource !== 'REAL' || !this.priceSource) return day;
+    // 진입=REAL → 일봉 신선도 가드.
+    const real = await this.priceSource.priceRowForSource(corpCode, tradeDate, 'REAL');
+    if (!real?.sourceDate || !day.sourceDate) return day;
+    const gap = tradingDayDiff(real.sourceDate, day.sourceDate);
+    return gap > PaperSimulationService.INTRADAY_REAL_FRESH_MAX_DAYS ? real : day;
   }
 
   /** 청산 후 N거래일 종가(소스 경유). priceSource 미주입이면 StockDailyPrice 폴백. */

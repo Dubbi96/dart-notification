@@ -1170,3 +1170,40 @@ describe('ExitEngineService — getInsiderFlow 결합 (DAR-94)', () => {
     repo.clear();
   });
 });
+
+// ─── F2(2026-06-26): 익절(TAKE_PROFIT) 하드 오버라이드 ─────────────────
+describe('calculateExitScore — F2 익절 하드 오버라이드', () => {
+  it('익절 목표(+20%) 도달 → EXIT, primaryTrigger=TAKE_PROFIT', () => {
+    const pos = makePosition({ entryPrice: 70000, takeProfitPct: 20 });
+    const tech = makeTech({ closePrice: 84000 }); // +20%
+    const r = calculateExitScore(pos, tech, null, []);
+    expect(r.triggerTypes).toContain('TAKE_PROFIT');
+    expect(r.primaryTrigger).toBe('TAKE_PROFIT');
+    expect(r.exitScore).toBeGreaterThanOrEqual(70);
+    expect(r.exitAction).toBe('EXIT');
+  });
+
+  it('익절 목표 미달(+18.6%) → 익절 미발화(HOLD)', () => {
+    const pos = makePosition({ entryPrice: 70000, takeProfitPct: 20 });
+    const tech = makeTech({ closePrice: 83000 }); // +18.57%
+    const r = calculateExitScore(pos, tech, null, []);
+    expect(r.triggerTypes).not.toContain('TAKE_PROFIT');
+    expect(r.exitAction).toBe('HOLD');
+  });
+
+  it('takeProfitPct=null(기본) → 익절 미발화(기존 동작 보존)', () => {
+    const pos = makePosition({ entryPrice: 70000, takeProfitPct: null });
+    const tech = makeTech({ closePrice: 84000 }); // +20%이나 목표 미설정
+    const r = calculateExitScore(pos, tech, null, []);
+    expect(r.triggerTypes).not.toContain('TAKE_PROFIT');
+  });
+
+  it('긍정 모멘텀 보너스와 공존해도 익절 오버라이드가 EXIT 보장', () => {
+    const pos = makePosition({ entryPrice: 70000, takeProfitPct: 20 });
+    // excessReturn5d/volumeRatio3d → calcPositiveMomentumBonus 감산. 그래도 TP 오버라이드가 우위.
+    const tech = makeTech({ closePrice: 84000, excessReturn5d: 7, volumeRatio3d: 2.0 });
+    const r = calculateExitScore(pos, tech, null, []);
+    expect(r.exitScore).toBeGreaterThanOrEqual(70);
+    expect(r.exitAction).toBe('EXIT');
+  });
+});

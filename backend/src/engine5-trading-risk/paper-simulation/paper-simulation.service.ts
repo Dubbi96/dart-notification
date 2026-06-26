@@ -14,6 +14,7 @@
  */
 
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { EventType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { formatKstDateCompact, isKstRegularMarketHours } from '../../common/time/kst';
 import { KisApiService } from '../../engine3-quant-market/market-data/kis-api.service';
@@ -22,11 +23,15 @@ import { PaperTradeService } from '../services/paper-trade.service';
 import { DEFAULT_FILL_PARAMS } from '../domain/fill-simulator';
 import { NotificationProducerService } from '../../notifications/notification-producer.service';
 import { PrismaExitSignalRepository } from '../../engine4-portfolio-exit/repositories/prisma-exit-signal.repository';
-import { calculateExitScore } from '../../engine4-portfolio-exit/domain/exit-score.calculator';
+import {
+  calculateExitScore,
+  HIGH_RISK_EVENT_TYPES,
+} from '../../engine4-portfolio-exit/domain/exit-score.calculator';
 import {
   PositionSnapshot,
   TechnicalSnapshot,
   ThesisSnapshot,
+  DisclosureEvent,
 } from '../../engine4-portfolio-exit/domain/exit-engine.types';
 import {
   calculateSimulationMetrics,
@@ -1128,21 +1133,18 @@ export class PaperSimulationService {
         portfolioMaxDailyLossPct: 2,
         portfolioDailyLossPct: null,
       };
-      const tech: TechnicalSnapshot = {
-        closePrice: close,
-        openPrice: day.openPrice,
-        ma5: null,
-        ma20: null,
-        low20: day.lowPrice,
-        vwap: null,
-        atr14: null,
-        volumeRatio3d: null,
-        excessReturn5d: null,
-        avgVolumeRatio5d: null,
-      };
+      // F3(2026-06-26): 실 기술지표·악재 공시를 주입해 6 Exit 트리거를 복원
+      //   (과거 tech=null·events=[] 빈 입력 → 사실상 -8% 단일 하드스탑으로 붕괴하던 결함 해소).
+      const tech = await this.loadExitTechnicalSnapshot(p.stockCode, p.corpCode, day, close);
+      const events = await this.loadNegativeDisclosureEvents(
+        p.corpCode,
+        p.entryDate,
+        day,
+        tradeDate,
+      );
       const thesisSnap = await this.loadThesisSnapshot(p.positionThesisId);
 
-      const exit = calculateExitScore(posSnap, tech, thesisSnap, []);
+      const exit = calculateExitScore(posSnap, tech, thesisSnap, events);
 
       await exitRepo.save({
         positionId: p.id,
@@ -1572,6 +1574,98 @@ export class PaperSimulationService {
     if (!real?.sourceDate || !day.sourceDate) return day;
     const gap = tradingDayDiff(real.sourceDate, day.sourceDate);
     return gap > PaperSimulationService.INTRADAY_REAL_FRESH_MAX_DAYS ? real : day;
+  }
+
+  /**
+   * F3(2026-06-26): 청산 평가용 기술지표 스냅샷. SYNTHETIC 소스는 실지표 미혼합(정직).
+   * 목/DB 부재 시 null degrade(과거 빈 입력 동작 보존 → 회귀 0).
+   */
+  private async loadExitTechnicalSnapshot(
+    stockCode: string,
+    corpCode: string,
+    day: SimPriceRow,
+    close: number,
+  ): Promise<TechnicalSnapshot> {
+    const base: TechnicalSnapshot = {
+      closePrice: close,
+      openPrice: day.openPrice ?? null,
+      ma5: null,
+      ma20: null,
+      low20: null,
+      vwap: null,
+      atr14: null,
+      volumeRatio3d: null,
+      excessReturn5d: null,
+      avgVolumeRatio5d: null,
+    };
+    if (day.source === 'SYNTHETIC') return base; // 합성 트랙: 실지표 혼입 금지
+    const at = day.sourceDate ?? '99999999';
+    try {
+      const ti = await this.prisma.technicalIndicator.findFirst({
+        where: { stockCode, tradeDate: { lte: at } },
+        orderBy: { tradeDate: 'desc' },
+        select: { ma5: true, ma20: true, atr14: true, vwap: true },
+      });
+      const low20 = await this.low20From(corpCode, at);
+      return {
+        ...base,
+        ma5: ti?.ma5 ?? null,
+        ma20: ti?.ma20 ?? null,
+        atr14: ti?.atr14 ?? null,
+        vwap: ti?.vwap ?? null,
+        low20,
+      };
+    } catch {
+      return base; // 목/DB 부재 → 빈 지표로 degrade
+    }
+  }
+
+  /** F3: 최근 20거래일 최저가(20일 저가 이탈 가점용, day.lowPrice 오용 교정). graceful. */
+  private async low20From(corpCode: string, asOf: string): Promise<number | null> {
+    try {
+      const rows = await this.prisma.stockDailyPrice.findMany({
+        where: { corpCode, tradeDate: { lte: asOf } },
+        orderBy: { tradeDate: 'desc' },
+        take: 20,
+        select: { lowPrice: true },
+      });
+      if (rows.length === 0) return null;
+      return Math.min(...rows.map((r) => r.lowPrice));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * F3: 보유기간 내 악재(NEGATIVE)·고위험 공시만 주입(호재 누적 거짓 EXIT 방지).
+   * SYNTHETIC 소스는 [](실 공시 혼입 금지). rcpDt 상한은 999999 천장(당일 타임스탬프 공시 누락 방지).
+   * 목/DB 부재 시 [] degrade.
+   */
+  private async loadNegativeDisclosureEvents(
+    corpCode: string,
+    entryDate: Date,
+    day: SimPriceRow,
+    asOf: string,
+  ): Promise<DisclosureEvent[]> {
+    if (day.source === 'SYNTHETIC') return [];
+    const since = this.toBasDd(entryDate);
+    const until = day.sourceDate ?? asOf;
+    try {
+      const rows = await this.prisma.disclosureEvent.findMany({
+        where: {
+          corpCode,
+          OR: [
+            { polarity: 'NEGATIVE' },
+            { eventType: { in: [...HIGH_RISK_EVENT_TYPES] as EventType[] } },
+          ],
+          disclosure: { rcpDt: { gte: since, lte: `${until}999999` } },
+        },
+        select: { eventType: true, rcpNo: true },
+      });
+      return rows.map((r) => ({ type: String(r.eventType), rcpNo: r.rcpNo }));
+    } catch {
+      return [];
+    }
   }
 
   /** 청산 후 N거래일 종가(소스 경유). priceSource 미주입이면 StockDailyPrice 폴백. */

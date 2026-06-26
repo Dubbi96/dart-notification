@@ -463,6 +463,22 @@ export function calculateExitScore(
     exitScore = Math.max(exitScore, 70);
   }
 
+  // F2(2026-06-26): 하드 익절 오버라이드 — 익절 목표(takeProfitPct) 도달 시 최소 EXIT(70) 보장.
+  //   손절과 대칭(순수 Rule, AI 금지). tech.closePrice 기준(손절과 동일 가격소스 → DAR-433/366 보존).
+  //   양의 청산이므로 BLOCK_REBUY(90)로는 올리지 않는다. 손익부호상 손절과 동시발생 불가(충돌 없음).
+  //   ※ calcPositiveMomentumBonus(승자 달리게 두기) 감산보다 우위 — 목표 도달 시 차익실현 보장.
+  let takeProfitHit = false;
+  if (pos.takeProfitPct !== null && pos.takeProfitPct !== undefined) {
+    const tpPnlPct =
+      pos.entryPrice > 0
+        ? ((tech.closePrice - pos.entryPrice) / pos.entryPrice) * 100
+        : 0;
+    if (tpPnlPct >= Math.abs(pos.takeProfitPct)) {
+      exitScore = Math.max(exitScore, 70);
+      takeProfitHit = true;
+    }
+  }
+
   // 투자논리 완전 훼손(thesisBreakScore=20)이면 최소 WATCH(30점) 보장
   if (thesisResult.score === 20 && thesisResult.triggered) {
     exitScore = Math.max(exitScore, 30);
@@ -478,6 +494,8 @@ export function calculateExitScore(
   const exitAction = scoreToAction(exitScore);
 
   const triggerTypes: ExitTriggerType[] = [];
+  // F2: 익절 도달은 primaryTrigger 가 되도록 맨 앞에(unshift). EXIT 액션으로 차익실현.
+  if (takeProfitHit) triggerTypes.push('TAKE_PROFIT');
   if (lossResult.triggered) triggerTypes.push('STOP_LOSS');
   if (thesisResult.triggered) triggerTypes.push('THESIS_INVALIDATED');
   if (chartResult.triggered) triggerTypes.push('CHART_BREAKDOWN');

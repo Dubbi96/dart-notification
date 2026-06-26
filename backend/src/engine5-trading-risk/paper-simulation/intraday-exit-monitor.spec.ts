@@ -306,3 +306,93 @@ describe('tradingDayDiff — 거래일 차(주말 흡수, 월요일 손절억제
     expect(tradingDayDiff('20260601', '20260626')).toBe(999);
   });
 });
+
+// ── F3(2026-06-26): evaluateExits 에 실 악재 공시·지표 주입(6 트리거 복원) ──
+describe('F3 — 악재 공시·지표 주입으로 청산점수 복원', () => {
+  function makePrismaEnriched(opts: { events: Array<{ eventType: string; rcpNo: string }> }) {
+    const exitSignals: Array<Record<string, unknown>> = [];
+    const state = { closed: false };
+    return {
+      _exitSignals: exitSignals,
+      user: { findFirst: jest.fn().mockResolvedValue({ id: 'u1' }), create: jest.fn() },
+      portfolio: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'pf1', maxSinglePositionPct: 10 }),
+        create: jest.fn(),
+      },
+      position: {
+        findMany: jest.fn(async ({ select }: { where?: any; select?: any }) => {
+          if (state.closed) return [];
+          if (select && select.corpCode && select.stockCode && !select.entryPrice) {
+            return [{ corpCode: POS.corpCode, stockCode: POS.stockCode }];
+          }
+          return [POS]; // entryPriceSource 없음 → 신선도 가드 미적용(실시간 평가)
+        }),
+        update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          if (data.status === 'CLOSED') state.closed = true;
+          return {};
+        }),
+      },
+      positionThesis: { findUnique: jest.fn().mockResolvedValue(null) },
+      positionDailySnapshot: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      exitSignal: {
+        create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          exitSignals.push(data);
+          return { id: 'ex1' };
+        }),
+      },
+      paperTrade: { update: jest.fn().mockResolvedValue({}) },
+      technicalIndicator: { findFirst: jest.fn().mockResolvedValue(null) },
+      disclosureEvent: { findMany: jest.fn().mockResolvedValue(opts.events) },
+      stockDailyPrice: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([{ lowPrice: 9000 }]),
+      },
+      simulatedDailyPrice: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+  }
+
+  it('고위험 악재 공시 주입 → 손실 없어도 청산점수 상승(severe → 최소 WATCH)', async () => {
+    // 실시간=진입가(손실 0) — 악재 공시만으로 점수가 오르는지 검증(과거엔 events=[] 라 HOLD).
+    const prisma = makePrismaEnriched({
+      events: [{ eventType: 'TRADING_SUSPENSION', rcpNo: 'R1' }],
+    });
+    const cache = new RealtimeQuoteCache();
+    const priceSource = new SimulationPriceSourceService(prisma as never, cache);
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTradeStub() as never,
+      undefined,
+      priceSource,
+      kisStub(10000) as never, // 진입가와 동일 → 손실 트리거 없음
+      cache,
+    );
+
+    await svc.runIntradayExitMonitor(MARKET_HOURS);
+
+    const sig = prisma._exitSignals[0] as any;
+    expect(sig).toBeDefined();
+    expect(sig.disclosureRiskScore).toBeGreaterThan(0); // 악재 주입 반영
+    expect(sig.exitScore).toBeGreaterThanOrEqual(30); // severe → 최소 WATCH(공시 단독 자동매도는 아님)
+    expect(sig.triggerTypes).toContain('THESIS_INVALIDATED');
+  });
+
+  it('빈 입력(악재 없음·지표 null) + 손실 없음 → HOLD(점수 0) — F3 전 동작과 동치(회귀 0)', async () => {
+    const prisma = makePrismaEnriched({ events: [] });
+    const cache = new RealtimeQuoteCache();
+    const priceSource = new SimulationPriceSourceService(prisma as never, cache);
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTradeStub() as never,
+      undefined,
+      priceSource,
+      kisStub(10000) as never,
+      cache,
+    );
+
+    await svc.runIntradayExitMonitor(MARKET_HOURS);
+
+    const sig = prisma._exitSignals[0] as any;
+    expect(sig.exitScore).toBe(0);
+    expect(sig.exitAction).toBe('HOLD');
+  });
+});

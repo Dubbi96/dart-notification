@@ -1,0 +1,50 @@
+# .easignore — EAS Build 업로드 제어 (존재 시 .gitignore 대신 사용).
+# 목적: google-services.json 은 .gitignore 로 github 에서 제외하지만 ★EAS 빌드에는
+#   포함되어야 FCM(푸시)이 동작한다. 여기서는 google-services.json 을 제외하지 ★않음.
+#   단, FCM 서비스계정 비밀키(adminsdk)는 빌드에 불필요하므로 계속 제외한다.
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+dist-ci/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
+
+# 비밀키만 제외(빌드 불필요) — google-services.json 은 ★포함(여기 미기재)
+*firebase-adminsdk*.json
+*service-account*.json
+GoogleService-Info.plist

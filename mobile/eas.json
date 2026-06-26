@@ -17,6 +17,15 @@
         "buildType": "apk"
       }
     },
+    "oci": {
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://168.138.198.152.nip.io/api"
+      },
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "production": {
       "env": {
         "EXPO_PUBLIC_API_URL": "http://dart-notification-alb-1710103987.ap-northeast-2.elb.amazonaws.com/api"

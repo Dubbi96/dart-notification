@@ -27,6 +27,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.gongsion.app",
+      "googleServicesFile": "./google-services.json",
       "versionCode": 1,
       "predictiveBackGestureEnabled": false
     },
@@ -48,11 +49,11 @@
       "expo-status-bar"
     ],
     "extra": {
+      "router": {},
       "eas": {
-        "projectId": "dbdd30ba-72aa-4f90-ae45-54aa8fd43aa7"
-      },
-      "router": {}
+        "projectId": "2807bcb5-05c4-479f-b3be-2b40686cc7ed"
+      }
     },
-    "owner": "yuna_kim"
+    "owner": "duvbi"
   }
 }

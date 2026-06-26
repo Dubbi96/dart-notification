@@ -111,6 +111,8 @@ function buildPrismaMock(opts: {
   candlesByStock: Record<string, ReturnType<typeof triggerCandles>>;
   signals?: Array<{ corpCode: string; stockCode: string }>;
   disclosures?: Array<{ corpCode: string }>;
+  /** L[1]: 같은 거래일 일봉 종가 폴백 스텁(없으면 null → 진입가 최후폴백) */
+  dailyClose?: number | null;
 }) {
   const trades: ScalpRow[] = [];
   let seq = 0;
@@ -160,6 +162,11 @@ function buildPrismaMock(opts: {
           if (row) Object.assign(row, args.data);
           return { ...(row as ScalpRow) };
         }),
+      },
+      stockDailyPrice: {
+        findFirst: jest.fn(async () =>
+          opts.dailyClose != null ? { closePrice: opts.dailyClose } : null,
+        ),
       },
     } as any,
   };
@@ -297,6 +304,69 @@ describe('IntradayScalpService — 1사이클', () => {
     expect(forced.exited).toBe(1);
     expect(mock.trades[0].status).toBe('CLOSED');
     expect(mock.trades[0].exitReason).toBe('FORCE_CLOSE_EOD');
+  });
+
+  // ── L[1](2026-06-26): 강제청산 가격결측 시 진입가 0% 손익 날조 금지(데이터정합) ──
+  function seedOpenScalp(
+    mock: ReturnType<typeof buildPrismaMock>,
+    over: Partial<ScalpRow> = {},
+  ) {
+    mock.trades.push({
+      id: 'op1',
+      corpCode: 'C1',
+      stockCode: '000001',
+      tradeDate: '20260622',
+      entryTs: kstNaive('0951'),
+      entryPrice: 100,
+      shares: 10,
+      entryReason: 'VOLUME_BREAKOUT_VWAP',
+      commission: 0,
+      tax: 0,
+      slippage: 0,
+      status: 'OPEN',
+      styleTag: INTRADAY_SCALP_STYLE_TAG,
+      ...over,
+    } as ScalpRow);
+  }
+
+  it('L[1] forceCloseAll: 분봉·실시간 결측 시 같은 거래일 일봉종가로 청산(진입가 0% 날조 금지)', async () => {
+    const mock = buildPrismaMock({ universe: [], candlesByStock: {}, dailyClose: 90 });
+    seedOpenScalp(mock);
+    const svc = new IntradayScalpService(mock.prisma);
+    const forced = await svc.forceCloseAll(kstMonday('1520'));
+    expect(forced.exited).toBe(1);
+    const t = mock.trades[0];
+    expect(t.status).toBe('CLOSED');
+    expect(t.exitReason).toBe('FORCE_CLOSE_EOD');
+    // 일봉 90 vs 진입 100 → 실손실 반영(returnPct ≠ 0)
+    expect(t.returnPct).toBeLessThan(-5);
+    // 일봉은 반드시 '같은 거래일' 한정 조회(orderBy desc cross-day 가짜손익 방지)
+    expect(mock.prisma.stockDailyPrice.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { stockCode: '000001', tradeDate: '20260622' },
+      }),
+    );
+  });
+
+  it('L[1] forceCloseAll: 모든 가격원 결측 시 진입가 폴백 + 데이터정합 error 로그(priceMissing)', async () => {
+    const mock = buildPrismaMock({ universe: [], candlesByStock: {}, dailyClose: null });
+    seedOpenScalp(mock);
+    const svc = new IntradayScalpService(mock.prisma);
+    const errSpy = jest.spyOn((svc as any).logger, 'error');
+    const forced = await svc.forceCloseAll(kstMonday('1520'));
+    expect(forced.exited).toBe(1);
+    expect(mock.trades[0].status).toBe('CLOSED');
+    expect(mock.trades[0].exitReason).toBe('FORCE_CLOSE_EOD');
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('가격결측'));
+  });
+
+  it('L[1] runExitCycle: 가격결측이면 청산평가 스킵(0% 날조 대신 OPEN 유지)', async () => {
+    const mock = buildPrismaMock({ universe: [], candlesByStock: {} });
+    seedOpenScalp(mock);
+    const svc = new IntradayScalpService(mock.prisma);
+    const exit = await svc.runExitCycle(kstMonday('1030'));
+    expect(exit.exited).toBe(0);
+    expect(mock.trades[0].status).toBe('OPEN');
   });
 
   it('DAR-435 청산 timebase 통일: exitTs 가 entryTs 와 동일 naive-KST·exitTs>entryTs·holdMinutes 정확', async () => {

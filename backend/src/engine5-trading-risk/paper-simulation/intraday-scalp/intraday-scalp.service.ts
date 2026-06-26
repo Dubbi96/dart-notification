@@ -304,6 +304,30 @@ export class IntradayScalpService {
     return null;
   }
 
+  /**
+   * L[1](2026-06-26): 강제청산 체결가 해석 — 실시간 신선분 → 당일 마지막 분봉종가 →
+   * 같은 거래일 일봉종가 → (최후)진입가. 진입가 최후폴백이 실제 발동하면 priceMissing=true
+   * (정직 고지 대상) — '가격 결측 시 진입가로 0% 손익 날조' 데이터정합 결함 방지.
+   * ★ 일봉은 반드시 '포지션 자신의 거래일(t.tradeDate)' 한정 — orderBy desc(최신)는 어제 종가를
+   *   오늘 손익으로 영속하는 cross-day 가짜손익(DAR-433 부류)을 만들므로 금지.
+   */
+  private async resolveExitPrice(
+    t: { corpCode: string; stockCode: string; entryPrice: unknown; tradeDate: string },
+    candles: ScalpCandle[],
+    nowMs: number,
+  ): Promise<{ price: number; priceMissing: boolean }> {
+    const live = this.currentPrice(t.corpCode, candles, nowMs);
+    if (live !== null) return { price: live, priceMissing: false };
+    const daily = await this.prisma.stockDailyPrice.findFirst({
+      where: { stockCode: t.stockCode, tradeDate: t.tradeDate },
+      select: { closePrice: true },
+    });
+    if (daily?.closePrice != null) {
+      return { price: toNum(daily.closePrice), priceMissing: false };
+    }
+    return { price: toNum(t.entryPrice), priceMissing: true };
+  }
+
   /** 오늘 트랙 실현손익 합·거래수(리스크 입력·중복 진입 게이트). */
   private async todayRealizedAndCount(tradeDate: string): Promise<{ realized: number; count: number }> {
     const rows = await this.prisma.intradayScalpTrade.findMany({
@@ -728,7 +752,15 @@ export class IntradayScalpService {
     let exited = 0;
     for (const t of open) {
       const candles = await this.loadTodayCandles(t.stockCode, t.tradeDate);
-      const price = this.currentPrice(t.corpCode, candles, nowMs) ?? toNum(t.entryPrice);
+      // L[1]: 실시간·분봉 모두 결측이면 TP/SL 평가 불가 → 진입가 날조(0% 손익) 대신 스킵.
+      //   강제청산 시각(15:20) 안전망은 forceCloseAll(일봉 폴백 포함)이 담당한다.
+      const price = this.currentPrice(t.corpCode, candles, nowMs);
+      if (price === null) {
+        this.logger.warn(
+          `[Scalp] 가격결측 — 청산평가 스킵(forceCloseAll 일봉 폴백 위임) ${t.stockCode}`,
+        );
+        continue;
+      }
       const decision = evaluateScalpExit(toNum(t.entryPrice), price, nowHhmm);
       if (!decision.shouldExit || decision.reason === null) continue;
       await this.closePosition(t, price, decision.reason, now);
@@ -750,7 +782,13 @@ export class IntradayScalpService {
     let exited = 0;
     for (const t of open) {
       const candles = await this.loadTodayCandles(t.stockCode, t.tradeDate);
-      const price = this.currentPrice(t.corpCode, candles, nowMs) ?? toNum(t.entryPrice);
+      // L[1]: 실측 폴백체인(실시간→분봉→같은거래일 일봉→진입가). 진입가 최후폴백 시 정직 고지.
+      const { price, priceMissing } = await this.resolveExitPrice(t, candles, nowMs);
+      if (priceMissing) {
+        this.logger.error(
+          `[Scalp][데이터정합] 강제청산 가격결측 — 진입가 폴백(손익 0% 기록=실손익 아님) ${t.stockCode} tradeDate=${t.tradeDate}`,
+        );
+      }
       await this.closePosition(t, price, 'FORCE_CLOSE_EOD', now);
       exited += 1;
     }

@@ -147,9 +147,10 @@ describe('DAR-134 진단: Buy Score 분포·버킷 기여·결측 분석', () =>
     // eslint-disable-next-line no-console
     console.log(lines.join('\n'));
 
-    // 결론 단언: 점수계산·임계는 정상 — 강한 양(+) 공시는 BUY 도달(임계 인하 없이).
+    // 결론 단언: 점수계산·임계는 정상 — 강한 양(+) 공시는 매수등급 도달(임계 인하 없이).
+    // F9(2026-06-26): 임계 50/45/30 재보정 후 강한 SUPPLY_CONTRACT 는 STRONG 도달.
     const strong = service.computeBuyScore(buildParams('SUPPLY_CONTRACT', 'POSITIVE', { salesRatio: 35 }, LIVE));
-    expect(strong.signal).toBe('BUY_CANDIDATE');
+    expect(strong.signal).toBe('STRONG_BUY_CANDIDATE');
     // OTHER(미분류)는 base 0 → 정당하게 낮은 등급(거짓 BUY 아님).
     const other = service.computeBuyScore(buildParams('OTHER', 'UNKNOWN', {}, LIVE));
     expect(other.buyScore).toBeLessThan(SIGNAL_GRADE_THRESHOLDS.BUY_CANDIDATE);

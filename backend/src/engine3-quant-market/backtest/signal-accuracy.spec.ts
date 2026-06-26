@@ -38,17 +38,18 @@ describe('median', () => {
 });
 
 describe('scoreBandOf (등급 임계값 정렬)', () => {
-  it('80 이상 → STRONG_BUY 구간', () => {
-    expect(scoreBandOf(80)).toBe('80+ (STRONG_BUY)');
-    expect(scoreBandOf(100)).toBe('80+ (STRONG_BUY)');
+  // F9(2026-06-26): 라벨이 SIGNAL_GRADE_THRESHOLDS(50/45/30)에서 파생됨.
+  it('50 이상 → STRONG_BUY 구간', () => {
+    expect(scoreBandOf(50)).toBe('50+ (STRONG_BUY)');
+    expect(scoreBandOf(100)).toBe('50+ (STRONG_BUY)');
   });
-  it('60~79 → BUY 구간', () => {
-    expect(scoreBandOf(60)).toBe('60-79 (BUY)');
-    expect(scoreBandOf(79)).toBe('60-79 (BUY)');
+  it('45~49 → BUY 구간', () => {
+    expect(scoreBandOf(45)).toBe('45-49 (BUY)');
+    expect(scoreBandOf(49)).toBe('45-49 (BUY)');
   });
-  it('30~59 → WATCH 구간', () => {
-    expect(scoreBandOf(30)).toBe('30-59 (WATCH)');
-    expect(scoreBandOf(59)).toBe('30-59 (WATCH)');
+  it('30~44 → WATCH 구간', () => {
+    expect(scoreBandOf(30)).toBe('30-44 (WATCH)');
+    expect(scoreBandOf(44)).toBe('30-44 (WATCH)');
   });
   it('0~29 / 음수 구간', () => {
     expect(scoreBandOf(0)).toBe('0-29');
@@ -142,7 +143,7 @@ describe('buildSignalAccuracyReport — 등급/구간/eventType 그룹', () => {
   const returns: SignalRealizedReturn[] = [
     sig({ signalGrade: 'STRONG_BUY_CANDIDATE', buyScore: 85, eventType: 'SUPPLY_CONTRACT', arD5: 3, arD20: 5 }),
     sig({ signalGrade: 'STRONG_BUY_CANDIDATE', buyScore: 90, eventType: 'SUPPLY_CONTRACT', arD5: 1, arD20: 4 }),
-    sig({ signalGrade: 'BUY_CANDIDATE', buyScore: 65, eventType: 'DIVIDEND_INCREASE', arD5: -2, arD20: 1 }),
+    sig({ signalGrade: 'BUY_CANDIDATE', buyScore: 47, eventType: 'DIVIDEND_INCREASE', arD5: -2, arD20: 1 }),
     sig({ signalGrade: 'WATCH', buyScore: 40, eventType: 'LAWSUIT', arD5: -5, arD20: -8 }),
   ];
 
@@ -162,9 +163,9 @@ describe('buildSignalAccuracyReport — 등급/구간/eventType 그룹', () => {
   it('점수 구간이 임계값 내림차순으로 정렬', () => {
     const report = buildSignalAccuracyReport(returns);
     expect(report.byScoreBand.map((b) => b.key)).toEqual([
-      '80+ (STRONG_BUY)',
-      '60-79 (BUY)',
-      '30-59 (WATCH)',
+      '50+ (STRONG_BUY)',
+      '45-49 (BUY)',
+      '30-44 (WATCH)',
     ]);
   });
 

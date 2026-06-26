@@ -91,7 +91,7 @@ describe('SignalAccuracyService (가격→실현 AR 배선)', () => {
     expect(strong.d5.avgExcessReturn).not.toBeNull();
     expect(strong.d5.avgExcessReturn!).toBeGreaterThan(0); // 상승 종목 vs 보합 시장
     expect(strong.d20.avgExcessReturn!).toBeGreaterThan(strong.d5.avgExcessReturn!); // 더 길수록 누적↑
-    expect(report.byScoreBand[0].key).toBe('80+ (STRONG_BUY)');
+    expect(report.byScoreBand[0].key).toBe('50+ (STRONG_BUY)');
   });
 
   it('가격이 D+5 미만이면 두 지평 모두 null(과신 방지 폴백)', async () => {

@@ -214,10 +214,15 @@ export class SignalGenerationService {
   private readonly logger = new Logger(SignalGenerationService.name);
   private isRunning = false;
 
-  /** DAR-85: 푸시 통지 대상 등급(고확신 매수만). */
-  private static readonly NOTIFY_GRADES: ReadonlySet<string> = new Set([
-    'STRONG_BUY',
-    'BUY',
+  /**
+   * DAR-85 / F4(2026-06-26): 푸시 통지 대상 등급(고확신 매수).
+   * 정본 SignalGrade enum 값(*_CANDIDATE)을 사용한다. 과거 'STRONG_BUY'/'BUY' 리터럴은
+   * 실제 등급값(STRONG_BUY_CANDIDATE/BUY_CANDIDATE)과 불일치해 통지가 영구 미발화했다.
+   * ReadonlySet<SignalGrade> 로 타입을 좁혀 stale 리터럴 재발 시 컴파일 에러로 차단.
+   */
+  private static readonly NOTIFY_GRADES: ReadonlySet<SignalGrade> = new Set<SignalGrade>([
+    SignalGrade.STRONG_BUY_CANDIDATE,
+    SignalGrade.BUY_CANDIDATE,
   ]);
 
   constructor(
@@ -333,6 +338,10 @@ export class SignalGenerationService {
       // 1회 로드해 배치 전체에 재사용. 미주입/실패/표본부족 시 빈 맵 → 무보정(계수 1.0).
       const gradeCoeff = await this.loadGradeCoefficients();
       const stockCtxCache = new Map<string, StockContext>();
+      // F4(2026-06-26): 공시단위(corpCode,rcpNo) 통지 dedup. 한 공시가 여러 persona/eventType
+      //   신호를 만들어도 watcher 에게는 1회만 푸시한다(persona fan-out 4중 통지 방지).
+      //   run 단위 set — 인스턴스가 아닌 호출마다 새로 만들어 이후 cron 의 신규 통지를 막지 않는다.
+      const notifiedDisclosures = new Set<string>();
 
       for (const ev of candidates) {
         const stockCode = ev.company!.stockCode!;
@@ -400,8 +409,14 @@ export class SignalGenerationService {
             } else {
               created++;
               existingSet.add(key);
-              // DAR-85: 신규 매수신호(STRONG_BUY/BUY)만 큐로 통지 enqueue(재채점 제외).
-              await this.maybeEnqueueSignal(sig.id, result, ev.company?.stockCode);
+              // DAR-85: 신규 매수신호(STRONG_BUY_CANDIDATE/BUY_CANDIDATE)만 큐로 통지 enqueue(재채점 제외).
+              // F4: 공시단위 dedup set 전달 — 동일 공시는 1회만 통지.
+              await this.maybeEnqueueSignal(
+                sig.id,
+                result,
+                ev.company?.stockCode,
+                notifiedDisclosures,
+              );
             }
             gradeDist[result.signal] = (gradeDist[result.signal] ?? 0) + 1;
           } catch (err) {
@@ -1279,16 +1294,24 @@ export class SignalGenerationService {
 
   /** BuySignalResult → TradingSignal create payload */
   /**
-   * DAR-85: 신규 매수신호 통지 enqueue. STRONG_BUY/BUY 만 대상.
+   * DAR-85 / F4: 신규 매수신호 통지 enqueue. STRONG_BUY_CANDIDATE/BUY_CANDIDATE 만 대상.
    * producer 미주입/큐 미설정/실패는 graceful — 신호 생성 트랜잭션을 깨지 않는다.
+   * notifiedDisclosures 가 주어지면 (corpCode,rcpNo) 공시단위로 dedup 한다.
    */
   private async maybeEnqueueSignal(
     signalId: string,
     r: BuySignalResult,
     stockCode?: string | null,
+    notifiedDisclosures?: Set<string>,
   ): Promise<void> {
     if (!this.notifyProducer) return;
-    if (!SignalGenerationService.NOTIFY_GRADES.has(r.signal)) return;
+    if (!SignalGenerationService.NOTIFY_GRADES.has(r.signal as SignalGrade)) return;
+    // F4: 공시단위 통지 dedup — 동일 (corpCode,rcpNo) 는 첫 자격 신호 1회만 통지.
+    if (notifiedDisclosures) {
+      const key = `${r.corpCode}::${r.rcpNo}`;
+      if (notifiedDisclosures.has(key)) return;
+      notifiedDisclosures.add(key);
+    }
     await this.notifyProducer.enqueueSignal({
       signalId,
       corpCode: r.corpCode,

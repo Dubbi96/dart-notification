@@ -33,7 +33,8 @@ function formatSignedPct(value: number | null): string {
   return value === null ? '측정 불가' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
 }
 
-/** 우승 배지 — 표본 있는 전략 중 최고 누적수익률(🥇). */
+// 우승 배지 — 표본 있는 전략 중 최고 누적수익(C9). 메달 이모지 폐기 → Feather award(형태)
+// + 평문 라벨 병행: 렌더/색맹/로케일 비의존, 색 단독 의미 금지(아이콘+텍스트).
 function BestBadge() {
   const { colors, typography: typo } = useTheme();
   return (
@@ -42,7 +43,8 @@ function BestBadge() {
       accessibilityRole="text"
       accessibilityLabel="현재 최고 수익 전략"
     >
-      <Text style={[typo.small, { color: colors.success }]}>🥇 최고 수익</Text>
+      <Feather name="award" size={12} color={colors.success} />
+      <Text style={[typo.small, { color: colors.success }]}>최고 수익</Text>
     </View>
   );
 }
@@ -165,16 +167,7 @@ function StrategyCard({ perf, isBest }: { perf: StrategyPerformance; isBest: boo
           {perf.tagline}
         </Text>
 
-        {/* 전략별 미니 자산곡선(점 0·1개도 정직하게). */}
-        {perf.equityCurve.length > 0 ? (
-          <EquityCurveChart points={perf.equityCurve} initialCapital={perf.initialCapital} />
-        ) : (
-          <Text style={[typo.small, { color: colors.textTertiary, paddingVertical: spacing.sm }]}>
-            아직 자산곡선 데이터가 없습니다 — 백테스트 트랙이 누적되면 표시됩니다.
-          </Text>
-        )}
-
-        {/* 1차: 카드 순위를 정하는 핵심 3수치(값 위계 강화). */}
+        {/* 1차: 카드 순위를 정하는 핵심 3수치(값 위계 강화) — 기본 정보 압축. */}
         <View style={styles.primaryRow}>
           <PrimaryStat label="누적수익" value={formatReturnPct(perf.cumulativeReturnPct)} />
           <PrimaryStat
@@ -185,6 +178,18 @@ function StrategyCard({ perf, isBest }: { perf: StrategyPerformance; isBest: boo
           <PrimaryStat label="트레이드" value={`${perf.tradeCount}건`} />
         </View>
       </TouchableOpacity>
+
+      {/* C6: 미니 자산곡선 옵션화 — 5장 카드가 한 스크롤에 차트를 모두 펼쳐 과밀해지던 것을
+          '한 탭 뒤'로 접어 기본 카드를 압축한다(점 0·1개도 펼치면 정직하게 표기). */}
+      <InlineDisclosure label="미니 자산곡선" icon="trending-up">
+        {perf.equityCurve.length > 0 ? (
+          <EquityCurveChart points={perf.equityCurve} initialCapital={perf.initialCapital} />
+        ) : (
+          <Text style={[typo.small, { color: colors.textTertiary }]}>
+            아직 자산곡선 데이터가 없습니다 — 백테스트 트랙이 누적되면 표시됩니다.
+          </Text>
+        )}
+      </InlineDisclosure>
 
       {/* 2차: 전문/희귀 지표 + 룰은 한 탭 뒤로(progressive disclosure). */}
       <InlineDisclosure label="상세 — Sharpe·MDD·vs KOSPI·진입/청산 룰" icon="info">
@@ -227,6 +232,15 @@ function ComparisonHeader({ data }: { data: StrategyComparison }) {
     : null;
   return (
     <View style={styles.headerBox}>
+      {/* C6: 백테스트 섹션 헤더 — 위 '단타 트랙'(forward·실시간 모의)과 성격이 다른
+          과거 백테스트 비교 구역임을 단타 섹션 헤더와 대칭으로 명시(섹션 구분 강화). */}
+      <View style={styles.sectionHead}>
+        <Feather name="bar-chart-2" size={14} color={colors.textSecondary} />
+        <Text style={[typo.captionMedium, { color: colors.text }]}>
+          백테스트 비교 (일봉 4종 변형)
+        </Text>
+      </View>
+
       <Banner
         visible
         actions={[]}
@@ -358,6 +372,11 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     marginBottom: spacing.md,
   },
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
   banner: {
     borderRadius: radius.md,
   },
@@ -388,6 +407,9 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
     borderRadius: radius.sm,
     paddingHorizontal: spacing.xs,
     paddingVertical: 2,

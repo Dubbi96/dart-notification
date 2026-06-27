@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
@@ -57,6 +57,47 @@ function PrimaryStat({ label, value, sub }: { label: string; value: string; sub?
   );
 }
 
+// 인라인 접기(StrategyComparisonSection 정합·순환 import 회피 위해 로컬 정의) — 미니차트를
+// '한 탭 뒤'로 옵션화해 카드 과밀을 줄인다(C6). 색 단독 의미 금지 — 아이콘(형태)+평문. 44pt.
+function InlineDisclosure({
+  label,
+  icon,
+  children,
+}: {
+  label: string;
+  icon?: keyof typeof Feather.glyphMap;
+  children: React.ReactNode;
+}) {
+  const { colors, typography: typo } = useTheme();
+  const [expanded, setExpanded] = useState(false);
+  const toggle = useCallback(() => setExpanded((v) => !v), []);
+  return (
+    <View>
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={toggle}
+        style={styles.discHeader}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityLabel={`${label}, ${expanded ? '펼침' : '접힘'}`}
+      >
+        <View style={styles.discHeaderLeft}>
+          {icon ? <Feather name={icon} size={14} color={colors.textTertiary} /> : null}
+          <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+            {label}
+          </Text>
+        </View>
+        <Feather
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={16}
+          color={colors.textTertiary}
+        />
+      </TouchableOpacity>
+      {expanded ? <View style={styles.discBody}>{children}</View> : null}
+    </View>
+  );
+}
+
 /** '실시간 모의' 구분 액센트 라벨 — 백테스트 4종과 성격이 다름을 형태(zap)+평문으로 고지. */
 function LiveSimBadge() {
   const { colors, typography: typo } = useTheme();
@@ -110,15 +151,6 @@ function ScalpCard({ status }: { status: ScalpStatus }) {
           실시간 모의 · 당일청산(오버나잇 금지) · 백테스트 불가 — 과거 검증이 아닌 장중 누적 성과입니다.
         </Text>
 
-        {/* 미니 forward 자산곡선(점 0·1개도 정직하게). */}
-        {points.length > 0 ? (
-          <EquityCurveChart points={points} initialCapital={status.initialCapital} />
-        ) : (
-          <Text style={[typo.small, { color: colors.textTertiary, paddingVertical: spacing.sm }]}>
-            장중 모의 누적 예정 — 거래가 쌓이면 forward 자산곡선이 표시됩니다.
-          </Text>
-        )}
-
         {/* 1차 핵심 3수치 — 누적수익·승률·거래. */}
         <View style={styles.primaryRow}>
           <PrimaryStat label="누적수익" value={formatReturnPct(status.cumulativeReturnPct)} />
@@ -143,6 +175,18 @@ function ScalpCard({ status }: { status: ScalpStatus }) {
           </Text>
         </View>
       </TouchableOpacity>
+
+      {/* C6: 미니 forward 자산곡선 옵션화 — '한 탭 뒤'로 접어 단타 카드 기본 높이를 압축한다
+          (점 0·1개도 펼치면 정직하게 표기). */}
+      <InlineDisclosure label="미니 자산곡선" icon="trending-up">
+        {points.length > 0 ? (
+          <EquityCurveChart points={points} initialCapital={status.initialCapital} />
+        ) : (
+          <Text style={[typo.small, { color: colors.textTertiary }]}>
+            장중 모의 누적 예정 — 거래가 쌓이면 forward 자산곡선이 표시됩니다.
+          </Text>
+        )}
+      </InlineDisclosure>
 
       {/* 드릴다운 어포던스 — 오늘 거래 타임라인. */}
       <TouchableOpacity
@@ -275,6 +319,23 @@ const styles = StyleSheet.create({
   },
   primaryValue: {
     fontWeight: '700',
+  },
+  discHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 44,
+    gap: spacing.sm,
+  },
+  discHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flexShrink: 1,
+  },
+  discBody: {
+    paddingBottom: spacing.xs,
+    gap: spacing.sm,
   },
   drilldownRow: {
     flexDirection: 'row',

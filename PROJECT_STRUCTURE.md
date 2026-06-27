@@ -233,7 +233,7 @@ dart-notification/
 │   │   │   ├── Loading.tsx
 │   │   │   ├── AiReferenceLabel.tsx   # "AI 분석 참고용" 칩 [DAR-21]
 │   │   │   ├── DisclaimerSection.tsx  # AI 면책 표준 컴포넌트 [DAR-21]
-│   │   │   ├── ScoreGauge.tsx         # Buy/Exit 점수 게이지 [DAR-21]
+│   │   │   ├── ScoreGauge.tsx         # Buy/Exit 점수 게이지(+용어 InfoSheet, 리스트 카운트업 정적) [DAR-21·448]
 │   │   │   ├── StateView.tsx          # 로딩/빈/에러 상태 뷰 [DAR-21]
 │   │   │   ├── ProvenanceBar.tsx      # AI 출처 표시 바 [DAR-32]
 │   │   │   └── PriceChangeChip.tsx    # 등락률 칩 컴포넌트 [DAR-32]

@@ -8,6 +8,7 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
+import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
 import { ScreenHeader } from '@components/common/ScreenHeader';
 import { SignalAccuracySection } from '@components/portfolio/SignalAccuracySection';
@@ -232,33 +233,23 @@ function UrgentCalibrationBanner({ onPress }: { onPress: () => void }) {
   );
 }
 
-/** 신호 정밀도 '데이터 한계' 배지 — 표본<30 또는 통계 미유의 시(스펙 6장, 과신방지). */
-function DataLimitBadge() {
-  const { colors, typography: typo } = useTheme();
+/**
+ * 신호 정밀도 '데이터 한계' 배지 — 표본<30 또는 통계 미유의 시(스펙 6장, 과신방지).
+ * DAR-461 C11: 노출 판정(데이터 의존)만 여기서 하고, 시각 표현은 공통 DataLimitBadge로
+ * 일원화(동일 이름 중복 컴포넌트 제거). 표본 부족이면 표본수를 함께 노출하고, 통계 미유의만
+ * 이면 사유 없이 '데이터 한계'(공통 컴포넌트 a11y가 '표본 부족 또는 통계 미유의'를 포괄).
+ */
+function PrecisionDataLimitBadge() {
   const query = useSignalAccuracy();
   const data = query.data;
   if (!data) return null;
 
   const d20 = data.overall.d20;
-  const limited = d20.sampleCount < DATA_LIMIT_SAMPLE || !d20.isSignificant;
+  const sampleLimited = d20.sampleCount < DATA_LIMIT_SAMPLE;
+  const limited = sampleLimited || !d20.isSignificant;
   if (!limited) return null;
 
-  const reason =
-    d20.sampleCount < DATA_LIMIT_SAMPLE
-      ? `표본 ${d20.sampleCount} (30 미만)`
-      : '통계 미유의';
-
-  return (
-    <View
-      style={[styles.dataLimitBadge, { backgroundColor: colors.surfaceSecondary }]}
-      accessibilityLabel={`데이터 한계: ${reason}. 정밀도 수치는 참고용입니다.`}
-    >
-      <Feather name="alert-triangle" size={12} color={colors.warning} />
-      <Text style={[typo.small, { color: colors.warning, marginLeft: spacing.xs, fontWeight: '600', flexShrink: 1 }]}>
-        데이터 한계 — {reason}. 수치는 참고용
-      </Text>
-    </View>
-  );
+  return <DataLimitBadge sampleCount={sampleLimited ? d20.sampleCount : undefined} />;
 }
 
 function Metric({
@@ -386,8 +377,11 @@ function TabBar({
                 {t.label}
               </Text>
               {badge > 0 ? (
-                <View style={[styles.tabBadge, { backgroundColor: colors.warning }]}>
-                  <Text style={[typo.small, { color: colors.surface, fontWeight: '700' }]}>{badge}</Text>
+                // DAR-461 C3: 흰 텍스트를 warning(노랑) 위에 쓰면 대비 ~1.7:1로 긴급 건수가
+                // 안 보임 → 솔리드 error 배경 + onColor(흰) 텍스트(PortfolioRiskBadge 경보와
+                // 동일한 정본 onColor 패턴)로 대비를 끌어올린다.
+                <View style={[styles.tabBadge, { backgroundColor: colors.error }]}>
+                  <Text style={[typo.small, { color: colors.onColor, fontWeight: '700' }]}>{badge}</Text>
                 </View>
               ) : null}
             </View>
@@ -473,7 +467,7 @@ export default function TradeHistoryScreen() {
         </View>
       ) : activeTab === 'precision' ? (
         <View style={styles.tabBody}>
-          <DataLimitBadge />
+          <PrecisionDataLimitBadge />
           <SignalAccuracySection />
         </View>
       ) : (
@@ -573,13 +567,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   tabBody: { gap: spacing.md },
-  dataLimitBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
-  },
   hero: { borderRadius: radius.lg, borderWidth: 1, padding: spacing.base, gap: spacing.md },
   heroHeader: {
     flexDirection: 'row',

@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, type LayoutChangeEvent } from 'react-native';
 import Svg, { Polyline, Line, Circle } from 'react-native-svg';
+import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
-import { spacing } from '@theme/spacing';
-import { pnlColor } from '@utils/signalDisplay';
+import { spacing, sizing } from '@theme/spacing';
+import { pnlColor, sparklineTrendColor, sparklineTrendLabel } from '@utils/signalDisplay';
 import { formatReturnPct } from '@utils/numberFormat';
 
 import type { EquityCurvePoint } from '@app-types/simulation.types';
@@ -15,6 +16,8 @@ import type { EquityCurvePoint } from '@app-types/simulation.types';
 
 const CHART_HEIGHT = 180;
 const PADDING = { top: spacing.md, right: spacing.md, bottom: spacing.md, left: spacing.md };
+// 데이터점 투명 히트영역 한 변(≥44pt) — 작은 SVG 점(r=3~5px)을 탭·스크린리더로 선택 가능하게(C4).
+const HIT = sizing.minTouchTarget;
 
 /** YYYYMMDD → M/D (축·툴팁 간결 표기) */
 function shortDate(yyyymmdd: string): string {
@@ -71,10 +74,14 @@ export function EquityCurveChart({ points, initialCapital }: EquityCurveChartPro
   );
 
   const baselineY = yFor(initialCapital);
-  const last = points[points.length - 1];
   const activeIndex = selected ?? points.length - 1;
   const active = points[activeIndex];
-  const lineColor = last ? pnlColor(last.returnPct, colors) : colors.primary;
+  // 추세 색 = 곡선 기울기(첫→마지막 평가금액) 부호로 산정(C7). 마지막 점 부호(pnlColor)로 칠하면
+  // '하락 중이나 양(+)인 곡선'이 초록이 되어 색=의미가 어긋난다. sparklineTrendColor 로 라인 기울기와
+  // 색을 일치시키고, 색맹 대비로 추세 라벨(상승/하락/횡보)을 동반한다.
+  const trendValues = useMemo(() => points.map((p) => p.totalValue), [points]);
+  const lineColor = sparklineTrendColor(trendValues, colors);
+  const trendLabel = sparklineTrendLabel(trendValues);
 
   const singlePoint = points.length === 1;
 
@@ -102,42 +109,56 @@ export function EquityCurveChart({ points, initialCapital }: EquityCurveChartPro
       ) : null}
 
       {width > 0 ? (
-        <Svg width={width} height={CHART_HEIGHT}>
-          {/* 초기원금 기준선(점선) */}
-          <Line
-            x1={PADDING.left}
-            y1={baselineY}
-            x2={width - PADDING.right}
-            y2={baselineY}
-            stroke={colors.textTertiary}
-            strokeWidth={1}
-            strokeDasharray="4 4"
-          />
-          {/* 추세선 — 점 2개 이상일 때만(가짜 추세선 금지) */}
-          {points.length >= 2 ? (
-            <Polyline
-              points={polyline}
-              fill="none"
-              stroke={lineColor}
-              strokeWidth={2}
-              strokeLinejoin="round"
-              strokeLinecap="round"
+        <View style={styles.plotArea}>
+          <Svg width={width} height={CHART_HEIGHT}>
+            {/* 초기원금 기준선(점선) */}
+            <Line
+              x1={PADDING.left}
+              y1={baselineY}
+              x2={width - PADDING.right}
+              y2={baselineY}
+              stroke={colors.textTertiary}
+              strokeWidth={1}
+              strokeDasharray="4 4"
             />
-          ) : null}
-          {/* 각 점 — 탭하면 툴팁 갱신 */}
+            {/* 추세선 — 점 2개 이상일 때만(가짜 추세선 금지) */}
+            {points.length >= 2 ? (
+              <Polyline
+                points={polyline}
+                fill="none"
+                stroke={lineColor}
+                strokeWidth={2}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            ) : null}
+            {/* 각 점(시각 전용) — 조작은 아래 투명 히트영역이 담당 */}
+            {points.map((p, i) => (
+              <Circle
+                key={p.snapshotDate}
+                cx={xFor(i)}
+                cy={yFor(p.totalValue)}
+                r={i === activeIndex ? 5 : singlePoint ? 5 : 3}
+                fill={i === activeIndex ? lineColor : colors.surface}
+                stroke={lineColor}
+                strokeWidth={1.5}
+              />
+            ))}
+          </Svg>
+          {/* 투명 44pt 히트영역 — 각 점을 탭/스크린리더로 선택(C4). 점별 날짜·금액 라벨 동반 */}
           {points.map((p, i) => (
-            <Circle
-              key={p.snapshotDate}
-              cx={xFor(i)}
-              cy={yFor(p.totalValue)}
-              r={i === activeIndex ? 5 : singlePoint ? 5 : 3}
-              fill={i === activeIndex ? lineColor : colors.surface}
-              stroke={lineColor}
-              strokeWidth={1.5}
+            <Pressable
+              key={`hit-${p.snapshotDate}`}
               onPress={() => setSelected(i)}
+              style={[styles.pointHit, { left: xFor(i) - HIT / 2, top: yFor(p.totalValue) - HIT / 2 }]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: i === activeIndex }}
+              accessibilityLabel={`${pointLabel(p)} 모의 평가금액 ${Math.round(
+                p.totalValue,
+              ).toLocaleString('ko-KR')}원, 초기원금 대비 ${formatReturnPct(p.returnPct, { digits: 2 })}`}
             />
           ))}
-        </Svg>
+        </View>
       ) : (
         <View style={{ height: CHART_HEIGHT }} />
       )}
@@ -154,7 +175,7 @@ export function EquityCurveChart({ points, initialCapital }: EquityCurveChartPro
         </View>
       ) : null}
 
-      {/* 초기원금 범례 + 데이터 적을 때 정직 안내 */}
+      {/* 초기원금 범례 + 추세 라벨(색맹 대비) + 데이터 적을 때 정직 안내 */}
       <View style={styles.legendRow}>
         <View style={styles.legendItem}>
           <View style={[styles.dashSwatch, { borderColor: colors.textTertiary }]} />
@@ -162,6 +183,22 @@ export function EquityCurveChart({ points, initialCapital }: EquityCurveChartPro
             초기원금 {initialCapital.toLocaleString('ko-KR')}원
           </Text>
         </View>
+        {points.length >= 2 && trendLabel ? (
+          <View
+            style={styles.legendItem}
+            accessibilityRole="text"
+            accessibilityLabel={`자산곡선 추세 ${trendLabel}`}
+          >
+            <Feather
+              name={
+                trendLabel === '상승' ? 'trending-up' : trendLabel === '하락' ? 'trending-down' : 'minus'
+              }
+              size={14}
+              color={lineColor}
+            />
+            <Text style={[typo.small, { color: lineColor }]}>추세 {trendLabel}</Text>
+          </View>
+        ) : null}
         {singlePoint ? (
           <Text style={[typo.small, { color: colors.textTertiary }]}>
             스냅샷 1개 — 점으로만 표시
@@ -193,6 +230,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: spacing.sm,
+  },
+  plotArea: {
+    position: 'relative',
+  },
+  pointHit: {
+    position: 'absolute',
+    width: HIT,
+    height: HIT,
   },
   axisRow: {
     flexDirection: 'row',

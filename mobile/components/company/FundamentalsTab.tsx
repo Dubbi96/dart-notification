@@ -4,7 +4,8 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing } from '@theme/spacing';
 import { Card } from '@components/common/Card';
-import { LoadingState, EmptyState, ErrorState } from '@components/common/StateView';
+import { EmptyState, ErrorState } from '@components/common/StateView';
+import { DetailSkeleton } from '@components/common/DetailSkeleton';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { useFinancials } from '@hooks/useFinancials';
 
@@ -223,7 +224,11 @@ function FundamentalContent({ snap }: { snap: FinancialSnapshot }) {
 export function FundamentalsTab({ corpCode, corpName }: FundamentalsTabProps) {
   const { data, isLoading, isError, refetch } = useFinancials(corpCode);
 
-  if (isLoading) return <LoadingState message="재무지표를 불러오는 중…" />;
+  // 로딩도 화면 진입 스켈레톤(DetailSkeleton)으로 통일 — 탭 전환 시 중앙 스피너 →
+  // 콘텐츠 점프를 제거(E17·DAR-467). 카드 골격은 FundamentalContent의 3개 SectionCard
+  // (손익계산서 3행·재무비율 5행·주당지표 5행)을 흉내 내 로딩→콘텐츠 레이아웃을 정렬한다.
+  if (isLoading)
+    return <DetailSkeleton cards={[{ lines: 3 }, { lines: 5 }, { lines: 5 }]} />;
   if (isError)
     return (
       <ErrorState

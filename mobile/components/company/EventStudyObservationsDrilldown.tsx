@@ -3,11 +3,41 @@ import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator }
 import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
+import { SkeletonBar, useSkeletonPulse } from '@components/common/SkeletonCard';
 import { useEventStudyObservations } from '@hooks/useEventStudy';
 import { formatReturnPct, returnColor } from '@utils/numberFormat';
 import { formatYmdDots } from '@utils/datetime';
 
 import type { EventStudyObservation } from '@app-types/signal.types';
+
+/**
+ * 관측치 로딩 스켈레톤(E17·DAR-467) — 펼침 직후 중앙 ActivityIndicator → 콘텐츠와 동일한
+ * obsRow 골격의 펄스 스켈레톤으로 통일해 로딩→목록 레이아웃 점프를 제거한다.
+ * 단일 펄스(useSkeletonPulse)·SkeletonBar·동일 행 스타일을 재사용해 일관성을 유지한다.
+ * (페이지네이션 '더 보기' 푸터의 인라인 스피너는 적합 패턴이라 보존.)
+ */
+const OBSERVATION_SKELETON_ROWS = 4;
+
+function ObservationsSkeleton() {
+  const { colors } = useTheme();
+  const opacity = useSkeletonPulse();
+  return (
+    <View accessibilityRole="progressbar" accessibilityLabel="표본 불러오는 중">
+      {Array.from({ length: OBSERVATION_SKELETON_ROWS }).map((_, i) => (
+        <View key={i} style={[styles.obsRow, { borderBottomColor: colors.border }]}>
+          <View style={styles.obsMain}>
+            <SkeletonBar width="55%" height={16} opacity={opacity} />
+            <SkeletonBar width="32%" height={12} opacity={opacity} />
+          </View>
+          <View style={styles.obsCar}>
+            <SkeletonBar width={44} height={12} opacity={opacity} />
+            <SkeletonBar width={56} height={16} opacity={opacity} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 interface Props {
   /** 드릴다운 대상 버킷 식별자 (선택된 EventStudyResult.bucketKey) */
@@ -96,9 +126,7 @@ export function EventStudyObservationsDrilldown({ bucketKey, sampleCount }: Prop
       {expanded && (
         <View style={styles.panel}>
           {query.isLoading ? (
-            <View style={styles.center}>
-              <ActivityIndicator color={colors.primary} />
-            </View>
+            <ObservationsSkeleton />
           ) : query.isError ? (
             <TouchableOpacity
               onPress={() => query.refetch()}

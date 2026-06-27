@@ -1,4 +1,5 @@
 import { useState } from 'react';
+
 import type { GestureResponderEvent, AccessibilityActionEvent } from 'react-native';
 
 /**

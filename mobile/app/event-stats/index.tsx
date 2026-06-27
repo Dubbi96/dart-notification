@@ -92,8 +92,18 @@ function MetricCell({ label, value, valueColor }: MetricCellProps) {
   const { colors, typography: typo } = useTheme();
   return (
     <View style={styles.metricCell}>
-      <Text style={[typo.small, { color: colors.textTertiary }]}>{label}</Text>
-      <Text style={[typo.bodyMedium, { color: valueColor, fontWeight: '600' }]}>{value}</Text>
+      <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={1}>
+        {label}
+      </Text>
+      {/* DAR-466: 좁은 기기에서 '-100.0%' 등 절단 방지 — 한 줄 고정 + 폭 초과 시 축소(adjustsFontSizeToFit). */}
+      <Text
+        style={[typo.bodyMedium, { color: valueColor, fontWeight: '600' }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.85}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -127,12 +137,17 @@ function EventRow({ item }: EventRowProps) {
           {item.lowSample ? <DataLimitBadge /> : null}
         </View>
 
+        {/* DAR-466(E16): 5컬럼 1행 과밀/절단 해소 — 초과수익 3종(1행) + 승률·표본(2행)으로 분리. */}
         <View style={styles.metrics}>
-          <MetricCell label="D+1 초과" value={formatReturnPct(item.avgArD1)} valueColor={arColor(item.avgArD1)} />
-          <MetricCell label="D+5 초과" value={formatReturnPct(item.avgArD5)} valueColor={arColor(item.avgArD5)} />
-          <MetricCell label="D+20 초과" value={formatReturnPct(item.avgArD20)} valueColor={arColor(item.avgArD20)} />
-          <MetricCell label="승률(D+5)" value={winPct} valueColor={winColor} />
-          <MetricCell label="표본" value={`${item.totalSample.toLocaleString('ko-KR')}건`} valueColor={colors.text} />
+          <View style={styles.metricsRow}>
+            <MetricCell label="D+1 초과" value={formatReturnPct(item.avgArD1)} valueColor={arColor(item.avgArD1)} />
+            <MetricCell label="D+5 초과" value={formatReturnPct(item.avgArD5)} valueColor={arColor(item.avgArD5)} />
+            <MetricCell label="D+20 초과" value={formatReturnPct(item.avgArD20)} valueColor={arColor(item.avgArD20)} />
+          </View>
+          <View style={styles.metricsRow}>
+            <MetricCell label="승률(D+5)" value={winPct} valueColor={winColor} />
+            <MetricCell label="표본" value={`${item.totalSample.toLocaleString('ko-KR')}건`} valueColor={colors.text} />
+          </View>
         </View>
       </View>
     </Card>
@@ -261,11 +276,15 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   metrics: {
+    gap: spacing.md,
+  },
+  metricsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: spacing.sm,
   },
   metricCell: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     gap: spacing.xs,
   },

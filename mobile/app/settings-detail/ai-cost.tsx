@@ -480,12 +480,16 @@ export default function AiCostScreen() {
   const { colors, typography: typo } = useTheme();
   const { data, isLoading, isError, refetch } = useAiCostMetrics();
   const { data: health, refetch: refetchHealth } = useAiCostHealth();
-  const daily = useAiCostDaily();
-  const monthly = useAiCostMonthly();
-  const limitStatus = useAiCostLimitStatus();
-  const crossEngine = useAiCostCrossEngine();
 
+  // D6 고급/거버넌스 블록은 기본 접힘.
+  // DAR-471: 지연 로딩 — 펼칠 때만(enabled: advancedOpen) 일·월·한도·교차엔진 4쿼리를 발화. 접힘 상태 네트워크 0건.
+  //   (enabled 게이트보다 먼저 선언 — TDZ 회피.) 요약 게이지는 useAiCostHealth(상시)가 1차 소스라 회귀 없음.
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const daily = useAiCostDaily(undefined, { enabled: advancedOpen });
+  const monthly = useAiCostMonthly(undefined, undefined, { enabled: advancedOpen });
+  const limitStatus = useAiCostLimitStatus({ enabled: advancedOpen });
+  const crossEngine = useAiCostCrossEngine(undefined, undefined, { enabled: advancedOpen });
+
   const [refreshing, setRefreshing] = useState(false);
 
   // 당겨서 새로고침 (D15) — 6개 쿼리 동시 refetch. RN 코어 RefreshControl만 사용.

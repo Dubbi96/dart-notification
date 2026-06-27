@@ -497,3 +497,49 @@ describe('F2 — 익절 부분 스케일아웃', () => {
     expect(prisma._creates.length).toBe(0); // 합성 CLOSED 미생성
   });
 });
+
+// ── F7(2026-06-27): 매수 수수료 회계 반영(청산 netPnl) ──
+describe('F7 — 매수 수수료 차감', () => {
+  function paperTradeWithCosts() {
+    return {
+      placeOrder: jest.fn(
+        async ({
+          direction,
+          orderedShares,
+          entryPrice,
+        }: {
+          direction: string;
+          orderedShares: number;
+          entryPrice: number;
+        }) => ({
+          id: direction === 'SELL' ? 'sell1' : 'buy1',
+          filledShares: orderedShares,
+          filledPrice: entryPrice,
+          commission: direction === 'SELL' ? 50 : 0,
+          tax: direction === 'SELL' ? 100 : 0,
+        }),
+      ),
+    };
+  }
+
+  it('청산 netPnl = grossPnl − 매수수수료 − 매도수수료 − 세금 (매수 수수료 누락 교정)', async () => {
+    const prisma = makePrisma(); // POS entryPrice 10000·quantity 10·entryAmount 100000
+    const cache = new RealtimeQuoteCache();
+    const priceSource = new SimulationPriceSourceService(prisma as never, cache);
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTradeWithCosts() as never,
+      undefined,
+      priceSource,
+      kisStub(9000) as never, // -10% 손절 전량청산
+      cache,
+    );
+
+    await svc.runIntradayExitMonitor(MARKET_HOURS);
+
+    const closed = prisma._updates.find((u) => u.status === 'CLOSED') as any;
+    expect(closed).toBeDefined();
+    // gross=(9000-10000)*10=-10000, buyComm=100000×0.00015=15, sellComm=50, tax=100 → -10165
+    expect(closed.unrealizedPnl).toBeCloseTo(-10165, 5);
+  });
+});

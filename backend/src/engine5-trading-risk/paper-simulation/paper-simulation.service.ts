@@ -20,7 +20,7 @@ import { formatKstDateCompact, isKstRegularMarketHours } from '../../common/time
 import { KisApiService } from '../../engine3-quant-market/market-data/kis-api.service';
 import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realtime-quote.cache';
 import { PaperTradeService } from '../services/paper-trade.service';
-import { DEFAULT_FILL_PARAMS } from '../domain/fill-simulator';
+import { DEFAULT_FILL_PARAMS, roundToTick } from '../domain/fill-simulator';
 import { NotificationProducerService } from '../../notifications/notification-producer.service';
 import { PrismaExitSignalRepository } from '../../engine4-portfolio-exit/repositories/prisma-exit-signal.repository';
 import {
@@ -945,7 +945,12 @@ export class PaperSimulationService {
       if (budget <= 0) continue;
       // 체결가는 슬리피지가 더해진다(BUY = price×(1+slippage)). 진입원가가 예산을 넘지 않도록
       //   슬리피지 반영가로 수량을 산정한다 → 진입원가(=체결가×수량) ≤ budget ≤ availableCash 보장.
-      const effPrice = price * (1 + DEFAULT_FILL_PARAMS.slippagePct);
+      // F8: 사이징 단가를 체결가와 동일하게 호가단위 정렬(BUY 올림) — shares×fillPrice ≤ budget
+      //   ≤ availableCash 보장(DAR-426 현금≥0 불변식이 틱반올림 후에도 유지).
+      const effPrice = roundToTick(
+        price * (1 + DEFAULT_FILL_PARAMS.slippagePct),
+        'BUY',
+      );
       const shares = Math.floor(budget / effPrice);
       if (shares <= 0) continue;
 
@@ -1011,7 +1016,8 @@ export class PaperSimulationService {
       openedCorpCodes.add(sig.corpCode);
       // DAR-426: 진입원가(=체결가×체결수량, Position.entryAmount 와 동일)만큼 가용현금 차감.
       //   슬리피지 반영가로 산정했으므로 차감분 ≤ budget ≤ 직전 availableCash → 현금 음수 불가.
-      availableCash -= fillPrice * trade.filledShares;
+      // F7: 매수 수수료도 현금 지출에 포함(cash≥0 불변식을 '진짜 지출'에 묶음).
+      availableCash -= fillPrice * trade.filledShares + (trade.commission ?? 0);
       // DAR-362: 이번 사이클에 담은 가치를 섹터 노출에 누적(다음 후보의 섹터 가드에 반영).
       if (sector) {
         sectorValue.set(
@@ -1203,7 +1209,14 @@ export class PaperSimulationService {
         });
         const sellPrice = sell.filledPrice ?? close;
         const grossPnl = (sellPrice - p.entryPrice) * sell.filledShares;
-        const netPnl = grossPnl - sell.commission - sell.tax;
+        // F7(2026-06-27): 매수 수수료(체결 시 부과되나 회계서 누락되던) 차감 — 보고 순손익 정확화.
+        //   매도분(부분/전량 공통) 비례 매수 수수료 = 진입원가×(매도주수/총주수)×commissionRate.
+        const buyCommission =
+          p.quantity > 0
+            ? ((p.entryAmount * sell.filledShares) / p.quantity) *
+              DEFAULT_FILL_PARAMS.commissionRate
+            : 0;
+        const netPnl = grossPnl - buyCommission - sell.commission - sell.tax;
         const returnPct =
           p.entryPrice > 0 ? ((sellPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
 

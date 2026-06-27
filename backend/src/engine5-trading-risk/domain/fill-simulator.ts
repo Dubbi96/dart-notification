@@ -6,9 +6,15 @@ import { FillParams, FillRequest, FillResult } from './paper-trade.types';
 export const DEFAULT_FILL_PARAMS: FillParams = {
   commissionRate: 0.00015,       // 0.015% 수수료
   sellTaxRate: 0.0018,           // 0.18% 증권거래세
-  slippagePct: 0.0005,           // 0.05% 슬리피지
+  slippagePct: 0.0005,           // 0.05% 기본 슬리피지
   partialFillThreshold: 0.1,     // 유동성비율 10% 미만 시 부분체결
+  // F8 Phase2: 거래량 기반 동적 슬리피지·부분체결(매수 전용) 파라미터(캘리브레이션 근거는 타입 주석 참조).
+  maxParticipation: 0.10,        // 일거래량 10%까지 전량체결, 초과분만 부분체결
+  impactCoeff: 0.015,            // 제곱근 시장충격 계수(α): 슬리피지 = base + α·√(참여율)
 };
+
+const DEFAULT_MAX_PARTICIPATION = 0.10;
+const DEFAULT_IMPACT_COEFF = 0.015;
 
 /**
  * 왕복(매수→매도) 거래비용율 — 체결금액 대비 분율(0~1). 비용율 SSOT(DAR-418).
@@ -67,12 +73,25 @@ export function roundToTick(price: number, direction: 'BUY' | 'SELL'): number {
  * 세금: 매도 시만 체결금액 × sellTaxRate
  */
 export function simulateFill(req: FillRequest, params: FillParams): FillResult {
-  const liquidity = req.liquidityRatio ?? 1.0;
+  // F8 Phase2: 참여율(주문량/일거래량) — 매수(진입)이고 dayVolume 제공 시에만 산정.
+  //   매도/청산·dayVolume 미제공은 participation=0 → 동적 슬리피지·부분체결 미적용(기존 동작·회귀 0).
+  const maxParticipation = params.maxParticipation ?? DEFAULT_MAX_PARTICIPATION;
+  const impactCoeff = params.impactCoeff ?? DEFAULT_IMPACT_COEFF;
+  const participation =
+    req.direction === 'BUY' && req.dayVolume && req.dayVolume > 0
+      ? req.orderedShares / req.dayVolume
+      : 0;
 
-  // 부분체결 계산
+  // 유동성비율: 명시값(req.liquidityRatio) 우선 — 기존 경로 회귀 0. 없으면 참여율 기반 산정
+  //   (참여율 ≤ maxParticipation → 1.0 전량, 초과 → maxParticipation/참여율 로 캡). dayVolume 없으면 1.0.
+  const liquidity =
+    req.liquidityRatio ??
+    (participation > 0 ? Math.min(1, maxParticipation / participation) : 1.0);
+
+  // 부분체결 계산 (기존 partialFillThreshold 게이트 유지)
   let filledShares: number;
   if (liquidity < params.partialFillThreshold) {
-    filledShares = Math.floor(req.orderedShares * liquidity);
+    filledShares = Math.floor(req.orderedShares * Math.max(liquidity, 0));
   } else {
     filledShares = req.orderedShares;
   }
@@ -89,11 +108,11 @@ export function simulateFill(req: FillRequest, params: FillParams): FillResult {
     };
   }
 
-  // 슬리피지 반영 체결가
+  // 슬리피지: 기본 + F8 Phase2 시장충격(제곱근 모델, 참여율 기반). participation=0 이면 base(기존 동작).
+  const effSlippagePct =
+    params.slippagePct + impactCoeff * Math.sqrt(participation);
   const slippageMultiplier =
-    req.direction === 'BUY'
-      ? 1 + params.slippagePct
-      : 1 - params.slippagePct;
+    req.direction === 'BUY' ? 1 + effSlippagePct : 1 - effSlippagePct;
   // F8: 슬리피지 반영가를 KRX 호가단위로 정렬(불리한 방향). 시장에 존재할 수 없는 비호가 가격 방지.
   const filledPrice = roundToTick(req.entryPrice * slippageMultiplier, req.direction);
 

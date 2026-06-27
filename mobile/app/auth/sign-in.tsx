@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,7 +18,7 @@ import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { palette } from '@theme/colors';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, sizing } from '@theme/spacing';
 import { useDialog } from '@components/common/DialogProvider';
 import LogoCards from '@/assets/logo/logo-cards.svg';
 import kakaoLoginImage from '../../assets/kakao_login_large_wide.png';
@@ -43,6 +44,20 @@ export default function SignInScreen() {
     guardRef.current = createMountGuard();
   }
   const guard = guardRef.current;
+
+  // 로고 워드마크는 타이포 토큰 최대치(amount=32)보다 큰 히어로 디스플레이다.
+  // amount 토큰(Dynamic Type 배율이 이미 반영됨)을 기준으로 디스플레이 배율을 곱해
+  // 큰 글꼴 설정을 따르도록 한다. 1.875 = 60 / 32 로 기존 60pt 비주얼을 보존한다.
+  const LOGO_DISPLAY_SCALE = 1.875;
+  const logoFontSize = Math.round(typo.amount.fontSize * LOGO_DISPLAY_SCALE);
+
+  // 로고 카드 일러스트: 고정 300×150 대신 화면 폭에 비례(2:1 비율 유지)하되 원본 폭을
+  // 상한으로 둔다 — 작은 폰에서 잘리거나 큰 화면에서 과대해지지 않는다.
+  const { width: screenWidth } = useWindowDimensions();
+  const LOGO_CARDS_MAX_WIDTH = 300;
+  const LOGO_CARDS_ASPECT = 2; // 300:150
+  const logoCardsWidth = Math.min(Math.round(screenWidth * 0.7), LOGO_CARDS_MAX_WIDTH);
+  const logoCardsHeight = Math.round(logoCardsWidth / LOGO_CARDS_ASPECT);
 
   useEffect(() => {
     SecureStore.getItemAsync('hasLoggedIn').then((value) => {
@@ -219,13 +234,17 @@ export default function SignInScreen() {
       <SafeAreaView style={styles.content}>
         {/* Logo Area */}
         <View style={styles.logoArea}>
-          <Text style={{ fontSize: 60, fontWeight: '300', color: palette.white }}>
+          <Text style={{ fontSize: logoFontSize, fontWeight: '300', color: colors.onColor }}>
             공시<Text style={{ color: palette.teal400, fontWeight: '700' }}>온</Text>
           </Text>
-          <Text style={[typo.caption, { color: 'rgba(255,255,255,0.5)', marginTop: spacing.sm }]}>
+          <Text style={[typo.caption, { color: colors.onColorFaint, marginTop: spacing.sm }]}>
             실시간 DART 공시 알리미
           </Text>
-          <LogoCards width={300} height={150} style={{ marginTop: spacing.sm }} />
+          <LogoCards
+            width={logoCardsWidth}
+            height={logoCardsHeight}
+            style={{ marginTop: spacing.sm }}
+          />
         </View>
 
         {/* Login Area */}
@@ -292,6 +311,8 @@ export default function SignInScreen() {
             style={styles.guestButton}
             onPress={goGuest}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="로그인 없이 둘러보기"
           >
             <Text style={[typo.caption, { color: colors.textSecondary }]}>
               로그인 없이 둘러보기
@@ -345,7 +366,10 @@ const styles = StyleSheet.create({
   },
   guestButton: {
     alignItems: 'center',
+    justifyContent: 'center',
     marginTop: spacing.lg,
+    // 보조 버튼이라도 유효 터치 영역 ≥44pt 보장(A-TOUCH-1).
+    minHeight: sizing.minTouchTarget,
     paddingVertical: spacing.sm,
   },
 });

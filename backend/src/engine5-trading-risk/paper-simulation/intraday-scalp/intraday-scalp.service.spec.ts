@@ -141,13 +141,16 @@ function buildPrismaMock(opts: {
           let out = trades;
           const w = args?.where ?? {};
           if (w.status) out = out.filter((t) => t.status === w.status);
-          // F11: tradeDate 가 {gte,lte} 범위 객체일 수 있음(weeklyRealizedPnl). 문자열 동등 + 범위 모두 처리.
+          // F11/L[3]: tradeDate 가 {gte,lte,gt,lt} 범위 객체일 수 있음(weeklyRealizedPnl·catch-up).
+          //   문자열 동등 + 범위 연산자 모두 처리.
           if (w.tradeDate && typeof w.tradeDate === 'object') {
-            const { gte, lte } = w.tradeDate;
+            const { gte, lte, gt, lt } = w.tradeDate;
             out = out.filter(
               (t) =>
                 (gte === undefined || t.tradeDate >= gte) &&
-                (lte === undefined || t.tradeDate <= lte),
+                (lte === undefined || t.tradeDate <= lte) &&
+                (gt === undefined || t.tradeDate > gt) &&
+                (lt === undefined || t.tradeDate < lt),
             );
           } else if (w.tradeDate) {
             out = out.filter((t) => t.tradeDate === w.tradeDate);
@@ -1037,5 +1040,75 @@ describe('IntradayScalpService — F11 주간 손실 한도', () => {
     );
     const r = await svc.runEntryCycle(kstMonday('1000'));
     expect(r.entered).toBe(1);
+  });
+});
+
+// ── L[3](2026-06-27): 전일 OPEN catch-up 강제청산(오버나잇 절대 금지 보강) ──
+describe('IntradayScalpService — L[3] 전일 OPEN catch-up', () => {
+  function resolverStub(tradeDate: string) {
+    return { resolveIntradayTradeDate: () => tradeDate } as never;
+  }
+
+  it('전일(20260619) OPEN 이 익일(20260622) runExitCycle 에서 강제청산된다', async () => {
+    const mock = buildPrismaMock({
+      universe: [],
+      candlesByStock: { '009998': triggerCandles(105, 106, 100) }, // 그 거래일 종가 데이터
+    });
+    mock.trades.push({
+      id: 'stale1',
+      corpCode: 'CS',
+      stockCode: '009998',
+      tradeDate: '20260619',
+      entryTs: new Date(Date.UTC(2026, 5, 19, 10, 0)),
+      entryPrice: 100,
+      shares: 10,
+      entryReason: 'VOLUME_BREAKOUT_VWAP',
+      commission: 0,
+      tax: 0,
+      slippage: 0,
+      status: 'OPEN',
+      styleTag: INTRADAY_SCALP_STYLE_TAG,
+    } as never);
+    const svc = new IntradayScalpService(
+      mock.prisma,
+      undefined,
+      resolverStub('20260622'), // 오늘 = 월 20260622
+    );
+
+    const r = await svc.runExitCycle(kstMonday('1000'));
+
+    const stale = mock.trades.find((t) => t.id === 'stale1') as any;
+    expect(stale.status).toBe('CLOSED');
+    expect(stale.exitReason).toBe('FORCE_CLOSE_EOD');
+    expect(r.exited).toBeGreaterThanOrEqual(1);
+  });
+
+  it('당일(20260622) OPEN 은 catch-up 대상 아님', async () => {
+    const mock = buildPrismaMock({ universe: [], candlesByStock: {} });
+    mock.trades.push({
+      id: 'today1',
+      corpCode: 'CT',
+      stockCode: '009997',
+      tradeDate: '20260622',
+      entryTs: kstNaive('1000'),
+      entryPrice: 100,
+      shares: 10,
+      entryReason: 'VOLUME_BREAKOUT_VWAP',
+      commission: 0,
+      tax: 0,
+      slippage: 0,
+      status: 'OPEN',
+      styleTag: INTRADAY_SCALP_STYLE_TAG,
+    } as never);
+    const svc = new IntradayScalpService(
+      mock.prisma,
+      undefined,
+      resolverStub('20260622'),
+    );
+
+    await svc.runExitCycle(kstMonday('1000'));
+
+    const today = mock.trades.find((t) => t.id === 'today1') as any;
+    expect(today.status).toBe('OPEN'); // 당일분은 catch-up 비대상(가격결측 시 스킵)
   });
 });

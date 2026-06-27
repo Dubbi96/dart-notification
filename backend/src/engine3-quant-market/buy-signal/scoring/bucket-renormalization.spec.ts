@@ -134,7 +134,9 @@ describe('renormalizeWeights()', () => {
     }
   });
 
-  it('단일 버킷만 가용 → 그 버킷 가중치 1.0', () => {
+  // F10(2026-06-26): 과거엔 단일 버킷만 가용 시 그 버킷을 1.0 으로 부풀려(거짓 corroboration)
+  //   독립증거 0인데도 STRONG 이 떴다. 이제 상관그룹(동일 공시 파생)은 1.0 으로 부풀리지 않는다.
+  it('F10: 독립증거 0 + 단일 상관버킷(disclosureEvent)만 가용 → 그룹 캡(합<1.0)으로 보수화', () => {
     const { effectiveWeights, omittedBuckets } = renormalizeWeights(
       W,
       availabilityOf({
@@ -149,8 +151,61 @@ describe('renormalizeWeights()', () => {
       }),
     );
     expect(omittedBuckets.length).toBe(8);
-    expect(effectiveWeights.disclosureEvent).toBeCloseTo(1.0, 10);
+    const groupBaseSum =
+      W.disclosureEvent + W.keyMetric + W.personaFit + W.fundamental;
+    // disclosureEvent 단독이지만 1.0 으로 부풀리지 않고 그룹 base 합(=캡)만 받는다.
+    expect(effectiveWeights.disclosureEvent).toBeCloseTo(groupBaseSum, 10);
+    expect(sum(effectiveWeights)).toBeCloseTo(groupBaseSum, 10);
+    expect(sum(effectiveWeights)).toBeLessThan(1.0); // 거짓 corroboration 제거
+  });
+
+  it('F10: 독립증거 전무 + 상관버킷 다수 가용 → 그룹 캡·독립 0·상대비율 보존', () => {
+    const { effectiveWeights, omittedBuckets } = renormalizeWeights(
+      W,
+      availabilityOf({
+        historicalEvent: false,
+        chart: false,
+        volumeLiquidity: false,
+        marketSector: false,
+        insider: false,
+      }),
+    );
+    expect(omittedBuckets.sort()).toEqual(
+      ['chart', 'historicalEvent', 'insider', 'marketSector', 'volumeLiquidity'].sort(),
+    );
+    for (const k of [
+      'chart',
+      'historicalEvent',
+      'volumeLiquidity',
+      'marketSector',
+      'insider',
+    ] as BucketKey[]) {
+      expect(effectiveWeights[k]).toBe(0);
+    }
+    // 상관그룹 전부 가용 → effective = base 그대로(합 = groupBaseSum, 1.0 미만)
+    const groupBaseSum =
+      W.disclosureEvent + W.keyMetric + W.personaFit + W.fundamental;
+    expect(sum(effectiveWeights)).toBeCloseTo(groupBaseSum, 10);
+    expect(sum(effectiveWeights)).toBeLessThan(1.0);
+    expect(effectiveWeights.disclosureEvent).toBeCloseTo(W.disclosureEvent, 10);
+    // 상관버킷 상대 비율은 보존
+    expect(
+      effectiveWeights.disclosureEvent / effectiveWeights.keyMetric,
+    ).toBeCloseTo(W.disclosureEvent / W.keyMetric, 10);
+  });
+
+  it('F10: 독립증거 1개(chart)라도 있으면 기존 합=1.0 경로 유지(게이트 미발화)', () => {
+    const { effectiveWeights } = renormalizeWeights(
+      W,
+      availabilityOf({
+        historicalEvent: false,
+        volumeLiquidity: false,
+        marketSector: false,
+        insider: false,
+      }),
+    );
     expect(sum(effectiveWeights)).toBeCloseTo(1.0, 10);
+    expect(effectiveWeights.chart).toBeGreaterThan(0);
   });
 
   it('전부 결측 방어 → 모든 가중치 0, 합 0 (크래시·NaN 없음)', () => {

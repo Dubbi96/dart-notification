@@ -178,17 +178,25 @@ function groupBy(
   return map;
 }
 
-/** buyScore → 등급 임계값에 정렬된 구간 라벨(STRONG_BUY 80/BUY 60/WATCH 30 검증축) */
+/**
+ * buyScore → 등급 임계값에 정렬된 구간 라벨.
+ * F9(2026-06-26): 라벨을 SIGNAL_GRADE_THRESHOLDS 에서 파생 — 임계 재보정 시 자동 추종(재발 방지).
+ */
+const _T = SIGNAL_GRADE_THRESHOLDS;
+const STRONG_BAND = `${_T.STRONG_BUY_CANDIDATE}+ (STRONG_BUY)`;
+const BUY_BAND = `${_T.BUY_CANDIDATE}-${_T.STRONG_BUY_CANDIDATE - 1} (BUY)`;
+const WATCH_BAND = `${_T.WATCH}-${_T.BUY_CANDIDATE - 1} (WATCH)`;
+const SUB_WATCH_BAND = `0-${_T.WATCH - 1}`;
 export function scoreBandOf(buyScore: number): string {
-  if (buyScore >= SIGNAL_GRADE_THRESHOLDS.STRONG_BUY_CANDIDATE) return '80+ (STRONG_BUY)';
-  if (buyScore >= SIGNAL_GRADE_THRESHOLDS.BUY_CANDIDATE) return '60-79 (BUY)';
-  if (buyScore >= SIGNAL_GRADE_THRESHOLDS.WATCH) return '30-59 (WATCH)';
-  if (buyScore >= 0) return '0-29';
+  if (buyScore >= _T.STRONG_BUY_CANDIDATE) return STRONG_BAND;
+  if (buyScore >= _T.BUY_CANDIDATE) return BUY_BAND;
+  if (buyScore >= _T.WATCH) return WATCH_BAND;
+  if (buyScore >= 0) return SUB_WATCH_BAND;
   return '<0';
 }
 
 /** 점수 구간 정렬용 우선순위(높은 점수 구간이 먼저) */
-const SCORE_BAND_ORDER = ['80+ (STRONG_BUY)', '60-79 (BUY)', '30-59 (WATCH)', '0-29', '<0'];
+const SCORE_BAND_ORDER = [STRONG_BAND, BUY_BAND, WATCH_BAND, SUB_WATCH_BAND, '<0'];
 
 /**
  * 신호 실현수익 목록 → 등급·구간·eventType 별 정밀도 리포트.

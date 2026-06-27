@@ -699,4 +699,142 @@ describe('SignalGenerationService (DAR-41)', () => {
       }
     });
   });
+
+  // ── F4(2026-06-26): 매수신호 통지 게이트 enum 정합 + 공시단위 dedup ──────
+  //   과거 NOTIFY_GRADES={'STRONG_BUY','BUY'} 가 실제 등급(*_CANDIDATE)과 불일치해
+  //   모든 매수신호 통지가 영구 미발화했다. + persona fan-out(공시 1건당 최대 4푸시) dedup.
+  describe('매수신호 통지(NOTIFY_GRADES) 게이트 — F4', () => {
+    function fakeResult(params: any, grade: string): any {
+      const buyScore =
+        grade === 'STRONG_BUY_CANDIDATE'
+          ? 85
+          : grade === 'BUY_CANDIDATE'
+            ? 50
+            : grade === 'WATCH'
+              ? 35
+              : 0;
+      return {
+        rcpNo: params.rcpNo,
+        corpCode: params.corpCode,
+        stockCode: params.stockCode,
+        persona: params.persona,
+        eventType: 'SHARE_BUYBACK',
+        subCategory: undefined,
+        buyScore,
+        signal: grade,
+        scoreBreakdown: {
+          disclosureEvent: 0,
+          keyMetric: 0,
+          personaFit: 0,
+          historicalEvent: 0,
+          chart: 0,
+          volumeLiquidity: 0,
+          marketSector: 0,
+          insider: 0,
+          fundamental: 0,
+        },
+        riskPenalty: 0,
+        entryConditionMet: [],
+        entryConditionUnmet: [],
+        entryReady: true,
+        riskFactors: [],
+        dataAvailability: {},
+        omittedBuckets: [],
+        suppressionReason: null,
+        signalSummary: undefined,
+        blockedReason: undefined,
+        validUntil: undefined,
+        computedAt: new Date(),
+      };
+    }
+    // 등급을 rcpNo 단위로 통제(scoring 임계 변경과 무관하게 결정론적 검증)
+    function fakeBuySignal(gradeByRcp: Record<string, string>): any {
+      return {
+        computeBuyScore: (params: any) =>
+          fakeResult(params, gradeByRcp[params.rcpNo] ?? 'NEUTRAL'),
+      };
+    }
+    function serviceWithNotify(prisma: any, buySignal: any, notify: any) {
+      return new SignalGenerationService(prisma, buySignal, notify);
+    }
+
+    it('자격 등급(STRONG_BUY_CANDIDATE)은 공시당 1회만 통지한다(persona fan-out dedup)', async () => {
+      const { prisma } = buildPrisma({
+        events: [makeEvent({ rcpNo: 'R1' })],
+        pricedStockCodes: ['000100'],
+      });
+      const notify = { enqueueSignal: jest.fn(async () => undefined) };
+      const result = await serviceWithNotify(
+        prisma,
+        fakeBuySignal({ R1: 'STRONG_BUY_CANDIDATE' }),
+        notify,
+      ).generateMissingSignals('MANUAL');
+      expect(result.created).toBe(4); // 4 persona 신호 생성
+      expect(notify.enqueueSignal).toHaveBeenCalledTimes(1); // 통지는 dedup 되어 1회
+      expect(notify.enqueueSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          grade: 'STRONG_BUY_CANDIDATE',
+          corpCode: '00100000',
+        }),
+      );
+    });
+
+    it('BUY_CANDIDATE 도 통지 대상이다', async () => {
+      const { prisma } = buildPrisma({
+        events: [makeEvent({ rcpNo: 'R1' })],
+        pricedStockCodes: ['000100'],
+      });
+      const notify = { enqueueSignal: jest.fn(async () => undefined) };
+      await serviceWithNotify(
+        prisma,
+        fakeBuySignal({ R1: 'BUY_CANDIDATE' }),
+        notify,
+      ).generateMissingSignals('MANUAL');
+      expect(notify.enqueueSignal).toHaveBeenCalledTimes(1);
+      expect(notify.enqueueSignal).toHaveBeenCalledWith(
+        expect.objectContaining({ grade: 'BUY_CANDIDATE' }),
+      );
+    });
+
+    it('비자격 등급(WATCH/NEUTRAL)은 통지하지 않는다', async () => {
+      const { prisma } = buildPrisma({
+        events: [makeEvent({ rcpNo: 'R1' })],
+        pricedStockCodes: ['000100'],
+      });
+      const notify = { enqueueSignal: jest.fn(async () => undefined) };
+      await serviceWithNotify(
+        prisma,
+        fakeBuySignal({ R1: 'WATCH' }),
+        notify,
+      ).generateMissingSignals('MANUAL');
+      expect(notify.enqueueSignal).not.toHaveBeenCalled();
+    });
+
+    it('서로 다른 공시는 각각 1회 통지한다', async () => {
+      const { prisma } = buildPrisma({
+        events: [makeEvent({ rcpNo: 'R1' }), makeEvent({ rcpNo: 'R2' })],
+        pricedStockCodes: ['000100'],
+      });
+      const notify = { enqueueSignal: jest.fn(async () => undefined) };
+      await serviceWithNotify(
+        prisma,
+        fakeBuySignal({ R1: 'STRONG_BUY_CANDIDATE', R2: 'BUY_CANDIDATE' }),
+        notify,
+      ).generateMissingSignals('MANUAL');
+      expect(notify.enqueueSignal).toHaveBeenCalledTimes(2);
+    });
+
+    it('producer 미주입이면 통지를 시도하지 않고 신호 생성은 지속된다(graceful)', async () => {
+      const { prisma } = buildPrisma({
+        events: [makeEvent({ rcpNo: 'R1' })],
+        pricedStockCodes: ['000100'],
+      });
+      const result = await serviceWithNotify(
+        prisma,
+        fakeBuySignal({ R1: 'STRONG_BUY_CANDIDATE' }),
+        undefined,
+      ).generateMissingSignals('MANUAL');
+      expect(result.created).toBe(4);
+    });
+  });
 });

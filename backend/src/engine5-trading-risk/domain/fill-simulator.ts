@@ -33,6 +33,32 @@ export function roundTripCostPct(params: FillParams): number {
 }
 
 /**
+ * F8(2026-06-27): KRX 호가단위(tick size) — 2023-01 개정 7구간 계단(KOSPI 기준).
+ * 체결가가 시장에 존재할 수 없는 임의 실수가 되지 않도록 호가단위로 정렬한다.
+ * (시장 구분 미반영 근사 — 일부 고가 KOSDAQ에서 과대 반올림 가능, 영향 작음.)
+ */
+export function krxTickSize(price: number): number {
+  if (price < 2000) return 1;
+  if (price < 5000) return 5;
+  if (price < 20000) return 10;
+  if (price < 50000) return 50;
+  if (price < 200000) return 100;
+  if (price < 500000) return 500;
+  return 1000;
+}
+
+/**
+ * 호가단위 정렬 — '불리한 방향 고정'(BUY 올림/SELL 내림)으로 슬리피지를 항상 비용으로 유지.
+ * (최근접 반올림은 슬리피지가 1틱 미만일 때 0으로 소멸해 무마찰로 회귀하므로 채택하지 않음.)
+ */
+export function roundToTick(price: number, direction: 'BUY' | 'SELL'): number {
+  const t = krxTickSize(price);
+  return direction === 'BUY'
+    ? Math.ceil(price / t) * t
+    : Math.floor(price / t) * t;
+}
+
+/**
  * 체결 시뮬레이션 (순수 함수 — AI 개입 없음)
  *
  * 슬리피지 모델: 매수는 기준가 × (1 + slippagePct), 매도는 기준가 × (1 - slippagePct)
@@ -68,7 +94,8 @@ export function simulateFill(req: FillRequest, params: FillParams): FillResult {
     req.direction === 'BUY'
       ? 1 + params.slippagePct
       : 1 - params.slippagePct;
-  const filledPrice = req.entryPrice * slippageMultiplier;
+  // F8: 슬리피지 반영가를 KRX 호가단위로 정렬(불리한 방향). 시장에 존재할 수 없는 비호가 가격 방지.
+  const filledPrice = roundToTick(req.entryPrice * slippageMultiplier, req.direction);
 
   const tradeValue = filledPrice * filledShares;
   const slippageCost = Math.abs(req.entryPrice - filledPrice) * filledShares;

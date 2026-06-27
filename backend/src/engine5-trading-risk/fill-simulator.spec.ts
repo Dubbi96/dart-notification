@@ -1,5 +1,10 @@
 // fill-simulator.spec.ts — 체결 시뮬레이터 fixture 테스트 (M10-A, DAR-16)
-import { simulateFill, DEFAULT_FILL_PARAMS } from './domain/fill-simulator';
+import {
+  simulateFill,
+  DEFAULT_FILL_PARAMS,
+  krxTickSize,
+  roundToTick,
+} from './domain/fill-simulator';
 import { FillParams } from './domain/paper-trade.types';
 
 describe('FillSimulator', () => {
@@ -21,8 +26,10 @@ describe('FillSimulator', () => {
         { direction: 'BUY', orderedShares: 100, entryPrice: 50000, liquidityRatio: 1.0 },
         params,
       );
-      expect(result.filledPrice).toBeGreaterThan(50000);
-      expect(result.filledPrice).toBeCloseTo(50000 * (1 + params.slippagePct), 2);
+      expect(result.filledPrice).toBeGreaterThan(50000); // 슬리피지는 항상 비용(불변식)
+      // F8: 50000×1.0005=50025 → KRX 100틱 올림(불리한 방향) → 50100. 호가단위 정수.
+      expect(result.filledPrice).toBe(50100);
+      expect(result.filledPrice % 100).toBe(0);
     });
 
     it('매수 시 세금 0', () => {
@@ -49,8 +56,10 @@ describe('FillSimulator', () => {
         { direction: 'SELL', orderedShares: 100, entryPrice: 50000, liquidityRatio: 1.0 },
         params,
       );
-      expect(result.filledPrice).toBeLessThan(50000);
-      expect(result.filledPrice).toBeCloseTo(50000 * (1 - params.slippagePct), 2);
+      expect(result.filledPrice).toBeLessThan(50000); // 슬리피지는 항상 비용(불변식)
+      // F8: 50000×0.9995=49975 → KRX 50틱 내림(불리한 방향) → 49950. 호가단위 정수.
+      expect(result.filledPrice).toBe(49950);
+      expect(result.filledPrice % 50).toBe(0);
     });
 
     it('매도 시 세금 부과', () => {
@@ -120,6 +129,27 @@ describe('FillSimulator', () => {
       );
       expect(result.filledPrice).toBe(50000);
       expect(result.slippageCost).toBe(0);
+    });
+  });
+
+  // ── F8(2026-06-27): KRX 호가단위 정렬 ──
+  describe('KRX 호가단위(krxTickSize/roundToTick)', () => {
+    it('가격대별 호가단위 계단', () => {
+      expect(krxTickSize(1999)).toBe(1);
+      expect(krxTickSize(4999)).toBe(5);
+      expect(krxTickSize(19999)).toBe(10);
+      expect(krxTickSize(49999)).toBe(50);
+      expect(krxTickSize(199999)).toBe(100);
+      expect(krxTickSize(499999)).toBe(500);
+      expect(krxTickSize(500001)).toBe(1000);
+    });
+
+    it('BUY 올림 / SELL 내림(불리한 방향)', () => {
+      expect(roundToTick(50025, 'BUY')).toBe(50100); // 100틱 올림
+      expect(roundToTick(49975, 'SELL')).toBe(49950); // 50틱 내림
+      // 이미 호가단위 위면 불변
+      expect(roundToTick(50000, 'BUY')).toBe(50000);
+      expect(roundToTick(50000, 'SELL')).toBe(50000);
     });
   });
 });

@@ -56,24 +56,24 @@ describe('rescoreSignal', () => {
   });
 
   it('레거시 동일 점수만 있으면 재채점 점수=그 점수(가중치 합=1 보존)', () => {
-    const r = rescoreSignal(input({ breakdown: bd(59) }), new Set());
-    expect(r.buyScore).toBe(59);
+    const r = rescoreSignal(input({ breakdown: bd(43) }), new Set());
+    expect(r.buyScore).toBe(43);
     expect(r.grade).toBe('WATCH');
   });
 
   it('피처 점수가 0이면 가용 제외 → 미포함과 동일(불필요한 희석 없음)', () => {
     const withFeat = rescoreSignal(
-      input({ breakdown: bd(59, { fundamental: 0, insider: 0 }) }),
+      input({ breakdown: bd(43, { fundamental: 0, insider: 0 }) }),
       new Set(FEATURE_BUCKETS),
     );
-    const without = rescoreSignal(input({ breakdown: bd(59) }), new Set());
+    const without = rescoreSignal(input({ breakdown: bd(43) }), new Set());
     expect(withFeat.buyScore).toBe(without.buyScore);
   });
 
   it('강한 펀더멘털 피처는 WATCH 경계 신호를 BUY 로 끌어올린다', () => {
-    const without = rescoreSignal(input({ breakdown: bd(59) }), new Set());
+    const without = rescoreSignal(input({ breakdown: bd(43) }), new Set());
     const withFeat = rescoreSignal(
-      input({ breakdown: bd(59, { fundamental: 100 }) }),
+      input({ breakdown: bd(43, { fundamental: 100 }) }),
       new Set(['fundamental']),
     );
     expect(without.grade).toBe('WATCH');
@@ -93,7 +93,7 @@ describe('buildFeatureAbReport — A/B 재채점·delta', () => {
   it('피처가 경계 신호를 매수로 승격하고 그것이 승자면 적중률 IMPROVES', () => {
     // X: 경계(WATCH) → 펀더멘털로 BUY 승격, 6건 모두 승자
     const flippedWinners: FeatureAbInput[] = Array.from({ length: 6 }, () =>
-      input({ breakdown: bd(59, { fundamental: 100 }), arD5: 8, arD20: 8 }),
+      input({ breakdown: bd(43, { fundamental: 100 }), arD5: 8, arD20: 8 }),
     );
     const report = buildFeatureAbReport([...baselineBullish, ...flippedWinners]);
 
@@ -111,7 +111,7 @@ describe('buildFeatureAbReport — A/B 재채점·delta', () => {
 
   it('피처가 패자를 매수로 승격하면 적중률 DEGRADES', () => {
     const flippedLosers: FeatureAbInput[] = Array.from({ length: 6 }, () =>
-      input({ breakdown: bd(59, { fundamental: 100 }), arD5: -8, arD20: -8 }),
+      input({ breakdown: bd(43, { fundamental: 100 }), arD5: -8, arD20: -8 }),
     );
     const report = buildFeatureAbReport([...baselineBullish, ...flippedLosers]);
     expect(report.overall.d20WinRateDelta as number).toBeLessThan(0);
@@ -120,7 +120,7 @@ describe('buildFeatureAbReport — A/B 재채점·delta', () => {
 
   it('피처별 delta 가 기여 피처를 정확히 귀속한다(fundamental 효과, insider 무효)', () => {
     const flippedWinners: FeatureAbInput[] = Array.from({ length: 6 }, () =>
-      input({ breakdown: bd(59, { fundamental: 100 }), arD5: 8, arD20: 8 }),
+      input({ breakdown: bd(43, { fundamental: 100 }), arD5: 8, arD20: 8 }),
     );
     const report = buildFeatureAbReport([...baselineBullish, ...flippedWinners]);
 
@@ -140,7 +140,7 @@ describe('buildFeatureAbReport — A/B 재채점·delta', () => {
   it('등급 변동 실현표본 < LOW_SAMPLE_THRESHOLD → verdict HOLD(과적합 경계)', () => {
     // 단 2건만 승격(실현표본 2 < 5)
     const fewFlips: FeatureAbInput[] = Array.from({ length: 2 }, () =>
-      input({ breakdown: bd(59, { fundamental: 100 }), arD5: 8, arD20: 8 }),
+      input({ breakdown: bd(43, { fundamental: 100 }), arD5: 8, arD20: 8 }),
     );
     const report = buildFeatureAbReport([...baselineBullish, ...fewFlips]);
     expect(report.overall.changedRealizedD20).toBe(2);
@@ -183,7 +183,7 @@ describe('buildFeatureAbReport — A/B 재채점·delta', () => {
   it('★ read-only — 리포트 산출이 BUY_SCORE_WEIGHTS 를 변경하지 않는다', () => {
     const snapshot = JSON.stringify(BUY_SCORE_WEIGHTS);
     buildFeatureAbReport([
-      input({ breakdown: bd(59, { fundamental: 100, insider: 80 }), arD5: 8, arD20: 8 }),
+      input({ breakdown: bd(43, { fundamental: 100, insider: 80 }), arD5: 8, arD20: 8 }),
     ]);
     expect(JSON.stringify(BUY_SCORE_WEIGHTS)).toBe(snapshot);
   });

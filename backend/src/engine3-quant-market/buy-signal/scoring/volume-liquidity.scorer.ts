@@ -1,6 +1,8 @@
 /**
  * C6. 거래량·수급 점수 (VolumeLiquidityScore)
- * 최소 유동성(거래대금 10억) 하드 차단 포함
+ * 최소 유동성(거래대금 10억 미만) 강한 감점(-100). ※veto(차단)가 아님 —
+ * 버킷 가중(~9%)으로 합산되므로 타 버킷이 높으면 양수 buyScore로 상쇄될 수 있다.
+ * 실제 진입 차단은 entryCondition 유동성 게이트(다만 buyScore≥50 폴백 경로로 절대적이진 않음).
  * AI 금지영역: 순수 Rule 함수.
  */
 
@@ -26,7 +28,7 @@ export function scoreVolumeLiquidity(input: VolumeLiquidityInput): number {
     return 0;
   }
 
-  // 거래대금 최소 유동성 하드 차단 (10억 미만)
+  // 거래대금 최소 유동성 강한 감점 (10억 미만, -100). veto 아님 — 가중합산되어 상쇄 가능.
   if (input.tradingValue < 1_000_000_000) return -100;
 
   const volRatio =

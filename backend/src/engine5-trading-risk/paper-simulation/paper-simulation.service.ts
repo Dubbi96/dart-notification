@@ -14,19 +14,25 @@
  */
 
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { EventType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { KillSwitchManager } from '../domain/kill-switch';
 import { formatKstDateCompact, isKstRegularMarketHours } from '../../common/time/kst';
 import { KisApiService } from '../../engine3-quant-market/market-data/kis-api.service';
 import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realtime-quote.cache';
 import { PaperTradeService } from '../services/paper-trade.service';
-import { DEFAULT_FILL_PARAMS } from '../domain/fill-simulator';
+import { DEFAULT_FILL_PARAMS, roundToTick } from '../domain/fill-simulator';
 import { NotificationProducerService } from '../../notifications/notification-producer.service';
 import { PrismaExitSignalRepository } from '../../engine4-portfolio-exit/repositories/prisma-exit-signal.repository';
-import { calculateExitScore } from '../../engine4-portfolio-exit/domain/exit-score.calculator';
+import {
+  calculateExitScore,
+  HIGH_RISK_EVENT_TYPES,
+} from '../../engine4-portfolio-exit/domain/exit-score.calculator';
 import {
   PositionSnapshot,
   TechnicalSnapshot,
   ThesisSnapshot,
+  DisclosureEvent,
 } from '../../engine4-portfolio-exit/domain/exit-engine.types';
 import {
   calculateSimulationMetrics,
@@ -95,6 +101,29 @@ export interface SimulationResetResult {
 
 const EXIT_ACTIONS = new Set(['EXIT', 'BLOCK_REBUY']);
 
+/**
+ * F1(2026-06-26): 두 YYYYMMDD 사이의 '거래일(월~금) 차'. 금→월=1(주말 흡수), 같은날=0.
+ * 장중 실시간 손절의 'REAL 일봉 신선도' 판정에 쓴다. 달력일이 아니라 거래일로 계산해야
+ * 금→월(달력 3일)·연휴 직후가 가드를 오발동(실시간 손절 억제)시키지 않는다.
+ * (공휴일 미반영 — 거래일수를 과대평가하는 보수 방향이라 신선도 가드엔 안전.)
+ * 명백한 정체(달력 14일 초과)는 루프 회피 위해 999 반환.
+ */
+export function tradingDayDiff(earlierYmd: string, laterYmd: string): number {
+  const toUtc = (s: string) =>
+    Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+  const a = toUtc(earlierYmd);
+  const b = toUtc(laterYmd);
+  const calDays = Math.round((b - a) / 86_400_000);
+  if (calDays <= 0) return 0;
+  if (calDays > 14) return 999;
+  let count = 0;
+  for (let i = 1; i <= calDays; i++) {
+    const dow = new Date(a + i * 86_400_000).getUTCDay();
+    if (dow !== 0 && dow !== 6) count++;
+  }
+  return count;
+}
+
 @Injectable()
 export class PaperSimulationService {
   private readonly logger = new Logger(PaperSimulationService.name);
@@ -111,6 +140,13 @@ export class PaperSimulationService {
   static readonly DEFAULT_STOP_LOSS_PCT = 8;
   static readonly DEFAULT_TAKE_PROFIT_PCT = 20;
   static readonly DEFAULT_MAX_HOLD_DAYS = 20;
+  // F2(2026-06-27): 익절 도달 시 부분 스케일아웃 매도 비율(잔량은 계속 보유). floor 적용 —
+  //   잔량이 1주 미만이 되는 소량 포지션은 전량 청산으로 폴백(partial 판정에서 제외).
+  static readonly TAKE_PROFIT_SCALE_OUT_FRACTION = 0.5;
+  // F1(2026-06-26): 장중 실시간 손절 한정 — 진입소스(REAL) 일봉이 실시간 날짜 대비 며칠(거래일)까지
+  //   지연돼야 '신선'으로 보고 실시간 하락을 신뢰할지. 이하면 실시간 손절 발화, 초과(정체 일봉)면
+  //   DAR-433 정렬로 폴백(가짜손절 차단). 거래일 기준이라 금→월(1)·연휴가 가드를 오발동시키지 않음.
+  static readonly INTRADAY_REAL_FRESH_MAX_DAYS = 2;
   // DAR-424 체결 알림 — 트랙 식별·딥링크 상수(시스템 모의).
   // DAR-431: 딥링크를 포트폴리오 루트(`/portfolio`)에서 ★시스템 모의 서브탭(`?tab=sim`)으로
   //   고정해 체결 알림 탭이 해당 트랙 보유·성과로 직행한다(루트 폴백 제거). 화이트리스트는
@@ -138,6 +174,11 @@ export class PaperSimulationService {
     //   못하므로 능동 fetch 비활성(평가는 priceSource 폴백). evaluateExits 가 이 캐시를 실가 1순위로 읽는다.
     @Optional()
     private readonly realtimeCache?: RealtimeQuoteCache,
+    // ★F6(2026-06-27): kill-switch 영속 상태(TradingRiskModule 공유 싱글톤). 운영자가 발동하면
+    //   시스템 모의 신규 진입을 차단한다(F5 단타와 동일 보장 — kill-switch 가 모든 모의 진입을 멈춤).
+    //   @Optional — 미주입(단위 테스트)이면 비활성 폴백(회귀 0). 청산은 계속 허용(오버나잇 회피).
+    @Optional()
+    private readonly killSwitch?: KillSwitchManager,
   ) {}
 
   /** 모의운용 전용 포트폴리오 find-or-create (고정 시스템 유저) */
@@ -341,8 +382,8 @@ export class PaperSimulationService {
       const pf = await this.getOrCreateSimPortfolio();
       // ② 보유 종목 실시간 현재가 능동 fetch → 캐시 적재(실가 1순위 평가의 전제).
       const { fetched, cached } = await this.refreshHoldingsRealtime(pf.id);
-      // ③ 실가 기준 Exit 평가 — evaluateExits 가 latestPriceRow(REALTIME 1순위)로 읽는다.
-      const exited = await this.evaluateExits(pf.id, tradeDate);
+      // ③ 실가 기준 Exit 평가 — F1: intraday=true 로 실시간 1순위 + REAL 신선도 가드 적용.
+      const exited = await this.evaluateExits(pf.id, tradeDate, { intraday: true });
       if (exited > 0 || cached > 0) {
         this.logger.log(
           `[PaperSim][장중모니터] tradeDate=${tradeDate} fetch=${fetched} cached=${cached} 매도=${exited}`,
@@ -766,6 +807,11 @@ export class PaperSimulationService {
     });
     const available = PaperSimulationService.MAX_HOLDINGS - openPositions.length;
     if (available <= 0) return 0;
+    // F6(2026-06-27): kill-switch 발동 시 시스템 모의 신규 진입 전면 차단(청산은 계속 — 오버나잇 회피).
+    if (this.killSwitch?.isActive()) {
+      this.logger.warn('[PaperSim] 킬스위치 발동 — 신규 진입 차단');
+      return 0;
+    }
     const openCorpCodes = openPositions.map((p) => p.corpCode);
 
     // DAR-426(★핵심): 가용현금 가드 준비 — 사이징(가상원금×비율) 만으로는
@@ -910,7 +956,12 @@ export class PaperSimulationService {
       if (budget <= 0) continue;
       // 체결가는 슬리피지가 더해진다(BUY = price×(1+slippage)). 진입원가가 예산을 넘지 않도록
       //   슬리피지 반영가로 수량을 산정한다 → 진입원가(=체결가×수량) ≤ budget ≤ availableCash 보장.
-      const effPrice = price * (1 + DEFAULT_FILL_PARAMS.slippagePct);
+      // F8: 사이징 단가를 체결가와 동일하게 호가단위 정렬(BUY 올림) — shares×fillPrice ≤ budget
+      //   ≤ availableCash 보장(DAR-426 현금≥0 불변식이 틱반올림 후에도 유지).
+      const effPrice = roundToTick(
+        price * (1 + DEFAULT_FILL_PARAMS.slippagePct),
+        'BUY',
+      );
       const shares = Math.floor(budget / effPrice);
       if (shares <= 0) continue;
 
@@ -976,7 +1027,8 @@ export class PaperSimulationService {
       openedCorpCodes.add(sig.corpCode);
       // DAR-426: 진입원가(=체결가×체결수량, Position.entryAmount 와 동일)만큼 가용현금 차감.
       //   슬리피지 반영가로 산정했으므로 차감분 ≤ budget ≤ 직전 availableCash → 현금 음수 불가.
-      availableCash -= fillPrice * trade.filledShares;
+      // F7: 매수 수수료도 현금 지출에 포함(cash≥0 불변식을 '진짜 지출'에 묶음).
+      availableCash -= fillPrice * trade.filledShares + (trade.commission ?? 0);
       // DAR-362: 이번 사이클에 담은 가치를 섹터 노출에 누적(다음 후보의 섹터 가드에 반영).
       if (sector) {
         sectorValue.set(
@@ -1059,7 +1111,11 @@ export class PaperSimulationService {
   // DAR-364: 손절/익절 평가가 쓰는 현재가는 latestPriceRow = 실시간 실가(REALTIME) 1순위 →
   //   실 KRX 일봉(REAL) → 합성(SYNTHETIC) 폴백이다. 사용자가 화면에서 보는 실시간 실가가
   //   곧 하드 스탑로스 평가에 쓰이는 가격이므로(표시=엔진), 실가 -8% 이하면 손절 EXIT 이 발화한다.
-  private async evaluateExits(portfolioId: string, tradeDate: string): Promise<number> {
+  private async evaluateExits(
+    portfolioId: string,
+    tradeDate: string,
+    opts: { intraday?: boolean } = {},
+  ): Promise<number> {
     const positions = await this.prisma.position.findMany({
       where: { portfolioId, status: 'OPEN' },
     });
@@ -1067,8 +1123,14 @@ export class PaperSimulationService {
     let exited = 0;
 
     for (const p of positions) {
-      // DAR-433: 평가가를 진입 소스로 정렬 — '진입=정체 일봉 ↔ 청산=실시간' cross-source 가짜손절 차단.
-      const day = await this.alignedPriceRow(p.corpCode, tradeDate, p.entryPriceSource);
+      // DAR-433 + F1: 일일 경로는 진입소스 정렬(가짜손절 차단). 장중 경로는 실시간 1순위로 평가하되
+      //   진입=REAL 정체 일봉이면 신선도 가드로 폴백(장중 실시간 손절 복원 ↔ 가짜손절 차단 양립).
+      const day = await this.exitPriceRow(
+        p.corpCode,
+        tradeDate,
+        p.entryPriceSource,
+        opts.intraday === true,
+      );
       if (!day) continue;
       const close = day.closePrice;
 
@@ -1091,21 +1153,18 @@ export class PaperSimulationService {
         portfolioMaxDailyLossPct: 2,
         portfolioDailyLossPct: null,
       };
-      const tech: TechnicalSnapshot = {
-        closePrice: close,
-        openPrice: day.openPrice,
-        ma5: null,
-        ma20: null,
-        low20: day.lowPrice,
-        vwap: null,
-        atr14: null,
-        volumeRatio3d: null,
-        excessReturn5d: null,
-        avgVolumeRatio5d: null,
-      };
+      // F3(2026-06-26): 실 기술지표·악재 공시를 주입해 6 Exit 트리거를 복원
+      //   (과거 tech=null·events=[] 빈 입력 → 사실상 -8% 단일 하드스탑으로 붕괴하던 결함 해소).
+      const tech = await this.loadExitTechnicalSnapshot(p.stockCode, p.corpCode, day, close);
+      const events = await this.loadNegativeDisclosureEvents(
+        p.corpCode,
+        p.entryDate,
+        day,
+        tradeDate,
+      );
       const thesisSnap = await this.loadThesisSnapshot(p.positionThesisId);
 
-      const exit = calculateExitScore(posSnap, tech, thesisSnap, []);
+      const exit = calculateExitScore(posSnap, tech, thesisSnap, events);
 
       await exitRepo.save({
         positionId: p.id,
@@ -1141,11 +1200,19 @@ export class PaperSimulationService {
           exitAction: exit.exitAction,
           triggerTypes: exit.triggerTypes,
         });
+        // F2(2026-06-27): 익절(TAKE_PROFIT)은 부분 스케일아웃(잔량 보유), 그 외 EXIT 은 전량 청산.
+        const isTakeProfit = exit.primaryTrigger === 'TAKE_PROFIT';
+        const scaleOutQty = isTakeProfit
+          ? Math.floor(p.quantity * PaperSimulationService.TAKE_PROFIT_SCALE_OUT_FRACTION)
+          : p.quantity;
+        const partial = isTakeProfit && scaleOutQty >= 1 && scaleOutQty < p.quantity;
+        const sellQty = partial ? scaleOutQty : p.quantity;
+
         const sell = await this.paperTrade.placeOrder({
           corpCode: p.corpCode,
           stockCode: p.stockCode,
           direction: 'SELL',
-          orderedShares: p.quantity,
+          orderedShares: sellQty,
           entryPrice: close,
           entryDate: new Date(),
           liquidityRatio: 1.0,
@@ -1153,7 +1220,14 @@ export class PaperSimulationService {
         });
         const sellPrice = sell.filledPrice ?? close;
         const grossPnl = (sellPrice - p.entryPrice) * sell.filledShares;
-        const netPnl = grossPnl - sell.commission - sell.tax;
+        // F7(2026-06-27): 매수 수수료(체결 시 부과되나 회계서 누락되던) 차감 — 보고 순손익 정확화.
+        //   매도분(부분/전량 공통) 비례 매수 수수료 = 진입원가×(매도주수/총주수)×commissionRate.
+        const buyCommission =
+          p.quantity > 0
+            ? ((p.entryAmount * sell.filledShares) / p.quantity) *
+              DEFAULT_FILL_PARAMS.commissionRate
+            : 0;
+        const netPnl = grossPnl - buyCommission - sell.commission - sell.tax;
         const returnPct =
           p.entryPrice > 0 ? ((sellPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
 
@@ -1162,17 +1236,58 @@ export class PaperSimulationService {
           where: { id: sell.id },
           data: { grossPnl, netPnl, returnPct },
         });
-        await this.prisma.position.update({
-          where: { id: p.id },
-          data: {
-            status: 'CLOSED',
-            closedAt: new Date(),
-            currentPrice: sellPrice,
-            currentValue: sellPrice * sell.filledShares,
-            unrealizedPnl: netPnl,
-            unrealizedPnlPct: returnPct,
-          },
-        });
+
+        if (partial) {
+          // 부분 익절: 매도분을 합성 CLOSED 행으로 기록(기존 CLOSED 실현손익 집계가 자동 반영)하고
+          //   OPEN 잔량(quantity·entryAmount)을 비례 축소해 잔량을 계속 보유한다. 스키마 변경 0.
+          //   ★현금 정합: 매도분이 CLOSED net 으로 실현손익에 들어가고 OPEN entryAmount 가 줄어
+          //   cash(=초기+실현−보유원가)가 정확히 매도대금만큼 증가(검증식 확인).
+          const soldEntryAmount = p.entryAmount * (sell.filledShares / p.quantity);
+          const remainingQty = p.quantity - sell.filledShares;
+          await this.prisma.position.create({
+            data: {
+              portfolioId,
+              corpCode: p.corpCode,
+              stockCode: p.stockCode,
+              positionThesisId: null, // @unique — OPEN 원포지션이 thesisId 보유, 합성행은 null
+              entryDate: p.entryDate,
+              entryPrice: p.entryPrice,
+              quantity: sell.filledShares,
+              entryAmount: soldEntryAmount,
+              entryPriceSource: p.entryPriceSource,
+              status: 'CLOSED',
+              closedAt: new Date(),
+              currentPrice: sellPrice,
+              currentValue: sellPrice * sell.filledShares,
+              unrealizedPnl: netPnl, // 실현손익(CLOSED unrealizedPnl 오버로드 — 기존 회계 규약)
+              unrealizedPnlPct: returnPct,
+            },
+          });
+          await this.prisma.position.update({
+            where: { id: p.id },
+            data: {
+              quantity: remainingQty,
+              entryAmount: p.entryAmount - soldEntryAmount,
+              currentPrice: close,
+              currentValue: close * remainingQty,
+              unrealizedPnl: (close - p.entryPrice) * remainingQty,
+              unrealizedPnlPct:
+                p.entryPrice > 0 ? ((close - p.entryPrice) / p.entryPrice) * 100 : 0,
+            },
+          });
+        } else {
+          await this.prisma.position.update({
+            where: { id: p.id },
+            data: {
+              status: 'CLOSED',
+              closedAt: new Date(),
+              currentPrice: sellPrice,
+              currentValue: sellPrice * sell.filledShares,
+              unrealizedPnl: netPnl,
+              unrealizedPnlPct: returnPct,
+            },
+          });
+        }
         exited++;
         // DAR-424 매도 체결 알림(graceful — CLOSED 영속 직후 스냅샷 산출).
         //   exitReason 은 주 트리거(없으면 exitAction) 사용.
@@ -1507,6 +1622,126 @@ export class PaperSimulationService {
       entrySource as SimPriceRow['source'],
     );
     return aligned ?? day;
+  }
+
+  /**
+   * F1(2026-06-26): 청산 평가가 해석. 일일 경로는 alignedPriceRow(DAR-433 정렬) 그대로.
+   * 장중(intraday) 경로는 실시간(REALTIME) 1순위로 평가하되, 진입소스=REAL(정체 일봉) 포지션은
+   * '일봉 신선도 가드'를 적용한다 — REAL 일봉 sourceDate 와 실시간 sourceDate 의 거래일 차가
+   * 임계(INTRADAY_REAL_FRESH_MAX_DAYS) 이하면 실시간 신뢰(장중 손절 발화), 초과(정체)면 정렬된
+   * REAL 로 폴백(DAR-433 가짜손절 차단). 진입=실시간/합성/레거시는 가드 없이 정렬 동작 유지.
+   */
+  private async exitPriceRow(
+    corpCode: string,
+    tradeDate: string,
+    entrySource: string | null | undefined,
+    intraday: boolean,
+  ): Promise<SimPriceRow | null> {
+    if (!intraday) return this.alignedPriceRow(corpCode, tradeDate, entrySource);
+    const day = await this.latestPriceRow(corpCode, tradeDate);
+    // 실시간 부재(REAL/SYNTHETIC 폴백) → 진입소스 정렬 보존(DAR-433).
+    if (!day || day.source !== 'REALTIME') {
+      return this.alignedPriceRow(corpCode, tradeDate, entrySource);
+    }
+    // 진입=실시간/합성/레거시(null) → 실시간 그대로(정렬 불요·기존 동작).
+    if (entrySource !== 'REAL' || !this.priceSource) return day;
+    // 진입=REAL → 일봉 신선도 가드.
+    const real = await this.priceSource.priceRowForSource(corpCode, tradeDate, 'REAL');
+    if (!real?.sourceDate || !day.sourceDate) return day;
+    const gap = tradingDayDiff(real.sourceDate, day.sourceDate);
+    return gap > PaperSimulationService.INTRADAY_REAL_FRESH_MAX_DAYS ? real : day;
+  }
+
+  /**
+   * F3(2026-06-26): 청산 평가용 기술지표 스냅샷. SYNTHETIC 소스는 실지표 미혼합(정직).
+   * 목/DB 부재 시 null degrade(과거 빈 입력 동작 보존 → 회귀 0).
+   */
+  private async loadExitTechnicalSnapshot(
+    stockCode: string,
+    corpCode: string,
+    day: SimPriceRow,
+    close: number,
+  ): Promise<TechnicalSnapshot> {
+    const base: TechnicalSnapshot = {
+      closePrice: close,
+      openPrice: day.openPrice ?? null,
+      ma5: null,
+      ma20: null,
+      low20: null,
+      vwap: null,
+      atr14: null,
+      volumeRatio3d: null,
+      excessReturn5d: null,
+      avgVolumeRatio5d: null,
+    };
+    if (day.source === 'SYNTHETIC') return base; // 합성 트랙: 실지표 혼입 금지
+    const at = day.sourceDate ?? '99999999';
+    try {
+      const ti = await this.prisma.technicalIndicator.findFirst({
+        where: { stockCode, tradeDate: { lte: at } },
+        orderBy: { tradeDate: 'desc' },
+        select: { ma5: true, ma20: true, atr14: true, vwap: true },
+      });
+      const low20 = await this.low20From(corpCode, at);
+      return {
+        ...base,
+        ma5: ti?.ma5 ?? null,
+        ma20: ti?.ma20 ?? null,
+        atr14: ti?.atr14 ?? null,
+        vwap: ti?.vwap ?? null,
+        low20,
+      };
+    } catch {
+      return base; // 목/DB 부재 → 빈 지표로 degrade
+    }
+  }
+
+  /** F3: 최근 20거래일 최저가(20일 저가 이탈 가점용, day.lowPrice 오용 교정). graceful. */
+  private async low20From(corpCode: string, asOf: string): Promise<number | null> {
+    try {
+      const rows = await this.prisma.stockDailyPrice.findMany({
+        where: { corpCode, tradeDate: { lte: asOf } },
+        orderBy: { tradeDate: 'desc' },
+        take: 20,
+        select: { lowPrice: true },
+      });
+      if (rows.length === 0) return null;
+      return Math.min(...rows.map((r) => r.lowPrice));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * F3: 보유기간 내 악재(NEGATIVE)·고위험 공시만 주입(호재 누적 거짓 EXIT 방지).
+   * SYNTHETIC 소스는 [](실 공시 혼입 금지). rcpDt 상한은 999999 천장(당일 타임스탬프 공시 누락 방지).
+   * 목/DB 부재 시 [] degrade.
+   */
+  private async loadNegativeDisclosureEvents(
+    corpCode: string,
+    entryDate: Date,
+    day: SimPriceRow,
+    asOf: string,
+  ): Promise<DisclosureEvent[]> {
+    if (day.source === 'SYNTHETIC') return [];
+    const since = this.toBasDd(entryDate);
+    const until = day.sourceDate ?? asOf;
+    try {
+      const rows = await this.prisma.disclosureEvent.findMany({
+        where: {
+          corpCode,
+          OR: [
+            { polarity: 'NEGATIVE' },
+            { eventType: { in: [...HIGH_RISK_EVENT_TYPES] as EventType[] } },
+          ],
+          disclosure: { rcpDt: { gte: since, lte: `${until}999999` } },
+        },
+        select: { eventType: true, rcpNo: true },
+      });
+      return rows.map((r) => ({ type: String(r.eventType), rcpNo: r.rcpNo }));
+    } catch {
+      return [];
+    }
   }
 
   /** 청산 후 N거래일 종가(소스 경유). priceSource 미주입이면 StockDailyPrice 폴백. */

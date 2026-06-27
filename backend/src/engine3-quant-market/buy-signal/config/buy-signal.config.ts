@@ -71,9 +71,12 @@ export const VIEW_SCORE: Record<string, number> = {
   NEGATIVE: -60,
 };
 
+// F9(2026-06-26): 실측 buyScore 분포(max 88·p95 33)에 맞춰 재보정.
+//   구 80/60/30은 STRONG_BUY 0.01%로 등급 변별력이 붕괴했다(전략 진입 임계 DAR-413와 비대칭).
+//   STRONG 50 / BUY 45 / WATCH 30. BUY=45는 DAR-322 보수성 경계(무의미 규모 score 41) 위에 둔다.
 export const SIGNAL_GRADE_THRESHOLDS = {
-  STRONG_BUY_CANDIDATE: 80,
-  BUY_CANDIDATE:        60,
+  STRONG_BUY_CANDIDATE: 50,
+  BUY_CANDIDATE:        45,
   WATCH:                30,
   NEUTRAL:             -29,
   // below -29 → AVOID

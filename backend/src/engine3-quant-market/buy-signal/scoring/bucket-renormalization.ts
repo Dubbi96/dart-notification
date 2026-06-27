@@ -35,6 +35,33 @@ export type BucketKey =
 
 export type BucketAvailability = Record<BucketKey, boolean>;
 
+/**
+ * F10(2026-06-26): 동일 공시 1건에서 파생돼 강상관인 버킷 그룹.
+ * disclosureEvent(이벤트 기본점수)·keyMetric(이벤트 추출수치)·personaFit(이벤트×polarity 파생)·
+ * fundamental(공시 본문 정량값)은 사실상 같은 신호 → 서로의 '독립 교차검증(corroboration)'이 아니다.
+ */
+export const CORRELATED_DISCLOSURE_BUCKETS: BucketKey[] = [
+  'disclosureEvent',
+  'keyMetric',
+  'personaFit',
+  'fundamental',
+];
+
+/** F10: 가격·과거통계·수급·지분 등 공시와 독립된 증거 버킷(진짜 corroboration 출처). */
+export const INDEPENDENT_EVIDENCE_BUCKETS: BucketKey[] = [
+  'historicalEvent',
+  'chart',
+  'volumeLiquidity',
+  'marketSector',
+  'insider',
+];
+
+/**
+ * F10: 독립 corroboration 0건일 때 상관그룹 effective 가중치 합의 상한 배수.
+ * 1.0 = 중립(그룹 base 합 유지). <1.0 이면 더 강한 보수화. (백테스트 튜닝 대상)
+ */
+export const NO_CORROBORATION_GROUP_FACTOR = 1.0;
+
 /** 재정규화 입력: 가용 판별에 필요한 버킷 입력만 추린 형태 */
 export interface BucketAvailabilityInput {
   chart: ChartInput;
@@ -152,14 +179,41 @@ export function renormalizeWeights(
     return { effectiveWeights: { ...baseWeights }, omittedBuckets };
   }
 
-  const availableSum = keys
-    .filter((k) => availability[k])
-    .reduce((sum, k) => sum + baseWeights[k], 0);
+  // F10(2026-06-26): 독립 증거(가격·과거통계·수급·지분)가 하나라도 있으면 기존 재정규화(합=1.0).
+  // 전무하면 상관그룹(동일 공시 파생)을 1.0 으로 부풀려 '거짓 corroboration'을 만들지 않는다.
+  const hasIndependent = INDEPENDENT_EVIDENCE_BUCKETS.some((k) => availability[k]);
 
   const effectiveWeights = {} as Record<BucketKey, number>;
-  for (const k of keys) {
-    effectiveWeights[k] =
-      availability[k] && availableSum > 0 ? baseWeights[k] / availableSum : 0;
+
+  if (hasIndependent) {
+    // ── 기존 경로(회귀 0): 가용 버킷 가중치를 합=1.0 으로 재정규화 ──
+    const availableSum = keys
+      .filter((k) => availability[k])
+      .reduce((sum, k) => sum + baseWeights[k], 0);
+    for (const k of keys) {
+      effectiveWeights[k] =
+        availability[k] && availableSum > 0 ? baseWeights[k] / availableSum : 0;
+    }
+  } else {
+    // ── F10 게이트: 독립 corroboration 0 → 상관그룹 내부에서만 재정규화하되 ──
+    //   그룹 effective 합을 그룹 base 합(×FACTOR)으로 캡. 빠진 독립 가중치는 분모에
+    //   채우지 않고 중립 drag 로 남겨 buyScore 를 0 쪽으로 축소(합 < 1.0).
+    const groupBaseSum = CORRELATED_DISCLOSURE_BUCKETS.reduce(
+      (sum, k) => sum + baseWeights[k],
+      0,
+    );
+    const availGroupSum = CORRELATED_DISCLOSURE_BUCKETS.filter(
+      (k) => availability[k],
+    ).reduce((sum, k) => sum + baseWeights[k], 0);
+    const cap = groupBaseSum * NO_CORROBORATION_GROUP_FACTOR;
+    for (const k of keys) {
+      effectiveWeights[k] =
+        CORRELATED_DISCLOSURE_BUCKETS.includes(k) &&
+        availability[k] &&
+        availGroupSum > 0
+          ? (cap * baseWeights[k]) / availGroupSum
+          : 0;
+    }
   }
 
   return { effectiveWeights, omittedBuckets };

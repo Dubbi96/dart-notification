@@ -35,7 +35,7 @@ describe('OpsMetricsService (DAR-111)', () => {
     return {
       portfolioId: 'sim-pf',
       asOf: NOW.toISOString(),
-      hitRate: { evaluated: 10, hits: 6, hitRatePct: 60 },
+      hitRate: { evaluated: 25, hits: 15, hitRatePct: 60 },
       cumulativeReturn: {
         initialCapital: 1_000_000,
         currentValue: 1_050_000,
@@ -48,7 +48,7 @@ describe('OpsMetricsService (DAR-111)', () => {
         netPnlAfterAiCost: 49_000,
         aiCostToNetPnlRatio: 0.02,
       },
-      exitAccuracy: { evaluated: 8, correct: 5, accuracyPct: 62.5 },
+      exitAccuracy: { evaluated: 25, correct: 16, accuracyPct: 64 },
       riskAdjusted: { sharpe: 1.2, mddPct: -8, observations: 30, measurable: true },
       benchmarkAlpha: {
         indexCode: '0001',
@@ -203,7 +203,7 @@ describe('OpsMetricsService (DAR-111)', () => {
     expect(ids).toEqual(['G1', 'G2', 'G3', 'G5']);
     const g1 = result.graduation!.find((g) => g.id === 'G1')!;
     expect(g1.currentValue).toBe(60);
-    expect(g1.sampleSize).toBe(10);
+    expect(g1.sampleSize).toBe(25);
     expect(g1.pass).toBe(true);
   });
 

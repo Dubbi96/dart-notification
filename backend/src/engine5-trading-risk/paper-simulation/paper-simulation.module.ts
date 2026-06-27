@@ -10,6 +10,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TradingRiskModule } from '../trading-risk.module';
 import { PaperTradeService } from '../services/paper-trade.service';
+import { KillSwitchManager } from '../domain/kill-switch';
 import { PaperSimulationService } from './paper-simulation.service';
 import { PaperSimulationController } from './paper-simulation.controller';
 import { PaperSimulationScheduler } from './paper-simulation.scheduler';
@@ -43,6 +44,7 @@ import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realt
         priceSource?: SimulationPriceSourceService,
         kis?: KisApiService,
         realtimeCache?: RealtimeQuoteCache,
+        killSwitch?: KillSwitchManager,
       ) =>
         new PaperSimulationService(
           prisma,
@@ -51,6 +53,7 @@ import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realt
           priceSource,
           kis,
           realtimeCache,
+          killSwitch,
         ),
       inject: [
         PrismaService,
@@ -59,6 +62,8 @@ import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realt
         { token: SimulationPriceSourceService, optional: true },
         { token: KisApiService, optional: true },
         { token: RealtimeQuoteCache, optional: true },
+        // F6: 공유 KillSwitchManager(TradingRiskModule export) — 시스템 모의 진입 차단.
+        { token: KillSwitchManager, optional: true },
       ],
     },
   ],

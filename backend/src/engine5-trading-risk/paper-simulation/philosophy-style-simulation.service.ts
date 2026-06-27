@@ -19,6 +19,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaperTradeService } from '../services/paper-trade.service';
+import { DEFAULT_FILL_PARAMS } from '../domain/fill-simulator';
 import { PaperSimulationService } from './paper-simulation.service';
 import { PhilosophyFitService } from '../../engine2-ai-analyst/philosophy/philosophy-fit.service';
 import {
@@ -474,7 +475,10 @@ export class PhilosophyStyleSimulationService {
         });
         const sellPrice = sell.filledPrice ?? close;
         const grossPnl = (sellPrice - p.entryPrice) * sell.filledShares;
-        const netPnl = grossPnl - sell.commission - sell.tax;
+        // F7(2026-06-27): 매수 수수료 차감(회계 누락 교정). 전량 매도 → 진입가×수량×commissionRate.
+        const buyCommission =
+          p.entryPrice * sell.filledShares * DEFAULT_FILL_PARAMS.commissionRate;
+        const netPnl = grossPnl - buyCommission - sell.commission - sell.tax;
         const returnPct =
           p.entryPrice > 0 ? ((sellPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
 

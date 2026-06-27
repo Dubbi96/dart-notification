@@ -452,19 +452,20 @@ describe('BuySignalService', () => {
 // ─── mapScoreToGrade 테스트 ────────────────────────────────────────
 
 describe('mapScoreToGrade()', () => {
-  it('should return STRONG_BUY_CANDIDATE for score >= 80', () => {
-    expect(mapScoreToGrade(80)).toBe('STRONG_BUY_CANDIDATE');
+  // F9(2026-06-26): 임계 재보정 50/45/30 (구 80/60/30).
+  it('should return STRONG_BUY_CANDIDATE for score >= 50', () => {
+    expect(mapScoreToGrade(50)).toBe('STRONG_BUY_CANDIDATE');
     expect(mapScoreToGrade(100)).toBe('STRONG_BUY_CANDIDATE');
   });
 
-  it('should return BUY_CANDIDATE for score 60~79', () => {
-    expect(mapScoreToGrade(60)).toBe('BUY_CANDIDATE');
-    expect(mapScoreToGrade(79)).toBe('BUY_CANDIDATE');
+  it('should return BUY_CANDIDATE for score 45~49', () => {
+    expect(mapScoreToGrade(45)).toBe('BUY_CANDIDATE');
+    expect(mapScoreToGrade(49)).toBe('BUY_CANDIDATE');
   });
 
-  it('should return WATCH for score 30~59', () => {
+  it('should return WATCH for score 30~44', () => {
     expect(mapScoreToGrade(30)).toBe('WATCH');
-    expect(mapScoreToGrade(59)).toBe('WATCH');
+    expect(mapScoreToGrade(44)).toBe('WATCH');
   });
 
   it('should return NEUTRAL for score -29~29', () => {

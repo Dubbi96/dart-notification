@@ -14,6 +14,7 @@ export interface PlaceOrderInput {
   entryPrice: number;       // 다음거래일 시가
   entryDate: Date;
   liquidityRatio?: number;
+  dayVolume?: number;       // F8 Phase2: 당일 거래량(주) — 매수 진입의 동적 슬리피지/부분체결용
   tradingSignalId?: string;
   positionThesisId?: string;
   fillParams?: Partial<FillParams>;
@@ -36,6 +37,7 @@ export class PaperTradeService {
       orderedShares: input.orderedShares,
       entryPrice: input.entryPrice,
       liquidityRatio: input.liquidityRatio,
+      dayVolume: input.dayVolume,
     };
 
     const fill = simulateFill(req, params);

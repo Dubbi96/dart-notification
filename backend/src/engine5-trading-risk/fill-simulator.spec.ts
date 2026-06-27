@@ -152,4 +152,58 @@ describe('FillSimulator', () => {
       expect(roundToTick(50000, 'SELL')).toBe(50000);
     });
   });
+
+  // ── F8 Phase2(2026-06-27): 거래량 기반 동적 슬리피지·부분체결(매수 전용) ──
+  describe('F8 Phase2 — 동적 슬리피지·부분체결', () => {
+    it('소액 매수(참여율<<10%) → base 근처 슬리피지·전량체결(모의 규모 거동 ~불변)', () => {
+      const r = simulateFill(
+        { direction: 'BUY', orderedShares: 100, entryPrice: 50000, dayVolume: 10_000_000 },
+        params,
+      );
+      expect(r.status).toBe('FILLED');
+      expect(r.filledShares).toBe(100);
+      expect(r.filledPrice).toBe(50100); // 임팩트 무시가능 → base+틱
+    });
+
+    it('중간 참여율(10% ADV) → 시장충격으로 슬리피지 상승(전량체결)', () => {
+      const r = simulateFill(
+        { direction: 'BUY', orderedShares: 100_000, entryPrice: 50000, dayVolume: 1_000_000 },
+        params,
+      );
+      expect(r.status).toBe('FILLED');
+      expect(r.filledShares).toBe(100_000);
+      expect(r.filledPrice).toBeGreaterThan(50100); // base 대비 동적 슬리피지 상승
+    });
+
+    it('초과 참여율(>100% ADV) → 부분체결(가용 유동성까지)·강한 슬리피지', () => {
+      const r = simulateFill(
+        { direction: 'BUY', orderedShares: 2_000_000, entryPrice: 50000, dayVolume: 1_000_000 },
+        params,
+      );
+      expect(r.status).toBe('PARTIAL');
+      // 참여율 2.0 → liquidity 0.10/2.0=0.05 → floor(2,000,000×0.05)=100,000
+      expect(r.filledShares).toBe(100_000);
+      expect(r.filledPrice).toBeGreaterThan(50100);
+    });
+
+    it('매도는 dayVolume 무시(참여율 0) → base 슬리피지·전량체결(부분체결 미적용)', () => {
+      const r = simulateFill(
+        { direction: 'SELL', orderedShares: 2_000_000, entryPrice: 50000, dayVolume: 1_000_000 },
+        params,
+      );
+      expect(r.status).toBe('FILLED');
+      expect(r.filledShares).toBe(2_000_000);
+      expect(r.filledPrice).toBe(49950); // SELL base floor
+    });
+
+    it('dayVolume 미제공 매수 → 기존 동작(전량·base)', () => {
+      const r = simulateFill(
+        { direction: 'BUY', orderedShares: 2_000_000, entryPrice: 50000 },
+        params,
+      );
+      expect(r.status).toBe('FILLED');
+      expect(r.filledShares).toBe(2_000_000);
+      expect(r.filledPrice).toBe(50100);
+    });
+  });
 });

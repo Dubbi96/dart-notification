@@ -7,15 +7,23 @@ export type TradeStatus = 'PENDING' | 'FILLED' | 'PARTIAL' | 'CANCELLED' | 'REJE
 export interface FillParams {
   commissionRate: number;   // 수수료율 (양수, 예: 0.00015)
   sellTaxRate: number;      // 매도세율 (예: 0.0018)
-  slippagePct: number;      // 슬리피지 % (예: 0.0005)
+  slippagePct: number;      // 기본(base) 슬리피지 % (예: 0.0005)
   partialFillThreshold: number; // 부분체결 임계 유동성비율 (0~1)
+  // F8 Phase2(2026-06-27): 거래량 기반 동적 슬리피지·부분체결(매수 전용). 선택 — 미지정 시 코드 기본값.
+  //   maxParticipation: 일거래량 대비 전량체결 허용 참여율 상한(초과분만 부분체결). 기본 0.10(10% ADV).
+  //   impactCoeff(α): 제곱근 시장충격 계수. 슬리피지 = base + α·√(참여율). 기본 0.015.
+  //   ★캘리브레이션 근거(2026-06-27 실데이터): 모의 주문 참여율 p90=0.03%·max=0.07% → 10% 상한은
+  //     ~140배 헤드룸이라 현 규모는 전량체결·base 슬리피지(거동 불변), 모델은 대규모 주문에서만 발효.
+  maxParticipation?: number;
+  impactCoeff?: number;
 }
 
 export interface FillRequest {
   direction: TradeDirection;
   orderedShares: number;
   entryPrice: number;       // 다음거래일 시가
-  liquidityRatio?: number;  // 종목 유동성비율 (없으면 1.0으로 가정)
+  liquidityRatio?: number;  // 종목 유동성비율 (명시 시 우선; 없으면 dayVolume 기반 산정/1.0)
+  dayVolume?: number;       // F8 Phase2: 당일 거래량(주) — 참여율 기반 동적 슬리피지/부분체결(매수)용
 }
 
 export interface FillResult {

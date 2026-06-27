@@ -958,10 +958,20 @@ export class PaperSimulationService {
       //   슬리피지 반영가로 수량을 산정한다 → 진입원가(=체결가×수량) ≤ budget ≤ availableCash 보장.
       // F8: 사이징 단가를 체결가와 동일하게 호가단위 정렬(BUY 올림) — shares×fillPrice ≤ budget
       //   ≤ availableCash 보장(DAR-426 현금≥0 불변식이 틱반올림 후에도 유지).
-      const effPrice = roundToTick(
+      // F8 Phase2: 동적 슬리피지(시장충격)를 반영한 보수적 사이징 — DAR-426 현금≥0 불변식 보존.
+      //   참여율을 base 사이징 주수로 상한 추정 → effPrice 상향 → shares 하향(보수). 실제 체결가는
+      //   최종 주수(≤baseShares)의 더 작은 참여율로 산정되므로 항상 effPrice 이하 → 진입원가 ≤ budget.
+      const dayVol = Number(priceRow?.volume ?? 0);
+      const baseEffPrice = roundToTick(
         price * (1 + DEFAULT_FILL_PARAMS.slippagePct),
         'BUY',
       );
+      const baseShares = Math.floor(budget / baseEffPrice);
+      const estParticipation = dayVol > 0 ? baseShares / dayVol : 0;
+      const effSlippage =
+        DEFAULT_FILL_PARAMS.slippagePct +
+        (DEFAULT_FILL_PARAMS.impactCoeff ?? 0.015) * Math.sqrt(estParticipation);
+      const effPrice = roundToTick(price * (1 + effSlippage), 'BUY');
       const shares = Math.floor(budget / effPrice);
       if (shares <= 0) continue;
 
@@ -978,7 +988,9 @@ export class PaperSimulationService {
         orderedShares: shares,
         entryPrice: price,
         entryDate: new Date(),
-        liquidityRatio: 1.0,
+        // F8 Phase2: dayVolume 전달 → 참여율 기반 동적 슬리피지/부분체결(매수). 명시 liquidityRatio 제거
+        //   (참여율 기반 산정에 위임). 모의 규모(참여율<0.1%)에선 전량체결·base 근처 슬리피지(거동 ~불변).
+        dayVolume: dayVol,
         tradingSignalId: sig.id,
         positionThesisId: thesis?.id,
       });

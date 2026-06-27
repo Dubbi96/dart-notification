@@ -37,9 +37,23 @@ function DisclosureFeedCardComponent({ item }: DisclosureFeedCardProps) {
     [item.rcpDt],
   );
 
+  // DAR-446(A-HOME-6): 카드 전체를 단일 버튼으로 읽히도록 요약 a11y 라벨을 구성한다.
+  // 내부 텍스트(유형/날짜/보고서명/기업명)는 no-hide-descendants 로 묶어 중복 읽기를 막는다.
+  const accessibilityLabel = useMemo(
+    () =>
+      `${item.corpName}, ${getTypeLabel(item.disclosureType)}, ${item.reportName}, ${formattedDate}, 공시 상세 보기`,
+    [item.corpName, item.disclosureType, item.reportName, formattedDate],
+  );
+
   return (
-    <TouchableOpacity activeOpacity={0.7} onPress={handlePress}>
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={handlePress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+    >
       <Card style={styles.disclosureCard} variant="elevated">
+        <View style={styles.disclosureBody} importantForAccessibility="no-hide-descendants">
         <View style={styles.disclosureHeader}>
           <View style={[styles.typeBadge, { backgroundColor: typeStyle.bg }]}>
             <Text style={[typo.small, styles.typeBadgeText, { color: typeStyle.text }]}>
@@ -60,6 +74,7 @@ function DisclosureFeedCardComponent({ item }: DisclosureFeedCardProps) {
         >
           {item.corpName}
         </Text>
+        </View>
       </Card>
     </TouchableOpacity>
   );
@@ -70,6 +85,10 @@ export const DisclosureFeedCard = React.memo(DisclosureFeedCardComponent);
 const styles = StyleSheet.create({
   disclosureCard: {
     marginBottom: 0,
+  },
+  // A-HOME-6: a11y 그룹핑 래퍼 — 레이아웃 영향 없는 패스스루 블록(자식 중복 읽기 차단).
+  disclosureBody: {
+    width: '100%',
   },
   disclosureHeader: {
     flexDirection: 'row',

@@ -30,7 +30,7 @@ import {
 import { pnlColor, formatPnlPercent } from '@utils/signalDisplay';
 import { currentPortfolioBasisLabel } from '@utils/marketQuoteDisplay';
 import { dedupeByStock } from '@utils/dedupe';
-import { PORTFOLIO_TABS, pickLiveEmptyState, resolveInitialSubTab } from '@utils/portfolioTabs';
+import { groupedPortfolioTabs, pickLiveEmptyState, resolveInitialSubTab } from '@utils/portfolioTabs';
 
 import type { Position } from '@app-types/portfolio.types';
 import type { SortKey } from '@components/portfolio/PositionSearchBar';
@@ -102,7 +102,10 @@ export default function PortfolioScreen() {
 
     return [...base].sort((a, b) => {
       if (sortKey === 'pnl') {
-        return a.pnlPercent - b.pnlPercent;
+        // DAR-451 C12: '손익순'은 기본 내림차순(수익률 높은 종목 최상단).
+        // 종전 오름차순(손실 큰 종목 최상단)은 방향 표시가 없어 혼란 — '비중순'(내림차순)과
+        // 동일하게 큰 값이 위로 오는 관례로 통일해 정렬 방향을 예측 가능하게 만든다.
+        return b.pnlPercent - a.pnlPercent;
       }
       if (sortKey === 'weight') {
         return (b.weight ?? 0) - (a.weight ?? 0);
@@ -181,6 +184,8 @@ export default function PortfolioScreen() {
                   {/* DAR-356 GROUND-2: 신선도 정직 표기('기준: 실시간' | '기준: 장 마감'). */}
                   <Text style={[typo.small, { color: colors.textTertiary }]}>{basisLabel}</Text>
                 </View>
+                {/* DAR-451 C2: 세 탭(실전·내 모의·시스템 모의) 총평가금액 헤드라인을 동일
+                    토큰(typo.h1 — DAR-356 글랜스 헤드라인)으로 통일. 실전 탭 기준 유지. */}
                 <Text
                   style={[typo.h1, styles.headlineValue, { color: colors.text }]}
                   numberOfLines={1}
@@ -292,7 +297,14 @@ export default function PortfolioScreen() {
             {paper?.started ? (
               <Surface elevation={1} style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <Text style={[typo.small, { color: colors.textSecondary }]}>가상 총자산</Text>
-                <Text style={[typo.h2, { color: colors.text, marginTop: spacing.xs }]}>
+                {/* DAR-451 C2: 실전 탭과 동일 토큰(typo.h1)으로 통일. 실전 헤드라인과 같은
+                    overflow 안전장치(adjustsFontSizeToFit)도 정합으로 동반. */}
+                <Text
+                  style={[typo.h1, { color: colors.text, marginTop: spacing.xs }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
+                >
                   {paper.totalAsset.toLocaleString()}원
                 </Text>
                 <Text style={[typo.captionMedium, { color: pnlColor(paper.totalPnlPercent, colors), marginTop: spacing.xs }]}>
@@ -342,44 +354,63 @@ export default function PortfolioScreen() {
       ) : (
         <>
           {/* DAR-212: 5분할 SegmentedButtons는 역할 라벨이 잘려(개념 과밀) 가로 스크롤 칩 행으로
-              노출한다(DAR-156 종목상세 패턴 재사용). '내 모의'/'시스템 모의'로 주체를 구분. */}
+              노출한다(DAR-156 종목상세 패턴 재사용). '내 모의'/'시스템 모의'로 주체를 구분.
+              DAR-451 C1: 6탭이 구분 안내 없이 병렬이라 신규 사용자가 길을 잃음 → 그룹 머릿글
+              ('내 운용'·'시스템 검증')을 각 그룹 첫 칩 앞에 1회 끼워 진입 오리엔테이션을 준다. */}
           <View style={styles.tabs}>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.tabScrollContent}
             >
-              {PORTFOLIO_TABS.map((tab) => {
-                const isActive = subTab === tab.value;
-                return (
-                  <TouchableOpacity
-                    key={tab.value}
+              {groupedPortfolioTabs().map((grp, grpIndex) => (
+                <React.Fragment key={grp.group}>
+                  <Text
+                    accessibilityRole="header"
+                    accessibilityLabel={`${grp.label} 그룹`}
+                    maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                     style={[
-                      styles.tabChip,
-                      isActive
-                        ? { backgroundColor: colors.primary, borderColor: colors.primary }
-                        : { backgroundColor: colors.surface, borderColor: colors.borderLight },
+                      typo.small,
+                      styles.tabGroupLabel,
+                      grpIndex > 0 ? styles.tabGroupLabelGap : null,
+                      { color: colors.textTertiary },
                     ]}
-                    onPress={() => setSubTab(tab.value)}
-                    activeOpacity={0.7}
-                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-                    accessibilityRole="tab"
-                    accessibilityState={{ selected: isActive }}
-                    accessibilityLabel={tab.a11y}
                   >
-                    <Text
-                      numberOfLines={1}
-                      maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-                      style={[
-                        typo.captionMedium,
-                        { color: isActive ? colors.primaryForeground : colors.textSecondary },
-                      ]}
-                    >
-                      {tab.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+                    {grp.label}
+                  </Text>
+                  {grp.tabs.map((tab) => {
+                    const isActive = subTab === tab.value;
+                    return (
+                      <TouchableOpacity
+                        key={tab.value}
+                        style={[
+                          styles.tabChip,
+                          isActive
+                            ? { backgroundColor: colors.primary, borderColor: colors.primary }
+                            : { backgroundColor: colors.surface, borderColor: colors.borderLight },
+                        ]}
+                        onPress={() => setSubTab(tab.value)}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: isActive }}
+                        accessibilityLabel={tab.a11y}
+                      >
+                        <Text
+                          numberOfLines={1}
+                          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                          style={[
+                            typo.captionMedium,
+                            { color: isActive ? colors.primaryForeground : colors.textSecondary },
+                          ]}
+                        >
+                          {tab.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </React.Fragment>
+              ))}
             </ScrollView>
           </View>
 
@@ -422,6 +453,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     paddingHorizontal: spacing.lg,
+  },
+  // DAR-451 C1: 그룹 머릿글 — 칩과 같은 행에서 세로 중앙 정렬, 약한 강조(tertiary + 600).
+  tabGroupLabel: {
+    alignSelf: 'center',
+    fontWeight: '600',
+  },
+  // 두 번째 그룹부터 앞 그룹 칩과 시각적 간격을 더 벌려 그룹 경계를 명확히 한다.
+  tabGroupLabelGap: {
+    marginLeft: spacing.sm,
   },
   tabChip: {
     flexDirection: 'row',

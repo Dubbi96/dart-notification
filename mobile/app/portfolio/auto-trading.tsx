@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface } from 'react-native-paper';
@@ -9,6 +9,7 @@ import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
 import { LoadingState, ApiErrorState } from '@components/common/StateView';
 import { useAutoTradingStatus } from '@hooks/useAutoTradingStatus';
+import { useManualRefresh } from '@hooks/useManualRefresh';
 
 import type {
   AutoStatusKillSwitch,
@@ -211,18 +212,9 @@ export default function AutoTradingStatusScreen() {
   const { colors, typography: typo } = useTheme();
   const query = useAutoTradingStatus();
   const data = query.data;
-  const { refetch } = query;
 
-  // C8: 수동 새로고침 어포던스 — 30초 자동 폴링과 별개로 사용자가 즉시 최신화할 수 있게 한다.
-  const [refreshing, setRefreshing] = useState(false);
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await refetch();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [refetch]);
+  // C8: 수동 새로고침 어포던스 — 30초 자동 폴링과 별개로 사용자가 즉시 최신화할 수 있게 한다(DAR-472 공통 훅).
+  const { refreshing, onRefresh } = useManualRefresh(query.refetch);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>

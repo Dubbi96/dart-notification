@@ -1,17 +1,12 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-} from 'react-native';
+import { View, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useForm, Controller } from 'react-hook-form';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
+import { ScreenHeader } from '@components/common/ScreenHeader';
 import { Input } from '@components/common/Input';
 import { Button } from '@components/common/Button';
 import { useDialog } from '@components/common/DialogProvider';
@@ -23,7 +18,7 @@ interface ProfileForm {
 }
 
 export default function ProfileScreen() {
-  const { colors, typography: typo } = useTheme();
+  const { colors } = useTheme();
   const { showDialog } = useDialog();
   // 서버 User SSOT = useMe().data (authStore 복제 제거, DAR-262).
   const { data: user } = useMe();
@@ -50,29 +45,16 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.headerButton}
-          accessibilityRole="button"
-          accessibilityLabel="뒤로 가기"
-        >
-          <Ionicons name="chevron-back" size={26} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}>
-          프로필
-        </Text>
-        <View style={styles.headerButton} />
-      </View>
+      <ScreenHeader title="프로필" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.avatarSection}>
           <View style={[styles.avatar, {
             backgroundColor: colors.primaryLight,
-            borderColor: colors.primary + '25',
+            borderColor: colors.primaryBorder,
             shadowColor: colors.primary,
           }]}>
-            <Ionicons name="person" size={40} color={colors.primary} />
+            <Feather name="user" size={40} color={colors.primary} />
           </View>
         </View>
 
@@ -105,17 +87,6 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-  },
-  headerButton: {
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.sm,
-    width: 56,
-  },
   content: {
     padding: spacing.lg,
     paddingBottom: spacing['4xl'],

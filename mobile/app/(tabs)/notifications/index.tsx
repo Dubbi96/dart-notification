@@ -285,7 +285,8 @@ export default function NotificationsScreen() {
   if (!isAuthenticated) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={[styles.header, { borderBottomColor: colors.borderLight }]}>
+        {/* DAR-468: 인증 상태 분기 간 헤더 구분선 농도 통일 — 게스트도 colors.border 사용. */}
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <Text style={[typo.h2, { color: colors.text }]}>알림</Text>
         </View>
         {/* DAR-113: 빈/에러 화면 대신 가치 프리뷰 + 로그인 CTA로 자연스러운 로그인 유도. */}

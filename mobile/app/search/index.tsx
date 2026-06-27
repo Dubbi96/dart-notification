@@ -36,12 +36,15 @@ function marketLabel(market: string | null): string {
   return '';
 }
 
+// DAR-457: 검색 입력 디바운스 공통 규약 — 통합검색·관심기업 검색이 동일 지연(300ms)을 공유한다.
+const SEARCH_DEBOUNCE_MS = 300;
+
 export default function UnifiedSearchScreen() {
   const { colors, typography: typo, isDark } = useTheme();
 
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
-  const debounced = useDebounce(query, 300);
+  const debounced = useDebounce(query, SEARCH_DEBOUNCE_MS);
   const term = debounced.trim();
   const searching = shouldUnifiedSearch(term);
 
@@ -171,7 +174,7 @@ export default function UnifiedSearchScreen() {
         <EmptyState
           icon="search"
           title="기업·공시 통합 검색"
-          description="종목명·종목코드 또는 공시명을 2글자 이상 입력하세요."
+          description="기업명·종목코드·공시명을 2글자 이상 입력하세요."
         />
       );
     }

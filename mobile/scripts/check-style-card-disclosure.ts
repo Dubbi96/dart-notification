@@ -21,6 +21,12 @@ const SRC = readFileSync(
   join(__dirname, '../components/portfolio/StyleComparisonSection.tsx'),
   'utf8',
 );
+// DAR-472: 로컬 InlineDisclosure 를 공용 컴포넌트로 추출. 토글 내부 불변식(a11y expanded·44pt)은
+// 공용 컴포넌트에서 검증하고, StyleComparisonSection 은 import + 사용(accent/defaultExpanded)만 본다.
+const SHARED_DISCLOSURE = readFileSync(
+  join(__dirname, '../components/common/InlineDisclosure.tsx'),
+  'utf8',
+);
 
 type Case = { name: string; pass: boolean; detail: string };
 const cases: Case[] = [];
@@ -65,11 +71,13 @@ check('상세 지표 기본 접힘(한 탭 뒤)', !usesDefaultExpandedTrue, uses
 const valueHierarchy = /typo\.body, styles\.primaryValue/.test(SRC) && /primaryValue:\s*\{\s*fontWeight:\s*'700'/.test(SRC);
 check('값 위계 강화(typo.body + bold 700)', valueHierarchy, valueHierarchy ? 'primaryValue bold' : '미적용');
 
-// 접기 토글 접근성 + 44pt 터치영역
-const a11yExpanded = /accessibilityState=\{\{ expanded \}\}/.test(SRC);
-const touch44 = /discHeader:\s*\{[\s\S]*?minHeight:\s*44/.test(SRC);
+// 공용 InlineDisclosure 채택(로컬 중복 제거) + 토글 접근성 + 44pt 터치영역(공용 컴포넌트에서 검증)
+const usesShared = /from '@components\/common\/InlineDisclosure'/.test(SRC) && !/function InlineDisclosure/.test(SRC);
+const a11yExpanded = /accessibilityState=\{\{ expanded \}\}/.test(SHARED_DISCLOSURE);
+const touch44 = /discHeader:\s*\{[\s\S]*?minHeight:\s*sizing\.minTouchTarget/.test(SHARED_DISCLOSURE);
+check('공용 InlineDisclosure 채택(로컬 정의 제거)', usesShared, usesShared ? 'import' : '로컬 정의 잔존');
 check('접기 토글 a11y expanded 상태', a11yExpanded, a11yExpanded ? 'accessibilityState' : '누락');
-check('접기 토글 44pt 터치영역', touch44, touch44 ? 'minHeight 44' : '누락');
+check('접기 토글 44pt 터치영역', touch44, touch44 ? 'minHeight minTouchTarget' : '누락');
 
 // ComparisonHeader 의 저표본 caveat·진입기준이 InlineDisclosure 로 이동(평문 적층 제거)
 const headerUsesDisclosure = /icon=\{[\s\S]*?'alert-triangle'[\s\S]*?'info'/.test(SRC) || /icon=\{data\.ranking\.allLowSample \? 'alert-triangle' : 'info'\}/.test(SRC);

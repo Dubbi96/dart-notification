@@ -11,6 +11,7 @@ import { SkeletonCard } from '@components/common/SkeletonCard';
 import { useBuySignals } from '@hooks/useSignals';
 import { useCarouselCardWidth } from '@hooks/useCarouselCardWidth';
 import { curateBuySignals, CURATION_CRITERIA_LABEL } from '@utils/signalCuration';
+import { verticalHitSlopForHeight } from '@utils/touchTarget';
 
 import type { TradingSignal } from '@app-types/signal.types';
 
@@ -98,6 +99,9 @@ function CurationSlotBase({ onExplore }: CurationSlotProps) {
         <TouchableOpacity
           onPress={onExplore}
           style={[styles.exploreBtn, { borderColor: colors.primary }]}
+          // DAR-449(B14): 빈상태 CTA 시각 높이 36pt(paddingVertical 8*2 + 라인높이 20, <44) —
+          // 시각 크기 유지하며 유효 터치 영역만 44pt로 보정(인접 탭 없는 단독 버튼이라 세로 확장 안전).
+          hitSlop={verticalHitSlopForHeight(36)}
           accessibilityRole="button"
           accessibilityLabel="점수순으로 전체 신호 탐색"
         >

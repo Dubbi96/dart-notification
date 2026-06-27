@@ -72,6 +72,8 @@ function FilterChipRow<T extends string | undefined>({
               ]}
               onPress={() => onSelect(opt.value)}
               activeOpacity={0.7}
+              // DAR-449(B7): 필터칩 시각 높이 34pt(<44) — 시각 크기 유지하며 유효 터치 영역만 44pt로 보정.
+              hitSlop={verticalHitSlopForHeight(34)}
               accessibilityRole="button"
               accessibilityState={{ selected: isActive }}
               accessibilityLabel={`${label} ${opt.label}${isActive ? ', 선택됨' : ''}`}
@@ -252,6 +254,8 @@ export function SignalExplorer({ searchQuery = '', ListHeaderComponent, listRef 
                 ]}
                 onPress={() => setSort(opt.value)}
                 activeOpacity={0.7}
+                // DAR-449(B7): 정렬칩 시각 높이 30pt(<44) — 시각 크기 유지하며 유효 터치 영역만 44pt로 보정.
+                hitSlop={verticalHitSlopForHeight(30)}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isActive }}
                 accessibilityLabel={`${opt.label} 정렬${isActive ? ', 선택됨' : ''}`}

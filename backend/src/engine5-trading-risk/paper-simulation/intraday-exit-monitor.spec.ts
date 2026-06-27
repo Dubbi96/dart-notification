@@ -396,3 +396,104 @@ describe('F3 — 악재 공시·지표 주입으로 청산점수 복원', () => 
     expect(sig.exitAction).toBe('HOLD');
   });
 });
+
+// ── F2(2026-06-27): 익절 부분 스케일아웃(합성 CLOSED 행, 스키마 변경 0) ──
+describe('F2 — 익절 부분 스케일아웃', () => {
+  function makePrismaPartial() {
+    const creates: Array<Record<string, unknown>> = [];
+    const updates: Array<Record<string, unknown>> = [];
+    const state = { closed: false };
+    return {
+      _creates: creates,
+      _updates: updates,
+      user: { findFirst: jest.fn().mockResolvedValue({ id: 'u1' }), create: jest.fn() },
+      portfolio: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'pf1', maxSinglePositionPct: 10 }),
+        create: jest.fn(),
+      },
+      position: {
+        findMany: jest.fn(async ({ select }: { where?: any; select?: any }) => {
+          if (state.closed) return [];
+          if (select && select.corpCode && select.stockCode && !select.entryPrice) {
+            return [{ corpCode: POS.corpCode, stockCode: POS.stockCode }];
+          }
+          return [POS]; // entryPrice 10000·quantity 10·takeProfitPct 20
+        }),
+        create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          creates.push(data);
+          return { id: 'syn1' };
+        }),
+        update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          updates.push(data);
+          if (data.status === 'CLOSED') state.closed = true;
+          return {};
+        }),
+      },
+      positionThesis: { findUnique: jest.fn().mockResolvedValue(null) },
+      positionDailySnapshot: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      exitSignal: { create: jest.fn().mockResolvedValue({ id: 'ex1' }) },
+      paperTrade: { update: jest.fn().mockResolvedValue({}) },
+      technicalIndicator: { findFirst: jest.fn().mockResolvedValue(null) },
+      disclosureEvent: { findMany: jest.fn().mockResolvedValue([]) },
+      stockDailyPrice: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      simulatedDailyPrice: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+  }
+
+  it('익절 목표(+20%) 도달 → 절반 매도(합성 CLOSED 행) + 잔량 OPEN 유지', async () => {
+    const prisma = makePrismaPartial();
+    const cache = new RealtimeQuoteCache();
+    const priceSource = new SimulationPriceSourceService(prisma as never, cache);
+    const paperTrade = paperTradeStub();
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTrade as never,
+      undefined,
+      priceSource,
+      kisStub(12000) as never, // entry 10000 → +20% 익절
+      cache,
+    );
+
+    await svc.runIntradayExitMonitor(MARKET_HOURS);
+
+    // 합성 CLOSED 행: 매도분 5주(=10×0.5), 실현손익>0
+    const syn = prisma._creates.find((c) => c.status === 'CLOSED') as any;
+    expect(syn).toBeDefined();
+    expect(syn.quantity).toBe(5);
+    expect(syn.unrealizedPnl).toBeGreaterThan(0);
+    expect(syn.positionThesisId).toBeNull(); // @unique 충돌 방지
+    // OPEN 잔량 축소(전량 청산 아님)
+    const openUpdate = prisma._updates.find(
+      (u) => u.quantity === 5 && u.status === undefined,
+    );
+    expect(openUpdate).toBeDefined();
+    expect(prisma._updates.some((u) => u.status === 'CLOSED')).toBe(false);
+    // 매도 주문 5주
+    const sells = (paperTrade.placeOrder as jest.Mock).mock.calls.filter(
+      (c) => c[0].direction === 'SELL',
+    );
+    expect(sells[0][0].orderedShares).toBe(5);
+  });
+
+  it('손절(전량 EXIT)은 부분 아님 — 합성 CLOSED 없이 전량 청산', async () => {
+    const prisma = makePrismaPartial();
+    const cache = new RealtimeQuoteCache();
+    const priceSource = new SimulationPriceSourceService(prisma as never, cache);
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTradeStub() as never,
+      undefined,
+      priceSource,
+      kisStub(9000) as never, // entry 10000 → -10% 손절
+      cache,
+    );
+
+    await svc.runIntradayExitMonitor(MARKET_HOURS);
+
+    expect(prisma._updates.some((u) => u.status === 'CLOSED')).toBe(true); // 전량 청산
+    expect(prisma._creates.length).toBe(0); // 합성 CLOSED 미생성
+  });
+});

@@ -139,6 +139,9 @@ export class PaperSimulationService {
   static readonly DEFAULT_STOP_LOSS_PCT = 8;
   static readonly DEFAULT_TAKE_PROFIT_PCT = 20;
   static readonly DEFAULT_MAX_HOLD_DAYS = 20;
+  // F2(2026-06-27): 익절 도달 시 부분 스케일아웃 매도 비율(잔량은 계속 보유). floor 적용 —
+  //   잔량이 1주 미만이 되는 소량 포지션은 전량 청산으로 폴백(partial 판정에서 제외).
+  static readonly TAKE_PROFIT_SCALE_OUT_FRACTION = 0.5;
   // F1(2026-06-26): 장중 실시간 손절 한정 — 진입소스(REAL) 일봉이 실시간 날짜 대비 며칠(거래일)까지
   //   지연돼야 '신선'으로 보고 실시간 하락을 신뢰할지. 이하면 실시간 손절 발화, 초과(정체 일봉)면
   //   DAR-433 정렬로 폴백(가짜손절 차단). 거래일 기준이라 금→월(1)·연휴가 가드를 오발동시키지 않음.
@@ -1180,11 +1183,19 @@ export class PaperSimulationService {
           exitAction: exit.exitAction,
           triggerTypes: exit.triggerTypes,
         });
+        // F2(2026-06-27): 익절(TAKE_PROFIT)은 부분 스케일아웃(잔량 보유), 그 외 EXIT 은 전량 청산.
+        const isTakeProfit = exit.primaryTrigger === 'TAKE_PROFIT';
+        const scaleOutQty = isTakeProfit
+          ? Math.floor(p.quantity * PaperSimulationService.TAKE_PROFIT_SCALE_OUT_FRACTION)
+          : p.quantity;
+        const partial = isTakeProfit && scaleOutQty >= 1 && scaleOutQty < p.quantity;
+        const sellQty = partial ? scaleOutQty : p.quantity;
+
         const sell = await this.paperTrade.placeOrder({
           corpCode: p.corpCode,
           stockCode: p.stockCode,
           direction: 'SELL',
-          orderedShares: p.quantity,
+          orderedShares: sellQty,
           entryPrice: close,
           entryDate: new Date(),
           liquidityRatio: 1.0,
@@ -1201,17 +1212,58 @@ export class PaperSimulationService {
           where: { id: sell.id },
           data: { grossPnl, netPnl, returnPct },
         });
-        await this.prisma.position.update({
-          where: { id: p.id },
-          data: {
-            status: 'CLOSED',
-            closedAt: new Date(),
-            currentPrice: sellPrice,
-            currentValue: sellPrice * sell.filledShares,
-            unrealizedPnl: netPnl,
-            unrealizedPnlPct: returnPct,
-          },
-        });
+
+        if (partial) {
+          // 부분 익절: 매도분을 합성 CLOSED 행으로 기록(기존 CLOSED 실현손익 집계가 자동 반영)하고
+          //   OPEN 잔량(quantity·entryAmount)을 비례 축소해 잔량을 계속 보유한다. 스키마 변경 0.
+          //   ★현금 정합: 매도분이 CLOSED net 으로 실현손익에 들어가고 OPEN entryAmount 가 줄어
+          //   cash(=초기+실현−보유원가)가 정확히 매도대금만큼 증가(검증식 확인).
+          const soldEntryAmount = p.entryAmount * (sell.filledShares / p.quantity);
+          const remainingQty = p.quantity - sell.filledShares;
+          await this.prisma.position.create({
+            data: {
+              portfolioId,
+              corpCode: p.corpCode,
+              stockCode: p.stockCode,
+              positionThesisId: null, // @unique — OPEN 원포지션이 thesisId 보유, 합성행은 null
+              entryDate: p.entryDate,
+              entryPrice: p.entryPrice,
+              quantity: sell.filledShares,
+              entryAmount: soldEntryAmount,
+              entryPriceSource: p.entryPriceSource,
+              status: 'CLOSED',
+              closedAt: new Date(),
+              currentPrice: sellPrice,
+              currentValue: sellPrice * sell.filledShares,
+              unrealizedPnl: netPnl, // 실현손익(CLOSED unrealizedPnl 오버로드 — 기존 회계 규약)
+              unrealizedPnlPct: returnPct,
+            },
+          });
+          await this.prisma.position.update({
+            where: { id: p.id },
+            data: {
+              quantity: remainingQty,
+              entryAmount: p.entryAmount - soldEntryAmount,
+              currentPrice: close,
+              currentValue: close * remainingQty,
+              unrealizedPnl: (close - p.entryPrice) * remainingQty,
+              unrealizedPnlPct:
+                p.entryPrice > 0 ? ((close - p.entryPrice) / p.entryPrice) * 100 : 0,
+            },
+          });
+        } else {
+          await this.prisma.position.update({
+            where: { id: p.id },
+            data: {
+              status: 'CLOSED',
+              closedAt: new Date(),
+              currentPrice: sellPrice,
+              currentValue: sellPrice * sell.filledShares,
+              unrealizedPnl: netPnl,
+              unrealizedPnlPct: returnPct,
+            },
+          });
+        }
         exited++;
         // DAR-424 매도 체결 알림(graceful — CLOSED 영속 직후 스냅샷 산출).
         //   exitReason 은 주 트리거(없으면 exitAction) 사용.

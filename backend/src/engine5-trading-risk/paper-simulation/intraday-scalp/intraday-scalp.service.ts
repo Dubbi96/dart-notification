@@ -792,6 +792,8 @@ export class IntradayScalpService {
     if (!isKstRegularMarketHours(now)) {
       return { ran: false, skipped: true, tradeDate, evaluated: 0, exited: 0, reason: '정규장 외 — 청산 스킵' };
     }
+    // L[3](2026-06-27): 전일 OPEN(15:20 강제청산 누락 추정분)을 익일 개장 시 sweep — 오버나잇 절대 금지 보강.
+    const sweptStale = await this.catchUpStaleForceClose(tradeDate);
     const nowHhmm = this.hhmm(now);
     const open = await this.prisma.intradayScalpTrade.findMany({
       where: { status: 'OPEN', styleTag: INTRADAY_SCALP_STYLE_TAG },
@@ -814,7 +816,50 @@ export class IntradayScalpService {
       await this.closePosition(t, price, decision.reason, now);
       exited += 1;
     }
-    return { ran: true, skipped: false, tradeDate, evaluated: open.length, exited };
+    return {
+      ran: true,
+      skipped: false,
+      tradeDate,
+      evaluated: open.length + sweptStale,
+      exited: exited + sweptStale,
+    };
+  }
+
+  /**
+   * L[3](2026-06-27): 전일(또는 그 이전) OPEN 단타 포지션을 강제청산한다(catch-up).
+   * 15:20 강제청산 잡이 누락(프로세스 다운 등)되면 OPEN 이 오버나잇으로 잔존하는데, 익일 개장
+   * 첫 청산 사이클에서 이를 sweep 해 '오버나잇 절대 금지' 불변식을 복원한다.
+   * 체결가는 '포지션 자신의 거래일' 데이터만 사용(분봉 마지막→같은 거래일 일봉→진입가). 실시간/
+   * 타일자 혼입 금지(cross-day 가짜손익 차단). exitTs 는 그 거래일 15:25(정규장 clamp 내).
+   */
+  private async catchUpStaleForceClose(today: string): Promise<number> {
+    const stale = await this.prisma.intradayScalpTrade.findMany({
+      where: {
+        status: 'OPEN',
+        tradeDate: { lt: today },
+        styleTag: INTRADAY_SCALP_STYLE_TAG,
+      },
+    });
+    if (stale.length === 0) return 0;
+    this.logger.warn(
+      `[Scalp][오버나잇방지] 전일 이전 OPEN ${stale.length}건 catch-up 강제청산(15:20 잡 누락 추정)`,
+    );
+    let closed = 0;
+    for (const t of stale) {
+      // 그 거래일 15:25 기준 시각(정규장 내) — closePosition 의 DAR-444 clamp 가 exitTs 를 해당일로 고정.
+      const staleNow = minuteTimestamp(t.tradeDate, '1525') ?? new Date();
+      const candles = await this.loadTodayCandles(t.stockCode, t.tradeDate);
+      // staleNow.getTime() 전달 → 오늘 실시간 캐시는 신선도 미충족(null)로 떨어지고 그 거래일 데이터만 사용.
+      const { price, priceMissing } = await this.resolveExitPrice(t, candles, staleNow.getTime());
+      if (priceMissing) {
+        this.logger.error(
+          `[Scalp][데이터정합] catch-up 강제청산 가격결측 — 진입가 폴백 ${t.stockCode} tradeDate=${t.tradeDate}`,
+        );
+      }
+      await this.closePosition(t, price, 'FORCE_CLOSE_EOD', staleNow);
+      closed += 1;
+    }
+    return closed;
   }
 
   /**

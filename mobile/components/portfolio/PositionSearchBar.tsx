@@ -10,18 +10,22 @@ export type SortKey = 'pnl' | 'urgency' | 'weight';
 interface SortOption {
   key: SortKey;
   label: string;
+  // DAR-472: 스크린리더가 읽는 정렬 방향 설명. 손익·비중은 순수 수치 내림차순이지만
+  // 시급도순은 상태 우선순위(VIOLATED·EXPIRED 먼저) 기반이라 '내림차순'으로 읽으면 부정확
+  // (실제 정렬: app/(tabs)/portfolio STATUS_ORDER → 동점 시 exitScore 내림차순). 실제 기준을 읽어준다.
+  a11ySortDirection: string;
 }
 
 const SORT_OPTIONS: SortOption[] = [
-  { key: 'pnl', label: '손익순' },
-  { key: 'urgency', label: '시급도순' },
-  { key: 'weight', label: '비중순' },
+  { key: 'pnl', label: '손익순', a11ySortDirection: '내림차순 정렬' },
+  { key: 'urgency', label: '시급도순', a11ySortDirection: '시급한 종목 먼저' },
+  { key: 'weight', label: '비중순', a11ySortDirection: '내림차순 정렬' },
 ];
 
-// DAR-470: 정렬 방향 인디케이터. 세 정렬 모두 '높은/시급한 값이 위'인 내림차순이다
-// (손익·비중 = 큰 값 위, 시급도 = VIOLATED·EXPIRED 위). 칩에 ▼ 글리프를 병기해 탭 전에도
-// 정렬 방향을 예측 가능하게 한다. ▼ 는 장식이며 스크린리더는 accessibilityLabel('…, 내림차순
-// 정렬')을 읽는다 — 글리프 단독 의미전달 금지(색·기호·텍스트 병행 규칙).
+// DAR-470: 정렬 방향 인디케이터. 세 정렬 모두 '높은/시급한 값이 위'로 정렬되어 ▼ 글리프를
+// 병기해 탭 전에도 방향을 예측 가능하게 한다(손익·비중 = 큰 값 위, 시급도 = VIOLATED·EXPIRED 위).
+// ▼ 는 장식이며 스크린리더는 accessibilityLabel(옵션별 a11ySortDirection)을 읽는다 —
+// 글리프 단독 의미전달 금지(색·기호·텍스트 병행 규칙).
 const DESCENDING_INDICATOR = '▼';
 
 interface PositionSearchBarProps {
@@ -68,7 +72,7 @@ export function PositionSearchBar({ value, onChangeText, sortKey, onSortChange }
               onPress={makeSortHandler(opt.key)}
               accessibilityRole="button"
               accessibilityState={{ selected }}
-              accessibilityLabel={`${opt.label}, 내림차순 정렬`}
+              accessibilityLabel={`${opt.label}, ${opt.a11ySortDirection}`}
               style={[
                 styles.sortChip,
                 selected && { backgroundColor: colors.primary },

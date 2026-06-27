@@ -12,7 +12,7 @@ import { Surface, Chip } from 'react-native-paper';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, sizing } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { Button } from '@components/common/Button';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
@@ -69,6 +69,10 @@ export default function DisclosureDetailScreen() {
   const removeFromWatchlist = useRemoveFromWatchlist();
   const watchlistItem = watchlistData?.data?.find((item) => item.corpCode === disclosure?.corpCode);
   const isWatched = !!watchlistItem;
+
+  // E8(DAR-453): 인지 과부하 완화 — 'AI 이벤트 분류'(구조 지표)는 기본 펼침으로 즉시 노출.
+  //   가장 무거운 'AI 심층 분석'은 자체 컴포넌트에서 기본 접힘 처리(밀도 완화).
+  const [eventExpanded, setEventExpanded] = React.useState(true);
 
   const handleToggleWatchlist = async () => {
     if (!disclosure) return;
@@ -286,23 +290,45 @@ export default function DisclosureDetailScreen() {
           ))}
         </Card>
 
-        {/* AI 분석 섹션 — GET /disclosure-events/:rcpNo 실연동 (기획 §3 SCR-DISCLOSURE-AI) */}
+        {/* 본문 핵심 수치 — E8(DAR-453) 우선순위 재배치: 원문에서 추출한 '사실' 정량값을
+            AI 해석보다 먼저 노출(핵심 우선). DAR-95 적재 정량 fact 실연동(DAR-112, 패널 v5 #8). */}
+        <DisclosureFiledFactsSection rcpNo={disclosure.rcpNo} />
+
+        {/* AI 이벤트 분류 — GET /disclosure-events/:rcpNo 실연동 (기획 §3 SCR-DISCLOSURE-AI).
+            E8(DAR-453): '심층 분석'과 외형 혼동 차단 위해 tag 아이콘·'분류' 라벨로 차별화 + 접이식. */}
         {disclosureEvent ? (
           <Surface
             elevation={0}
             style={[styles.aiSection, { backgroundColor: colors.surface, borderColor: colors.border }]}
           >
-            {/* 섹션 헤더 */}
-            <View style={styles.aiHeader}>
+            {/* 섹션 헤더 — 탭하여 접기/펼치기(밀도 완화). 'AI 심층 분석'(cpu)과 다른 tag 아이콘으로 구분. */}
+            <TouchableOpacity
+              style={styles.aiHeader}
+              activeOpacity={0.7}
+              onPress={() => setEventExpanded((v) => !v)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: eventExpanded }}
+              accessibilityLabel={`AI 이벤트 분류, ${eventExpanded ? '펼침' : '접힘'}`}
+            >
               <View style={styles.aiTitleRow}>
-                <Feather name="cpu" size={16} color={colors.primary} />
+                <Feather name="tag" size={16} color={colors.primary} />
                 <Text style={[typo.captionMedium, { color: colors.text, marginLeft: spacing.xs }]}>
-                  AI 분석 결과
+                  AI 이벤트 분류
                 </Text>
               </View>
-              <AiReferenceLabel />
-            </View>
+              <View style={styles.aiHeaderRight}>
+                <AiReferenceLabel />
+                <Feather
+                  name={eventExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={colors.textTertiary}
+                  style={styles.aiChevron}
+                />
+              </View>
+            </TouchableOpacity>
 
+            {eventExpanded ? (
+              <>
             {/* 출처·시점 바(§7) — AI 분석이 언제 생성됐는지 상시 노출 */}
             {disclosureEvent.extractedAt ? (
               <ProvenanceBar
@@ -375,13 +401,13 @@ export default function DisclosureDetailScreen() {
             <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.sm }]}>
               AI 분석은 참고 정보이며 투자 결정의 책임은 투자자 본인에게 있습니다.
             </Text>
+              </>
+            ) : null}
           </Surface>
         ) : null}
 
-        {/* 본문 핵심 수치 — DAR-95 적재 정량 fact 실연동 (DAR-112, 패널 v5 #8) */}
-        <DisclosureFiledFactsSection rcpNo={disclosure.rcpNo} />
-
-        {/* AI 심층 분석(Engine2) — 요약·Persona 해석·Position Thesis 실연동 (DAR-102) */}
+        {/* AI 심층 분석(Engine2) — 요약·Persona 해석·Position Thesis 실연동 (DAR-102).
+            E8(DAR-453): 가장 무거운 섹션 → 기본 접힘(접이식)으로 밀도 완화. */}
         <DisclosureAiAnalysisSection rcpNo={disclosure.rcpNo} />
 
         {/* 공시 → 매수 신호 역링크(DAR-208) — 그 공시로 생성된 신호가 있을 때만 진입 카드 노출.
@@ -471,6 +497,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.md,
+    // E9(DAR-453): 탭 가능한 기업명 행이 ≈42pt(<44)였음 → 최소 터치 영역 보장(비대화형 행도 동일 높이로 정렬).
+    minHeight: sizing.minTouchTarget,
   },
   // DAR-305: 라벨은 고정폭 유지, 값 묶음은 줄어들며 우측 정렬·말줄임(큰 글꼴 오버플로 방지). 평시 동일.
   infoLabel: {
@@ -499,10 +527,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    // E8(DAR-453): 접기/펼치기 토글 버튼 — 최소 터치 영역 보장.
+    minHeight: sizing.minTouchTarget,
   },
   aiTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  aiHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  aiChevron: {
+    marginLeft: spacing.xs,
   },
   aiRow: {
     flexDirection: 'row',

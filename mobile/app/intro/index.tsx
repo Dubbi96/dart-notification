@@ -2,6 +2,7 @@ import React, { useRef, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
+  ScrollView,
   StyleSheet,
   FlatList,
   Dimensions,
@@ -29,11 +30,11 @@ const PHILOSOPHERS = [
   { name: '드러켄밀러', tags: ['매크로', '추세추종'] },
 ] as const;
 
-// 정적 목업 공시 데이터 (실데이터 없을 때 폴백 — 항상 '예시' 표시)
+// 정적 목업 공시 데이터 (가상 종목 — 실추천 오해 방지·항상 '예시' 표시)
 const MOCK_DISCLOSURES = [
-  { corp: '삼성전자', type: '자기주식 취득', time: '2분 전', badge: '주요사항' },
-  { corp: 'SK하이닉스', type: '유상증자 결정', time: '8분 전', badge: '주요사항' },
-  { corp: 'NAVER', type: '분기 실적 발표', time: '15분 전', badge: '정기보고' },
+  { corp: '○○전자', type: '자기주식 취득', time: '2분 전', badge: '주요사항' },
+  { corp: '△△바이오', type: '유상증자 결정', time: '8분 전', badge: '주요사항' },
+  { corp: '□□에너지', type: '분기 실적 발표', time: '15분 전', badge: '정기보고' },
 ] as const;
 
 async function markIntroSeen() {
@@ -45,10 +46,25 @@ interface SlideProps {
   typo: ReturnType<typeof useTheme>['typography'];
 }
 
-function Slide1({ colors, typo }: SlideProps) {
+// 슬라이드 공통 셸 — 콘텐츠를 세로 ScrollView로 감싸 소형 화면·Dynamic Type 확대 시
+// 하단 클리핑을 방지한다(A-INTRO-1). 가로 페이징 FlatList와 축이 달라 충돌하지 않는다.
+function SlideShell({ children }: { children: React.ReactNode }) {
   return (
     <View style={[styles.slide, { width: SCREEN_WIDTH }]}>
-      <View style={styles.slideInner}>
+      <ScrollView
+        style={styles.slideScroll}
+        contentContainerStyle={styles.slideInner}
+        showsVerticalScrollIndicator={false}
+      >
+        {children}
+      </ScrollView>
+    </View>
+  );
+}
+
+function Slide1({ colors, typo }: SlideProps) {
+  return (
+    <SlideShell>
         <View style={[styles.iconCircle, { backgroundColor: colors.primaryLight }]}>
           <Feather name="bell" size={40} color={colors.primary} />
         </View>
@@ -110,15 +126,13 @@ function Slide1({ colors, typo }: SlideProps) {
             </Surface>
           ))}
         </View>
-      </View>
-    </View>
+    </SlideShell>
   );
 }
 
 function Slide2({ colors, typo }: SlideProps) {
   return (
-    <View style={[styles.slide, { width: SCREEN_WIDTH }]}>
-      <View style={styles.slideInner}>
+    <SlideShell>
         <View style={[styles.iconCircle, { backgroundColor: colors.primaryLight }]}>
           <Feather name="trending-up" size={40} color={colors.primary} />
         </View>
@@ -166,7 +180,7 @@ function Slide2({ colors, typo }: SlideProps) {
                 >
                   유상증자
                 </Chip>
-                <Text style={[typo.bodyMedium, { color: colors.text }]}>삼성전자</Text>
+                <Text style={[typo.bodyMedium, { color: colors.text }]}>○○전자</Text>
               </View>
               <Chip
                 compact
@@ -179,7 +193,7 @@ function Slide2({ colors, typo }: SlideProps) {
             </View>
 
             <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
-              005930 · 유상증자 결정
+              예시 종목 · 유상증자 결정
             </Text>
 
             <View style={{ marginTop: spacing.md }}>
@@ -199,7 +213,7 @@ function Slide2({ colors, typo }: SlideProps) {
               ]}
               numberOfLines={2}
             >
-              PBR 1.2배 구간, ROE 12% 이상 유지 — 저평가 가능성 있음
+              저PBR·고ROE 구간 — 저평가 가능성 있음 (예시)
             </Text>
 
             {/* 면책 */}
@@ -216,15 +230,13 @@ function Slide2({ colors, typo }: SlideProps) {
             </View>
           </Surface>
         </View>
-      </View>
-    </View>
+    </SlideShell>
   );
 }
 
 function Slide3({ colors, typo }: SlideProps) {
   return (
-    <View style={[styles.slide, { width: SCREEN_WIDTH }]}>
-      <View style={styles.slideInner}>
+    <SlideShell>
         <View style={[styles.iconCircle, { backgroundColor: colors.primaryLight }]}>
           <Feather name="award" size={40} color={colors.primary} />
         </View>
@@ -274,8 +286,7 @@ function Slide3({ colors, typo }: SlideProps) {
             </Surface>
           ))}
         </View>
-      </View>
-    </View>
+    </SlideShell>
   );
 }
 
@@ -302,13 +313,26 @@ export default function GuestIntroScreen() {
 
   const viewabilityConfig = useMemo(() => ({ viewAreaCoveragePercentThreshold: 50 }), []);
 
+  // 모든 슬라이드 폭이 SCREEN_WIDTH 로 고정 → getItemLayout 으로 오프셋을 즉시 계산해
+  // scrollToIndex 가 측정 지연 없이 정확히 동작하도록 한다(A-INTRO-3).
+  const getItemLayout = useCallback(
+    (_data: ArrayLike<unknown> | null | undefined, index: number) => ({
+      length: SCREEN_WIDTH,
+      offset: SCREEN_WIDTH * index,
+      index,
+    }),
+    [],
+  );
+
   const goNext = useCallback(() => {
     if (currentIndex < slides.length - 1) {
       listRef.current?.scrollToIndex({ index: currentIndex + 1, animated: true });
     }
   }, [currentIndex, slides.length]);
 
-  const handleKakaoStart = useCallback(async () => {
+  // 로그인 화면(카카오 로그인·둘러보기 선택)으로 이동. 인트로에서 카카오 인증을 직접
+  // 수행하지 않으므로 CTA 라벨은 '시작하기'로 동작과 일치시킨다(A-NAV-1).
+  const handleStart = useCallback(async () => {
     await markIntroSeen();
     router.replace('/auth/sign-in');
   }, []);
@@ -334,6 +358,7 @@ export default function GuestIntroScreen() {
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
+        getItemLayout={getItemLayout}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         renderItem={({ item }) => (
@@ -366,8 +391,8 @@ export default function GuestIntroScreen() {
           /* 마지막 슬라이드 CTA */
           <View style={styles.ctaGroup}>
             <Button
-              title="카카오로 시작"
-              onPress={handleKakaoStart}
+              title="시작하기"
+              onPress={handleStart}
               fullWidth
               size="lg"
             />
@@ -393,9 +418,9 @@ export default function GuestIntroScreen() {
             />
             <TouchableOpacity
               style={styles.skipButton}
-              onPress={handleKakaoStart}
+              onPress={handleStart}
               accessibilityRole="button"
-              accessibilityLabel="소개 건너뛰고 카카오 로그인으로 이동"
+              accessibilityLabel="소개 건너뛰고 시작 화면으로 이동"
             >
               <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>
                 건너뛰기
@@ -418,11 +443,17 @@ const styles = StyleSheet.create({
   slide: {
     flex: 1,
   },
-  slideInner: {
+  slideScroll: {
     flex: 1,
+  },
+  // ScrollView contentContainerStyle: flexGrow 로 짧은 콘텐츠는 채우고, 길면 스크롤 허용.
+  // paddingBottom 으로 하단 클리핑 방지(A-INTRO-1).
+  slideInner: {
+    flexGrow: 1,
     alignItems: 'center',
     paddingHorizontal: spacing.xl,
     paddingTop: spacing['2xl'],
+    paddingBottom: spacing.xl,
   },
   iconCircle: {
     width: 88,

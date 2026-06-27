@@ -16,16 +16,22 @@ export function usePhilosophies(styleTag?: string) {
   });
 }
 
-/** 철학 1종 × 종목 1건 적합도. corpCode 가 있어야 활성화. */
+/**
+ * 철학 1종 × 종목 1건 적합도. corpCode 가 있어야 활성화.
+ * enabled: 뷰포트 지연 로딩 게이트(DAR-465) — 리스트에서 화면에 보이는 행만 fetch 해
+ *   진입 시 동시 요청 폭주를 막는다. 기본 true(기존 호출부 무변경). 전역 staleTime 5분이
+ *   적용되어 스크롤 복귀 시 재요청은 발생하지 않는다(services/queryClient.ts).
+ */
 export function usePhilosophyFit(
   philosophyId: string | undefined,
   corpCode: string | undefined,
   fsDiv?: string,
+  enabled = true,
 ) {
   return useQuery({
     queryKey: ['philosophy-fit', philosophyId, corpCode, fsDiv ?? 'CFS'],
     queryFn: () => philosophyService.getPhilosophyFit(philosophyId!, corpCode!, fsDiv),
-    enabled: !!philosophyId && !!corpCode,
+    enabled: !!philosophyId && !!corpCode && enabled,
     retry: 1,
   });
 }

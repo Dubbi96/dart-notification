@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Linking,
   ActivityIndicator,
+  type ViewToken,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -37,6 +38,13 @@ interface Candidate {
   corpName: string;
 }
 
+// DAR-465: 적합도 쿼리 폭주 완화 — 진입 시 보이는 행만 fetch.
+// 첫 화면 행은 즉시 평가하고, 그 아래는 스크롤로 뷰포트에 들어올 때 lazy fetch.
+const INITIAL_ACTIVE = 6; // 첫 진입에 즉시 평가할 상단 행 수(= initialNumToRender)
+const FIT_WINDOW_SIZE = 7; // 마운트 윈도(뷰포트 배수) — 과도 마운트 억제
+const FIT_MAX_PER_BATCH = 6; // 프레임당 신규 렌더 상한
+const FIT_VIEWABILITY = { itemVisiblePercentThreshold: 10 }; // 10% 노출 시 활성화
+
 export default function PhilosophyDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors, typography: typo } = useTheme();
@@ -59,12 +67,34 @@ export default function PhilosophyDetailScreen() {
     return (popular ?? []).map((c) => ({ corpCode: c.corpCode, corpName: c.corpName }));
   }, [isAuthenticated, watchlist, popular]);
 
+  // 뷰포트 지연 로딩(DAR-465): 화면에 보였던(또는 보이는) 종목만 활성화해 fetch.
+  // 한번 활성화되면 유지(sticky) — 스크롤 복귀 시 전역 staleTime(5분) 캐시로 재요청 없음.
+  const [activeCorpCodes, setActiveCorpCodes] = useState<Set<string>>(() => new Set());
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    setActiveCorpCodes((prev) => {
+      let next: Set<string> | null = null;
+      for (const v of viewableItems) {
+        const code = (v.item as Candidate | undefined)?.corpCode;
+        if (code && !prev.has(code)) {
+          next ??= new Set(prev);
+          next.add(code);
+        }
+      }
+      return next ?? prev; // 변화 없으면 동일 참조 반환(불필요 리렌더 방지)
+    });
+  }).current;
+
   const renderCandidate = useCallback(
-    ({ item }: { item: Candidate }) =>
+    ({ item, index }: { item: Candidate; index: number }) =>
       philosophy ? (
-        <FitRow philosophyId={philosophy.philosophyId} corpCode={item.corpCode} corpName={item.corpName} />
+        <FitRow
+          philosophyId={philosophy.philosophyId}
+          corpCode={item.corpCode}
+          corpName={item.corpName}
+          active={index < INITIAL_ACTIVE || activeCorpCodes.has(item.corpCode)}
+        />
       ) : null,
-    [philosophy],
+    [philosophy, activeCorpCodes],
   );
 
   if (isLoading) {
@@ -97,6 +127,11 @@ export default function PhilosophyDetailScreen() {
         keyExtractor={(item) => item.corpCode}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        initialNumToRender={INITIAL_ACTIVE}
+        maxToRenderPerBatch={FIT_MAX_PER_BATCH}
+        windowSize={FIT_WINDOW_SIZE}
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={FIT_VIEWABILITY}
         ListHeaderComponent={
           <PhilosophyHeader philosophy={philosophy} universeLabel={universeLabel} />
         }
@@ -242,17 +277,21 @@ function PhilosophyHeader({
 }
 
 // ── 종목별 적합도 행 ────────────────────────────────────────────
-function FitRow({
+// active: 뷰포트 지연 로딩 게이트(DAR-465). false 면 적합도 쿼리를 보류하고
+//   가벼운 자리표시만 렌더 → 진입 시 동시 요청/스피너 폭주를 막는다.
+const FitRow = React.memo(function FitRow({
   philosophyId,
   corpCode,
   corpName,
+  active,
 }: {
   philosophyId: string;
   corpCode: string;
   corpName: string;
+  active: boolean;
 }) {
   const { colors, typography: typo } = useTheme();
-  const { data, isLoading, isError } = usePhilosophyFit(philosophyId, corpCode);
+  const { data, isLoading, isError } = usePhilosophyFit(philosophyId, corpCode, undefined, active);
 
   const handlePress = useCallback(() => {
     // DAR-57: 종목 행 탭 → 이 철학 기준 항목별 통과/미달 체크리스트 분해.
@@ -277,7 +316,10 @@ function FitRow({
           <Feather name="chevron-right" size={16} color={colors.textTertiary} />
         </View>
 
-        {isLoading ? (
+        {!active ? (
+          // 아직 뷰포트에 들어오지 않은 행 — 정적 자리표시(스피너·쿼리 없음).
+          <View style={[styles.fitPlaceholder, { backgroundColor: colors.surfaceSecondary }]} />
+        ) : isLoading ? (
           <ActivityIndicator size="small" color={colors.primary} style={styles.fitLoading} />
         ) : isError ? (
           <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.sm }]}>
@@ -298,7 +340,7 @@ function FitRow({
       </Card>
     </TouchableOpacity>
   );
-}
+});
 
 // ── 공통 보조 ───────────────────────────────────────────────────
 function Shell({
@@ -470,6 +512,11 @@ const styles = StyleSheet.create({
   fitLoading: {
     marginTop: spacing.md,
     alignSelf: 'flex-start',
+  },
+  fitPlaceholder: {
+    height: 14,
+    borderRadius: radius.sm,
+    marginTop: spacing.sm,
   },
   noFin: {
     flexDirection: 'row',

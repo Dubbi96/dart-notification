@@ -20,6 +20,11 @@ import type { MarketIndexQuote } from '@app-types/market.types';
 // 큰 시스템 폰트(OS 배율)가 RN 타이포 배율 위에 이중으로 곱해져 카드가 과대해지는 것을 막기 위해
 // 고정·압축 배지 규칙(§9/DAR-174)에 따라 maxFontSizeMultiplier 로 OS 추가 배율을 상한한다.
 
+// DAR-470: 매직넘버 토큰화. 스켈레톤 자리표시 폭은 실제 콘텐츠 폭을 근사한 명명 상수로,
+// 열 내 행 간격(marginTop:2)은 단일 상수로 통일 — 스켈레톤과 실제 열의 높이 정합을 한 곳에서 보장.
+const SKELETON_WIDTH = { title: 80, market: 44, value: 64, change: 48, basis: 56 } as const;
+const COLUMN_ROW_GAP = 2;
+
 function formatIndex(value: number): string {
   return value.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -107,15 +112,15 @@ function MarketIndexBadgeSkeleton() {
       accessibilityLabel="시장 지수 불러오는 중"
     >
       <View style={styles.titleRow}>
-        <SkeletonBar width={80} height={typo.captionMedium.lineHeight} opacity={opacity} />
+        <SkeletonBar width={SKELETON_WIDTH.title} height={typo.captionMedium.lineHeight} opacity={opacity} />
       </View>
       <View style={styles.columns}>
         {[0, 1].map((i) => (
           <View key={i} style={styles.column}>
-            <SkeletonBar width={44} height={typo.small.lineHeight} opacity={opacity} />
-            <SkeletonBar width={64} height={typo.caption.lineHeight} opacity={opacity} style={styles.skeletonGap} />
-            <SkeletonBar width={48} height={typo.small.lineHeight} opacity={opacity} style={styles.skeletonGap} />
-            <SkeletonBar width={56} height={typo.small.lineHeight} opacity={opacity} style={styles.skeletonGap} />
+            <SkeletonBar width={SKELETON_WIDTH.market} height={typo.small.lineHeight} opacity={opacity} />
+            <SkeletonBar width={SKELETON_WIDTH.value} height={typo.caption.lineHeight} opacity={opacity} style={styles.skeletonGap} />
+            <SkeletonBar width={SKELETON_WIDTH.change} height={typo.small.lineHeight} opacity={opacity} style={styles.skeletonGap} />
+            <SkeletonBar width={SKELETON_WIDTH.basis} height={typo.small.lineHeight} opacity={opacity} style={styles.skeletonGap} />
           </View>
         ))}
       </View>
@@ -179,24 +184,24 @@ const styles = StyleSheet.create({
   column: {
     flex: 1,
   },
-  // A-MKT-1: 스켈레톤 막대 간 간격 — 실제 열의 행 간격(marginTop: 2)과 동일하게 맞춰 높이 정합.
+  // A-MKT-1: 스켈레톤 막대 간 간격 — 실제 열의 행 간격(COLUMN_ROW_GAP)과 동일 상수로 높이 정합(DAR-470).
   skeletonGap: {
-    marginTop: 2,
+    marginTop: COLUMN_ROW_GAP,
   },
   indexValue: {
     fontWeight: '700',
-    marginTop: 2,
+    marginTop: COLUMN_ROW_GAP,
   },
   changeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 2,
+    marginTop: COLUMN_ROW_GAP,
   },
   // DAR-371: 신선도 기준 라벨 행('실시간' / 'YYYY.MM.DD 종가').
   basisRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 2,
+    marginTop: COLUMN_ROW_GAP,
   },
   basisText: {
     fontWeight: '400',

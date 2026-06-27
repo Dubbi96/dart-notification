@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import React, { useMemo, useState, useCallback } from 'react';
+import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
@@ -76,7 +76,8 @@ function SummaryHeaderCard({ record }: { record: BacktestTrackRecord }) {
         </View>
         <View style={styles.headlineCol}>
           <Text style={[typo.small, { color: colors.textSecondary }]}>승률</Text>
-          <Text style={[typo.amount, { color: colors.text }]}>{formatPct(m.winRate)}</Text>
+          {/* C10: 총수익률(typo.amount)을 1차 지표로, 승률은 h2로 강등해 위계 분리. */}
+          <Text style={[typo.h2, { color: colors.text }]}>{formatPct(m.winRate)}</Text>
           <Text style={[typo.small, { color: colors.textTertiary }]}>
             {m.wonTrades}승 {m.lostTrades}패 · 총 {m.totalTrades}거래
           </Text>
@@ -201,6 +202,18 @@ export default function BacktestTrackRecordScreen() {
   const { colors, typography: typo } = useTheme();
   const query = useBacktestTrackRecord();
   const record = query.data;
+  const { refetch } = query;
+
+  // C8: 수동 새로고침 어포던스 — 트랙레코드는 폴링하지 않으므로 사용자가 당겨서 최신 리플레이를 받는다.
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
 
   // 자산곡선 → EquityCurveChart 계약(snapshotDate/totalValue/returnPct)으로 매핑.
   const equityPoints: EquityCurvePoint[] = useMemo(
@@ -233,7 +246,18 @@ export default function BacktestTrackRecordScreen() {
           description="1년 리플레이 백테스트가 완료되면 이곳에 성과가 표시됩니다."
         />
       ) : (
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
+            />
+          }
+        >
           {/* ② 정직 라벨 — 최상단. 미래정보 미사용 + 커버리지 점진 채움 고지. */}
           <View style={[styles.notice, { backgroundColor: colors.surfaceSecondary }]}>
             <Feather name="info" size={14} color={colors.info} />

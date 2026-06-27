@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, ScrollView, StyleSheet, Pressable, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
@@ -193,11 +193,11 @@ function TrackRecordEntryCard() {
         { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.7 : 1 },
       ]}
     >
-      <View style={styles.entryIcon}>
+      <View style={[styles.entryIcon, { backgroundColor: colors.primaryLight }]}>
         <Feather name="bar-chart-2" size={20} color={colors.primary} />
       </View>
       <View style={styles.entryText}>
-        <Text style={[typo.captionMedium, { color: colors.text }]}>1년 백테스트 트랙레코드</Text>
+        <Text style={[typo.bodyMedium, { color: colors.text }]}>1년 백테스트 트랙레코드</Text>
         <Text style={[typo.small, { color: colors.textSecondary }]}>
           point-in-time 리플레이 성과 — 총수익률·승률·자산곡선
         </Text>
@@ -211,6 +211,18 @@ export default function AutoTradingStatusScreen() {
   const { colors, typography: typo } = useTheme();
   const query = useAutoTradingStatus();
   const data = query.data;
+  const { refetch } = query;
+
+  // C8: 수동 새로고침 어포던스 — 30초 자동 폴링과 별개로 사용자가 즉시 최신화할 수 있게 한다.
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
@@ -229,6 +241,14 @@ export default function AutoTradingStatusScreen() {
         <ScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
+            />
+          }
         >
           {/* ④ M11 미가동 정직 고지 — 최상단 1줄 */}
           <View style={[styles.notice, { backgroundColor: colors.surfaceSecondary }]}>
@@ -241,14 +261,14 @@ export default function AutoTradingStatusScreen() {
           {/* ① 킬스위치 (최상단 안전 표면) */}
           <KillSwitchCard killSwitch={data.killSwitch} />
 
+          {/* C5: 트랙레코드 진입점을 킬스위치 직후 상단으로 승격 — 신뢰 핵심 자료(1년 리플레이·DAR-388) 발견성. */}
+          <TrackRecordEntryCard />
+
           {/* ② 리스크 게이트 */}
           <RiskGateCard riskGate={data.riskGate} />
 
           {/* ③ 최근 실행 · 감사 트레일 */}
           <RecentOrdersCard orders={data.recentOrders} />
-
-          {/* 백테스트 트랙레코드 진입점 — 1년 리플레이 성과(DAR-388) */}
-          <TrackRecordEntryCard />
 
           <Text style={[typo.small, { color: colors.textTertiary, textAlign: 'center', marginTop: spacing.sm }]}>
             갱신 {formatDateTime(data.asOf)} · 30초마다 자동 갱신

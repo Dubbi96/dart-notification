@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,15 +7,18 @@ import {
   FlatList,
   ActivityIndicator,
   Platform,
+  BackHandler,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, Feather } from '@expo/vector-icons';
 import { Bell, ChartLineUp, Briefcase } from 'phosphor-react-native';
 import { router } from 'expo-router';
 import { getNotifications } from '@utils/notifications';
 import { useTheme } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, sizing } from '@theme/spacing';
 import { Button } from '@components/common/Button';
+import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { useAddToWatchlist } from '@hooks/useWatchlist';
 import { usePopularCompanies } from '@hooks/useCompanySearch';
 import { useAuthStore } from '@stores/authStore';
@@ -30,10 +33,37 @@ export default function OnboardingScreen() {
   const [step, setStep] = useState(1);
   const [selected, setSelected] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // A-ONB-2: 알림 권한 거부 시 무음 실패 대신 인라인 안내를 띄우기 위한 플래그.
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const addToWatchlist = useAddToWatchlist();
   const completeOnboarding = useAuthStore((s) => s.completeOnboarding);
   const setExpoPushToken = useAuthStore((s) => s.setExpoPushToken);
-  const { data: popularCompanies = [], isLoading } = usePopularCompanies();
+  const {
+    data: popularCompanies = [],
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = usePopularCompanies();
+
+  // A-ONB-4: 단계 뒤로가기 — step 감소(1단계 미만 불가). 권한 거부 안내도 함께 정리.
+  const handleBack = useCallback(() => {
+    setPermissionDenied(false);
+    setStep((s) => Math.max(1, s - 1));
+  }, []);
+
+  // A-ONB-4: 안드로이드 하드웨어 백 — 2·3단계에서는 화면 통째 이탈 대신 이전 단계로.
+  useEffect(() => {
+    const onHardwareBack = () => {
+      if (step > 1) {
+        handleBack();
+        return true; // 단계만 뒤로 — 온보딩 화면 유지
+      }
+      return false; // 1단계: 기본 동작(온보딩 이탈) 허용
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+    return () => sub.remove();
+  }, [step, handleBack]);
 
   const toggleCompany = (corpCode: string) => {
     setSelected((prev) =>
@@ -66,23 +96,32 @@ export default function OnboardingScreen() {
     setIsSubmitting(true);
     try {
       const Notifications = getNotifications();
-      if (Notifications) {
-        const { status } = await Notifications.requestPermissionsAsync();
-        if (status === 'granted') {
-          const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: PROJECT_ID });
-          const token = tokenData.data;
-          const platform = Platform.OS === 'ios' ? 'ios' : 'android';
-          await deviceService.register(token, platform);
-          setExpoPushToken(token);
-        }
+      if (!Notifications) {
+        // Expo Go 안드로이드 등 미지원 환경: 권한 단계 건너뛰고 온보딩 계속
+        setStep(3);
+        return;
       }
-      // Expo Go 안드로이드 등 미지원 환경: 권한 단계 건너뛰고 온보딩 계속
-    } catch (err) {
-      console.warn('푸시 알림 설정 실패:', err);
-    } finally {
-      setIsSubmitting(false);
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') {
+        // A-ONB-2: 무음 실패 방지 — 거부 사실을 인라인으로 알리고 단계 진행을 보류한다.
+        // (사용자는 '설정 열기'로 켜거나 '나중에 하기'로 진행을 선택할 수 있다)
+        setPermissionDenied(true);
+        return;
+      }
+      setPermissionDenied(false);
+      const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: PROJECT_ID });
+      const token = tokenData.data;
+      const platform = Platform.OS === 'ios' ? 'ios' : 'android';
+      await deviceService.register(token, platform);
+      setExpoPushToken(token);
       // DAR-209: 곧장 완료하지 않고 신호·포트폴리오 가치 단계로 이어간다.
       setStep(3);
+    } catch (err) {
+      console.warn('푸시 알림 설정 실패:', err);
+      // 권한은 허용됐으나 토큰 등록만 실패한 경우 — 사용자를 막지 않고 진행한다.
+      setStep(3);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -107,11 +146,7 @@ export default function OnboardingScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.content}>
-          <View style={[styles.stepIndicator, { backgroundColor: colors.primaryLight }]}>
-            <Text style={[typo.captionMedium, { color: colors.primary }]}>
-              3단계 / {ONBOARDING_TOTAL_STEPS}
-            </Text>
-          </View>
+          <StepHeader step={3} onBack={handleBack} colors={colors} typo={typo} />
 
           <Text style={[typo.h1, { color: colors.text, marginTop: spacing.lg }]}>
             이제 투자 판단까지{'\n'}받아보세요
@@ -170,11 +205,7 @@ export default function OnboardingScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.content}>
-          <View style={[styles.stepIndicator, { backgroundColor: colors.primaryLight }]}>
-            <Text style={[typo.captionMedium, { color: colors.primary }]}>
-              2단계 / {ONBOARDING_TOTAL_STEPS}
-            </Text>
-          </View>
+          <StepHeader step={2} onBack={handleBack} colors={colors} typo={typo} />
 
           <Text style={[typo.h1, { color: colors.text, marginTop: spacing.lg }]}>
             공시 알림을{'\n'}받아보세요
@@ -213,6 +244,30 @@ export default function OnboardingScreen() {
               />
             </View>
           </View>
+
+          {/* A-ONB-2: 권한 거부 시 무음 실패 대신 사유와 복구 경로(설정 열기)를 인라인 안내. */}
+          {permissionDenied ? (
+            <View style={[styles.permissionNotice, { backgroundColor: colors.warningSurface }]}>
+              <Feather name="bell-off" size={18} color={colors.warning} />
+              <View style={styles.permissionNoticeText}>
+                <Text style={[typo.captionMedium, { color: colors.text }]}>
+                  알림 권한이 꺼져 있어요
+                </Text>
+                <Text style={[typo.small, { color: colors.textSecondary }]}>
+                  기기 설정에서 알림을 켜면 새 공시를 실시간으로 받아볼 수 있어요.
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => Linking.openSettings()}
+                accessibilityRole="button"
+                accessibilityLabel="기기 설정 열기"
+                style={styles.permissionSettingsButton}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={[typo.captionMedium, { color: colors.primary }]}>설정 열기</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.footer}>
@@ -238,11 +293,7 @@ export default function OnboardingScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.content}>
-        <View style={[styles.stepIndicator, { backgroundColor: colors.primaryLight }]}>
-          <Text style={[typo.captionMedium, { color: colors.primary }]}>
-            1단계 / {ONBOARDING_TOTAL_STEPS}
-          </Text>
-        </View>
+        <StepHeader step={1} onBack={handleBack} colors={colors} typo={typo} />
 
         <Text style={[typo.h1, { color: colors.text, marginTop: spacing.lg }]}>
           관심 기업을{'\n'}등록하세요
@@ -263,6 +314,7 @@ export default function OnboardingScreen() {
             data={popularCompanies}
             keyExtractor={(item) => item.corpCode}
             style={styles.list}
+            contentContainerStyle={popularCompanies.length === 0 ? styles.listEmptyContent : undefined}
             showsVerticalScrollIndicator={false}
             renderItem={({ item }) => {
               const isSelected = selected.includes(item.corpCode);
@@ -277,6 +329,12 @@ export default function OnboardingScreen() {
                   ]}
                   onPress={() => toggleCompany(item.corpCode)}
                   activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  accessibilityLabel={`${item.corpName} ${item.stockCode}`}
+                  accessibilityHint={
+                    isSelected ? '두 번 탭하면 관심 기업에서 제외해요' : '두 번 탭하면 관심 기업에 추가해요'
+                  }
                 >
                   <View>
                     <Text style={[typo.bodyMedium, { color: colors.text }]}>{item.corpName}</Text>
@@ -288,6 +346,25 @@ export default function OnboardingScreen() {
                 </TouchableOpacity>
               );
             }}
+            // A-ONB-1: 빈/에러 상태에 빈 공백 대신 사유 + 재시도 경로 노출.
+            ListEmptyComponent={
+              isError ? (
+                <ApiErrorState
+                  error={error}
+                  title="인기 기업을 불러오지 못했어요"
+                  description="잠시 후 다시 시도해 주세요. 나중에 직접 추가할 수도 있어요."
+                  onRetry={() => refetch()}
+                />
+              ) : (
+                <EmptyState
+                  icon="inbox"
+                  title="표시할 인기 기업이 없어요"
+                  description="잠시 후 다시 시도하거나, 나중에 검색으로 직접 추가할 수 있어요."
+                  actionLabel="다시 불러오기"
+                  onAction={() => refetch()}
+                />
+              )
+            }
           />
         )}
       </View>
@@ -306,6 +383,35 @@ export default function OnboardingScreen() {
         />
       </View>
     </SafeAreaView>
+  );
+}
+
+// A-ONB-4: 단계 헤더 — 좌상단 뒤로가기(2단계 이상에서만 노출) + 단계 표시 칩.
+function StepHeader({ step, onBack, colors, typo }: {
+  step: number;
+  onBack: () => void;
+  colors: ReturnType<typeof useTheme>['colors'];
+  typo: ReturnType<typeof useTheme>['typography'];
+}) {
+  return (
+    <View style={styles.stepHeader}>
+      {step > 1 ? (
+        <TouchableOpacity
+          onPress={onBack}
+          accessibilityRole="button"
+          accessibilityLabel="이전 단계로"
+          style={styles.backButton}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Feather name="arrow-left" size={24} color={colors.text} />
+        </TouchableOpacity>
+      ) : null}
+      <View style={[styles.stepIndicator, { backgroundColor: colors.primaryLight }]}>
+        <Text style={[typo.captionMedium, { color: colors.primary }]}>
+          {step}단계 / {ONBOARDING_TOTAL_STEPS}
+        </Text>
+      </View>
+    </View>
   );
 }
 
@@ -359,6 +465,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.xl,
   },
+  stepHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  backButton: {
+    width: sizing.minTouchTarget,
+    height: sizing.minTouchTarget,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: -spacing.sm,
+    marginRight: spacing.xs,
+  },
   stepIndicator: {
     alignSelf: 'flex-start',
     paddingHorizontal: spacing.md,
@@ -367,6 +485,9 @@ const styles = StyleSheet.create({
   },
   list: {
     marginTop: spacing.xl,
+  },
+  listEmptyContent: {
+    flexGrow: 1,
   },
   loadingContainer: {
     flex: 1,
@@ -377,6 +498,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    minHeight: sizing.minTouchTarget,
     padding: spacing.base,
     borderRadius: radius.md,
     borderWidth: 1.5,
@@ -459,5 +581,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: spacing.md,
     paddingVertical: spacing.sm,
+  },
+  permissionNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.base,
+    borderRadius: radius.md,
+    marginTop: spacing.xl,
+  },
+  permissionNoticeText: {
+    flex: 1,
+  },
+  permissionSettingsButton: {
+    minHeight: sizing.minTouchTarget,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
   },
 });

@@ -20,6 +20,7 @@ import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { InfiniteListFooter } from '@components/common/InfiniteListFooter';
 import { useDisclosures, useDisclosureSearch } from '@hooks/useDisclosures';
+import { useDebounce } from '@hooks/useDebounce';
 import {
   PERIOD_OPTIONS,
   SORT_OPTIONS,
@@ -155,14 +156,26 @@ export default function DisclosuresScreen() {
   const [period, setPeriod] = useState<PeriodKey>('all');
   const [sort, setSort] = useState<SortKey>('latest');
   const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [timer, setTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  // 디바운스를 공통 useDebounce 훅으로 통일(E11): 수동 setTimeout/타이머 상태·handleSearchChange 제거 →
+  // 키 입력마다 핸들러 재생성·추가 렌더 없이 입력값만 갱신하고 파생 상태로 디바운스한다.
+  const debouncedQuery = useDebounce(searchQuery, 300).trim();
   const [searchFocused, setSearchFocused] = useState(false);
+  // 보조 필터행(기간·정렬) 접이 상태(E10): 기본 접힘으로 고정 chrome 1행 축소.
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
 
   const disclosureType = activeFilter === '전체' ? undefined : activeFilter;
   const isSearching = debouncedQuery.length > 0;
   const from = useMemo(() => periodToFrom(period), [period]);
   const isFilterActive = activeFilter !== '전체' || watchlistOnly || period !== 'all';
+
+  // 접힌 보조 필터에 적용된 값이 있으면 토글 칩에 활성 표시(숨은 필터 신호 보존).
+  const moreFiltersApplied = period !== 'all' || (isSearching && sort !== 'latest');
+  const moreFiltersLabel =
+    period !== 'all'
+      ? PERIOD_OPTIONS.find((o) => o.key === period)?.label ?? '기간'
+      : isSearching
+        ? '기간·정렬'
+        : '기간';
 
   const resetFilters = useCallback(() => {
     setActiveFilter('전체');
@@ -187,16 +200,6 @@ export default function DisclosuresScreen() {
   }, [activeQuery.data]);
 
   const totalCount = activeQuery.data?.pages[0]?.meta.total ?? 0;
-
-  const handleSearchChange = useCallback(
-    (text: string) => {
-      setSearchQuery(text);
-      if (timer) clearTimeout(timer);
-      const newTimer = setTimeout(() => setDebouncedQuery(text.trim()), 300);
-      setTimer(newTimer);
-    },
-    [timer],
-  );
 
   const handleFilterPress = (filter: string) => {
     setActiveFilter(filter);
@@ -225,6 +228,46 @@ export default function DisclosuresScreen() {
   const handleRefresh = useCallback(() => {
     activeQuery.refetch();
   }, [activeQuery]);
+
+  // 비로그인 안내 배너 — 고정 chrome 대신 리스트 헤더로 렌더해 스크롤과 함께 비키게 한다(E10).
+  const listHeader = useMemo(() => {
+    if (isAuthenticated) return null;
+    return (
+      <TouchableOpacity
+        onPress={() => {
+          useAuthStore.getState().clearAuth();
+          router.push('/auth/sign-in');
+        }}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel="로그인하고 시작하기. 관심기업 공시만 모아볼 수 있어요"
+      >
+        <View style={[styles.loginBanner, { borderColor: colors.primary, backgroundColor: colors.primaryLight }]}>
+          <View style={[styles.loginIconCircle, { borderColor: colors.primary, backgroundColor: colors.surface }]}>
+            <Ionicons name="person-outline" size={18} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1, marginLeft: spacing.md }}>
+            <Text style={[typo.bodyMedium, { color: colors.primaryDark }]}>
+              로그인하고 시작하기
+            </Text>
+            <Text style={[typo.small, { color: colors.primary, marginTop: 2 }]}>
+              관심기업 공시만 모아볼 수 있어요
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+        </View>
+      </TouchableOpacity>
+    );
+  }, [
+    isAuthenticated,
+    colors.primary,
+    colors.primaryLight,
+    colors.surface,
+    colors.primaryDark,
+    colors.textTertiary,
+    typo.bodyMedium,
+    typo.small,
+  ]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -261,10 +304,10 @@ export default function DisclosuresScreen() {
         <Ionicons name="search" size={18} color={searchFocused ? colors.primary : colors.textTertiary} />
         <TextInput
           style={[typo.body, styles.searchInput, { color: colors.inputText }]}
-          placeholder="기업명, 보고서명 검색"
+          placeholder="기업명·보고서명 검색"
           placeholderTextColor={colors.inputPlaceholder}
           value={searchQuery}
-          onChangeText={handleSearchChange}
+          onChangeText={setSearchQuery}
           onFocus={() => setSearchFocused(true)}
           onBlur={() => setSearchFocused(false)}
           returnKeyType="search"
@@ -274,7 +317,7 @@ export default function DisclosuresScreen() {
 
         {searchQuery.length > 0 && (
           <TouchableOpacity
-            onPress={() => handleSearchChange('')}
+            onPress={() => setSearchQuery('')}
             hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
             accessibilityRole="button"
             accessibilityLabel="검색어 지우기"
@@ -291,6 +334,37 @@ export default function DisclosuresScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.filterRow}
           >
+          {/* 기간·정렬 접이 토글(E10): 보조 필터행을 기본 접어 첫 공시 카드를 화면 위로 끌어올린다. */}
+          <TouchableOpacity
+            style={[
+              styles.filterChip,
+              styles.filterChipBordered,
+              moreFiltersApplied || showMoreFilters
+                ? { backgroundColor: colors.primaryLight, borderColor: colors.primary }
+                : { backgroundColor: colors.surface, borderColor: colors.borderLight },
+            ]}
+            onPress={() => setShowMoreFilters((v) => !v)}
+            activeOpacity={0.7}
+            hitSlop={FILTER_CHIP_HIT_SLOP}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showMoreFilters }}
+            accessibilityLabel={`기간·정렬 필터 ${showMoreFilters ? '접기' : '펼치기'}`}
+          >
+            <Ionicons
+              name="options-outline"
+              size={13}
+              color={moreFiltersApplied || showMoreFilters ? colors.primaryDark : colors.textSecondary}
+            />
+            <Text
+              style={[
+                typo.small,
+                moreFiltersApplied ? styles.chipLabelBold : styles.chipLabelRegular,
+                { color: moreFiltersApplied || showMoreFilters ? colors.primaryDark : colors.text },
+              ]}
+            >
+              {moreFiltersLabel}
+            </Text>
+          </TouchableOpacity>
           {isAuthenticated && (
             <TouchableOpacity
               style={[
@@ -369,7 +443,8 @@ export default function DisclosuresScreen() {
           </ScrollView>
         </View>
 
-      {/* 기간 / 정렬 필터 (DAR-45 §2) */}
+      {/* 기간 / 정렬 필터 (DAR-45 §2) — 접이 토글(E10)로 기본 접힘, 펼칠 때만 렌더 */}
+      {showMoreFilters && (
       <View>
         <ScrollView
           horizontal
@@ -453,35 +528,9 @@ export default function DisclosuresScreen() {
           )}
         </ScrollView>
       </View>
-
-      {/* Login Banner */}
-      {!isAuthenticated && (
-        <TouchableOpacity
-          style={{ paddingHorizontal: spacing.lg, marginTop: spacing.sm }}
-          onPress={() => {
-            useAuthStore.getState().clearAuth();
-            router.push('/auth/sign-in');
-          }}
-          activeOpacity={0.7}
-        >
-          <View style={[styles.loginBanner, { borderColor: colors.primary, backgroundColor: colors.primaryLight }]}>
-            <View style={[styles.loginIconCircle, { borderColor: colors.primary, backgroundColor: colors.surface }]}>
-              <Ionicons name="person-outline" size={18} color={colors.primary} />
-            </View>
-            <View style={{ flex: 1, marginLeft: spacing.md }}>
-              <Text style={[typo.bodyMedium, { color: colors.primaryDark }]}>
-                로그인하고 시작하기
-              </Text>
-              <Text style={[typo.small, { color: colors.primary, marginTop: 2 }]}>
-                관심기업 공시만 모아볼 수 있어요
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
-          </View>
-        </TouchableOpacity>
       )}
 
-      {/* List */}
+      {/* List — 비로그인 배너는 고정 chrome 누적을 피해 리스트 헤더(스크롤 영역)로 이동(E10) */}
       {activeQuery.isLoading ? (
         <SkeletonList variant="disclosure" />
       ) : (
@@ -499,6 +548,7 @@ export default function DisclosuresScreen() {
           onEndReachedThreshold={0.4}
           refreshing={activeQuery.isRefetching && !activeQuery.isFetchingNextPage}
           onRefresh={handleRefresh}
+          ListHeaderComponent={listHeader}
           ListFooterComponent={
             <InfiniteListFooter
               isFetchingNextPage={activeQuery.isFetchingNextPage}
@@ -598,6 +648,16 @@ const styles = StyleSheet.create({
     // DAR-305: 고정 height → minHeight. 큰 글꼴서 칩이 늘어나 라벨 받침이 잘리지 않는다(평시 동일·가로 스크롤 행).
     minHeight: FILTER_CHIP_HEIGHT,
     gap: spacing.xs,
+  },
+  // 기간·정렬 접이 토글 칩(E10): 정적 테두리는 스타일시트로 분리하고 색만 동적 인라인으로 둔다.
+  filterChipBordered: {
+    borderWidth: 1,
+  },
+  chipLabelBold: {
+    fontWeight: '600',
+  },
+  chipLabelRegular: {
+    fontWeight: '400',
   },
   chipDot: {
     width: 6,

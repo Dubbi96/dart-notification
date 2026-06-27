@@ -33,10 +33,16 @@ function check(label: string, got: unknown, want: unknown): void {
 
 const unified = readFileSync(join(__dirname, '..', 'app', 'search', 'index.tsx'), 'utf8');
 const overlay = readFileSync(join(__dirname, '..', 'components', 'common', 'SearchOverlay.tsx'), 'utf8');
+const debounceHook = readFileSync(join(__dirname, '..', 'hooks', 'useDebounce.ts'), 'utf8');
 
 // ── ① 디바운스 규약 통일 ─────────────────────────────────────────────
-check('통합검색: SEARCH_DEBOUNCE_MS=300 정의', /const SEARCH_DEBOUNCE_MS = 300;/.test(unified), true);
-check('관심기업: SEARCH_DEBOUNCE_MS=300 정의', /const SEARCH_DEBOUNCE_MS = 300;/.test(overlay), true);
+// DAR-472: 두 화면에 복제돼 있던 `const SEARCH_DEBOUNCE_MS = 300` 을 useDebounce 모듈의 단일
+// export 로 통일(SSOT) → 두 화면은 import 만 한다. 매직넘버/로컬 재정의 잔존 금지.
+check('공통 모듈: SEARCH_DEBOUNCE_MS=300 단일 정의(useDebounce)', /export const SEARCH_DEBOUNCE_MS = 300;/.test(debounceHook), true);
+check('통합검색: 공통 SEARCH_DEBOUNCE_MS import', /import \{[^}]*\bSEARCH_DEBOUNCE_MS\b[^}]*\} from '@hooks\/useDebounce'/.test(unified), true);
+check('관심기업: 공통 SEARCH_DEBOUNCE_MS import', /import \{[^}]*\bSEARCH_DEBOUNCE_MS\b[^}]*\} from '@hooks\/useDebounce'/.test(overlay), true);
+check('통합검색: 로컬 SEARCH_DEBOUNCE_MS 재정의 없음', /const SEARCH_DEBOUNCE_MS = 300;/.test(unified), false);
+check('관심기업: 로컬 SEARCH_DEBOUNCE_MS 재정의 없음', /const SEARCH_DEBOUNCE_MS = 300;/.test(overlay), false);
 check('통합검색: useDebounce가 공통 상수 사용', /useDebounce\(query, SEARCH_DEBOUNCE_MS\)/.test(unified), true);
 check('관심기업: useDebounce가 공통 상수 사용', /useDebounce\(query, SEARCH_DEBOUNCE_MS\)/.test(overlay), true);
 check('두 화면 디바운스 지연 동일(매직넘버 잔존 없음)', /useDebounce\(query, 300\)/.test(unified) || /useDebounce\(query, 300\)/.test(overlay), false);

@@ -28,7 +28,6 @@ import { useSignalDetail } from '@hooks/useSignals';
 import {
   gradeColor,
   gradeLabel,
-  buyScoreColor,
   scoreOneLiner,
 } from '@utils/signalDisplay';
 import { RISK_CONTEXT_NOTE } from '@utils/copy';
@@ -184,7 +183,6 @@ export default function SignalDetailScreen() {
 
   const isExpired =
     signal.expiresAt ? new Date(signal.expiresAt) < new Date() : false;
-  const scoreColor = buyScoreColor(signal.buyScore, colors);
   // 게이지 옆 표본 동반(DAR-56) — 통계 근거 항목 중 최대 표본수를 대표값으로 노출(과신 방지).
   const evidenceSampleN = (signal.scoreBreakdown ?? [])
     .map((c) => c.sampleN)
@@ -265,16 +263,9 @@ export default function SignalDetailScreen() {
               {gradeLabel(signal.grade)}
             </Chip>
           </View>
-          <View style={styles.scoreRow}>
-            <Text style={[typo.h3, { color: scoreColor }]}>
-              Buy Score: {signal.buyScore}
-            </Text>
-            {signal.expiresAt && !isExpired ? (
-              <Text style={[typo.small, { color: colors.textTertiary }]}>
-                유효: {new Date(signal.expiresAt).toLocaleDateString('ko-KR')} 까지
-              </Text>
-            ) : null}
-          </View>
+          {/* DAR-447(B2): 헤더 점수 중복 제거 — 'Buy Score: N' 텍스트 행을 없애고
+              점수 헤드라인은 ScoreGauge(라벨+큰 숫자+등급 밴드) 하나로 통합한다.
+              만료일은 점수와 분리해 아래 별도 메타 행으로 노출한다. */}
           <ScoreGauge
             score={signal.buyScore}
             kind="buy"
@@ -295,6 +286,15 @@ export default function SignalDetailScreen() {
               dataLimit={isDataLimited({ sampleCount: evidenceSampleN })}
               style={styles.gaugeEvidence}
             />
+          ) : null}
+          {/* DAR-447(B2): 만료일 — 점수 헤드라인과 분리한 별도 메타 행 */}
+          {signal.expiresAt && !isExpired ? (
+            <View style={styles.metaRow}>
+              <Feather name="clock" size={13} color={colors.textTertiary} />
+              <Text style={[typo.small, { color: colors.textTertiary }]}>
+                유효: {new Date(signal.expiresAt).toLocaleDateString('ko-KR')} 까지
+              </Text>
+            </View>
           ) : null}
         </View>
 
@@ -343,7 +343,7 @@ export default function SignalDetailScreen() {
         {signal.entryConditions.length > 0 ? (
           <Surface elevation={0} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.sm }]}>
-              ── 진입 조건 ──
+              진입 조건
             </Text>
             {signal.entryConditions.map((c) => (
               <EntryConditionRow key={c.id} condition={c} />
@@ -355,7 +355,7 @@ export default function SignalDetailScreen() {
         {signal.riskFlags.length > 0 ? (
           <Surface elevation={0} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.sm }]}>
-              ── 리스크 ──
+              리스크
             </Text>
             {signal.riskFlags.map((f) => (
               <RiskFlagRow key={f.id} flag={f} />
@@ -368,7 +368,7 @@ export default function SignalDetailScreen() {
           <Surface elevation={0} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.sectionTitleRow}>
               <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>
-                ── AI 매수 근거 ──
+                AI 매수 근거
               </Text>
               <AiReferenceLabel />
             </View>
@@ -385,7 +385,7 @@ export default function SignalDetailScreen() {
         {signal.relatedDisclosureRcpNo ? (
           <Surface elevation={0} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.sm }]}>
-              ── 관련 공시 ──
+              관련 공시
             </Text>
             <TouchableOpacity
               onPress={handleRelatedDisclosure}
@@ -464,10 +464,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
   },
-  scoreRow: {
+  // DAR-447(B2): 만료일 별도 메타 행 — 점수 헤드라인과 분리.
+  metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
   },
   gaugeEvidence: {
     marginTop: spacing.sm,

@@ -29,12 +29,15 @@ import {
 import { useRecentSearches } from '@hooks/useRecentSearches';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
-import { josa } from '@utils/josa';
+import { EmptyState, ApiErrorState } from '@components/common/StateView';
 
 import type { HitSlop } from '@utils/touchTarget';
 import type { Company, WatchlistItem } from '@app-types/user.types';
 
 const MAX_WATCHLIST_COUNT = 30;
+
+// DAR-457: 검색 입력 디바운스 공통 규약 — 통합검색·관심기업 검색이 동일 지연(300ms)을 공유한다.
+const SEARCH_DEBOUNCE_MS = 300;
 
 // 아이콘 전용 X 버튼의 유효 터치 영역을 sizing.minTouchTarget(44pt)까지 확장(DAR-146 규약·DAR-267).
 // 칩처럼 텍스트 좌우 패딩으로 가로폭이 이미 확보되는 컨트롤과 달리, 아이콘만 있는 X 버튼은
@@ -68,12 +71,12 @@ export function SearchOverlay({ visible, onClose }: Props) {
   const haptics = useHaptics();
 
   const [query, setQuery] = useState('');
-  const debounced = useDebounce(query, 300);
+  const debounced = useDebounce(query, SEARCH_DEBOUNCE_MS);
   const term = debounced.trim();
   const searching = shouldSearch(term);
 
   const { data: watchlist } = useWatchlist({ enabled: visible });
-  const { data: results, isLoading, isError, refetch } = useCompanySearch(searching ? term : '');
+  const { data: results, isLoading, isError, error, refetch } = useCompanySearch(searching ? term : '');
   const { data: popular } = usePopularCompanies();
   const { recent, addRecent, removeRecent } = useRecentSearches();
   const addToWatchlist = useAddToWatchlist();
@@ -237,22 +240,8 @@ export function SearchOverlay({ visible, onClose }: Props) {
 
   const renderResults = () => {
     if (isError) {
-      return (
-        <View style={styles.centered}>
-          <Feather name="wifi-off" size={48} color={colors.textTertiary} />
-          <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.md }]}>
-            검색에 실패했습니다. 인터넷 연결을 확인해 주세요.
-          </Text>
-          <TouchableOpacity
-            style={[styles.retryBtn, { borderColor: colors.primary }]}
-            onPress={() => refetch()}
-            accessibilityRole="button"
-            accessibilityLabel="검색 재시도"
-          >
-            <Text style={[typo.bodyMedium, { color: colors.primary }]}>재시도</Text>
-          </TouchableOpacity>
-        </View>
-      );
+      // DAR-457: 통합검색과 동일한 공통 에러 빈상태(ApiErrorState) — 연결 실패/일반 에러 분기와 재시도를 일원화.
+      return <ApiErrorState error={error} onRetry={() => refetch()} />;
     }
 
     if (isLoading) {
@@ -281,20 +270,12 @@ export function SearchOverlay({ visible, onClose }: Props) {
           ) : null
         }
         ListEmptyComponent={
-          <View style={styles.centered}>
-            <Feather name="search" size={48} color={colors.textTertiary} />
-            <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.md }]}>
-              검색 결과가 없습니다.
-            </Text>
-            <Text
-              style={[
-                typo.small,
-                { color: colors.textTertiary, marginTop: spacing.xs, textAlign: 'center' },
-              ]}
-            >
-              {`"${term}"${josa(term, '을/를')} 다시 확인하거나\n종목코드 6자리로 검색해 보세요.`}
-            </Text>
-          </View>
+          // DAR-457: 통합검색과 동일한 공통 빈상태(EmptyState) — 아이콘·카피 규약 일원화.
+          <EmptyState
+            icon="search"
+            title="검색 결과가 없습니다"
+            description={`"${term}"에 대한 기업을 찾지 못했어요. 종목코드 6자리로 다시 검색해 보세요.`}
+          />
         }
       />
     );
@@ -371,7 +352,7 @@ export function SearchOverlay({ visible, onClose }: Props) {
               <Feather name="search" size={18} color={colors.textTertiary} />
               <TextInput
                 style={[typo.body, styles.searchInput, { color: colors.text }]}
-                placeholder="종목명 또는 종목코드 검색"
+                placeholder="기업명·종목코드 검색"
                 placeholderTextColor={colors.textTertiary}
                 value={query}
                 onChangeText={setQuery}
@@ -380,7 +361,7 @@ export function SearchOverlay({ visible, onClose }: Props) {
                 autoCapitalize="none"
                 autoCorrect={false}
                 accessibilityLabel="관심 기업 검색"
-                accessibilityHint="종목명 또는 종목코드 6자리로 검색하세요"
+                accessibilityHint="기업명 또는 종목코드 6자리로 검색하세요"
               />
               {query.length > 0 ? (
                 <TouchableOpacity
@@ -502,12 +483,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingTop: 60,
     paddingHorizontal: spacing.lg,
-  },
-  retryBtn: {
-    marginTop: spacing.lg,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.xl,
-    borderRadius: radius.md,
-    borderWidth: 1,
   },
 });

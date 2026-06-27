@@ -14,13 +14,20 @@
 | 신호레인 | **F10** 거짓 corroboration 게이트 | ✅ 완료 | bucket-renorm spec 갱신+신규 |
 | 신호레인 | **F9** 등급 임계 50/45/30 | ✅ 완료 | 5 spec 갱신, DAR-322 경계 보존 |
 | — | **전체 회귀** | ✅ | `tsc 0` · `npm test` **242스위트 3200건 그린** · `npm run build` 통과 |
-| P1 | F2(부분익절)·F1·F3 청산엔진 | ⬜ 대기 | 다음 작업 |
-| P2 | F7·F8(Phase1) | ⬜ 대기 | |
-| P3 | (F5+F11)→F6 리스크 게이트 | ⬜ 대기 | |
-| 후속 | L[3] 강제청산 catch-up + 보류 5건 | ⬜ 백로그 | |
-| P5 | 재검증·릴리스(0.1.0) | ⬜ | 전 PR 머지 후 |
+| P1 | **F1** 실시간손절·**F3** 지표·공시주입·**F2** 익절+부분스케일아웃 | ✅ 완료 | tsc0·신규 spec(신선/정체·enrichment·partial) |
+| P2 | **F7** 매수수수료 회계·**F8** 호가단위(Phase1) | ✅ 완료 | tsc0·netPnl/틱 불변식 spec |
+| P3 | **F5** kill-switch·**F11** 주간손실·**F6** 시스템모의 kill-switch | ✅ 완료 | tsc0·kill-switch/weekly veto spec |
+| — | **전체 회귀** | ✅ | `tsc 0` · `npm test` **242스위트 3224건** · `nest build` 0 · **스키마 변경 0** |
+| 후속(M11) | F6 전체 OrderRiskService 단일게이트·감사 통일 | ⬜ 백로그 | 실주문 전제 |
+| 후속 | L[3] 강제청산 catch-up·F8 Phase2 동적슬리피지·보류 5건 | ⬜ 백로그 | |
+| P5 | 재검증·릴리스 0.0.1→**0.1.0** | 🚧 진행 | CHANGELOG·문서 동기화·버전범프 완료, 배포 대기 |
 
-> 커밋: F4 `608629d3` · F12 `5e28c147` · L `153ab9f4` · F10 `5b110087` · F9 `d71cf7c9` (브랜치 `feat/trading-fixes-p0-engine3`, main 미머지)
+> 커밋(브랜치 `feat/trading-fixes-p0-engine3`, main 미머지):
+> F4 `608629d3` · F12 `5e28c147` · L `153ab9f4` · F10 `5b110087` · F9 `d71cf7c9` ·
+> F1 `c393ff43` · F3+F2트리거 `bdf82b64` · F2부분 `88614e80` · F7+F8 `1e1d5b7e` · F5+F11+F6 `a06fc741`
+>
+> **F2 부분 스케일아웃은 스키마 변경 없이** 합성 CLOSED 행으로 구현(애초 스키마안 → 마이그레이션
+> 휴먼승인 게이트 회피 + 동일 회계 정확성). 따라서 이 릴리스 전체에 DB 마이그레이션 불필요.
 - 관련 정본: `docs/roadmap/buy-logic-validation-baseline.md`(엣지 baseline), `docs/roadmap/01-execution-roadmap.md §3`(회귀 매트릭스), `docs/roadmap/cc-mvp-definition.md §9`(졸업 게이트)
 
 > 이 문서는 "직접 확인해가며 수정 → 새 버전 발행"의 기준선이다. 각 fix는 적대적 검증을 통과한 **교정안**을 기준으로 기술한다. 4건(F1·F3·F6·F9)은 1차 원안이 결함이 있어 폐기되었으니, 반드시 본 문서의 "수정안(교정)"을 따른다.

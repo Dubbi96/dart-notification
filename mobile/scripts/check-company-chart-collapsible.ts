@@ -46,11 +46,15 @@ ok('refreshControl 커스텀 래퍼(App* 등) 미사용', !/refreshControl=\{<(?
 
 console.log('[3] E4 — 인라인 스타일·매직넘버 제거(StyleSheet/토큰 추출)');
 ok('인라인 스페이서 {width: 26} 제거', !/\{ width: 26 \}/.test(page));
-ok('헤더 아이콘 크기 상수 BACK_ICON_SIZE', /const BACK_ICON_SIZE = 26/.test(page) && /size=\{BACK_ICON_SIZE\}/.test(page));
+// DAR-472: per-file 매직넘버 26 → 공용 sizing.icon.lg 토큰(값 보존). 상수명·소비처는 유지.
+ok('헤더 아이콘 크기 상수 BACK_ICON_SIZE(=sizing.icon.lg)', /const BACK_ICON_SIZE = sizing\.icon\.lg/.test(page) && /size=\{BACK_ICON_SIZE\}/.test(page));
 ok('헤더 스페이서 = 아이콘 크기 공유(중앙정렬)', /width: BACK_ICON_SIZE/.test(page));
 ok('인라인 gap:4 제거 → chartExpandLink 토큰화', !/gap: 4/.test(page) && /gap: spacing\.xs/.test(page));
 ok('인라인 hitSlop {top: 8 ...} 제거 → 토큰 상수', !/hitSlop=\{\{ top: 8/.test(page));
-ok('차트 터치 hitSlop 토큰 상수', /const CHART_TOUCH_HIT_SLOP = /.test(page) && count(/hitSlop=\{CHART_TOUCH_HIT_SLOP\}/g) >= 2);
+// DAR-472: 접기 토글은 CHART_TOUCH_HIT_SLOP(시각≈26pt+24=50pt) 유지. "크게 보기" 링크는
+// 시각 16pt라 기존 토큰으론 40pt<44pt 였어서 verticalHitSlopForHeight 로 정확히 44pt 보정.
+ok('접기 토글 hitSlop 토큰 상수', /const CHART_TOUCH_HIT_SLOP = /.test(page) && count(/hitSlop=\{CHART_TOUCH_HIT_SLOP\}/g) >= 1);
+ok('"크게 보기" 링크 44pt 세로 보정(verticalHitSlopForHeight)', /hitSlop=\{verticalHitSlopForHeight\(CHART_LINK_VISUAL_HEIGHT\)\}/.test(page) && /const CHART_LINK_VISUAL_HEIGHT = 16/.test(page));
 ok('탭 칩 hitSlop 토큰 상수', /const TAB_CHIP_HIT_SLOP = /.test(page) && /hitSlop=\{TAB_CHIP_HIT_SLOP\}/.test(page));
 ok('차트 헤더 구조 스타일 추출(chartHeader/chartToggle/chartExpandLink)', /chartHeader: \{/.test(page) && /chartToggle: \{/.test(page) && /chartExpandLink: \{/.test(page));
 ok('표 셀 스타일 추출 + 4회 사용(인라인 {flex:1,alignItems} 제거)', /tableCell: \{/.test(page) && count(/styles\.tableCell/g) === 4);

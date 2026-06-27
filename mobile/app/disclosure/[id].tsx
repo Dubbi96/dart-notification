@@ -138,7 +138,7 @@ export default function DisclosureDetailScreen() {
             accessibilityRole="button"
             accessibilityLabel="뒤로 가기"
           >
-            <Ionicons name="chevron-back" size={26} color={colors.text} />
+            <Ionicons name="chevron-back" size={sizing.icon.lg} color={colors.text} />
           </TouchableOpacity>
           <Text
             style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}
@@ -199,7 +199,7 @@ export default function DisclosureDetailScreen() {
           accessibilityRole="button"
           accessibilityLabel="뒤로 가기"
         >
-          <Ionicons name="chevron-back" size={26} color={colors.text} />
+          <Ionicons name="chevron-back" size={sizing.icon.lg} color={colors.text} />
         </TouchableOpacity>
         <Text
           style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}
@@ -311,7 +311,7 @@ export default function DisclosureDetailScreen() {
               accessibilityLabel={`AI 이벤트 분류, ${eventExpanded ? '펼침' : '접힘'}`}
             >
               <View style={styles.aiTitleRow}>
-                <Feather name="tag" size={16} color={colors.primary} />
+                <Feather name="tag" size={sizing.icon.sm} color={colors.primary} />
                 <Text style={[typo.captionMedium, { color: colors.text, marginLeft: spacing.xs }]}>
                   AI 이벤트 분류
                 </Text>
@@ -320,7 +320,7 @@ export default function DisclosureDetailScreen() {
                 <AiReferenceLabel />
                 <Feather
                   name={eventExpanded ? 'chevron-up' : 'chevron-down'}
-                  size={18}
+                  size={sizing.icon.md}
                   color={colors.textTertiary}
                   style={styles.aiChevron}
                 />

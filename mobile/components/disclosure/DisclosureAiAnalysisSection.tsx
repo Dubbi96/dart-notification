@@ -69,7 +69,7 @@ function SectionFrame({
         accessibilityLabel={`AI 심층 분석, ${expanded ? '펼침' : '접힘'}`}
       >
         <View style={styles.titleRow}>
-          <Feather name="cpu" size={16} color={colors.primary} />
+          <Feather name="cpu" size={sizing.icon.sm} color={colors.primary} />
           <Text style={[typo.captionMedium, { color: colors.text, marginLeft: spacing.xs }]}>
             AI 심층 분석
           </Text>
@@ -78,7 +78,7 @@ function SectionFrame({
           <AiReferenceLabel />
           <Feather
             name={expanded ? 'chevron-up' : 'chevron-down'}
-            size={18}
+            size={sizing.icon.md}
             color={colors.textTertiary}
             style={styles.chevron}
           />

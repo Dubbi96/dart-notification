@@ -108,7 +108,9 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
                 // DAR-437: 행 폭 초과 극단 케이스에서도 중간이 아닌 꼬리 생략으로 식별성 보존.
                 ellipsizeMode="tail"
                 style={[styles.eventChip, { backgroundColor: colors.surfaceSecondary }]}
-                textStyle={[typo.small, { color: colors.textSecondary }]}
+                // DAR-449/DAR-143: 실제 노출 카드(Explore)도 BuyScoreCard 정본과 동일 대비 보강 —
+                // surfaceSecondary 위 textSecondary 12px(≈4.4:1) weight 500으로 대비 여유 확보.
+                textStyle={[typo.small, styles.eventChipText, { color: colors.textSecondary }]}
               >
                 {getEventTypeLabel(signal.eventType)}
               </Chip>
@@ -190,6 +192,10 @@ const styles = StyleSheet.create({
     minHeight: 26,
     // DAR-307: 별도 행 단독 배치 — 행 폭에 맞춰 내용폭으로 자연 정렬(기업명 정렬에 영향 없음).
     alignSelf: 'flex-start',
+  },
+  // DAR-449/DAR-143: 이벤트 라벨칩 대비 보강(weight 500) — BuyScoreCard 정본과 일치(인라인 회피 StyleSheet 분리).
+  eventChipText: {
+    fontWeight: '500',
   },
   gradeChip: {
     // DAR-305: 고정 height → minHeight. 캡된 큰 글꼴에서도 칩이 늘어나 받침이 잘리지 않는다(평시 동일).

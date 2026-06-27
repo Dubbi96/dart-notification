@@ -4,7 +4,6 @@ import { Surface, Chip, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE, type ThemeColors } from '@theme';
 import { spacing, radius } from '@theme/spacing';
-import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { RiskStatusBadges, summarizeRiskStatus } from '@components/common/RiskStatusBadges';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
@@ -152,10 +151,9 @@ function ExitScoreCardBase({ signal, onPress }: ExitScoreCardProps) {
             </Text>
           </Banner>
         ) : null}
-
-        <View style={styles.footerRow}>
-          <AiReferenceLabel />
-        </View>
+        {/* DAR-449(B8): 매수 카드(BuyScoreCard)와 동일 패턴 — 카드마다 'AI 분석 참고용'을 반복하지
+            않는다. AI 산출물의 '참고' 고지는 매도 피드 푸터의 DisclaimerSection(전 분석·신호·점수가
+            참고 정보임)이 피드당 1회 담당한다(과알림·중복 제거). */}
       </Surface>
     </TouchableOpacity>
   );
@@ -207,8 +205,5 @@ const styles = StyleSheet.create({
   banner: {
     marginTop: spacing.sm,
     borderRadius: radius.md,
-  },
-  footerRow: {
-    marginTop: spacing.md,
   },
 });

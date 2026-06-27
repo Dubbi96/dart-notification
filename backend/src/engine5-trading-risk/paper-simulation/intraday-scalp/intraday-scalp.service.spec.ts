@@ -4,6 +4,7 @@
 
 import { IntradayScalpService } from './intraday-scalp.service';
 import { INTRADAY_SCALP_STYLE_TAG } from './intraday-scalp-exit';
+import { KillSwitchManager } from '../../domain/kill-switch';
 
 /** KST 평일 정규장 시각 헬퍼(진짜 UTC instant). 2026-06-22 = 월요일. `now` 인자용. */
 function kstMonday(hhmm: string): Date {
@@ -140,7 +141,17 @@ function buildPrismaMock(opts: {
           let out = trades;
           const w = args?.where ?? {};
           if (w.status) out = out.filter((t) => t.status === w.status);
-          if (w.tradeDate) out = out.filter((t) => t.tradeDate === w.tradeDate);
+          // F11: tradeDate 가 {gte,lte} 범위 객체일 수 있음(weeklyRealizedPnl). 문자열 동등 + 범위 모두 처리.
+          if (w.tradeDate && typeof w.tradeDate === 'object') {
+            const { gte, lte } = w.tradeDate;
+            out = out.filter(
+              (t) =>
+                (gte === undefined || t.tradeDate >= gte) &&
+                (lte === undefined || t.tradeDate <= lte),
+            );
+          } else if (w.tradeDate) {
+            out = out.filter((t) => t.tradeDate === w.tradeDate);
+          }
           if (w.styleTag) out = out.filter((t) => t.styleTag === w.styleTag);
           return out.map((t) => ({ ...t }));
         }),
@@ -915,5 +926,116 @@ describe('IntradayScalpService — DAR-424 체결 알림 발행', () => {
     const svc = new IntradayScalpService(mock.prisma);
     const r = await svc.runEntryCycle(kstMonday('1000'));
     expect(r.entered).toBe(1); // 알림 미발행이어도 진입 정상
+  });
+});
+
+// ── F5(2026-06-27): 단타 진입 kill-switch veto ──
+describe('IntradayScalpService — F5 kill-switch', () => {
+  function entryMock() {
+    return buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': triggerCandles(105, 106, 300) },
+    });
+  }
+
+  it('kill-switch 발동 시 신규 진입 차단(entered 0)', async () => {
+    const mock = entryMock();
+    const ks = new KillSwitchManager();
+    await ks.activate('수동 점검', 'USER');
+    const svc = new IntradayScalpService(
+      mock.prisma,
+      undefined,
+      undefined,
+      undefined,
+      ks,
+    );
+    const r = await svc.runEntryCycle(kstMonday('1000'));
+    expect(r.entered).toBe(0);
+    expect(r.reason).toContain('킬스위치');
+    expect(mock.trades).toHaveLength(0);
+  });
+
+  it('kill-switch 비활성이면 정상 진입(대조)', async () => {
+    const mock = entryMock();
+    const ks = new KillSwitchManager(); // 미발동
+    const svc = new IntradayScalpService(
+      mock.prisma,
+      undefined,
+      undefined,
+      undefined,
+      ks,
+    );
+    const r = await svc.runEntryCycle(kstMonday('1000'));
+    expect(r.entered).toBe(1);
+  });
+
+  it('kill-switch 미주입(@Optional)이면 기존 동작 보존(진입)', async () => {
+    const mock = entryMock();
+    const svc = new IntradayScalpService(mock.prisma);
+    const r = await svc.runEntryCycle(kstMonday('1000'));
+    expect(r.entered).toBe(1);
+  });
+});
+
+// ── F11(2026-06-27): 주간 손실 한도(WEEKLY_LOSS_LIMIT) 입력 정정 ──
+describe('IntradayScalpService — F11 주간 손실 한도', () => {
+  function resolverStub(tradeDate: string) {
+    return { resolveIntradayTradeDate: () => tradeDate } as never;
+  }
+  // 이번주 CLOSED 손실 시드(일별 -1.8% < 일간한도 -2%, 주간 합 -5.4% > 주간한도 -5%).
+  function seedWeeklyLosses(mock: ReturnType<typeof buildPrismaMock>) {
+    for (const d of ['20260622', '20260623', '20260624']) {
+      mock.trades.push({
+        id: `loss-${d}`,
+        corpCode: 'CX',
+        stockCode: '009999',
+        tradeDate: d,
+        entryTs: kstNaive('0951'),
+        entryPrice: 0,
+        shares: 0,
+        entryReason: 'VOLUME_BREAKOUT_VWAP',
+        netPnl: -180000,
+        commission: 0,
+        tax: 0,
+        slippage: 0,
+        status: 'CLOSED',
+        styleTag: INTRADAY_SCALP_STYLE_TAG,
+      } as never);
+    }
+  }
+
+  it('주중 누적 손실 -5% 초과 → WEEKLY_LOSS_LIMIT veto로 신규 진입 거부', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': triggerCandles(105, 106, 300) },
+    });
+    seedWeeklyLosses(mock); // 이번주 -540,000 (-5.4% of 10M)
+    // tradeDate=목(20260625): 당일 거래 0(일간 통과) but 주간 누적 -5.4% → 거부.
+    const svc = new IntradayScalpService(
+      mock.prisma,
+      undefined,
+      resolverStub('20260625'),
+    );
+    const r = await svc.runEntryCycle(kstMonday('1000'));
+    expect(r.entered).toBe(0);
+    // 신규 진입 종목(000001) OPEN 미생성
+    expect(mock.trades.some((t) => t.stockCode === '000001')).toBe(false);
+  });
+
+  it('주간 손실 한도 미만이면 정상 진입(대조)', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': triggerCandles(105, 106, 300) },
+    });
+    const svc = new IntradayScalpService(
+      mock.prisma,
+      undefined,
+      resolverStub('20260625'),
+    );
+    const r = await svc.runEntryCycle(kstMonday('1000'));
+    expect(r.entered).toBe(1);
   });
 });

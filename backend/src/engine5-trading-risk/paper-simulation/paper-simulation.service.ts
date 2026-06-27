@@ -16,6 +16,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { EventType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { KillSwitchManager } from '../domain/kill-switch';
 import { formatKstDateCompact, isKstRegularMarketHours } from '../../common/time/kst';
 import { KisApiService } from '../../engine3-quant-market/market-data/kis-api.service';
 import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realtime-quote.cache';
@@ -173,6 +174,11 @@ export class PaperSimulationService {
     //   못하므로 능동 fetch 비활성(평가는 priceSource 폴백). evaluateExits 가 이 캐시를 실가 1순위로 읽는다.
     @Optional()
     private readonly realtimeCache?: RealtimeQuoteCache,
+    // ★F6(2026-06-27): kill-switch 영속 상태(TradingRiskModule 공유 싱글톤). 운영자가 발동하면
+    //   시스템 모의 신규 진입을 차단한다(F5 단타와 동일 보장 — kill-switch 가 모든 모의 진입을 멈춤).
+    //   @Optional — 미주입(단위 테스트)이면 비활성 폴백(회귀 0). 청산은 계속 허용(오버나잇 회피).
+    @Optional()
+    private readonly killSwitch?: KillSwitchManager,
   ) {}
 
   /** 모의운용 전용 포트폴리오 find-or-create (고정 시스템 유저) */
@@ -801,6 +807,11 @@ export class PaperSimulationService {
     });
     const available = PaperSimulationService.MAX_HOLDINGS - openPositions.length;
     if (available <= 0) return 0;
+    // F6(2026-06-27): kill-switch 발동 시 시스템 모의 신규 진입 전면 차단(청산은 계속 — 오버나잇 회피).
+    if (this.killSwitch?.isActive()) {
+      this.logger.warn('[PaperSim] 킬스위치 발동 — 신규 진입 차단');
+      return 0;
+    }
     const openCorpCodes = openPositions.map((p) => p.corpCode);
 
     // DAR-426(★핵심): 가용현금 가드 준비 — 사이징(가상원금×비율) 만으로는

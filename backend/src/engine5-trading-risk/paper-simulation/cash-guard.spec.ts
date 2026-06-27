@@ -14,6 +14,7 @@
 
 import { PaperSimulationService } from './paper-simulation.service';
 import { SimulationPriceSourceService, SimPriceRow } from './simulation-price-source.service';
+import { KillSwitchManager } from '../domain/kill-switch';
 
 const PRICE = 10_000; // 후보 종가(체결 기준가)
 
@@ -195,5 +196,44 @@ describe('DAR-426 가용현금 가드 — 현금 ≥ 0 · 과매수 차단', () 
     expect(prisma._created.length).toBe(3);
     // 현금 ≥ 0 유지.
     expect(cashAfter(prisma._created, 0)).toBeGreaterThanOrEqual(0);
+  });
+
+  // ── F6(2026-06-27): kill-switch 가 시스템 모의 신규 진입을 차단 ──
+  it('F6: kill-switch 발동 시 신규 진입 전면 차단(bought 0)', async () => {
+    const prisma = makePrismaMock(0, 5); // 가용현금 충분·후보 5(평소 다건 매수)
+    const ks = new KillSwitchManager();
+    await ks.activate('수동 점검', 'USER');
+    const svc = new PaperSimulationService(
+      prisma as never,
+      makePaperTradeStub() as never,
+      undefined,
+      makePriceSourceStub(),
+      undefined,
+      undefined,
+      ks,
+    );
+
+    const result = await svc.runDailyCycle('20260623');
+
+    expect(result.bought).toBe(0);
+    expect(prisma._created.length).toBe(0);
+  });
+
+  it('F6: kill-switch 비활성이면 정상 매수(대조)', async () => {
+    const prisma = makePrismaMock(0, 5);
+    const ks = new KillSwitchManager(); // 미발동
+    const svc = new PaperSimulationService(
+      prisma as never,
+      makePaperTradeStub() as never,
+      undefined,
+      makePriceSourceStub(),
+      undefined,
+      undefined,
+      ks,
+    );
+
+    const result = await svc.runDailyCycle('20260623');
+
+    expect(result.bought).toBeGreaterThan(0);
   });
 });

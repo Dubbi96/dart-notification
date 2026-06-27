@@ -29,6 +29,7 @@ import {
 } from '../../../engine3-quant-market/market-data/minute-timestamp';
 import { simulateFill, DEFAULT_FILL_PARAMS } from '../../domain/fill-simulator';
 import { checkRisk } from '../../domain/risk-check.service';
+import { KillSwitchManager } from '../../domain/kill-switch';
 import {
   INTRADAY_SCALP_STYLE_TAG,
   MAX_OPEN_POSITIONS,
@@ -162,6 +163,20 @@ function compactDayBefore(yyyymmdd: string): string {
   return `${yy}${mm}${dd}`;
 }
 
+/** F11: 해당 YYYYMMDD 가 속한 ISO 주의 월요일(YYYYMMDD). 주간 손실 한도 윈도우 시작. */
+function weekStartCompact(yyyymmdd: string): string {
+  const y = Number(yyyymmdd.slice(0, 4));
+  const m = Number(yyyymmdd.slice(4, 6));
+  const d = Number(yyyymmdd.slice(6, 8));
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const dow = dt.getUTCDay(); // 0=일..6=토
+  dt.setUTCDate(dt.getUTCDate() - (dow === 0 ? 6 : dow - 1)); // 월요일로 back
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}${mm}${dd}`;
+}
+
 @Injectable()
 export class IntradayScalpService {
   private readonly logger = new Logger(IntradayScalpService.name);
@@ -188,7 +203,15 @@ export class IntradayScalpService {
     // ★DAR-424: 체결 알림 producer(@Optional — 큐 미설정 환경/테스트에선 미주입, graceful no-op).
     //   진입/청산 체결 직후 TRADE_ENTRY/TRADE_EXIT 발행. 알림은 통지일 뿐 — 체결을 깨지 않는다.
     @Optional() private readonly notifyProducer?: NotificationProducerService,
-  ) {}
+    // ★F5(2026-06-27): kill-switch 영속 상태(TradingRiskModule 공유 싱글톤). 운영자가 발동하면
+    //   신규 진입을 차단한다(과거 killSwitchActive:false 하드코딩으로 단타가 우회하던 결함 해소).
+    //   @Optional — 미주입(일부 단위 테스트)이면 비활성 폴백 + 경고 1회(결선 누락 가시화).
+    @Optional() private readonly killSwitch?: KillSwitchManager,
+  ) {
+    if (!this.killSwitch) {
+      this.logger.warn('[Scalp] KillSwitchManager 미주입 — kill-switch 게이트 비활성(결선 확인)');
+    }
+  }
 
   /** DAR-424 체결 알림 — 트랙 식별·딥링크 상수(분봉 단타). */
   private static readonly STRATEGY_LABEL = '분봉 단타';
@@ -340,6 +363,25 @@ export class IntradayScalpService {
   }
 
   /**
+   * F11(2026-06-27): 이번주(월~tradeDate) 실현손익 합 — 주간 손실 한도(WEEKLY_LOSS_LIMIT) 입력.
+   * 과거엔 weeklyPnl 에 당일 실현손익(realized)을 그대로 넣어 주간 한도가 사실상 무력했다.
+   * YYYYMMDD 는 고정폭·zero-pad 라 문자열 gte/lte 범위가 시간순과 일치(월·연 경계 안전).
+   */
+  private async weeklyRealizedPnl(tradeDate: string): Promise<number> {
+    const weekStart = weekStartCompact(tradeDate);
+    const rows = await this.prisma.intradayScalpTrade.findMany({
+      where: {
+        tradeDate: { gte: weekStart, lte: tradeDate },
+        styleTag: INTRADAY_SCALP_STYLE_TAG,
+      },
+      select: { netPnl: true },
+    });
+    let sum = 0;
+    for (const r of rows) sum += toNum(r.netPnl);
+    return sum;
+  }
+
+  /**
    * DAR-424: 체결 알림용 포트폴리오 스냅샷 — 현금·전체 평가금(현재가 기준).
    *   cash = 초기자본 + 실현손익(CLOSED net) − 보유 진입원가(OPEN 진입가×수량)
    *   totalValue = cash + 보유 평가합(OPEN 현재가×수량). (현재가=실시간 신선분 우선·없으면 분봉 종가)
@@ -478,6 +520,10 @@ export class IntradayScalpService {
     if (isPastEntryCutoff(nowHhmm)) {
       return { ...base, reason: '진입 마감(15:20 이후) — 당일 청산 보장' };
     }
+    // F5(2026-06-27): kill-switch 발동 시 신규 진입 차단(청산은 계속 허용 — 오버나잇 리스크 회피).
+    if (this.killSwitch?.isActive()) {
+      return { ...base, ran: true, skipped: false, reason: '킬스위치 발동 — 신규 진입 차단' };
+    }
 
     // ★DAR-418 진입 fee 허들 게이트: 기대이동(gross 익절폭)이 왕복비용+최소마진을 넘지 못하면
     //   진입 보류(수수료만 내는 무의미 거래 차단). 비용율 SSOT = 체결 파라미터에서 산출.
@@ -513,6 +559,7 @@ export class IntradayScalpService {
 
     const universe = await this.resolveUniverse(tradeDate);
     const { realized, count } = await this.todayRealizedAndCount(tradeDate);
+    const weeklyRealized = await this.weeklyRealizedPnl(tradeDate); // F11: 이번주 누적
     const budget = SCALP_INITIAL_CAPITAL * PER_POSITION_BUDGET_PCT;
 
     // DAR-426: 가용현금 가드(방어선) — 단타는 MAX_OPEN_POSITIONS(5)×PER_POSITION_BUDGET_PCT(3%)
@@ -565,12 +612,13 @@ export class IntradayScalpService {
         requestedShares: shares,
         limitPrice: price,
         totalCapital: SCALP_INITIAL_CAPITAL,
+        // 불변식: 종목당 1라운드트립 dedup + EOD 강제청산 → 신규 진입 종목 기보유 0.
         currentPositionValue: 0,
         dailyPnl: realized,
-        weeklyPnl: realized,
+        weeklyPnl: weeklyRealized, // F11: 당일치 재사용 금지 — 이번주 누적
         openOrderCount: openCount + entered,
         todayTradeCount: count + entered,
-        killSwitchActive: false,
+        killSwitchActive: this.killSwitch?.isActive() ?? false, // F5: 영속 상태 반영
       });
       if (!risk.approved) {
         this.logger.debug(

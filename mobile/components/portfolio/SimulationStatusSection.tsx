@@ -204,7 +204,8 @@ function SummaryHeader({
         style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}
       >
         <Text style={[typo.small, { color: colors.textSecondary }]}>모의 평가금액</Text>
-        <Text style={[typo.h2, { color: colors.text, marginTop: spacing.xs }]}>
+        {/* DAR-451 C2: 총평가금액 헤드라인 토큰을 실전/내 모의 탭과 동일(typo.h1)로 통일. */}
+        <Text style={[typo.h1, { color: colors.text, marginTop: spacing.xs }]}>
           {Math.round(equity).toLocaleString('ko-KR')}원
         </Text>
         <View style={styles.summaryChipRow}>

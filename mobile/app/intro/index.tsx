@@ -8,6 +8,7 @@ import {
   Dimensions,
   TouchableOpacity,
   type ViewToken,
+  type ListRenderItem,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
@@ -313,6 +314,13 @@ export default function GuestIntroScreen() {
 
   const viewabilityConfig = useMemo(() => ({ viewAreaCoveragePercentThreshold: 50 }), []);
 
+  // DAR-472: 가로 페이징 캐러셀 renderItem 을 useCallback 으로 분리(테마 변경 시에만 재생성) —
+  // 매 렌더마다 새 함수가 생겨 슬라이드가 불필요하게 재마운트되던 것을 방지한다.
+  const renderSlide = useCallback<ListRenderItem<(typeof slides)[number]>>(
+    ({ item }) => <item.component colors={colors} typo={typo} />,
+    [colors, typo],
+  );
+
   // 모든 슬라이드 폭이 SCREEN_WIDTH 로 고정 → getItemLayout 으로 오프셋을 즉시 계산해
   // scrollToIndex 가 측정 지연 없이 정확히 동작하도록 한다(A-INTRO-3).
   const getItemLayout = useCallback(
@@ -361,9 +369,7 @@ export default function GuestIntroScreen() {
         getItemLayout={getItemLayout}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
-        renderItem={({ item }) => (
-          <item.component colors={colors} typo={typo} />
-        )}
+        renderItem={renderSlide}
         style={styles.list}
         accessibilityLabel={`슬라이드 ${currentIndex + 1} / ${slides.length}`}
       />

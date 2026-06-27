@@ -45,7 +45,6 @@ import { useCompanyPhilosophyFit } from '@hooks/usePhilosophies';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
 import { useStockQuotes } from '@hooks/useStockQuotes';
 import { useMinuteCandles } from '@hooks/useMinuteCandles';
-import { StockPriceBadge } from '@components/common/StockPriceBadge';
 import { MinuteCandleChart } from '@components/company/MinuteCandleChart';
 import { QuoteHeader } from '@components/common/QuoteHeader';
 import { resolveQuotePollInterval } from '@utils/marketQuoteDisplay';
@@ -60,6 +59,16 @@ type CompanyTab = 'decision' | 'disclosures' | 'financials' | 'insider' | 'stats
 
 // DAR-353: 현재가 라이브 폴링 간격(15s). 화면 포커스 + 앱 활성 + 장중에만 가동(배터리·비용).
 const QUOTE_POLL_INTERVAL_MS = 15 * 1000;
+
+// DAR-452/E4: 헤더 뒤로가기 아이콘 크기. 우측 스페이서 폭과 공유해 타이틀을 시각적으로 중앙 정렬한다.
+const BACK_ICON_SIZE = 26;
+// DAR-452/E4: 분봉 차트 헤더의 접기/펼치기 chevron·전체화면 아이콘 크기(매직넘버 토큰화).
+const CHART_CHEVRON_SIZE = 18;
+const CHART_LINK_ICON_SIZE = 14;
+// DAR-452/E4: 분봉 차트 헤더 두 터치 타깃(접기 토글·"크게 보기")의 hitSlop — 시각 높이 유지 + 유효 터치 ≥44pt.
+const CHART_TOUCH_HIT_SLOP = { top: spacing.md, bottom: spacing.md, left: spacing.sm, right: spacing.sm } as const;
+// DAR-452/E4: 상단 6탭 칩 hitSlop(기존 인라인 {8,8,4,4} 토큰화). 가로는 인접 칩 오탭 방지로 좁게.
+const TAB_CHIP_HIT_SLOP = { top: spacing.sm, bottom: spacing.sm, left: spacing.xs, right: spacing.xs } as const;
 
 // 기업 상세 상단 6탭(DAR-156). 한 줄 SegmentedButtons는 좁은 기기에서 라벨이 압축·잘려
 // 오탭을 유발하므로 가로 스크롤 칩 행으로 노출한다(홈 segmentTab 패턴 재사용).
@@ -214,16 +223,16 @@ function EventStudyTab({ corpCode }: EventStudyTabProps) {
               ))}
             </View>
             <View style={styles.tableRow}>
-              <View style={{ flex: 1, alignItems: 'center' }}>
+              <View style={styles.tableCell}>
                 <PctText value={selected.avgReturnD1} typo={typo} colors={colors} />
               </View>
-              <View style={{ flex: 1, alignItems: 'center' }}>
+              <View style={styles.tableCell}>
                 <PctText value={selected.avgReturnD3} typo={typo} colors={colors} />
               </View>
-              <View style={{ flex: 1, alignItems: 'center' }}>
+              <View style={styles.tableCell}>
                 <PctText value={selected.avgReturnD5} typo={typo} colors={colors} />
               </View>
-              <View style={{ flex: 1, alignItems: 'center' }}>
+              <View style={styles.tableCell}>
                 <PctText value={selected.avgReturnD20} typo={typo} colors={colors} />
               </View>
             </View>
@@ -269,7 +278,7 @@ function EventStudyTab({ corpCode }: EventStudyTabProps) {
         </View>
       )}
 
-      <View style={{ height: spacing['2xl'] }} />
+      <View style={styles.bottomSpacer} />
     </ScrollView>
   );
 }
@@ -363,6 +372,10 @@ export default function CompanyDetailScreen() {
   const haptics = useHaptics();
   const { showSnackbar } = useSnackbar();
   const [activeTab, setActiveTab] = useState<CompanyTab>('decision');
+  // DAR-452/E1: 분봉 차트는 기본 접힘. 회사카드+차트가 탭 위에 고정돼 전 탭 뷰포트를 절반 잠식하던 문제를
+  // 단일 토글로 해소한다(6개 탭 동시 개선). 펼칠 때만 차트를 렌더해 접힘 상태의 점유 높이를 헤더 한 줄로 축소.
+  const [isChartExpanded, setIsChartExpanded] = useState(false);
+  const toggleChart = useCallback(() => setIsChartExpanded((prev) => !prev), []);
 
   const watchlistItem = useMemo(
     () => watchlistData?.data?.find((item) => item.corpCode === corpCode),
@@ -434,7 +447,7 @@ export default function CompanyDetailScreen() {
             accessibilityLabel="뒤로 가기"
             accessibilityRole="button"
           >
-            <Ionicons name="chevron-back" size={26} color={colors.text} />
+            <Ionicons name="chevron-back" size={BACK_ICON_SIZE} color={colors.text} />
           </TouchableOpacity>
         </View>
         <DetailSkeleton cards={[{ chip: true, lines: 2 }, { lines: 3 }, { lines: 2 }]} />
@@ -454,7 +467,7 @@ export default function CompanyDetailScreen() {
             accessibilityLabel="뒤로 가기"
             accessibilityRole="button"
           >
-            <Ionicons name="chevron-back" size={26} color={colors.text} />
+            <Ionicons name="chevron-back" size={BACK_ICON_SIZE} color={colors.text} />
           </TouchableOpacity>
         </View>
         <View style={styles.loadingContainer}>
@@ -479,7 +492,7 @@ export default function CompanyDetailScreen() {
             accessibilityLabel="뒤로 가기"
             accessibilityRole="button"
           >
-            <Ionicons name="chevron-back" size={26} color={colors.text} />
+            <Ionicons name="chevron-back" size={BACK_ICON_SIZE} color={colors.text} />
           </TouchableOpacity>
         </View>
         <View style={styles.loadingContainer}>
@@ -502,19 +515,19 @@ export default function CompanyDetailScreen() {
           accessibilityLabel="뒤로 가기"
           accessibilityRole="button"
         >
-          <Ionicons name="chevron-back" size={26} color={colors.text} />
+          <Ionicons name="chevron-back" size={BACK_ICON_SIZE} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[typo.h3, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+        <Text style={[typo.h3, styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
           {company.corpName}
         </Text>
-        <View style={{ width: 26 }} />
+        <View style={styles.headerSpacer} />
       </View>
 
       {/* Company Header Card */}
       <View style={styles.companyCardWrap}>
         <Card style={styles.mainCard} variant="elevated">
           <View style={styles.companyHeader}>
-            <View style={{ flex: 1 }}>
+            <View style={styles.companyNameWrap}>
               <Text style={[typo.h2, { color: colors.text }]}>{company.corpName}</Text>
               {overview?.corpNameEng && (
                 <Text style={[typo.small, { color: colors.textTertiary, marginTop: 2 }]}>
@@ -583,42 +596,58 @@ export default function CompanyDetailScreen() {
         </Card>
       </View>
 
-      {/* DAR-354: 분봉 차트 섹션 — 현재가 헤더 아래. 종목코드 있을 때만. 빈/로딩/에러 graceful. */}
+      {/* DAR-354: 분봉 차트 섹션 — 현재가 헤더 아래. 종목코드 있을 때만. 빈/로딩/에러 graceful.
+          DAR-452/E1: 기본 접힘(접힘 시 헤더 한 줄만 점유) → 펼칠 때만 차트 렌더(전 탭 뷰포트 회수). */}
       {company.stockCode ? (
         <View style={styles.companyCardWrap}>
           <Card style={styles.mainCard} variant="elevated">
-            {/* DAR-355: 전용 풀스크린 차트 화면(app/stock/[stockCode]) 진입. */}
-            <View
-              style={{
-                flexDirection: 'row',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: spacing.sm,
-              }}
-            >
-              <Text style={[typo.h3, { color: colors.text }]}>분봉 차트</Text>
+            <View style={styles.chartHeader}>
+              {/* 접기/펼치기 토글 — chevron + 제목. 접힘 시 차트 높이만큼 뷰포트 회수. */}
+              <TouchableOpacity
+                onPress={toggleChart}
+                hitSlop={CHART_TOUCH_HIT_SLOP}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: isChartExpanded }}
+                accessibilityLabel={isChartExpanded ? '분봉 차트 접기' : '분봉 차트 펼치기'}
+                style={styles.chartToggle}
+              >
+                <Feather
+                  name={isChartExpanded ? 'chevron-down' : 'chevron-right'}
+                  size={CHART_CHEVRON_SIZE}
+                  color={colors.textSecondary}
+                />
+                <Text style={[typo.h3, styles.chartTitle, { color: colors.text }]}>분봉 차트</Text>
+              </TouchableOpacity>
+              {/* DAR-355: 전용 풀스크린 차트 화면(app/stock/[stockCode]) 진입. 접힘 여부와 무관하게 항상 노출. */}
               <TouchableOpacity
                 onPress={() => router.push(`/stock/${company.stockCode}`)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                hitSlop={CHART_TOUCH_HIT_SLOP}
                 accessibilityRole="button"
                 accessibilityLabel="전체화면 차트 보기"
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                style={styles.chartExpandLink}
               >
-                <Text style={[typo.small, { color: colors.primary, fontWeight: '600' }]}>
+                <Text style={[typo.small, styles.chartLinkText, { color: colors.primary }]}>
                   크게 보기
                 </Text>
-                <Feather name="maximize-2" size={14} color={colors.primary} />
+                <Feather name="maximize-2" size={CHART_LINK_ICON_SIZE} color={colors.primary} />
               </TouchableOpacity>
             </View>
-            <MinuteCandleChart
-              candles={minuteCandles}
-              asOf={minuteCandlesAsOf}
-              isLoading={isLoadingMinuteCandles}
-              isError={isMinuteCandlesError}
-              onRetry={() => {
-                void refetchMinuteCandles();
-              }}
-            />
+            {isChartExpanded ? (
+              <MinuteCandleChart
+                candles={minuteCandles}
+                asOf={minuteCandlesAsOf}
+                isLoading={isLoadingMinuteCandles}
+                isError={isMinuteCandlesError}
+                onRetry={() => {
+                  void refetchMinuteCandles();
+                }}
+              />
+            ) : (
+              <Text style={[typo.small, styles.chartCollapsedHint, { color: colors.textTertiary }]}>
+                탭하여 당일 분봉 차트 보기
+              </Text>
+            )}
           </Card>
         </View>
       ) : null}
@@ -643,7 +672,7 @@ export default function CompanyDetailScreen() {
                 ]}
                 onPress={() => setActiveTab(tab.value)}
                 activeOpacity={0.7}
-                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                hitSlop={TAB_CHIP_HIT_SLOP}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: isActive }}
                 accessibilityLabel={tab.a11y}
@@ -764,7 +793,7 @@ export default function CompanyDetailScreen() {
             )}
           </View>
 
-          <View style={{ height: spacing['2xl'] }} />
+          <View style={styles.bottomSpacer} />
         </ScrollView>
       ) : activeTab === 'financials' ? (
         <FundamentalsTab corpCode={corpCode!} corpName={company.corpName} />
@@ -856,7 +885,7 @@ function CompanyPhilosophyTab({ corpCode, corpName }: CompanyPhilosophyTabProps)
       ))}
 
       <DisclaimerSection style={styles.philosophyDisclaimer} />
-      <View style={{ height: spacing['2xl'] }} />
+      <View style={styles.bottomSpacer} />
     </ScrollView>
   );
 }
@@ -922,7 +951,7 @@ function CompanySignalBadgeRow({ corpCode }: { corpCode: string }) {
         <View style={[styles.entryReadyChip, { backgroundColor: colors.successSurface }]}>
           <Feather name="check-circle" size={12} color={colors.success} />
           <Text
-            style={[typo.small, { color: colors.success, fontWeight: '600', marginLeft: 4 }]}
+            style={[typo.small, styles.entryReadyText, { color: colors.success }]}
             numberOfLines={1}
             maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
           >
@@ -930,7 +959,7 @@ function CompanySignalBadgeRow({ corpCode }: { corpCode: string }) {
           </Text>
         </View>
       )}
-      <View style={{ flex: 1 }} />
+      <View style={styles.flexSpacer} />
       <Feather name="chevron-right" size={16} color={colors.textTertiary} />
     </TouchableOpacity>
   );
@@ -1162,5 +1191,54 @@ const styles = StyleSheet.create({
   },
   philosophyDisclaimer: {
     marginTop: spacing.base,
+  },
+  // DAR-452/E4: 인라인 스타일·매직넘버 추출 ──────────────────────────────
+  headerTitle: {
+    flex: 1,
+  },
+  headerSpacer: {
+    width: BACK_ICON_SIZE,
+  },
+  companyNameWrap: {
+    flex: 1,
+  },
+  chartHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  chartToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  chartTitle: {
+    marginLeft: spacing.xs,
+  },
+  chartExpandLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  chartLinkText: {
+    fontWeight: '600',
+  },
+  chartCollapsedHint: {
+    paddingVertical: spacing.xs,
+  },
+  tableCell: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  entryReadyText: {
+    fontWeight: '600',
+    marginLeft: spacing.xs,
+  },
+  flexSpacer: {
+    flex: 1,
+  },
+  bottomSpacer: {
+    height: spacing['2xl'],
   },
 });

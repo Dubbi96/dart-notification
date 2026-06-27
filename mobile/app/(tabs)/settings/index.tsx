@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Divider } from 'react-native-paper';
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { palette } from '@theme/colors';
@@ -24,8 +24,11 @@ import { useLogout, useMe } from '@hooks/useAuth';
 import { useWatchlist } from '@hooks/useWatchlist';
 import type { ColorScheme } from '@theme';
 
+// DAR-470: 현재값 칩 최대 폭(긴 옵션 라벨 줄임 기준). 매직넘버 금지 → 명명 상수.
+const VALUE_CHIP_MAX_WIDTH = 160;
+
 interface MenuItemProps {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: keyof typeof Feather.glyphMap;
   title: string;
   subtitle?: string;
   onPress?: () => void;
@@ -60,7 +63,7 @@ function MenuItem({
   const body = (
     <>
       <View style={[styles.menuIcon, { backgroundColor: colors.primaryLight }]}>
-        <Ionicons name={icon} size={20} color={colors.primary} />
+        <Feather name={icon} size={20} color={colors.primary} />
       </View>
       <View style={styles.menuContent}>
         <Text style={[typo.bodyMedium, { color: colors.text }]}>{title}</Text>
@@ -90,10 +93,10 @@ function MenuItem({
             >
               {valueChip}
             </Text>
-            <Ionicons name="sync-outline" size={14} color={colors.primary} />
+            <Feather name="refresh-cw" size={14} color={colors.primary} />
           </View>
         )}
-        {showChevron && <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />}
+        {showChevron && <Feather name="chevron-right" size={18} color={colors.textTertiary} />}
       </View>
     </>
   );
@@ -192,7 +195,7 @@ export default function SettingsScreen() {
           <>
             <View style={styles.profileInfo}>
               <View style={[styles.avatar, { backgroundColor: colors.avatarOnColor }]}>
-                <Ionicons name="person" size={32} color={palette.white} />
+                <Feather name="user" size={32} color={palette.white} />
               </View>
               <View style={styles.profileText}>
                 <Text style={[typo.h3, { color: palette.white }]}>{user?.name || '사용자'}</Text>
@@ -218,7 +221,7 @@ export default function SettingsScreen() {
                       무제한 관심기업 & 고급 필터
                     </Text>
                   </View>
-                  <Ionicons name="arrow-forward-circle" size={28} color={colors.onColorStrong} />
+                  <Feather name="arrow-right-circle" size={28} color={colors.onColorStrong} />
                 </View>
               </GlassCard>
             </TouchableOpacity>
@@ -226,7 +229,7 @@ export default function SettingsScreen() {
         ) : (
           <View style={styles.profileInfo}>
             <View style={[styles.avatar, { backgroundColor: colors.avatarOnColor }]}>
-              <Ionicons name="person" size={32} color={palette.white} />
+              <Feather name="user" size={32} color={palette.white} />
             </View>
             <View style={styles.profileText}>
               <Text style={[typo.h3, { color: palette.white }]}>GUEST</Text>
@@ -253,14 +256,14 @@ export default function SettingsScreen() {
               </Text>
               <View style={[styles.menuCard, { backgroundColor: colors.surface }]}>
                 <MenuItem
-                  icon="person-outline"
+                  icon="user"
                   title="프로필 정보"
                   subtitle="계정 정보 관리"
                   onPress={() => router.push('/settings-detail/profile')}
                 />
                 <Divider style={{ backgroundColor: colors.borderLight }} />
                 <MenuItem
-                  icon="star-outline"
+                  icon="star"
                   title="관심목록"
                   subtitle="관심 기업 관리"
                   onPress={() => router.push('/settings-detail/watchlist')}
@@ -268,7 +271,7 @@ export default function SettingsScreen() {
                 />
                 <Divider style={{ backgroundColor: colors.borderLight }} />
                 <MenuItem
-                  icon="notifications-outline"
+                  icon="bell"
                   title="알림 설정"
                   subtitle="알림 환경 설정"
                   onPress={() => router.push('/settings-detail/notification-settings')}
@@ -276,7 +279,7 @@ export default function SettingsScreen() {
                 <Divider style={{ backgroundColor: colors.borderLight }} />
                 {/* D12: 저장된 공시 진입점을 설정에 노출(기존엔 홈·공시상세에서만 접근 가능해 발견성 낮음). */}
                 <MenuItem
-                  icon="bookmark-outline"
+                  icon="bookmark"
                   title="저장된 공시"
                   subtitle="북마크한 공시 모아보기"
                   onPress={() => router.push('/settings-detail/saved-disclosures')}
@@ -291,7 +294,7 @@ export default function SettingsScreen() {
             </Text>
             <View style={[styles.menuCard, { backgroundColor: colors.surface }]}>
               <MenuItem
-                icon="moon-outline"
+                icon="moon"
                 title="화면 설정"
                 subtitle="테마 모드 전환"
                 valueChip={themeLabel}
@@ -301,7 +304,7 @@ export default function SettingsScreen() {
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
               <MenuItem
-                icon="text-outline"
+                icon="type"
                 title="글자 크기"
                 subtitle="본문 글자 배율"
                 valueChip={textScaleLabel}
@@ -311,34 +314,34 @@ export default function SettingsScreen() {
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
               <MenuItem
-                icon="pulse-outline"
+                icon="activity"
                 title="수집 현황"
                 subtitle="공시·재무·지표·모의 커버리지"
                 onPress={() => router.push('/settings-detail/collection-status')}
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
               <MenuItem
-                icon="analytics-outline"
+                icon="bar-chart-2"
                 title="AI 비용/거버넌스"
                 subtitle="AI 분석 비용·한도 소진율"
                 onPress={() => router.push('/settings-detail/ai-cost')}
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
               <MenuItem
-                icon="document-text-outline"
+                icon="file-text"
                 title="이용약관"
                 onPress={() => router.push('/legal/terms')}
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
               <MenuItem
-                icon="shield-checkmark-outline"
+                icon="shield"
                 title="개인정보 처리방침"
                 onPress={() => router.push('/legal/privacy')}
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
               {/* D9: dead tap 제거 — 버전 표시는 정보 행이므로 비터치(View)로 렌더. */}
               <MenuItem
-                icon="information-circle-outline"
+                icon="info"
                 title="앱 정보"
                 subtitle="Version 1.0.0"
                 nonInteractive
@@ -347,13 +350,13 @@ export default function SettingsScreen() {
               <Divider style={{ backgroundColor: colors.borderLight }} />
               {isAuthenticated ? (
                 <MenuItem
-                  icon="log-out-outline"
+                  icon="log-out"
                   title="로그아웃"
                   onPress={handleLogout}
                 />
               ) : (
                 <MenuItem
-                  icon="log-in-outline"
+                  icon="log-in"
                   title="로그인"
                   onPress={() => {
                     useAuthStore.getState().clearAuth();
@@ -479,7 +482,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
-    maxWidth: 160,
+    maxWidth: VALUE_CHIP_MAX_WIDTH,
   },
   valueChipText: {
     fontWeight: '600',

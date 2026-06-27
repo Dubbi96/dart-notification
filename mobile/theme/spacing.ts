@@ -31,3 +31,11 @@ export const gauge = {
   tickWidth: 1,
   knobSize: 10,
 } as const;
+
+// 얇은 기여도/진행 막대(ScoreBreakdownSection 기여도 바 등) 픽셀 지오메트리(DAR-470).
+// gauge 와 동일 사상 — 글꼴 배율과 독립된 절대 두께/반경(반경=두께/2 알약형)이라 OS 글꼴
+// 확대에도 막대 형태가 유지된다. 매직넘버 금지 → 토큰화.
+export const progressBar = {
+  height: 6,
+  radius: 3,
+} as const;

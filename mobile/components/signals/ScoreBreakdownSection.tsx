@@ -2,7 +2,10 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Surface, ProgressBar } from 'react-native-paper';
 import { useTheme } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, progressBar } from '@theme/spacing';
+
+// DAR-470: 기여도 % 값 열의 고정 폭(우측 정렬 정합). 매직넘버 금지 → 명명 상수.
+const PCT_COLUMN_WIDTH = 56;
 
 // Score 근거 분해 섹션(기획 §4-2, DAR-447). 7개 가산 요소 + 리스크 패널티 + 표본수 동등 노출.
 // 과신 역설 차단: 리스크 패널티는 항상 마지막에, 표본수(n)는 양수 기여와 동등 비중으로 표시.
@@ -141,11 +144,11 @@ const styles = StyleSheet.create({
   },
   bar: {
     flex: 1,
-    height: 6,
-    borderRadius: 3,
+    height: progressBar.height,
+    borderRadius: progressBar.radius,
   },
   pct: {
-    width: 56,
+    width: PCT_COLUMN_WIDTH,
     textAlign: 'right',
   },
   totalRow: {

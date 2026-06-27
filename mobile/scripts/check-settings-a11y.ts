@@ -73,7 +73,9 @@ ok('D8: 화면 설정 valueChip={themeLabel}', /valueChip=\{themeLabel\}/.test(t
 ok('D8: 화면 설정 hint="탭하면 다음 옵션으로 전환"', /accessibilityHint="탭하면 다음 옵션으로 전환"/.test(themeRow));
 ok('D8: 글자 크기 valueChip={textScaleLabel}', /valueChip=\{textScaleLabel\}/.test(fontRow));
 ok('D8: 글자 크기 hint="탭하면 다음 옵션으로 전환"', /accessibilityHint="탭하면 다음 옵션으로 전환"/.test(fontRow));
-ok('D8: valueChip 칩 + 순환 아이콘(sync-outline) 렌더', /styles\.valueChip/.test(menuItemDef) && /name="sync-outline"/.test(menuItemDef));
+// DAR-470: 설정 아이콘 Feather 통일로 순환 아이콘 글리프가 Ionicons sync-outline → Feather refresh-cw 로 변경.
+// D8 의도(현재값 칩 + 순환 아이콘 affordance)는 동일 — 글리프 이름만 새 컨벤션에 맞춰 갱신.
+ok('D8: valueChip 칩 + 순환 아이콘(Feather refresh-cw) 렌더', /styles\.valueChip/.test(menuItemDef) && /name="refresh-cw"/.test(menuItemDef));
 ok('D8: nonInteractive 분기는 View 로 렌더(button 아님)', /if \(nonInteractive\)/.test(menuItemDef) && /<View style=\{styles\.menuItem\} accessible accessibilityLabel=\{a11yLabel\}>/.test(menuItemDef));
 
 // --- D9: 앱 정보 dead tap 제거 ---

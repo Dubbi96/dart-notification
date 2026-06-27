@@ -6,14 +6,13 @@ import {
   ActivityIndicator,
   Pressable,
   type LayoutChangeEvent,
-  type GestureResponderEvent,
-  type AccessibilityActionEvent,
 } from 'react-native';
 import Svg, { Line, Rect, Circle } from 'react-native-svg';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
 import { returnColor } from '@utils/numberFormat';
+import { useCandleScrub } from '@hooks/useCandleScrub';
 
 import type { CandleSeriesPoint } from '@app-types/market-quote.types';
 
@@ -91,8 +90,6 @@ export function DailyCandleChart({
 }: DailyCandleChartProps) {
   const { colors, typography: typo } = useTheme();
   const [width, setWidth] = useState(0);
-  // 선택된 캔들(요약). 기본은 마지막(최신).
-  const [selected, setSelected] = useState<number | null>(null);
 
   const onLayout = (e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width);
 
@@ -113,6 +110,26 @@ export function DailyCandleChart({
     }
     return { minP: lo, maxP: hi, maxV: vMax };
   }, [candles]);
+
+  // 지오메트리(글꼴 배율 독립) — 가로 스크럽 훅(useCandleScrub)을 조건부 return 이전에 호출하기 위해
+  // n·slotW 를 먼저 계산한다(Rules of Hooks). 로딩/빈 데이터 경로에선 width=0 이라 0/NaN 이 나오지만
+  // 어차피 렌더에 쓰이지 않는다.
+  const plotW = Math.max(0, width - PAD.left - PAD.right);
+  const priceH = PRICE_HEIGHT - PAD.top - PAD.bottom;
+  const n = candles.length;
+  // 슬롯 폭 — 캔들 1개도 균등 배치. 몸통은 슬롯의 60%(최소 1px).
+  const slotW = n > 0 ? plotW / n : plotW;
+  const bodyW = Math.max(1, slotW * 0.6);
+  const xCenter = (i: number) => PAD.left + slotW * (i + 0.5);
+  const yPrice = (v: number) =>
+    PAD.top + priceH - ((v - minP) / (maxP - minP || 1)) * priceH;
+
+  // 가로 스크럽(크로스헤어) 상호작용 — 일봉/분봉 공용 훅(DAR-472, E6).
+  const { activeIndex, handleScrub, handleA11yAction } = useCandleScrub({
+    count: n,
+    slotW,
+    padLeft: PAD.left,
+  });
 
   // --- 로딩 ---
   if (isLoading) {
@@ -165,18 +182,6 @@ export function DailyCandleChart({
     );
   }
 
-  const plotW = Math.max(0, width - PAD.left - PAD.right);
-  const priceH = PRICE_HEIGHT - PAD.top - PAD.bottom;
-  const n = candles.length;
-  // 슬롯 폭 — 캔들 1개도 균등 배치. 몸통은 슬롯의 60%(최소 1px).
-  const slotW = n > 0 ? plotW / n : plotW;
-  const bodyW = Math.max(1, slotW * 0.6);
-
-  const xCenter = (i: number) => PAD.left + slotW * (i + 0.5);
-  const yPrice = (v: number) =>
-    PAD.top + priceH - ((v - minP) / (maxP - minP || 1)) * priceH;
-
-  const activeIndex = selected ?? n - 1;
   const active = candles[activeIndex];
   const first = candles[0];
   const last = candles[n - 1];
@@ -184,24 +189,6 @@ export function DailyCandleChart({
   const periodOpen = first.open;
   const summaryColor = returnColor(last.close - periodOpen, colors);
   const sourceLabel = source === 'EOD' ? 'KRX 일봉(장 마감 종가)' : '일봉';
-
-  // 가로 스크럽(크로스헤어) — 손가락 X → 가장 가까운 캔들 인덱스. 슬롯이 1px라도 선택 가능(E6).
-  const indexFromX = (x: number) => {
-    const raw = Math.round((x - PAD.left) / slotW - 0.5);
-    return Math.min(n - 1, Math.max(0, raw));
-  };
-  const handleScrub = (e: GestureResponderEvent) =>
-    setSelected(indexFromX(e.nativeEvent.locationX));
-  // a11y: 스크린리더는 증감 액션으로 한 칸씩 이동(adjustable).
-  const stepSelection = (dir: 1 | -1) =>
-    setSelected((prev) => {
-      const cur = prev ?? n - 1;
-      return Math.min(n - 1, Math.max(0, cur + dir));
-    });
-  const handleA11yAction = (e: AccessibilityActionEvent) => {
-    if (e.nativeEvent.actionName === 'increment') stepSelection(1);
-    else if (e.nativeEvent.actionName === 'decrement') stepSelection(-1);
-  };
 
   return (
     <View style={styles.wrap}>

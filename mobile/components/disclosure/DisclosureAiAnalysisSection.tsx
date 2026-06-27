@@ -1,9 +1,9 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface, Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, sizing } from '@theme/spacing';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { ApiErrorState } from '@components/common/StateView';
@@ -42,7 +42,17 @@ function polarityColor(
   return colors.textSecondary;
 }
 
-function SectionFrame({ children }: { children: React.ReactNode }) {
+// E8(DAR-453): 접이식 — '본문 핵심 수치'·'AI 이벤트 분류' 다음에 누적되던 가장 무거운 섹션.
+//   헤더를 탭하면 펼침/접힘. cpu 아이콘은 'AI 이벤트 분류'(tag)와 차별화된 정체성으로 유지.
+function SectionFrame({
+  expanded,
+  onToggle,
+  children,
+}: {
+  expanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
   const { colors, typography: typo } = useTheme();
   return (
     <Surface
@@ -50,19 +60,31 @@ function SectionFrame({ children }: { children: React.ReactNode }) {
       style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}
       accessibilityLabel="AI 심층 분석 섹션"
     >
-      <View style={styles.header}>
+      <TouchableOpacity
+        style={styles.header}
+        activeOpacity={0.7}
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityLabel={`AI 심층 분석, ${expanded ? '펼침' : '접힘'}`}
+      >
         <View style={styles.titleRow}>
           <Feather name="cpu" size={16} color={colors.primary} />
-          <Text
-            style={[typo.captionMedium, { color: colors.text, marginLeft: spacing.xs }]}
-            accessibilityRole="header"
-          >
+          <Text style={[typo.captionMedium, { color: colors.text, marginLeft: spacing.xs }]}>
             AI 심층 분석
           </Text>
         </View>
-        <AiReferenceLabel />
-      </View>
-      {children}
+        <View style={styles.headerRight}>
+          <AiReferenceLabel />
+          <Feather
+            name={expanded ? 'chevron-up' : 'chevron-down'}
+            size={18}
+            color={colors.textTertiary}
+            style={styles.chevron}
+          />
+        </View>
+      </TouchableOpacity>
+      {expanded ? children : null}
     </Surface>
   );
 }
@@ -113,10 +135,13 @@ function FactList({ label, icon, color, items }: FactListProps) {
 export function DisclosureAiAnalysisSection({ rcpNo }: { rcpNo: string }) {
   const { colors, typography: typo } = useTheme();
   const { data, isLoading, isError, error, refetch } = useDisclosureAnalysis(rcpNo);
+  // E8(DAR-453): 인지 과부하 완화 — 가장 무거운 섹션이라 기본 접힘. 사용자가 헤더를 탭해 펼친다.
+  const [expanded, setExpanded] = React.useState(false);
+  const toggle = React.useCallback(() => setExpanded((v) => !v), []);
 
   if (isLoading) {
     return (
-      <SectionFrame>
+      <SectionFrame expanded={expanded} onToggle={toggle}>
         <LoadingSkeleton />
       </SectionFrame>
     );
@@ -124,7 +149,7 @@ export function DisclosureAiAnalysisSection({ rcpNo }: { rcpNo: string }) {
 
   if (isError) {
     return (
-      <SectionFrame>
+      <SectionFrame expanded={expanded} onToggle={toggle}>
         <View style={styles.stateBox}>
           <ApiErrorState
             error={error}
@@ -157,7 +182,7 @@ export function DisclosureAiAnalysisSection({ rcpNo }: { rcpNo: string }) {
   // 빈 상태 — 분석 미생성 공시는 정직하게 안내(과신 방지).
   if (!hasContent) {
     return (
-      <SectionFrame>
+      <SectionFrame expanded={expanded} onToggle={toggle}>
         <View style={styles.emptyBox}>
           <Feather name="cpu" size={36} color={colors.textTertiary} />
           <Text
@@ -181,7 +206,7 @@ export function DisclosureAiAnalysisSection({ rcpNo }: { rcpNo: string }) {
   const analyzedAt = summaryItem?.createdAt ?? personaItem?.createdAt ?? thesisItem?.createdAt;
 
   return (
-    <SectionFrame>
+    <SectionFrame expanded={expanded} onToggle={toggle}>
       {analyzedAt ? (
         <ProvenanceBar
           items={[{ icon: 'clock', label: `분석 ${relativeTime(analyzedAt)}` }] as ProvenanceItem[]}
@@ -330,10 +355,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: spacing.xs,
+    // E8(DAR-453): 접기/펼치기 토글 버튼 — 최소 터치 영역 보장.
+    minHeight: sizing.minTouchTarget,
   },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  chevron: {
+    marginLeft: spacing.xs,
   },
   skeleton: {
     paddingVertical: spacing.sm,

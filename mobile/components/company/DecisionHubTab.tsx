@@ -6,7 +6,8 @@ import { router } from 'expo-router';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
-import { LoadingState, EmptyState, ErrorState } from '@components/common/StateView';
+import { EmptyState, ErrorState } from '@components/common/StateView';
+import { DetailSkeleton } from '@components/common/DetailSkeleton';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
@@ -136,7 +137,21 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
     return [...buySignal.scoreBreakdown].sort((a, b) => b.score - a.score).slice(0, 3);
   }, [buySignal]);
 
-  if (isLoading) return <LoadingState message="의사결정 데이터를 불러오는 중…" />;
+  // 로딩도 화면 진입 스켈레톤(DetailSkeleton)으로 통일 — 탭 전환 시 중앙 스피너 →
+  // 콘텐츠 점프를 제거(E17·DAR-467). 카드 골격은 판단 캔버스의 누적 섹션
+  // (공시 칩·AI 분석·BuyScore 게이지·거장 적합도·결합)을 위→아래로 흉내 낸다.
+  if (isLoading)
+    return (
+      <DetailSkeleton
+        cards={[
+          { chip: true, lines: 2 },
+          { lines: 2 },
+          { gauge: true, lines: 3 },
+          { lines: 2 },
+          { lines: 2 },
+        ]}
+      />
+    );
   if (isError)
     return (
       <ErrorState

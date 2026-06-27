@@ -6,8 +6,10 @@ import {
   ActivityIndicator,
   Pressable,
   type LayoutChangeEvent,
+  type GestureResponderEvent,
+  type AccessibilityActionEvent,
 } from 'react-native';
-import Svg, { Line, Rect } from 'react-native-svg';
+import Svg, { Line, Rect, Circle } from 'react-native-svg';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
@@ -21,7 +23,8 @@ import type { CandleSeriesPoint } from '@app-types/market-quote.types';
  * 데이터는 KRX 일봉(StockDailyPrice 백필, source=EOD) — 장 마감 후 확정가다.
  * 상승(종≥시) success / 하락 error — 앱 전역 등락 색 규약(returnColor)과 일치.
  * 빈 데이터/로딩/에러를 graceful 하게 흡수(가짜 차트 금지). 색 단독 의미 금지 → 날짜·가격 평문 병기.
- * ★정직: 일봉은 거래일 종가 기준이며, 앱 환경 시계(표기 날짜)와 어긋날 수 있음을 고지한다.
+ * ★정직: 일봉은 거래일 장 마감 종가 기준임을 사용자 언어로 고지한다(DAR-458 E7).
+ * ★인터랙션: 장기 구간(1Y/전체 ~250봉)에서도 좌우 스크럽(크로스헤어)으로 가는 캔들까지 선택(DAR-458 E6).
  */
 
 const PRICE_HEIGHT = 180;
@@ -182,13 +185,31 @@ export function DailyCandleChart({
   const summaryColor = returnColor(last.close - periodOpen, colors);
   const sourceLabel = source === 'EOD' ? 'KRX 일봉(장 마감 종가)' : '일봉';
 
+  // 가로 스크럽(크로스헤어) — 손가락 X → 가장 가까운 캔들 인덱스. 슬롯이 1px라도 선택 가능(E6).
+  const indexFromX = (x: number) => {
+    const raw = Math.round((x - PAD.left) / slotW - 0.5);
+    return Math.min(n - 1, Math.max(0, raw));
+  };
+  const handleScrub = (e: GestureResponderEvent) =>
+    setSelected(indexFromX(e.nativeEvent.locationX));
+  // a11y: 스크린리더는 증감 액션으로 한 칸씩 이동(adjustable).
+  const stepSelection = (dir: 1 | -1) =>
+    setSelected((prev) => {
+      const cur = prev ?? n - 1;
+      return Math.min(n - 1, Math.max(0, cur + dir));
+    });
+  const handleA11yAction = (e: AccessibilityActionEvent) => {
+    if (e.nativeEvent.actionName === 'increment') stepSelection(1);
+    else if (e.nativeEvent.actionName === 'decrement') stepSelection(-1);
+  };
+
   return (
     <View style={styles.wrap}>
-      {/* ★정직 라벨 — KRX 일봉 종가 기준 + 환경 시계 괴리 고지 */}
+      {/* ★정직 라벨(E7) — 사용자 언어, 거래일 장 마감 종가 기준 */}
       <View style={styles.honestyRow}>
         <Feather name="calendar" size={12} color={colors.textTertiary} />
         <Text style={[typo.small, { color: colors.textTertiary, marginLeft: spacing.xs, flex: 1 }]}>
-          {sourceLabel} · 거래일 종가 기준이라 앱 환경 시계(표기 날짜)와 다를 수 있어요
+          {sourceLabel} · 거래일 종가 기준
           {asOfDate(asOf ?? '') ? ` (서버 조회 ${asOfDate(asOf ?? '')})` : ''}
         </Text>
       </View>
@@ -212,52 +233,71 @@ export function DailyCandleChart({
 
       <View onLayout={onLayout}>
         {width > 0 ? (
-          <Svg width={width} height={PRICE_HEIGHT}>
-            {candles.map((c, i) => {
-              const up = c.close >= c.open;
-              const color = returnColor(c.close - c.open, colors);
-              const cx = xCenter(i);
-              const yHigh = yPrice(c.high);
-              const yLow = yPrice(c.low);
-              const yOpen = yPrice(c.open);
-              const yClose = yPrice(c.close);
-              const bodyTop = Math.min(yOpen, yClose);
-              const bodyH = Math.max(1, Math.abs(yClose - yOpen));
-              const isActive = i === activeIndex;
-              return (
-                <React.Fragment key={`${c.time}-${i}`}>
-                  {/* 꼬리: 고가–저가 */}
-                  <Line
-                    x1={cx}
-                    y1={yHigh}
-                    x2={cx}
-                    y2={yLow}
-                    stroke={color}
-                    strokeWidth={isActive ? 2 : 1}
-                  />
-                  {/* 몸통: 시가–종가 (상승=채움, 보합/하락도 색 구분) */}
-                  <Rect
-                    x={cx - bodyW / 2}
-                    y={bodyTop}
-                    width={bodyW}
-                    height={bodyH}
-                    fill={up ? color : colors.surface}
-                    stroke={color}
-                    strokeWidth={1}
-                  />
-                  {/* 탭 히트영역(슬롯 전체) — 가는 캔들도 선택 가능 */}
-                  <Rect
-                    x={PAD.left + slotW * i}
-                    y={PAD.top}
-                    width={slotW}
-                    height={priceH}
-                    fill="transparent"
-                    onPress={() => setSelected(i)}
-                  />
-                </React.Fragment>
-              );
-            })}
-          </Svg>
+          <View style={{ height: PRICE_HEIGHT }}>
+            <Svg width={width} height={PRICE_HEIGHT}>
+              {candles.map((c, i) => {
+                const up = c.close >= c.open;
+                const color = returnColor(c.close - c.open, colors);
+                const cx = xCenter(i);
+                const yHigh = yPrice(c.high);
+                const yLow = yPrice(c.low);
+                const yOpen = yPrice(c.open);
+                const yClose = yPrice(c.close);
+                const bodyTop = Math.min(yOpen, yClose);
+                const bodyH = Math.max(1, Math.abs(yClose - yOpen));
+                const isActive = i === activeIndex;
+                return (
+                  <React.Fragment key={`${c.time}-${i}`}>
+                    {/* 꼬리: 고가–저가 */}
+                    <Line
+                      x1={cx}
+                      y1={yHigh}
+                      x2={cx}
+                      y2={yLow}
+                      stroke={color}
+                      strokeWidth={isActive ? 2 : 1}
+                    />
+                    {/* 몸통: 시가–종가 (상승=채움, 보합/하락도 색 구분) */}
+                    <Rect
+                      x={cx - bodyW / 2}
+                      y={bodyTop}
+                      width={bodyW}
+                      height={bodyH}
+                      fill={up ? color : colors.surface}
+                      stroke={color}
+                      strokeWidth={1}
+                    />
+                  </React.Fragment>
+                );
+              })}
+              {/* 크로스헤어(E6) — 스크럽 위치 세로 점선 + 종가 마커. 색 단독 의미 아님(요약 평문 병기). */}
+              <Line
+                x1={xCenter(activeIndex)}
+                y1={PAD.top}
+                x2={xCenter(activeIndex)}
+                y2={PAD.top + priceH}
+                stroke={colors.textTertiary}
+                strokeWidth={1}
+                strokeDasharray="3 3"
+              />
+              <Circle cx={xCenter(activeIndex)} cy={yPrice(active.close)} r={3} fill={colors.text} />
+            </Svg>
+            {/* 가로 스크럽 오버레이(E6) — 전폭·전체 높이(≥44pt) 터치영역. 좌우로 문질러 캔들 선택. */}
+            <View
+              style={StyleSheet.absoluteFill}
+              onStartShouldSetResponder={() => true}
+              onResponderGrant={handleScrub}
+              onResponderMove={handleScrub}
+              accessibilityRole="adjustable"
+              accessibilityLabel="가격 차트 — 좌우로 문질러 거래일 선택"
+              accessibilityValue={{ text: `${fullDate(active.time)} 종가 ${won(active.close)}` }}
+              accessibilityActions={[
+                { name: 'increment', label: '다음 거래일' },
+                { name: 'decrement', label: '이전 거래일' },
+              ]}
+              onAccessibilityAction={handleA11yAction}
+            />
+          </View>
         ) : (
           <View style={{ height: PRICE_HEIGHT }} />
         )}
@@ -296,10 +336,10 @@ export function DailyCandleChart({
       {n >= 2 ? (
         <Text
           accessibilityRole="text"
-          accessibilityLabel="캔들을 탭하면 해당 거래일의 시·고·저·종과 거래량을 볼 수 있습니다."
+          accessibilityLabel="차트를 좌우로 문지르면 해당 거래일의 시·고·저·종과 거래량을 볼 수 있습니다."
           style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}
         >
-          캔들을 탭하면 해당 거래일의 가격·거래량을 볼 수 있어요. ({n}개 거래일)
+          차트를 좌우로 문지르면 해당 거래일의 가격·거래량을 볼 수 있어요. ({n}개 거래일)
         </Text>
       ) : null}
     </View>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, AppState, type AppStateStatus } from 'react-native';
+import { View, StyleSheet, ScrollView, AppState, type AppStateStatus } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SegmentedButtons } from 'react-native-paper';
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
@@ -18,8 +18,8 @@ import { resolveQuotePollInterval } from '@utils/marketQuoteDisplay';
 // DAR-355/384: 일반 주식앱 스타일 전용 종목 차트 화면(풀스크린, 분봉+일봉).
 // 소비자 화면 — QuoteHeader(DAR-353)·MinuteCandleChart/useMinuteCandles(DAR-354)·
 //   DailyCandleChart/useDailyCandles(DAR-384)·useStockQuotes 를 조립한다.
-// ★정직: 분봉/현재가는 실제 시장 실시간 시세, 일봉은 KRX 종가(EOD) → 화면 상단 '실시간 시장가'
-//   고지 1줄(앱 환경시계와 괴리 가능). 세부 출처/갱신시각 괴리는 각 차트(asOf/source)가 내부 렌더.
+// ★정직(DAR-458 E7/E2): 정직 고지는 한 곳에만 — 분봉/현재가의 실시간성은 QuoteHeader(실시간/종가 배지)와
+//   각 차트(MinuteCandleChart/DailyCandleChart, asOf/source 내부 렌더)가 단독 노출. 화면 상단 중복 배너 제거.
 // 일봉 탭(DAR-384): 백필 일봉(StockDailyPrice, source=EOD)을 실제 일봉 차트로 렌더 + 구간 선택(3M/1Y/전체).
 
 const QUOTE_POLL_INTERVAL_MS = 15 * 1000;
@@ -34,7 +34,7 @@ const DAILY_RANGE_OPTIONS: { value: DailyRangePreset; label: string }[] = [
 
 export default function StockChartScreen() {
   const { stockCode } = useLocalSearchParams<{ stockCode: string }>();
-  const { colors, typography: typo } = useTheme();
+  const { colors } = useTheme();
   const code = (stockCode ?? '').trim();
 
   // 포커스·앱활성 게이트(DAR-353 idiom) — 화면 보고 있고 앱 active 일 때만 시세 폴링.
@@ -95,10 +95,7 @@ export default function StockChartScreen() {
       />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* ★정직: 실시간 시장가 고지(환경시계 괴리 가능) — 항상 노출. */}
-        <Text style={[typo.small, styles.honesty, { color: colors.textTertiary }]}>
-          실시간 시장가 — 분봉·현재가는 실제 장중 시세이며, 앱 내 다른 날짜 표기와 다를 수 있습니다.
-        </Text>
+        {/* ★정직(E7/E2): 화면 상단 중복 고지 제거 — 실시간성은 QuoteHeader 배지 + 각 차트가 단독 노출. */}
 
         {/* 상단 대형 현재가 헤더(DAR-353). 가격 없으면 컴포넌트가 null 처리(미표시). */}
         <QuoteHeader quote={quote} updatedAt={quoteUpdatedAt} style={styles.quoteHeader} />
@@ -164,9 +161,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingBottom: spacing.xl,
     gap: spacing.md,
-  },
-  honesty: {
-    lineHeight: 16,
   },
   quoteHeader: {
     marginTop: spacing.xs,

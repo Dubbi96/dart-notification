@@ -43,7 +43,9 @@ function main() {
   assert('타임프레임 토글(SegmentedButtons minute/daily)', /<SegmentedButtons/.test(screen) && /value:\s*'minute'/.test(screen) && /value:\s*'daily'/.test(screen));
   // DAR-384: 일봉 탭 '준비중' 플레이스홀더 → 실제 일봉 차트(DailyCandleChart)로 교체.
   assert('일봉 실제 차트(DailyCandleChart, 준비중 placeholder 제거)', /<DailyCandleChart\b/.test(screen) && !/일봉 준비중/.test(screen));
-  assert('★정직: 실시간 시장가 고지 1줄', /실시간 시장가 —/.test(screen));
+  // DAR-458 E7/E2: 화면 상단 중복 고지 배너 제거 — 실시간성은 QuoteHeader 배지 + 각 차트가 단독 노출.
+  assert('★정직(E7/E2): 화면 상단 중복 고지 배너 제거', !/실시간 시장가 —/.test(screen));
+  assert('★정직: QuoteHeader 실시간/종가 배지로 현재가 framing 유지', /<QuoteHeader\b/.test(screen));
   assert('렌더에서 Date.now 직접 호출 안 함(purity, now=new Date())', !/Date\.now\(/.test(screen));
 
   // ── 2) 진입점 3곳 ────────────────────────────────────────────────

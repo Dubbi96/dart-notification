@@ -86,9 +86,10 @@ assert('홈프리뷰: chart 보조 a11y 액션(no-hide-descendants 보완)', /na
 assert('홈프리뷰: 차트 버튼 접근성 라벨', /실시간 차트 보기`/.test(home));
 
 // (4) /stock 화면 존재(라우트 타깃 실재) + ★정직 라벨 유지
+//     DAR-458 E7/E2: 화면 상단 중복 고지 배너 제거 → 정직 framing은 QuoteHeader(실시간/종가 배지) 단독.
 const stock = read('app', 'stock', '[stockCode].tsx');
 assert('/stock 화면 실재(useLocalSearchParams stockCode)', /useLocalSearchParams<\{\s*stockCode/.test(stock));
-assert('/stock 화면 ★정직 실시간 시장가 고지 유지', /실시간 시장가/.test(stock));
+assert('/stock 화면 ★정직 framing 유지(QuoteHeader 배지·중복 배너 제거)', /<QuoteHeader\b/.test(stock) && !/실시간 시장가 —/.test(stock));
 
 const total = 12 + 3 + 7 + 6 + 5 + 2;
 const passed = total - failures;

@@ -52,8 +52,8 @@ ok('빈상태 graceful 문구', /당일 분봉 데이터가 아직 없어요/.te
 ok('꼬리 Line(고-저) + 몸통 Rect(시-종)', /<Line[\s\S]*y1=\{yHigh\}[\s\S]*y2=\{yLow\}/.test(comp) && /<Rect[\s\S]*bodyTop/.test(comp));
 ok('거래량 보조 차트', /거래량|VOLUME_HEIGHT/.test(comp) && /v-\$\{c\.time\}/.test(comp));
 ok('상승/하락 색 returnColor(close-open)', /returnColor\(c\.close - c\.open, colors\)/.test(comp));
-ok("정직 라벨 '실시간 분봉(실제 시장)'", /실시간 분봉\(실제 시장\)/.test(comp));
-ok('환경 시계 괴리 고지', /앱 환경 시계와 다를 수 있어요/.test(comp));
+ok("정직 라벨 '실시간 시세 기준'(E7 평이화·DAR-458)", /실시간 시세 기준/.test(comp));
+ok('구현용어 미노출(앱 환경 시계 제거·E7·DAR-458)', !/앱 환경 시계/.test(comp));
 ok('asOf → 서버 조회 HH:MM 병기(asOfClock)', /asOfClock\(asOf \?\? ''\)[\s\S]*서버 조회/.test(comp));
 ok('색 단독 금지 — 시간·가격 평문 병기(요약)', /종가 \{won\(active\.close\)\}/.test(comp));
 

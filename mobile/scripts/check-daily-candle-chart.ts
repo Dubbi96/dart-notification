@@ -55,7 +55,7 @@ function main() {
   console.log('components/company/DailyCandleChart.tsx');
   assert('CandleSeriesPoint 소비', /CandleSeriesPoint/.test(chart));
   assert('★정직: source EOD 라벨(KRX 종가)', /KRX 일봉\(장 마감 종가\)/.test(chart));
-  assert('★정직: 환경시계 괴리 고지', /환경 시계.*다를 수 있어요/.test(chart));
+  assert('★정직: 거래일 종가 기준 평문(E7·DAR-458) + 구현용어 미노출', /거래일 종가 기준/.test(chart) && !/앱 환경 시계/.test(chart));
   assert('asOf 서버 조회 시각 병기', /asOfDate\(asOf/.test(chart));
   assert('로딩 graceful', /isLoading/.test(chart) && /일봉 불러오는 중/.test(chart));
   assert('에러 graceful(재시도)', /isError/.test(chart) && /일봉을 불러오지 못했어요/.test(chart) && /onRetry/.test(chart));

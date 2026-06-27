@@ -170,8 +170,9 @@ export default function HomeScreen() {
         {/* 오늘의 투자판단 프리뷰(DAR-61) — summaryCard 아래 최상단. 공시→투자판단 1순위 동선. */}
         <HomeSignalPreview isAuthenticated={isAuthenticated} />
 
-        {/* 졸업 트래커(DAR-67) — Main Thesis B 결승선(M10) 게이트 진척. 단일 시스템 모의 포트폴리오라 게스트 데모 가능. */}
-        <GraduationTracker />
+        {/* DAR-446(A-HOME-2): 헤더 섹션을 시장배지·신호프리뷰·세그먼트 3개로 축소.
+            '운용 성과'(GraduationTracker+퍼널)는 핵심 콘텐츠(공시 피드)를 묻지 않도록 피드 아래
+            ListFooter 로 강등하고, 게스트에겐 모의운용 측정값을 노출하지 않는다(A-HOME-3). */}
 
         {/* Disclosures */}
         <View style={styles.sectionHeader}>
@@ -288,6 +289,25 @@ export default function HomeScreen() {
     [isLoading, isError, error, refetch, handleSearchOpen],
   );
 
+  // DAR-446(A-HOME-2/3): '운용 성과'(졸업 트래커+전환 현황)를 핵심 공시 피드 아래(footer)로
+  //   강등해 첫인상에서 피드가 묻히지 않게 한다. 로그인 사용자에게만 노출 — 게스트에겐 모의운용
+  //   누적 측정값을 보여주지 않는다(인증 게이트). 기존 페이지네이션 스피너는 그대로 유지한다.
+  const ListFooter = useCallback(
+    () => (
+      <>
+        {isAuthenticated ? (
+          <View style={styles.listFooterSection}>
+            <GraduationTracker />
+          </View>
+        ) : null}
+        {isFetchingNextPage ? (
+          <ActivityIndicator style={{ paddingVertical: spacing.lg }} color={colors.primary} />
+        ) : null}
+      </>
+    ),
+    [isAuthenticated, isFetchingNextPage, colors.primary],
+  );
+
   // DAR-108(#10): 초기 로딩 시에도 헤더 셸을 유지하고 콘텐츠(피드)만 스켈레톤으로
   // 대체해 레이아웃 점프를 방지한다. (기존: 화면 전체를 스켈레톤으로 대체 → 헤더가 뒤늦게 등장)
   return (
@@ -365,23 +385,47 @@ export default function HomeScreen() {
                   : `최신 공시${todayDateLabel ? ` ${todayDateLabel} 기준` : ''} ${todayCount}건, 공시 목록 열기`
               }
             >
-              <Text style={[typo.h2, { color: colors.onColor }]}>{disclosuresCountDisplay}</Text>
+              {/* DAR-446(A-HOME-5): 핵심 수치를 amount 토큰으로 강조 — 이름(h2)보다 큰 위계. */}
+              <Text style={[typo.amount, { color: colors.onColor }]}>{disclosuresCountDisplay}</Text>
               <Text style={[typo.small, { color: colors.onColorMuted }]}>
                 {todayDateLabel ? `최신 공시 (${todayDateLabel})` : '최신 공시'}
               </Text>
             </TouchableOpacity>
             <View style={[styles.summaryDivider, { backgroundColor: colors.hairlineOnColor }]} />
-            <TouchableOpacity style={styles.summaryItem} onPress={() => {
-              if (requireAuth()) router.push('/settings-detail/watchlist');
-            }}>
-              <Text style={[typo.h2, { color: colors.onColor }]}>{watchlistCountDisplay}</Text>
+            {/* DAR-446(A-HOME-4): 세 통계 모두 accessibilityRole/Label 부여(기존 1개만 있었음). */}
+            <TouchableOpacity
+              style={styles.summaryItem}
+              onPress={() => {
+                if (requireAuth()) router.push('/settings-detail/watchlist');
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={
+                !isAuthenticated
+                  ? '관심 기업 — 로그인하고 보기'
+                  : watchlistLoading || watchlistError
+                    ? '관심 기업 집계 불러오는 중, 관심 기업 목록 열기'
+                    : `관심 기업 ${watchlistCount}개, 관심 기업 목록 열기`
+              }
+            >
+              <Text style={[typo.amount, { color: colors.onColor }]}>{watchlistCountDisplay}</Text>
               <Text style={[typo.small, { color: colors.onColorMuted }]}>관심 기업</Text>
             </TouchableOpacity>
             <View style={[styles.summaryDivider, { backgroundColor: colors.hairlineOnColor }]} />
-            <TouchableOpacity style={styles.summaryItem} onPress={() => {
-              if (requireAuth()) router.push('/settings-detail/saved-disclosures');
-            }}>
-              <Text style={[typo.h2, { color: colors.onColor }]}>{savedCountDisplay}</Text>
+            <TouchableOpacity
+              style={styles.summaryItem}
+              onPress={() => {
+                if (requireAuth()) router.push('/settings-detail/saved-disclosures');
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={
+                !isAuthenticated
+                  ? '저장된 공시 — 로그인하고 보기'
+                  : savedLoading || savedError
+                    ? '저장된 공시 집계 불러오는 중, 저장한 공시 열기'
+                    : `저장된 공시 ${savedCount}건, 저장한 공시 열기`
+              }
+            >
+              <Text style={[typo.amount, { color: colors.onColor }]}>{savedCountDisplay}</Text>
               <Text style={[typo.small, { color: colors.onColorMuted }]}>저장된 공시</Text>
             </TouchableOpacity>
           </View>
@@ -411,11 +455,7 @@ export default function HomeScreen() {
           refreshing={isRefetching && !isFetchingNextPage}
           onRefresh={refetch}
           ListHeaderComponent={ListHeader}
-          ListFooterComponent={
-            isFetchingNextPage ? (
-              <ActivityIndicator style={{ paddingVertical: spacing.lg }} color={colors.primary} />
-            ) : null
-          }
+          ListFooterComponent={ListFooter}
           ListEmptyComponent={ListEmpty}
         />
       </View>
@@ -528,6 +568,11 @@ const styles = StyleSheet.create({
   // 자체 가로 마진/패딩(spacing.lg)과 전체 화면폭 기준 카드폭을 전제하므로,
   // 음수 가로 마진으로 컨테이너 패딩을 상쇄해 기존 정렬·여백을 그대로 유지한다.
   listHeader: {
+    marginHorizontal: -spacing.lg,
+  },
+  // DAR-446: footer '운용 성과' 섹션도 헤더와 동일하게 listContent 의 가로 패딩(spacing.lg)을
+  // 음수 마진으로 상쇄한다(GraduationTracker 가 자체 가로 패딩으로 전체폭 정렬을 전제).
+  listFooterSection: {
     marginHorizontal: -spacing.lg,
   },
   notifBadge: {

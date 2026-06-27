@@ -13,9 +13,11 @@ import { pickNextGate } from '@utils/graduation';
 
 import type { GraduationGate, GraduationReport } from '@app-types/graduation.types';
 
-// 홈 '졸업 트래커' 카드(DAR-67, 상용 패널 v2 #2).
-// ★Main Thesis B 결승선(M10 졸업 측정): 게이트 G1~G5 현재값 vs 기준 · 통과/미달 배지 · 진척률을
-// 한눈에. 표본 부족(LOW_SAMPLE)은 '표본 부족' 투명 배지로 정직 표기(과신 방지).
+// 홈 '운용 성과' 카드(DAR-67, 상용 패널 v2 #2).
+// DAR-446(A-HOME-1): UI 문구에서 내부·전문 용어(Main Thesis/M10/Sharpe/졸업) 제거 →
+//   '운용 성과'·'목표 달성'·'위험 대비 수익' 등 평이어로 치환(신규 사용자 이질감 해소).
+// 모의 운용 목표 기준(현재값 vs 기준 · 달성/미달 배지 · 달성률)을 한눈에.
+//   표본 부족(LOW_SAMPLE)은 '표본 부족' 투명 배지로 정직 표기(과신 방지).
 // 테마 토큰만 사용·하드코딩 색상 0·접근성 라벨. 측정값은 참고용(면책 유지).
 
 type BadgeKind = 'pass' | 'fail' | 'lowSample' | 'unmeasurable';
@@ -94,7 +96,7 @@ function GateRow({ gate }: { gate: GraduationGate }) {
   );
 }
 
-/** 다음 게이트 한 줄 요약(미달/미측정 1개). 전부 통과면 '졸업 도달' 라인. */
+/** 다음 목표 한 줄 요약(미달/미측정 1개). 전부 달성이면 '모든 목표 달성' 라인. */
 function NextGateSummary({ report }: { report: GraduationReport }) {
   const { colors, typography: typo } = useTheme();
   const gate = pickNextGate(report);
@@ -104,9 +106,9 @@ function NextGateSummary({ report }: { report: GraduationReport }) {
       <Text
         style={[typo.small, { color: colors.success, marginTop: spacing.md }]}
         accessibilityRole="text"
-        accessibilityLabel="모든 게이트 통과 — 졸업 도달"
+        accessibilityLabel="모든 목표 달성"
       >
-        모든 게이트 통과 — 졸업 도달
+        모든 목표 달성
       </Text>
     );
   }
@@ -116,12 +118,12 @@ function NextGateSummary({ report }: { report: GraduationReport }) {
     <View
       style={[styles.nextGateRow, { borderTopColor: colors.border }]}
       accessibilityRole="text"
-      accessibilityLabel={`다음 게이트 ${gate.label}, 현재 ${formatCurrent(gate)}, 기준 ${formatThreshold(
+      accessibilityLabel={`다음 목표 ${gate.label}, 현재 ${formatCurrent(gate)}, 기준 ${formatThreshold(
         gate,
       )}, ${BADGE_TEXT[kind]}`}
     >
       <Text style={[typo.small, styles.nextGateLabel, { color: colors.text }]} numberOfLines={1}>
-        <Text style={{ color: colors.textTertiary }}>다음 게이트  </Text>
+        <Text style={{ color: colors.textTertiary }}>다음 목표  </Text>
         {gate.label}
       </Text>
       <Text style={[typo.captionMedium, { color: colors.text }]} numberOfLines={1}>
@@ -145,7 +147,7 @@ function TrackerBody({ report }: { report: GraduationReport }) {
           <View style={styles.headerText}>
             <View style={styles.titleRow}>
               <Feather name="award" size={16} color={colors.primary} />
-              <Text style={[typo.bodyMedium, { color: colors.text }]}>졸업 트래커</Text>
+              <Text style={[typo.bodyMedium, { color: colors.text }]}>운용 성과</Text>
               {report.lowSample ? (
                 <View
                   style={[styles.lowSampleBadge, { borderColor: colors.border }]}
@@ -156,7 +158,7 @@ function TrackerBody({ report }: { report: GraduationReport }) {
               ) : null}
             </View>
             <Text style={[typo.small, { color: colors.textSecondary }]}>
-              졸업 게이트 {report.passedCount}/{report.totalGates} 통과
+              목표 {report.passedCount}/{report.totalGates} 달성
             </Text>
           </View>
         </View>
@@ -165,7 +167,7 @@ function TrackerBody({ report }: { report: GraduationReport }) {
         <View
           style={[styles.progressTrack, { backgroundColor: colors.surfaceSecondary }]}
           accessibilityRole="progressbar"
-          accessibilityLabel={`졸업 진척 ${Math.round(report.progress * 100)}퍼센트`}
+          accessibilityLabel={`목표 달성률 ${Math.round(report.progress * 100)}퍼센트`}
         >
           <View
             style={[
@@ -181,12 +183,12 @@ function TrackerBody({ report }: { report: GraduationReport }) {
         <NextGateSummary report={report} />
       </Surface>
 
-      {/* 게이트별 표·Sharpe·면책은 opt-in 접기로(progressive disclosure·DAR-197). */}
+      {/* 항목별 표·위험 대비 수익·면책은 opt-in 접기로(progressive disclosure·DAR-197). */}
       <CollapsibleCard
         icon="list"
-        title="게이트 상세"
-        summary={`${report.totalGates}개 게이트${
-          report.sharpe !== null ? ` · Sharpe ${report.sharpe.toFixed(2)}` : ''
+        title="세부 지표"
+        summary={`${report.totalGates}개 지표${
+          report.sharpe !== null ? ` · 위험 대비 수익 ${report.sharpe.toFixed(2)}` : ''
         }`}
       >
         <View style={styles.gateList}>
@@ -195,16 +197,16 @@ function TrackerBody({ report }: { report: GraduationReport }) {
           ))}
         </View>
 
-        {/* Sharpe 참고지표(통과/미달 게이트 아님) — DAR-68. 측정 불가면 '—'. */}
+        {/* 위험 대비 수익 참고지표(달성/미달 항목 아님) — DAR-68. 측정 불가면 '—'. */}
         <View
           style={[styles.sharpeRow, { borderTopColor: colors.border }]}
           accessibilityRole="text"
-          accessibilityLabel={`위험조정 수익(Sharpe 비율) ${
+          accessibilityLabel={`위험 대비 수익 ${
             report.sharpe !== null ? report.sharpe.toFixed(2) : '측정 불가'
           }, 참고지표`}
         >
           <Text style={[typo.small, { color: colors.textSecondary }]}>
-            위험조정 수익(Sharpe)
+            위험 대비 수익
           </Text>
           <Text style={[typo.captionMedium, { color: colors.text }]}>
             {report.sharpe !== null ? report.sharpe.toFixed(2) : '—'}
@@ -226,8 +228,8 @@ export function GraduationTracker() {
 
   const Heading = (
     <View style={styles.heading}>
-      <Text style={[typo.bodyMedium, { color: colors.text }]}>졸업 진척</Text>
-      <Text style={[typo.small, { color: colors.textSecondary }]}>Main Thesis B 결승선(M10) 측정</Text>
+      <Text style={[typo.bodyMedium, { color: colors.text }]}>운용 성과</Text>
+      <Text style={[typo.small, { color: colors.textSecondary }]}>모의 운용 누적 성과 측정값 (참고)</Text>
     </View>
   );
 
@@ -238,7 +240,7 @@ export function GraduationTracker() {
   let body: React.ReactNode;
   if (isLoading) {
     body = (
-      <View style={styles.skeletonWrap} accessibilityRole="progressbar" accessibilityLabel="졸업 진척 불러오는 중">
+      <View style={styles.skeletonWrap} accessibilityRole="progressbar" accessibilityLabel="운용 성과 불러오는 중">
         <SkeletonCard variant="buyScore" />
       </View>
     );
@@ -247,7 +249,7 @@ export function GraduationTracker() {
       <ApiErrorState
         error={error}
         onRetry={handleRetry}
-        title="졸업 진척을 불러오지 못했습니다"
+        title="운용 성과를 불러오지 못했습니다"
         description="잠시 후 다시 시도해 주세요."
       />
     );
@@ -263,7 +265,7 @@ export function GraduationTracker() {
         {Heading}
         {body}
       </View>
-      {/* 신호→진입 퍼널(DAR-162) — 졸업 트래커 하위 카드. 자체 쿼리·로딩/에러/빈 상태 독립. */}
+      {/* 신호에서 체결까지(DAR-162) — 운용 성과 하위 카드. 자체 쿼리·로딩/에러/빈 상태 독립. */}
       <EntryFunnelSection />
     </View>
   );

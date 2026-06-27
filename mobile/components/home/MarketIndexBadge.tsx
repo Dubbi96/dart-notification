@@ -6,12 +6,16 @@ import { spacing, radius } from '@theme/spacing';
 import { pnlColor } from '@utils/signalDisplay';
 import { indexBasisLabel } from '@utils/marketIndexDisplay';
 import { useMarketIndices } from '@hooks/useMarketIndices';
+import { useSkeletonPulse, SkeletonBar } from '@components/common/SkeletonCard';
 
 import type { MarketIndexQuote } from '@app-types/market.types';
 
 // DAR-160: 홈 헤더 '시장 한눈에' 배지. KOSPI·KOSDAQ 최신 종가 + 전일대비 등락률.
 // 색 단독 의미 금지 — 색 + 부호 + 방향 아이콘 병행(접근성). 테마 토큰만 사용, 정적 표시.
-// 데이터가 없을 때(로딩·에러·미적재)는 깨지지 않도록 null 을 렌더한다.
+// DAR-446(A-MKT-1): 로딩 중에는 null 대신 동일 카드 높이의 스켈레톤 자리표시를 렌더한다.
+//   기존엔 로딩 시 null → 데이터 도착 후 배지가 삽입되며 홈 헤더가 아래로 밀리는 레이아웃 점프가
+//   있었다. 로딩 자리표시가 같은 골격(제목행 + 2열 × 4줄)을 미리 차지해 점프를 제거한다.
+//   로딩이 끝났는데도 데이터가 없으면(에러·미적재) 기존처럼 null(미표시)로 접는다.
 // DAR-300: 컴팩트 배지 — 인접 홈 카드와 높이 위계를 맞추기 위해 세로 패딩/행 간격을 압축한다.
 // 큰 시스템 폰트(OS 배율)가 RN 타이포 배율 위에 이중으로 곱해져 카드가 과대해지는 것을 막기 위해
 // 고정·압축 배지 규칙(§9/DAR-174)에 따라 maxFontSizeMultiplier 로 OS 추가 배율을 상한한다.
@@ -91,11 +95,41 @@ function MarketIndexColumn({ quote }: { quote: MarketIndexQuote }) {
   );
 }
 
+// 로딩 자리표시(A-MKT-1) — 실제 배지와 동일한 카드 골격·타이포 lineHeight 높이로 자리를 예약해
+// 데이터 도착 시 레이아웃 점프를 막는다. SkeletonBar/펄스는 공통 스켈레톤 인프라 재사용.
+function MarketIndexBadgeSkeleton() {
+  const { colors, typography: typo } = useTheme();
+  const opacity = useSkeletonPulse();
+  return (
+    <View
+      style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+      accessibilityRole="progressbar"
+      accessibilityLabel="시장 지수 불러오는 중"
+    >
+      <View style={styles.titleRow}>
+        <SkeletonBar width={80} height={typo.captionMedium.lineHeight} opacity={opacity} />
+      </View>
+      <View style={styles.columns}>
+        {[0, 1].map((i) => (
+          <View key={i} style={styles.column}>
+            <SkeletonBar width={44} height={typo.small.lineHeight} opacity={opacity} />
+            <SkeletonBar width={64} height={typo.caption.lineHeight} opacity={opacity} style={styles.skeletonGap} />
+            <SkeletonBar width={48} height={typo.small.lineHeight} opacity={opacity} style={styles.skeletonGap} />
+            <SkeletonBar width={56} height={typo.small.lineHeight} opacity={opacity} style={styles.skeletonGap} />
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export function MarketIndexBadge() {
   const { colors, typography: typo } = useTheme();
-  const { data } = useMarketIndices();
+  const { data, isLoading } = useMarketIndices();
 
-  // 데이터 없음(로딩·에러·미적재) → 홈 레이아웃을 흔들지 않도록 미표시.
+  // 첫 로딩(isLoading=pending&&fetching, 아직 데이터 없음) → 점프 방지용 고정 높이 스켈레톤(A-MKT-1).
+  if (isLoading) return <MarketIndexBadgeSkeleton />;
+  // 로딩이 끝났는데 데이터 없음(에러·미적재) → 홈 레이아웃을 흔들지 않도록 미표시.
   if (!data || data.length === 0) return null;
 
   return (
@@ -144,6 +178,10 @@ const styles = StyleSheet.create({
   },
   column: {
     flex: 1,
+  },
+  // A-MKT-1: 스켈레톤 막대 간 간격 — 실제 열의 행 간격(marginTop: 2)과 동일하게 맞춰 높이 정합.
+  skeletonGap: {
+    marginTop: 2,
   },
   indexValue: {
     fontWeight: '700',

@@ -12,7 +12,8 @@ import { useGraduationFunnel } from '@hooks/useGraduationFunnel';
 
 import type { FunnelReport, FunnelTotals } from '@app-types/graduation.types';
 
-// 홈 '신호→진입 퍼널' 카드(DAR-162, 편의성·시인성 v6 #졸업 트래커).
+// 홈 '신호에서 체결까지' 카드(DAR-162, 편의성·시인성 v6).
+// DAR-446(A-HOME-1): UI 문구에서 전문용어 '퍼널' 제거 → '신호에서 체결까지' 평이어로 치환.
 // 백엔드 GET /graduation/funnel(DAR-109)을 소비해 '생성 신호 N → 진입 후보 M → 체결 K'의
 // 누적 단계별 수치·전환율 바를 노출한다. 신호가 실제 진입으로 얼마나 이어지는지 한눈에.
 // 표본 부족(생성 신호<30)은 DataLimitBadge 로 정직 표기(과신 방지·LOW_SAMPLE 흡수).
@@ -92,7 +93,7 @@ function FunnelBody({ report }: { report: FunnelReport }) {
       <View style={styles.cardHeader}>
         <View style={styles.titleRow}>
           <Feather name="filter" size={16} color={colors.primary} />
-          <Text style={[typo.bodyMedium, { color: colors.text }]}>신호→진입 퍼널</Text>
+          <Text style={[typo.bodyMedium, { color: colors.text }]}>신호에서 체결까지</Text>
         </View>
         <Text style={[typo.small, { color: colors.textSecondary }]}>
           {`누적 ${totals.days}일 · 신호→체결 ${formatRate(totals.conversionRate)}`}
@@ -142,7 +143,7 @@ function FunnelEmpty() {
     >
       <View style={styles.titleRow}>
         <Feather name="filter" size={16} color={colors.textTertiary} />
-        <Text style={[typo.bodyMedium, { color: colors.text }]}>신호→진입 퍼널</Text>
+        <Text style={[typo.bodyMedium, { color: colors.text }]}>신호에서 체결까지</Text>
       </View>
       <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.sm }]}>
         아직 집계된 신호가 없습니다. 모의운용 데이터가 쌓이면 전환율이 표시됩니다.
@@ -162,7 +163,7 @@ export function EntryFunnelSection() {
   let body: React.ReactNode;
   if (isLoading) {
     body = (
-      <View style={styles.skeletonWrap} accessibilityRole="progressbar" accessibilityLabel="신호 진입 퍼널 불러오는 중">
+      <View style={styles.skeletonWrap} accessibilityRole="progressbar" accessibilityLabel="전환 현황 불러오는 중">
         <SkeletonCard variant="buyScore" />
       </View>
     );
@@ -171,7 +172,7 @@ export function EntryFunnelSection() {
       <ApiErrorState
         error={error}
         onRetry={handleRetry}
-        title="진입 퍼널을 불러오지 못했습니다"
+        title="전환 현황을 불러오지 못했습니다"
         description="잠시 후 다시 시도해 주세요."
       />
     );

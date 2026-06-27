@@ -1,10 +1,11 @@
 import React from 'react';
-import { View, Text, ScrollView, RefreshControl, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
+import { ScreenHeader } from '@components/common/ScreenHeader';
 import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
 import { useCollectionStatus } from '@hooks/useCollectionStatus';
 import { relativeTimeOrFallback, formatYmdDots } from '@utils/datetime';
@@ -115,20 +116,7 @@ export default function CollectionStatusScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          hitSlop={8}
-          style={styles.backButton}
-          accessibilityRole="button"
-          accessibilityLabel="뒤로 가기"
-        >
-          <Feather name="chevron-left" size={26} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[typo.h3, { color: colors.text }]}>수집 현황</Text>
-        <View style={styles.backButton} />
-      </View>
+      <ScreenHeader title="수집 현황" onBack={() => router.back()} />
 
       {isLoading ? (
         <LoadingState message="수집 현황을 불러오는 중..." />
@@ -192,7 +180,7 @@ export default function CollectionStatusScreen() {
             icon="trending-up"
             title="시세·지표"
             metricValue={data.indicator.coveredStocks.toLocaleString('ko-KR')}
-            metricLabel="백필 종목"
+            metricLabel="지표 보유 종목"
             maturity={data.indicator.maturity}
             rows={[
               { label: '최근 거래일', value: formatYmdDots(data.indicator.latestTradeDate) },
@@ -213,7 +201,10 @@ export default function CollectionStatusScreen() {
             ]}
           />
 
-          <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.lg, textAlign: 'center' }]}>
+          <Text style={[typo.small, styles.footnote, { color: colors.textTertiary }]}>
+            * 지표 보유 종목: 과거 시세·지표 데이터를 미리 모아 둔(백필) 종목 수입니다.
+          </Text>
+          <Text style={[typo.small, styles.footnoteTight, { color: colors.textTertiary }]}>
             * 성숙도 배지: 충분(임계치 이상 누적) · 수집중(누적 진행) · 대기(데이터 없음).
           </Text>
           <View style={{ height: spacing['2xl'] }} />
@@ -225,17 +216,13 @@ export default function CollectionStatusScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
+  footnote: {
+    marginTop: spacing.lg,
+    textAlign: 'center',
   },
-  backButton: {
-    width: 40,
-    alignItems: 'flex-start',
+  footnoteTight: {
+    marginTop: spacing.xs,
+    textAlign: 'center',
   },
   content: {
     padding: spacing.lg,

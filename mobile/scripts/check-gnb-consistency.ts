@@ -82,13 +82,13 @@ for (const rel of DETAIL_SCREENS) {
   ok(`상세 화면 좌상단 뒤로가기 a11y(ScreenHeader|인라인): ${rel}`, usesScreenHeader || inlineA11y);
 }
 
-// ── 회귀/대조: DAR-303 에서 보강한 5개 인라인 헤더가 '뒤로 가기' 라벨을 실제 획득 ────
+// ── 회귀/대조: DAR-303 에서 보강한 인라인 헤더가 '뒤로 가기' 라벨을 실제 획득 ────
+// DAR-455: profile·saved-disclosures 는 공통 ScreenHeader 로 이관되어 인라인 백버튼이 제거됨
+//   → FIXED(인라인 검증) 목록에서 제외(상단 (B) 블록의 usesScreenHeader 경로가 a11y 를 전이 커버).
 const FIXED = [
   'app/legal/terms.tsx',
   'app/legal/privacy.tsx',
   'app/settings-detail/ai-cost.tsx',
-  'app/settings-detail/profile.tsx',
-  'app/settings-detail/saved-disclosures.tsx',
 ];
 for (const rel of FIXED) {
   const src = read(rel);

@@ -5,6 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
+import { ScreenHeader } from '@components/common/ScreenHeader';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { useSettingsStore } from '@stores/settingsStore';
 import { useHaptics } from '@hooks/useHaptics';
@@ -81,20 +82,7 @@ export default function ProScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          hitSlop={8}
-          style={styles.backButton}
-          accessibilityRole="button"
-          accessibilityLabel="뒤로 가기"
-        >
-          <Feather name="chevron-left" size={26} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[typo.h3, { color: colors.text }]}>Pro</Text>
-        <View style={styles.backButton} />
-      </View>
+      <ScreenHeader title="Pro" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* Hero */}
@@ -164,18 +152,6 @@ export default function ProScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-  },
-  backButton: {
-    width: 40,
-    alignItems: 'flex-start',
-  },
   content: {
     padding: spacing.lg,
     paddingBottom: spacing['4xl'],

@@ -6,12 +6,14 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, sizing } from '@theme/spacing';
+import { ScreenHeader } from '@components/common/ScreenHeader';
 import { Card } from '@components/common/Card';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
@@ -39,7 +41,7 @@ export default function SavedDisclosuresScreen() {
   const { colors, typography: typo, isDark } = useTheme();
   const { showSnackbar } = useSnackbar();
   const haptics = useHaptics();
-  const { data, isLoading, isError, error, refetch } = useSavedDisclosures();
+  const { data, isLoading, isError, error, refetch, isRefetching } = useSavedDisclosures();
   const removeMutation = useRemoveSavedDisclosure();
   const saveMutation = useSaveDisclosure();
 
@@ -74,7 +76,7 @@ export default function SavedDisclosuresScreen() {
               </Text>
             </View>
             <TouchableOpacity
-              hitSlop={8}
+              style={styles.removeButton}
               onPress={() => handleRemove(item.id, item.rcpNo)}
               accessibilityRole="button"
               accessibilityLabel="저장 해제"
@@ -105,23 +107,11 @@ export default function SavedDisclosuresScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="뒤로 가기"
-        >
-          <Ionicons name="chevron-back" size={26} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[typo.h3, { color: colors.text, marginLeft: spacing.sm }]}>저장된 공시</Text>
-        <View style={{ flex: 1 }} />
-        {!isLoading && !isError ? (
-          <Text style={[typo.caption, { color: colors.textSecondary }]}>
-            {items.length}건
-          </Text>
-        ) : null}
-      </View>
+      <ScreenHeader
+        title="저장된 공시"
+        onBack={() => router.back()}
+        subtitle={!isLoading && !isError ? `${items.length}건` : undefined}
+      />
 
       {isLoading ? (
         <View style={styles.centered}>
@@ -146,6 +136,14 @@ export default function SavedDisclosuresScreen() {
           maxToRenderPerBatch={10}
           windowSize={11}
           removeClippedSubviews
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={refetch}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
           ListEmptyComponent={<EmptyState {...emptyStateCopy.savedDisclosuresEmpty} />}
         />
       )}
@@ -156,13 +154,6 @@ export default function SavedDisclosuresScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
   },
   centered: {
     flex: 1,
@@ -182,6 +173,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  // DAR-455(D11): 저장 해제 버튼 터치영역 ≥44pt(watchlist actionBtn 패턴 재사용).
+  removeButton: {
+    minWidth: sizing.minTouchTarget,
+    minHeight: sizing.minTouchTarget,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   typeBadge: {
     paddingHorizontal: spacing.sm,

@@ -72,6 +72,8 @@ export const lightColors = {
   primaryLight: palette.teal50,
   primaryDark: palette.teal700,
   primaryForeground: palette.white,
+  // primary 위 옅은 테두리(아바타·하이라이트 외곽). 인라인 알파 결합(primary+'25') 대체 토큰 (DAR-455, D13).
+  primaryBorder: 'rgba(20, 184, 166, 0.15)',
 
   // Text
   text: palette.gray900,
@@ -146,6 +148,8 @@ export const darkColors = {
   primaryLight: '#1A1D3A',
   primaryDark: '#A5B4FC',
   primaryForeground: palette.navy950,
+  // primary 위 옅은 테두리(아바타·하이라이트 외곽). 인라인 알파 결합(primary+'25') 대체 토큰 (DAR-455, D13).
+  primaryBorder: 'rgba(129, 140, 248, 0.15)',
 
   // Text
   text: '#E8EAF0',

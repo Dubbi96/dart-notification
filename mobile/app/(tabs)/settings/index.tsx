@@ -17,6 +17,7 @@ import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
 import { GlassCard } from '@components/common/GlassCard';
 import { DevConnectionStatus } from '@components/common/DevConnectionStatus';
+import { useDialog } from '@components/common/DialogProvider';
 import { useAuthStore } from '@stores/authStore';
 import { useSettingsStore } from '@stores/settingsStore';
 import { useLogout, useMe } from '@hooks/useAuth';
@@ -27,20 +28,37 @@ interface MenuItemProps {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   subtitle?: string;
-  onPress: () => void;
+  onPress?: () => void;
   badgeCount?: number;
   showChevron?: boolean;
+  /** cycle 행 우측 현재값 칩(있으면 순환 아이콘 동반) — 탭 시 값이 순환함을 알리는 affordance (D8). */
+  valueChip?: string;
+  /** 보조 동작 설명(스크린리더). 예: cycle 행 "탭하면 다음 옵션으로 전환" (D8). */
+  accessibilityHint?: string;
+  /** 비터치 정보 행(예: 앱 정보) — View 로 렌더해 dead tap 제거 (D9). */
+  nonInteractive?: boolean;
 }
 
-function MenuItem({ icon, title, subtitle, onPress, badgeCount, showChevron = true }: MenuItemProps) {
+function MenuItem({
+  icon,
+  title,
+  subtitle,
+  onPress,
+  badgeCount,
+  showChevron = true,
+  valueChip,
+  accessibilityHint,
+  nonInteractive = false,
+}: MenuItemProps) {
   const { colors, typography: typo } = useTheme();
 
-  return (
-    <TouchableOpacity
-      style={styles.menuItem}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
+  // D2: title/subtitle/현재값을 합쳐 스크린리더가 행 전체를 하나의 버튼으로 읽도록 라벨 구성.
+  const a11yLabel = [title, subtitle, valueChip ? `현재 ${valueChip}` : null]
+    .filter(Boolean)
+    .join(', ');
+
+  const body = (
+    <>
       <View style={[styles.menuIcon, { backgroundColor: colors.primaryLight }]}>
         <Ionicons name={icon} size={20} color={colors.primary} />
       </View>
@@ -62,8 +80,43 @@ function MenuItem({ icon, title, subtitle, onPress, badgeCount, showChevron = tr
             </Text>
           </View>
         )}
+        {valueChip != null && (
+          // D8: 현재값 칩 + 순환 아이콘으로 cycle affordance 제공(chevron 대체).
+          <View style={[styles.valueChip, { backgroundColor: colors.primaryLight }]}>
+            <Text
+              style={[typo.small, styles.valueChipText, { color: colors.primary }]}
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+              numberOfLines={1}
+            >
+              {valueChip}
+            </Text>
+            <Ionicons name="sync-outline" size={14} color={colors.primary} />
+          </View>
+        )}
         {showChevron && <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />}
       </View>
+    </>
+  );
+
+  // D9: 비터치 정보 행은 버튼이 아닌 정적 텍스트 행으로 렌더(빈 onPress dead tap 제거).
+  if (nonInteractive) {
+    return (
+      <View style={styles.menuItem} accessible accessibilityLabel={a11yLabel}>
+        {body}
+      </View>
+    );
+  }
+
+  return (
+    <TouchableOpacity
+      style={styles.menuItem}
+      onPress={onPress}
+      activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={a11yLabel}
+      accessibilityHint={accessibilityHint}
+    >
+      {body}
     </TouchableOpacity>
   );
 }
@@ -74,6 +127,7 @@ export default function SettingsScreen() {
   const { colorSchemeOverride, setColorScheme, textScaleOverride, setTextScaleOverride } =
     useSettingsStore();
   const { mutate: logout } = useLogout();
+  const { showDialog } = useDialog();
   // 서버 User SSOT = useMe().data (authStore 복제 제거, DAR-262).
   const { data: user, refetch: refetchMe } = useMe();
   const insets = useSafeAreaInsets();
@@ -107,8 +161,17 @@ export default function SettingsScreen() {
     setTextScaleOverride(order[(idx + 1) % order.length]);
   };
 
+  // D3: 파괴적 액션 — 오탭 한 번에 로그아웃되지 않도록 확인 다이얼로그 게이트.
   const handleLogout = () => {
-    logout();
+    showDialog({
+      title: '로그아웃',
+      message: '로그아웃하시겠어요?',
+      icon: { name: 'log-out', color: colors.error },
+      buttons: [
+        { text: '취소', style: 'cancel' },
+        { text: '로그아웃', style: 'destructive', onPress: () => logout() },
+      ],
+    });
   };
 
   return (
@@ -121,7 +184,8 @@ export default function SettingsScreen() {
         end={{ x: 1, y: 1 }}
       >
         <View style={styles.profileRow}>
-          <Text style={[typo.h2, { color: palette.white }]}>프로필</Text>
+          {/* D1: 탭 라벨(설정)과 일치 — 하단 '프로필 정보' 행과의 혼동 제거. */}
+          <Text style={[typo.h2, { color: palette.white }]}>설정</Text>
         </View>
 
         {isAuthenticated ? (
@@ -209,6 +273,14 @@ export default function SettingsScreen() {
                   subtitle="알림 환경 설정"
                   onPress={() => router.push('/settings-detail/notification-settings')}
                 />
+                <Divider style={{ backgroundColor: colors.borderLight }} />
+                {/* D12: 저장된 공시 진입점을 설정에 노출(기존엔 홈·공시상세에서만 접근 가능해 발견성 낮음). */}
+                <MenuItem
+                  icon="bookmark-outline"
+                  title="저장된 공시"
+                  subtitle="북마크한 공시 모아보기"
+                  onPress={() => router.push('/settings-detail/saved-disclosures')}
+                />
               </View>
             </View>
           )}
@@ -221,7 +293,9 @@ export default function SettingsScreen() {
               <MenuItem
                 icon="moon-outline"
                 title="화면 설정"
-                subtitle={`현재: ${themeLabel} 모드`}
+                subtitle="테마 모드 전환"
+                valueChip={themeLabel}
+                accessibilityHint="탭하면 다음 옵션으로 전환"
                 onPress={cycleTheme}
                 showChevron={false}
               />
@@ -229,7 +303,9 @@ export default function SettingsScreen() {
               <MenuItem
                 icon="text-outline"
                 title="글자 크기"
-                subtitle={`현재: ${textScaleLabel}`}
+                subtitle="본문 글자 배율"
+                valueChip={textScaleLabel}
+                accessibilityHint="탭하면 다음 옵션으로 전환"
                 onPress={cycleTextScale}
                 showChevron={false}
               />
@@ -260,11 +336,12 @@ export default function SettingsScreen() {
                 onPress={() => router.push('/legal/privacy')}
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
+              {/* D9: dead tap 제거 — 버전 표시는 정보 행이므로 비터치(View)로 렌더. */}
               <MenuItem
                 icon="information-circle-outline"
                 title="앱 정보"
                 subtitle="Version 1.0.0"
-                onPress={() => {}}
+                nonInteractive
                 showChevron={false}
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
@@ -394,5 +471,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 6,
+  },
+  valueChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    maxWidth: 160,
+  },
+  valueChipText: {
+    fontWeight: '600',
   },
 });

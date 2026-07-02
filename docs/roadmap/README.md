@@ -16,7 +16,8 @@
 |------|------|
 | [cc-resume-plan-2026-07-02](./cc-resume-plan-2026-07-02.md) | **재개 계획 + M0~M12 상태 매트릭스 + 문서/브랜치 위생 감사 결과** |
 | [cc-pause-handoff-2026-06-28](./cc-pause-handoff-2026-06-28.md) | 일시중단 복원 런북 (DB 복원·서비스 재기동) |
-| [cc-ui-ux-audit-2026-06-27](./cc-ui-ux-audit-2026-06-27.md) | UI/UX 전수 감사 — 현행 UX 백로그 정본 |
+| [cc-ux-review-2026-07-02](./cc-ux-review-2026-07-02.md) | **UI/UX 정밀 리뷰 — 현행 UX 백로그 정본** (확정 76건, UXR-1~ 이슈 분해) |
+| [cc-ui-ux-audit-2026-06-27](./cc-ui-ux-audit-2026-06-27.md) | UI/UX 전수 감사 — 24건 처리 완료(W1·W5·W7 잔여는 위 리뷰로 이관) |
 | [cc-trading-fix-roadmap-2026-06-26](./cc-trading-fix-roadmap-2026-06-26.md) | 트레이딩 결함 13건 수정 기록 (전부 v0.1.1 배포됨) |
 | [buy-logic-validation-baseline](./buy-logic-validation-baseline.md) | 매수논리 재검증 프로토콜 (baseline -14.5%) |
 | [rsi-strategy-backtest-2026-06-26](./rsi-strategy-backtest-2026-06-26.md) | RSI 단독전략 엣지 없음 → 제품화 보류 근거 |

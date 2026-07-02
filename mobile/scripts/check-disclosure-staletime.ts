@@ -74,9 +74,20 @@ for (const h of ['useDisclosures', 'useDisclosureSearch']) {
   ok(`(C) ${h}: staleTime 미추가(목록/검색 동작 불변)`, !/staleTime/.test(body));
 }
 
-// (D) 총 staleTime 출현 정확히 4회
+// (D) 과·소 적용 방지 — 30분 staleTime 은 상세 4훅에만 정확히 4회.
+//     (앵커 갱신 2026-07-02: DAR-420 이 useTodayDisclosureCount 에 별도 5분 staleTime 을
+//      의도적으로 추가 → 총 출현은 5회가 되었고, 30분 정책 출현만 4회로 재바인딩.
+//      잉여 1회가 정확히 today-count 훅의 5분 정책인지까지 단정해 과·소 적용을 계속 막는다.)
+const stale30Count = (src.match(/staleTime:\s*1000\s*\*\s*60\s*\*\s*30\b/g) ?? []).length;
+ok('(D) 30분 staleTime 출현 정확히 4회(상세 4훅에만)', stale30Count === 4);
 const staleCount = (src.match(/staleTime:/g) ?? []).length;
-ok('(D) staleTime 출현 정확히 4회(상세 4훅에만)', staleCount === 4);
+ok('(D) 총 staleTime 출현 정확히 5회(상세 4 + today-count 1)', staleCount === 5);
+const todayBody = fnBody('useTodayDisclosureCount');
+ok('(D) useTodayDisclosureCount: 함수 본문 추출', todayBody.length > 0);
+ok(
+  '(D) 잉여 1회 = useTodayDisclosureCount 의 5분 staleTime(DAR-420 의도적 정책)',
+  /staleTime:\s*1000\s*\*\s*60\s*\*\s*5\b/.test(todayBody),
+);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

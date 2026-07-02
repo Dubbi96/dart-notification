@@ -77,10 +77,20 @@ export const emptyStateCopy = {
     title: '보유 종목이 없어요. 매수 후보 탭에서 신호를 확인해 보세요',
     actionLabel: '신호 탭으로',
   },
-  // 매도 신호 (없음)
+  // 매도 신호 (없음 — 보유 포지션 있음). UXR(B-9): '모든 포지션이 안전' 단정 금지(과신 방지)
+  // → 검증 가능한 사실('현재 신호 없음')만 참고 어휘로 서술.
   exitSignalsEmpty: {
     icon: 'shield',
-    title: '매도 신호가 없어요. 모든 포지션이 안전 구간에 있어요',
+    title: '현재 매도 신호가 없어요',
+    description: '보유 포지션에 청산 신호가 잡히면 여기에 표시돼요 (참고 정보)',
+  },
+  // 매도 신호 (보유 포지션 0 — 평가 대상 자체가 없음). UXR(B-9): 신규 사용자에게
+  // 검증 불가한 안심 문구 대신 매수 탐색 동선을 안내(onAction=매수 탭 전환).
+  exitSignalsNoPositions: {
+    icon: 'briefcase',
+    title: '보유 종목이 없어요',
+    description: '매도 신호는 보유 포지션 기준으로 평가돼요. 매수 탐색에서 시작해 보세요',
+    actionLabel: '매수 탐색으로',
   },
   // 저장된 공시 (없음)
   savedDisclosuresEmpty: {

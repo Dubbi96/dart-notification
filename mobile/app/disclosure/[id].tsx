@@ -257,37 +257,54 @@ export default function DisclosureDetailScreen() {
           {disclosure.corpName}
         </Text>
 
-        {/* Info Card */}
+        {/* Info Card — E9(L-4): onPress 없는 정보 행은 View 로 렌더해 스크린리더가
+            '사용 안 함' 버튼으로 낭독하지 않도록 하고, 탭 가능한 기업명 행에만 button role·목적지 라벨을 부여. */}
         <Card style={styles.infoCard} variant="elevated">
-          {infoRows.map((row, index) => (
-            <TouchableOpacity
-              key={row.label}
-              style={[
-                styles.infoRow,
-                index < infoRows.length - 1 && {
-                  borderBottomWidth: 1,
-                  borderBottomColor: colors.borderLight,
-                },
-              ]}
-              activeOpacity={row.onPress ? 0.7 : 1}
-              onPress={row.onPress}
-              disabled={!row.onPress}
-            >
-              <Text style={[typo.caption, styles.infoLabel, { color: colors.textSecondary }]}>{row.label}</Text>
-              {/* DAR-305: 큰 글꼴서 긴 값(기업명 등)이 우측 ›를 화면 밖으로 밀지 않도록 값만 한 줄 말줄임, ›는 분리해 유지. */}
-              <View style={styles.infoValueWrap}>
-                <Text
-                  style={[typo.captionMedium, styles.infoValue, { color: row.onPress ? colors.primary : colors.text }]}
-                  numberOfLines={1}
-                >
-                  {row.value}
-                </Text>
-                {row.onPress ? (
-                  <Text style={[typo.captionMedium, styles.infoChevron, { color: colors.primary }]}>{' ›'}</Text>
-                ) : null}
-              </View>
-            </TouchableOpacity>
-          ))}
+          {infoRows.map((row, index) => {
+            const rowStyle = [
+              styles.infoRow,
+              index < infoRows.length - 1 && {
+                borderBottomWidth: 1,
+                borderBottomColor: colors.borderLight,
+              },
+            ];
+            const rowBody = (
+              <>
+                <Text style={[typo.caption, styles.infoLabel, { color: colors.textSecondary }]}>{row.label}</Text>
+                {/* DAR-305: 큰 글꼴서 긴 값(기업명 등)이 우측 ›를 화면 밖으로 밀지 않도록 값만 한 줄 말줄임, ›는 분리해 유지. */}
+                <View style={styles.infoValueWrap}>
+                  <Text
+                    style={[typo.captionMedium, styles.infoValue, { color: row.onPress ? colors.primary : colors.text }]}
+                    numberOfLines={1}
+                  >
+                    {row.value}
+                  </Text>
+                  {row.onPress ? (
+                    <Text style={[typo.captionMedium, styles.infoChevron, { color: colors.primary }]}>{' ›'}</Text>
+                  ) : null}
+                </View>
+              </>
+            );
+            if (!row.onPress) {
+              return (
+                <View key={row.label} style={rowStyle} accessible accessibilityLabel={`${row.label} ${row.value}`}>
+                  {rowBody}
+                </View>
+              );
+            }
+            return (
+              <TouchableOpacity
+                key={row.label}
+                style={rowStyle}
+                activeOpacity={0.7}
+                onPress={row.onPress}
+                accessibilityRole="button"
+                accessibilityLabel={`${row.value} 기업 상세 보기`}
+              >
+                {rowBody}
+              </TouchableOpacity>
+            );
+          })}
         </Card>
 
         {/* 본문 핵심 수치 — E8(DAR-453) 우선순위 재배치: 원문에서 추출한 '사실' 정량값을

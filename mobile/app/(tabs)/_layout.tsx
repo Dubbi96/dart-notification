@@ -1,7 +1,9 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@theme';
+import { spacing } from '@theme/spacing';
 import { useAuthStore } from '@stores/authStore';
 import { useUnreadCount } from '@hooks/useNotifications';
 import { usePositions } from '@hooks/usePortfolio';
@@ -16,8 +18,17 @@ export { ErrorFallback as ErrorBoundary } from '@components/common/ErrorFallback
 // DAR-106: notifications 탭은 통합 인박스(공시/신호/청산/논리훼손)라 라벨 '알림'으로 정정.
 // 공시 목록(disclosures)은 홈의 명확한 진입점으로 발견성 승격(중복 탭 없이).
 
+// UXR L-1 A-10: 고정 height 88(매직넘버) 분해 — 아이콘·라벨·상하 패딩을 담는 콘텐츠 기준
+// 높이에 기기 실제 하단 인셋(useSafeAreaInsets)을 더해 파생한다. 54 = 기존 88에서 iOS 홈
+// 인디케이터 인셋(34)을 분리한 값으로, 인셋 큰 기기의 라벨-인디케이터 근접과 인셋 없는
+// Android의 과대 높이를 함께 해소한다(인셋 있는 iOS 시각 높이 88은 보존).
+const TAB_BAR_CONTENT_HEIGHT = 54;
+
 export default function TabLayout() {
-  const { colors } = useTheme();
+  const { colors, typography: typo } = useTheme();
+  const insets = useSafeAreaInsets();
+  // 하단 패딩: 홈 인디케이터 인셋과 기본 패딩 중 큰 값 — 라벨이 인디케이터를 침범하지 않는다.
+  const tabBarBottomPadding = Math.max(insets.bottom, spacing.sm);
   // DAR-216: 탭 배지도 React Query 단일원천에서 직접 구독(Zustand 복제 제거).
   // 비로그인은 /notifications 401이므로 enabled로 차단 → 배지 미표시.
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -25,7 +36,8 @@ export default function TabLayout() {
   const unreadBadge = formatUnreadBadge(unreadCount);
 
   // 포트폴리오 배지: VIOLATED 포지션 수. 데이터/엔드포인트 미존재 시 0 → 배지 미표시.
-  const { data: positions } = usePositions();
+  // UXR L-1 A-9: 비로그인은 /positions 401 — 위 useUnreadCount(DAR-216)와 동일하게 enabled 로 차단.
+  const { data: positions } = usePositions({ enabled: isAuthenticated });
   const violatedCount = (positions ?? []).filter((p) => p.thesisStatus === 'VIOLATED').length;
 
   return (
@@ -38,12 +50,13 @@ export default function TabLayout() {
           backgroundColor: colors.tabBar,
           borderTopColor: colors.tabBarBorder,
           borderTopWidth: 1,
-          paddingBottom: 8,
-          paddingTop: 8,
-          height: 88,
+          // UXR L-1 A-10: 8/12 매직넘버 → spacing.sm·typo.small 토큰, 높이는 인셋 파생(상단 주석).
+          paddingBottom: tabBarBottomPadding,
+          paddingTop: spacing.sm,
+          height: TAB_BAR_CONTENT_HEIGHT + tabBarBottomPadding,
         },
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: typo.small.fontSize,
           fontWeight: '500',
         },
       }}
@@ -67,7 +80,8 @@ export default function TabLayout() {
           tabBarBadge: unreadBadge,
           tabBarBadgeStyle: {
             backgroundColor: colors.error,
-            fontSize: 11,
+            // UXR L-1 A-10: 토큰 밖 11 → typo.small(최소 가독 크기 토큰) 통일.
+            fontSize: typo.small.fontSize,
             fontWeight: '700',
           },
         }}
@@ -87,7 +101,8 @@ export default function TabLayout() {
           tabBarBadge: violatedCount > 0 ? violatedCount : undefined,
           tabBarBadgeStyle: {
             backgroundColor: colors.error,
-            fontSize: 11,
+            // UXR L-1 A-10: 토큰 밖 11 → typo.small(최소 가독 크기 토큰) 통일.
+            fontSize: typo.small.fontSize,
             fontWeight: '700',
           },
         }}

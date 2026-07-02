@@ -164,8 +164,10 @@ function LockedCard({ onPress, cardWidth }: { onPress: () => void; cardWidth: nu
         ]}
       >
         <View style={[styles.lockOverlay, { backgroundColor: colors.overlay }]}>
-          <Feather name="lock" size={22} color={colors.surface} />
-          <Text style={[typo.captionMedium, styles.lockText, { color: colors.surface }]}>
+          {/* UXR L-1 A-2: 어두운 스크림 위 전경은 테마 무관 밝은 onColor — 다크 surface(≈스크림 명도)로
+              잠금 CTA가 판독 불가능해지는 크로스테마 회귀 방지. */}
+          <Feather name="lock" size={22} color={colors.onColor} />
+          <Text style={[typo.captionMedium, styles.lockText, { color: colors.onColor }]}>
             로그인하고{'\n'}상위 {SIGNAL_TERMS.card} 전체 보기
           </Text>
         </View>

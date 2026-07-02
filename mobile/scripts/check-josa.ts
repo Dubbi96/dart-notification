@@ -89,7 +89,20 @@ check('snackbarCopy.watchlistRemoved josa 경유', /watchlistRemoved:.*josa\(nam
 const overlay = src('components/common/SearchOverlay.tsx');
 check('SearchOverlay: 정본 watchlistAdded 호출', overlay.includes('snackbarCopy.watchlistAdded(company.corpName)'), true);
 check('SearchOverlay: 정본 watchlistRemoved 호출', overlay.includes('snackbarCopy.watchlistRemoved(company.corpName)'), true);
-check('SearchOverlay: term josa 경유', overlay.includes("josa(term, '을/를')"), true);
+// 앵커 갱신 2026-07-02(DAR-457): 빈결과 카피가 공통 EmptyState 규약으로 재작성되어
+// josa(term, '을/를') 경유 대신 받침 무관 조사('에')를 쓰는 `"${term}"에 대한 …` 형태가 됐다.
+// 불변식(동적 검색어 뒤 부자연 조사 금지)은 유지 — ① 현행 josa-안전 카피 실재, ② term 에
+// 받침 가변 조사가 직결(하드코딩)되지 않음을 단정한다.
+check(
+  "SearchOverlay: term 동적 카피가 받침 무관 조사('에')로 안전",
+  overlay.includes('"${term}"에 대한'),
+  true,
+);
+check(
+  'SearchOverlay: ${term} 직결 가변 조사(을/를/이/가/은/는) 없음',
+  /\$\{term\}[을를이가은는]/.test(overlay),
+  false,
+);
 
 const hub = src('components/company/CompanyHubLink.tsx');
 check('CompanyHubLink: 정본 watchlistAdded 호출', hub.includes('snackbarCopy.watchlistAdded(corpName)'), true);

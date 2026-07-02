@@ -9,6 +9,7 @@ import { ScreenHeader } from '@components/common/ScreenHeader';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { useSettingsStore } from '@stores/settingsStore';
 import { useHaptics } from '@hooks/useHaptics';
+import { APP_BRAND_NAME } from '@utils/copy';
 import { toggleWaitlist } from '@utils/proWaitlist';
 
 // Pro 혜택 안내 화면 — DAR-204.
@@ -90,11 +91,13 @@ export default function ProScreen() {
           <View style={[styles.heroBadge, { backgroundColor: colors.primaryLight }]}>
             <Feather name="zap" size={28} color={colors.primary} />
           </View>
+          {/* D8(L-4): 히어로 제품명을 앱 브랜드 정본(공시온)과 통일 — 결제 대상 혼동 방지. */}
           <Text style={[typo.h2, { color: colors.text, marginTop: spacing.md }]}>
-            DART 알리미 Pro
+            {`${APP_BRAND_NAME} Pro`}
           </Text>
+          {/* D1(L-4): '놓치지 마세요' FOMO 패턴 제거 — copy.ts 톤 규약(과신·긴박 금지) 준수. */}
           <Text style={[typo.caption, styles.heroSubtitle, { color: colors.textSecondary }]}>
-            더 많은 관심기업과 정밀한 분석으로 중요한 공시를 놓치지 마세요.
+            더 많은 관심기업과 정밀한 분석으로 중요한 공시를 빠짐없이 받아보세요.
           </Text>
         </View>
 

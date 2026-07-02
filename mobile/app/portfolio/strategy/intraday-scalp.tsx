@@ -7,7 +7,8 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
-import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
+import { ApiErrorState, EmptyState } from '@components/common/StateView';
+import { SkeletonList } from '@components/common/SkeletonCard';
 import { useIntradayScalpTrades } from '@hooks/useIntradayScalpTrades';
 import { formatReturnPct } from '@utils/numberFormat';
 
@@ -202,7 +203,8 @@ export default function IntradayScalpTimelineScreen() {
       <ScreenHeader title="단타 (분봉)" onBack={() => router.back()} />
 
       {query.isLoading ? (
-        <LoadingState message="단타 거래 타임라인을 불러오는 중..." />
+        // C7: 리스트형 드릴다운 로딩을 포트폴리오 탭 섹션과 동일한 스켈레톤으로 통일(점프 제거).
+        <SkeletonList variant="buyScore" />
       ) : query.isError ? (
         <ApiErrorState
           error={query.error}

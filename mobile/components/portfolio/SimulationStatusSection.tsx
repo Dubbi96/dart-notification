@@ -9,6 +9,7 @@ import { spacing, radius } from '@theme/spacing';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
 import { EmptyState, ErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
+import { FEE_BASIS_NOTICE } from '@components/common/feeBasisCopy';
 import { EquityCurveChart } from '@components/portfolio/EquityCurveChart';
 import { useSimulationStatus, useSimulationEquityCurve } from '@hooks/useSimulationStatus';
 import { formatYmdDots } from '@utils/datetime';
@@ -71,7 +72,7 @@ function PositionRow({ item }: { item: SimPosition }) {
             {item.quantity.toLocaleString('ko-KR')}주
           </Text>
         </View>
-        <PriceChangeChip value={item.unrealizedPnlPct} amount={item.unrealizedPnl} />
+        <PriceChangeChip value={item.unrealizedPnlPct} amount={item.unrealizedPnl} context="pnl" />
       </View>
       <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
         평가금액 {Math.round(item.currentValue).toLocaleString('ko-KR')}원
@@ -213,13 +214,18 @@ function SummaryHeader({
           {Math.round(equity).toLocaleString('ko-KR')}원
         </Text>
         <View style={styles.summaryChipRow}>
-          <PriceChangeChip value={metrics.cumulativeReturnPct} amount={metrics.netPnl} />
+          {/* UXR(A-2): 모의 수익률 칩 — 시세용 '호가 확인' 카피 대신 pnl 문맥 InfoSheet. */}
+          <PriceChangeChip value={metrics.cumulativeReturnPct} amount={metrics.netPnl} context="pnl" />
         </View>
         {/* DAR-393: 평가금액·등락률은 '지금' 실시간 실가 재평가값(자산곡선 최신점과 동일). 과거
             스냅샷일을 기준일로 표기하면 live 값을 stale 로 오인시키므로 '실시간 현재가 기준'으로 정직 표기.
             UXR-4 A-1: 손익 칩(누적 수익률)은 평가 기준(미실현 포함) — 성과 리포트의 실현 기준과 구분 고지. */}
         <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
           실시간 현재가 기준 · 자산곡선 최신점과 동일 · 평가 기준(미실현 손익 포함)
+        </Text>
+        {/* E-1: 수수료 반영 기준 고지 — 손익 칩(netPnl)·누적수익률은 비용 차감 순수익 기준. */}
+        <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
+          {FEE_BASIS_NOTICE}
         </Text>
         {/* 핵심지표: 승률(누적수익률은 위 칩으로 노출) — 4번째 카드에 묻히던 지표를 전면 배치 */}
         <View

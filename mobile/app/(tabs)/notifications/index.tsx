@@ -512,7 +512,8 @@ const styles = StyleSheet.create({
   iconWrap: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    // 원형(폭/2=18) — 스케일 밖 매직넘버 대신 radius.full로 원형 의도 명시(L-5b E-1, 렌더 동일).
+    borderRadius: radius.full,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: spacing.md,

@@ -113,7 +113,7 @@ function PositionCardBase({ position, onPress }: PositionCardProps) {
         </View>
 
         {/* 손익률 칩(§12) — 색조(이익/손실)+부호+화살표 병행. 좌측 정렬(내용폭만 차지) (DAR-357). */}
-        <PriceChangeChip value={position.pnlPercent} style={styles.pnlChip} />
+        <PriceChangeChip value={position.pnlPercent} context="pnl" style={styles.pnlChip} />
 
         {metaText ? (
           <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={1}>

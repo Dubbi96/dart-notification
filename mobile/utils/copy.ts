@@ -4,6 +4,10 @@
 //       '(참고)' 미포함 문구 추가 시 PR 리뷰에서 차단(아래 assertParenthetical 가드로 런타임 __DEV__ 검증).
 // 금지: 과신/FOMO 연출, 단정적 매수/매도 권유, 면책 약화.
 
+// 앱 브랜드명 정본(UXR L-4/D-8) — 화면 카피에 앱명을 하드코딩하지 않고 이 상수를 사용한다.
+// app.json "name"과 동일해야 하며, 'DART 알리미' 등 구명칭 표기 불일치 재발을 방지한다.
+export const APP_BRAND_NAME = '공시온';
+
 // Buy Score 구간별 1줄 평문 — 항상 '(참고)' 포함
 export const SCORE_ONE_LINER: Record<string, string> = {
   STRONG_BUY: '여러 조건이 두루 맞는 구간 (참고)',

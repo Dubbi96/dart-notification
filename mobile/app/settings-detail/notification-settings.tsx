@@ -22,7 +22,7 @@ import { useTheme } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { Button } from '@components/common/Button';
 import { ScreenHeader } from '@components/common/ScreenHeader';
-import { ApiErrorState } from '@components/common/StateView';
+import { LoadingState, ApiErrorState } from '@components/common/StateView';
 import { useDialog } from '@components/common/DialogProvider';
 import { useNotificationSettings, useUpdateNotificationSettings } from '@hooks/useNotificationSettings';
 import { useDisclosureTypes } from '@hooks/useDisclosureTypes';
@@ -204,9 +204,8 @@ export default function NotificationSettingsScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <ScreenHeader title="알림 설정" onBack={() => router.back()} />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
+        {/* L-5a D-1: 수제 스피너 대신 표준 LoadingState — 로딩 표현 드리프트 제거. */}
+        <LoadingState />
       </SafeAreaView>
     );
   }
@@ -607,11 +606,6 @@ const kwStyles = StyleSheet.create({
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   content: {
     padding: spacing.lg,
     paddingBottom: spacing['4xl'],

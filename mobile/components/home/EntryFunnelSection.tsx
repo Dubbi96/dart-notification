@@ -91,13 +91,14 @@ function FunnelBody({ report }: { report: FunnelReport }) {
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
     >
       <View style={styles.cardHeader}>
+        {/* UXR L-1 A-7: 섹션 헤딩('신호에서 체결까지')과 수직 중복되던 카드 내부 타이틀 제거 —
+            핵심 수치(누적 일수·전환율)를 카드 1행으로 승격. */}
         <View style={styles.titleRow}>
           <Feather name="filter" size={16} color={colors.primary} />
-          <Text style={[typo.bodyMedium, { color: colors.text }]}>신호에서 체결까지</Text>
+          <Text style={[typo.bodyMedium, { color: colors.text }]}>
+            {`누적 ${totals.days}일 · 신호→체결 ${formatRate(totals.conversionRate)}`}
+          </Text>
         </View>
-        <Text style={[typo.small, { color: colors.textSecondary }]}>
-          {`누적 ${totals.days}일 · 신호→체결 ${formatRate(totals.conversionRate)}`}
-        </Text>
       </View>
 
       {lowSample ? (
@@ -141,11 +142,8 @@ function FunnelEmpty() {
       elevation={1}
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
     >
-      <View style={styles.titleRow}>
-        <Feather name="filter" size={16} color={colors.textTertiary} />
-        <Text style={[typo.bodyMedium, { color: colors.text }]}>신호에서 체결까지</Text>
-      </View>
-      <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.sm }]}>
+      {/* UXR L-1 A-7: 섹션 헤딩과 중복되던 카드 내부 타이틀 제거 — 빈 상태 안내만 유지. */}
+      <Text style={[typo.small, { color: colors.textSecondary }]}>
         아직 집계된 신호가 없습니다. 모의운용 데이터가 쌓이면 전환율이 표시됩니다.
       </Text>
     </Surface>
@@ -187,7 +185,8 @@ export function EntryFunnelSection() {
   return (
     <View style={styles.container}>
       <View style={styles.heading}>
-        <Text style={[typo.bodyMedium, { color: colors.text }]}>신호가 진입으로</Text>
+        {/* UXR L-1 A-7: 카드 타이틀과 다르게 부르던 헤딩('신호가 진입으로')을 '신호에서 체결까지'로 통일. */}
+        <Text style={[typo.bodyMedium, { color: colors.text }]}>신호에서 체결까지</Text>
         <Text style={[typo.small, { color: colors.textSecondary }]}>생성 신호 → 진입 후보 → 체결 전환</Text>
       </View>
       {body}

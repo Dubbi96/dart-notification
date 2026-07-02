@@ -9,12 +9,13 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather, Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { verticalHitSlopForHeight } from '@utils/touchTarget';
 import { Card } from '@components/common/Card';
+import { ScreenHeader } from '@components/common/ScreenHeader';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
@@ -110,7 +111,7 @@ function DisclosureRowBase({ item, onPress, onPressCompany }: DisclosureRowProps
             </View>
             {risk && (
               <View style={[styles.riskBadge, { backgroundColor: colors.errorSurface }]}>
-                <Ionicons name="warning" size={11} color={colors.error} />
+                <Feather name="alert-triangle" size={11} color={colors.error} />
                 <Text style={[typo.small, { color: colors.error, fontWeight: '700' }]}>
                   {risk.label}
                 </Text>
@@ -141,7 +142,7 @@ function DisclosureRowBase({ item, onPress, onPressCompany }: DisclosureRowProps
             <Text style={[typo.caption, { color: colors.primary }]} numberOfLines={1}>
               {item.corpName}
             </Text>
-            <Ionicons name="chevron-forward" size={13} color={colors.primary} />
+            <Feather name="chevron-right" size={13} color={colors.primary} />
           </TouchableOpacity>
         ) : (
           <Text style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
@@ -264,7 +265,7 @@ export default function DisclosuresScreen() {
       >
         <View style={[styles.loginBanner, { borderColor: colors.primary, backgroundColor: colors.primaryLight }]}>
           <View style={[styles.loginIconCircle, { borderColor: colors.primary, backgroundColor: colors.surface }]}>
-            <Ionicons name="person-outline" size={18} color={colors.primary} />
+            <Feather name="user" size={18} color={colors.primary} />
           </View>
           <View style={{ flex: 1, marginLeft: spacing.md }}>
             <Text style={[typo.bodyMedium, { color: colors.primaryDark }]}>
@@ -274,7 +275,7 @@ export default function DisclosuresScreen() {
               관심기업 공시만 모아볼 수 있어요
             </Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+          <Feather name="chevron-right" size={16} color={colors.textTertiary} />
         </View>
       </TouchableOpacity>
     );
@@ -291,27 +292,13 @@ export default function DisclosuresScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButton}
-          accessibilityRole="button"
-          accessibilityLabel="뒤로 가기"
-        >
-          <Ionicons name="chevron-back" size={sizing.icon.lg} color={colors.text} />
-        </TouchableOpacity>
-        <Text
-          style={[typo.h3, { color: colors.text }]}
-          accessibilityRole="header"
-        >
-          전체 공시
-        </Text>
-        <View style={{ flex: 1 }} />
-        <Text style={[typo.caption, { color: colors.textSecondary }]}>
-          {totalCount.toLocaleString()}건
-        </Text>
-      </View>
+      {/* Header — 공용 ScreenHeader(L-5a A-1): 자체 헤더(Ionicons chevron-back + 좌측 제목 +
+          우측 건수 텍스트) 드리프트 제거. 건수는 우측 슬롯(고정 44pt)에서 잘릴 수 있어 부제로 노출. */}
+      <ScreenHeader
+        title="전체 공시"
+        subtitle={`${totalCount.toLocaleString()}건`}
+        onBack={() => router.back()}
+      />
 
       {/* Search Bar */}
       <View style={[
@@ -371,8 +358,8 @@ export default function DisclosuresScreen() {
             accessibilityState={{ expanded: showMoreFilters }}
             accessibilityLabel={`기간·정렬 필터 ${showMoreFilters ? '접기' : '펼치기'}`}
           >
-            <Ionicons
-              name="options-outline"
+            <Feather
+              name="sliders"
               size={13}
               color={moreFiltersApplied || showMoreFilters ? colors.primaryDark : colors.textSecondary}
             />
@@ -401,7 +388,7 @@ export default function DisclosuresScreen() {
               accessibilityState={{ selected: watchlistOnly }}
               accessibilityLabel="관심목록 필터"
             >
-              <Ionicons
+              <Feather
                 name="star"
                 size={12}
                 color={watchlistOnly ? colors.primaryForeground : colors.primary}
@@ -533,8 +520,8 @@ export default function DisclosuresScreen() {
                     accessibilityState={{ selected: isActive }}
                     accessibilityLabel={`${opt.label} 정렬`}
                   >
-                    <Ionicons
-                      name={opt.key === 'relevance' ? 'sparkles-outline' : 'time-outline'}
+                    <Feather
+                      name={opt.key === 'relevance' ? 'zap' : 'clock'}
                       size={12}
                       color={isActive ? colors.primaryDark : colors.textTertiary}
                     />
@@ -613,22 +600,6 @@ export default function DisclosuresScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingRight: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-  },
-  // 헤더 뒤로가기 44pt 보장(E-5): philosophy/company 헤더와 동일 패턴 — 아이콘 시각 크기는 유지하고
-  // 패딩+minWidth/minHeight로 유효 터치 영역만 sizing.minTouchTarget(44pt) 이상으로 통일한다.
-  backButton: {
-    padding: spacing.sm,
-    paddingHorizontal: spacing.base,
-    minWidth: sizing.minTouchTarget,
-    minHeight: sizing.minTouchTarget,
-    justifyContent: 'center',
   },
   searchBar: {
     flexDirection: 'row',

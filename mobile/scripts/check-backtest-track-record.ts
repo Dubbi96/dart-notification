@@ -73,7 +73,8 @@ function main() {
   assert('★정직: point-in-time 미래정보 미사용', /미래정보 미사용/.test(screen));
   assert('★정직: 커버리지 점진 채움 고지', /커버리지가 채워집/.test(screen));
   assert('★정직: 손실 그대로 표시', /손실도 그대로 표시/.test(screen));
-  assert('로딩 graceful', /query\.isLoading/.test(screen) && /LoadingState/.test(screen));
+  // 앵커 갱신 2026-07-02(L-3): 로딩 표현 LoadingState → DetailSkeleton(레이아웃 보존 스켈레톤) 이관.
+  assert('로딩 graceful', /query\.isLoading/.test(screen) && /DetailSkeleton/.test(screen));
   assert('에러 graceful', /query\.isError/.test(screen) && /ApiErrorState/.test(screen));
   assert('빈 상태 graceful(record/metrics 가드)', /!record\s*\|\|\s*!record\.metrics/.test(screen) && /EmptyState/.test(screen));
   assert('접근성 라벨(accessibilityLabel) 사용', /accessibilityLabel=/.test(screen));

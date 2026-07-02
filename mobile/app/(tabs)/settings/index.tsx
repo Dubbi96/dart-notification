@@ -22,10 +22,16 @@ import { useAuthStore } from '@stores/authStore';
 import { useSettingsStore } from '@stores/settingsStore';
 import { useLogout, useMe } from '@hooks/useAuth';
 import { useWatchlist } from '@hooks/useWatchlist';
+import { verticalHitSlopForHeight } from '@utils/touchTarget';
 import type { ColorScheme } from '@theme';
 
 // DAR-470: 현재값 칩 최대 폭(긴 옵션 라벨 줄임 기준). 매직넘버 금지 → 명명 상수.
 const VALUE_CHIP_MAX_WIDTH = 160;
+
+// D7(L-4): 게스트 헤더 '로그인하기' 링크 — caption 한 줄(lineHeight 20)이라 실터치 높이가 44pt 미만.
+// 시각 크기는 유지하고 세로 hitSlop 으로 유효 터치 영역만 44pt 로 확장한다(DAR-146 규약).
+const GUEST_LOGIN_LINK_VISUAL_HEIGHT = 20;
+const GUEST_LOGIN_LINK_HIT_SLOP = verticalHitSlopForHeight(GUEST_LOGIN_LINK_VISUAL_HEIGHT);
 
 interface MenuItemProps {
   icon: keyof typeof Feather.glyphMap;
@@ -233,10 +239,16 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.profileText}>
               <Text style={[typo.h3, { color: palette.white }]}>GUEST</Text>
-              <TouchableOpacity onPress={() => {
-                useAuthStore.getState().clearAuth();
-                router.push('/auth/sign-in');
-              }}>
+              {/* D7(L-4): 게스트의 유일한 헤더 로그인 동선 — hitSlop 44pt + 버튼 role/label 로 스크린리더 발견성 확보. */}
+              <TouchableOpacity
+                onPress={() => {
+                  useAuthStore.getState().clearAuth();
+                  router.push('/auth/sign-in');
+                }}
+                hitSlop={GUEST_LOGIN_LINK_HIT_SLOP}
+                accessibilityRole="button"
+                accessibilityLabel="로그인하기"
+              >
                 <Text style={[typo.caption, { color: colors.onColorStrong, textDecorationLine: 'underline' }]}>
                   로그인하기
                 </Text>

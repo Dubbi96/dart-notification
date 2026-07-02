@@ -93,7 +93,7 @@ function MetricCell({ label, value, valueColor }: MetricCellProps) {
   return (
     <View style={styles.metricCell}>
       {/* DAR-472(DAR-466 후속): 라벨도 값과 동일하게 한 줄 고정 + 폭 초과 시 축소 —
-          좁은 기기에서 '승률(D+5)'·'D+20 초과' 라벨이 말줄임되지 않고 또렷이 유지된다. */}
+          좁은 기기에서 '상승 확률(D+5)'·'D+20 초과' 라벨이 말줄임되지 않고 또렷이 유지된다. */}
       <Text
         style={[typo.small, { color: colors.textTertiary }]}
         numberOfLines={1}
@@ -132,7 +132,7 @@ function EventRow({ item }: EventRowProps) {
         accessibilityRole="summary"
         accessibilityLabel={
           `${getEventTypeLabel(item.eventType)} — D+5 시장초과수익 ${formatReturnPct(item.avgArD5)}, ` +
-          `D+20 ${formatReturnPct(item.avgArD20)}, 승률 ${winPct}, 표본 ${item.totalSample}건` +
+          `D+20 ${formatReturnPct(item.avgArD20)}, 상승 확률 ${winPct}, 표본 ${item.totalSample}건` +
           (item.lowSample ? ', 표본 부족 또는 통계 미유의로 신뢰도 제한' : '')
         }
         style={styles.rowInner}
@@ -144,7 +144,9 @@ function EventRow({ item }: EventRowProps) {
           {item.lowSample ? <DataLimitBadge /> : null}
         </View>
 
-        {/* DAR-466(E16): 5컬럼 1행 과밀/절단 해소 — 초과수익 3종(1행) + 승률·표본(2행)으로 분리. */}
+        {/* DAR-466(E16): 5컬럼 1행 과밀/절단 해소 — 초과수익 3종(1행) + 상승 확률·표본(2행)으로 분리. */}
+        {/* UXR(F-1): upProbD5 라벨을 회사 화면과 동일한 '상승 확률(D+5)'로 통일 —
+            '승률'은 매매 성적(체결 거래 기반 win rate) 전용 어휘로 예약(분모 다른 지표 이름 충돌 해소). */}
         <View style={styles.metrics}>
           <View style={styles.metricsRow}>
             <MetricCell label="D+1 초과" value={formatReturnPct(item.avgArD1)} valueColor={arColor(item.avgArD1)} />
@@ -152,7 +154,7 @@ function EventRow({ item }: EventRowProps) {
             <MetricCell label="D+20 초과" value={formatReturnPct(item.avgArD20)} valueColor={arColor(item.avgArD20)} />
           </View>
           <View style={styles.metricsRow}>
-            <MetricCell label="승률(D+5)" value={winPct} valueColor={winColor} />
+            <MetricCell label="상승 확률(D+5)" value={winPct} valueColor={winColor} />
             <MetricCell label="표본" value={`${item.totalSample.toLocaleString('ko-KR')}건`} valueColor={colors.text} />
           </View>
         </View>
@@ -208,7 +210,7 @@ export default function EventStatsScreen() {
         ListHeaderComponent={
           hasData ? (
             <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.md }]}>
-              공시 유형별 시장 전체 평균 초과수익(시장 대비)·승률·표본입니다. 초과수익(D+5) 높은 순.
+              공시 유형별 시장 전체 평균 초과수익(시장 대비)·상승 확률·표본입니다. 초과수익(D+5) 높은 순.
               표본 {DATA_LIMIT_SAMPLE_THRESHOLD}건 미만이거나 통계적으로 유의하지 않으면 데이터 한계로 표시되며 참고용입니다.
             </Text>
           ) : null

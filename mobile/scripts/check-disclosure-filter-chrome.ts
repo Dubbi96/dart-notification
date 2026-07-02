@@ -57,7 +57,8 @@ check('토글 칩 accessibilityRole button', /accessibilityState=\{\{ expanded: 
 check('토글 칩 펼치기/접기 한국어 라벨', /기간·정렬 필터 \$\{showMoreFilters \? '접기' : '펼치기'\}/.test(src), true);
 // 적용된 보조 필터가 있으면 토글 칩에 활성 표시(숨은 필터 신호 보존)
 check('적용 신호 moreFiltersApplied 계산', /const moreFiltersApplied = period !== 'all' \|\| \(isSearching && sort !== 'latest'\)/.test(src), true);
-check('Feather/Ionicons 토글 아이콘(options) 사용', /name="options-outline"/.test(src), true);
+// 앵커 갱신 2026-07-02(DAR-470 Feather 통일): 토글 아이콘 Ionicons options-outline → Feather sliders.
+check('Feather 토글 아이콘(sliders) 사용', /name="sliders"/.test(src), true);
 
 // ───────────────────── E10-b: 비로그인 배너 → 리스트 헤더로 이동 ─────────────────────
 check('배너 useMemo(listHeader) 도입', /const listHeader = useMemo\(\(\)\s*=>\s*\{/.test(src), true);

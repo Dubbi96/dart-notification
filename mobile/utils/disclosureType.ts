@@ -13,24 +13,28 @@ interface BadgeStyle {
   text: string;
 }
 
-const TYPE_COLORS_LIGHT: Record<string, BadgeStyle> = {
-  REGULAR: { bg: '#DBEAFE', text: '#2563EB' },       // Blue
-  MATERIAL: { bg: '#FEE2E2', text: '#DC2626' },      // Red
-  ISSUANCE: { bg: '#FEF3C7', text: '#D97706' },      // Amber
-  EQUITY: { bg: '#EDE9FE', text: '#7C3AED' },        // Purple
-  AUDIT: { bg: '#E0E7FF', text: '#4338CA' },          // Indigo
-  EXCHANGE: { bg: '#FCE7F3', text: '#DB2777' },       // Pink
-  OTHER: { bg: '#F3F4F6', text: '#6B7280' },          // Gray
-};
-
-const TYPE_COLORS_DARK: Record<string, BadgeStyle> = {
-  REGULAR: { bg: '#1E2A4A', text: '#7BA3F0' },       // Muted blue
-  MATERIAL: { bg: '#3A1A22', text: '#F0828A' },      // Muted red
-  ISSUANCE: { bg: '#352A14', text: '#E4B85C' },      // Muted amber
-  EQUITY: { bg: '#271A3E', text: '#B89AEF' },        // Muted purple
-  AUDIT: { bg: '#142E2E', text: '#5EC4C4' },          // Muted teal/cyan
-  EXCHANGE: { bg: '#381A30', text: '#E88ABB' },       // Muted pink
-  OTHER: { bg: '#1C1F30', text: '#8B90A8' },          // Muted gray
+// L-5b(B-1): 공시유형 뱃지 팔레트 — theme/colors.ts의 lightColors/darkColors 구조를 미러하는
+// 도메인 확장 팔레트(테마층). colors.ts 승격(badge.disclosureType.*) 시 이 블록을 그대로 이관한다.
+// 소비는 반드시 getTypeStyle(type, isDark) 경유 — isDark 필수(라이트 기본값 풋건 제거).
+const TYPE_BADGE_PALETTE: Record<'light' | 'dark', Record<string, BadgeStyle>> = {
+  light: {
+    REGULAR: { bg: '#DBEAFE', text: '#2563EB' },     // Blue
+    MATERIAL: { bg: '#FEE2E2', text: '#DC2626' },    // Red
+    ISSUANCE: { bg: '#FEF3C7', text: '#D97706' },    // Amber
+    EQUITY: { bg: '#EDE9FE', text: '#7C3AED' },      // Purple
+    AUDIT: { bg: '#E0E7FF', text: '#4338CA' },        // Indigo
+    EXCHANGE: { bg: '#FCE7F3', text: '#DB2777' },     // Pink
+    OTHER: { bg: '#F3F4F6', text: '#6B7280' },        // Gray
+  },
+  dark: {
+    REGULAR: { bg: '#1E2A4A', text: '#7BA3F0' },     // Muted blue
+    MATERIAL: { bg: '#3A1A22', text: '#F0828A' },    // Muted red
+    ISSUANCE: { bg: '#352A14', text: '#E4B85C' },    // Muted amber
+    EQUITY: { bg: '#271A3E', text: '#B89AEF' },      // Muted purple
+    AUDIT: { bg: '#142E2E', text: '#5EC4C4' },        // Muted teal/cyan
+    EXCHANGE: { bg: '#381A30', text: '#E88ABB' },     // Muted pink
+    OTHER: { bg: '#1C1F30', text: '#8B90A8' },        // Muted gray
+  },
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -47,10 +51,11 @@ export function getTypeLabel(type: string): string {
   return TYPE_LABELS[type] ?? type;
 }
 
-export function getTypeStyle(type: string, isDark = false): BadgeStyle {
-  const colors = isDark ? TYPE_COLORS_DARK : TYPE_COLORS_LIGHT;
-  const fallback = isDark ? TYPE_COLORS_DARK['OTHER'] : TYPE_COLORS_LIGHT['OTHER'];
-  return colors[type] ?? fallback;
+// isDark 필수 인자 — 기본값(라이트)이 있으면 신규 호출처가 인자를 빼먹었을 때
+// 다크모드에 파스텔 라이트 뱃지가 조용히 렌더되는 회귀가 가능하다(L-5b B-1).
+export function getTypeStyle(type: string, isDark: boolean): BadgeStyle {
+  const palette = TYPE_BADGE_PALETTE[isDark ? 'dark' : 'light'];
+  return palette[type] ?? palette['OTHER'];
 }
 
 // 신호 이벤트 타입 평문 매핑(DAR-31 §3-1). 공시 분류용 TYPE_LABELS와 별개.

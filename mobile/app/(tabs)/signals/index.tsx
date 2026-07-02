@@ -18,6 +18,7 @@ import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { useAuthStore } from '@stores/authStore';
 import { useExitSignals } from '@hooks/useSignals';
+import { usePositions } from '@hooks/usePortfolio';
 import { SIGNALS_HEADER_SUBTITLE } from '@utils/copy';
 
 import type { ExitSignal, TradingSignal } from '@app-types/signal.types';
@@ -38,6 +39,12 @@ export default function SignalsScreen() {
   useScrollToTop(sellListRef);
 
   const exitQuery = useExitSignals();
+
+  // UXR(B-9): 매도 빈 상태가 보유 포지션 0건·평가 미실행에도 '모든 포지션이 안전'을 단정하던
+  // 문제 — 포지션 유무로 빈 상태 카피를 분기한다. 매도 탭 활성 시에만 발화(enabled 게이팅),
+  // 로딩/실패 시에는 단정 없는 기본 카피(exitSignalsEmpty)로 폴백.
+  const positionsQuery = usePositions({ enabled: isAuthenticated && feedTab === 'sell' });
+  const hasNoPositions = positionsQuery.isSuccess && (positionsQuery.data?.length ?? 0) === 0;
 
   // UXR-12(B-5): 당겨서 새로고침 시 헤더의 L1 '오늘 주목할 신호' 큐레이션(CurationSlot의
   // useBuySignals — queryKey ['signals','buy',…])도 함께 갱신한다. 기존엔 피드 쿼리만 재조회돼
@@ -280,6 +287,9 @@ export default function SignalsScreen() {
               actionLabel="검색어 지우기"
               onAction={handleClearSearch}
             />
+          ) : hasNoPositions ? (
+            // 보유 포지션 0건 — '안전' 단정 대신 매수 탐색 유도(CTA=매수 탭 전환).
+            <EmptyState {...emptyStateCopy.exitSignalsNoPositions} onAction={handleExplore} />
           ) : (
             <EmptyState {...emptyStateCopy.exitSignalsEmpty} />
           )

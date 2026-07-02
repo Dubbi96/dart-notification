@@ -5,11 +5,10 @@ import {
   FlatList,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
@@ -19,7 +18,7 @@ import { useWatchlist, useRemoveFromWatchlist, useAddToWatchlist } from '@hooks/
 import { useDialog } from '@components/common/DialogProvider';
 import { SearchOverlay } from '@components/common/SearchOverlay';
 import { ScreenHeader } from '@components/common/ScreenHeader';
-import { EmptyState, ApiErrorState } from '@components/common/StateView';
+import { LoadingState, EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { useStockQuotes } from '@hooks/useStockQuotes';
 import { StockPriceBadge } from '@components/common/StockPriceBadge';
@@ -115,7 +114,7 @@ const WatchlistRow = React.memo(function WatchlistRow({
             accessibilityLabel={`${item.corpName} 차트 보기`}
             onPress={handleChart}
           >
-            <Ionicons name="bar-chart-outline" size={20} color={colors.primary} />
+            <Feather name="bar-chart-2" size={20} color={colors.primary} />
           </TouchableOpacity>
         ) : null}
         <TouchableOpacity
@@ -125,7 +124,7 @@ const WatchlistRow = React.memo(function WatchlistRow({
           accessibilityLabel={`${item.corpName} 관심목록에서 제거`}
           onPress={handleRemove}
         >
-          <Ionicons name="trash-outline" size={20} color={colors.error} />
+          <Feather name="trash-2" size={20} color={colors.error} />
         </TouchableOpacity>
       </View>
     </TouchableOpacity>
@@ -239,9 +238,8 @@ export default function WatchlistScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <ScreenHeader title="관심목록" onBack={() => router.back()} />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
+        {/* L-5a D-1: 수제 스피너 대신 표준 LoadingState — 로딩 표현 드리프트 제거. */}
+        <LoadingState />
       </SafeAreaView>
     );
   }
@@ -258,7 +256,7 @@ export default function WatchlistScreen() {
             accessibilityRole="button"
             accessibilityLabel={total >= limit ? '관심기업 추가 (한도 도달)' : '관심기업 추가'}
           >
-            <Ionicons name="add" size={24} color={total >= limit ? colors.textTertiary : colors.primary} />
+            <Feather name="plus" size={24} color={total >= limit ? colors.textTertiary : colors.primary} />
           </TouchableOpacity>
         }
       />
@@ -310,11 +308,6 @@ export default function WatchlistScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   headerAction: {
     width: 44,
     height: 44,

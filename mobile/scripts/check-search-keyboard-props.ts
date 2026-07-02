@@ -27,13 +27,15 @@ const TARGETS: Target[] = [
     required: ['returnKeyType="search"', 'autoCapitalize="none"', 'autoCorrect={false}'],
   },
   {
+    // 앵커 갱신 2026-07-02(E-8): placeholder 카피 통일 '종목명 또는 종목코드 검색' → '기업명·종목코드 검색'
     file: 'components/common/SearchOverlay.tsx',
-    anchor: '종목명 또는 종목코드 검색',
+    anchor: '기업명·종목코드 검색',
     required: ['returnKeyType="search"', 'autoCapitalize="none"', 'autoCorrect={false}'],
   },
   {
+    // 앵커 갱신 2026-07-02(E-8): placeholder 카피 통일 '기업명, 보고서명 검색' → '기업명·보고서명 검색'
     file: 'app/disclosures/index.tsx',
-    anchor: '기업명, 보고서명 검색',
+    anchor: '기업명·보고서명 검색',
     required: ['returnKeyType="search"', 'autoCapitalize="none"', 'autoCorrect={false}'],
   },
 ];

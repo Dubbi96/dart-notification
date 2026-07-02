@@ -22,6 +22,11 @@ interface PhilosophyChecklistProps {
   checklistItems?: string[];
 }
 
+// 행 아이콘 열 지오메트리(L-5b E-1): 본문을 아이콘 아래에 정렬하는 인덴트는
+// 아이콘 폭 + rowIcon 우측 여백(spacing.sm)에서 파생한다 — 매직넘버 22 대체.
+const ROW_ICON_SIZE = 14;
+const ROW_ICON_INDENT = ROW_ICON_SIZE + spacing.sm; // 14 + 8 = 22
+
 function PhilosophyChecklistBase({ fit, checklistItems }: PhilosophyChecklistProps) {
   const { colors, typography: typo } = useTheme();
 
@@ -131,7 +136,7 @@ function PhilosophyChecklistBase({ fit, checklistItems }: PhilosophyChecklistPro
               style={[styles.qualitativeRow, { borderColor: colors.borderLight }]}
               accessibilityLabel={`직접 확인 항목: ${item}`}
             >
-              <Feather name="square" size={14} color={colors.textTertiary} style={styles.rowIcon} />
+              <Feather name="square" size={ROW_ICON_SIZE} color={colors.textTertiary} style={styles.rowIcon} />
               <Text style={[typo.caption, { color: colors.textSecondary, flex: 1 }]}>{item}</Text>
             </View>
           ))}
@@ -163,7 +168,7 @@ function MetricChecklistRow({ ev, status }: { ev: MetricEvaluation; status: Metr
       }`}
     >
       <View style={styles.metricTop}>
-        <Feather name={icon} size={14} color={accent} style={styles.rowIcon} />
+        <Feather name={icon} size={ROW_ICON_SIZE} color={accent} style={styles.rowIcon} />
         <View style={styles.metricBody}>
           <Text style={[typo.captionMedium, { color: colors.text }]}>{metricLabel(ev.metricKey)}</Text>
           <Text style={[typo.small, { color: colors.textSecondary }]}>{ev.description}</Text>
@@ -186,7 +191,7 @@ function MetricChecklistRow({ ev, status }: { ev: MetricEvaluation; status: Metr
           </Text>
         </View>
       ) : (
-        <Text style={[typo.small, { color: colors.textTertiary, marginLeft: 22 }]}>
+        <Text style={[typo.small, styles.statusOnlyText, { color: colors.textTertiary }]}>
           {statusText === '미평가' ? '재무 데이터 결측 — 달성도 산출 불가' : statusText}
         </Text>
       )}
@@ -276,7 +281,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
     marginTop: spacing.xs,
-    marginLeft: 22,
+    marginLeft: ROW_ICON_INDENT,
+  },
+  statusOnlyText: {
+    marginLeft: ROW_ICON_INDENT,
   },
   achievementBar: {
     flex: 1,

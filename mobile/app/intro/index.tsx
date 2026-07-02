@@ -138,8 +138,9 @@ function Slide2({ colors, typo }: SlideProps) {
           <Feather name="trending-up" size={40} color={colors.primary} />
         </View>
 
+        {/* D1(L-4): '투자 판단 받아보기' 단정형 → 참고 정보 제공으로 교정(약관 '참고 자료' 원칙과 톤 일치). */}
         <Text style={[typo.h1, { color: colors.text, textAlign: 'center', marginTop: spacing.xl }]}>
-          30초 만에{'\n'}투자 판단 받아보기
+          투자 판단에 참고할 신호를{'\n'}30초 만에 받아보세요
         </Text>
         <Text
           style={[

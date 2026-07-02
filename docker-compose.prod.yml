@@ -47,10 +47,20 @@ services:
   redis:
     image: redis:7-alpine
     container_name: dart-prod-redis
-    restart: unless-stopped
+    # OPS-3: unless-stopped → always 격상. OOM-kill 등 비정상 종료 후에도 무조건 재기동.
+    restart: always
     # appendonly 영속 + (선택) 비밀번호. REDIS_PASSWORD 미설정이면 빈 값 → 비밀번호 없이 기동.
     # $$ 로 compose 보간을 막아 컨테이너 sh 가 env_file 의 REDIS_PASSWORD 로 런타임 확장한다.
-    command: ['sh', '-c', 'redis-server --appendonly yes $${REDIS_PASSWORD:+--requirepass "$$REDIS_PASSWORD"}']
+    # OPS-3: maxmemory 128mb 상한 — micro(1GB) 에서 redis 가 무한 성장해 호스트 OOM 을
+    # 유발하는 것을 차단한다. maxmemory-policy 는 반드시 noeviction(redis 기본값을 명시 고정):
+    # BullMQ 는 잡 메타데이터가 evict 되면 큐가 조용히 깨지므로 allkeys-lru 등 eviction 금지.
+    # 상한 도달 시 쓰기 에러로 fail-loud → 백엔드 로그에서 즉시 발견 가능.
+    command:
+      [
+        'sh',
+        '-c',
+        'redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy noeviction $${REDIS_PASSWORD:+--requirepass "$$REDIS_PASSWORD"}',
+      ]
     env_file:
       - ./backend/.env.prod
     volumes:
@@ -72,9 +82,18 @@ services:
       dockerfile: Dockerfile
     image: dart-notification-backend:prod
     container_name: dart-prod-backend
-    restart: unless-stopped
+    # OPS-3: unless-stopped → always 격상. OOM-kill·재부팅 후에도 무조건 재기동.
+    restart: always
+    # OPS-3: 컨테이너 메모리 상한 — micro(1GB) 호스트에서 backend 폭주가 호스트 전체
+    # OOM(단일장애점)으로 번지는 것을 차단한다. 초과 시 이 컨테이너만 kill → restart: always 로 복구.
+    mem_limit: 640m
     env_file:
       - ./backend/.env.prod
+    environment:
+      # OPS-3: V8 old-space 상한(448MB) — mem_limit(640m) 아래에서 GC 가 먼저 동작하게 해
+      # 컨테이너 OOM-kill 이전에 힙 압박을 해소한다(여유분은 buffers/native 몫).
+      # env_file 값보다 우선 적용되므로 .env.prod 에 NODE_OPTIONS 를 두지 않는다.
+      NODE_OPTIONS: --max-old-space-size=448
     ports:
       - '3000:3000' # 유일하게 외부로 여는 포트(헬스/HTTP API).
     depends_on:

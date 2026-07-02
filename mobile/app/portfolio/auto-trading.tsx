@@ -255,6 +255,14 @@ export default function AutoTradingStatusScreen() {
             </Text>
           </View>
 
+          {/* SCR-GAP-10: 매수 로직 재검증 정직 고지 — 확정 전 수치는 참고용(기존 notice 패턴). */}
+          <View style={[styles.notice, { backgroundColor: colors.surfaceSecondary }]}>
+            <Feather name="refresh-cw" size={14} color={colors.info} />
+            <Text style={[typo.small, { color: colors.info, marginLeft: spacing.xs, flex: 1 }]}>
+              매수 로직 재검증 진행 중 — 확정 전까지 성과·신호는 참고용입니다.
+            </Text>
+          </View>
+
           {/* ① 킬스위치 (최상단 안전 표면) */}
           <KillSwitchCard killSwitch={data.killSwitch} />
 

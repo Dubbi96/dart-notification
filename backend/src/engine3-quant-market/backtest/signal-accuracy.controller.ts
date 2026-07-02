@@ -41,13 +41,18 @@ export class SignalAccuracyController {
     @Query('limit') limitStr?: string,
     @Query('eventType') eventType?: string,
     @Query('signalGrade') signalGrade?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
     // DAR-273: 비숫자/음수 안전화 — 미지정·무효 → undefined(서비스 기본 표본).
+    // TB-2: from/to(rcpDt YYYYMMDD) — 무효 형식은 서비스가 기본 기간(최근 12개월)으로 폴백.
     const limit = parsePaginationInt(limitStr, {});
     const data = await this.accuracy.getSignalAccuracy({
       limit,
       eventType: eventType?.trim() || undefined,
       signalGrade: signalGrade?.trim() || undefined,
+      from: from?.trim() || undefined,
+      to: to?.trim() || undefined,
     });
     return { success: true, data };
   }
@@ -62,13 +67,18 @@ export class SignalAccuracyController {
     @Query('limit') limitStr?: string,
     @Query('eventType') eventType?: string,
     @Query('signalGrade') signalGrade?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
     // DAR-273: 비숫자/음수 안전화 — 미지정·무효 → undefined(서비스 기본 표본).
+    // TB-2: from/to(rcpDt YYYYMMDD) — 무효 형식은 서비스가 기본 기간(최근 12개월)으로 폴백.
     const limit = parsePaginationInt(limitStr, {});
     const data = await this.accuracy.getCalibration({
       limit,
       eventType: eventType?.trim() || undefined,
       signalGrade: signalGrade?.trim() || undefined,
+      from: from?.trim() || undefined,
+      to: to?.trim() || undefined,
     });
     return { success: true, data };
   }

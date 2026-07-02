@@ -42,6 +42,10 @@ export const CRON_JOB_KEYS = {
   STRATEGY_TRACK_REFRESH: 'strategy.track-refresh',
   // DAR-411: 분봉 단타 모의전략 — 정규장 매 10분 유니버스→진입→청산 평가(forward-only 페이퍼 트랙).
   INTRADAY_SCALP: 'paper.intraday-scalp',
+  // live-readiness W1: 철학 스타일 4트랙 일일 사이클 — 크론 미배선으로 미가동이던 결함 교정(평일 19:40).
+  STYLE_SIMULATION: 'paper.style-simulation',
+  // live-readiness W1: 전략 변형 4종 forward 모의운용 — 리플레이(BacktestRun)와 별개의 실운용 트랙(평일 19:45).
+  STRATEGY_FORWARD: 'paper.strategy-forward',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -274,5 +278,25 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'WEEKDAY_INTRADAY',
     staleAfterMinutes: 180, // 3시간 — 장 마감(15:30)~윈도 끝 공백 흡수
     cadence: '평일 09:02~15:52 / 10분 간격',
+  },
+  {
+    // live-readiness W1: 철학 스타일 4트랙 일일 사이클. 가동이 멈추면 스타일 비교·persona 화면이
+    //   조용히 정체된다(이번 결함의 재발 방지 안전망). 평일 19:40 — 주말 공백(금→월 ≈72h) 흡수.
+    jobKey: CRON_JOB_KEYS.STYLE_SIMULATION,
+    label: '철학 스타일 모의운용 일일 사이클',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 19:40, 주말 공백 흡수
+    cadence: '평일 19:40',
+  },
+  {
+    // live-readiness W1: 전략 변형 4종 forward 모의운용 일일 사이클. 리플레이 트랙(strategy.track-refresh)
+    //   과 별개 — forward 실운용이 멈추면 룰 병렬 검증 데이터가 정체된다. 평일 19:45.
+    jobKey: CRON_JOB_KEYS.STRATEGY_FORWARD,
+    label: '전략 변형 forward 모의운용',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 19:45, 주말 공백 흡수
+    cadence: '평일 19:45',
   },
 ];

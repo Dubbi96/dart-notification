@@ -1,16 +1,25 @@
 /**
  * PaperSimulationService — 일일 모의운용 오케스트레이터 (M10 모의운용, DAR-40)
  *
- * 한 사이클(장마감 후):
- *   1) 신규 BUY 후보 → 모의 매수(Position/PaperTrade open, 슬리피지/부분체결 반영)
+ * ★장외 체결 의미론(2026-07 정정): "19:30 = 주문 결정, 익일 개장 = 체결".
+ *   장 마감 후 사이클이 당일 종가로 즉시 체결하면 정보시점>가격시점 상향 편향이 생긴다
+ *   (진단: 매수 78.8%가 장외 즉시 체결, 개장 직후 손절 평균 -14.99% = 갭 리스크 실재).
+ *   엔진 정본 규칙("다음거래일 시가 진입")·백테스트 규칙(익일 시가)과 일치하도록:
+ *
+ * 한 사이클(장마감 후 19:30):
+ *   0) 만기 도래한 매수 예약(PENDING PaperTrade)·이연 청산 판정 → '당일 시가'로 체결
+ *      (장중이면 09:00~ 장중 모니터 첫 유효 틱이 먼저 체결 — 여기는 폴백 경로)
+ *   1) 신규 BUY 후보 → 매수 '예약'(PENDING PaperTrade, entryDate=다음 거래일 — 즉시 체결 금지)
  *   2) 보유 포지션 일일 시가평가 → PositionDailySnapshot 적재
- *   3) 보유 포지션 Exit Score 평가 → 트리거 시 모의 매도(close) + ExitSignal
+ *   3) 보유 포지션 Exit Score 평가 → 트리거 시 판정·기록만(ExitSignal deferredFill) — 체결은
+ *      익일 시가로 이연(갭다운 정직 반영). 장중 실효 손절은 장중 모니터가 즉시 체결(변경 없음).
  *   4) 누적 졸업지표 산출(적중률 D+5·누적수익·Exit정확도 D+3·AI비용/순익) → PortfolioRiskSnapshot
  *
  * ★ 모의 전용 — 실주문 절대 금지(OrderRequest/OrderExecution 미사용, M11 미진입).
  * AI 금지영역: 매수점수·Exit·체결은 순수 Rule(engine3/4 + fill-simulator). engine2/AI import 0.
  * 스키마 변경 0 — 기존 모델(Portfolio·Position·PositionDailySnapshot·PaperTrade·ExitSignal·
- *   PortfolioRiskSnapshot) 재사용.
+ *   PortfolioRiskSnapshot) 재사용. 예약은 PaperTrade 의 기존 PENDING status + entryDate(체결
+ *   예정 거래일) + styleTag('paper-simulation' 네임스페이스)로 표현 — 신규 컬럼 0.
  */
 
 import { Injectable, Logger, Optional } from '@nestjs/common';
@@ -21,7 +30,9 @@ import { formatKstDateCompact, isKstRegularMarketHours } from '../../common/time
 import { KisApiService } from '../../engine3-quant-market/market-data/kis-api.service';
 import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realtime-quote.cache';
 import { PaperTradeService } from '../services/paper-trade.service';
-import { DEFAULT_FILL_PARAMS, roundToTick } from '../domain/fill-simulator';
+import { DEFAULT_FILL_PARAMS, roundToTick, simulateFill } from '../domain/fill-simulator';
+// 시장 캘린더 순수 함수(주말·KRX 공휴일) — 익일 시가 체결 예약일 산정에 재사용(서비스 호출 아님).
+import { nextTradingDay } from '../../engine3-quant-market/event-study/utils/d0-calculator';
 import { NotificationProducerService } from '../../notifications/notification-producer.service';
 import { PrismaExitSignalRepository } from '../../engine4-portfolio-exit/repositories/prisma-exit-signal.repository';
 import {
@@ -69,9 +80,15 @@ import {
 
 export interface DailyCycleResult {
   tradeDate: string;
+  /** 이번 사이클에 '당일 시가'로 체결된 매수 수(이전 예약분 체결 — 장중 모니터 미체결 폴백). */
   bought: number;
+  /** 이번 사이클에 새로 예약된 매수 주문 수(PENDING, 익일 시가 체결 예정). */
+  reserved: number;
   snapshotted: number;
+  /** 이번 사이클에 '당일 시가'로 체결된 매도 수(이연 청산 체결 — 장중 모니터 미체결 폴백). */
   exited: number;
+  /** 이번 사이클에 새로 기록된 이연 청산 판정 수(체결은 익일 시가 — 갭 정직 반영). */
+  exitDeferred: number;
   /** DAR-135·DAR-139: 이번 사이클에 현재-소스(실가|합성) 종가로 재기준한 레거시 포지션 수
    *  (합성/하이브리드 모드에서만 >0, REAL 기본·미주입은 항상 0). */
   rebased: number;
@@ -91,6 +108,9 @@ export interface SimulationResetResult {
   deletedExitSignals: number;
   /** sim 포지션 thesis 에 연결된 PaperTrade 원장 삭제 수. */
   deletedPaperTrades: number;
+  /** 시스템 모의 네임스페이스(styleTag)의 매수 예약(PENDING) 삭제 수 — 리셋 후 예약이
+   *  익일 시가 체결로 되살아나 오염 이력을 재생성하는 것을 방지. */
+  deletedPendingEntries: number;
   deletedRiskSnapshots: number;
   deletedFunnelDaily: number;
   /** 리셋 후 가용현금(불변식: = INITIAL_CAPITAL). */
@@ -154,6 +174,9 @@ export class PaperSimulationService {
   static readonly TRADE_STRATEGY_KEY = 'paper-simulation';
   static readonly TRADE_STRATEGY_LABEL = '시스템 모의';
   static readonly TRADE_DEEP_LINK = '/portfolio?tab=sim';
+  // 장외 체결 의미론(2026-07): 매수 예약(PENDING)이 당일 시가 데이터 부재로 체결되지 못하면
+  //   다음 거래일로 이월한다. 예약 체결 예정일로부터 이 거래일 수를 초과하면 취소(무한 이월 방지).
+  static readonly PENDING_ENTRY_MAX_CARRY_TRADING_DAYS = 3;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -266,6 +289,16 @@ export class PaperSimulationService {
           })
         : { count: 0 };
 
+      // 2-b) 매수 예약(PENDING) 정리 — 시스템 모의 네임스페이스(styleTag)만.
+      //   리셋 후 남은 예약이 익일 시가 체결로 포지션을 재생성하면 클린 리셋이 깨진다.
+      //   styleTag='paper-simulation' 은 이 서비스 예약 전용 태그(타 트랙 무침범).
+      const pendingEntries = await tx.paperTrade.deleteMany({
+        where: {
+          styleTag: PaperSimulationService.TRADE_STRATEGY_KEY,
+          status: 'PENDING',
+        },
+      });
+
       // 3) Position 삭제 → PositionDailySnapshot·ExitSignal 캐스케이드(onDelete: Cascade).
       const deletedPositions = await tx.position.deleteMany({
         where: { portfolioId: pf.id },
@@ -284,6 +317,7 @@ export class PaperSimulationService {
         deletedDailySnapshots,
         deletedExitSignals,
         deletedPaperTrades: paperTrades.count,
+        deletedPendingEntries: pendingEntries.count,
         deletedRiskSnapshots: riskSnaps.count,
         deletedFunnelDaily: funnel.count,
       };
@@ -292,7 +326,8 @@ export class PaperSimulationService {
     this.logger.log(
       `[PaperSim][리셋] 포트폴리오=${pf.id} 포지션=${result.deletedPositions} ` +
         `스냅샷=${result.deletedDailySnapshots} Exit=${result.deletedExitSignals} ` +
-        `PaperTrade=${result.deletedPaperTrades} 리스크스냅=${result.deletedRiskSnapshots} ` +
+        `PaperTrade=${result.deletedPaperTrades} 예약=${result.deletedPendingEntries} ` +
+        `리스크스냅=${result.deletedRiskSnapshots} ` +
         `퍼널=${result.deletedFunnelDaily} → 현금=${PaperSimulationService.INITIAL_CAPITAL} 보유=0`,
     );
     return {
@@ -328,16 +363,35 @@ export class PaperSimulationService {
       //   실데이터 전용(REAL 기본)/미주입은 no-op(회귀 0).
       const rebased = await this.rebaseLegacyPositions(pf.id, tradeDate);
 
-      const bought = await this.openNewPositions(pf, tradeDate);
+      // 0) 만기 도래 예약·이연 청산 체결 — '당일 시가'로. 정상 운영은 장중 모니터(09:00~)가
+      //    먼저 체결하므로 여기는 KIS 미가동/휴장 익일 등에서의 폴백(당일 REAL 일봉 open 사용).
+      const bought = await this.fillPendingEntries(pf.id, tradeDate);
+      const exited = await this.executePendingExits(pf.id, tradeDate);
+
+      // 1) 신규 후보 → 매수 예약(익일 시가 체결 예정, 즉시 체결 금지 — lookahead 편향 차단).
+      const reserved = await this.openNewPositions(pf, tradeDate);
       const snapshotted = await this.snapshotOpenPositions(pf.id, tradeDate);
-      const exited = await this.evaluateExits(pf.id, tradeDate);
+      // 3) Exit 판정·기록만 — 체결은 익일 시가(executePendingExits)로 이연.
+      const exitDeferred = await this.evaluateExits(pf.id, tradeDate);
       const { metrics, equity, openPositions } = await this.computeMetrics(pf.id);
       await this.savePortfolioSnapshot(pf.id, tradeDate, equity, metrics, openPositions);
 
       this.logger.log(
-        `[PaperSim] 사이클 완료 매수=${bought} 스냅샷=${snapshotted} 매도=${exited} 재기준=${rebased} 보유=${openPositions} 평가자산=${equity}`,
+        `[PaperSim] 사이클 완료 체결매수=${bought} 예약=${reserved} 스냅샷=${snapshotted} ` +
+          `체결매도=${exited} 청산이연=${exitDeferred} 재기준=${rebased} 보유=${openPositions} 평가자산=${equity}`,
       );
-      return { tradeDate, bought, snapshotted, exited, rebased, openPositions, equity, metrics };
+      return {
+        tradeDate,
+        bought,
+        reserved,
+        snapshotted,
+        exited,
+        exitDeferred,
+        rebased,
+        openPositions,
+        equity,
+        metrics,
+      };
     } catch (e) {
       this.logger.error(`[PaperSim] 사이클 오류: ${(e as Error).message}`);
       return this.emptyResult(tradeDate, (e as Error).message);
@@ -353,8 +407,10 @@ export class PaperSimulationService {
    * 일배치 손절 cron 은 장 마감 후(19:30)라 그 시각엔 실시간이 영영 없다 → ① 단독은 정체된 일봉만
    * 평가해 손절이 영영 미발화. 따라서 '장중에 실시간 실가로 평가'하는 것이 손절이 작동하는 유일한 경로다.
    *
-   * 동작(능동 fetch 우선): ① 장시간 게이트 → ② 보유 종목 실시간 현재가를 KIS 에서 능동 조회해 캐시
-   *   적재(누가 안 부르면 캐시는 빈다 — 모바일 우연 캐싱에 의존 금지) → ③ evaluateExits(실가 1순위로 평가).
+   * 동작(능동 fetch 우선): ① 장시간 게이트 → ② forward 트랙 포트폴리오(시스템 모의 + styleTag
+   *   네임스페이스, 이름 규약 `모의운용 포트폴리오*`) 전부에 대해 보유 종목 실시간 현재가를 KIS 에서
+   *   능동 조회해 캐시 적재 → ③ 이연 청산·매수 예약을 '당일 시가'로 체결(첫 유효 틱 = 개장 체결기)
+   *   → ④ evaluateExits(실가 1순위 즉시 손절 — 변경 없음).
    *   장외/휴장/키 미설정이면 평가 없이 스킵(거짓 손절 방지·로그/호출 0). throw 없이 결과로만 보고.
    */
   async runIntradayExitMonitor(
@@ -366,37 +422,109 @@ export class PaperSimulationService {
     fetched: number;
     cached: number;
     exited: number;
+    /** 이번 틱에 당일 시가로 체결된 매수 예약 수(시스템 모의 네임스페이스). */
+    entryFilled: number;
+    /** 이번 틱에 당일 시가로 체결된 이연 청산 수(전 forward 트랙). */
+    exitFilled: number;
+    /** 모니터링한 forward 트랙 포트폴리오 수. */
+    portfolios: number;
     tradeDate: string;
   }> {
     const tradeDate = formatKstDateCompact(now);
+    const empty = { fetched: 0, cached: 0, exited: 0, entryFilled: 0, exitFilled: 0, portfolios: 0, tradeDate };
     // ① 장시간 게이트 — 평일 09:00~15:30 KST 만. 장외/주말은 실시간 부재 → 평가 스킵(정직).
     if (!isKstRegularMarketHours(now)) {
-      return { ran: false, skipped: true, reason: '장외(정규장 09:00~15:30 KST 아님)', fetched: 0, cached: 0, exited: 0, tradeDate };
+      return { ran: false, skipped: true, reason: '장외(정규장 09:00~15:30 KST 아님)', ...empty };
     }
     // 겹침 가드 — 이전 틱이 아직 fetch/평가 중이면 이번 틱 건너뜀.
     if (this.isIntradayRunning) {
-      return { ran: false, skipped: true, reason: '이전 장중 모니터 진행 중', fetched: 0, cached: 0, exited: 0, tradeDate };
+      return { ran: false, skipped: true, reason: '이전 장중 모니터 진행 중', ...empty };
     }
     this.isIntradayRunning = true;
     try {
-      const pf = await this.getOrCreateSimPortfolio();
-      // ② 보유 종목 실시간 현재가 능동 fetch → 캐시 적재(실가 1순위 평가의 전제).
-      const { fetched, cached } = await this.refreshHoldingsRealtime(pf.id);
-      // ③ 실가 기준 Exit 평가 — F1: intraday=true 로 실시간 1순위 + REAL 신선도 가드 적용.
-      const exited = await this.evaluateExits(pf.id, tradeDate, { intraday: true });
-      if (exited > 0 || cached > 0) {
+      const systemPf = await this.getOrCreateSimPortfolio();
+      // 다중 포트폴리오: 시스템 모의 + 스타일/전략 트랙(이름 규약) — 하드코딩 목록 금지.
+      const portfolios = await this.listForwardTrackPortfolios(systemPf.id);
+      let fetched = 0;
+      let cached = 0;
+      let exited = 0;
+      let exitFilled = 0;
+      // 매수 예약 체결은 시스템 모의 네임스페이스(styleTag='paper-simulation')만 — 타 트랙 예약은
+      //   각 트랙 러너 소관(PaperTrade 에 portfolioId 가 없어 styleTag 규약으로만 안전 식별 가능).
+      const entryFilled = await this.fillPendingEntries(systemPf.id, tradeDate, { now });
+      for (const pf of portfolios) {
+        const isSystem = pf.id === systemPf.id;
+        // ② 보유 종목 실시간 현재가 능동 fetch → 캐시 적재(실가 1순위 평가의 전제).
+        const w = await this.refreshHoldingsRealtime(pf.id, now);
+        fetched += w.fetched;
+        cached += w.cached;
+        // ③ 전일 이연 청산 판정 → 당일 시가 체결(갭 정직 반영). 체결 알림은 시스템 모의만
+        //    (타 트랙 라벨 오표기 방지 — 트랙별 알림은 각 러너 소관).
+        exitFilled += await this.executePendingExits(pf.id, tradeDate, {
+          now,
+          emitTrades: isSystem,
+        });
+        // ④ 실가 기준 Exit 평가 — F1: intraday=true 로 실시간 1순위 + REAL 신선도 가드 적용.
+        exited += await this.evaluateExits(pf.id, tradeDate, {
+          intraday: true,
+          emitTrades: isSystem,
+        });
+      }
+      if (exited > 0 || cached > 0 || entryFilled > 0 || exitFilled > 0) {
         this.logger.log(
-          `[PaperSim][장중모니터] tradeDate=${tradeDate} fetch=${fetched} cached=${cached} 매도=${exited}`,
+          `[PaperSim][장중모니터] tradeDate=${tradeDate} pf=${portfolios.length} fetch=${fetched} ` +
+            `cached=${cached} 매도=${exited} 예약체결=${entryFilled} 이연청산체결=${exitFilled}`,
         );
       }
-      return { ran: true, skipped: false, fetched, cached, exited, tradeDate };
+      return {
+        ran: true,
+        skipped: false,
+        fetched,
+        cached,
+        exited,
+        entryFilled,
+        exitFilled,
+        portfolios: portfolios.length,
+        tradeDate,
+      };
     } catch (e) {
       // cron 스케줄 유지 위해 흡수(결과로 보고). 부분 매도는 evaluateExits 내에서 종목별 독립.
       this.logger.error(`[PaperSim][장중모니터] 오류: ${(e as Error).message}`);
-      return { ran: false, skipped: true, reason: (e as Error).message, fetched: 0, cached: 0, exited: 0, tradeDate };
+      return { ran: false, skipped: true, reason: (e as Error).message, ...empty };
     } finally {
       this.isIntradayRunning = false;
     }
+  }
+
+  /**
+   * forward 트랙 포트폴리오 목록 — 시스템 모의 + styleTag 네임스페이스(철학 스타일/전략 트랙).
+   * 식별은 규약으로만: 시스템 유저(SIM_USER_EMAIL) 소유 + 이름이 SIM_PORTFOLIO_NAME
+   * ('모의운용 포트폴리오') prefix. 예: '모의운용 포트폴리오 [BUFFETT]'. 하드코딩 목록 금지 —
+   * 다른 트랙이 규약대로 포트폴리오를 만들면 자동 편입된다. 시스템 모의는 항상 포함 보장.
+   */
+  private async listForwardTrackPortfolios(
+    systemPortfolioId: string,
+  ): Promise<Array<{ id: string; name: string }>> {
+    const user = await this.prisma.user.findFirst({
+      where: { email: PaperSimulationService.SIM_USER_EMAIL },
+      select: { id: true },
+    });
+    const rows = user
+      ? await this.prisma.portfolio.findMany({
+          where: {
+            userId: user.id,
+            name: { startsWith: PaperSimulationService.SIM_PORTFOLIO_NAME },
+          },
+          select: { id: true, name: true },
+        })
+      : [];
+    if (!rows.some((r) => r.id === systemPortfolioId)) {
+      rows.unshift({
+        id: systemPortfolioId,
+        name: PaperSimulationService.SIM_PORTFOLIO_NAME,
+      });
+    }
+    return rows;
   }
 
   /**
@@ -408,12 +536,13 @@ export class PaperSimulationService {
    */
   private async refreshHoldingsRealtime(
     portfolioId: string,
+    now: Date = new Date(),
   ): Promise<{ fetched: number; cached: number }> {
     const open = await this.prisma.position.findMany({
       where: { portfolioId, status: 'OPEN' },
       select: { corpCode: true, stockCode: true },
     });
-    return this.warmRealtimeQuotes(open);
+    return this.warmRealtimeQuotes(open, now);
   }
 
   /**
@@ -424,10 +553,15 @@ export class PaperSimulationService {
    *   - KIS 미주입/키 미설정·캐시 미주입이면 no-op(fetched=0) → 평가는 priceSource 폴백(회귀 0).
    *   - corpCode 중복 제거 → 레이트리밋·비용 가드. 순차 호출(겹침 락이 보호). 상한 MAX_HOLDINGS.
    *   - 한 종목 실패는 건너뛰고 계속(graceful). ★시세 수집 primitive(HTTP/캐시)만 — AI 금지영역 미접촉.
+   *   - ★정규장 시간 게이트(2026-07): 장외(19:30 사이클 등)의 KIS fetch 는 전일 종가를 REALTIME 으로
+   *     둔갑시켜 캐시를 오염시킨다 → 정규장(평일 09:00~15:30 KST) 외에는 no-op. now 는 호출측
+   *     시각 주입(장중 모니터의 tick 시각) — 미지정 시 실제 벽시계.
    */
   private async warmRealtimeQuotes(
     targets: Array<{ corpCode: string | null; stockCode: string | null }>,
+    now: Date = new Date(),
   ): Promise<{ fetched: number; cached: number }> {
+    if (!isKstRegularMarketHours(now)) return { fetched: 0, cached: 0 };
     if (!this.kis?.isConfigured || !this.realtimeCache) return { fetched: 0, cached: 0 };
     const byCorp = new Map<string, { corpCode: string; stockCode: string }>();
     for (const r of targets) {
@@ -795,7 +929,10 @@ export class PaperSimulationService {
     };
   }
 
-  // ─── 1) 신규 매수 ─────────────────────────────────────────────────────
+  // ─── 1) 신규 매수 예약 ────────────────────────────────────────────────
+  // 장외 체결 의미론(2026-07): 즉시 placeOrder+Position 생성 대신 **PENDING PaperTrade 예약**만
+  //   만든다(entryDate=다음 거래일). 체결은 개장 체결기(장중 모니터 첫 유효 틱) 또는 일일 사이클
+  //   폴백(fillPendingEntries)이 '당일 시가'로 수행 — "19:30 = 주문 결정, 익일 개장 = 체결".
   private async openNewPositions(
     pf: { id: string; maxSinglePositionPct: number; maxSectorPct: number },
     tradeDate: string,
@@ -805,14 +942,28 @@ export class PaperSimulationService {
       where: { portfolioId: pf.id, status: 'OPEN' },
       select: { corpCode: true, currentValue: true, entryAmount: true },
     });
-    const available = PaperSimulationService.MAX_HOLDINGS - openPositions.length;
+    // 미체결 매수 예약(PENDING, 시스템 모의 네임스페이스) — 슬롯·현금·종목 디듑에 포함해야
+    //   예약↔체결 사이(하루)의 이중 예약·현금 초과 배분을 막는다.
+    const pendingEntries = await this.prisma.paperTrade.findMany({
+      where: {
+        status: 'PENDING',
+        direction: 'BUY',
+        styleTag: PaperSimulationService.TRADE_STRATEGY_KEY,
+      },
+      select: { corpCode: true, orderedShares: true, entryPrice: true },
+    });
+    const available =
+      PaperSimulationService.MAX_HOLDINGS - openPositions.length - pendingEntries.length;
     if (available <= 0) return 0;
     // F6(2026-06-27): kill-switch 발동 시 시스템 모의 신규 진입 전면 차단(청산은 계속 — 오버나잇 회피).
     if (this.killSwitch?.isActive()) {
       this.logger.warn('[PaperSim] 킬스위치 발동 — 신규 진입 차단');
       return 0;
     }
-    const openCorpCodes = openPositions.map((p) => p.corpCode);
+    const openCorpCodes = [
+      ...openPositions.map((p) => p.corpCode),
+      ...pendingEntries.map((t) => t.corpCode),
+    ];
 
     // DAR-426(★핵심): 가용현금 가드 준비 — 사이징(가상원금×비율) 만으로는
     //   MAX_HOLDINGS(50) × 종목당 비율(maxSinglePositionPct 10% × 등급계수)의 합이 100%
@@ -833,8 +984,17 @@ export class PaperSimulationService {
       (s, p) => s + (p.entryAmount ?? 0),
       0,
     );
+    // 미체결 예약이 잡아둔 금액(기준가×주문수량)도 차감 — 체결 전이라 SSOT 현금엔 없지만
+    //   여기서 빼지 않으면 예약이 이틀 연속 같은 현금을 이중 배분한다(체결 시 재클램프가 최종 방어).
+    const reservedCash = pendingEntries.reduce(
+      (s, t) => s + t.orderedShares * Number(t.entryPrice),
+      0,
+    );
     let availableCash =
-      PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl - investedPrincipal;
+      PaperSimulationService.INITIAL_CAPITAL +
+      realizedNetPnl -
+      investedPrincipal -
+      reservedCash;
 
     // DAR-362: 후보 pool 확대 — entryReady=true 만으로는 BUY 희소 시 pool이 인위적으로 협소.
     //   ① entryReady WATCH+ 후보를 우선 채우고(진입품질 우선),
@@ -929,11 +1089,11 @@ export class PaperSimulationService {
       if (availableCash <= 0) break;
       // DAR-122: 같은 종목 재진입 방지(동일 사이클 내 중복 0).
       if (openedCorpCodes.has(sig.corpCode)) continue;
-      // DAR-433: 진입가와 그 시세 소스를 함께 취득(청산 정렬용으로 소스를 Position 에 영속).
+      // 예약 기준가 취득 — 사이징(주문수량) 근거. 체결가는 익일 시가에서 별도 결정되며,
+      //   entryPriceSource(진입 소스 정렬)는 체결기(fillPendingEntries)가 체결 시가 행에서 영속한다.
       const priceRow = await this.latestPriceRow(sig.corpCode, tradeDate);
       const price = priceRow?.closePrice ?? null;
       if (price === null || price <= 0) continue;
-      const entryPriceSource = priceRow?.source ?? null;
       // DAR-362: 등급 + buyScore 차등 사이징(고확신 더, 저확신 덜 — 균일 탈피).
       let budget = entryBudgetScored(
         baseBudget,
@@ -977,41 +1137,191 @@ export class PaperSimulationService {
 
       const thesis = await this.prisma.positionThesis.findUnique({
         where: { tradingSignalId: sig.id },
-        select: { id: true, exitRules: true },
+        select: { id: true },
       });
-      const { stopLossPct, maxHoldDays } = this.deriveExitParams(thesis?.exitRules);
 
-      const trade = await this.paperTrade.placeOrder({
+      // ★즉시 체결 금지 — PENDING 예약만 기록. entryDate=다음 거래일(주말·KRX 공휴일 스킵,
+      //   nextTradingDay 순수 함수 재사용). entryPrice=예약 기준가(당일 평가가 — 사이징 근거,
+      //   체결가 아님). 체결·Position 생성은 fillPendingEntries 가 '당일 시가'로 수행.
+      const entryTradeYmd = nextTradingDay(tradeDate);
+      const reservation = await this.prisma.paperTrade.create({
+        data: {
+          corpCode: sig.corpCode,
+          stockCode: sig.stockCode,
+          direction: 'BUY',
+          orderedShares: shares,
+          filledShares: 0,
+          fillRate: 0,
+          entryPrice: price,
+          status: 'PENDING',
+          entryDate: this.kstMidnight(entryTradeYmd),
+          tradingSignalId: sig.id,
+          positionThesisId: thesis?.id ?? null,
+          // 시스템 모의 예약 네임스페이스 — 타 트랙(단타/철학 스타일) PaperTrade 와 안전 분리.
+          styleTag: PaperSimulationService.TRADE_STRATEGY_KEY,
+        },
+        select: { id: true },
+      });
+      openedCorpCodes.add(sig.corpCode);
+      // DAR-426: 예약 몫(≈ 슬리피지 반영가 × 주문수량 ≤ budget)만큼 가용현금에서 선차감 —
+      //   같은 사이클 내 후보 간 이중 배분 방지. SSOT 현금은 체결 시점에만 변한다(체결기 재클램프).
+      availableCash -= shares * effPrice;
+      // DAR-362: 예약 몫을 섹터 노출에 누적(다음 후보의 섹터 가드에 반영).
+      if (sector) {
+        sectorValue.set(sector, (sectorValue.get(sector) ?? 0) + shares * price);
+      }
+      opened++;
+      // 주문 예약 알림(phase=RESERVED) — "익일 시가 체결 예정" 의미. 체결 알림(FILLED)과 분리.
+      await this.emitTradeEntry({
+        portfolioId: pf.id,
+        refId: reservation.id,
         corpCode: sig.corpCode,
         stockCode: sig.stockCode,
-        direction: 'BUY',
-        orderedShares: shares,
-        entryPrice: price,
-        entryDate: new Date(),
-        // F8 Phase2: dayVolume 전달 → 참여율 기반 동적 슬리피지/부분체결(매수). 명시 liquidityRatio 제거
-        //   (참여율 기반 산정에 위임). 모의 규모(참여율<0.1%)에선 전량체결·base 근처 슬리피지(거동 ~불변).
-        dayVolume: dayVol,
-        tradingSignalId: sig.id,
-        positionThesisId: thesis?.id,
+        price,
+        shares,
+        phase: 'RESERVED',
       });
-      if (trade.filledShares <= 0) continue;
+    }
+    return opened;
+  }
 
-      const fillPrice = trade.filledPrice ?? price;
+  // ─── 1-b) 개장 체결기: 매수 예약 → 당일 시가 체결 ─────────────────────
+  /**
+   * 만기 도래(entryDate ≤ tradeDate)한 PENDING 매수 예약을 '당일 시가'로 체결한다.
+   *   - 시가 소스: 장중은 KIS 실시간 quote 의 open 필드(당일 시가·REALTIME), 장 마감 후 폴백은
+   *     당일 REAL 일봉 open(KRX 18:30 게시). 당일 데이터 자체가 없으면 이월(PENDING 유지).
+   *   - 이월 상한: 예약 체결 예정일로부터 PENDING_ENTRY_MAX_CARRY_TRADING_DAYS(3) 거래일 초과
+   *     → CANCELLED 기록(무한 이월 방지).
+   *   - 현금 재클램프: 체결 시점 SSOT 현금(초기+실현−보유원가) 이내로 수량 절삭 — cash≥0 불변식.
+   *   - 예산 envelope: 주문수량×예약 기준가 이내(갭업 시 수량 축소 — maxSinglePositionPct 보존).
+   *   ★순수 Rule 체결(simulateFill) — AI 개입 0. 실주문 경로 0.
+   */
+  private async fillPendingEntries(
+    portfolioId: string,
+    tradeDate: string,
+    opts: { now?: Date } = {},
+  ): Promise<number> {
+    const pending = await this.prisma.paperTrade.findMany({
+      where: {
+        status: 'PENDING',
+        direction: 'BUY',
+        styleTag: PaperSimulationService.TRADE_STRATEGY_KEY,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (pending.length === 0) return 0;
+
+    // 만기 도래분만(미래 예약은 그대로). 이월 상한 초과분은 취소 기록.
+    const due: typeof pending = [];
+    for (const t of pending) {
+      const entryYmd = formatKstDateCompact(t.entryDate);
+      if (entryYmd > tradeDate) continue; // 아직 체결 예정일 전
+      if (
+        tradingDayDiff(entryYmd, tradeDate) >
+        PaperSimulationService.PENDING_ENTRY_MAX_CARRY_TRADING_DAYS
+      ) {
+        await this.prisma.paperTrade.update({
+          where: { id: t.id },
+          data: { status: 'CANCELLED' },
+        });
+        this.logger.warn(
+          `[PaperSim][체결기] 예약 취소(이월 상한 초과) trade=${t.id} corp=${t.corpCode} 예정일=${entryYmd}`,
+        );
+        continue;
+      }
+      due.push(t);
+    }
+    if (due.length === 0) return 0;
+    // F6: kill-switch 발동 시 신규 진입(예약 체결 포함) 차단 — 예약은 유지(이월 상한이 정리).
+    if (this.killSwitch?.isActive()) {
+      this.logger.warn('[PaperSim][체결기] 킬스위치 발동 — 예약 체결 보류');
+      return 0;
+    }
+
+    // 체결 직전 대상 종목 실시간 warm(장중만 유효 — 장외 게이트가 no-op) → 당일 시가(REALTIME open).
+    await this.warmRealtimeQuotes(due, opts.now ?? new Date());
+
+    // 체결 시점 현금 재산정(SSOT) + 보유 종목 디듑.
+    const openPositions = await this.prisma.position.findMany({
+      where: { portfolioId, status: 'OPEN' },
+      select: { corpCode: true, entryAmount: true },
+    });
+    const closedForCash = await this.prisma.position.findMany({
+      where: { portfolioId, status: 'CLOSED' },
+      select: { unrealizedPnl: true },
+    });
+    const realizedNetPnl = closedForCash.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
+    const investedPrincipal = openPositions.reduce((s, p) => s + (p.entryAmount ?? 0), 0);
+    let availableCash =
+      PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl - investedPrincipal;
+    const heldCorpCodes = new Set(openPositions.map((p) => p.corpCode));
+
+    let filled = 0;
+    for (const t of due) {
+      // 이미 보유(중복 방지 — 예약 후 다른 경로 진입 등) → 예약 취소 기록.
+      if (heldCorpCodes.has(t.corpCode)) {
+        await this.prisma.paperTrade.update({
+          where: { id: t.id },
+          data: { status: 'CANCELLED' },
+        });
+        continue;
+      }
+      if (availableCash <= 0) continue; // 현금 없음 — 이월(청산으로 회복 가능, 상한이 정리)
+
+      // 당일 시가 행 — 당일 데이터 없으면 이월(스테일 가격 체결 금지).
+      const openRow = await this.openPriceRowFor(t.corpCode, tradeDate);
+      if (!openRow) continue;
+      const openPrice = openRow.openPrice > 0 ? openRow.openPrice : openRow.closePrice;
+      if (openPrice <= 0) continue;
+
+      // 예산 envelope = 주문수량 × 예약 기준가(결정 시점 사이징 보존) ∧ 가용현금.
+      const reservedBudget = t.orderedShares * Number(t.entryPrice);
+      const budget = Math.min(reservedBudget, availableCash);
+      if (budget <= 0) continue;
+      // F8 Phase2 보수 사이징(동적 슬리피지 반영가 기준) — openNewPositions 와 동일 규칙.
+      const dayVol = Number(openRow.volume ?? 0);
+      const baseEffPrice = roundToTick(openPrice * (1 + DEFAULT_FILL_PARAMS.slippagePct), 'BUY');
+      const baseShares = Math.floor(budget / baseEffPrice);
+      const estParticipation = dayVol > 0 ? baseShares / dayVol : 0;
+      const effSlippage =
+        DEFAULT_FILL_PARAMS.slippagePct +
+        (DEFAULT_FILL_PARAMS.impactCoeff ?? 0.015) * Math.sqrt(estParticipation);
+      const effPrice = roundToTick(openPrice * (1 + effSlippage), 'BUY');
+      const shares = Math.min(t.orderedShares, Math.floor(budget / effPrice));
+      if (shares <= 0) continue; // 갭업 등으로 1주도 불가 — 이월(상한이 정리)
+
+      const fill = simulateFill(
+        { direction: 'BUY', orderedShares: shares, entryPrice: openPrice, dayVolume: dayVol },
+        DEFAULT_FILL_PARAMS,
+      );
+      if (fill.filledShares <= 0) continue;
+      const fillPrice = fill.filledPrice;
+
+      // 청산 파라미터는 체결 시점에 thesis 에서 도출(예약엔 미저장 — 스키마 변경 0).
+      const thesis = t.positionThesisId
+        ? await this.prisma.positionThesis.findUnique({
+            where: { id: t.positionThesisId },
+            select: { exitRules: true },
+          })
+        : null;
+      const { stopLossPct, maxHoldDays } = this.deriveExitParams(thesis?.exitRules);
+
       let createdPositionId: string | null = null;
       try {
         const createdPos = await this.prisma.position.create({
           data: {
-            portfolioId: pf.id,
-            corpCode: sig.corpCode,
-            stockCode: sig.stockCode,
-            positionThesisId: thesis?.id ?? null,
+            portfolioId,
+            corpCode: t.corpCode,
+            stockCode: t.stockCode,
+            positionThesisId: t.positionThesisId ?? null,
             entryDate: new Date(),
             entryPrice: fillPrice,
-            entryPriceSource,
-            quantity: trade.filledShares,
-            entryAmount: fillPrice * trade.filledShares,
+            // DAR-433 정렬용 진입 소스 = 체결에 실제 쓴 시가 행의 소스(REALTIME|REAL|SYNTHETIC).
+            entryPriceSource: openRow.source,
+            quantity: fill.filledShares,
+            entryAmount: fillPrice * fill.filledShares,
             currentPrice: fillPrice,
-            currentValue: fillPrice * trade.filledShares,
+            currentValue: fillPrice * fill.filledShares,
             unrealizedPnl: 0,
             unrealizedPnlPct: 0,
             highestPrice: fillPrice,
@@ -1025,43 +1335,170 @@ export class PaperSimulationService {
         });
         createdPositionId = createdPos.id;
       } catch (err) {
-        // DAR-122: 부분 유니크 인덱스(portfolioId, stockCode WHERE status='OPEN') 충돌 →
-        //   동시/재실행으로 이미 동일 종목 OPEN 포지션 존재 → 멱등 스킵.
-        if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2002'
-        ) {
-          openedCorpCodes.add(sig.corpCode);
+        // DAR-122: 부분 유니크(portfolioId, stockCode WHERE status='OPEN') 충돌 → 이미 보유 →
+        //   예약 취소(멱등).
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          await this.prisma.paperTrade.update({
+            where: { id: t.id },
+            data: { status: 'CANCELLED' },
+          });
+          heldCorpCodes.add(t.corpCode);
           continue;
         }
         throw err;
       }
-      openedCorpCodes.add(sig.corpCode);
-      // DAR-426: 진입원가(=체결가×체결수량, Position.entryAmount 와 동일)만큼 가용현금 차감.
-      //   슬리피지 반영가로 산정했으므로 차감분 ≤ budget ≤ 직전 availableCash → 현금 음수 불가.
-      // F7: 매수 수수료도 현금 지출에 포함(cash≥0 불변식을 '진짜 지출'에 묶음).
-      availableCash -= fillPrice * trade.filledShares + (trade.commission ?? 0);
-      // DAR-362: 이번 사이클에 담은 가치를 섹터 노출에 누적(다음 후보의 섹터 가드에 반영).
-      if (sector) {
-        sectorValue.set(
-          sector,
-          (sectorValue.get(sector) ?? 0) + fillPrice * trade.filledShares,
-        );
-      }
-      opened++;
-      // DAR-424 매수 체결 알림(graceful — OPEN 영속 직후 스냅샷 산출).
+
+      // 예약(PENDING) → 체결 확정: 같은 원장 행을 갱신(주문 1건 = 행 1건 보존).
+      //   entryPrice 는 '진입 기준가(체결일 시가)'로 갱신 — 스키마 주석 시맨틱과 일치.
+      await this.prisma.paperTrade.update({
+        where: { id: t.id },
+        data: {
+          orderedShares: shares,
+          filledShares: fill.filledShares,
+          fillRate: fill.fillRate,
+          entryPrice: openPrice,
+          filledPrice: fillPrice,
+          commission: fill.commission,
+          tax: fill.tax,
+          slippage: fill.slippageCost,
+          status: fill.status,
+          filledAt: new Date(),
+        },
+      });
+      heldCorpCodes.add(t.corpCode);
+      // F7: 매수 수수료 포함 실지출 차감 — cash≥0 불변식.
+      availableCash -= fillPrice * fill.filledShares + fill.commission;
+      filled++;
+      // 체결 알림(phase=FILLED) — 예약 알림과 별개 refId(포지션)로 발행.
       if (createdPositionId) {
         await this.emitTradeEntry({
-          portfolioId: pf.id,
+          portfolioId,
           refId: createdPositionId,
-          corpCode: sig.corpCode,
-          stockCode: sig.stockCode,
+          corpCode: t.corpCode,
+          stockCode: t.stockCode,
           price: fillPrice,
-          shares: trade.filledShares,
+          shares: fill.filledShares,
+          phase: 'FILLED',
         });
       }
     }
-    return opened;
+    if (filled > 0) {
+      this.logger.log(`[PaperSim][체결기] 예약 ${filled}건 당일 시가 체결 tradeDate=${tradeDate}`);
+    }
+    return filled;
+  }
+
+  // ─── 1-c) 개장 체결기: 이연 청산 판정 → 당일 시가 체결 ────────────────
+  /**
+   * 전일(장외) Exit 판정이 이연 마킹(ExitSignal.scoreDetail.deferredFill=true)된 OPEN 포지션을
+   * '당일 시가'로 매도 체결한다 — 장외 악재 판정의 갭다운이 체결가에 정직하게 반영된다.
+   *   - 포지션별 최신 EXIT 판정 신호만 본다(과거 잔여 신호 무시). 체결 후 신호에 소진 마킹.
+   *   - 당일 시가 데이터 없으면 이월(다음 틱/사이클 재시도 — 포지션은 반드시 청산 경로 유지).
+   *   ★순수 Rule — AI 개입 0.
+   */
+  private async executePendingExits(
+    portfolioId: string,
+    tradeDate: string,
+    opts: { now?: Date; emitTrades?: boolean } = {},
+  ): Promise<number> {
+    const positions = await this.prisma.position.findMany({
+      where: { portfolioId, status: 'OPEN' },
+    });
+    if (positions.length === 0) return 0;
+    const signals = await this.prisma.exitSignal.findMany({
+      where: {
+        positionId: { in: positions.map((p) => p.id) },
+        exitAction: { in: [...EXIT_ACTIONS] as never },
+      },
+      orderBy: { checkedAt: 'desc' },
+      select: {
+        id: true,
+        positionId: true,
+        exitAction: true,
+        triggerType: true,
+        scoreDetail: true,
+      },
+    });
+    // 포지션별 최신 EXIT 신호 1건(checkedAt desc → 최초 등장이 최신).
+    const latestByPosition = new Map<string, (typeof signals)[number]>();
+    for (const s of signals) {
+      if (!latestByPosition.has(s.positionId)) latestByPosition.set(s.positionId, s);
+    }
+
+    let executed = 0;
+    for (const p of positions) {
+      const sig = latestByPosition.get(p.id);
+      if (!sig) continue;
+      const detail =
+        sig.scoreDetail && typeof sig.scoreDetail === 'object'
+          ? (sig.scoreDetail as Record<string, unknown>)
+          : {};
+      if (detail.deferredFill !== true) continue; // 이연 마킹 없는 신호(장중 즉시 체결분 등)
+
+      const openRow = await this.openPriceRowFor(p.corpCode, tradeDate);
+      if (!openRow) continue; // 당일 시가 부재 — 이월(스테일 체결 금지)
+      const sellPrice = openRow.openPrice > 0 ? openRow.openPrice : openRow.closePrice;
+      if (sellPrice <= 0) continue;
+
+      const sold = await this.executeSell(
+        portfolioId,
+        p,
+        sellPrice,
+        sig.triggerType ?? null,
+        sig.exitAction,
+        opts.emitTrades !== false,
+      );
+      if (!sold) continue;
+      executed++;
+      // 신호 소진 마킹 — 부분 익절(잔량 OPEN)이 다음 체결기에서 재발화하지 않게.
+      await this.prisma.exitSignal.update({
+        where: { id: sig.id },
+        data: {
+          scoreDetail: {
+            ...detail,
+            deferredFill: false,
+            deferredFilledDate: tradeDate,
+            deferredFillPrice: sellPrice,
+          } as Prisma.InputJsonValue,
+        },
+      });
+    }
+    if (executed > 0) {
+      this.logger.log(
+        `[PaperSim][체결기] 이연 청산 ${executed}건 당일 시가 체결 tradeDate=${tradeDate}`,
+      );
+    }
+    return executed;
+  }
+
+  /**
+   * 체결기용 '해당 거래일 당일' 시가 행. priceSource 주입 시 소스 추상화(openRowForDate —
+   * 실시간 open 1순위, 당일 REAL/SYNTHETIC 일봉 폴백)에 위임하고, 미주입(레거시 테스트)은
+   * StockDailyPrice 당일 행 직접 조회. 당일 데이터 없으면 null(호출측 이월).
+   */
+  private async openPriceRowFor(
+    corpCode: string,
+    tradeDate: string,
+  ): Promise<SimPriceRow | null> {
+    if (this.priceSource) return this.priceSource.openRowForDate(corpCode, tradeDate);
+    const row = await this.prisma.stockDailyPrice.findFirst({
+      where: { corpCode, tradeDate },
+      select: {
+        openPrice: true,
+        highPrice: true,
+        lowPrice: true,
+        closePrice: true,
+        volume: true,
+      },
+    });
+    return row ? { ...row, source: 'REAL', sourceDate: tradeDate } : null;
+  }
+
+  /** YYYYMMDD → 그 KST 날짜 자정의 절대 시각(Date). 예약 체결 예정 거래일 영속용. */
+  private kstMidnight(ymd: string): Date {
+    return new Date(
+      `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}T00:00:00+09:00`,
+    );
   }
 
   // ─── 2) 일일 시가평가 ─────────────────────────────────────────────────
@@ -1119,14 +1556,20 @@ export class PaperSimulationService {
     return n;
   }
 
-  // ─── 3) Exit 평가 + 모의 매도 ─────────────────────────────────────────
+  // ─── 3) Exit 평가 ─────────────────────────────────────────────────────
   // DAR-364: 손절/익절 평가가 쓰는 현재가는 latestPriceRow = 실시간 실가(REALTIME) 1순위 →
   //   실 KRX 일봉(REAL) → 합성(SYNTHETIC) 폴백이다. 사용자가 화면에서 보는 실시간 실가가
   //   곧 하드 스탑로스 평가에 쓰이는 가격이므로(표시=엔진), 실가 -8% 이하면 손절 EXIT 이 발화한다.
+  //
+  // ★장외 체결 의미론(2026-07): 경로별 체결 시점이 다르다.
+  //   - intraday=true(장중 모니터): 실시간 실가 판정 → **즉시 체결**(기존 동작 유지 — 실효 손절).
+  //   - intraday=false(19:30 일일 사이클): **판정·기록만**(ExitSignal.scoreDetail.deferredFill=true).
+  //     체결은 익일 시가(executePendingExits) — 장외 악재의 갭다운이 체결가에 정직 반영.
+  //   반환값: intraday 는 체결 건수, 일일 경로는 '이연 판정' 건수.
   private async evaluateExits(
     portfolioId: string,
     tradeDate: string,
-    opts: { intraday?: boolean } = {},
+    opts: { intraday?: boolean; emitTrades?: boolean } = {},
   ): Promise<number> {
     const positions = await this.prisma.position.findMany({
       where: { portfolioId, status: 'OPEN' },
@@ -1177,10 +1620,12 @@ export class PaperSimulationService {
       const thesisSnap = await this.loadThesisSnapshot(p.positionThesisId);
 
       const exit = calculateExitScore(posSnap, tech, thesisSnap, events);
+      const isExitAction = EXIT_ACTIONS.has(exit.exitAction);
 
       await exitRepo.save({
         positionId: p.id,
-        checkTime: 'POST_MARKET',
+        // 경로별 정직 표기: 장중 모니터 평가는 INTRADAY, 19:30 일일 사이클은 POST_MARKET.
+        checkTime: opts.intraday ? 'INTRADAY' : 'POST_MARKET',
         components: exit.components,
         exitScore: exit.exitScore,
         exitAction: exit.exitAction,
@@ -1193,6 +1638,9 @@ export class PaperSimulationService {
           // DAR-364: 평가에 쓴 가격의 출처/원일자 — 정직 고지(REALTIME 이면 실시간 실가로 손절 평가).
           priceSource: day.source,
           priceSourceDate: day.sourceDate ?? null,
+          // 장외 체결 의미론: 일일 경로의 EXIT 판정은 체결을 익일 시가로 이연 — 체결기가 이
+          //   마킹을 보고 당일 시가로 매도한 뒤 소진(false) 처리한다.
+          ...(isExitAction && !opts.intraday ? { deferredFill: true } : {}),
         },
       });
 
@@ -1202,7 +1650,7 @@ export class PaperSimulationService {
         data: { exitScore: exit.exitScore, exitAction: exit.exitAction },
       });
 
-      if (EXIT_ACTIONS.has(exit.exitAction)) {
+      if (isExitAction) {
         // DAR-85: 청산 권고 통지 enqueue(graceful — 모의 매도 체결을 깨지 않음).
         // ★권고일 뿐 자동 실주문/Kill 직결 아님. 수신자는 포트폴리오 소유자.
         await this.notifyProducer?.enqueueExit({
@@ -1212,110 +1660,157 @@ export class PaperSimulationService {
           exitAction: exit.exitAction,
           triggerTypes: exit.triggerTypes,
         });
-        // F2(2026-06-27): 익절(TAKE_PROFIT)은 부분 스케일아웃(잔량 보유), 그 외 EXIT 은 전량 청산.
-        const isTakeProfit = exit.primaryTrigger === 'TAKE_PROFIT';
-        const scaleOutQty = isTakeProfit
-          ? Math.floor(p.quantity * PaperSimulationService.TAKE_PROFIT_SCALE_OUT_FRACTION)
-          : p.quantity;
-        const partial = isTakeProfit && scaleOutQty >= 1 && scaleOutQty < p.quantity;
-        const sellQty = partial ? scaleOutQty : p.quantity;
-
-        const sell = await this.paperTrade.placeOrder({
-          corpCode: p.corpCode,
-          stockCode: p.stockCode,
-          direction: 'SELL',
-          orderedShares: sellQty,
-          entryPrice: close,
-          entryDate: new Date(),
-          liquidityRatio: 1.0,
-          positionThesisId: p.positionThesisId ?? undefined,
-        });
-        const sellPrice = sell.filledPrice ?? close;
-        const grossPnl = (sellPrice - p.entryPrice) * sell.filledShares;
-        // F7(2026-06-27): 매수 수수료(체결 시 부과되나 회계서 누락되던) 차감 — 보고 순손익 정확화.
-        //   매도분(부분/전량 공통) 비례 매수 수수료 = 진입원가×(매도주수/총주수)×commissionRate.
-        const buyCommission =
-          p.quantity > 0
-            ? ((p.entryAmount * sell.filledShares) / p.quantity) *
-              DEFAULT_FILL_PARAMS.commissionRate
-            : 0;
-        const netPnl = grossPnl - buyCommission - sell.commission - sell.tax;
-        const returnPct =
-          p.entryPrice > 0 ? ((sellPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
-
-        // 모의 매도 체결에 실현손익 기록
-        await this.prisma.paperTrade.update({
-          where: { id: sell.id },
-          data: { grossPnl, netPnl, returnPct },
-        });
-
-        if (partial) {
-          // 부분 익절: 매도분을 합성 CLOSED 행으로 기록(기존 CLOSED 실현손익 집계가 자동 반영)하고
-          //   OPEN 잔량(quantity·entryAmount)을 비례 축소해 잔량을 계속 보유한다. 스키마 변경 0.
-          //   ★현금 정합: 매도분이 CLOSED net 으로 실현손익에 들어가고 OPEN entryAmount 가 줄어
-          //   cash(=초기+실현−보유원가)가 정확히 매도대금만큼 증가(검증식 확인).
-          const soldEntryAmount = p.entryAmount * (sell.filledShares / p.quantity);
-          const remainingQty = p.quantity - sell.filledShares;
-          await this.prisma.position.create({
-            data: {
-              portfolioId,
-              corpCode: p.corpCode,
-              stockCode: p.stockCode,
-              positionThesisId: null, // @unique — OPEN 원포지션이 thesisId 보유, 합성행은 null
-              entryDate: p.entryDate,
-              entryPrice: p.entryPrice,
-              quantity: sell.filledShares,
-              entryAmount: soldEntryAmount,
-              entryPriceSource: p.entryPriceSource,
-              status: 'CLOSED',
-              closedAt: new Date(),
-              currentPrice: sellPrice,
-              currentValue: sellPrice * sell.filledShares,
-              unrealizedPnl: netPnl, // 실현손익(CLOSED unrealizedPnl 오버로드 — 기존 회계 규약)
-              unrealizedPnlPct: returnPct,
-            },
-          });
-          await this.prisma.position.update({
-            where: { id: p.id },
-            data: {
-              quantity: remainingQty,
-              entryAmount: p.entryAmount - soldEntryAmount,
-              currentPrice: close,
-              currentValue: close * remainingQty,
-              unrealizedPnl: (close - p.entryPrice) * remainingQty,
-              unrealizedPnlPct:
-                p.entryPrice > 0 ? ((close - p.entryPrice) / p.entryPrice) * 100 : 0,
-            },
-          });
-        } else {
-          await this.prisma.position.update({
-            where: { id: p.id },
-            data: {
-              status: 'CLOSED',
-              closedAt: new Date(),
-              currentPrice: sellPrice,
-              currentValue: sellPrice * sell.filledShares,
-              unrealizedPnl: netPnl,
-              unrealizedPnlPct: returnPct,
-            },
-          });
+        if (!opts.intraday) {
+          // 일일(장외) 경로: 판정·기록만 — 체결은 익일 시가(executePendingExits)로 이연.
+          //   당일 종가 즉시 체결은 정보시점>가격시점 상향 편향(진단 확정 결함)이라 금지.
+          exited++;
+          continue;
         }
-        exited++;
-        // DAR-424 매도 체결 알림(graceful — CLOSED 영속 직후 스냅샷 산출).
-        //   exitReason 은 주 트리거(없으면 exitAction) 사용.
-        await this.emitTradeExit({
+        const sold = await this.executeSell(
           portfolioId,
-          refId: p.id,
-          corpCode: p.corpCode,
-          stockCode: p.stockCode,
-          price: sellPrice,
-          shares: sell.filledShares,
-          pnlPct: returnPct,
-          exitReason: exit.primaryTrigger ?? exit.exitAction,
-        });
+          p,
+          close,
+          exit.primaryTrigger ?? null,
+          exit.exitAction,
+          opts.emitTrades !== false,
+        );
+        if (sold) exited++;
       }
     }
     return exited;
+  }
+
+  /**
+   * 모의 매도 체결 실행(공용) — 장중 즉시 손절(evaluateExits intraday)과 이연 청산 체결기
+   * (executePendingExits)가 동일 로직을 쓴다. F2 부분 익절(TAKE_PROFIT 스케일아웃)·F7 매수
+   * 수수료 회계 포함. ★순수 Rule 체결(simulateFill 경유 placeOrder) — 실주문 0·AI 개입 0.
+   */
+  private async executeSell(
+    portfolioId: string,
+    p: {
+      id: string;
+      corpCode: string;
+      stockCode: string;
+      entryPrice: number;
+      quantity: number;
+      entryAmount: number;
+      entryDate: Date;
+      positionThesisId: string | null;
+      entryPriceSource?: string | null;
+    },
+    sellBasePrice: number,
+    primaryTrigger: string | null,
+    exitAction: string,
+    emitTrades: boolean,
+  ): Promise<boolean> {
+    // F2(2026-06-27): 익절(TAKE_PROFIT)은 부분 스케일아웃(잔량 보유), 그 외 EXIT 은 전량 청산.
+    const isTakeProfit = primaryTrigger === 'TAKE_PROFIT';
+    const scaleOutQty = isTakeProfit
+      ? Math.floor(p.quantity * PaperSimulationService.TAKE_PROFIT_SCALE_OUT_FRACTION)
+      : p.quantity;
+    const partial = isTakeProfit && scaleOutQty >= 1 && scaleOutQty < p.quantity;
+    const sellQty = partial ? scaleOutQty : p.quantity;
+    if (sellQty <= 0) return false;
+
+    const sell = await this.paperTrade.placeOrder({
+      corpCode: p.corpCode,
+      stockCode: p.stockCode,
+      direction: 'SELL',
+      orderedShares: sellQty,
+      entryPrice: sellBasePrice,
+      entryDate: new Date(),
+      liquidityRatio: 1.0,
+      positionThesisId: p.positionThesisId ?? undefined,
+    });
+    if (sell.filledShares <= 0) return false;
+    const sellPrice = sell.filledPrice ?? sellBasePrice;
+    const grossPnl = (sellPrice - p.entryPrice) * sell.filledShares;
+    // F7(2026-06-27): 매수 수수료(체결 시 부과되나 회계서 누락되던) 차감 — 보고 순손익 정확화.
+    //   매도분(부분/전량 공통) 비례 매수 수수료 = 진입원가×(매도주수/총주수)×commissionRate.
+    const buyCommission =
+      p.quantity > 0
+        ? ((p.entryAmount * sell.filledShares) / p.quantity) *
+          DEFAULT_FILL_PARAMS.commissionRate
+        : 0;
+    const netPnl = grossPnl - buyCommission - sell.commission - sell.tax;
+    const returnPct =
+      p.entryPrice > 0 ? ((sellPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
+
+    // 모의 매도 체결에 실현손익 기록
+    await this.prisma.paperTrade.update({
+      where: { id: sell.id },
+      data: { grossPnl, netPnl, returnPct },
+    });
+
+    if (partial) {
+      // 부분 익절: 매도분을 합성 CLOSED 행으로 기록(기존 CLOSED 실현손익 집계가 자동 반영)하고
+      //   OPEN 잔량(quantity·entryAmount)을 비례 축소해 잔량을 계속 보유한다. 스키마 변경 0.
+      //   ★현금 정합: 매도분이 CLOSED net 으로 실현손익에 들어가고 OPEN entryAmount 가 줄어
+      //   cash(=초기+실현−보유원가)가 정확히 매도대금만큼 증가(검증식 확인).
+      const soldEntryAmount = p.entryAmount * (sell.filledShares / p.quantity);
+      const remainingQty = p.quantity - sell.filledShares;
+      await this.prisma.position.create({
+        data: {
+          portfolioId,
+          corpCode: p.corpCode,
+          stockCode: p.stockCode,
+          positionThesisId: null, // @unique — OPEN 원포지션이 thesisId 보유, 합성행은 null
+          entryDate: p.entryDate,
+          entryPrice: p.entryPrice,
+          quantity: sell.filledShares,
+          entryAmount: soldEntryAmount,
+          entryPriceSource: p.entryPriceSource,
+          status: 'CLOSED',
+          closedAt: new Date(),
+          currentPrice: sellPrice,
+          currentValue: sellPrice * sell.filledShares,
+          unrealizedPnl: netPnl, // 실현손익(CLOSED unrealizedPnl 오버로드 — 기존 회계 규약)
+          unrealizedPnlPct: returnPct,
+        },
+      });
+      await this.prisma.position.update({
+        where: { id: p.id },
+        data: {
+          quantity: remainingQty,
+          entryAmount: p.entryAmount - soldEntryAmount,
+          currentPrice: sellBasePrice,
+          currentValue: sellBasePrice * remainingQty,
+          unrealizedPnl: (sellBasePrice - p.entryPrice) * remainingQty,
+          unrealizedPnlPct:
+            p.entryPrice > 0
+              ? ((sellBasePrice - p.entryPrice) / p.entryPrice) * 100
+              : 0,
+        },
+      });
+    } else {
+      await this.prisma.position.update({
+        where: { id: p.id },
+        data: {
+          status: 'CLOSED',
+          closedAt: new Date(),
+          currentPrice: sellPrice,
+          currentValue: sellPrice * sell.filledShares,
+          unrealizedPnl: netPnl,
+          unrealizedPnlPct: returnPct,
+        },
+      });
+    }
+    // DAR-424 매도 체결 알림(graceful — CLOSED 영속 직후 스냅샷 산출).
+    //   exitReason 은 주 트리거(없으면 exitAction) 사용. 시스템 모의 외 트랙은 emitTrades=false
+    //   (라벨 오표기 방지 — 트랙별 알림은 각 러너 소관).
+    if (emitTrades) {
+      await this.emitTradeExit({
+        portfolioId,
+        refId: p.id,
+        corpCode: p.corpCode,
+        stockCode: p.stockCode,
+        price: sellPrice,
+        shares: sell.filledShares,
+        pnlPct: returnPct,
+        exitReason: primaryTrigger ?? exitAction,
+      });
+    }
+    return true;
   }
 
   // ─── DAR-424 체결 알림 ────────────────────────────────────────────────
@@ -1358,7 +1853,9 @@ export class PaperSimulationService {
     return c?.corpName ?? stockCode;
   }
 
-  /** DAR-424: 매수 체결 알림 발행(graceful — 체결을 깨지 않는다). */
+  /** DAR-424: 매수 알림 발행(graceful — 체결을 깨지 않는다).
+   *  장외 체결 의미론: phase='RESERVED'(주문 예약 — 익일 시가 체결 예정) vs 'FILLED'(시가 체결).
+   *  phase 는 additive optional 필드 — 기존 소비자는 무시해도 동작(호환 유지). */
   private async emitTradeEntry(args: {
     portfolioId: string;
     refId: string;
@@ -1366,6 +1863,7 @@ export class PaperSimulationService {
     stockCode: string;
     price: number;
     shares: number;
+    phase: 'RESERVED' | 'FILLED';
   }): Promise<void> {
     if (!this.notifyProducer) return;
     try {
@@ -1375,6 +1873,7 @@ export class PaperSimulationService {
       ]);
       await this.notifyProducer.enqueueTradeEntry({
         kind: 'ENTRY',
+        phase: args.phase,
         refId: args.refId,
         strategyKey: PaperSimulationService.TRADE_STRATEGY_KEY,
         strategyLabel: PaperSimulationService.TRADE_STRATEGY_LABEL,
@@ -1929,8 +2428,10 @@ export class PaperSimulationService {
     return {
       tradeDate,
       bought: 0,
+      reserved: 0,
       snapshotted: 0,
       exited: 0,
+      exitDeferred: 0,
       rebased: 0,
       openPositions: 0,
       equity: PaperSimulationService.INITIAL_CAPITAL,

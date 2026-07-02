@@ -28,7 +28,7 @@
 | **Risk veto 타입** | `domain/risk-check.types.ts` | RiskCheckInput/Result/Violation, RiskLimits, 이벤트 타입 |
 | **Kill Switch** | `domain/kill-switch.ts` | 자동 중단 조건(연속손실·시장급락·API오류) + 수동 Kill Switch — **DB 영속**(`repositories/prisma-kill-switch-state.repository.ts`, 재시작 후 발동 상태 복원, DAR-350) |
 | **이벤트 게이트** | `domain/event-list.ts` | 화이트리스트(6종)/블랙리스트(9종) M12 자동매매 게이트용 |
-| **시스템 모의운용** | `paper-simulation/` | 일일 사이클(평일 19:30 KST: 진입→시가평가→Exit)·장중 5분 실시간 청산 모니터·실가 가격소스(`simulation-price-source`)·자산곡선·트레이드 스코어카드·졸업지표 적재. `paper-simulation.service.ts`가 오케스트레이터 |
+| **시스템 모의운용** | `paper-simulation/` | 일일 사이클(평일 19:30 KST: 매수 예약→시가평가→Exit 판정, 체결은 익일 시가 — 장외 체결 의미론)·장중 5분 모니터(개장 체결기 + forward 트랙 전 포트폴리오 실시간 청산)·실가 가격소스(`simulation-price-source`)·자산곡선·트레이드 스코어카드·졸업지표 적재. `paper-simulation.service.ts`가 오케스트레이터 |
 | — 철학 스타일 분기 | `paper-simulation/philosophy-style*` | BUFFETT/LYNCH/GREENBLATT/DRUCKENMILLER 4개 거장 스타일별 분기 모의운용(philosophy-fit ≥50 적격 진입, 누적수익 랭킹, LOW_SAMPLE 정직 표기) |
 | — 페르소나 | `paper-simulation/persona/` | 시장국면(market-regime) 판정 + 페르소나 추천·트레이딩 API |
 | — **분봉 단타** | `paper-simulation/intraday-scalp/` | 당일 진입·당일 청산 실시간 페이퍼 트랙(장중 10분 간격 진입스캔, 15:20 강제청산). 신호 정의는 engine3 `intraday-scalp-signal` 순수 함수 호출, 체결·리스크·청산·영속은 engine5 독립 강제. 분봉은 forward-only(KIS 당일치만) → 백테스트 불가, 실시간 모의로만 누적 |
@@ -61,11 +61,19 @@
 | maxOpenOrders | 5 | 최대 미체결 주문 수 |
 | maxDailyTrades | 10 | 일간 최대 거래 횟수 |
 
+> **side-gate (GAP-11)**: 일간/주간 손실 한도는 **BUY(신규 진입) 전용** — SELL(청산·위험 축소)은
+> 손실 한도에 차단되지 않는다(자기잠금 방지, `services/order-risk.service.ts`).
+> 잔여 하드룰(중복주문·과매매)은 SELL에도 그대로 적용된다. 순수 Rule — AI 개입 0.
+
 ## Kill Switch 자동 발동 조건 (DEFAULT_AUTO_KILL_CONDITIONS)
 
 - 연속 손실 ≥ 5회
 - 시장 급락 ≤ -5% (조건에 marketDropPct 설정 시 활성화)
 - API 오류 누적 ≥ 3회
+- **모드 (GAP-11)**: 기본 `REDUCE_ONLY` — 발동 중 BUY(신규 진입) 차단·SELL(청산·위험 축소) 허용.
+  스키마 동결로 DB 컬럼 대신 코드 상수 정책(`domain/risk-check.types.ts` `DEFAULT_KILL_SWITCH_MODE`).
+  전면 중단이 필요하면 `FULL_HALT` 로 상수 교체. REDUCE_ONLY 통과 SELL 은 audit meta 에
+  `killSwitchSellAllowed` 증적을 남긴다.
 
 ## 체결 시뮬레이터 파라미터
 
@@ -80,6 +88,11 @@
 
 - **다음거래일 시가 진입**: 공시 당일 체결 금지(lookahead bias 방지)
 - 장마감(15:30) 후 공시: +2 거래일 시가 진입
+- ★**장외 체결 의미론(live-readiness W1, 2026-07)**: 시스템 모의 19:30 사이클은 **주문 결정만** 한다 —
+  매수는 PENDING 예약(PaperTrade, entryDate=다음 거래일·styleTag='paper-simulation'), 청산은 판정·기록
+  (`ExitSignal.scoreDetail.deferredFill`)만. 체결은 장중 모니터 첫 유효 틱(실시간 quote 의 open) 또는
+  19:30 폴백(당일 REAL 일봉 open)이 **당일 시가**로 수행. 미체결 예약은 이월(3거래일 초과 시 CANCELLED).
+  장중 실효 손절은 장중 모니터 즉시 체결 유지. 상세: `docs/workflow.md §6.10`.
 
 ## 모의운용 후보·사이징·섹터 (paper-simulation, 순수 Rule·AI 0)
 
@@ -111,4 +124,4 @@
 - 모든 Rule 계산은 순수 함수 (side-effect 없음)
 
 ---
-*최종 수정: 2026-07-02*
+*최종 수정: 2026-07-03*

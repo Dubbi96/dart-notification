@@ -56,6 +56,12 @@ export interface BuyScoreComponent {
    * 백엔드(engine3 scoreBreakdown)가 표본수를 실으면 채워지며, 미존재 시 undefined(미표시).
    */
   sampleN?: number;
+  /**
+   * 표본 스코프 라벨(예: '전체시장') — 백엔드가 후속으로 실을 예정인 옵셔널 필드(방어적 지원).
+   * 존재 시 화면은 '표본 1,871건 · 대규모 공급계약(전체시장)' 형식으로 병기하고
+   * (이벤트 라벨은 utils/disclosureType EVENT_TYPE_LABEL 재사용), 미존재 시 '표본 N건' 유지.
+   */
+  sampleScope?: string;
 }
 
 /** 매수 신호 */

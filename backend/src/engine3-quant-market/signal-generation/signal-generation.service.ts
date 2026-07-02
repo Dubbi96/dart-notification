@@ -478,6 +478,9 @@ export class SignalGenerationService {
    *     점수를 부풀리지 않는다.
    *   - calibration 보정계수는 **적용하지 않는다**(calibration 은 과거 신호의 실현 D20 수익에서
    *     역산 — 백필 시점엔 미래 정보다). calibratedConfidence = buyScore.
+   *   - ★TB-1(2026-07-03): 상태플래그(StockStatus 현재 스냅샷) 하드차단도 **적용하지 않는다**
+   *     (현재 상태로 과거 신호를 BLOCKED 처리하면 등급 배정 lookahead — loadStockContextAsOf
+   *     참조). 이벤트타입 하드블록 3종(rcpDt 시점 정보 파생, PIT 안전)은 백필에도 유지.
    *   - 신규 AI 호출 0(Rule 스코어는 AI 무관). 통지 enqueue 0(과거 신호는 알림 대상 아님).
    *   - EventStudy 통계는 라이브와 동일한 코퍼스 단위 prior 맵을 쓴다(공시 자신의 미래 가격을
    *     쓰지 않음 — 종목별 가격 lookahead 아님). 표본 통계의 시점절단은 별도 분석 코퍼스 영역
@@ -744,9 +747,16 @@ export class SignalGenerationService {
    *   시 상한 없음 = 라이브 '최신' 동작(회귀 0). tradeDate 는 YYYYMMDD 문자열이라 사전식 ≤
    *   비교가 곧 시간순 ≤ 비교다.
    *
-   *   StockStatus 는 거래일 차원이 없는 단일 현재 스냅샷(이력 테이블 부재)이라 as-of 절단 불가.
-   *   상태 플래그는 리스크 게이트(감점/차단)일 뿐 미래 '수익/가격' 입력이 아니므로 백필에서도
-   *   현재 스냅샷을 그대로 쓴다(라이브 산식과 동일). 점수 인플레이션 lookahead 와 무관.
+   *   ★TB-1 정정(2026-07-03 — 종전 'lookahead 와 무관' 서술은 오류): StockStatus 는 거래일
+   *   차원이 없는 단일 '현재' 스냅샷(이력 테이블 부재)이라 as-of 절단이 불가능하다. 이 현재
+   *   스냅샷을 백필(과거) 신호의 하드차단에 쓰면 **등급 배정 lookahead** 가 발생한다 —
+   *   공시 시점엔 정상이던 종목이 이후(현재) 관리종목/거래정지가 됐다는 미래 정보로 과거
+   *   신호가 BLOCKED 로 배정돼, 등급 축 측정(단조성·차단 통계)이 오염된다(가격 점수
+   *   인플레이션은 아니지만 등급 축 lookahead 는 맞다). 따라서 **백필(asOf 지정)에서는 상태
+   *   플래그 하드차단을 미적용**(조회 생략 → 플래그 false)하고, **라이브(asOf 미지정)는
+   *   유지**한다 — 현재 상태는 현재 신호에 정당한 입력이다. 이벤트타입 하드블록 3종
+   *   (AUDIT_OPINION_RISK/TRADING_SUSPENSION/DELISTING_RISK, risk-penalty.scorer)은 공시
+   *   자신(rcpDt 시점 정보)에서 파생돼 PIT 안전 → 백필에도 유지.
    */
   private async loadStockContextAsOf(
     stockCode: string,
@@ -767,7 +777,10 @@ export class SignalGenerationService {
         where: tiWhere,
         orderBy: { tradeDate: 'desc' },
       }),
-      this.prisma.stockStatus.findUnique({ where: { stockCode } }),
+      // ★TB-1: 백필(asOf 지정)은 현재 상태 스냅샷을 조회·적용하지 않는다(등급 lookahead 차단).
+      asOf
+        ? Promise.resolve(null)
+        : this.prisma.stockStatus.findUnique({ where: { stockCode } }),
     ]);
 
     return {

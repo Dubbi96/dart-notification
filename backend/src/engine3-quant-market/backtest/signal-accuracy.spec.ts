@@ -9,6 +9,9 @@ import {
   computeHorizonAccuracy,
   aggregateBucket,
   buildSignalAccuracyReport,
+  dedupByDisclosureEvent,
+  stratifySampleByMonth,
+  defaultAccuracyWindow,
   LOW_SAMPLE_THRESHOLD,
   SIGNIFICANCE_MIN_SAMPLE,
   SignalRealizedReturn,
@@ -188,5 +191,106 @@ describe('buildSignalAccuracyReport — 등급/구간/eventType 그룹', () => {
     expect(report.overall.sampleCount).toBe(0);
     expect(report.overall.lowSample).toBe(true);
     expect(report.byGrade).toEqual([]);
+  });
+});
+
+// ── TB-2 (2026-07-03) — 표본 설계 순수 함수: dedup·월별 층화·기본 기간 ──────
+
+describe('dedupByDisclosureEvent — (rcpNo,eventType) persona 복제 제거 (TB-2)', () => {
+  const row = (rcpNo: string, eventType: string, persona: string) => ({
+    rcpNo,
+    eventType,
+    persona,
+  });
+
+  it('동일 (rcpNo,eventType) persona 4행 → 대표 1행(입력 순서상 첫 행)', () => {
+    const rows = [
+      row('R1', 'SUPPLY_CONTRACT', 'EVENT_DRIVEN'), // 사전순 첫 persona = 대표
+      row('R1', 'SUPPLY_CONTRACT', 'GROWTH'),
+      row('R1', 'SUPPLY_CONTRACT', 'MOMENTUM'),
+      row('R1', 'SUPPLY_CONTRACT', 'VALUE'),
+    ];
+    const out = dedupByDisclosureEvent(rows);
+    expect(out).toHaveLength(1);
+    expect(out[0].persona).toBe('EVENT_DRIVEN'); // 대표 선정 규칙: 첫 행
+  });
+
+  it('rcpNo 또는 eventType 이 다르면 별도 표본으로 유지', () => {
+    const rows = [
+      row('R1', 'SUPPLY_CONTRACT', 'GROWTH'),
+      row('R1', 'SHARE_BUYBACK', 'GROWTH'), // 같은 공시·다른 이벤트 → 유지
+      row('R2', 'SUPPLY_CONTRACT', 'GROWTH'), // 다른 공시 → 유지
+    ];
+    expect(dedupByDisclosureEvent(rows)).toHaveLength(3);
+  });
+
+  it('빈 입력 → 빈 출력', () => {
+    expect(dedupByDisclosureEvent([])).toEqual([]);
+  });
+});
+
+describe('stratifySampleByMonth — 월별 균등 추출 (TB-2)', () => {
+  const row = (id: string, rcpDt: string | null) => ({ id, rcpDt });
+
+  it('limit 이 표본보다 작으면 라운드로빈으로 월별 균등 추출', () => {
+    const rows = [
+      // 202501: 3행 / 202506: 2행 / 202512: 1행
+      row('a1', '20250103'),
+      row('a2', '20250110'),
+      row('a3', '20250120'),
+      row('b1', '20250602'),
+      row('b2', '20250630'),
+      row('c1', '20251215'),
+    ];
+    const out = stratifySampleByMonth(rows, 3);
+    // 1라운드: 각 월 첫 행 1개씩 — 균등.
+    expect(out.map((r) => r.id)).toEqual(['a1', 'b1', 'c1']);
+  });
+
+  it('부족한 월은 있는 만큼만, 잔여 쿼터는 다른 월로(전량 활용)', () => {
+    const rows = [
+      row('a1', '20250103'),
+      row('a2', '20250110'),
+      row('a3', '20250120'),
+      row('b1', '20250602'),
+    ];
+    const out = stratifySampleByMonth(rows, 3);
+    // 1라운드 a1,b1 → 2라운드 a2 (b 월 소진).
+    expect(out.map((r) => r.id)).toEqual(['a1', 'b1', 'a2']);
+  });
+
+  it('표본 ≤ limit 이면 전량 반환(층화 불필요·순서 보존)', () => {
+    const rows = [row('a1', '20250103'), row('b1', '20250602')];
+    expect(stratifySampleByMonth(rows, 10).map((r) => r.id)).toEqual(['a1', 'b1']);
+  });
+
+  it('rcpDt 결측 행은 UNKNOWN 월 버킷으로 graceful 포함', () => {
+    const rows = [row('a1', '20250103'), row('u1', null), row('a2', '20250110')];
+    const out = stratifySampleByMonth(rows, 2);
+    // 월 키 정렬: '202501' < 'UNKNOWN'(숫자 뒤) — 각 버킷 1행씩.
+    expect(out.map((r) => r.id)).toEqual(['a1', 'u1']);
+  });
+
+  it('limit 0/음수 → 빈 표본', () => {
+    expect(stratifySampleByMonth([row('a1', '20250103')], 0)).toEqual([]);
+  });
+});
+
+describe('defaultAccuracyWindow — 기본 기간(최근 12개월, KST) (TB-2)', () => {
+  it('고정 now 기준 from=12개월 전 같은 날, to=오늘(KST)', () => {
+    // 2026-07-03 00:00 UTC = 2026-07-03 09:00 KST
+    const w = defaultAccuracyWindow(new Date(Date.UTC(2026, 6, 3)));
+    expect(w).toEqual({ from: '20250703', to: '20260703' });
+  });
+
+  it('KST 날짜 경계: UTC 15시 이후는 KST 다음날', () => {
+    // 2026-07-03 16:00 UTC = 2026-07-04 01:00 KST
+    const w = defaultAccuracyWindow(new Date(Date.UTC(2026, 6, 3, 16)));
+    expect(w).toEqual({ from: '20250704', to: '20260704' });
+  });
+
+  it('연초 언더플로 정규화(1월 → 전년 1월)', () => {
+    const w = defaultAccuracyWindow(new Date(Date.UTC(2026, 0, 15)));
+    expect(w).toEqual({ from: '20250115', to: '20260115' });
   });
 });

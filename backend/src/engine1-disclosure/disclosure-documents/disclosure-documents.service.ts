@@ -26,8 +26,12 @@ import { DartFiledFactService } from './facts/dart-filed-fact.service';
 import { Table } from './types/table.type';
 import { AmendmentDiff } from './types/amendment-diff.type';
 // M2 체이닝: @Optional() 주입 — DisclosureEventsService가 미배포 상태에서도 M1 파이프라인 무중단 동작
-// 순환 참조 방지: disclosure-events 모듈이 disclosure-documents 모듈을 import하지 않음
-import type { DisclosureEventsService } from '../disclosure-events/disclosure-events.service';
+// DQ-1: 반드시 값 import — `import type` 은 컴파일 시 지워져 design:paramtypes 가 Object 로
+//   퇴화하고, Nest 가 DI 토큰을 찾지 못해 @Optional() 이 항상 undefined 를 주입한다
+//   (파싱→추출 직결 체이닝이 런타임에서 침묵 미발화). 회귀 가드: disclosure-documents.chaining.spec.ts
+// 순환 참조 없음: disclosure-events.service 는 이 파일이 아닌 types/·utils/ 만 역참조한다
+//   (모듈 레벨은 disclosure-documents.module 의 forwardRef(() => DisclosureEventsModule) 유지)
+import { DisclosureEventsService } from '../disclosure-events/disclosure-events.service';
 // DAR-293: 파싱 재시도 캡 SSOT — pipeline-integrity.service와 공유(발산 방지)
 import { PARSE_MAX_RETRY as MAX_RETRY } from './disclosure-documents.constants';
 // DAR-394: 거래대상(신호 생산) 우선 fetch — 보고서명 메타데이터 선별(쿼터 최적화)
@@ -90,7 +94,15 @@ export class DisclosureDocumentsService {
     //   @Optional — StorageModule(@Global) 미배선 시 원본 HTML 저장만 비활성(파이프라인 무중단).
     @Optional()
     private readonly rawHtmlStore?: RawHtmlStoreService,
-  ) {}
+  ) {
+    // DQ-1: 침묵 실패 방지 — M2 체이닝 미배선(주입 실패)이면 부팅 로그에 경고 1줄.
+    //   과거 `import type` 회귀로 주입이 항상 undefined 였는데도 로그가 없어 미발화를 놓쳤다.
+    if (!this.disclosureEventsService) {
+      this.logger.warn(
+        'M2 체이닝 미배선: DisclosureEventsService 주입 실패(undefined) — 파싱 완료 시 이벤트 추출 직결이 발화하지 않습니다(pipeline 드레인 회수에만 의존).',
+      );
+    }
+  }
 
   /**
    * 단건 파싱 파이프라인 (스케줄러 자동 트리거 또는 수동 트리거)

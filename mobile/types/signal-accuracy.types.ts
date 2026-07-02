@@ -10,6 +10,12 @@ export interface HorizonAccuracy {
   avgExcessReturn: number | null;
   /** 중앙값 초과수익(%). 표본 0이면 null */
   medianExcessReturn: number | null;
+  /**
+   * 강건(robust) 대표 초과수익(%) — 중앙값(median) 채택(백엔드 DAR-410).
+   * 산술평균(avgExcessReturn)이 소수 극단치(폭등/폭락 표본)에 오염되는 것을 막는
+   * 1차 표기 축(TRUST-02). 표본 0이면 null.
+   */
+  robustExcessReturn: number | null;
   /** 승률(초과수익>0 비율, 0~1). 표본 0이면 null */
   winRate: number | null;
   /** t-검정 p<0.05 (표본 충분 시만) */

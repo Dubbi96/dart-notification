@@ -8,6 +8,13 @@
  * - PhilosophyModule(engine2): PhilosophyFitService(DB 재무 기반 적합도, 순수 Rule) 주입
  * - GraduationModule: GraduationMetricsService(Sharpe·MDD·벤치마크 alpha) 주입 — 스타일 포트폴리오별 재사용
  *
+ * live-readiness W1 — forward 트랙 배선 추가:
+ * - ForwardTracksScheduler: 스타일 4트랙(19:40)·전략 forward 4트랙(19:45) 일일 크론.
+ *   ★TradingRiskModule 에 두면 본 모듈과 순환 import 라 여기 배선(스케줄러가 스타일 서비스 의존).
+ * - StrategyForwardSimulationService/Controller: 전략 변형 4종 forward 운용·비교.
+ * - EventStudyModule(engine3): EventEdgeSelectorService(robust 통계 allowlist, 순수 Rule) 의존 —
+ *   BacktestModule 이 미export 라 이 모듈에서 클래스 provider 로 직접 제공(무상태 선별기).
+ *
  * ★ 모의 전용 — 실주문 없음. 적합도·체결·Exit·지표는 순수 Rule(AI 미개입).
  */
 
@@ -16,13 +23,23 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { TradingRiskModule } from '../trading-risk.module';
 import { PhilosophyModule } from '../../engine2-ai-analyst/philosophy/philosophy.module';
 import { GraduationModule } from '../simulation/graduation.module';
+import { EventStudyModule } from '../../engine3-quant-market/event-study/event-study.module';
+import { EventEdgeSelectorService } from '../../engine3-quant-market/backtest/strategies/event-edge-selector.service';
 import { PhilosophyStyleSimulationService } from './philosophy-style-simulation.service';
 import { PhilosophyStyleSimulationController } from './philosophy-style-simulation.controller';
+import { StrategyForwardSimulationService } from './strategy-forward-simulation.service';
+import { StrategyForwardSimulationController } from './strategy-forward-simulation.controller';
+import { ForwardTracksScheduler } from './forward-tracks.scheduler';
 
 @Module({
-  imports: [PrismaModule, TradingRiskModule, PhilosophyModule, GraduationModule],
-  controllers: [PhilosophyStyleSimulationController],
-  providers: [PhilosophyStyleSimulationService],
-  exports: [PhilosophyStyleSimulationService],
+  imports: [PrismaModule, TradingRiskModule, PhilosophyModule, GraduationModule, EventStudyModule],
+  controllers: [PhilosophyStyleSimulationController, StrategyForwardSimulationController],
+  providers: [
+    PhilosophyStyleSimulationService,
+    EventEdgeSelectorService,
+    StrategyForwardSimulationService,
+    ForwardTracksScheduler,
+  ],
+  exports: [PhilosophyStyleSimulationService, StrategyForwardSimulationService],
 })
 export class PhilosophyStyleSimulationModule {}

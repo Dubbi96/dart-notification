@@ -88,16 +88,65 @@ describe('SignalsService — scoreBreakdown sampleN (DAR-34)', () => {
       const result = await service.findOne('sig_1');
 
       expect(breakdownItem(result, 'historicalEvent').sampleN).toBe(42);
-      // 통계 표본수 조회는 ALL·READY 기준 단일 쿼리
+      // 통계 표본수 조회는 (ALL, __ALL__) 코어스 버킷·READY 고정 단일 쿼리 —
+      // @@unique([eventType, bucketKey, marketType]) 이므로 eventType당 1행(결정적).
       expect(prisma.eventStudyResult.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
             eventType: { in: ['SUPPLY_CONTRACT'] },
             marketType: 'ALL',
+            bucketKey: '__ALL__',
             status: 'READY',
           },
         }),
       );
+    });
+
+    it('sampleN이 있는 항목에 sampleScope("전체시장")를 함께 부여한다 — 모바일 괄호 병기 계약', async () => {
+      prisma.tradingSignal.findUnique.mockResolvedValue(baseSignal);
+      prisma.eventStudyResult.findMany.mockResolvedValue([
+        { eventType: 'SUPPLY_CONTRACT', sampleCount: 1871 },
+      ]);
+
+      const result = await service.findOne('sig_1');
+
+      // 모바일이 `${EVENT_TYPE_LABEL}(${sampleScope})`로 그대로 병기 →
+      // '대규모 공급계약(전체시장)' 표시를 위해 값은 리터럴 '전체시장'.
+      expect(breakdownItem(result, 'historicalEvent')).toMatchObject({
+        sampleN: 1871,
+        sampleScope: '전체시장',
+      });
+    });
+
+    it('sampleN이 없으면 sampleScope도 생략한다(키 자체 미존재 — 하위호환)', async () => {
+      prisma.tradingSignal.findUnique.mockResolvedValue(baseSignal);
+      prisma.eventStudyResult.findMany.mockResolvedValue([]);
+
+      const result = await service.findOne('sig_1');
+
+      expect(breakdownItem(result, 'historicalEvent')).not.toHaveProperty(
+        'sampleScope',
+      );
+    });
+
+    it('비통계 항목에는 sampleScope를 부여하지 않는다', async () => {
+      prisma.tradingSignal.findUnique.mockResolvedValue(baseSignal);
+      prisma.eventStudyResult.findMany.mockResolvedValue([
+        { eventType: 'SUPPLY_CONTRACT', sampleCount: 42 },
+      ]);
+
+      const result = await service.findOne('sig_1');
+
+      for (const key of [
+        'disclosureEvent',
+        'keyMetric',
+        'personaFit',
+        'chart',
+        'volumeLiquidity',
+        'marketSector',
+      ]) {
+        expect(breakdownItem(result, key)).not.toHaveProperty('sampleScope');
+      }
     });
 
     it('비통계 항목(chart/personaFit 등)에는 sampleN을 부여하지 않는다(undefined)', async () => {
@@ -175,6 +224,8 @@ describe('SignalsService — scoreBreakdown sampleN (DAR-34)', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             eventType: { in: ['SUPPLY_CONTRACT', 'EQUITY_OFFERING'] },
+            bucketKey: '__ALL__',
+            marketType: 'ALL',
           }),
         }),
       );
@@ -210,6 +261,53 @@ describe('SignalsService — scoreBreakdown sampleN (DAR-34)', () => {
       expect(
         items[1].scoreBreakdown.find((c) => c.key === 'historicalEvent'),
       ).not.toHaveProperty('sampleN');
+    });
+
+    // 결함 재현 가드(홈 카드 '표본' 오표시): 세분 버킷 행이 섞여 있어도 쿼리가
+    // (__ALL__, ALL) 코어스 버킷만 선택 → 시장 불문(KOSPI 삼성전자·KOSDAQ 소룩스)
+    // 같은 eventType이면 같은 코어스 표본수 + '전체시장' 스코프가 결정적으로 부여된다.
+    it('세분 버킷이 존재해도 코어스 버킷(__ALL__) 표본만 결정적으로 채택하고 sampleScope를 병기한다', async () => {
+      const kospiSignal = baseSignal; // 삼성전자(KOSPI)
+      const kosdaqSignal = {
+        ...baseSignal,
+        id: 'sig_2',
+        corpCode: '01234567',
+        stockCode: '290690',
+        company: { corpCode: '01234567', corpName: '소룩스', stockCode: '290690' },
+      };
+      prisma.tradingSignal.findMany.mockResolvedValue([
+        kospiSignal,
+        kosdaqSignal,
+      ]);
+      prisma.tradingSignal.count.mockResolvedValue(2);
+
+      // 세분 버킷(시장별·규모별)까지 포함한 저장 상태를 모델링 —
+      // where 조건(bucketKey/marketType)대로 필터해 반환하는 mock.
+      const stored = [
+        { eventType: 'SUPPLY_CONTRACT', bucketKey: '__ALL__', marketType: 'ALL', sampleCount: 1871 },
+        { eventType: 'SUPPLY_CONTRACT', bucketKey: 'LARGE', marketType: 'KOSPI', sampleCount: 312 },
+        { eventType: 'SUPPLY_CONTRACT', bucketKey: 'SMALL', marketType: 'KOSDAQ', sampleCount: 87 },
+      ];
+      prisma.eventStudyResult.findMany.mockImplementation(({ where }: any) =>
+        Promise.resolve(
+          stored
+            .filter(
+              (r) =>
+                where.eventType.in.includes(r.eventType) &&
+                (where.marketType == null || r.marketType === where.marketType) &&
+                (where.bucketKey == null || r.bucketKey === where.bucketKey),
+            )
+            .map((r) => ({ eventType: r.eventType, sampleCount: r.sampleCount })),
+        ),
+      );
+
+      const { items } = await service.findAll({});
+
+      for (const item of items) {
+        expect(
+          item.scoreBreakdown.find((c) => c.key === 'historicalEvent'),
+        ).toMatchObject({ sampleN: 1871, sampleScope: '전체시장' });
+      }
     });
 
     // ★DAR-129: 신호 피드는 백필(과거 분석 baseline) 공시 기반 신호를 절대 노출하지 않는다.

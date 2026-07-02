@@ -1,9 +1,9 @@
 /**
- * paper-simulation.integration-spec.ts — 실 Postgres 통합테스트 (DAR-40)
+ * paper-simulation.integration-spec.ts — 실 Postgres 통합테스트 (DAR-40 + 장외 체결 의미론 2026-07)
  *
- * PaperSimulationService.runDailyCycle 한 사이클(매수→스냅샷→Exit평가→지표)을 실 dev DB로
- * 검증한다. BUY 신호 1건을 시드하면 모의 매수(Position/PaperTrade)·일일 스냅샷·ExitSignal·
- * 누적지표가 생성되는지 확인.
+ * PaperSimulationService.runDailyCycle 를 실 dev DB로 2사이클 검증한다:
+ *   D0(신호일): BUY 후보 → 매수 '예약'(PENDING PaperTrade, 즉시 체결 0)
+ *   D+1(다음 거래일): 예약 → 당일 시가 체결(Position 생성)·스냅샷·ExitSignal·지표.
  *
  * ★ 격리: withRollback 안에서 FK 부모(Company→Disclosure→Price→TradingSignal→Thesis)와
  *   sim 포트폴리오를 만들고 사이클 실행 후 전부 롤백. 데모 DB 잔여 row 0(주가 2767·공시 무변경).
@@ -20,7 +20,8 @@ import { withRollback } from '../../../test/integration/with-rollback';
 
 const prisma = new PrismaService();
 const TAG = 'DAR40_SIM';
-const TRADE_DATE = '20260515';
+const TRADE_DATE = '20260515'; // 금 — 신호일(D0, 예약)
+const FILL_DATE = '20260518'; // 월 — 다음 거래일(D+1, 당일 시가 체결)
 
 async function seedBuyCandidate(tx: any): Promise<{ corpCode: string }> {
   const corpCode = `${TAG}_CORP`;
@@ -40,6 +41,14 @@ async function seedBuyCandidate(tx: any): Promise<{ corpCode: string }> {
       corpCode, stockCode, tradeDate: TRADE_DATE,
       openPrice: 49000, highPrice: 51000, lowPrice: 48500, closePrice: 50000,
       volume: BigInt(1_000_000), tradingValue: BigInt(50_000_000_000),
+    },
+  });
+  // D+1 일봉 — 개장 체결기의 '당일 시가'(REAL 폴백 경로) 데이터.
+  await tx.stockDailyPrice.create({
+    data: {
+      corpCode, stockCode, tradeDate: FILL_DATE,
+      openPrice: 50500, highPrice: 52000, lowPrice: 50000, closePrice: 51000,
+      volume: BigInt(1_200_000), tradingValue: BigInt(60_000_000_000),
     },
   });
   const signal = await tx.tradingSignal.create({
@@ -85,11 +94,20 @@ describe('PaperSimulationService.runDailyCycle (실 Postgres 통합)', () => {
     await prisma.$disconnect();
   });
 
-  it('BUY 후보 1건 → 모의 매수·일일 스냅샷·ExitSignal·지표 한 사이클 생성', async () => {
+  it('BUY 후보 1건 → D0 예약(PENDING) → D+1 당일 시가 체결·스냅샷·ExitSignal·지표', async () => {
     const out = await withRollback(prisma, async (tx) => {
       await seedBuyCandidate(tx);
       const svc = buildService(tx);
-      const result = await svc.runDailyCycle(TRADE_DATE);
+      // D0: 예약만(즉시 체결 금지 — 장외 체결 의미론).
+      const d0 = await svc.runDailyCycle(TRADE_DATE);
+      const pendingAfterD0 = await tx.paperTrade.findMany({
+        where: { corpCode: `${TAG}_CORP`, status: 'PENDING' },
+      });
+      const positionsAfterD0 = await tx.position.count({
+        where: { corpCode: `${TAG}_CORP` },
+      });
+      // D+1: 당일 시가 체결(폴백 경로 — 당일 REAL 일봉 open).
+      const result = await svc.runDailyCycle(FILL_DATE);
 
       const pf = await svc.getOrCreateSimPortfolio();
       const positions = await tx.position.findMany({ where: { portfolioId: pf.id } });
@@ -102,20 +120,30 @@ describe('PaperSimulationService.runDailyCycle (실 Postgres 통합)', () => {
         : [];
       // DAR-42: 모바일 표시용 status 응답(보유 포지션 상세 포함)도 같은 tx 로 검증
       const status = await svc.getSimulationStatus();
-      return { result, positions, paperTrades, snapshots, exitSignals, status };
+      return { d0, pendingAfterD0, positionsAfterD0, result, positions, paperTrades, snapshots, exitSignals, status };
     });
 
-    // 매수: Position 1 + BUY PaperTrade 1 (슬리피지 반영)
+    // D0: 예약 1건(PENDING)·Position 0 — 당일 종가 즉시 체결이 없어야 한다(상향 편향 차단).
+    expect(out.d0.reserved).toBe(1);
+    expect(out.d0.bought).toBe(0);
+    expect(out.pendingAfterD0).toHaveLength(1);
+    expect(out.positionsAfterD0).toBe(0);
+
+    // D+1 체결: Position 1 + BUY PaperTrade(FILLED, 당일 시가 기준 체결가)
     expect(out.result.bought).toBe(1);
     expect(out.positions).toHaveLength(1);
     expect(out.positions[0].status).toBe('OPEN');
     expect(out.positions[0].quantity).toBeGreaterThan(0);
-    expect(out.paperTrades.some((t: any) => t.direction === 'BUY')).toBe(true);
+    // 체결가는 D+1 시가(50500) 이상(슬리피지 BUY 상향) — D0 종가(50000)가 아니다.
+    expect(out.positions[0].entryPrice).toBeGreaterThanOrEqual(50500);
+    const buyTrade = out.paperTrades.find((t: any) => t.direction === 'BUY');
+    expect(buyTrade).toBeDefined();
+    expect(['FILLED', 'PARTIAL']).toContain((buyTrade as any).status);
 
-    // 스냅샷: 일일 시가평가 1건
+    // 스냅샷: 체결일(D+1) 일일 시가평가 1건
     expect(out.result.snapshotted).toBe(1);
     expect(out.snapshots).toHaveLength(1);
-    expect(out.snapshots[0].snapshotDate).toBe(TRADE_DATE);
+    expect(out.snapshots[0].snapshotDate).toBe(FILL_DATE);
     expect(Number(out.snapshots[0].positionValue)).toBeGreaterThan(0);
 
     // Exit 평가: ExitSignal 1건, aiUsed=false (AI 개입 0)
@@ -139,11 +167,12 @@ describe('PaperSimulationService.runDailyCycle (실 Postgres 통합)', () => {
     expect(out.status.initialCapital).toBe(10_000_000);
   });
 
-  it('BUY 후보 없으면 매수 0 — 빈 사이클도 안전', async () => {
+  it('BUY 후보 없으면 예약·매수 0 — 빈 사이클도 안전', async () => {
     const result = await withRollback(prisma, async (tx) => {
       const svc = buildService(tx);
       return svc.runDailyCycle(TRADE_DATE);
     });
+    expect(result.reserved).toBe(0);
     expect(result.bought).toBe(0);
     expect(result.snapshotted).toBe(0);
     expect(result.exited).toBe(0);

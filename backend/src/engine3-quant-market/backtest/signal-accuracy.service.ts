@@ -8,6 +8,8 @@
  * ★ read-only — 신규 수집·외부호출·AI 개입 0. 가중치/임계값을 변경하지 않는다.
  *   D0 는 disclosure.rcpDt → calcD0(lookahead bias 방지) 로 산출하고, 가격이 모자라
  *   D+5/D+20 을 산출할 수 없는 신호는 해당 지평에서 null 로 제외한다(과신 방지).
+ * ★TB-2(2026-07-03): 표본 = rcpDt 기간(from/to, 기본 최근 12개월) 내
+ *   (rcpNo,eventType) dedup + 월별 층화 — persona 4배 유사복제·최근 쏠림 편향 교정.
  */
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -15,6 +17,9 @@ import { calcAR, PriceWindow } from '../event-study/utils/abnormal-return';
 import { calcD0 } from '../event-study/utils/d0-calculator';
 import {
   buildSignalAccuracyReport,
+  dedupByDisclosureEvent,
+  defaultAccuracyWindow,
+  stratifySampleByMonth,
   SignalAccuracyReport,
   SignalRealizedReturn,
 } from './signal-accuracy';
@@ -37,13 +42,24 @@ const MIN_POINTS_D20 = 21;
 /** 가격 윈도우 조회 종료일 여유(D0 + 이 일수). D+20 거래일 확보용 달력 여유. */
 const WINDOW_CALENDAR_DAYS = 45;
 
+/**
+ * 층화 전 후보 행 적재 상한(메모리 방어). persona dedup(4행→1행) 전 원행 기준 —
+ * limit 최대 5000 × persona 4 = 20000 이면 표본 상한을 온전히 커버한다.
+ * (기간 내 후보가 이를 넘으면 rcpNo 오름차순 앞쪽부터 절단 — 결정론 유지.)
+ */
+const MAX_CANDIDATE_ROWS = 20000;
+
 export interface SignalAccuracyParams {
-  /** 집계 대상 신호 최대 수(최신순). 과도한 조회 방지 기본값. */
+  /** 층화 표본 상한 — (rcpNo,eventType) dedup 후 기준. 과도한 조회 방지 기본값 1000. */
   limit?: number;
   /** 특정 eventType 만 필터(선택) */
   eventType?: string;
   /** 특정 signalGrade 만 필터(선택) */
   signalGrade?: string;
+  /** 집계 기간 하한 — 공시 접수일 rcpDt YYYYMMDD(포함). 미지정/무효 시 기본(최근 12개월) (TB-2) */
+  from?: string;
+  /** 집계 기간 상한 — 공시 접수일 rcpDt YYYYMMDD(포함). 미지정/무효 시 오늘(KST) (TB-2) */
+  to?: string;
 }
 
 @Injectable()
@@ -53,17 +69,28 @@ export class SignalAccuracyService {
   /**
    * 신호 사후검증 정밀도 리포트.
    * 가격 데이터로 D+20 까지 실현 가능한(충분히 과거의) 신호만 자연 포함된다.
+   *
+   * ★TB-2 표본 설계(2026-07-03): 종전 '최신순 take(limit)' 표본은 ① 동일 공시이벤트가
+   *   persona 4행으로 복제돼 실현수익이 4배 가중(유사복제), ② 최근 공시일 쏠림(단일 장세
+   *   측정) 편향이 있었다. rcpDt 기간 필터(from/to, 기본 최근 12개월) + (rcpNo,eventType)
+   *   dedup(대표 = 사전순 첫 persona 행) + 월별 층화(기간 내 접수월 균등 추출)로 교정.
+   *   파라미터 미지정 시 새 기본 동작(최근 12개월 층화) — 응답 스키마 불변.
    */
   async getSignalAccuracy(params: SignalAccuracyParams = {}): Promise<SignalAccuracyReport> {
     const limit = Math.min(Math.max(params.limit ?? 1000, 1), 5000);
+    const window = this.resolveWindow(params);
 
-    const signals = await this.prisma.tradingSignal.findMany({
+    // 정렬 (rcpNo,eventType,persona) ASC — dedup 대표행(첫 행)을 사전순 첫 persona 로
+    // 결정론 고정한다(createdAt 최신순의 재실행 비결정성·최근 쏠림 제거).
+    const rows = await this.prisma.tradingSignal.findMany({
       where: {
         ...(params.eventType ? { eventType: params.eventType } : {}),
         ...(params.signalGrade ? { signal: params.signalGrade as never } : {}),
+        // rcpDt 는 YYYYMMDD[HHmmss] — 종일 포함 위해 상한에 999999 부가(백필 경로와 동일 규약).
+        disclosure: { rcpDt: { gte: window.from, lte: `${window.to}999999` } },
       },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
+      orderBy: [{ rcpNo: 'asc' }, { eventType: 'asc' }, { persona: 'asc' }],
+      take: MAX_CANDIDATE_ROWS,
       select: {
         rcpNo: true,
         stockCode: true,
@@ -75,12 +102,27 @@ export class SignalAccuracyService {
       },
     });
 
+    // ① (rcpNo,eventType) 대표 1행 — persona 유사복제 제거(실현수익은 persona 무관 공통).
+    const deduped = dedupByDisclosureEvent(
+      rows.map((s) => ({
+        rcpNo: s.rcpNo,
+        eventType: s.eventType,
+        stockCode: s.stockCode,
+        buyScore: s.buyScore,
+        signal: s.signal,
+        rcpDt: s.disclosure?.rcpDt ?? null,
+        market: s.company?.market ?? null,
+      })),
+    );
+    // ② 월별 층화 — 기간 내 접수월(YYYYMM) 균등 추출로 limit 표본 구성.
+    const sampled = stratifySampleByMonth(deduped, limit);
+
     const returns: SignalRealizedReturn[] = [];
-    for (const s of signals) {
+    for (const s of sampled) {
       const realized = await this.computeRealizedReturn(
         s.stockCode,
-        s.disclosure?.rcpDt ?? null,
-        s.company?.market ?? null,
+        s.rcpDt,
+        s.market,
       );
       returns.push({
         signalGrade: s.signal,
@@ -92,6 +134,20 @@ export class SignalAccuracyService {
     }
 
     return buildSignalAccuracyReport(returns);
+  }
+
+  /**
+   * from/to 정규화 (TB-2) — YYYYMMDD 8자리만 인정, 무효/미지정은 기본 기간(최근 12개월,
+   * KST 오늘 포함) 폴백. 기존 호출부(파라미터 없음)는 자동으로 새 기본 동작을 얻는다.
+   */
+  private resolveWindow(params: SignalAccuracyParams): { from: string; to: string } {
+    const def = defaultAccuracyWindow(new Date());
+    const valid = (v?: string): string | null =>
+      v && /^\d{8}$/.test(v) ? v : null;
+    return {
+      from: valid(params.from) ?? def.from,
+      to: valid(params.to) ?? def.to,
+    };
   }
 
   /**

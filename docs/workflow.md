@@ -1028,7 +1028,7 @@ IExitCheckScheduler.runPreMarketCheck() / runIntradayCheck() / runPostMarketChec
 
 | 점검 시간 | Cron | 설명 |
 |-----------|------|------|
-| 09:00~15:30 / 5분 | `*/5 9-15 * * 1-5` | `PaperSimulationScheduler.runIntradayExitMonitor` — 보유종목 실시간 능동 fetch → Exit 평가 |
+| 09:00~15:30 / 5분 | `*/5 9-15 * * 1-5` | `PaperSimulationScheduler.runIntradayExitMonitor` — ①개장 체결기(전일 매수 예약·이연 청산 → 당일 시가 체결, §6.10) ②forward 트랙 포트폴리오 전부(시스템 모의 + `모의운용 포트폴리오*` 이름 규약) 보유종목 실시간 능동 fetch → Exit 평가 |
 
 - **능동 fetch(핵심)**: `runIntradayExitMonitor` 는 `RealtimeQuoteCache` 를 '읽기'만 하지 않는다 — 캐시는 누가 채우지
   않으면 빈다. 보유 OPEN 포지션 종목들의 실시간 현재가를 **KIS 에서 직접 조회(`refreshHoldingsRealtime`)해 캐시를 채운 뒤**
@@ -1081,7 +1081,61 @@ Cron 이 아니라 **체결 직후 발행**되는 이벤트 구동 경로 — en
   매도 본문 `손익 {±%}({사유}) · 평가금 ₩{총}`. 딥링크·data 페이로드에 strategyKey 포함.
 - ★알림은 통지일 뿐 — 주문 결정/실주문과 무관(AI 금지영역 불침범).
 
+### 6.9 forward 트랙 일일 사이클 — 철학 스타일 4트랙 + 전략 변형 4종 (live-readiness W1)
+
+★진단 확정 결함 교정: 철학 스타일 시뮬(DAR-76)은 run-once 수동 경로만 있고 크론 배선이 없어
+4트랙이 **미가동**이었고, 전략 변형 4종(DAR-404)은 리플레이(BacktestRun)뿐 forward 실운용이 없었다.
+`ForwardTracksScheduler`(engine5 `paper-simulation/forward-tracks.scheduler.ts`)가 두 축을 자동 발화한다.
+
+| 잡 | Cron (KST) | cron-health 키 | 설명 |
+|-----|------|------|------|
+| 철학 스타일 4트랙 | `40 19 * * 1-5` | `paper.style-simulation` | `PhilosophyStyleSimulationService.runDailyCycleAllStyles` — 시스템 모의(19:30) 직후, BUFFETT/LYNCH/GREENBLATT/DRUCKENMILLER 분기 사이클 |
+| 전략 forward 4트랙 | `45 19 * * 1-5` | `paper.strategy-forward` | `StrategyForwardSimulationService.runDailyCycleAllStrategies` — 스타일 직후 직렬화, 이벤트엣지/단기모멘텀/보수가치/공격분산 forward 운용 |
+
+- **전략 forward 진입 룰**: 라이브 TradingSignal(`disclosure.isBackfill=false`)에 preset.params
+  (minBuyScore·eventTypes allowlist·maxPositions·EQUAL/SCORE_WEIGHT 사이징) 적용. 예산은 리플레이와
+  동일 산식(`resolvePositionBudget`)을 Risk envelope(가상원금 × maxSinglePositionPct)로 절단 — 하드룰 우회 0.
+- **event-edge allowlist**: `EventEdgeSelectorService`(robust 통계)를 **당일 1회** 해석 — forward 에선
+  "오늘 신호에 오늘 통계"가 point-in-time 합법. allowlist 가 비면 진입 0 유지 + 로그(do-no-harm, 정직).
+- **청산**: preset.exitRules(익절/손절/최대보유)를 Position exit 파라미터 자리에 대입 → engine4
+  `calculateExitScore`(순수 Rule) 발화. thesis invalidConditions 미혼입(전략 정체성 = 프리셋 룰만).
+- **트랙 식별**: 포트폴리오 `모의운용 포트폴리오 [strategy:<key>]` + `styleTag='strategy:<key>'`
+  네임스페이스(스키마 변경 0 — 기존 칼럼·인덱스 재사용). engine3 리플레이 트랙(§2.10)은 무변경 존치.
+- **체결 의미론**: 현행은 스타일 시뮬과 동일한 당일 최근 종가 즉시체결 — "결정→익일 시가 체결" 규약으로
+  후속 통일 예정.
+- ★AI 금지영역 불가침: 진입 필터·사이징·청산 전부 순수 Rule. **실주문 경로 0**(`simulateFill`만).
+
+### 6.10 장외 체결 의미론 — "19:30 = 주문 결정, 익일 개장 = 체결" (live-readiness W1, 시스템 모의)
+
+★진단 확정 결함 교정: 매수 78.8%가 장 마감 후(19:30) **당일 종가로 즉시 체결** 기록되어
+정보시점>가격시점 상향 편향이 있었고, 개장 직후 손절 평균 -14.99%(하드스탑 -8% 대비 7%p 초과)로
+갭 리스크가 이미 실재했다. 엔진 정본 규칙("다음거래일 시가 진입")·백테스트 규칙(익일 시가)과 일치하도록
+시스템 모의(`PaperSimulationService`)의 장외 경로를 예약/이연으로 정정했다(스키마 변경 0 —
+PaperTrade 의 기존 `PENDING` status + `entryDate`(체결 예정 거래일) + `styleTag='paper-simulation'` 재사용).
+
+- **매수**: 19:30 사이클의 `openNewPositions` 는 즉시 체결 대신 **PENDING 예약**(entryDate=다음 거래일,
+  주말·KRX 공휴일 스킵 `nextTradingDay` 재사용)만 만든다. 알림은 `TRADE_ENTRY` 페이로드의
+  `phase='RESERVED'`(주문 예약 — 익일 시가 체결 예정) / `'FILLED'`(체결)로 분리(additive optional —
+  기존 소비자 호환).
+- **개장 체결기**: 장중 모니터(§6.6) 첫 유효 틱(09:00~)이 만기 예약을 **당일 시가**(KIS 실시간 quote 의
+  open 필드 = REALTIME)로 체결하고 Position 을 생성한다. KIS 미가동 시 19:30 사이클이 **당일 REAL 일봉
+  open**(KRX 18:30 게시)으로 폴백 체결. 당일 데이터가 없으면 **다음 거래일로 이월**, 체결 예정일로부터
+  **3거래일 초과 시 예약 취소(CANCELLED)** — 무한 이월 방지. 체결 시점에 SSOT 현금으로 수량 재클램프
+  (cash≥0 불변식) + 예산 envelope(주문수량×예약 기준가) 유지 — Risk 하드룰 우회 0.
+- **청산**: 일일(19:30) `evaluateExits` 는 EXIT/BLOCK_REBUY 를 **판정·기록만**
+  (`ExitSignal.scoreDetail.deferredFill=true`, checkTime=`POST_MARKET`) 하고, 체결은 익일 시가
+  (장외 악재의 **갭다운이 체결가에 정직 반영**). 장중 실효 손절은 장중 모니터가 계속 즉시 체결
+  (checkTime=`INTRADAY`, 변경 없음).
+- **REALTIME 오염 게이트**: 정규장(평일 09:00~15:30 KST) 밖의 KIS fetch(전일 종가 스냅샷)가 REALTIME
+  으로 둔갑하지 않도록 `warmRealtimeQuotes`(fetch 차단)와 `SimulationPriceSourceService.realtimeRowFor`
+  (quote 의 fetchedAtMs 기준 판정 — 결정론)에 이중 게이트.
+- **다중 포트폴리오 모니터**: 장중 Exit 모니터가 시스템 모의 단일 조회에서 **forward 트랙 포트폴리오
+  전부**(시스템 유저 소유 + `모의운용 포트폴리오` prefix — 철학 스타일 `[BUFFETT]`·전략 `[strategy:<key>]`
+  자동 편입, 하드코딩 목록 금지)로 확장. 체결 알림은 시스템 모의만 발행(타 트랙 라벨 오표기 방지).
+- 기존 오픈 포지션·과거 데이터는 마이그레이션하지 않는다(새 의미론은 신규 사이클부터). 성과 지표 산식 무변경.
+- ★AI 금지영역 불가침: 예약·체결·이연·취소 전부 순수 Rule(`simulateFill`) — 실주문 경로 0, AI 개입 0.
+
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-02 (현행화 — §1.1 카카오 OAuth·expo-secure-store·온보딩 3단계 정합, §2 절 번호 재정렬, 분봉 단타(§6.7)·체결 푸시(§6.8)·DART 라이브 쿼터 예약분 가드(§2.11) 반영)
+**최종 수정일**: 2026-07-03 (live-readiness W1 — §6.10 장외 체결 의미론 신설: 시스템 모의 "19:30=주문 결정, 익일 개장=체결"(매수 예약→당일 시가 체결·청산 이연·이월 상한 3거래일·REALTIME 오염 게이트·장중 모니터 다중 포트폴리오 확장) + §6.6 표 갱신; §6.9 forward 트랙 일일 사이클 신설: 철학 스타일 4트랙 크론 배선(19:40, 미가동 결함 교정) + 전략 변형 4종 forward 모의운용(19:45) + cron-health 키 `paper.style-simulation`/`paper.strategy-forward`; 이전: 2026-07-02 현행화 — §1.1 카카오 OAuth·expo-secure-store·온보딩 3단계 정합, §2 절 번호 재정렬, 분봉 단타(§6.7)·체결 푸시(§6.8)·DART 라이브 쿼터 예약분 가드(§2.11) 반영)

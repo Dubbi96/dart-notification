@@ -578,6 +578,8 @@ eas build --profile development --platform android
 - 셰이프: Always Free AMD `VM.Standard.E2.1.Micro`(1GB RAM) × 2대.
 - SSH 접속: `ssh -i ~/.ssh/oci_instance ubuntu@168.138.198.152` — **키 지정 필수**
   (`-i` 없이 접속하면 `Permission denied (publickey)`). 정본: `AGENTS.md` "배포 접속 (OCI 프로덕션)".
+- ★**원격 실경로 정정**: micro1 의 compose·저장소 실경로는 **`/home/ubuntu/dano`** 다
+  (과거 문서의 `dart-notification` 표기는 오기 — 아래 명령 예시도 `dano` 기준).
 - 2-micro 분리 운영에서는 `docker-compose.prod.yml` 의 `postgres` 서비스(단일 VM용, §3.6) 대신
   micro1 의 `backend/.env.prod` `DATABASE_URL` 이 micro2 사설 IP(`10.0.1.151:5432`)를 가리킨다.
 
@@ -606,12 +608,13 @@ docker save dart-notification-backend:prod | gzip | \
   ssh -i ~/.ssh/oci_instance ubuntu@168.138.198.152 'gunzip | docker load'
 
 # ③ (micro1) 재기동 — 로드된 이미지를 그대로 사용(★--build 금지: micro 에서 빌드 불가)
+#    ★원격 실경로는 /home/ubuntu/dano (dart-notification 아님)
 ssh -i ~/.ssh/oci_instance ubuntu@168.138.198.152 \
-  'cd dart-notification && docker compose -f docker-compose.prod.yml up -d backend'
+  'cd /home/ubuntu/dano && docker compose -f docker-compose.prod.yml up -d backend'
 
 # ④ 스키마 변경이 포함된 배포만 (휴먼 승인 후):
 ssh -i ~/.ssh/oci_instance ubuntu@168.138.198.152 \
-  'cd dart-notification && docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate'
+  'cd /home/ubuntu/dano && docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate'
 ```
 
 #### 배포 검증 (헬스체크 + 데이터 신선도)
@@ -625,11 +628,44 @@ curl -s "https://168.138.198.152.nip.io/api/disclosures?limit=1"
 
 # 컨테이너 상태
 ssh -i ~/.ssh/oci_instance ubuntu@168.138.198.152 \
-  'docker compose -f dart-notification/docker-compose.prod.yml ps'
+  'docker compose -f /home/ubuntu/dano/docker-compose.prod.yml ps'
 ```
 
 > 환경변수(`backend/.env.prod`)·방화벽(VCN Security List + iptables)·TimescaleDB preload 등
 > 공통 세팅 절차는 §3.6 의 ⑤~⑧ 을 그대로 사용한다(단, DB 관련은 micro2 대상).
+
+#### 리소스 하드닝 — OOM 단일장애점 완화 (OPS-3)
+
+micro(1GB RAM)에서는 backend 메모리 폭주가 호스트 전체 OOM 으로 번질 수 있다.
+`docker-compose.prod.yml` 에 다음 상한이 적용되어 있다(구조 변경 없음 — 리소스 제한만):
+
+| 서비스 | 설정 | 의도 |
+|--------|------|------|
+| backend | `mem_limit: 640m` | 폭주 시 이 컨테이너만 OOM-kill → 호스트 보호 |
+| backend | `NODE_OPTIONS=--max-old-space-size=448` | V8 힙 상한 — 컨테이너 kill 전에 GC 가 먼저 동작 |
+| backend / redis | `restart: always` | OOM-kill·재부팅 후 무조건 자동 재기동 |
+| redis | `--maxmemory 128mb --maxmemory-policy noeviction` | 상한 고정. **eviction 금지**(BullMQ 잡 메타 evict 시 큐 파손 — `allkeys-lru` 절대 금지) |
+
+#### DB 자동 백업 — `scripts/backup-prod-db.sh` + cron (OPS-1)
+
+수동 pg_dump(§5.1)를 대체하는 **자동 백업 스크립트**. micro1 에서 실행하며
+`pg_dump -Fc`(nice/ionice) → gzip → **S3 업로드**(`s3://$S3_BUCKET/backups/dart_notification_YYYY-MM-DD.dump.gz`)
+순서로 동작한다. 자격·버킷은 `backend/.env.prod` 의 기존 값(`DATABASE_URL`·`AWS_*`·`S3_BUCKET`)을 재사용한다.
+
+```bash
+# 수동 1회 실행 (micro1)
+ssh -i ~/.ssh/oci_instance ubuntu@168.138.198.152 \
+  'ENV_FILE=/home/ubuntu/dano/backend/.env.prod bash /home/ubuntu/dano/scripts/backup-prod-db.sh'
+
+# crontab 설치 — 매일 03:30 KST (서버 시계는 UTC → 18:30 UTC = 익일 03:30 KST)
+# crontab -e 후 아래 1줄 추가:
+30 18 * * * ENV_FILE=/home/ubuntu/dano/backend/.env.prod bash /home/ubuntu/dano/scripts/backup-prod-db.sh >> /home/ubuntu/backup-prod-db.log 2>&1
+```
+
+- 실패 시 `exit 1` + stderr — cron 로그(`/home/ubuntu/backup-prod-db.log`)에서 즉시 발견 가능.
+- 호스트에 `pg_dump`/`aws` CLI 가 없으면 docker 이미지 폴백으로 동작(별도 설치 불요).
+- **보존 정책**은 S3 Lifecycle 로 관리(일 7 · 주 4 · 월 3 수준 롤링) — 규칙 예시는
+  스크립트 말미 주석 참조. 복구 절차(TimescaleDB pre/post_restore 필수)는 §5.2.
 
 ---
 
@@ -1036,7 +1072,10 @@ Sentry.init({
 
 ### 5.1 데이터베이스 백업
 
-**현행: 수동 pg_dump** (자동화는 백로그 — 재개 계획 Track D "주기 백업 cron 검토"):
+**현행: 자동 백업** — `scripts/backup-prod-db.sh` + cron(매일 03:30 KST). 상세·설치 절차는
+**§3.1 "DB 자동 백업"** 참조 (pg_dump -Fc → gzip → S3 `backups/` 업로드, `.env.prod` 자격 재사용).
+
+수동 1회 덤프가 필요할 때:
 
 ```bash
 # PostgreSQL 덤프 (custom format 권장 — 병렬 복원·선택 복원 가능)
@@ -1081,5 +1120,6 @@ psql "$DATABASE_URL" -c "SELECT timescaledb_post_restore();"
 
 ---
 
-**작성일**: 2026-03-07 · **최종 수정일**: 2026-07-02
-**버전**: 2.0 — OCI 2-micro 라이브 토폴로지·실배포 런북 반영(AWS 경로 (구) 강등, pnpm → npm)
+**작성일**: 2026-03-07 · **최종 수정일**: 2026-07-03
+**버전**: 2.1 — OPS-1 백업 자동화(`scripts/backup-prod-db.sh`+cron)·OPS-3 리소스 하드닝
+(mem_limit/NODE_OPTIONS/redis maxmemory)·원격 실경로 `/home/ubuntu/dano` 정정

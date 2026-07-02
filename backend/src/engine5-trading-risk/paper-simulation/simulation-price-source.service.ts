@@ -42,6 +42,7 @@ import {
 } from './simulation-entry';
 import { mapSimDateToRealDate, realYearShift } from './real-date-map';
 import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realtime-quote.cache';
+import { isKstRegularMarketHours } from '../../common/time/kst';
 
 /** 일봉/현재가 1행의 출처 — 정직한 실시간/실데이터/합성 구분 표기용.
  *  REALTIME=KIS 실시간 현재가(DAR-140) · REAL=실 KRX 일봉 · SYNTHETIC=합성. */
@@ -213,6 +214,30 @@ export class SimulationPriceSourceService {
     return this.realRow(corpCode, tradeDate);
   }
 
+  /**
+   * 개장 체결기용 '해당 거래일 당일' 시가 행(2026-07 장외 체결 의미론 — "익일 개장 = 체결").
+   *   우선순위: ① 신선한 실시간 quote(정규장 fetch 분만)가 오늘(tradeDate) 것이면 그 행 —
+   *   openPrice = KIS 현재가 응답의 당일 시가 필드. ② 종목 소스(REAL|SYNTHETIC)의 '당일' 일봉
+   *   (REAL 일봉은 장 마감 후 18:30 게시 — 19:30 폴백 체결 경로). 당일 행이 없으면 null —
+   *   호출측이 다음 거래일로 이월한다(스테일 가격 체결 금지 — lte 폴백을 쓰지 않는 이유).
+   *   latestPriceRow(최신가 폴백 체인)와 달리 '당일 데이터'만 정직하게 반환한다.
+   */
+  async openRowForDate(corpCode: string, tradeDate: string): Promise<SimPriceRow | null> {
+    if (this.mode !== 'SYNTHETIC') {
+      const rt = this.realtimeRowFor(corpCode);
+      if (rt && rt.sourceDate === tradeDate && rt.openPrice > 0) return rt;
+    }
+    const src = await this.resolveSource(corpCode, tradeDate);
+    if (src === 'SYNTHETIC') {
+      const row = await this.syntheticRow(corpCode, tradeDate);
+      return row && row.sourceDate === tradeDate ? row : null;
+    }
+    // REAL: 매핑 모드(REAL_THEN_SYNTHETIC 연도 시프트)면 매핑된 실 거래일과 일치해야 '당일'.
+    const expected = this.realQueryDate(tradeDate);
+    const row = await this.realRow(corpCode, tradeDate);
+    return row && row.sourceDate === expected ? row : null;
+  }
+
   /** 합성 일봉 1행(source=SYNTHETIC). 시뮬 캘린더(2026)에 적재 — 매핑 없이 sim 날짜로 조회. */
   private async syntheticRow(corpCode: string, tradeDate: string): Promise<SimPriceRow | null> {
     const row = await this.prisma.simulatedDailyPrice.findFirst({
@@ -366,10 +391,14 @@ export class SimulationPriceSourceService {
    * DAR-140: 신선한 KIS 실시간 현재가를 SimPriceRow(source=REALTIME)로 변환. 없으면 null.
    *   캐시 미주입(@Optional)·미설정·stale 이면 null → 호출측이 일봉/합성으로 폴백.
    *   sourceDate = 실 wall-clock 날짜(원일자) — 환경 시계(2026)와 다를 수 있음을 정직 고지.
+   *   ★정규장 게이트(2026-07): 정규장(평일 09:00~15:30 KST) 밖에서 fetch 된 quote 는 전일
+   *     종가/스냅샷일 뿐 실시간이 아니다 — 장외 fetch 가 REALTIME 으로 둔갑하는 오염을 차단한다.
+   *     판정 기준은 quote 자신의 fetch 시각(fetchedAtMs) — 결정론(현재 벽시계 비의존).
    */
   private realtimeRowFor(corpCode: string): SimPriceRow | null {
     const q = this.realtimeCache?.getFresh(corpCode);
     if (!q || q.price <= 0) return null;
+    if (!isKstRegularMarketHours(new Date(q.fetchedAtMs))) return null;
     return {
       openPrice: q.open > 0 ? q.open : q.price,
       highPrice: q.high > 0 ? q.high : q.price,

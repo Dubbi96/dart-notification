@@ -71,11 +71,18 @@ export function useDisclosureEvent(rcpNo: string) {
   });
 }
 
-export function useDisclosureAnalysis(rcpNo: string) {
+// DAR-471: 접이식 'AI 심층 분석' 카드는 기본 접힘 → 펼칠 때만 발화하도록 enabled 게이팅을 위임받는다.
+//   options.enabled 미지정 시 기존 동작(rcpNo 있으면 즉시 조회) 보존.
+//   (인라인 객체 타입 대신 명명 인터페이스 — 시그니처에 '{' 노출 안 함, DAR-334 staletime 가드 본문추출 호환.)
+interface DisclosureAnalysisOptions {
+  enabled?: boolean;
+}
+
+export function useDisclosureAnalysis(rcpNo: string, options?: DisclosureAnalysisOptions) {
   return useQuery({
     queryKey: ['disclosure-analysis', rcpNo],
     queryFn: () => disclosureService.getAnalysis(rcpNo),
-    enabled: !!rcpNo,
+    enabled: !!rcpNo && (options?.enabled ?? true),
     retry: false,
     // 30분 — rcpNo 단건 AI 요약은 사실상 불변. 재처리 후 갱신은 invalidate 경로로 즉시 반영되므로 staleTime은 자동 refetch만 억제(기업메타 정책 정렬)
     staleTime: 1000 * 60 * 30,

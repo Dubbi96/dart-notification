@@ -60,7 +60,8 @@ ok('색 단독 금지 — 시간·가격 평문 병기(요약)', /종가 \{won\(
 console.log('[5] 페이지 배선 — 현재가 헤더 아래');
 ok('useMinuteCandles import', /import \{ useMinuteCandles \} from '@hooks\/useMinuteCandles'/.test(page));
 ok('MinuteCandleChart import', /import \{ MinuteCandleChart \} from '@components\/company\/MinuteCandleChart'/.test(page));
-ok('장중 폴링 옵션 전달', /useMinuteCandles\(company\?\.stockCode,\s*\{\s*pollWhileMarketOpen:\s*true\s*\}\)/.test(page));
+// DAR-471: 접힘 시 지연 로딩 게이팅(enabled: isChartExpanded)을 옵션에 추가 → 폴링/발화 모두 펼칠 때만.
+ok('장중 폴링 옵션 전달(+DAR-471 enabled 게이팅)', /useMinuteCandles\(company\?\.stockCode,\s*\{\s*pollWhileMarketOpen:\s*true,\s*enabled:\s*isChartExpanded,?\s*\}\)/.test(page));
 ok('헤더 Card 닫힘 직후 섹션(현재가 헤더 아래)', /DAR-354: 분봉 차트 섹션 — 현재가 헤더 아래/.test(page));
 ok('stockCode 있을 때만 렌더', /company\.stockCode \? \([\s\S]*<MinuteCandleChart/.test(page));
 ok('asOf prop 전달(정직 라벨)', /asOf=\{minuteCandlesAsOf\}/.test(page));

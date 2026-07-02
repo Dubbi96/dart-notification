@@ -357,14 +357,23 @@ export default function CompanyDetailScreen() {
     refetchInterval: quotePollInterval,
   });
   const quote = company?.stockCode ? quotes[company.stockCode] : null;
+  // DAR-452/E1: 분봉 차트는 기본 접힘. 회사카드+차트가 탭 위에 고정돼 전 탭 뷰포트를 절반 잠식하던 문제를
+  // 단일 토글로 해소한다(6개 탭 동시 개선). 펼칠 때만 차트를 렌더해 접힘 상태의 점유 높이를 헤더 한 줄로 축소.
+  // (useMinuteCandles enabled 게이트보다 먼저 선언 — TDZ 회피.)
+  const [isChartExpanded, setIsChartExpanded] = useState(false);
+  const toggleChart = useCallback(() => setIsChartExpanded((prev) => !prev), []);
   // DAR-354: 당일 분봉(인트라데이) — 현재가 헤더 아래 차트. 장중에만 1분 폴링.
+  // DAR-471: 지연 로딩 — 접힘 상태에선 enabled:false → 최초 발화·장중 폴링 모두 중단(펼칠 때만 조회).
   const {
     candles: minuteCandles,
     asOf: minuteCandlesAsOf,
     isLoading: isLoadingMinuteCandles,
     isError: isMinuteCandlesError,
     refetch: refetchMinuteCandles,
-  } = useMinuteCandles(company?.stockCode, { pollWhileMarketOpen: true });
+  } = useMinuteCandles(company?.stockCode, {
+    pollWhileMarketOpen: true,
+    enabled: isChartExpanded,
+  });
   const { data: watchlistData } = useWatchlist({ enabled: isAuthenticated });
   const addToWatchlist = useAddToWatchlist();
   const removeFromWatchlist = useRemoveFromWatchlist();
@@ -372,10 +381,6 @@ export default function CompanyDetailScreen() {
   const haptics = useHaptics();
   const { showSnackbar } = useSnackbar();
   const [activeTab, setActiveTab] = useState<CompanyTab>('decision');
-  // DAR-452/E1: 분봉 차트는 기본 접힘. 회사카드+차트가 탭 위에 고정돼 전 탭 뷰포트를 절반 잠식하던 문제를
-  // 단일 토글로 해소한다(6개 탭 동시 개선). 펼칠 때만 차트를 렌더해 접힘 상태의 점유 높이를 헤더 한 줄로 축소.
-  const [isChartExpanded, setIsChartExpanded] = useState(false);
-  const toggleChart = useCallback(() => setIsChartExpanded((prev) => !prev), []);
 
   const watchlistItem = useMemo(
     () => watchlistData?.data?.find((item) => item.corpCode === corpCode),

@@ -10,8 +10,11 @@ import { AiAnalysisRepository } from '../ports/ai-analysis.repository';
  *   - 실호출(logUsage)과 캐시히트(logCacheHit)는 분리 경로다.
  */
 describe('AiUsageLogService — DAR-241 캐시히트 관측', () => {
-  const FROM = new Date('2026-06-01T00:00:00.000Z');
-  const TO = new Date('2026-06-30T23:59:59.999Z');
+  // 서비스가 createdAt=new Date()(현재 시각)로 기록하므로, 절대 날짜 하드코딩 대신
+  // 현재 시각 기준 상대 윈도우를 쓴다(절대 날짜는 윈도우 경과 후 자동 실패 — 2026-07 회귀).
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const FROM = new Date(Date.now() - DAY_MS); // now-1일
+  const TO = new Date(Date.now() + DAY_MS); // now+1일
 
   function build() {
     const repo = new InMemoryAiAnalysisRepository();
@@ -67,7 +70,7 @@ describe('AiUsageLogService — DAR-241 캐시히트 관측', () => {
       rcpNo: 'R002',
       task: 'summary',
       level: AiCostLevel.L2,
-      createdAt: new Date('2026-05-01T00:00:00.000Z'), // 윈도우 이전
+      createdAt: new Date(FROM.getTime() - DAY_MS), // 윈도우 이전(FROM-1일) — 필터링 검증 유지
     });
     const metrics = await service.getCostMetrics(FROM, TO);
     expect(metrics.cacheHitCount).toBe(0);

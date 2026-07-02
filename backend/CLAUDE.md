@@ -9,12 +9,12 @@
 
 | 도메인 폴더 | 책임 | 소유 모델 | 마일스톤 |
 |---|---|---|---|
-| `engine1-disclosure/` | 공시 수집·원문 파싱·이벤트/수치 추출 | `Disclosure`·`DisclosureDocument`·`DisclosureEvent`·`DisclosureCollectionLog` | M0~M2 ✅ |
-| `engine2-ai-analyst/` | 4개 AI Task·비용 게이트(L0~L3)·`AIUsageLog` | `DisclosureAnalysis`·`PersonaAnalysis`·`AIUsageLog` | M3 |
-| `engine3-quant-market/` | 시세·지표·Event Study·Buy Score | `StockDailyPrice`·`TechnicalIndicator`·`EventStudyResult`·`TradingSignal` | M4~M6, M9 |
-| `engine4-portfolio-exit/` | 포트폴리오·포지션·Exit Score | `Portfolio`·`Position`·`PositionThesis`·`ExitSignal` | M7~M8 |
-| `engine5-trading-risk/` | Risk 하드룰·모의/실주문 | `PaperTrade`·`OrderRequest`·`OrderExecution`·`TradingAuditLog` | M11~M12 |
-| 횡단(독립 유지) | `auth` `users` `companies` `watchlist` `notifications` `notification-settings` `expo-push` `devices` `saved-disclosures` `prisma` `common` | — | 전 구간 |
+| `engine1-disclosure/` | 공시 수집·원문 파싱·이벤트/수치 추출 + 재무(`financials`)·지분변동(`insider-holdings`)·파이프라인 무결성(`pipeline`) | `Disclosure`·`DisclosureDocument`·`DisclosureEvent`·`DisclosureCollectionLog`·`CompanyFinancial`·`InsiderHoldingChange` | M0~M2 ✅ |
+| `engine2-ai-analyst/` | 4개 AI Task·비용 게이트(L0~L3)·`AIUsageLog`·철학 적합도(philosophy-fit, Rule) | `DisclosureAnalysis`·`PersonaAnalysis`·`AIUsageLog` | M3 ✅ |
+| `engine3-quant-market/` | 시세(KIS/KRX)·지표·Event Study·Buy Score·백테스트(다중전략 4트랙)·단타 신호 | `StockDailyPrice`·`TechnicalIndicator`·`EventStudyResult`·`TradingSignal`·`BacktestRun` | M4~M6, M9 ✅ |
+| `engine4-portfolio-exit/` | 포트폴리오·포지션·Position Thesis·Exit Score | `Portfolio`·`Position`·`PositionThesis`·`ExitSignal` | M7~M8 ✅ |
+| `engine5-trading-risk/` | Risk 하드룰·Kill Switch·모의운용(시스템/철학스타일/단타)·졸업 측정·(M12)실주문 | `PaperTrade`·`OrderRequest`·`OrderExecution`·`TradingAuditLog`·`KillSwitchState` | M10 🚧 30일 모의운용 진행(≈7/21) · M11 토대만(**실주문 루프 OrderRequest 미연동**) |
+| 횡단(독립 유지) | `auth` `users` `companies` `watchlist` `notifications` `notification-settings` `expo-push` `devices` `saved-disclosures` `search` `collection-status` `cron-health` `ops` `storage-ops` `config` `prisma` `common` (`e2e`=스모크·E2E 테스트) | — | 전 구간 |
 
 - 엔진 간 통신은 **BullMQ 큐**(`common/queues/queue.constants.ts`)와 DB를 통한다. 엔진끼리 서비스 직접 호출은 최소화.
 - 새 도메인 폴더를 만들면 해당 폴더에 `CLAUDE.md`(도메인 규칙 + 담당 마일스톤 로드맵 발췌)를 함께 둔다.
@@ -52,3 +52,6 @@
 
 - **단위**: `npm test`(`jest.config.js`, `*.spec.ts`, DB 불필요) — 항상 그린 유지.
 - **통합**: `npm run test:integration`(`jest.integration.config.js`, `*.integration-spec.ts`) — **실 Postgres 필요**(`DATABASE_URL`, dev DB 가동 전제). DB 의존이라 단위 파이프라인과 분리. 각 테스트는 인터랙티브 트랜잭션 내부에서 수행 후 **롤백**(`test/integration/with-rollback.ts`)하여 dev DB 잔여 row 0·데모 데이터 무변경을 보장한다.
+
+---
+*최종 수정: 2026-07-02*

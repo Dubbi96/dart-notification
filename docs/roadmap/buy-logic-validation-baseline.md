@@ -148,3 +148,33 @@ robust median D20 기준 **모든 공시 이벤트유형이 음수**:
 - ★**수수료 인지(fee-aware) 거래 — DAR-418**: 단타는 매도마다 비용이 부과되므로 TP/SL 임계를 **순(net)** 으로 환산한다. gross 가격수익률에서 **왕복 거래비용율**(매수 수수료+슬리피지 + 매도 수수료+세금+슬리피지 = `2·0.015% + 0.18% + 2·0.05% = 0.31%`, 체결 파라미터 `FillParams`에서 `roundTripCostPct()` 산출 SSOT)을 차감한 net 수익률로 익절/손절을 판정한다. 순 +2% 익절은 **gross +2.31%**에서, 순 -1.2% 손절은 **gross -0.89%**에서 발동(손절 임계를 비용만큼 좁혀 과손실 방지). `gross +2%` 소액 익절이 수수료에 먹혀 net +1.69% 적자전환하던 문제를 차단. 진입 시 기대이동(gross 익절폭)이 `왕복비용+최소마진(0.3%)`을 못 넘으면 진입 보류(fee 허들 게이트). status/trade-history 에 `roundTripCostPct`·`grossReturnPct`·`netReturnPct`·`totalFees` 노출, 모바일 '순수익(수수료 후)' 명시.
 - 검증 방법: 분봉 fixture 기반 결정론 단위테스트(진입 3조건·net TP/SL·fee 허들·15:20 강제청산·당일 청산 보장)로 로직을 고정. 실데이터 성과는 정규장 누적분으로 재검증(forward). 표면화: `GET /paper-trading/simulation/intraday-scalp/status`.
 - ★함의: 단타 edge 유무는 일봉 baseline과 독립적으로, forward 누적 표본이 쌓인 뒤에야 판정 가능(현재 표본 0 = 정직). 일봉 축의 "양-edge 부재" 결론을 단타 축에 전이하지 않는다. 비용 인지로 "익절했는데 순손실" 같은 거짓 양(+) 표본 오염도 차단(net 기준 누적).
+
+## 6. ★재검증 1회차 (2026-07-02, 로컬 복원 DB 샌드박스) — 판정: 불합격
+
+> 실행: §3 프로토콜 그대로 (복원 DB = 2026-06-27 덤프, 로컬 백엔드, 외부 API 키 더미 — prod 무영향).
+> 데이터 기준점 갱신: 공시 2,567,042건 · 일봉 8,568,099행 (baseline 대비 공시 10배+).
+
+### 6-1. 실행 결과
+1. **EventStudy 재계산**: 2,764 events scanned → **2,480 observations**(baseline 1,113의 2.2배), 26 groups, **17 READY** / 9 insufficient.
+2. **신호 재생성**: 라이브분 멱등(created 0) + point-in-time 백필 **280,160건 생성**(candidates 87,880 스캔, gradeDist: NEUTRAL 225K·BLOCKED 29K·WATCH 15.7K·AVOID 8.2K·BUY 856·STRONG_BUY 857).
+3. **백테스트 replay** (2025-06-26~2026-06-26, runId `cmr3gapzic2agg34mkc4hxd82`):
+   - **totalReturn -24.71%** · winRate 28.67% · profitFactor 0.546 · sharpe -1.003 · MDD -24.71% · 429 trades(won 123)
+   - baseline(-14.5%·PF 0.36·sharpe -1.79·182tr) 대비: PF·sharpe 개선, 절대수익 악화(윈도·표본 상이 — 직접 비교 주의).
+4. **signal-accuracy(d20)**: overall mean +1.19 / **median -13.38 / winRate 26%** (n=936, p=0.64 비유의).
+
+### 6-2. ★핵심 발견 — DAR-410 결론이 확장 표본에서 반전
+| grade | n | d20 mean | **d20 median(robust)** | **winRate** |
+|---|---|---|---|---|
+| WATCH(관심) | 60 | -22.06 | **-27.99** | **0.067** |
+| NEUTRAL | 776 | -9.79 | -13.86 | 0.222 |
+| AVOID | 8 | -21.33 | -21.33 | 0.000 |
+| BLOCKED(회피) | 92 | +110.94 | **+14.18** | **0.696** |
+
+- **`isRobustMonotonic = false`**, robustReturnRankCorrelation **-0.8**, winRateRankCorr -0.4.
+- DAR-410은 "mean 오염이 본질, median으로 보면 단조성 성립(BLOCKED가 정확히 최악)"이라 결론냈으나, **확장 표본에서는 BLOCKED가 median·승률 양쪽에서 최고 성과** — 측정 오염으로 설명 불가한 **구조적 역예측**. 회피 룰(BLOCKED 조건)이 실제로는 상승 신호를 걸러내고 있을 가능성.
+- §3 합격선 3항목 전부 미충족: 등급 단조성 ✗ · d20 robust 비음 ✗(-13.38) · totalReturn 우상향 ✗.
+
+### 6-3. 판정·후속
+- **M11 진입 보류 유지 확정** (재개 계획 §4-2 조건 미충족).
+- 후속 이슈(발행 대상): ① BLOCKED 조건 분해 진단 — 어떤 룰이 상승 신호를 차단하는지 92건 표본 역추적 ② WATCH 등급 로직 재설계(승률 6.7%는 역지표 수준) ③ calibration 응답 공백(항목 0) 원인 확인.
+- 주의: 이번 관측군은 백필 재생성 신호(280K) 포함 — 윈도·신호군이 baseline과 다르므로 §1 수치와 직접 비교하지 말 것. 다음 재검증 시 이 §6이 새 비교 기준점.

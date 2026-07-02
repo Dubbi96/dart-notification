@@ -24,8 +24,11 @@ export class PerformanceCalculatorService {
   ): PerformanceMetrics {
     const closedTrades = trades.filter((t) => t.netPnl !== undefined && t.exitDate);
 
+    // ★ 승패 통일 정의(UX 리뷰 S신뢰/G-1): 승 = 순손익 > 0, 패 = 순손익 < 0.
+    //   본전(순손익 0)은 승도 패도 아니며 분모(전체 청산 거래)에만 포함 — 승률 과대표시 방지.
+    //   engine5 paper-simulation/trade-scorecard.ts 와 동일 정의(두 화면의 '승률' 라벨 일치).
     const wonTrades = closedTrades.filter((t) => (t.netPnl ?? 0) > 0);
-    const lostTrades = closedTrades.filter((t) => (t.netPnl ?? 0) <= 0);
+    const lostTrades = closedTrades.filter((t) => (t.netPnl ?? 0) < 0);
 
     const totalNetPnl = closedTrades.reduce((s, t) => s + (t.netPnl ?? 0), 0);
     const totalReturn = initialCapital > 0 ? (totalNetPnl / initialCapital) * 100 : 0;
@@ -37,6 +40,7 @@ export class PerformanceCalculatorService {
         ? (Math.pow(1 + totalReturn / 100, 1 / years) - 1) * 100
         : 0;
 
+    // 승률 = 순손익>0 거래 / 전체 청산 거래 (본전 포함 분모)
     const winRate = closedTrades.length > 0 ? (wonTrades.length / closedTrades.length) * 100 : 0;
 
     const avgWin =
@@ -157,6 +161,7 @@ export class PerformanceCalculatorService {
 
     return Object.fromEntries(
       Object.entries(groups).map(([key, ts]) => {
+        // 승률 = 순손익>0 거래 / 전체 청산 거래 (본전 포함 분모, 상단 통일 정의와 동일)
         const won = ts.filter((t) => (t.netPnl ?? 0) > 0);
         const avgReturn = ts.length > 0
           ? ts.reduce((s, t) => s + (t.returnPct ?? 0), 0) / ts.length

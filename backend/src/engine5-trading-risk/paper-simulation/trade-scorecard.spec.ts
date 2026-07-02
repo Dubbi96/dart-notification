@@ -120,6 +120,17 @@ describe('trade-scorecard', () => {
       expect(sc.lowSample).toBe(true); // 2 < 5
     });
 
+    it('본전(순손익 0)은 승·패 어느 쪽도 아니지만 승률 분모에는 포함된다 (S신뢰/G-1 통일 정의)', () => {
+      const win = buildTradeRationale(baseInput({ positionId: 'a', pnl: 60000, pnlPct: 12 }));
+      const breakeven = buildTradeRationale(baseInput({ positionId: 'b', pnl: 0, pnlPct: 0 }));
+      const loss = buildTradeRationale(baseInput({ positionId: 'c', pnl: -30000, pnlPct: -6 }));
+      const sc = calculateTradeScorecard([win, breakeven, loss], 10_000_000);
+      expect(sc.closedCount).toBe(3);
+      expect(sc.winCount).toBe(1); // 본전은 승 아님 (승률 과대표시 방지)
+      expect(sc.lossCount).toBe(1); // 본전은 패도 아님
+      expect(sc.winRate).toBeCloseTo(1 / 3, 5); // 승률 = 순손익>0 / 전체 청산(본전 포함 분모)
+    });
+
     it('표본이 임계치 이상이면 lowSample false', () => {
       const trades = Array.from({ length: LOW_SAMPLE_THRESHOLD }, (_, i) =>
         buildTradeRationale(baseInput({ positionId: `p${i}`, pnl: 1000, pnlPct: 1 })),

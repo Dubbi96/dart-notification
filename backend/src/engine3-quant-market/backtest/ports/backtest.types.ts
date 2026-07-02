@@ -106,15 +106,15 @@ export type ExitReasonType =
 export interface PerformanceMetrics {
   totalReturn: number;          // %
   annualizedReturn: number;     // %
-  winRate: number;              // %
+  winRate: number;              // % — 승률 = 순손익>0 거래 / 전체 청산 거래(본전 0원은 분모에만 포함)
   avgWin: number;               // %
-  avgLoss: number;              // %
+  avgLoss: number;              // % — 순손익<0 거래 평균(본전 제외)
   profitFactor: number;
   mdd: number;                  // % (음수)
   sharpe: number;
   totalTrades: number;
-  wonTrades: number;
-  lostTrades: number;
+  wonTrades: number;            // 순손익 > 0
+  lostTrades: number;           // 순손익 < 0 (본전 0원은 승·패 어느 쪽도 아님 — engine5 성적표와 통일)
   avgHoldDays: number;
   monthlyReturns: Record<string, number>;
   byEventType: Record<string, EventTypeMetrics>;

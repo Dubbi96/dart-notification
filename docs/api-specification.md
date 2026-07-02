@@ -1873,6 +1873,10 @@ GET /api/paper-trading/simulation/strategies/comparison   (OptionalJwt — 게�
 `StrategyTrackService` 직렬화는 그 타입과 1:1(DAR-407 정합). `winRate`는 0~1 비율, `equityCurve`는
 `{snapshotDate,totalValue,returnPct}`(모바일 EquityCurvePoint).
 
+★ **승률 통일 정의 (S신뢰/G-1)** — 모든 표면(백테스트 `PerformanceCalculatorService`·모의운용 성적표
+`trade-scorecard`·분봉 단타)에서 **승률 = 순손익>0 거래 / 전체 청산 거래**. 본전(순손익 0)은 승도 패도
+아니며 분모에만 포함(승률 과대표시 방지). 패 카운트(`lostTrades`/`lossCount`)는 순손익<0 만 집계.
+
 ★ **자산곡선 일별 flat-fill (DAR-412)** — `equityCurve`(원천 `backtest-equity-curve.ts buildEquityCurve`)는
 평가액이 변동하는 청산일마다 **"그 직전 달력일"에 변동 직전 평가액을 유지하는 flat 앵커 점**을 함께
 넣는다. 거래가 없던 구간이 직선 보간으로 뭉개지지 않고 **평평(원금/직전 평가액 유지) → 청산 시점

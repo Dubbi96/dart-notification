@@ -1,13 +1,17 @@
 /**
- * M10 MVP 졸업 게이트 E2E 통합 회귀 + 졸업 준비도 리포트 (DAR-14 → DAR-39 확장)
+ * M10 MVP 졸업 게이트 E2E 통합 회귀 + 졸업 준비도 리포트 (DAR-14 → DAR-39 → DAR-68 확장)
  *
  * 검증 경로(실데이터):
  *   DB확인 → M2 이벤트추출 → M3 AI분석(선택) → M6 BuyScore → M7 PositionThesis →
  *   M8 ExitScore → [DAR-39] ExitSignal 실영속화 → 모의체결(슬리피지·부분체결) PaperTrade
- *   실영속화 → AIUsageLog 비용집계 → AI 금지영역 감사 → 졸업 준비도 리포트 생성
+ *   실영속화 → AIUsageLog 비용집계 → AI 금지영역 감사 → [DAR-68] 졸업 게이트(G1~G7)
+ *   측정(engine5 graduation-metrics 산식 재사용·읽기전용) → 졸업 준비도 리포트 생성
  *
  * ★ 실 영속화 단계(ExitSignal/PaperTrade)는 DAR-38 `withRollback` 패턴으로 항상 롤백 →
  *   데모 DB 잔여 row 0. 주가 2767·기존 데모데이터 무변경(읽기/롤백만).
+ * ★ DAR-68 게이트: G6 MDD(≥-15%)·G7 KOSPI alpha(>0%)는 engine5
+ *   `simulation/domain/graduation-gates.ts` + `common/metrics/risk-metrics.ts` 산식 재사용.
+ *   표본/스냅샷 부족 시 LOW_SAMPLE·30일 창 미완주 시 HOLD 정직 표기(통과 위장 금지).
  *
  * 실행: cd backend && npx ts-node src/e2e/integration-regression.ts
  *   SMOKE_LLM=1 → 실 LLM 호출. 미설정 → AI 단계 스킵(게이트 차단·집계 0)
@@ -63,6 +67,28 @@ import {
 import { PaperTradeService } from '../engine5-trading-risk/services/paper-trade.service';
 import { PrismaPaperTradeRepository } from '../engine5-trading-risk/repositories/prisma-paper-trade.repository';
 
+// Engine5: 졸업 게이트 G1~G7 측정 (DAR-68 — 기존 산식 재사용, 읽기전용)
+import { PrismaSimulationAdapter } from '../engine5-trading-risk/simulation/adapters/prisma-simulation.adapter';
+import {
+  GraduationMetricsService,
+  GraduationMetrics,
+} from '../engine5-trading-risk/simulation/graduation-metrics.service';
+import {
+  buildGraduationReport,
+  GraduationReport,
+} from '../engine5-trading-risk/simulation/domain/graduation-gates';
+import { PaperSimulationService } from '../engine5-trading-risk/paper-simulation/paper-simulation.service';
+
+// 졸업 게이트 리포트 행 매핑 (순수 함수 — graduation-gate-rows.spec.ts 로 단위검증)
+import {
+  buildGraduationGateFallbackRows,
+  buildGraduationGateRows,
+  Criterion,
+  GradeStatus,
+  GraduationGateRows,
+  STATUS_LABEL,
+} from './graduation-gate-rows';
+
 // DAR-38 격리 유틸
 import { withRollback } from '../../test/integration/with-rollback';
 import { PrismaService } from '../prisma/prisma.service';
@@ -87,23 +113,7 @@ function printFail(msg: string): void { console.log(`  ❌ ${msg}`); }
 function printInfo(msg: string): void { console.log(`  ℹ  ${msg}`); }
 
 // ─── 졸업 준비도 리포트 수집 구조 ─────────────────────────────────────────
-
-type GradeStatus = 'PASS' | 'PARTIAL' | 'HOLD';
-
-interface Criterion {
-  id: string;
-  name: string;
-  target: string;
-  measured: string;
-  status: GradeStatus;
-  evidence: string;
-}
-
-const STATUS_LABEL: Record<GradeStatus, string> = {
-  PASS: '✅ 통과',
-  PARTIAL: '🟡 부분',
-  HOLD: '⏸ 보류',
-};
+// Criterion/GradeStatus/STATUS_LABEL 은 graduation-gate-rows.ts(순수 모듈)와 공유.
 
 const criteria: Criterion[] = [];
 function record(c: Criterion): void {
@@ -809,18 +819,58 @@ async function main(): Promise<void> {
     record({ id: 'F10', name: '모의투자 포트폴리오 추적', target: 'PaperTrade 모의체결 저장', measured: '슬리피지·부분체결 포함 실 영속화 확인', status: 'PASS', evidence: 'Step 10 (실DB·롤백)' });
     record({ id: 'F11', name: 'AI 비용 로그·비율 모니터링', target: '집계 + 비율 측정', measured: m.aiUsageLogCount > 0 ? `AIUsageLog ${m.aiUsageLogCount}건 집계` : '집계코드 동작·실 AIUsageLog 0건(비율 측정 불가)', status: m.aiUsageLogCount > 0 ? 'PASS' : 'PARTIAL', evidence: 'Step 11' });
 
-    // go/no-go 게이트 지표 (캘린더 시간 필요 항목은 보류로 정직 표기)
+    // ── DAR-68: 졸업 게이트(G1~G7) 측정 — engine5 graduation-metrics 산식 재사용 ──
+    // ★ 읽기전용: portfolioId 를 명시 전달해 resolveSimPortfolioId(find-or-create)를 우회
+    //   → 쓰기 0. 모의 포트폴리오 부재/조회 실패 시 폴백 행(HOLD 정직 표기).
+    let gradMetrics: GraduationMetrics | null = null;
+    let gradReport: GraduationReport | null = null;
+    try {
+      const simUser = await prisma.user.findFirst({
+        where: { email: PaperSimulationService.SIM_USER_EMAIL },
+        select: { id: true },
+      });
+      const simPortfolio = simUser
+        ? await prisma.portfolio.findFirst({
+            where: { userId: simUser.id, name: PaperSimulationService.SIM_PORTFOLIO_NAME },
+            select: { id: true },
+          })
+        : null;
+      if (simPortfolio) {
+        const simAdapter = new PrismaSimulationAdapter(prisma as unknown as PrismaService);
+        const gradService = new GraduationMetricsService(simAdapter);
+        gradMetrics = await gradService.getMetrics(simPortfolio.id);
+        gradReport = buildGraduationReport(gradMetrics);
+        const sp = gradMetrics.simulationProgress;
+        printInfo(`졸업지표 측정: 모의운용 경과 ${sp.elapsedDays ?? '-'}일 / ${sp.windowDays}일 (30일 창 완주=${sp.windowComplete ? 'Y' : 'N'})`);
+      } else {
+        printInfo('모의운용 포트폴리오 없음 — G1~G3·G5~G7 측정 불가(HOLD 정직 표기)');
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      printInfo(`졸업지표 측정 실패(${msg}) — G1~G3·G5~G7 HOLD 정직 표기`);
+    }
+
+    const gateRows: GraduationGateRows =
+      gradMetrics && gradReport
+        ? buildGraduationGateRows(gradMetrics, gradReport)
+        : buildGraduationGateFallbackRows();
+
+    // go/no-go 게이트 지표 (cc-mvp-definition §9 ID 체계: G1~G7 + AI-Guard.
+    //  측정 불가/표본 부족/30일 창 미완주는 보류로 정직 표기)
     const collPct = (m.collectionRate * 100).toFixed(1);
-    record({ id: 'G1', name: '신호 적중률 ≥55% (D+5)', target: '≥55%', measured: '30일+ 운용 데이터 부족', status: 'HOLD', evidence: '캘린더 시간 필요 — 미측정' });
-    record({ id: 'G2', name: '모의 누적 수익률 >0%', target: '>0%', measured: '30일+ 모의운용 미충족', status: 'HOLD', evidence: '캘린더 시간 필요 — 미측정' });
-    record({ id: 'G3', name: 'AI비용/모의순익 ≤20%', target: '≤20%', measured: crossMetrics && crossMetrics.aiCostToNetPnlRatio !== null ? crossMetrics.aiCostToNetPnlRatio.toFixed(3) : '순익≤0·AIUsageLog=0 → 측정 불가', status: 'HOLD', evidence: 'Step 11 — 데이터 부족' });
+    record(gateRows.G1);
+    record(gateRows.G2);
+    record(gateRows.G3);
     record({ id: 'G4', name: '수집 성공률 ≥95%', target: '≥95%', measured: m.collectionTotal > 0 ? `${collPct}% (${m.collectionOk}/${m.collectionTotal})` : '수집로그 0건', status: m.collectionTotal === 0 ? 'HOLD' : (m.collectionRate >= 0.95 ? 'PASS' : 'PARTIAL'), evidence: 'DisclosureCollectionLog' });
-    record({ id: 'G5', name: 'Exit 정확도 ≥50% (D+3)', target: '≥50%', measured: '운용 데이터 부족', status: 'HOLD', evidence: '캘린더 시간 필요 — 미측정' });
-    record({ id: 'G6', name: 'AI 금지영역 침범 0', target: '0건', measured: `Engine5 import ${engine5AiHits.length} · 비정상actor ${illegalActors.length} · aiUsed ${aiUsedExitSignals}`, status: auditClean ? 'PASS' : 'HOLD', evidence: 'Step 12 감사' });
+    record(gateRows.G5);
+    record(gateRows.G6);
+    record(gateRows.G7);
+    // AI 금지영역 감사 — §9 게이트 ID(G6=MDD·G7=alpha)와 분리된 상시 게이트(별도 행 유지)
+    record({ id: 'AI-Guard', name: 'AI 금지영역 침범 0', target: '0건', measured: `Engine5 import ${engine5AiHits.length} · 비정상actor ${illegalActors.length} · aiUsed ${aiUsedExitSignals}`, status: auditClean ? 'PASS' : 'HOLD', evidence: 'Step 12 감사' });
 
     // ── 리포트 파일 생성 ───────────────────────────────────────────
     const reportPath = path.resolve(__dirname, '../../../docs/roadmap/m10-graduation-report.md');
-    writeReport(reportPath, runIso, m, criteria, { passed, failed, bugs }, costSummary, crossMetrics, engine5AiHits.length);
+    writeReport(reportPath, runIso, m, criteria, { passed, failed, bugs }, costSummary, crossMetrics, engine5AiHits.length, gradMetrics);
     printPass(`졸업 준비도 리포트 생성: docs/roadmap/m10-graduation-report.md`);
 
   } finally {
@@ -831,11 +881,12 @@ async function main(): Promise<void> {
   const elapsed = ((Date.now() - startAt) / 1000).toFixed(1);
   const pass = criteria.filter((c) => c.status === 'PASS').length;
   const partial = criteria.filter((c) => c.status === 'PARTIAL').length;
+  const gateFail = criteria.filter((c) => c.status === 'FAIL').length;
   const hold = criteria.filter((c) => c.status === 'HOLD').length;
 
   printSection('E2E 통합 회귀 + 졸업 준비도 요약');
   console.log(`  E2E 검증 항목: ${passed + failed}건 (✅ ${passed} / ❌ ${failed})`);
-  console.log(`  졸업 기준 판정: ✅ 통과 ${pass} · 🟡 부분 ${partial} · ⏸ 보류 ${hold} (총 ${criteria.length})`);
+  console.log(`  졸업 기준 판정: ✅ 통과 ${pass} · 🟡 부분 ${partial} · ❌ 미달 ${gateFail} · ⏸ 보류 ${hold} (총 ${criteria.length})`);
   console.log(`  소요 시간: ${elapsed}초`);
 
   if (bugs.length > 0) {
@@ -860,11 +911,13 @@ function writeReport(
   cost: { totalCostUsd: number; callCount: number; l0Ratio: number } | null,
   cross: { aiCostToNetPnlRatio: number | null; costPerDisclosure: number } | null,
   engine5AiHits: number,
+  gradMetrics: GraduationMetrics | null,
 ): void {
   const features = crit.filter((c) => c.id.startsWith('F'));
-  const gates = crit.filter((c) => c.id.startsWith('G'));
+  const gates = crit.filter((c) => !c.id.startsWith('F')); // G1~G7 + AI-Guard
   const pass = crit.filter((c) => c.status === 'PASS').length;
   const partial = crit.filter((c) => c.status === 'PARTIAL').length;
+  const gateFail = crit.filter((c) => c.status === 'FAIL').length;
   const hold = crit.filter((c) => c.status === 'HOLD').length;
 
   const row = (c: Criterion) =>
@@ -880,7 +933,7 @@ function writeReport(
   lines.push(`- 생성 시각: \`${runIso}\``);
   lines.push('- 생성 방법: `cd backend && npx ts-node src/e2e/integration-regression.ts`');
   lines.push(`- E2E 결과: ✅ 통과 ${e2e.passed} / ❌ 실패 ${e2e.failed}`);
-  lines.push(`- 졸업 기준 집계: **✅ 통과 ${pass} · 🟡 부분 ${partial} · ⏸ 보류 ${hold}** (총 ${crit.length})`);
+  lines.push(`- 졸업 기준 집계: **✅ 통과 ${pass} · 🟡 부분 ${partial} · ❌ 미달 ${gateFail} · ⏸ 보류 ${hold}** (총 ${crit.length})`);
   lines.push('');
   lines.push('## 1. 실데이터 DB 현황 (데모 DB 읽기 — 무변경)');
   lines.push('');
@@ -904,11 +957,25 @@ function writeReport(
   lines.push('|----|------|------|------|------|------|');
   features.forEach((c) => lines.push(row(c)));
   lines.push('');
-  lines.push('## 3. go/no-go 게이트 지표 (cc-mvp-definition §9)');
+  lines.push('## 3. go/no-go 게이트 지표 (cc-mvp-definition §9 — G1~G7 + AI-Guard)');
   lines.push('');
   lines.push('| ID | 지표 | 목표 | 측정 | 판정 | 증거 |');
   lines.push('|----|------|------|------|------|------|');
   gates.forEach((c) => lines.push(row(c)));
+  lines.push('');
+  lines.push('> **DAR-68:** G6(MDD)·G7(벤치마크 alpha) 는 위험조정·상대성과 게이트로 추가됐다(상승장 위장통과 방지).');
+  lines.push('> 산식은 engine5 `simulation/domain/graduation-gates.ts`(G6·G7) + 공통 `common/metrics/risk-metrics.ts`');
+  lines.push('> (engine3 백테스트와 MDD·Sharpe 산식 공유) 가 정본. Sharpe 는 참고지표(게이트 아님). 순수 Rule.');
+  lines.push('> **F12 표본하한:** 표본 기반 게이트(G1·G5)는 표본 < 20건이면 LOW_SAMPLE 로 정직 표기하고 졸업을 차단한다.');
+  if (gradMetrics) {
+    const sp = gradMetrics.simulationProgress;
+    const sharpe = gradMetrics.riskAdjusted.measurable ? gradMetrics.riskAdjusted.sharpe : null;
+    lines.push('>');
+    lines.push(`> 모의운용 진행률: 경과 ${sp.elapsedDays ?? '-'}일 / ${sp.windowDays}일 (30일 창 완주 ${sp.windowComplete ? 'Y' : 'N'} · 측정대기 ${sp.awaitingMeasurement ? 'Y' : 'N'}) · Sharpe(참고): ${sharpe !== null ? sharpe.toFixed(2) : '측정 불가'}`);
+  } else {
+    lines.push('>');
+    lines.push('> 모의운용 포트폴리오 미존재/지표 조회 불가 — G1~G3·G5~G7 은 폴백(HOLD 정직 표기)이다.');
+  }
   lines.push('');
   lines.push('## 4. AI 비용 — 추정 vs 실측 / 비용·순익 비율');
   lines.push('');
@@ -927,14 +994,21 @@ function writeReport(
   lines.push(`- **Engine5(trading-risk) AI/LLM/engine2 import: ${engine5AiHits}건** — 0이어야 정상. 체결·Risk 판정은 순수 Rule.`);
   lines.push('- `trading_audit_logs.actorKind` 가 허용 집합(SYSTEM/RISK_ENGINE/KILL_SWITCH/USER) 밖인 row: Step 12에서 0 확인.');
   lines.push('- `ExitSignal.aiUsed=true` row: 0 확인 (Exit Score는 순수 Rule, AI 미개입).');
-  lines.push(`- 종합 판정: ${gates.find((g) => g.id === 'G6')?.status === 'PASS' ? '**✅ 침범 0**' : '⚠️ 재확인 필요'}.`);
+  lines.push(`- 종합 판정: ${gates.find((g) => g.id === 'AI-Guard')?.status === 'PASS' ? '**✅ 침범 0**' : '⚠️ 재확인 필요'}.`);
   lines.push('');
-  lines.push('## 6. 보류(HOLD) 항목 — 정직 표기 (통과 위장 금지)');
+  lines.push('## 6. 보류(HOLD)·미달(FAIL) 항목 — 정직 표기 (통과 위장 금지)');
   lines.push('');
   lines.push('아래 항목은 **캘린더 시간/누적 데이터**가 본질적으로 필요하여 현 시점 코드·단발 E2E로는 충족을 증명할 수 없다. 통과로 위장하지 않고 보류로 표기한다:');
   lines.push('');
   crit.filter((c) => c.status === 'HOLD').forEach((c) => lines.push(`- **${c.id} ${c.name}** (목표 ${c.target}) — ${c.measured}. (${c.evidence})`));
   lines.push('');
+  const failGates = crit.filter((c) => c.status === 'FAIL');
+  if (failGates.length > 0) {
+    lines.push('**미달(FAIL) 게이트 — 30일 창 완주 후 기준 미충족(졸업 차단, 원인 분석 필요):**');
+    lines.push('');
+    failGates.forEach((c) => lines.push(`- **${c.id} ${c.name}** (목표 ${c.target}) — ${c.measured}. (${c.evidence})`));
+    lines.push('');
+  }
   lines.push('이 보류 항목들은 `cc-mvp-definition §9 go/no-go 게이트(30일 운용 후 평가)` 및 자동매매 졸업 조건(90일 운용)으로, M10 검증 단계가 아니라 **모의운용 누적 단계**에서 충족된다.');
   lines.push('');
   lines.push('## 7. 종합 결론');

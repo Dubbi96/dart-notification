@@ -84,9 +84,9 @@ export interface TradeScorecard {
   closedCount: number;
   /** 수익 매매 수 (pnl > 0) */
   winCount: number;
-  /** 손실 매매 수 (pnl < 0) */
+  /** 손실 매매 수 (pnl < 0) — 본전(0원)은 승·패 어느 쪽도 아님 */
   lossCount: number;
-  /** 승률 (0~1). 표본 0이면 null */
+  /** 승률 = 순손익>0 거래 / 전체 청산 거래 (본전은 분모에만 포함, 0~1). 표본 0이면 null */
   winRate: number | null;
   /** 평균 실현손익(원). 표본 0이면 0 */
   avgPnl: number;
@@ -203,6 +203,8 @@ export function calculateTradeScorecard(
   initialCapital: number,
 ): TradeScorecard {
   const closedCount = closed.length;
+  // 승률 = 순손익>0 거래 / 전체 청산 거래 — 본전(0원)은 승·패 어느 쪽도 아니지만 분모에는 포함
+  // (승률 과대표시 방지, engine3 backtest/metrics/performance-calculator 와 통일 정의 — S신뢰/G-1)
   const winCount = closed.filter((t) => t.pnl > 0).length;
   const lossCount = closed.filter((t) => t.pnl < 0).length;
   const totalNetPnl = closed.reduce((s, t) => s + t.pnl, 0);

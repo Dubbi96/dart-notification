@@ -52,7 +52,13 @@ const screenPath = join(mobileRoot, 'app/onboarding/index.tsx');
 const screen = readFileSync(screenPath, 'utf8');
 
 assert('3단계 가치 렌더 분기 존재 (step === 3)', /if\s*\(\s*step\s*===\s*3\s*\)/.test(screen));
-assert("3단계 인디케이터 '3단계 /' 노출", screen.includes('3단계 /'));
+// 앵커 갱신 2026-07-02(A-ONB-4): 인디케이터가 하드코딩 '3단계 /' → StepHeader 의 동적
+// `{step}단계 / {ONBOARDING_TOTAL_STEPS}` 로 재작성. (A)의 TOTAL===3 단정과 결합하면
+// 3단계 진입 시 '3단계 / 3' 노출이 그대로 증명된다(단정 강도 동일).
+assert(
+  "단계 인디케이터 '{step}단계 / {ONBOARDING_TOTAL_STEPS}' 노출(TOTAL=3, (A)와 결합)",
+  screen.includes('{step}단계 / {ONBOARDING_TOTAL_STEPS}'),
+);
 assert('신호 가치 카피 — AI 매수 판단', screen.includes('신호 — AI 매수 판단'));
 assert('포트폴리오 가치 카피', screen.includes('포트폴리오 — 보유 종목 추적'));
 assert('거장 철학 재연결 카피', screen.includes('거장'));

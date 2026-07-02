@@ -6,6 +6,8 @@
  * 두 층으로 검증한다.
  *   (A) 동작 모델: React.memo 기본 shallow 비교 + 부모가 행에 넘기는 props 참조 안정성 불변식을 모사.
  *       props: { item, quote, colors, typo, onPress, onRemovePress }
+ *       (앵커 갱신 2026-07-02: 행에 onChartPress(handleChartNavigate, useCallback) prop 추가 —
+ *        참조 안정성은 (B) 소스 바인딩에서 useCallback 로 단정, 모델 결론 불변.)
  *        - onPress/onRemovePress: 부모 useCallback → 부모 리렌더와 무관하게 참조 고정
  *        - colors/typo: useTheme → 테마 토글 없으면 동일 참조
  *        - quote: item.stockCode 별 단건(quotes[code]) → 그 종목 시세 불변이면 동일 참조(맵 전체 갱신 무관)
@@ -136,11 +138,15 @@ assert('initialNumToRender 적용', /initialNumToRender=\{10\}/.test(src));
 assert('handleNavigate 가 useCallback(안정 onPress)', /const\s+handleNavigate\s*=\s*useCallback\(/.test(src));
 assert('handleRemovePress 가 useCallback(안정 onRemovePress)', /const\s+handleRemovePress\s*=\s*useCallback\(/.test(src));
 assert('handleRemove 가 useCallback(콜백 안정성)', /const\s+handleRemove\s*=\s*useCallback\(/.test(src));
+// 앵커 갱신 2026-07-02: 행 props 에 onChartPress 가 추가되어 deps 에 handleChartNavigate 합류.
+assert('handleChartNavigate 가 useCallback(안정 onChartPress)', /const\s+handleChartNavigate\s*=\s*useCallback\(/.test(src));
 // renderItem deps 에 isRefetching/searchVisible 미포함(불필요 재생성 방지)
-const renderItemDeps = src.match(/\[quotes,\s*colors,\s*typo,\s*handleNavigate,\s*handleRemovePress\]/);
+const renderItemDeps = src.match(
+  /\[quotes,\s*colors,\s*typo,\s*handleNavigate,\s*handleRemovePress,\s*handleChartNavigate\]/,
+);
 assert('renderItem deps 가 표시영향 값만(isRefetching/searchVisible 제외)', !!renderItemDeps);
 
-const total = 17;
+const total = 18;
 const passed = total - failures;
 if (failures === 0) {
   console.log(`ALL PASS (${passed}/${total})`);

@@ -7,6 +7,7 @@ import { InlineDisclosure } from '@components/common/InlineDisclosure';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
 import { EmptyState, ErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
+import { FEE_BASIS_NOTICE } from '@components/common/feeBasisCopy';
 import { EquityCurveChart } from '@components/portfolio/EquityCurveChart';
 import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { useStyleComparison } from '@hooks/useStyleComparison';
@@ -102,7 +103,7 @@ function StyleCard({ perf, isBest }: { perf: StylePerformance; isBest: boolean }
           {isBest ? <BestBadge /> : null}
           {perf.lowSample ? <DataLimitBadge /> : null}
         </View>
-        <PriceChangeChip value={sc.cumulativeReturnPct} amount={sc.totalNetPnl} />
+        <PriceChangeChip value={sc.cumulativeReturnPct} amount={sc.totalNetPnl} context="pnl" />
       </View>
 
       {/* 스타일별 자산곡선(점 0·1개도 정직하게) */}
@@ -186,6 +187,10 @@ function ComparisonHeader({ data }: { data: StyleComparison }) {
             아직 청산 표본이 없어 우열을 가릴 수 없습니다.
           </Text>
         )}
+        {/* E-1: 수수료 반영 기준 고지 — 스타일별 모의 수익률도 단타와 동일한 순수익 기준. */}
+        <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
+          {FEE_BASIS_NOTICE}
+        </Text>
         <View style={styles.headerDisclosure}>
           <InlineDisclosure
             label={

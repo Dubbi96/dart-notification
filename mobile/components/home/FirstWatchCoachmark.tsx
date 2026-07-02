@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { useFirstWatchCoachmark } from '@hooks/useFirstWatchCoachmark';
@@ -29,7 +29,7 @@ export function FirstWatchCoachmark({ onAdd }: FirstWatchCoachmarkProps) {
     >
       <View style={styles.headerRow}>
         <View style={styles.titleGroup}>
-          <Ionicons name="star" size={18} color={colors.primary} />
+          <Feather name="star" size={18} color={colors.primary} />
           <Text style={[typo.captionMedium, { color: colors.primary, marginLeft: spacing.sm, flex: 1 }]}>
             첫 관심 기업을 추가해 보세요
           </Text>
@@ -40,7 +40,7 @@ export function FirstWatchCoachmark({ onAdd }: FirstWatchCoachmarkProps) {
           accessibilityRole="button"
           accessibilityLabel="안내 닫기"
         >
-          <Ionicons name="close" size={18} color={colors.primary} />
+          <Feather name="x" size={18} color={colors.primary} />
         </TouchableOpacity>
       </View>
 
@@ -55,7 +55,7 @@ export function FirstWatchCoachmark({ onAdd }: FirstWatchCoachmarkProps) {
         accessibilityRole="button"
         accessibilityLabel="관심 기업 추가하기"
       >
-        <Ionicons name="search" size={16} color={colors.primaryForeground} />
+        <Feather name="search" size={16} color={colors.primaryForeground} />
         <Text style={[typo.captionMedium, { color: colors.primaryForeground, marginLeft: spacing.xs }]}>
           관심 기업 추가
         </Text>

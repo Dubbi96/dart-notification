@@ -3,15 +3,14 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@theme';
-import { spacing, sizing } from '@theme/spacing';
+import { spacing } from '@theme/spacing';
+import { ScreenHeader } from '@components/common/ScreenHeader';
 import { ErrorState } from '@components/common/StateView';
 
 const DART_VIEWER_URL = 'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=';
@@ -65,27 +64,10 @@ export default function DisclosureViewerScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header — DAR-316: '첨부'성 원문 뷰어도 앱 표준 좌상단 < 복귀 어포던스로 통일
-          (DAR-294/295/303). 우상단 X(모달 닫기) 패턴을 제거해 전 상세/첨부 화면과 위치·형태 일관. */}
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.headerButton}
-          accessibilityRole="button"
-          accessibilityLabel="뒤로 가기"
-        >
-          <Ionicons name="chevron-back" size={sizing.icon.lg} color={colors.text} />
-        </TouchableOpacity>
-        <Text
-          style={[typo.bodyMedium, styles.headerTitle, { color: colors.text }]}
-          numberOfLines={1}
-          accessibilityRole="header"
-        >
-          {title ?? '공시 원문'}
-        </Text>
-        {/* 좌측 < 버튼과 대칭을 맞춰 제목을 중앙 정렬로 유지하는 우측 스페이서. */}
-        <View style={styles.headerButton} />
-      </View>
+      {/* Header — DAR-316: '첨부'성 원문 뷰어도 앱 표준 좌상단 < 복귀 어포던스로 통일(DAR-294/295/303).
+          L-5a A-1: 자체 헤더(Ionicons chevron-back + typo.bodyMedium 제목)를 공용 ScreenHeader 로
+          교체해 백버튼 모양·제목 타이포(h3) 드리프트 제거. 긴 제목은 numberOfLines=1 이 처리. */}
+      <ScreenHeader title={title ?? '공시 원문'} onBack={() => router.back()} />
 
       {/* WebView */}
       <View style={styles.webviewContainer}>
@@ -133,27 +115,6 @@ export default function DisclosureViewerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-  },
-  // 뒤로가기 44pt 보장(E-5): philosophy/company 헤더와 동일하게 minWidth/minHeight로 유효 터치
-  // 영역을 sizing.minTouchTarget(44pt) 이상으로 통일한다(hitSlop 보정 불필요). 우측 스페이서도
-  // 같은 스타일을 공유해 제목 중앙 정렬 대칭을 유지한다.
-  headerButton: {
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.sm,
-    minWidth: sizing.minTouchTarget,
-    minHeight: sizing.minTouchTarget,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   webviewContainer: {
     flex: 1,

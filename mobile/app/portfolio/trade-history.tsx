@@ -7,7 +7,9 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
-import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
+import { ApiErrorState, EmptyState } from '@components/common/StateView';
+import { SkeletonList } from '@components/common/SkeletonCard';
+import { FEE_BASIS_NOTICE } from '@components/common/feeBasisCopy';
 import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
 import { ScreenHeader } from '@components/common/ScreenHeader';
@@ -151,6 +153,9 @@ function HeroScorecard({ scorecard }: { scorecard: TradeScorecard }) {
         <Metric label="평균 손익" value={formatPnl(scorecard.avgPnl)} />
         <Metric label="평균 보유" value={avgHoldText} />
       </View>
+
+      {/* E-1: 수수료 반영 기준 고지 — 단타만 명시하던 순수익 기준을 공용 문구로 통일. */}
+      <Text style={[typo.small, { color: colors.textTertiary }]}>{FEE_BASIS_NOTICE}</Text>
     </Surface>
   );
 }
@@ -298,7 +303,7 @@ function TradeCard({ item }: { item: TradeRationale }) {
             {`  ·  ${item.quantity.toLocaleString('ko-KR')}주`}
           </Text>
         </View>
-        <PriceChangeChip value={item.pnlPct} amount={item.pnl} />
+        <PriceChangeChip value={item.pnlPct} amount={item.pnl} context="pnl" />
       </View>
 
       {/* 진입 사유 */}
@@ -484,7 +489,8 @@ export default function TradeHistoryScreen() {
       <ScreenHeader title="성과 리포트" onBack={() => router.back()} />
 
       {query.isLoading ? (
-        <LoadingState message="매매 기록을 불러오는 중..." />
+        // C7: 리스트형 드릴다운 로딩을 포트폴리오 탭 섹션과 동일한 스켈레톤으로 통일(점프 제거).
+        <SkeletonList variant="buyScore" />
       ) : query.isError ? (
         <ApiErrorState
           error={query.error}

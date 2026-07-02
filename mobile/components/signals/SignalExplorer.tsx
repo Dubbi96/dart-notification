@@ -166,8 +166,10 @@ export function SignalExplorer({
     );
   }, [query.data, trimmedQuery]);
 
-  // 검색 중에는 서버 total이 아니라 필터된 건수를 노출(정직한 결과 수).
-  const totalCount = isSearching ? items.length : query.data?.pages[0]?.meta.total ?? 0;
+  // UXR(B-6): 결과수 라벨의 계수 기준을 '화면에 표시되는 카드 수'로 통일 — 서버 total은
+  // 종목당 1카드 디듑(DAR-122) 전 신호 건수라, 끝까지 스크롤해도 라벨보다 적은 카드만 보였다.
+  // 검색·기본 모드 모두 디듑 후 로드된 범위 기준으로 세고, 라벨에 '표시' 기준을 명시한다.
+  const displayedCount = items.length;
 
   // 검색용 자동 로딩 상태 — 불러온 페이지 수가 상한에 닿으면 자동 로딩 중단(범위 한계).
   const loadedPages = query.data?.pages.length ?? 0;
@@ -255,7 +257,7 @@ export function SignalExplorer({
             />
           </TouchableOpacity>
           <Text style={[typo.small, { color: colors.textTertiary }]}>
-            {totalCount > 0 ? `${totalCount.toLocaleString()}건` : ''}
+            {displayedCount > 0 ? `표시 ${displayedCount.toLocaleString()}건` : ''}
           </Text>
         </View>
         <View style={styles.sortChips}>

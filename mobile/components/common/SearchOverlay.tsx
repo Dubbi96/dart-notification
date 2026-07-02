@@ -472,7 +472,8 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 60,
+    // 60 = spacing['3xl'](40) + spacing.lg(20) — 임의 값 대신 토큰 조합(L-5b E-1, 렌더 동일).
+    paddingTop: spacing['3xl'] + spacing.lg,
     paddingHorizontal: spacing.lg,
   },
 });

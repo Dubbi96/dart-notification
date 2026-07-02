@@ -4,35 +4,22 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { type ThemeColors } from '@theme/colors';
 import { type Typography } from '@theme/typography';
 import { spacing } from '@theme/spacing';
+import { ScreenHeader } from '@components/common/ScreenHeader';
 
 export default function PrivacyScreen() {
   const { colors, typography: typo } = useTheme();
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.headerButton}
-          accessibilityRole="button"
-          accessibilityLabel="뒤로 가기"
-        >
-          <Ionicons name="chevron-back" size={26} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[typo.h3, { color: colors.text, flex: 1, textAlign: 'center' }]}>
-          개인정보 처리방침
-        </Text>
-        <View style={styles.headerButton} />
-      </View>
+      {/* 공용 ScreenHeader(L-5a A-1): 자체 헤더(Ionicons chevron-back + width56 스페이서) 드리프트 제거. */}
+      <ScreenHeader title="개인정보 처리방침" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.lg }]}>
@@ -142,17 +129,6 @@ function Section({ title, children, colors, typo }: { title: string; children: s
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-  },
-  headerButton: {
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.sm,
-    width: 56,
-  },
   content: {
     padding: spacing.lg,
     paddingBottom: spacing['4xl'],

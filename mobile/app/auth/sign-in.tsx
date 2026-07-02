@@ -10,7 +10,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
@@ -77,6 +76,20 @@ export default function SignInScreen() {
     useAuthStore.getState().enterGuest();
     router.replace('/(tabs)/home');
   }, []);
+
+  // UXR L-1 A-8: 법적 고지 링크 — 중첩 Text onPress 대신 역할(link) 있는 터치러블로 승격.
+  const goTerms = useCallback(() => {
+    router.push('/legal/terms');
+  }, []);
+  const goPrivacy = useCallback(() => {
+    router.push('/legal/privacy');
+  }, []);
+
+  // UXR L-1 A-8: 링크 유효 터치영역 세로 ≥44pt — 시각 레이아웃(typo.small 한 줄)은 그대로 두고
+  // 서로 반대 바깥 방향으로만 hitSlop 을 확장해 위아래 두 링크의 터치영역이 중첩되지 않게 한다.
+  const termsLinkSlop = Math.max(0, sizing.minTouchTarget - typo.small.lineHeight);
+  const termsHitSlop = { top: termsLinkSlop, bottom: 0, left: spacing.xs, right: spacing.xs };
+  const privacyHitSlop = { top: 0, bottom: termsLinkSlop, left: spacing.xs, right: spacing.xs };
 
   // 카카오 로그인 실패 사유를 표면화하고 둘러보기 대안을 함께 제시(DAR-43 §3).
   const showKakaoFailure = useCallback(
@@ -303,29 +316,37 @@ export default function SignInScreen() {
             )}
           </TouchableOpacity>
 
-          {/* Terms */}
-          <Text
-            style={[
-              typo.small,
-              { color: colors.textTertiary, textAlign: 'center', marginTop: spacing.xl, lineHeight: 18 },
-            ]}
-          >
-            로그인 시{' '}
-            <Text
-              style={{ color: colors.primary, textDecorationLine: 'underline' }}
-              onPress={() => router.push('/legal/terms')}
-            >
-              서비스 이용약관
-            </Text>
-            {' 및\n'}
-            <Text
-              style={{ color: colors.primary, textDecorationLine: 'underline' }}
-              onPress={() => router.push('/legal/privacy')}
-            >
-              개인정보 처리방침
-            </Text>
-            에 동의합니다.
-          </Text>
+          {/* Terms — UXR L-1 A-8: 중첩 Text onPress(~18pt 타깃·역할 없음) → link 역할 + 44pt
+              터치영역 터치러블. lineHeight 매직넘버(18)는 typo.small 토큰 라인하이트로 대체. */}
+          <View style={styles.termsWrap}>
+            <View style={styles.termsLine}>
+              <Text style={[typo.small, { color: colors.textTertiary }]}>로그인 시 </Text>
+              <TouchableOpacity
+                onPress={goTerms}
+                hitSlop={termsHitSlop}
+                accessibilityRole="link"
+                accessibilityLabel="서비스 이용약관 보기"
+              >
+                <Text style={[typo.small, styles.termsLinkText, { color: colors.primary }]}>
+                  서비스 이용약관
+                </Text>
+              </TouchableOpacity>
+              <Text style={[typo.small, { color: colors.textTertiary }]}> 및</Text>
+            </View>
+            <View style={styles.termsLine}>
+              <TouchableOpacity
+                onPress={goPrivacy}
+                hitSlop={privacyHitSlop}
+                accessibilityRole="link"
+                accessibilityLabel="개인정보 처리방침 보기"
+              >
+                <Text style={[typo.small, styles.termsLinkText, { color: colors.primary }]}>
+                  개인정보 처리방침
+                </Text>
+              </TouchableOpacity>
+              <Text style={[typo.small, { color: colors.textTertiary }]}>에 동의합니다.</Text>
+            </View>
+          </View>
 
           {/* Guest Browse */}
           <TouchableOpacity
@@ -392,5 +413,18 @@ const styles = StyleSheet.create({
     // 보조 버튼이라도 유효 터치 영역 ≥44pt 보장(A-TOUCH-1).
     minHeight: sizing.minTouchTarget,
     paddingVertical: spacing.sm,
+  },
+  termsWrap: {
+    marginTop: spacing.xl,
+    alignItems: 'center',
+  },
+  termsLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+  },
+  termsLinkText: {
+    textDecorationLine: 'underline',
   },
 });

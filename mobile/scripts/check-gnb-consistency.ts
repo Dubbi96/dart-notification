@@ -82,9 +82,11 @@ for (const rel of DETAIL_SCREENS) {
   ok(`상세 화면 좌상단 뒤로가기 a11y(ScreenHeader|인라인): ${rel}`, usesScreenHeader || inlineA11y);
 }
 
-// ── 회귀/대조: DAR-303 에서 보강한 인라인 헤더가 '뒤로 가기' 라벨을 실제 획득 ────
-// DAR-455: profile·saved-disclosures 는 공통 ScreenHeader 로 이관되어 인라인 백버튼이 제거됨
-//   → FIXED(인라인 검증) 목록에서 제외(상단 (B) 블록의 usesScreenHeader 경로가 a11y 를 전이 커버).
+// ── 회귀/대조: DAR-303 에서 보강한 헤더가 '뒤로 가기' 라벨을 실제 획득 ────
+// DAR-455: profile·saved-disclosures 는 공통 ScreenHeader 로 이관되어 인라인 백버튼이 제거됨.
+// 앵커 갱신 2026-07-02(L-5a A-1): terms·privacy·ai-cost 도 공통 ScreenHeader 로 이관 —
+//   인라인 라벨 검증을 'ScreenHeader onBack={router.back} 사용' + 'ScreenHeader 소스에서
+//   라벨이 onPress={onBack} 버튼에 부착' 의 전이 검증으로 재바인딩(단정 강도 동일).
 const FIXED = [
   'app/legal/terms.tsx',
   'app/legal/privacy.tsx',
@@ -92,11 +94,17 @@ const FIXED = [
 ];
 for (const rel of FIXED) {
   const src = read(rel);
-  ok(`보강 확인 '뒤로 가기' 라벨: ${rel}`, /accessibilityLabel="뒤로 가기"/.test(src));
-  // 라벨이 좌상단 뒤로가기 TouchableOpacity(=router.back) 블록에 부여됐는지(과확산/오부착 방지).
-  const block = src.match(/<TouchableOpacity[\s\S]*?router\.back\(\)[\s\S]*?accessibilityLabel="뒤로 가기"[\s\S]*?>/);
-  ok(`보강 라벨이 router.back 버튼에 부착: ${rel}`, block !== null);
+  ok(
+    `보강 확인 ScreenHeader onBack(router.back) 사용: ${rel}`,
+    /from '@components\/common\/ScreenHeader'/.test(src) &&
+      /<ScreenHeader[\s\S]*?onBack=\{\(\)\s*=>\s*router\.back\(\)\}/.test(src),
+  );
 }
+// 라벨이 좌상단 뒤로가기 TouchableOpacity(=onPress={onBack}) 블록에 부여됐는지(과확산/오부착 방지).
+const hdrBackBlock = screenHeader.match(
+  /<TouchableOpacity[\s\S]*?onPress=\{onBack\}[\s\S]*?accessibilityLabel="뒤로 가기"[\s\S]*?>/,
+);
+ok("보강 라벨이 ScreenHeader onBack 버튼에 부착(전이 커버 성립)", hdrBackBlock !== null);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

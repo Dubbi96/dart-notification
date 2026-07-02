@@ -10,6 +10,7 @@ import { InlineDisclosure } from '@components/common/InlineDisclosure';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
 import { EmptyState, ErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
+import { FEE_BASIS_NOTICE } from '@components/common/feeBasisCopy';
 import { EquityCurveChart } from '@components/portfolio/EquityCurveChart';
 import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { IntradayScalpSection } from '@components/portfolio/IntradayScalpSection';
@@ -237,6 +238,10 @@ function ComparisonHeader({ data }: { data: StrategyComparison }) {
             아직 청산 표본이 없어 우열을 가릴 수 없습니다.
           </Text>
         )}
+        {/* E-1: 수수료 반영 기준 고지 — 4종 백테스트 수익률도 단타와 동일한 순수익 기준. */}
+        <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
+          {FEE_BASIS_NOTICE}
+        </Text>
         <View style={styles.headerDisclosure}>
           <InlineDisclosure
             label={

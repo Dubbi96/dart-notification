@@ -145,9 +145,13 @@ function TrackerBody({ report }: { report: GraduationReport }) {
       >
         <View style={styles.cardHeader}>
           <View style={styles.headerText}>
+            {/* UXR L-1 A-7: 섹션 헤딩('운용 성과')과 수직 중복되던 카드 내부 타이틀 제거 —
+                달성 카운트를 카드 1행으로 승격(표본 부족 배지 유지). */}
             <View style={styles.titleRow}>
               <Feather name="award" size={16} color={colors.primary} />
-              <Text style={[typo.bodyMedium, { color: colors.text }]}>운용 성과</Text>
+              <Text style={[typo.bodyMedium, { color: colors.text }]}>
+                목표 {report.passedCount}/{report.totalGates} 달성
+              </Text>
               {report.lowSample ? (
                 <View
                   style={[styles.lowSampleBadge, { borderColor: colors.border }]}
@@ -157,9 +161,6 @@ function TrackerBody({ report }: { report: GraduationReport }) {
                 </View>
               ) : null}
             </View>
-            <Text style={[typo.small, { color: colors.textSecondary }]}>
-              목표 {report.passedCount}/{report.totalGates} 달성
-            </Text>
           </View>
         </View>
 

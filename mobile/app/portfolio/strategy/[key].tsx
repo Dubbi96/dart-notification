@@ -7,7 +7,8 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
-import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
+import { ApiErrorState, EmptyState } from '@components/common/StateView';
+import { SkeletonList } from '@components/common/SkeletonCard';
 import { useStrategyTradeHistory } from '@hooks/useStrategyTradeHistory';
 import { pnlColor } from '@utils/signalDisplay';
 import { formatReturnPct } from '@utils/numberFormat';
@@ -196,10 +197,14 @@ export default function StrategyTradeTimelineScreen() {
           title="알 수 없는 전략이에요"
           description="전략 비교 화면에서 다시 선택해 주세요."
           actionLabel="전략 비교로"
-          onAction={() => router.back()}
+          // C10: 라벨('전략 비교로')=동작 일치 — back()은 직전 화면 복귀라 푸시·딥링크 직진입
+          // (콜드스타트)에선 약속한 목적지 보장이 없다. DAR-431 탭 파라미터로 명시 이동하고
+          // replace 로 깨진 딥링크 화면의 back 스택 오염도 방지한다.
+          onAction={() => router.replace('/(tabs)/portfolio?tab=strategy')}
         />
       ) : query.isLoading ? (
-        <LoadingState message="매수/매도 타임라인을 불러오는 중..." />
+        // C7: 리스트형 드릴다운 로딩을 포트폴리오 탭 섹션과 동일한 스켈레톤으로 통일(점프 제거).
+        <SkeletonList variant="buyScore" />
       ) : query.isError ? (
         <ApiErrorState
           error={query.error}

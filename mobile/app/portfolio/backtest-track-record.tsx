@@ -7,7 +7,9 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
-import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
+import { ApiErrorState, EmptyState } from '@components/common/StateView';
+import { DetailSkeleton } from '@components/common/DetailSkeleton';
+import { FEE_BASIS_NOTICE } from '@components/common/feeBasisCopy';
 import { EquityCurveChart } from '@components/portfolio/EquityCurveChart';
 import { useBacktestTrackRecord } from '@hooks/useBacktestTrackRecord';
 import { useManualRefresh } from '@hooks/useManualRefresh';
@@ -84,6 +86,11 @@ function SummaryHeaderCard({ record }: { record: BacktestTrackRecord }) {
           </Text>
         </View>
       </View>
+
+      {/* E-1: 수수료 반영 기준 고지 — 단타만 명시하던 순수익 기준을 공용 문구로 통일. */}
+      <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.sm }]}>
+        {FEE_BASIS_NOTICE}
+      </Text>
     </Surface>
   );
 }
@@ -225,7 +232,9 @@ export default function BacktestTrackRecordScreen() {
       <ScreenHeader title="백테스트 트랙레코드" onBack={() => router.back()} />
 
       {query.isLoading ? (
-        <LoadingState message="트랙레코드를 불러오는 중..." />
+        // C7: 드릴다운 로딩을 탭 섹션·포지션 상세와 동일한 스켈레톤(DAR-147 패턴)으로 통일 —
+        // 콘텐츠 골격(헤더 요약·자산곡선·핵심 지표)을 미리 그려 로딩→콘텐츠 점프 제거.
+        <DetailSkeleton cards={[{ lines: 2 }, { gauge: true, lines: 1 }, { lines: 4 }]} />
       ) : query.isError ? (
         <ApiErrorState
           error={query.error}

@@ -44,15 +44,28 @@ function checkTitle(rel: string, label: string, expectedCount: number) {
 
 // disclosure/[id].tsx — '공시 상세' 두 헤더바(로딩 + 본문) 모두
 checkTitle('app/disclosure/[id].tsx', '공시 상세', 2);
-// disclosures/index.tsx — '전체 공시'
-checkTitle('app/disclosures/index.tsx', '전체 공시', 1);
+// disclosures/index.tsx — 앵커 갱신 2026-07-02(L-5a A-1): 손수제작 헤더 → 공통 ScreenHeader 이관.
+// 제목 헤더 시맨틱은 ScreenHeader 내부 title Text(accessibilityRole="header")가 전이 제공 —
+// ① 화면이 title="전체 공시" 로 ScreenHeader 를 사용하고 ② 컴포넌트가 role=header 를 부여함을 단정.
+{
+  const src = readFileSync(join(root, 'app/disclosures/index.tsx'), 'utf8');
+  ok(
+    "app/disclosures/index.tsx '전체 공시': ScreenHeader title 사용(이관)",
+    /from '@components\/common\/ScreenHeader'/.test(src) &&
+      /<ScreenHeader\s+title="전체 공시"/.test(src),
+  );
+  const hdr = readFileSync(join(root, 'components/common/ScreenHeader.tsx'), 'utf8');
+  const titleText = hdr.match(/<Text\b[\s\S]*?accessibilityRole="header"[\s\S]*?>\s*\{title\}/);
+  ok('ScreenHeader: title Text 가 accessibilityRole="header"(전이 커버 성립)', titleText !== null);
+}
 // search/index.tsx — '통합 검색'(헤더바 제목; title= prop / accessibilityLabel 은 별개로 배제됨)
 checkTitle('app/search/index.tsx', '통합 검색', 1);
 
 // 회귀 가드: role="header" 가 헤더바 제목에만 (각 파일별 정확히 기대 개수) 부여 — 과확산 방지
+// (disclosures 는 ScreenHeader 이관으로 인라인 role=header 0 이 정상 — 잔존 시 이중 시맨틱 회귀)
 const counts: Array<[string, number]> = [
   ['app/disclosure/[id].tsx', 2],
-  ['app/disclosures/index.tsx', 1],
+  ['app/disclosures/index.tsx', 0],
   ['app/search/index.tsx', 1],
 ];
 for (const [rel, n] of counts) {

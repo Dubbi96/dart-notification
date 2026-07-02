@@ -147,10 +147,11 @@ check(
   'auto-trading: 진입점이 /portfolio/backtest-track-record 로 라우팅 유지',
   /router\.push\('\/portfolio\/backtest-track-record'\)/.test(AUTO),
 );
-check('auto-trading: 로딩/에러 동선(LoadingState·ApiErrorState) 유지', /<LoadingState/.test(AUTO) && /<ApiErrorState/.test(AUTO));
+// 앵커 갱신 2026-07-02(L-3): 로딩 표현 LoadingState → DetailSkeleton(레이아웃 보존 스켈레톤) 이관.
+check('auto-trading: 로딩/에러 동선(DetailSkeleton·ApiErrorState) 유지', /<DetailSkeleton/.test(AUTO) && /<ApiErrorState/.test(AUTO));
 check(
-  'backtest: 빈/에러/로딩 동선(EmptyState·ApiErrorState·LoadingState) 유지',
-  /<EmptyState/.test(BACKTEST) && /<ApiErrorState/.test(BACKTEST) && /<LoadingState/.test(BACKTEST),
+  'backtest: 빈/에러/로딩 동선(EmptyState·ApiErrorState·DetailSkeleton) 유지',
+  /<EmptyState/.test(BACKTEST) && /<ApiErrorState/.test(BACKTEST) && /<DetailSkeleton/.test(BACKTEST),
 );
 
 console.log(failed === 0 ? '\nALL PASS' : `\n${failed} FAILED`);

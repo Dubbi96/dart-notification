@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  RefreshControl,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -88,6 +89,11 @@ export default function ThesisScreen() {
     );
   }, []);
 
+  // C7: 형제 화면(포지션 상세)과 동일한 당겨 새로고침 — 훼손 조건 최신화를 사용자가 당겨서 확인.
+  const handleRefresh = useCallback(() => {
+    thesisQuery.refetch();
+  }, [thesisQuery]);
+
   if (thesisQuery.isLoading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
@@ -132,7 +138,18 @@ export default function ThesisScreen() {
         </View>
       ) : (
         <>
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={thesisQuery.isRefetching}
+              onRefresh={handleRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
+        >
           {/* 상태 배지 + 헤더 */}
           <Surface
             elevation={0}

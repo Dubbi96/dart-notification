@@ -7,7 +7,8 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
-import { LoadingState, ApiErrorState } from '@components/common/StateView';
+import { ApiErrorState } from '@components/common/StateView';
+import { DetailSkeleton } from '@components/common/DetailSkeleton';
 import { useAutoTradingStatus } from '@hooks/useAutoTradingStatus';
 import { useManualRefresh } from '@hooks/useManualRefresh';
 
@@ -221,7 +222,11 @@ export default function AutoTradingStatusScreen() {
       <ScreenHeader title="자동매매 상태" onBack={() => router.back()} />
 
       {query.isLoading ? (
-        <LoadingState message="실행 상태를 불러오는 중..." />
+        // C7: 드릴다운 로딩을 탭 섹션·포지션 상세와 동일한 스켈레톤(DAR-147 패턴)으로 통일 —
+        // 콘텐츠 골격(킬스위치·트랙레코드 진입·리스크게이트·감사 트레일)을 미리 그려 점프 제거.
+        <DetailSkeleton
+          cards={[{ chip: true, lines: 2 }, { lines: 2 }, { lines: 2 }, { lines: 3 }]}
+        />
       ) : query.isError ? (
         <ApiErrorState
           error={query.error}

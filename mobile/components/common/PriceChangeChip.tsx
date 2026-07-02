@@ -13,21 +13,38 @@ import { InfoSheet, type InfoSheetSection } from '@components/common/InfoSheet';
 //
 // 비대화형 개선 (DAR-175): 칩을 탭 가능한 버튼으로 만들고, 탭 시 색·부호 인코딩과 참고용 수치임을
 // 설명하는 정보 시트(InfoSheet)로 연결한다. 탭 시 light 햅틱. disableInfo 로 옵트아웃 가능.
+//
+// UXR(A-2): 이 칩은 시세 등락률 외에 모의 손익/누적수익률에도 재사용된다. 고정 '등락률·실시간
+// 아닐 수 있음·호가 확인' 카피가 '실시간 현재가 기준' 본문과 정면 충돌하던 모순 →
+// context('quote'|'pnl')로 InfoSheet 카피를 분기한다(pnl = 모의 손익·실제 체결 아님).
+
+const DIRECTION_INFO_SECTION: InfoSheetSection = {
+  icon: 'eye',
+  heading: '색·부호·아이콘으로 방향 안내',
+  body:
+    '초록(+)·상승 아이콘은 상승/이익, 빨강(−)·하락 아이콘은 하락/손실, 회색(−)은 보합(변동 없음)을 ' +
+    '뜻합니다. 색만으로 의미를 전달하지 않도록 부호와 방향 아이콘을 함께 표시합니다.',
+};
 
 const PRICE_CHIP_INFO_SECTIONS: InfoSheetSection[] = [
-  {
-    icon: 'eye',
-    heading: '색·부호·아이콘으로 방향 안내',
-    body:
-      '초록(+)·상승 아이콘은 상승/이익, 빨강(−)·하락 아이콘은 하락/손실, 회색(−)은 보합(변동 없음)을 ' +
-      '뜻합니다. 색만으로 의미를 전달하지 않도록 부호와 방향 아이콘을 함께 표시합니다.',
-  },
+  DIRECTION_INFO_SECTION,
   {
     icon: 'info',
     heading: '참고용 수치',
     body:
       '표시되는 등락률은 참고용이며 실시간이 아닐 수 있습니다. 정확한 호가·체결가는 거래소·증권사 ' +
       '공식 정보로 확인하세요.',
+  },
+];
+
+const PNL_CHIP_INFO_SECTIONS: InfoSheetSection[] = [
+  DIRECTION_INFO_SECTION,
+  {
+    icon: 'info',
+    heading: '모의 손익 수치',
+    body:
+      '표시되는 수치는 모의 운용으로 계산된 손익·수익률이며 실제 주문·체결 결과가 아닙니다. ' +
+      '실제 투자 성과와 다를 수 있는 참고용 정보입니다.',
   },
 ];
 
@@ -38,10 +55,18 @@ interface PriceChangeChipProps {
   amount?: number;
   /** true 면 탭 시 정보 시트를 열지 않고 정적으로 표시(기본 false). */
   disableInfo?: boolean;
+  /** InfoSheet 카피 문맥(UXR A-2) — 'quote' 시세 등락률(기본) | 'pnl' 모의 손익·수익률. */
+  context?: 'quote' | 'pnl';
   style?: ViewStyle;
 }
 
-export function PriceChangeChip({ value, amount, disableInfo = false, style }: PriceChangeChipProps) {
+export function PriceChangeChip({
+  value,
+  amount,
+  disableInfo = false,
+  context = 'quote',
+  style,
+}: PriceChangeChipProps) {
   const { colors, typography: typo } = useTheme();
   const { light } = useHaptics();
   const [sheetVisible, setSheetVisible] = useState(false);
@@ -52,6 +77,7 @@ export function PriceChangeChip({ value, amount, disableInfo = false, style }: P
   }, [light]);
   const closeSheet = useCallback(() => setSheetVisible(false), []);
 
+  const isPnl = context === 'pnl';
   const iconName = value > 0 ? 'trending-up' : value < 0 ? 'trending-down' : 'minus';
   const isNeutral = value === 0;
   // 보합(0%)은 surfaceSecondary 틴트 위에서 textSecondary 대비가 AA(4.5:1) 미만으로 떨어진다.
@@ -81,7 +107,9 @@ export function PriceChangeChip({ value, amount, disableInfo = false, style }: P
         ]}
         textStyle={[typo.small, { color: textColor, fontWeight: '700' }]}
         icon={({ size }) => <Feather name={iconName} size={size} color={textColor} />}
-        accessibilityLabel={disableInfo ? valueLabel : `${valueLabel}, 탭하면 등락률 표시 설명`}
+        accessibilityLabel={
+          disableInfo ? valueLabel : `${valueLabel}, 탭하면 ${isPnl ? '손익' : '등락률'} 표시 설명`
+        }
       >
         {`${sign}${value.toFixed(2)}%${amountText}`}
       </Chip>
@@ -90,8 +118,8 @@ export function PriceChangeChip({ value, amount, disableInfo = false, style }: P
         <InfoSheet
           visible={sheetVisible}
           onClose={closeSheet}
-          title="등락률 표시 안내"
-          sections={PRICE_CHIP_INFO_SECTIONS}
+          title={isPnl ? '손익 표시 안내' : '등락률 표시 안내'}
+          sections={isPnl ? PNL_CHIP_INFO_SECTIONS : PRICE_CHIP_INFO_SECTIONS}
         />
       )}
     </>

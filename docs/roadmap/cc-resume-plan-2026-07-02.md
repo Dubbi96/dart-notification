@@ -84,6 +84,12 @@
 | 스토어 출시 | EAS APK 직접 배포 단계 → Play Store 등록 준비(BMC의 채널 전략) |
 | 백업 자동화 | 수동 pg_dump(6/27) → 주기 백업 cron 검토 |
 
+### Track F — UI/UX 개선 백로그 (2026-07-02 정밀 리뷰, 이슈化하여 플릿 처리)
+
+- 정본: [cc-ux-review-2026-07-02](./cc-ux-review-2026-07-02.md) — 확정 76건(high 10/medium 33/low 33), 파일별 1이슈 분해안 UXR-1~23 + low 패턴 묶음.
+- 순서: **#424/#425 머지 먼저**(중복 4건 자동 해소, UXR-6/9는 같은 파일이라 머지 후 착수) → 1차 UXR-1~10(high) → 2차 → 3차. 처리 후 에뮬레이터 인터랙션 패스 + 재검증(§6).
+- 6/27 감사 잔여: W1(신호 탭 서브타이틀·코치마크), W5(배너 토큰·BuyScoreCard 정리), W7(GlassCard·LogoMark 토큰) — UXR 분해안에 포함됨.
+
 ### Track E — 문서 현행화 백로그 (감사 결과, 이슈化하여 플릿 처리)
 
 이번 정리 PR에서 **아카이브 21건 + 위험 수정(CLAUDE.md 엔진표, QUICK_START 파괴 명령 제거, cc-data-model SSOT 이관, KNOWN_FAILURES 2건 추가)** 은 완료. 남은 update 백로그(우선순위순):

@@ -1,7 +1,8 @@
 # M0 온보딩 화면 정의서 — 분석 유니버스·Persona 선택
 
 > 작성: 화면(UI) 기획 · 작성일: 2026-06-02
-> 상위 문서: [실행 로드맵](../../roadmap/01-execution-roadmap.md) · [M0 기술 계약서](./00-contract.md)
+> 상위 문서: [실행 로드맵](../../../roadmap/01-execution-roadmap.md) · [M0 기술 계약서](./00-contract.md)
+> 📦 아카이브(2026-07-02): 구현 완료된 M0 기획 기록. 현행 온보딩은 3단계(`mobile/utils/onboardingFlow.ts`, DAR-209) — 본 문서의 4단계 스펙은 역사 기록.
 > 구현 기준: `mobile/app/onboarding/index.tsx` 확장, Teal 테마(`lightColors`/`darkColors`), RN Paper, Expo Router
 
 ---

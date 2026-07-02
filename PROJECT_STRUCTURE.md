@@ -310,7 +310,10 @@ dart-notification/
 │   ├── api-specification.md   # API 명세서
 │   ├── workflow.md            # 업무 흐름도
 │   ├── deployment.md          # 배포 가이드
-│   └── development-plan.md    # 개발 계획
+│   ├── roadmap/               # 로드맵 정본 (비전·실행 로드맵·phase 명세·재개 계획)
+│   ├── work/                  # 진행 중 작업 문서 (완료분은 archive/로 이동)
+│   ├── mobile/                # 모바일 기획 (screen-plan 등)
+│   └── archive/               # 완료·대체된 문서 보관 (2026-07-02 문서 감사로 신설)
 │
 ├── .env.example
 ├── .gitignore

@@ -54,7 +54,7 @@
 
 **이 단계에서 받아야 할 입력:**
 - 비전 문서(§4 AI 금지영역, §3 3대 원칙) — 이미 존재
-- 개발 예정 기능 목록(feature-status.md) — 이미 존재
+- 개발 예정 기능 목록(docs/archive/feature-status.md — 2026-06-02 인수 시점 스냅샷, 아카이브됨) — 이미 존재
 - 초기 공시 5종, Persona 4종 범위 확정(phase-00-baseline-scope.md) — 이미 존재
 
 ---

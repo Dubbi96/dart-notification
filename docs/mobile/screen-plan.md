@@ -186,7 +186,8 @@ app/
 
 ### M0 — 기존 화면 재사용 및 확장
 
-> 온보딩 4단계 상세는 [screen-onboarding.md](../work/m0/screen-onboarding.md) 참조.
+> 온보딩 기획 원본(4단계)은 [screen-onboarding.md](../archive/work/m0/screen-onboarding.md) 참조(아카이브).
+> 현행 구현 정본은 `mobile/utils/onboardingFlow.ts` — DAR-209로 3단계로 축약됨.
 > 이 섹션은 M0 확장 요약만 기록한다.
 
 #### SCR-HOME — 홈 피드

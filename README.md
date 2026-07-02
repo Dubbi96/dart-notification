@@ -136,14 +136,15 @@ npx expo start
 - [API 명세서](./docs/api-specification.md)
 - [업무 흐름도](./docs/workflow.md)
 - [배포 가이드](./docs/deployment.md)
-- [개발 계획](./docs/development-plan.md)
+- [실행 로드맵 (M0~M12)](./docs/roadmap/01-execution-roadmap.md)
+- [재개 계획 2026-07-02](./docs/roadmap/cc-resume-plan-2026-07-02.md)
 
-## 개발 일정
+## 진행 상태 (2026-07-02)
 
-- **Week 1**: 백엔드 기본 구조, DB 스키마, 카카오 OAuth 인증 -- 완료
-- **Week 2**: 공시 수집/저장, 관심 목록, 매칭 로직 -- 모듈 스캐폴딩 완료, 스케줄러 미구현
-- **Week 3**: 모바일 앱 화면 개발 -- 대부분 완료, 푸시/딥링크 미구현
-- **Week 4**: 통합 테스트, 버그 수정, 배포 준비 -- 미착수
+- **M0~M9 완료**: 공시 수집(263만건)·파싱·이벤트추출·AI 분석·시세(KIS/KRX·TimescaleDB)·Event Study·매수신호·포트폴리오/Exit·백테스트
+- **M10 진행 중**: 다중전략 모의매매 5트랙 OCI prod 라이브 운용(졸업 게이트: 30일 캘린더 + 라이브AI 상시)
+- **prod**: `https://168.138.198.152.nip.io/api` (OCI 2-micro + Caddy HTTPS, 백엔드 v0.1.1), Android APK 공시온 v1.0.0
+- 과거 초기 MVP 계획은 [docs/archive/development-plan.md](./docs/archive/development-plan.md) 참조
 
 ## 라이선스
 

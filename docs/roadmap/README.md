@@ -6,8 +6,24 @@
 
 1. [00 · 시스템 비전 및 설계 원칙](./00-vision-and-principles.md) — **먼저 읽을 것 (SSOT)**
 2. [01 · 실행 로드맵 (개발 순서 + 회귀 체크포인트)](./01-execution-roadmap.md) — **개발 착수 시 정본**
-3. 횡단 설계 문서 (Cross-cutting)
-4. Phase별 상세 준비 문서 (0~14)
+3. **[cc-resume-plan-2026-07-02](./cc-resume-plan-2026-07-02.md) — 현재 위치·재개 계획 정본 (M0~M12 상태 매트릭스 포함)**
+4. 횡단 설계 문서 (Cross-cutting)
+5. Phase별 상세 준비 문서 (0~14)
+
+## 현행 운영·판정 문서 (세션 산출 정본)
+
+| 문서 | 내용 |
+|------|------|
+| [cc-resume-plan-2026-07-02](./cc-resume-plan-2026-07-02.md) | **재개 계획 + M0~M12 상태 매트릭스 + 문서/브랜치 위생 감사 결과** |
+| [cc-pause-handoff-2026-06-28](./cc-pause-handoff-2026-06-28.md) | 일시중단 복원 런북 (DB 복원·서비스 재기동) |
+| [cc-ui-ux-audit-2026-06-27](./cc-ui-ux-audit-2026-06-27.md) | UI/UX 전수 감사 — 현행 UX 백로그 정본 |
+| [cc-trading-fix-roadmap-2026-06-26](./cc-trading-fix-roadmap-2026-06-26.md) | 트레이딩 결함 13건 수정 기록 (전부 v0.1.1 배포됨) |
+| [buy-logic-validation-baseline](./buy-logic-validation-baseline.md) | 매수논리 재검증 프로토콜 (baseline -14.5%) |
+| [rsi-strategy-backtest-2026-06-26](./rsi-strategy-backtest-2026-06-26.md) | RSI 단독전략 엣지 없음 → 제품화 보류 근거 |
+| [cc-multi-asset-expansion](./cc-multi-asset-expansion.md) | 다자산 확장 설계 (M12 이후, 미착수) |
+| [cc-persona-philosophy-engine](./cc-persona-philosophy-engine.md) | Persona·투자철학 엔진 설계 |
+
+> 완료·대체된 세션 문서(구 핸드오프, 패널 백로그, M10 졸업 스냅샷 등)는 [docs/archive/](../archive/README.md)로 이동됨(2026-07-02).
 
 > **데이터 소스 정책:** 시세·통계 기준 데이터는 **KRX 데이터마켓플레이스(공기업)** 가 1차 소스다. 실시간 현재가/분봉 및 주문 체결만 증권사 OpenAPI(KIS 등)로 보완한다. (개별 문서에 남은 'KIS' 언급 중 *일봉/통계*는 KRX로 읽을 것)
 

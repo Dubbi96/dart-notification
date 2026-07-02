@@ -139,16 +139,20 @@ curl http://localhost:3000
 ### Docker 컨테이너가 시작되지 않음
 
 ```bash
-docker-compose -f docker-compose.dev.yml down -v
-docker-compose -f docker-compose.dev.yml up -d
+# 주의: `down -v`는 DB 볼륨(축적 데이터)을 삭제한다 — 절대 습관적으로 쓰지 말 것.
+# 컨테이너 재시작만 필요하면:
+docker-compose -f docker-compose.dev.yml restart
 ```
 
 ### Prisma 마이그레이션 실패
 
 ```bash
-npx prisma generate --force
-npx prisma migrate reset   # 주의: 데이터 삭제됨
+npx prisma generate        # 스키마 변경 후 클라이언트 재생성
+npx prisma migrate dev     # 개발용 마이그레이션 적용
 ```
+
+> ⚠️ `prisma migrate reset`은 전체 데이터를 삭제하는 파괴 명령으로 하네스에서 차단(deny)된다.
+> DB가 깨졌으면 초기화 대신 백업 복원 절차(`docs/roadmap/cc-pause-handoff-2026-06-28.md` §3)를 따를 것.
 
 ### 포트 충돌 (3000번 포트)
 
@@ -175,8 +179,8 @@ npx expo start --tunnel   # 방화벽 문제 시
 - [시스템 아키텍처](./docs/architecture.md)
 - [데이터베이스 스키마](./docs/database-schema.md)
 - [API 명세서](./docs/api-specification.md)
-- [개발 계획](./docs/development-plan.md)
+- [실행 로드맵](./docs/roadmap/01-execution-roadmap.md)
 
 ---
 
-**마지막 업데이트**: 2026-03-08
+**마지막 업데이트**: 2026-07-02

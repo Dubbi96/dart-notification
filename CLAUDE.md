@@ -11,18 +11,20 @@ DART 공시 실시간 알림 모바일 앱 (React Native Expo + NestJS)
 코드는 **도메인(Bounded Context) 단위**로 묶는다. 기능 모듈을 평면 나열하지 않는다.
 백엔드는 **5개 엔진**으로 분리한다 (정본: `docs/roadmap/cc-engine-architecture.md §4-1`).
 
-| 도메인 폴더 (`backend/src/`) | 책임 | 마일스톤 | 상태 |
+| 도메인 폴더 (`backend/src/`) | 책임 | 마일스톤 | 상태 (2026-07-02) |
 |---|---|---|---|
-| `engine1-disclosure/` | 공시 수집·파싱·이벤트추출 | M0~M2 | ✅ 통합완료 |
-| `engine2-ai-analyst/` | 4 AI Task·비용게이트(L0~L3)·`AIUsageLog` | M3 | 🚧 스캐폴딩 |
-| `engine3-quant-market/` | 시세·지표·Event Study·Buy Score | M4~M6,M9 | ⬜ |
-| `engine4-portfolio-exit/` | 포트폴리오·포지션·Exit Score | M7~M8 | ⬜ |
-| `engine5-trading-risk/` | Risk 하드룰·모의/실주문 | M11~M12 | ⬜ |
-| 횡단(독립) | auth·users·companies·watchlist·notifications·notification-settings·expo-push·devices·saved-disclosures·prisma·common | 전 구간 | — |
+| `engine1-disclosure/` | 공시 수집·파싱·이벤트추출 | M0~M2 | ✅ 완료·prod 가동 |
+| `engine2-ai-analyst/` | 4 AI Task·비용게이트(L0~L3)·`AIUsageLog` | M3 | ✅ 완료 (SMOKE_LLM 상시 라이브만 미가동) |
+| `engine3-quant-market/` | 시세·지표·Event Study·Buy Score | M4~M6,M9 | ✅ 완료 (KIS/KRX·백테스트 포함) |
+| `engine4-portfolio-exit/` | 포트폴리오·포지션·Exit Score | M7~M8 | ✅ 완료 |
+| `engine5-trading-risk/` | Risk 하드룰·모의/실주문 | M11~M12 | 🚧 Risk 하드룰·모의매매 완료, 실주문 루프(OrderRequest) 미연동 |
+| 횡단(독립) | auth·users·companies·watchlist·notifications·notification-settings·expo-push·devices·saved-disclosures·search·collection-status·cron-health·ops·storage-ops·prisma·common | 전 구간 | — |
+
+> 현재 위치: M0~M9 완료, M10 모의운용 진행 중(졸업 게이트: `docs/roadmap/cc-mvp-definition.md` §9), M11 이후 미착수. 재개 계획 정본: `docs/roadmap/cc-resume-plan-2026-07-02.md`
 
 **도메인 구축 규칙 (점진적·지속):**
 - 새 마일스톤 착수 시 해당 `engineN-*/` 폴더를 만들고, **그 폴더에 `CLAUDE.md`(도메인 규칙 + 담당 마일스톤 로드맵 발췌)를 반드시 동반**한다.
-- 컨텍스트 계층화: 작업 디렉터리에서 가장 가까운 `CLAUDE.md`가 자동 로드된다. 현재 존재: `backend/`, `backend/prisma/`, `mobile/`, `backend/src/engine1-disclosure/`.
+- 컨텍스트 계층화: 작업 디렉터리에서 가장 가까운 `CLAUDE.md`가 자동 로드된다. 현재 존재: `backend/`, `backend/prisma/`, `mobile/`, `backend/src/engine1-disclosure/`~`engine5-trading-risk/` (5엔진 전부).
 - 엔진 간 통신은 BullMQ 큐 + DB. 엔진끼리 서비스 직접 호출 최소화.
 - 런타임 `@/` alias는 미등록 → **상대경로 import** 사용.
 
@@ -175,7 +177,7 @@ cd backend && npx prisma migrate dev
 | 배치/스케줄러 변경 | `docs/workflow.md` |
 | 배포 설정 변경 | `docs/deployment.md` |
 | 새 모듈/화면 추가 | `PROJECT_STRUCTURE.md` |
-| 기능 완료/추가 | `NEXT_STEPS.md`, `docs/development-plan.md` |
+| 기능 완료/추가 | `NEXT_STEPS.md`, `docs/roadmap/01-execution-roadmap.md`(마일스톤 상태) |
 | 실행 방법 변경 | `QUICK_START.md` |
 | 주요 변경 사항 | `README.md` (해당 시) |
 

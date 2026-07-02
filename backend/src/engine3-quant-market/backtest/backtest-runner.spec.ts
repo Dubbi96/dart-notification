@@ -548,6 +548,21 @@ describe('PerformanceCalculatorService', () => {
     expect(metrics.lostTrades).toBe(1);
   });
 
+  it('본전(netPnl 0)은 승·패 어느 쪽도 아니고 분모에만 포함 — engine5 성적표와 통일 정의(S신뢰/G-1)', () => {
+    const trades = [
+      makeClosedTrade({ netPnl: 70000, returnPct: 10 }),
+      makeClosedTrade({ rcpNo: 'RCP002', netPnl: 0, returnPct: 0 }),
+      makeClosedTrade({ rcpNo: 'RCP003', netPnl: -40000, returnPct: -5, exitReason: 'STOP_LOSS' }),
+    ];
+
+    const metrics = calc.calculate(trades, 1_000_000, '2024-01-08', '2024-01-19');
+    expect(metrics.totalTrades).toBe(3);
+    expect(metrics.wonTrades).toBe(1); // 본전은 승 아님
+    expect(metrics.lostTrades).toBe(1); // 본전은 패도 아님(과거: <=0 으로 패 집계)
+    expect(metrics.winRate).toBeCloseTo(33.33, 1); // 승률 = 순손익>0 / 전체 청산(본전 포함 분모)
+    expect(metrics.avgLoss).toBeCloseTo(-5, 5); // 평균손실이 본전 0에 희석되지 않음
+  });
+
   it('MDD 계산 — 낙폭 반영', () => {
     const trades = [
       makeClosedTrade({ rcpNo: 'RCP001', netPnl: -100000, returnPct: -10 }),

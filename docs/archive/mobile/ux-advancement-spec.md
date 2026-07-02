@@ -2,7 +2,8 @@
 
 > 작성: PLANNER (DAR-30) · 작성일: 2026-06-05  
 > 입력 문서: [ux-advancement-direction.md](./ux-advancement-direction.md) (멀티에이전트 패널 종합 방향)  
-> 상위 기획: [screen-plan.md](./screen-plan.md) · [ux-detail-plan.md](./ux-detail-plan.md)  
+> 상위 기획: [screen-plan.md](../../mobile/screen-plan.md) · [ux-detail-plan.md](./ux-detail-plan.md)  
+> 📦 아카이브(2026-07-02): P0~P2 전 항목 구현 완료(DAR-143~166·452~472). 현행 UX 정본은 `docs/roadmap/cc-ui-ux-audit-2026-06-27.md`.  
 > **⚠️ PLANNER 산출물 — docs/ 전용. 코드 변경 금지.**
 
 ---
@@ -954,7 +955,7 @@ accessibilityLabel={`수익률 ${Math.abs(value).toFixed(2)}% ${value > 0 ? '상
 | 문서 | 충돌 여부 | 비고 |
 |------|---------|------|
 | `docs/mobile/screen-plan.md` | 없음 | ScoreBreakdownSection = SCR-SIGNAL-DETAIL §가산식 구현 |
-| `docs/mobile/ux-detail-plan.md` | 없음 | §8-2 BuyScore 툴팁·§11 재사용 컴포넌트 실체화 |
+| `docs/archive/mobile/ux-detail-plan.md` (구 docs/mobile/) | 없음 | §8-2 BuyScore 툴팁·§11 재사용 컴포넌트 실체화 |
 | `docs/roadmap/roles/plan-policy.md` | 없음 | 면책 본문 불변·`투자자문 아님` 불변·`(참고)` 강제 준수 |
 | `mobile/CLAUDE.md` | 없음 | RN Paper·Feather·React Query·Zustand·expo-secure-store 스택 준수 |
 

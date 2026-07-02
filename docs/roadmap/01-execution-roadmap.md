@@ -1,6 +1,6 @@
 # 실행 로드맵 — 전체 개발 순서 및 회귀 체크포인트
 
-> 상위 문서: [비전](./00-vision-and-principles.md) · 작성: 직접 판단(엔지니어링 관점) · 최종 수정: 2026-06-02
+> 상위 문서: [비전](./00-vision-and-principles.md) · 작성: 직접 판단(엔지니어링 관점) · 최종 수정: 2026-07-02
 
 이 문서는 비전의 Phase 0~14를 **의존성 기준으로 재정렬한 실제 개발 순서(Milestone)** 와, 각 마일스톤이 끝날 때마다 **이전 단계를 함께 재확인하는 회귀 체크포인트**를 정의한다. 비전 8장의 "개발 우선순위"가 *무엇을* 만드는지라면, 이 문서는 *어떤 순서로, 무엇을 다시 검증하며* 만드는지를 다룬다.
 
@@ -13,25 +13,26 @@
 
 ## 1. 마일스톤 개요 (의존성 정렬)
 
-| M | 마일스톤 | 포함 Phase | 한 줄 목표 | 진입 게이트 |
-|---|----------|-----------|-----------|-------------|
-| **M0** | 기준선 & 수집 안정화 | P0, P1 | 범위 확정 + 신뢰할 수 있는 공시 수집 파이프라인 | — (현행 코드 기반) |
-| **M1** | 공시 원문 파싱 | P2 | rcpNo 원문 다운로드·구조화(`DisclosureDocument`) | M0 |
-| **M2** | 이벤트·수치 추출 | P3 | 5종 이벤트 분류 + 핵심 수치(`DisclosureEvent`) | M1 |
-| **M3** | AI Analyst + 비용 계측 토대 | P4, P11(부분) | 4개 AI Task + `AIUsageLog`·L0~L2 게이트 | M2 |
-| **M4** | 시세·시장 데이터 | P5(KRX) | 일봉·지표·종목상태 토대(Quant Engine) | M0 (M2와 병행 가능) |
-| **M5** | Event Study | P9 | 이벤트별 과거 반응 통계(`EventStudyResult`) | M2, M4 |
-| **M6** | 매수 Signal Engine | P6 | Buy Score·`TradingSignal` | M3, M4, M5 |
-| **M7** | Position Thesis | P7 | 진입 논리·훼손 조건 저장(`PositionThesis`) | M6 |
-| **M8** | Portfolio & Exit Engine | P8 | Exit Score·`ExitSignal`·5액션 | M7 |
-| **M9** | 백테스트 | P10 | 과거 구간 전략 검증(`BacktestRun`) | M5, M6, M8 |
-| **M10** | 모의투자 + 비용 거버넌스 완성 | P12, P11(완성) | 실데이터 모의운용 + 실비용 측정 — **MVP 졸업 게이트** | M8, M9 |
-| **M11** | 반자동매매 | P13 | 사용자 승인 주문 + 증권사 API·Risk 사전체크 | M10 졸업 |
-| **M12** | 제한적 자동매매 | P14 | 검증 전략 한정 자동화 + Risk veto·Kill Switch | M11 |
-| **M13A** | 미국주식 확장 | — | US_STOCK 어댑터·SEC EDGAR 파이프라인·미국 모의투자 | M10 졸업 + KR 3개월 안정 |
-| **M13B** | 코인 확장 | — | CRYPTO 24/7 수집·업비트/Binance 어댑터·코인 모의투자 | M13A 90일 검증 |
-| **M14** | 통합 멀티에셋 포트폴리오 | — | 자산군 통합 대시보드·비중 리밸런싱 | M13A + M13B |
+| M | 마일스톤 | 포함 Phase | 한 줄 목표 | 진입 게이트 | 상태(2026-07-02) |
+|---|----------|-----------|-----------|-------------|------------------|
+| **M0** | 기준선 & 수집 안정화 | P0, P1 | 범위 확정 + 신뢰할 수 있는 공시 수집 파이프라인 | — (현행 코드 기반) | ✅ 완료 |
+| **M1** | 공시 원문 파싱 | P2 | rcpNo 원문 다운로드·구조화(`DisclosureDocument`) | M0 | ✅ 완료 |
+| **M2** | 이벤트·수치 추출 | P3 | 5종 이벤트 분류 + 핵심 수치(`DisclosureEvent`) | M1 | ✅ 완료 |
+| **M3** | AI Analyst + 비용 계측 토대 | P4, P11(부분) | 4개 AI Task + `AIUsageLog`·L0~L2 게이트 | M2 | ✅ 완료 |
+| **M4** | 시세·시장 데이터 | P5(KRX) | 일봉·지표·종목상태 토대(Quant Engine) | M0 (M2와 병행 가능) | ✅ 완료 |
+| **M5** | Event Study | P9 | 이벤트별 과거 반응 통계(`EventStudyResult`) | M2, M4 | ✅ 완료 |
+| **M6** | 매수 Signal Engine | P6 | Buy Score·`TradingSignal` | M3, M4, M5 | ✅ 완료(⚠️ 엣지 재검증 잔여) |
+| **M7** | Position Thesis | P7 | 진입 논리·훼손 조건 저장(`PositionThesis`) | M6 | ✅ 완료 |
+| **M8** | Portfolio & Exit Engine | P8 | Exit Score·`ExitSignal`·5액션 | M7 | ✅ 완료 |
+| **M9** | 백테스트 | P10 | 과거 구간 전략 검증(`BacktestRun`) | M5, M6, M8 | ✅ 완료 |
+| **M10** | 모의투자 + 비용 거버넌스 완성 | P12, P11(완성) | 실데이터 모의운용 + 실비용 측정 — **MVP 졸업 게이트** | M8, M9 | 🚧 진행 중(잔여: 라이브AI 상시 + 30일 캘린더 ≈7/21) |
+| **M11** | 반자동매매 | P13 | 사용자 승인 주문 + 증권사 API·Risk 사전체크 | M10 졸업 | 🚧 토대만(실주문 루프 미연동) |
+| **M12** | 제한적 자동매매 | P14 | 검증 전략 한정 자동화 + Risk veto·Kill Switch | M11 | ⬜ 미착수 |
+| **M13A** | 미국주식 확장 | — | US_STOCK 어댑터·SEC EDGAR 파이프라인·미국 모의투자 | M10 졸업 + KR 3개월 안정 | ⬜ 미착수 |
+| **M13B** | 코인 확장 | — | CRYPTO 24/7 수집·업비트/Binance 어댑터·코인 모의투자 | M13A 90일 검증 | ⬜ 미착수 |
+| **M14** | 통합 멀티에셋 포트폴리오 | — | 자산군 통합 대시보드·비중 리밸런싱 | M13A + M13B | ⬜ 미착수 |
 
+> **상태 열 근거:** [재개 계획 2026-07-02 §1-2](./cc-resume-plan-2026-07-02.md) 코드 근거 판정 매트릭스. 게이트 기준 자체는 불변(규범)이며 상태만 주석한다.
 > **다자산 확장 상세:** [cc-multi-asset-expansion.md](./cc-multi-asset-expansion.md) 참조.
 > **Persona 철학 엔진 편입:** M3 완성 후 P-A(철학 데이터 모델) 착수 → M5~M6 병행 P-B(Rule 스코어러) → M12 이후 P-D(철학별 모의투자). 상세: [cc-persona-philosophy-engine.md](./cc-persona-philosophy-engine.md)
 
@@ -224,7 +225,7 @@
 | 페이퍼심(engine5) | `simulation/domain/position-sizing·signal-funnel`, `domain/paper-portfolio·fill-simulator` | 수량·퍼널 분모0 보호·가중평균 진입가 |
 | dedup(전 도메인) | `paper-simulation/simulation-entry·simulation-positions`(`dedupeCandidatesByCorpCode`·`dedupeOpenPositionRows`) | 동일 종목 1건만(DAR-122/125) |
 
-**CI 강제(후속):** PR·main push 마다 위 게이트(be tsc + `test:core` + 전체 test)를 실행하는 `.github/workflows/regression-ci.yml` 워크플로를 후속으로 추가한다. ★봇 토큰이 `workflow` OAuth 스코프를 못 가져 `.github/workflows/*` 푸시가 거부되므로(이 PR에서 분리), 워크플로 파일은 `workflow` 스코프 보유 주체(사람/CI 봇)가 별도 커밋한다. 그 전까지는 `cd backend && npx tsc --noEmit && npm test`(또는 빠른 `npm run test:core`)로 로컬 게이트한다.
+**CI 강제(가동 중):** `.github/workflows/regression-ci.yml`이 PR·main push마다 위 게이트를 하드 강제한다(2026-07-02 확인) — 백엔드 `npm run build`(tsc 0) + `test:core` + 전체 jest, 모바일 `typecheck` + `lint` + `bundle:android`(expo export). 같은 ref의 중복 실행은 concurrency로 취소한다. ★`.github/workflows/*` 푸시는 GitHub OAuth `workflow` 스코프가 필요하므로, 워크플로 파일 변경은 스코프 보유 주체(사람/CI 봇)가 커밋한다(DAR-114/DAR-132 선례).
 
 ---
 
@@ -232,8 +233,8 @@
 
 | 트랙 | 내용 | 시작 시점 |
 |------|------|-----------|
-| **기술부채 해소** | 단위/통합 테스트 누적(현 백엔드 128스위트·1758테스트), CI(`regression-ci.yml`) 하드 게이트는 후속(workflow 스코프) — §3-1 | M0부터 점진(DAR-127 안전망 가동) |
-| **보안 강화** | ALB HTTP→HTTPS(도메인+ACM), 시크릿 매니저 정리 | 실서비스(M10 이후) 전 필수 |
+| **기술부채 해소** | 단위/통합 테스트 누적(현 백엔드 243스위트·3254테스트 그린), CI(`regression-ci.yml`) 하드 게이트 가동 중 — §3-1 | M0부터 점진(DAR-127 안전망 가동) |
+| **보안 강화** | HTTPS 완료 — OCI prod에 Caddy + Let's Encrypt + nip.io 적용(`https://168.138.198.152.nip.io/api`, v0.1.1 라이브). 잔여: 시크릿 매니저 정리 | 실서비스(M10 이후) 전 필수 |
 | **관측성** | 수집/AI/시세 배치 로그·메트릭·알림(실패 시 통지) | M0(CollectionLog)부터 확장 |
 | **비용 모니터링** | KRX/DART/LLM 호출량·비용 대시보드 | M3(AIUsageLog)부터 |
 

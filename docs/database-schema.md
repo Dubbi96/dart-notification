@@ -1,5 +1,7 @@
 # 데이터베이스 스키마 설계
 
+> **SSOT**: 스키마의 단일 진실 원천은 `backend/prisma/schema.prisma`(총 **49개 모델**)이며, **이 문서는 해설**(설계 의도·도메인 맥락·마이그레이션 이력)이다. 필드 정의가 다르면 schema.prisma 가 우선한다.
+
 ## 1. ER Diagram
 
 ```
@@ -92,19 +94,25 @@ datasource db {
 // ====================================
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password  String   // bcrypt 해싱
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  email      String   @unique
+  password   String?  // bcrypt 해싱 — 소셜 로그인(kakao) 사용자는 null
+  name       String?
+  provider   String   @default("local") // "local" | "kakao" | "google"
+  providerId String?  // kakao user id
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   // Relations
   devices              UserDevice[]
   watchLists           WatchList[]
+  savedDisclosures     SavedDisclosure[]
   notificationSettings NotificationSettings?
   notificationHistory  NotificationHistory[]
+  portfolios           Portfolio[]
+  refreshTokens        RefreshToken[]
 
+  @@unique([provider, providerId]) // 카카오 OAuth 계정 유일성
   @@index([email])
   @@map("users")
 }
@@ -242,6 +250,7 @@ model Disclosure {
   @@index([createdAt]) // 최근 공시 조회용
   @@index([isBackfill]) // DAR-129: 신호생성·신호피드 백필 제외 필터 조회용
   @@index([corpCode, rcpNo]) // DAR-214: 워치리스트 신규 공시 grouped count(corpCode + rcpNo>커서) 조인용
+  @@index([corpCode, rcpDt, rcpNo]) // DAR-276: 기업상세 공시목록 필터+정렬 커버(메모리정렬 해소)
   @@map("disclosures")
 }
 
@@ -250,18 +259,24 @@ model Disclosure {
 // ====================================
 
 model NotificationHistory {
-  id               String    @id @default(cuid())
-  userId           String
-  disclosureRcpNo  String    // DART 접수번호 (FK → Disclosure.rcpNo)
-  sentAt           DateTime  @default(now())
-  isRead           Boolean   @default(false)
-  readAt           DateTime?
+  id       String           @id @default(cuid())
+  userId   String
+  type     NotificationType @default(DISCLOSURE) // DAR-84 통합 인박스 타입
+  refId    String?          // 다형 참조키 (rcpNo/signalId/positionId) — 앱레벨 무결성
+  title    String?          // 통지 제목 (공시 외 타입용)
+  body     String?          // 통지 본문
+  deepLink String?          // 인앱 딥링크 (예: /disclosure/:rcpNo)
+
+  disclosureRcpNo String?   // DART 접수번호 (FK → Disclosure.rcpNo, nullable — 공시 외 타입 수용)
+  sentAt          DateTime  @default(now())
+  isRead          Boolean   @default(false)
+  readAt          DateTime?
 
   // Relations
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  disclosure Disclosure @relation(fields: [disclosureRcpNo], references: [rcpNo], onDelete: Cascade)
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  disclosure Disclosure? @relation(fields: [disclosureRcpNo], references: [rcpNo], onDelete: Cascade)
 
-  @@unique([userId, disclosureRcpNo]) // 중복 알림 방지
+  @@unique([userId, type, refId]) // DAR-84: type+refId 단위 멱등 (공시는 refId=rcpNo)
   @@index([userId, isRead]) // 읽지 않은 알림 조회용
   @@index([userId, sentAt]) // 알림 목록 조회용
   @@map("notification_history")
@@ -278,13 +293,20 @@ model NotificationHistory {
 |--------|------|------|----------|
 | id | String | 사용자 고유 ID | PK, cuid() |
 | email | String | 이메일 (로그인 ID) | UNIQUE, NOT NULL |
-| password | String | bcrypt 해싱된 비밀번호 | NOT NULL |
+| password | String? | bcrypt 해싱된 비밀번호 — 소셜 로그인 사용자는 null | NULLABLE |
 | name | String | 사용자 이름 | NULLABLE |
+| provider | String | 인증 제공자 "local" \| "kakao" \| "google" | default: "local" |
+| providerId | String? | 소셜 제공자측 사용자 ID (kakao user id) | NULLABLE |
 | createdAt | DateTime | 가입일시 | default: now() |
 | updatedAt | DateTime | 수정일시 | auto update |
 
-**인덱스**:
+**인덱스·제약**:
 - `email` (로그인 조회 성능)
+- Composite Unique: `(provider, providerId)` — 카카오 OAuth 계정 유일성
+
+**카카오 OAuth (인증 흐름)**:
+- 카카오 로그인 사용자는 `provider="kakao"` + `providerId=카카오 user id`로 식별하며 `password=null`.
+- 로컬(이메일/비밀번호) 사용자는 `provider="local"` + bcrypt 해싱 `password` 보유.
 
 ### 3.2 UserDevices
 
@@ -436,13 +458,16 @@ https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcpNo}
 
 ### 3.7 NotificationHistory
 
-**목적**: 알림 발송 이력 및 중복 방지
+**목적**: 통합 알림 인박스 (공시·신호·청산·논리훼손·체결) 발송 이력 및 중복 방지 (DAR-84/85/424)
 
 | 컬럼명 | 타입 | 설명 | 제약 조건 |
 |--------|------|------|----------|
 | id | String | 알림 고유 ID | PK, cuid() |
 | userId | String | 사용자 ID | FK -> users.id |
-| disclosureRcpNo | String | DART 접수번호 | FK -> disclosures.rcpNo |
+| type | NotificationType | DISCLOSURE/SIGNAL/EXIT/THESIS_VIOLATED/TRADE_ENTRY/TRADE_EXIT | default: DISCLOSURE |
+| refId | String? | 다형 참조키 (rcpNo/signalId/positionId) — 앱레벨 무결성 | NULLABLE |
+| title / body / deepLink | String? | 통지 제목·본문·인앱 딥링크 (공시 외 타입용) | NULLABLE |
+| disclosureRcpNo | String? | DART 접수번호 (공시 외 타입은 null) | FK -> disclosures.rcpNo, NULLABLE |
 | sentAt | DateTime | 발송일시 | default: now() |
 | isRead | Boolean | 읽음 여부 | default: false |
 | readAt | DateTime | 읽은 일시 | NULLABLE |
@@ -450,10 +475,10 @@ https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcpNo}
 **인덱스**:
 - `(userId, isRead)` (읽지 않은 알림 조회)
 - `(userId, sentAt)` (알림 목록 조회, 최신순 정렬)
-- Composite Unique: `(userId, disclosureRcpNo)` (중복 알림 방지)
+- Composite Unique: `(userId, type, refId)` (DAR-84: type+refId 단위 멱등 — 중복 알림 방지)
 
 **중복 알림 방지 메커니즘**:
-- `(userId, disclosureRcpNo)` 조합이 유니크
+- `(userId, type, refId)` 조합이 유니크 (공시는 refId=rcpNo)
 - 알림 발송 전에 이 조합으로 조회하여 이미 존재하면 스킵
 
 ## 4. 초기 데이터 설정
@@ -507,12 +532,12 @@ seedCompanies()
 
 ### 5.1 개발 환경
 ```bash
-pnpm prisma migrate dev --name init
+npx prisma migrate dev --name <migration-name>
 ```
 
 ### 5.2 프로덕션 환경
 ```bash
-pnpm prisma migrate deploy
+npx prisma migrate deploy
 ```
 
 ### 5.3 스키마 변경 시 주의사항
@@ -1316,7 +1341,7 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 
 > AI 금지영역: 비용 게이트·한도 가드는 순수 Rule. LLM 개입 0.
 
-### 16.1 AIUsageLog 모델 (기존 M3 모델, 집계 기반)
+### 17.1 AIUsageLog 모델 (기존 M3 모델, 집계 기반)
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
@@ -1335,7 +1360,7 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 
 > **DAR-241**: AiAnalystService 의 멱등 캐시히트는 과거 `findAnalysis` 반환 시점에 `logUsage` 전에 즉시 반환되어 AIUsageLog 에 전혀 기록되지 않았다(재처리 시 '비용0 재사용'이 통계에서 소멸 → AI 활용률 과소보고). 이제 캐시히트는 `cacheHit=true · 비용0 · 토큰0` 행으로 경량 기록한다. 실호출 집계(`getUsageSummary`)는 `cacheHit=false` 로 필터해 기존 지표를 보존하고, 적중률은 `getCacheHitCount`(cacheHit=true count)로만 별도 노출한다.
 
-### 16.2 비용 집계 서비스 (AiCostAggregationService)
+### 17.2 비용 집계 서비스 (AiCostAggregationService)
 
 `AIUsageLog`를 기간별로 집계. 읽기 전용 — DB 직접 쿼리, AI 비호출.
 
@@ -1349,7 +1374,7 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 | `costPerSignal` | totalAiCostKrw / TradingSignal.count |
 | `costPerTrade` | totalAiCostKrw / PaperTrade.count |
 
-### 16.3 비용 한도 가드 (AiCostLimitGuardService — 순수 Rule)
+### 17.3 비용 한도 가드 (AiCostLimitGuardService — 순수 Rule)
 
 | 파라미터 | 기본값 | 설명 |
 |---|---|---|
@@ -1359,7 +1384,7 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 - 한도 초과: `forcedLevel = L0` (AI 호출 차단)
 - 한도 미달: `forcedLevel = null` (원래 게이트 레벨 유지)
 
-### 16.4 L0 비율 모니터
+### 17.4 L0 비율 모니터
 
 - 목표: L0 비율 ≥ 70% (AI 미사용 비율 극대화)
 - 임계 미달(`l0Ratio < 0.7`) 시 `AiCostMetrics.l0Warning = true`
@@ -1467,6 +1492,251 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 
 ---
 
+## 23. 횡단 — CompanyOverview (company_overviews)
+
+**목적**: DART 기업개황 API 결과 캐시. 기업 상세 화면의 대표자·주소·홈페이지 등 부가 정보를 제공한다. Company 와 별도 테이블(수집 시점 분리·Prisma relation 없음).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| corpCode | String PK | DART 고유번호 (자연키, Company.corpCode 와 논리 1:1) |
+| corpName / corpNameEng / stockName | String / String? | 기업명·영문명·종목명 |
+| ceoName / corpCls / address / homepageUrl | String? | 대표자·법인구분·주소·홈페이지 |
+| industryCode / estDate / accMonth | String? | 업종코드·설립일·결산월 |
+| fetchedAt | DateTime | 수집 시각 (default: now()) |
+
+**관계·인덱스**: PK 외 인덱스 없음. FK 없음(수집 캐시 — corpCode 논리 참조).
+
+## 24. 횡단 — SavedDisclosure (saved_disclosures)
+
+**목적**: 사용자가 저장(북마크)한 공시 목록.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | String PK | cuid |
+| userId | String | FK → users.id (Cascade) |
+| disclosureRcpNo | String | FK → disclosures.rcpNo (Cascade) |
+| createdAt | DateTime | 저장 시각 |
+
+**인덱스·제약**:
+- Composite Unique: `(userId, disclosureRcpNo)` — 중복 저장 방지
+- `(userId, createdAt)` — 저장 목록 최신순 조회
+
+## 25. 횡단 — CronRunLog (cron_run_logs) — DAR-110
+
+**목적**: 자체 로그가 없던 경량 크론(신호생성·모의운용·내부자수집·파싱재처리 등)의 실행 헬스를 통일 기록하는 단일 출처. freshness(데이터 신선도) 판정 입력 — '조용히 멈춘' 수집 인지용 메타 전용. 도메인별 `*CollectionLog`(공시·재무·시세)와 별개. 사용처: `cron-health/`(CronRunRecorderService·DataFreshnessService).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | String PK | cuid |
+| jobKey | String | 크론 식별 키 (예: "signal.generate", "paper.simulation", "insider.daily", "parse.retry") |
+| status | String | RUNNING / SUCCESS / FAILED / SKIPPED (default: RUNNING) |
+| itemCount | Int | 처리/신규 건수 (도메인별 의미) |
+| durationMs | Int? | 실행 소요 ms (미완료 시 null) |
+| errorMessage | String? | 실패 메시지 |
+| triggeredBy | String | CRON / MANUAL |
+| startedAt / finishedAt | DateTime / DateTime? | 시작·종료 시각 (RUNNING 중 finishedAt=null) |
+
+**인덱스**: `(jobKey, startedAt)` 잡별 최근 실행 · `(jobKey, status, finishedAt)` 잡별 최근 성공 · `status`. FK 없음.
+
+## 26. Engine1 — DisclosureCollectionLog (disclosure_collection_logs) — M0
+
+**목적**: DART 공시 수집(크론/수동) 실행 이력. 수집 정체 진단·관측성의 원본 로그 (MarketDataCollectionLog·FinancialCollectionLog 의 원형 패턴).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | Int PK | autoincrement |
+| startedAt / endedAt | DateTime / DateTime? | 수집 시작·종료 (RUNNING 중 endedAt=null) |
+| bgnDe / endDe | String | 수집 대상 기간 (YYYYMMDD) |
+| fetchedCount / newCount / skippedCount / failedCount | Int | DART 수신·신규 저장·중복 스킵·실패 건수 |
+| status | String | RUNNING / SUCCESS / PARTIAL / FAILED |
+| errorMessage | String? | 실패 메시지 |
+| triggeredBy | String | CRON / MANUAL |
+
+**인덱스**: `startedAt`(최근 N건) · `status` · `triggeredBy`. FK 없음.
+
+## 27. Engine1 — DisclosureEvent (disclosure_events) — M2
+
+**목적**: 공시 원문(DisclosureDocument)에서 Rule 기반으로 추출한 이벤트 분류·핵심 수치. 공시 1건 = 이벤트 1건 원칙(복수 이벤트는 `extractedData.events[]` 배열 + 우선순위 높은 eventType 단일 지정). Event Study·신호 생성의 입력.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | String PK | cuid |
+| rcpNo | String UNIQUE | FK → disclosures.rcpNo (1:1) |
+| corpCode | String | FK → companies.corpCode (역정규화, 조회 성능) |
+| eventType | EventType | 이벤트 타입 enum — 우선 추출 7종(SUPPLY_CONTRACT 등) + 지분변동 3종(DAR-87) + 미모델 분류 확대 18종(DAR-346, OTHER 축소) + OTHER |
+| extractedData | Json | 이벤트별 핵심 수치 (실패 시 `{}`) |
+| polarity | String | POSITIVE / NEGATIVE / MIXED / UNKNOWN |
+| confidence | Float | 0.0~1.0 (Rule ≥ 0.85, AI 보조 0.6~0.85) |
+| isAiAssisted | Boolean | confidence < 0.85 시 AI L1 개입 여부 |
+| extractionStatus | ExtractionStatus | PENDING / SUCCESS / FAILED / NEEDS_REVIEW |
+| isAmendment / originalRcpNo | Boolean / String? | 정정공시 연결 |
+| extractedAt / updatedAt | DateTime | |
+
+**인덱스**: `corpCode` · `eventType` · `polarity` · `extractionStatus` · `extractedAt` · `isAmendment` · `(corpCode, extractedAt)`(DAR-276 기업별 이벤트 목록 커버).
+
+## 28. Engine1 — DartFiledFact (dart_filed_facts) — DAR-95
+
+**목적**: 공시 본문 정량표의 값을 표준 `factKey`(예: CONTRACT_AMOUNT, CB_CONVERSION_PRICE)로 정규화해 영구 적재하는 분석 자산. 기존에 이벤트당 1회성으로 휘발 소비되던 parsedJson 정량값의 자산화 (Main Thesis A). AI 미개입·신규 외부 호출 0(이미 받은 XML 재활용).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | String PK | cuid |
+| rcpNo | String | FK → disclosures.rcpNo (Cascade) |
+| corpCode | String | FK → companies.corpCode (역정규화) |
+| factKey | String | 표준 키 |
+| value / numericValue / unit / period | String / Float? / String? / String? | 정규화 값·숫자값·단위·기간 |
+| sectionPath / docType | String? | 추출 출처 경로·소스 이벤트 유형 (재처리 추적) |
+
+**인덱스·제약**:
+- Composite Unique: `(rcpNo, factKey)` — 한 공시 내 factKey 유일 (멱등 upsert)
+- `corpCode` · `factKey`
+
+## 29. Engine1 — CompanyFinancial (company_financials) — DAR-52
+
+**목적**: DART 단일회사 전체 재무제표(fnlttSinglAcntAll) 기반 기업 재무지표. 수집은 `engine1-disclosure/financials/`, 소비는 Engine2 Persona P-B 스코어러·Engine3 BuyScore keyMetric. AI 미개입(순수 데이터/Rule 파생비율).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | String PK | cuid |
+| corpCode | String | FK → companies.corpCode |
+| stockCode | String? | 역정규화 (조회 성능) |
+| bsnsYear / reprtCode / fsDiv | String | 사업연도·보고서코드(11011연간/11012반기/11013 1Q/11014 3Q)·연결구분(CFS/OFS) |
+| revenue / operatingProfit / netIncome / totalAssets / totalLiabilities / totalEquity | BigInt? | 핵심 지표 (원 — 조 단위 안전 저장) |
+| eps / bps | Float? | 주당 지표 |
+| roe / roa / debtRatio | Float? | 파생 비율 % (재무제표만으로 산출) |
+| per / pbr | Float? | 시세 결합 파생 (가능 시 보강) |
+| revenueGrowthYoY / operatingProfitGrowthYoY / epsGrowthYoY / …QoQ | Float? | DAR-93 다년 시계열 성장률 (결측 시 null) |
+| rceptNo | String? | 원천 공시 접수번호 (추적용) |
+
+**인덱스·제약**:
+- Composite Unique: `(corpCode, bsnsYear, reprtCode, fsDiv)` — 멱등 upsert 자연키
+- `corpCode` · `bsnsYear`
+
+## 30. Engine1 — FinancialCollectionLog (financial_collection_logs)
+
+**목적**: 재무지표 수집 실행 로그 — 수집 서비스 멱등성·관측성 (MarketDataCollectionLog 패턴).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | String PK | cuid |
+| bsnsYear / reprtCode / fsDiv | String | 수집 대상 사업연도·보고서코드·연결구분 |
+| triggeredBy | String | MANUAL / CRON |
+| status | String | RUNNING / SUCCESS / PARTIAL / FAILED |
+| targetCount / savedCount / skippedCount / failedCount | Int | 대상·성공·스킵·실패 기업 수 |
+| errorMessage | String? | 실패 메시지 |
+| startedAt / endedAt | DateTime / DateTime? | 실행 시각 |
+
+**인덱스**: `bsnsYear` · `status`. FK 없음.
+
+## 31. Engine2 — DisclosureAnalysis (disclosure_analyses) — M3
+
+**목적**: AI 분석 태스크 실행 결과의 멱등 캐시. 같은 공시×태스크 재처리 시 AI 재호출 없이 재사용(비용 0) — AIUsageLog `cacheHit=true` 경량 기록과 연동(DAR-241, §17.1).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | String PK | cuid |
+| rcpNo | String | FK → disclosures.rcpNo (Cascade) |
+| task | AiTaskName | summary / event_classification / persona_interpretation / position_thesis |
+| level | AiCostLevel | L0 / L1 / L2 / L3 |
+| resultJson | Json | 태스크 실행 결과 |
+| createdAt | DateTime | |
+
+**인덱스·제약**:
+- Composite Unique: `(rcpNo, task)` — 멱등 캐시 키
+- `rcpNo` · `task` · `createdAt`
+
+## 32. Engine2 — PersonaAnalysis (persona_analyses) — M3
+
+**목적**: persona-interpretation 태스크 결과(4 persona 관점 해석)를 공시당 1행으로 구체화. TradingSignal C3(PersonaFitScore)의 입력.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | String PK | cuid |
+| rcpNo | String UNIQUE | FK → disclosures.rcpNo (1:1, Cascade) |
+| resultJson | Json | PersonaInterpretation 전체 JSON |
+| philosophyId | String? | FK → investor_philosophies.philosophyId (SetNull) — P-A 철학 연결 |
+
+**인덱스**: `rcpNo` · `philosophyId`.
+
+## 33. Engine2 — InvestorPhilosophy (investor_philosophies)
+
+**목적**: 유명 투자자 철학 마스터 (예: 'BUFFETT', 'LYNCH', 'GREENBLATT', 'DRUCKENMILLER'). P-B 철학 적합도 스코어러가 참조. 기존 4 persona(VALUE/GROWTH/MOMENTUM/EVENT_DRIVEN)와 styleTags 로 연계.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| philosophyId | String PK | 자연키 (예: 'BUFFETT') |
+| investorName | String | 투자자 이름 |
+| styleTags / corePrinciples / applicableAssets / checklistItems | String[] | 스타일 태그·핵심 원칙·적용 자산군·체크리스트 |
+| riskProfile | String | 리스크 성향 |
+| scoreFormula | String? | 스코어 산식 설명 (0~100, 참고용) |
+
+**관계·인덱스**: `metrics PhilosophyMetric[]` · `sources PhilosophySource[]` · `personaAnalyses PersonaAnalysis[]`. 인덱스: `investorName`.
+
+## 34. Engine2 — PhilosophyMetric (philosophy_metrics)
+
+**목적**: 철학별 정량 지표 매핑 (ROE·부채비율·PER·해자 등) — 철학 적합도 점수 계산의 Rule 입력.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | String PK | cuid |
+| philosophyId | String | FK → investor_philosophies (Cascade) |
+| metricKey | String | 지표 키 (예: 'ROE', 'DEBT_RATIO', 'PER', 'MOAT_SCORE') |
+| operator | PhilosophyMetricOperator | GT / LT / EQ / RANGE |
+| threshold / thresholdMax | Float / Float? | 기준값 (RANGE 는 하한/상한) |
+| weight | Float | 가중치 0~1 (철학 내 합산 = 1) |
+| description | String | 지표 설명 |
+
+**인덱스·제약**: Composite Unique `(philosophyId, metricKey)` — 시드 멱등성 · `philosophyId`.
+
+## 35. Engine2 — PhilosophySource (philosophy_sources)
+
+**목적**: 철학의 공개 자료 출처 (신뢰 근거 — 책·주주서한·인터뷰·공개발언).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | String PK | cuid |
+| philosophyId | String | FK → investor_philosophies (Cascade) |
+| type | PhilosophySourceType | BOOK / SHAREHOLDER_LETTER / INTERVIEW / PUBLIC_STATEMENT |
+| title / year / url | String / Int / String? | 자료 제목·연도·공개 URL |
+
+**인덱스·제약**: Composite Unique `(philosophyId, title)` — 시드 멱등성 · `philosophyId`.
+
+## 36. Engine5 — SignalEntryFunnelDaily (signal_entry_funnel_daily)
+
+**목적**: 모의운용 진입 퍼널의 일별 누적 카운트 — '당일 생성 신호 수 → 진입 후보 통과 수 → 실제 체결 수'. M10 졸업 표본(G1/G2/G5) 측정용. fill/adoption rate 는 read 시 파생 산출(저장하지 않음 — 단일 출처). ★모의 전용·실주문 무관·AI 미개입(순수 카운트).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | String PK | cuid |
+| portfolioId | String | FK → portfolios.id (Cascade) |
+| tradeDate | String | 거래일 YYYYMMDD |
+| signalsGenerated | Int | 당일 생성된 매수 신호 수 (퍼널 최상단) |
+| candidatesPassed | Int | 진입 후보 선정(보유중복·슬롯 필터) 통과 수 |
+| filled | Int | 실제 모의 체결(신규 매수) 수 |
+
+**인덱스·제약**: Composite Unique `(portfolioId, tradeDate)` — 멱등키 · `(portfolioId, tradeDate)` 인덱스.
+
+## 37. Engine5 — IntradayScalpTrade (intraday_scalp_trades) — DAR-411
+
+**목적**: 분봉 단타(intraday scalping) 모의전략 트랙. 당일 진입·당일 청산 forward-only 페이퍼 트랙(분봉이 당일 forward-only 라 백테스트 불가). PaperTrade(per-fill)와 달리 **1행 = 1라운드트립(진입+청산)**. 15:20 강제청산(FORCE_CLOSE_EOD).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | String PK | cuid |
+| corpCode / stockCode | String | 자연키 — 인덱스만, FK 없음 (StockMinutePrice 동일 패턴) |
+| tradeDate | String | YYYYMMDD (KST 거래일) |
+| entryTs / entryPrice / shares / entryReason | DateTime / Decimal(12,2) / Int / String | 진입 분봉 시각·체결가(슬리피지 반영)·수량·사유 태그(예: VOLUME_BREAKOUT_VWAP) |
+| entryVwap / entryVolumeRatio | Decimal? | 진입 시 당일 VWAP·거래량 배수 |
+| exitTs / exitPrice / exitReason / holdMinutes | DateTime? / Decimal? / String? / Int? | 청산 정보 — TAKE_PROFIT / STOP_LOSS / FORCE_CLOSE_EOD |
+| commission / tax / slippage | Decimal(12,2) | 비용 (KRW) |
+| grossPnl / netPnl / returnPct | Decimal? | 손익·수익률 |
+| status | String | OPEN / CLOSED |
+| styleTag | String | 트랙 식별 태그 (default: "intraday-scalp", SSOT) |
+
+**인덱스**: `status` · `tradeDate` · `stockCode` · `corpCode` · `styleTag`.
+
+---
+
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-06-23 (DAR-424 체결 알림 — NotificationType TRADE_ENTRY/TRADE_EXIT enum 추가 + NotificationSettings.tradePushEnabled(기본 ON) 컬럼 추가, 모두 비파괴)
-**버전**: 2.8 (DAR-424: NotificationType 에 TRADE_ENTRY/TRADE_EXIT 가산(enum ADD VALUE) + notification_settings.tradePushEnabled BOOLEAN DEFAULT true 추가 — 라이브 페이퍼 체결 알림; 2.7 DAR-404: BacktestRun.strategyKey 비파괴 추가 + @@index — 트레이딩 로직 축 다중 트랙; DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)
+**최종 수정일**: 2026-07-02 (전수 현행화 — 미문서 모델 15종 전용 섹션 추가(§23~§37: CompanyOverview·SavedDisclosure·CronRunLog·DisclosureCollectionLog·DisclosureEvent·DartFiledFact·CompanyFinancial·FinancialCollectionLog·DisclosureAnalysis·PersonaAnalysis·InvestorPhilosophy·PhilosophyMetric·PhilosophySource·SignalEntryFunnelDaily·IntradayScalpTrade), User 카카오 OAuth(password nullable·provider/providerId·(provider,providerId) unique) 반영, NotificationHistory 통합 인박스(type/refId 멱등키) 반영, §17 절 번호 충돌 정리, SSOT 관계(schema.prisma=SSOT·본 문서=해설·총 49개 모델) 헤더 명시)
+**버전**: 2.9 (2026-07-02 전수 현행화; 2.8 DAR-424: NotificationType 에 TRADE_ENTRY/TRADE_EXIT 가산 + notification_settings.tradePushEnabled 추가 — 라이브 페이퍼 체결 알림; 2.7 DAR-404: BacktestRun.strategyKey 비파괴 추가 + @@index — 트레이딩 로직 축 다중 트랙; DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)

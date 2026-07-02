@@ -17,6 +17,7 @@ import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { useAuthStore } from '@stores/authStore';
 import { useExitSignals } from '@hooks/useSignals';
+import { SIGNALS_HEADER_SUBTITLE } from '@utils/copy';
 
 import type { ExitSignal, TradingSignal } from '@app-types/signal.types';
 
@@ -36,6 +37,24 @@ export default function SignalsScreen() {
   useScrollToTop(sellListRef);
 
   const exitQuery = useExitSignals();
+
+  // UXR-3(B-2): 검색 입력이 sellHeader에도 있는데 매도 리스트에는 필터가 없어 무기능이었다
+  // (SignalSearchInput 힌트는 '매수·매도 신호 검색'을 약속). SignalExplorer(DAR-117)와 동일한
+  // corpName/ticker 클라이언트 필터를 매도 데이터에도 적용한다(서버 키워드 검색 미존재).
+  const trimmedQuery = search.trim().toLowerCase();
+  const isSearching = trimmedQuery.length > 0;
+  const exitItems = useMemo(() => {
+    const all = exitQuery.data ?? [];
+    if (!trimmedQuery) return all;
+    return all.filter(
+      (item) =>
+        item.corpName.toLowerCase().includes(trimmedQuery) ||
+        (item.ticker?.toLowerCase().includes(trimmedQuery) ?? false),
+    );
+  }, [exitQuery.data, trimmedQuery]);
+
+  // 검색 결과 0건 빈 상태의 '검색어 지우기' 액션(안정 참조 — useState setter만 의존).
+  const handleClearSearch = useCallback(() => setSearch(''), []);
 
   // DAR-310: 매도 신호는 보유 종목 기반이며 ExitSignal.id는 매수 상세(/signals/[id],
   // useSignalDetail) 키가 아니라 그 라우트에서 항상 isError가 났다. ExitSignal에는
@@ -69,7 +88,9 @@ export default function SignalsScreen() {
           onPress={() => router.push('/philosophy')}
           accessibilityRole="button"
           accessibilityLabel="투자거장 철학 보기 — 버핏·린치·그린블라트·드러켄밀러"
-          style={[styles.metaBanner, { backgroundColor: colors.primaryLight, borderColor: colors.border }]}
+          // UXR-3(W5-B9): 동급 진입 배너 2개의 배경 토큰을 surfaceSecondary로 통일 —
+          // primaryLight는 이 화면에서 활성 필터/정렬 칩의 '선택됨' 틴트라 오독 소지.
+          style={[styles.metaBanner, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
         >
           <Feather name="award" size={18} color={colors.primary} />
           <View style={styles.metaBannerText}>
@@ -206,16 +227,19 @@ export default function SignalsScreen() {
         </View>
       );
     }
-    const data = exitQuery.data ?? [];
+    // UXR-3(B-2): 검색 중 매칭 0건(원본 매도 신호는 존재)이면 검색 전용 빈 상태로 분기 —
+    // '매도 신호 자체가 없음'(안전 구간)과 오해되지 않도록 사유를 구분한다.
+    const isSearchEmpty = isSearching && exitItems.length === 0 && (exitQuery.data?.length ?? 0) > 0;
     return (
       <FlatList
         ref={sellListRef}
         style={styles.body}
-        data={data}
+        data={exitItems}
         renderItem={renderExit}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         removeClippedSubviews={false}
         initialNumToRender={8}
         maxToRenderPerBatch={8}
@@ -223,8 +247,20 @@ export default function SignalsScreen() {
         refreshing={exitQuery.isRefetching}
         onRefresh={exitQuery.refetch}
         ListHeaderComponent={sellHeader}
-        ListEmptyComponent={<EmptyState {...emptyStateCopy.exitSignalsEmpty} />}
-        ListFooterComponent={data.length > 0 ? <DisclaimerSection style={styles.disclaimer} /> : null}
+        ListEmptyComponent={
+          isSearchEmpty ? (
+            <EmptyState
+              icon="search"
+              title="검색 조건에 맞는 매도 신호가 없어요"
+              description="종목명·티커를 확인하거나 다른 검색어로 시도해 보세요"
+              actionLabel="검색어 지우기"
+              onAction={handleClearSearch}
+            />
+          ) : (
+            <EmptyState {...emptyStateCopy.exitSignalsEmpty} />
+          )
+        }
+        ListFooterComponent={exitItems.length > 0 ? <DisclaimerSection style={styles.disclaimer} /> : null}
       />
     );
   };
@@ -233,6 +269,10 @@ export default function SignalsScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <Text style={[typo.h2, { color: colors.text }]}>신호</Text>
+        {/* UXR-3(W1-B13): 탭 정체 1줄 안내 — '참고' 어휘로 과신 금지(utils/copy.ts 톤). */}
+        <Text style={[typo.small, styles.headerSubtitle, { color: colors.textSecondary }]}>
+          {SIGNALS_HEADER_SUBTITLE}
+        </Text>
       </View>
       {renderBody()}
     </SafeAreaView>
@@ -247,6 +287,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
+  },
+  headerSubtitle: {
+    marginTop: spacing.xs,
   },
   body: {
     flex: 1,

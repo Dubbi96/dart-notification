@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
@@ -12,6 +13,7 @@ import { EquityCurveChart } from '@components/portfolio/EquityCurveChart';
 import { useSimulationStatus, useSimulationEquityCurve } from '@hooks/useSimulationStatus';
 import { formatYmdDots } from '@utils/datetime';
 import { dedupeByStock } from '@utils/dedupe';
+import { formatReturnPct, formatWinRate } from '@utils/numberFormat';
 
 import type { SimPosition, SimulationMetrics } from '@app-types/simulation.types';
 
@@ -19,9 +21,9 @@ import type { SimPosition, SimulationMetrics } from '@app-types/simulation.types
 // 서버가 일일 사이클로 처리한 모의운용 결과(평가금액·보유 포지션·졸업지표)를 준실시간(45s 폴링) 표시.
 // 테마 토큰만 사용·하드코딩 색상 0·접근성 라벨. AI 지표는 참고정보(면책 유지).
 
-/** 적중률/정확도(0~1) 표시 — 표본 없으면 '표본 부족'(정직 표기) */
+/** 적중률/정확도(0~1) 표시 — 표본 없으면 '표본 부족'(정직 표기). 정수 % 표기는 정본(formatWinRate) 경유(UXR-4). */
 function formatRate(value: number | null): string {
-  return value === null ? '표본 부족' : `${Math.round(value * 100)}%`;
+  return formatWinRate(value, { fallback: '표본 부족' });
 }
 
 /** AI비용/순익 비율 — 순익 ≤ 0이면 측정 불가 */
@@ -182,7 +184,9 @@ function SummaryHeader({
 }) {
   const { colors, typography: typo } = useTheme();
   const [metricsExpanded, setMetricsExpanded] = useState(false);
-  const cumReturnText = `${metrics.cumulativeReturnPct >= 0 ? '+' : ''}${metrics.cumulativeReturnPct.toFixed(2)}%`;
+  // UXR-4 S-C-1: 인라인 `>= 0 ? '+' : ''`+toFixed(2) 는 '+0.00%'/'-0.00%' 음수영점(DAR-312 재위반)을
+  // 만들고 성과 리포트(1자리)와 자릿수도 어긋남 → numberFormat 정본 formatReturnPct(기본 1자리)로 치환.
+  const cumReturnText = formatReturnPct(metrics.cumulativeReturnPct);
 
   return (
     <View style={styles.headerBox}>
@@ -194,7 +198,7 @@ function SummaryHeader({
         style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}
       >
         <Text style={[typo.small, { color: colors.info }]}>
-          모의운용 — 실제 주문이 아닙니다. 졸업지표·AI 분석은 참고용입니다.
+          모의운용 — 실제 주문이 아닙니다. 검증 지표·AI 분석은 참고용입니다.
         </Text>
       </Banner>
 
@@ -212,9 +216,10 @@ function SummaryHeader({
           <PriceChangeChip value={metrics.cumulativeReturnPct} amount={metrics.netPnl} />
         </View>
         {/* DAR-393: 평가금액·등락률은 '지금' 실시간 실가 재평가값(자산곡선 최신점과 동일). 과거
-            스냅샷일을 기준일로 표기하면 live 값을 stale 로 오인시키므로 '실시간 현재가 기준'으로 정직 표기. */}
+            스냅샷일을 기준일로 표기하면 live 값을 stale 로 오인시키므로 '실시간 현재가 기준'으로 정직 표기.
+            UXR-4 A-1: 손익 칩(누적 수익률)은 평가 기준(미실현 포함) — 성과 리포트의 실현 기준과 구분 고지. */}
         <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
-          실시간 현재가 기준 · 자산곡선 최신점과 동일
+          실시간 현재가 기준 · 자산곡선 최신점과 동일 · 평가 기준(미실현 손익 포함)
         </Text>
         {/* 핵심지표: 승률(누적수익률은 위 칩으로 노출) — 4번째 카드에 묻히던 지표를 전면 배치 */}
         <View
@@ -249,10 +254,11 @@ function SummaryHeader({
           onPress={() => setMetricsExpanded((v) => !v)}
           accessibilityRole="button"
           accessibilityState={{ expanded: metricsExpanded }}
-          accessibilityLabel={`상세 졸업지표 ${metricsExpanded ? '접기' : '펼치기'}`}
+          accessibilityLabel={`상세 검증 지표 ${metricsExpanded ? '접기' : '펼치기'}`}
           style={styles.collapseHeader}
         >
-          <Text style={[typo.captionMedium, { color: colors.text }]}>상세 졸업지표</Text>
+          {/* UXR-4 C-2: '졸업지표'는 운영자(M10 졸업) 어휘 — 사용자 어휘 '검증 지표'로 치환(6/27 W1). */}
+          <Text style={[typo.captionMedium, { color: colors.text }]}>상세 검증 지표</Text>
           <Feather
             name={metricsExpanded ? 'chevron-up' : 'chevron-down'}
             size={18}
@@ -261,13 +267,18 @@ function SummaryHeader({
         </TouchableOpacity>
         {metricsExpanded ? (
           <View style={{ marginTop: spacing.xs }}>
-            <MetricRow label="누적 수익률" value={cumReturnText} />
+            <MetricRow label="누적 수익률(평가 기준)" value={cumReturnText} />
             <MetricRow
               label="Exit 정확도(D+3)"
               value={formatRate(metrics.exitAccuracyD3)}
               sub={`n=${metrics.exitAccuracySampleSize}`}
             />
             <MetricRow label="AI비용/순익" value={formatRatio(metrics.aiCostToNetPnlRatio)} />
+            {/* UXR-4 A-1: 같은 라벨 '누적 수익률'이 성과 리포트에선 실현(청산 완료) 기준 —
+                기준 캡션으로 화면 간 같은-지표 모순 오인을 방지(정합성 상시체크). */}
+            <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
+              평가 기준은 미실현 손익 포함 — 성과 리포트의 누적 수익률은 실현(청산 완료) 기준입니다.
+            </Text>
           </View>
         ) : null}
       </Surface>
@@ -306,9 +317,31 @@ function SummaryHeader({
   );
 }
 
+// UXR-4 C-1(DAR-210 패턴): 당겨 새로고침이 함께 갱신해야 하는 형제 쿼리키 매핑.
+// 헤드라인이 '자산곡선 최신점과 동일'을 단언하므로 status 만 refetch 하면 EquityCurveCard 의
+// 독립 쿼리(equity-curve)가 stale 로 남아, 화면 스스로 같다고 주장하는 두 수치가 어긋난다.
+const SIM_REFRESH_KEYS: readonly (readonly string[])[] = [
+  ['simulation', 'status'],
+  ['simulation', 'equity-curve'],
+];
+
 export function SimulationStatusSection() {
   const { colors } = useTheme();
+  const queryClient = useQueryClient();
   const query = useSimulationStatus();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // 당겨 새로고침: 이 화면이 실제로 그리는 쿼리(status+equity-curve)를 일괄 refetch (UXR-4 C-1).
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all(
+        SIM_REFRESH_KEYS.map((queryKey) => queryClient.refetchQueries({ queryKey, exact: true })),
+      );
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [queryClient]);
 
   const renderPosition = useCallback(
     ({ item }: { item: SimPosition }) => <PositionRow item={item} />,
@@ -335,8 +368,8 @@ export function SimulationStatusSection() {
       keyExtractor={(item) => item.corpCode}
       contentContainerStyle={styles.listContent}
       showsVerticalScrollIndicator={false}
-      refreshing={query.isRefetching}
-      onRefresh={query.refetch}
+      refreshing={isRefreshing}
+      onRefresh={handleRefresh}
       ListHeaderComponent={
         status ? (
           <SummaryHeader

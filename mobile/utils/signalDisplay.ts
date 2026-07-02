@@ -10,6 +10,36 @@ import { formatReturnPct, returnColor } from './numberFormat';
 
 import type { ThemeColors } from '@theme';
 
+// ── 등급 컷 SSOT(UXR-2 B-1) ────────────────────────────────────────────────
+// 백엔드 SIGNAL_GRADE_THRESHOLDS(engine3-quant-market/buy-signal/config/buy-signal.config.ts,
+// F9 재보정: STRONG_BUY 50 · BUY 45 · WATCH 30 · NEUTRAL -29)와 반드시 일치해야 한다.
+// 어긋나면 등급 칩('강한매수')과 게이지 밴드('주의')가 같은 카드에서 정면 모순된다.
+// 정합은 scripts/check-grade-cut-sync.ts 가 백엔드 설정 파일을 직접 파싱해 검증한다(드리프트 차단).
+export const BUY_GRADE_THRESHOLDS = {
+  STRONG_BUY: 50, // 이상 → 강한매수
+  BUY: 45, // 이상 → 매수
+  WATCH: 30, // 이상 → 관망
+  NEUTRAL: -29, // 이상 → 중립, 미만 → 회피
+} as const;
+
+/** 백엔드 buyScore 스케일(-100~100, buy-signal.service clamp) — 음수도 정상값이다(B-3). */
+export const BUY_SCORE_MIN = -100;
+export const BUY_SCORE_MAX = 100;
+
+/**
+ * buyScore 표시값(-100~100 그대로, UXR-2 B-3). 음수를 0으로 뭉개면 상세 화면에서
+ * 게이지 헤드라인(0)과 Score 근거 총점(-N점)이 같은 지표에 두 값을 보이므로 금지 —
+ * 숫자 표기는 항상 이 값을 쓰고, 막대 지오메트리만 scoreBarPercent(0 바닥)를 쓴다.
+ */
+export function clampBuyScoreForDisplay(score: number): number {
+  return Math.max(BUY_SCORE_MIN, Math.min(BUY_SCORE_MAX, score));
+}
+
+/** 게이지 막대 지오메트리(0~100%). 음수 점수는 빈 막대(0 바닥)로 그리되 숫자는 음수를 유지한다. */
+export function scoreBarPercent(score: number): number {
+  return Math.max(0, Math.min(100, score));
+}
+
 /**
  * Buy Score 1줄 평문 (기획 §3-3). grade 우선, 없으면 점수 구간 폴백.
  * 반환 문구는 utils/copy.ts 기준이며 항상 '(참고)' 꼬리표를 포함한다.
@@ -29,9 +59,11 @@ export function scoreOneLiner(score: number, grade?: SignalGrade): string {
     case 'BLOCKED':
       return SCORE_ONE_LINER.BLOCKED;
     default:
-      if (score >= 80) return SCORE_ONE_LINER.SCORE_80_PLUS;
-      if (score >= 60) return SCORE_ONE_LINER.SCORE_60_79;
-      if (score >= 30) return SCORE_ONE_LINER.SCORE_30_59;
+      // 폴백 컷도 실제 등급 경계(BUY_GRADE_THRESHOLDS)를 따른다(UXR-2 B-1).
+      // 카피 키 이름(SCORE_80_PLUS 등)은 구 컷(80/60/30) 시절 명명 유산 — 문구에 숫자가 없어 재사용.
+      if (score >= BUY_GRADE_THRESHOLDS.STRONG_BUY) return SCORE_ONE_LINER.SCORE_80_PLUS;
+      if (score >= BUY_GRADE_THRESHOLDS.BUY) return SCORE_ONE_LINER.SCORE_60_79;
+      if (score >= BUY_GRADE_THRESHOLDS.WATCH) return SCORE_ONE_LINER.SCORE_30_59;
       return SCORE_ONE_LINER.SCORE_0_29;
   }
 }
@@ -51,26 +83,41 @@ export function exitScoreOneLiner(action: ExitAction): string {
   }
 }
 
-// ScoreGauge 등급 밴드 컷(§5). 게이지에 등급 경계 틱을 그릴 위치.
-export const BUY_SCORE_CUTS = [30, 60, 80] as const; // 등급 경계
+// ScoreGauge 등급 밴드 컷(§5). 게이지(0~100 지오메트리)에 등급 경계 틱을 그릴 위치 —
+// 실제 등급 경계(BUY_GRADE_THRESHOLDS)에서 파생한다(UXR-2 B-1, 임의 컷 30/60/80 폐기).
+// NEUTRAL 경계(-29)는 막대 가시 구간 밖이라 틱은 없지만 nextCutGap 계산에는 포함된다.
+export const BUY_SCORE_CUTS = [
+  BUY_GRADE_THRESHOLDS.WATCH,
+  BUY_GRADE_THRESHOLDS.BUY,
+  BUY_GRADE_THRESHOLDS.STRONG_BUY,
+] as const; // 등급 경계
 export const EXIT_SCORE_CUTS = [30, 70] as const; // Exit 등급 경계
+
+// '다음 등급까지' 계산용 전체 등급 경계(음수 NEUTRAL 컷 포함, 오름차순).
+const BUY_GRADE_CUTS_ALL = [BUY_GRADE_THRESHOLDS.NEUTRAL, ...BUY_SCORE_CUTS] as const;
 
 /**
  * 다음 등급 컷까지 남은 점수(§5). 최상위 구간이면 null.
- * 예: buy score 78 → '+2'(다음 컷 80)
+ * buy 는 실제 등급 경계(NEUTRAL -29 포함) 기준이라 '다음 등급까지 +N'이 등급 칩과 일치한다.
+ * 예: buy score 45(매수) → '+5'(다음 컷 50 = 강한매수)
  */
 export function nextCutGap(score: number, kind: 'buy' | 'exit'): string | null {
-  const cuts = kind === 'buy' ? BUY_SCORE_CUTS : EXIT_SCORE_CUTS;
+  const cuts: readonly number[] = kind === 'buy' ? BUY_GRADE_CUTS_ALL : EXIT_SCORE_CUTS;
   const next = cuts.find((c) => c > score);
   if (next === undefined) return null;
   return `+${next - score}`;
 }
 
-/** Buy Score 구간별 색상: 0~29 error / 30~59 warning / 60~79 primary / 80↑ success */
+/**
+ * Buy Score 구간별 색상 — 등급 칩(gradeColor)과 동일 경계·동일 색(UXR-2 B-1):
+ * 50↑ success(강한매수) / 45~49 primary(매수) / 30~44 warning(관망) /
+ * -29~29 textSecondary(중립) / -29 미만 error(회피).
+ */
 export function buyScoreColor(score: number, colors: ThemeColors): string {
-  if (score >= 80) return colors.success;
-  if (score >= 60) return colors.primary;
-  if (score >= 30) return colors.warning;
+  if (score >= BUY_GRADE_THRESHOLDS.STRONG_BUY) return colors.success;
+  if (score >= BUY_GRADE_THRESHOLDS.BUY) return colors.primary;
+  if (score >= BUY_GRADE_THRESHOLDS.WATCH) return colors.warning;
+  if (score >= BUY_GRADE_THRESHOLDS.NEUTRAL) return colors.textSecondary;
   return colors.error;
 }
 

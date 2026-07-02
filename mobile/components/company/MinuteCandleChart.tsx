@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -23,12 +23,20 @@ import type { MinuteCandle } from '@app-types/market-quote.types';
  * 빈 데이터/로딩/에러를 graceful 하게 흡수(가짜 차트 금지). 색 단독 의미 금지 → 시간·가격 평문 병기.
  * ★정직: 데이터는 실시간 시세(실제 장중 거래 시각) 기준임을 사용자 언어로 고지한다(DAR-458 E7).
  * ★인터랙션: 장기/촘촘 구간에서도 좌우 스크럽(크로스헤어)으로 가는 캔들까지 선택(DAR-458 E6).
+ * ★성능: 캔들·거래량 정적 레이어는 useMemo 로 고정 — 스크럽마다 전량 SVG 재생성 금지(UXR-9 S-성능/P-1).
  */
 
 const PRICE_HEIGHT = 160;
 const VOLUME_HEIGHT = 44;
 const GAP = spacing.xs;
 const PAD = { top: spacing.sm, right: spacing.sm, bottom: spacing.sm, left: spacing.sm };
+/** 비활성 거래량 바 dim 불투명도 — 활성 강조는 원색 오버레이 1개로 위에 얹는다(UXR-9). */
+const VOLUME_DIM_OPACITY = 0.55;
+
+/** 거래량 바 높이(px, 최소 1) — 정적 레이어와 활성 오버레이가 동일 공식을 공유(UXR-9). */
+function volumeBarH(volume: number, maxV: number): number {
+  return Math.max(1, (volume / maxV) * (VOLUME_HEIGHT - 2));
+}
 
 /** HHMMSS → HH:MM (축·요약 간결 표기). 형식이 아니면 원문 유지. */
 function shortTime(hhmmss: string): string {
@@ -96,9 +104,12 @@ export function MinuteCandleChart({
   // 슬롯 폭 — 캔들 1개도 균등 배치. 몸통은 슬롯의 60%(최소 1px).
   const slotW = n > 0 ? plotW / n : plotW;
   const bodyW = Math.max(1, slotW * 0.6);
-  const xCenter = (i: number) => PAD.left + slotW * (i + 0.5);
-  const yPrice = (v: number) =>
-    PAD.top + priceH - ((v - minP) / (maxP - minP || 1)) * priceH;
+  // 정적 레이어 useMemo 의존성이므로 안정 참조(useCallback) 유지(UXR-9).
+  const xCenter = useCallback((i: number) => PAD.left + slotW * (i + 0.5), [slotW]);
+  const yPrice = useCallback(
+    (v: number) => PAD.top + priceH - ((v - minP) / (maxP - minP || 1)) * priceH,
+    [priceH, minP, maxP],
+  );
 
   // 가로 스크럽(크로스헤어) 상호작용 — 일봉/분봉 공용 훅(DAR-472, E6).
   const { activeIndex, handleScrub, handleA11yAction } = useCandleScrub({
@@ -106,6 +117,60 @@ export function MinuteCandleChart({
     slotW,
     padLeft: PAD.left,
   });
+
+  // ★성능(UXR-9): 캔들·거래량 정적 레이어 — 스크럽(activeIndex)과 무관한 지오메트리이므로
+  // useMemo(candles·width(slotW→xCenter 경유)·colors 키)로 고정한다. 스크럽 프레임마다
+  // 최대 390봉 × 3노드의 SVG 재생성을 차단하고, 활성 강조는 오버레이 1벌이 담당(캔들별 isActive 분기 제거).
+  const candleLayer = useMemo(
+    () =>
+      candles.map((c, i) => {
+        const up = c.close >= c.open;
+        const color = returnColor(c.close - c.open, colors);
+        const cx = xCenter(i);
+        const yHigh = yPrice(c.high);
+        const yLow = yPrice(c.low);
+        const yOpen = yPrice(c.open);
+        const yClose = yPrice(c.close);
+        const bodyTop = Math.min(yOpen, yClose);
+        const bodyH = Math.max(1, Math.abs(yClose - yOpen));
+        return (
+          <React.Fragment key={`${c.time}-${i}`}>
+            {/* 꼬리: 고가–저가 */}
+            <Line x1={cx} y1={yHigh} x2={cx} y2={yLow} stroke={color} strokeWidth={1} />
+            {/* 몸통: 시가–종가 (상승=채움, 보합/하락도 색 구분) */}
+            <Rect
+              x={cx - bodyW / 2}
+              y={bodyTop}
+              width={bodyW}
+              height={bodyH}
+              fill={up ? color : colors.surface}
+              stroke={color}
+              strokeWidth={1}
+            />
+          </React.Fragment>
+        );
+      }),
+    [candles, colors, xCenter, yPrice, bodyW],
+  );
+  const volumeLayer = useMemo(
+    () =>
+      candles.map((c, i) => {
+        const color = returnColor(c.close - c.open, colors);
+        const h = volumeBarH(c.volume, maxV);
+        return (
+          <Rect
+            key={`v-${c.time}-${i}`}
+            x={xCenter(i) - bodyW / 2}
+            y={VOLUME_HEIGHT - h}
+            width={bodyW}
+            height={h}
+            fill={color}
+            opacity={VOLUME_DIM_OPACITY}
+          />
+        );
+      }),
+    [candles, colors, maxV, xCenter, bodyW],
+  );
 
   // --- 로딩 ---
   if (isLoading) {
@@ -164,6 +229,12 @@ export function MinuteCandleChart({
   // 요약 색 — 당일 시가 대비 최신 종가 방향(시가 없으면 첫 캔들 시가).
   const dayOpen = first.open;
   const summaryColor = returnColor(last.close - dayOpen, colors);
+  // 활성 캔들 강조 오버레이 지오메트리(UXR-9) — 정적 레이어와 동일 규칙(꼬리=고저, 몸통=시종).
+  const activeColor = returnColor(active.close - active.open, colors);
+  const activeUp = active.close >= active.open;
+  const activeBodyTop = Math.min(yPrice(active.open), yPrice(active.close));
+  const activeBodyH = Math.max(1, Math.abs(yPrice(active.close) - yPrice(active.open)));
+  const activeVolH = maxV > 0 ? volumeBarH(active.volume, maxV) : 0;
 
   return (
     <View style={styles.wrap}>
@@ -197,41 +268,26 @@ export function MinuteCandleChart({
         {width > 0 ? (
           <View style={{ height: PRICE_HEIGHT }}>
             <Svg width={width} height={PRICE_HEIGHT}>
-              {candles.map((c, i) => {
-                const up = c.close >= c.open;
-                const color = returnColor(c.close - c.open, colors);
-                const cx = xCenter(i);
-                const yHigh = yPrice(c.high);
-                const yLow = yPrice(c.low);
-                const yOpen = yPrice(c.open);
-                const yClose = yPrice(c.close);
-                const bodyTop = Math.min(yOpen, yClose);
-                const bodyH = Math.max(1, Math.abs(yClose - yOpen));
-                const isActive = i === activeIndex;
-                return (
-                  <React.Fragment key={`${c.time}-${i}`}>
-                    {/* 꼬리: 고가–저가 */}
-                    <Line
-                      x1={cx}
-                      y1={yHigh}
-                      x2={cx}
-                      y2={yLow}
-                      stroke={color}
-                      strokeWidth={isActive ? 2 : 1}
-                    />
-                    {/* 몸통: 시가–종가 (상승=채움, 보합/하락도 색 구분) */}
-                    <Rect
-                      x={cx - bodyW / 2}
-                      y={bodyTop}
-                      width={bodyW}
-                      height={bodyH}
-                      fill={up ? color : colors.surface}
-                      stroke={color}
-                      strokeWidth={1}
-                    />
-                  </React.Fragment>
-                );
-              })}
+              {/* 정적 캔들 레이어(useMemo) — 스크럽 시 재생성되지 않는다(UXR-9) */}
+              {candleLayer}
+              {/* 활성 캔들 강조(UXR-9) — 캔들별 isActive 분기 대신 활성 캔들 1개만 위에 다시 그린다(꼬리 굵게+몸통) */}
+              <Line
+                x1={xCenter(activeIndex)}
+                y1={yPrice(active.high)}
+                x2={xCenter(activeIndex)}
+                y2={yPrice(active.low)}
+                stroke={activeColor}
+                strokeWidth={2}
+              />
+              <Rect
+                x={xCenter(activeIndex) - bodyW / 2}
+                y={activeBodyTop}
+                width={bodyW}
+                height={activeBodyH}
+                fill={activeUp ? activeColor : colors.surface}
+                stroke={activeColor}
+                strokeWidth={1}
+              />
               {/* 크로스헤어(E6) — 스크럽 위치 세로 점선 + 종가 마커. 색 단독 의미 아님(요약 평문 병기). */}
               <Line
                 x1={xCenter(activeIndex)}
@@ -267,21 +323,16 @@ export function MinuteCandleChart({
         {/* 거래량 보조 차트 */}
         {width > 0 && maxV > 0 ? (
           <Svg width={width} height={VOLUME_HEIGHT} style={{ marginTop: GAP }}>
-            {candles.map((c, i) => {
-              const color = returnColor(c.close - c.open, colors);
-              const h = Math.max(1, (c.volume / maxV) * (VOLUME_HEIGHT - 2));
-              return (
-                <Rect
-                  key={`v-${c.time}-${i}`}
-                  x={xCenter(i) - bodyW / 2}
-                  y={VOLUME_HEIGHT - h}
-                  width={bodyW}
-                  height={h}
-                  fill={color}
-                  opacity={i === activeIndex ? 1 : 0.55}
-                />
-              );
-            })}
+            {/* 정적 거래량 레이어(useMemo, dim) — 스크럽 시 재생성되지 않는다(UXR-9) */}
+            {volumeLayer}
+            {/* 활성 거래량 강조 — dim 바 위에 원색 바 1개(기존 opacity 1 강조와 동일하게 보임) */}
+            <Rect
+              x={xCenter(activeIndex) - bodyW / 2}
+              y={VOLUME_HEIGHT - activeVolH}
+              width={bodyW}
+              height={activeVolH}
+              fill={activeColor}
+            />
           </Svg>
         ) : null}
       </View>

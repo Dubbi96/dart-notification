@@ -10,8 +10,10 @@ export interface UseStockQuotesOptions {
    * 자동 폴링 간격(ms). 기본 미설정(false=폴링 없음) — 종전 동작 유지.
    * 호출부가 화면 포커스 + 장중에만 켠다(배터리·비용 배려, 백그라운드 폴링은 비활성).
    * 백엔드 quote 는 실시간 우선이라 폴링 시 현재가가 갱신된다.
+   * UXR-6/P-8: 함수형이면 React Query 가 매 폴링 틱·렌더마다 재평가한다 — 장 개장/마감
+   * 경계를 렌더 시점 정적 값 없이 스스로 재판정한다(useMinuteCandles 패턴과 일관).
    */
-  refetchInterval?: number | false;
+  refetchInterval?: number | false | (() => number | false);
 }
 
 /**

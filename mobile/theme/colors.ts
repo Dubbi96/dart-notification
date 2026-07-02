@@ -80,6 +80,8 @@ export const lightColors = {
   textSecondary: palette.gray500,
   // DAR-144: gray400(#9CA3AF)는 흰 배경 대비 ~2.5:1로 AA(4.5:1)·UI 3:1 모두 미달.
   // gray500로 상향해 가독 텍스트는 AA를 충족하고 장식 아이콘도 3:1 이상 확보한다.
+  // UXR-8 A-2: 같은 근거로 잔존하던 tabInactive·inputPlaceholder(gray400, 흰 배경 2.54:1)도
+  // gray500(4.83:1)로 상향 — 12pt 탭 라벨·placeholder는 '읽어야 하는' 작은 텍스트라 AA 4.5:1 필요.
   textTertiary: palette.gray500,
   textInverse: palette.white,
 
@@ -120,13 +122,15 @@ export const lightColors = {
   tabBar: palette.white,
   tabBarBorder: palette.gray200,
   tabActive: palette.teal500,
-  tabInactive: palette.gray400,
+  // UXR-8 A-2: gray400(2.54:1) → gray500(흰 tabBar 4.83:1) — 근거는 textTertiary(DAR-144) 주석 참조.
+  tabInactive: palette.gray500,
 
   // Input
   inputBackground: palette.white,
   inputBorder: palette.gray300,
   inputText: palette.gray900,
-  inputPlaceholder: palette.gray400,
+  // UXR-8 A-2: gray400(2.54:1) → gray500(흰 입력창 4.83:1) — 근거는 textTertiary(DAR-144) 주석 참조.
+  inputPlaceholder: palette.gray500,
 
   // Overlay
   overlay: 'rgba(0, 0, 0, 0.5)',
@@ -156,6 +160,9 @@ export const darkColors = {
   textSecondary: '#8B90A8',
   // DAR-144: #5C6180는 navy950 대비 ~3.3:1로 AA 미달. #7B82A0로 상향(navy950 5.2:1)해
   // 가독 텍스트는 AA를 충족하고 secondary(#8B90A8)와 단계 구분은 유지한다.
+  // UXR-8 A-2: 같은 근거로 잔존하던 tabInactive(#5C6180, navy900 tabBar 3.11:1)·
+  // inputPlaceholder(navy800 입력창 2.86:1)도 #7B82A0(textTertiary급)로 상향
+  // — tabBar 4.96:1, 입력창 4.57:1로 작은 텍스트 AA 4.5:1 충족.
   textTertiary: '#7B82A0',
   textInverse: palette.navy900,
 
@@ -195,13 +202,15 @@ export const darkColors = {
   tabBar: palette.navy900,
   tabBarBorder: palette.navy800,
   tabActive: '#818CF8',
-  tabInactive: '#5C6180',
+  // UXR-8 A-2: #5C6180(3.11:1) → #7B82A0(navy900 tabBar 4.96:1) — 근거는 textTertiary(DAR-144) 주석 참조.
+  tabInactive: '#7B82A0',
 
   // Input
   inputBackground: palette.navy800,
   inputBorder: palette.navy600,
   inputText: '#E8EAF0',
-  inputPlaceholder: '#5C6180',
+  // UXR-8 A-2: #5C6180(2.86:1) → #7B82A0(navy800 입력창 4.57:1) — 근거는 textTertiary(DAR-144) 주석 참조.
+  inputPlaceholder: '#7B82A0',
 
   // Overlay
   overlay: 'rgba(4, 6, 16, 0.75)',

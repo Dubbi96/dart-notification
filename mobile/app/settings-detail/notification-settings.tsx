@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -8,17 +8,18 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   KeyboardAvoidingView,
+  BackHandler,
   Platform,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Switch, Checkbox, Divider } from 'react-native-paper';
-import { X } from 'phosphor-react-native';
-import { router } from 'expo-router';
+import { Feather } from '@expo/vector-icons';
+import { router, useNavigation } from 'expo-router';
 import { useForm, Controller } from 'react-hook-form';
 import { useTheme } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, sizing } from '@theme/spacing';
 import { Button } from '@components/common/Button';
 import { ScreenHeader } from '@components/common/ScreenHeader';
 import { ApiErrorState } from '@components/common/StateView';
@@ -26,7 +27,24 @@ import { useDialog } from '@components/common/DialogProvider';
 import { useNotificationSettings, useUpdateNotificationSettings } from '@hooks/useNotificationSettings';
 import { useDisclosureTypes } from '@hooks/useDisclosureTypes';
 
+import type { HitSlop } from '@utils/touchTarget';
+
 const MAX_KEYWORDS = 5;
+
+// UXR-5 D-5: 키워드 삭제(X)는 아이콘 전용 버튼이라 시각 크기(14px)가 44pt에 크게 못 미침.
+// SearchOverlay 의 symmetricHitSlopForIcon 패턴(DAR-146 규약)대로 4방향 대칭 hitSlop 으로
+// 유효 터치 영역을 sizing.minTouchTarget(44pt)까지 확장한다. 14 + 15*2 = 44pt.
+const REMOVE_KEYWORD_ICON_SIZE = 14;
+const REMOVE_KEYWORD_PAD = Math.max(
+  0,
+  Math.ceil((sizing.minTouchTarget - REMOVE_KEYWORD_ICON_SIZE) / 2),
+);
+const REMOVE_KEYWORD_HIT_SLOP: HitSlop = {
+  top: REMOVE_KEYWORD_PAD,
+  bottom: REMOVE_KEYWORD_PAD,
+  left: REMOVE_KEYWORD_PAD,
+  right: REMOVE_KEYWORD_PAD,
+};
 
 interface NotificationSettingsForm {
   isEnabled: boolean;
@@ -56,8 +74,15 @@ const SIGNAL_PUSH_TOGGLES: {
 export default function NotificationSettingsScreen() {
   const { colors, typography: typo } = useTheme();
   const { showDialog } = useDialog();
+  const navigation = useNavigation();
   const { data: settings, isLoading, isError, error, refetch } = useNotificationSettings();
-  const { data: disclosureTypes = [] } = useDisclosureTypes();
+  // UXR-5 D-4: 유형 목록의 로딩/실패를 구독해 빈 섹션으로 위장되지 않게 인라인 상태로 노출.
+  const {
+    data: disclosureTypes = [],
+    isLoading: isTypesLoading,
+    isError: isTypesError,
+    refetch: refetchTypes,
+  } = useDisclosureTypes();
   const updateSettings = useUpdateNotificationSettings();
 
   const { control, handleSubmit, reset, watch, formState: { isDirty } } = useForm<NotificationSettingsForm>({
@@ -89,21 +114,66 @@ export default function NotificationSettingsScreen() {
     }
   }, [settings, reset]);
 
-  const handleBack = () => {
+  // UXR-5 D-1: 다이얼로그의 '나가기' 확정 후 beforeRemove 가드가 재차 다이얼로그를 띄우지
+  // 않도록 이탈 허용 플래그를 둔다(확정 이탈은 1회성 — 화면이 곧 언마운트됨).
+  const allowLeaveRef = useRef(false);
+
+  // UXR-5 D-1: 미저장 변경 확인 다이얼로그 — 헤더 back·하드웨어 back·스와이프백 공용.
+  const confirmLeave = useCallback(() => {
+    showDialog({
+      title: '변경사항이 있어요',
+      message: '저장하지 않고 나가시겠어요?',
+      icon: { name: 'alert-circle', color: colors.warning },
+      buttons: [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '나가기',
+          onPress: () => {
+            allowLeaveRef.current = true;
+            router.back();
+          },
+        },
+      ],
+    });
+  }, [showDialog, colors.warning]);
+
+  const handleBack = useCallback(() => {
     if (isDirty) {
-      showDialog({
-        title: '변경사항이 있어요',
-        message: '저장하지 않고 나가시겠어요?',
-        icon: { name: 'alert-circle', color: colors.warning },
-        buttons: [
-          { text: '취소', style: 'cancel' },
-          { text: '나가기', onPress: () => router.back() },
-        ],
-      });
+      confirmLeave();
     } else {
       router.back();
     }
-  };
+  }, [isDirty, confirmLeave]);
+
+  // UXR-5 D-1: Android 하드웨어 back·back 제스처 — 헤더 back과 동일한 미저장 가드
+  // (onboarding/index.tsx 의 BackHandler 패턴 재사용).
+  useEffect(() => {
+    const onHardwareBack = () => {
+      if (isDirty && !allowLeaveRef.current) {
+        confirmLeave();
+        return true; // 이탈 차단 — 다이얼로그의 '나가기'로만 나감
+      }
+      return false; // 변경 없음: 기본 pop 허용
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+    return () => sub.remove();
+  }, [isDirty, confirmLeave]);
+
+  // UXR-5 D-1: iOS 스와이프백 등 나머지 pop 경로 — beforeRemove 로 화면 제거를 가로채
+  // 동일 가드를 적용한다(하드웨어 back 은 위 BackHandler 가 dispatch 전에 차단).
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      if (!isDirty || allowLeaveRef.current) return;
+      e.preventDefault();
+      confirmLeave();
+    });
+    return unsubscribe;
+  }, [navigation, isDirty, confirmLeave]);
+
+  // UXR-5 D-4: refetch 는 옵션 인자를 받으므로 press 이벤트가 흘러들지 않게 래핑.
+  const handleRetryTypes = useCallback(() => {
+    void refetchTypes();
+  }, [refetchTypes]);
 
   const onSubmit = (data: NotificationSettingsForm) => {
     // 로드 실패/미완료 상태에서는 폼이 기본값이므로 저장 시 서버 설정을 덮어쓸 수 있어 차단.
@@ -229,59 +299,89 @@ export default function NotificationSettingsScreen() {
             <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.md }]}>
               선택하지 않으면 모든 유형의 공시를 받습니다
             </Text>
-            <Controller
-              control={control}
-              name="disclosureTypes"
-              render={({ field: { onChange, value } }) => (
-                <>
-                  {disclosureTypes.map((type, index) => {
-                    const isSelected = value.includes(type.id);
-                    const toggleType = () => {
-                      onChange(
-                        isSelected
-                          ? value.filter((t) => t !== type.id)
-                          : [...value, type.id],
-                      );
-                    };
-                    return (
-                      <React.Fragment key={type.id}>
-                        <TouchableOpacity
-                          style={[
-                            styles.typeItem,
-                            {
-                              backgroundColor: isSelected ? colors.primaryLight : colors.surface,
-                              borderColor: isSelected ? colors.primary : colors.border,
-                            },
-                          ]}
-                          onPress={toggleType}
-                          activeOpacity={0.7}
-                          accessible
-                          accessibilityRole="checkbox"
-                          accessibilityState={{ checked: isSelected }}
-                          accessibilityLabel={
-                            type.description ? `${type.label}, ${type.description}` : type.label
-                          }
-                        >
-                          <View style={styles.typeContent}>
-                            <Text style={[typo.bodyMedium, { color: colors.text }]}>{type.label}</Text>
-                            <Text style={[typo.small, { color: colors.textSecondary }]}>{type.description}</Text>
-                          </View>
-                          <Checkbox
-                            status={isSelected ? 'checked' : 'unchecked'}
+            {/* UXR-5 D-4: 유형 목록 로딩/실패/빈 응답이 무음의 빈 섹션으로 위장되지 않도록
+                섹션 내부에 인라인 상태를 렌더한다(ai-cost.tsx SectionStatus 패턴 + 재시도). */}
+            {isTypesLoading ? (
+              <View style={styles.typesStatusRow}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={[typo.small, { color: colors.textSecondary }]}>
+                  공시 유형을 불러오는 중...
+                </Text>
+              </View>
+            ) : isTypesError ? (
+              <View style={styles.typesStatusRow}>
+                <Text style={[typo.small, { color: colors.textSecondary }]}>
+                  공시 유형을 불러오지 못했습니다
+                </Text>
+                <TouchableOpacity
+                  style={styles.typesRetryButton}
+                  onPress={handleRetryTypes}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel="공시 유형 다시 불러오기"
+                >
+                  <Text style={[typo.captionMedium, { color: colors.primary }]}>다시 시도</Text>
+                </TouchableOpacity>
+              </View>
+            ) : disclosureTypes.length === 0 ? (
+              <Text style={[typo.small, { color: colors.textTertiary, marginBottom: spacing.md }]}>
+                표시할 공시 유형이 없습니다
+              </Text>
+            ) : (
+              <Controller
+                control={control}
+                name="disclosureTypes"
+                render={({ field: { onChange, value } }) => (
+                  <>
+                    {disclosureTypes.map((type, index) => {
+                      const isSelected = value.includes(type.id);
+                      const toggleType = () => {
+                        onChange(
+                          isSelected
+                            ? value.filter((t) => t !== type.id)
+                            : [...value, type.id],
+                        );
+                      };
+                      return (
+                        <React.Fragment key={type.id}>
+                          <TouchableOpacity
+                            style={[
+                              styles.typeItem,
+                              {
+                                backgroundColor: isSelected ? colors.primaryLight : colors.surface,
+                                borderColor: isSelected ? colors.primary : colors.border,
+                              },
+                            ]}
                             onPress={toggleType}
-                            color={colors.primary}
-                            uncheckedColor={colors.border}
-                          />
-                        </TouchableOpacity>
-                        {index < disclosureTypes.length - 1 && (
-                          <Divider style={{ backgroundColor: colors.borderLight }} />
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                </>
-              )}
-            />
+                            activeOpacity={0.7}
+                            accessible
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked: isSelected }}
+                            accessibilityLabel={
+                              type.description ? `${type.label}, ${type.description}` : type.label
+                            }
+                          >
+                            <View style={styles.typeContent}>
+                              <Text style={[typo.bodyMedium, { color: colors.text }]}>{type.label}</Text>
+                              <Text style={[typo.small, { color: colors.textSecondary }]}>{type.description}</Text>
+                            </View>
+                            <Checkbox
+                              status={isSelected ? 'checked' : 'unchecked'}
+                              onPress={toggleType}
+                              color={colors.primary}
+                              uncheckedColor={colors.border}
+                            />
+                          </TouchableOpacity>
+                          {index < disclosureTypes.length - 1 && (
+                            <Divider style={{ backgroundColor: colors.borderLight }} />
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </>
+                )}
+              />
+            )}
 
             {/* Keywords */}
             <Text style={[typo.h3, { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.xs }]}>
@@ -369,6 +469,34 @@ function AccessibleToggleRow({
   );
 }
 
+interface KeywordTagProps {
+  keyword: string;
+  onRemove: (keyword: string) => void;
+}
+
+// UXR-5 D-5: 태그 삭제(X) 버튼 — Feather 'x'(프로젝트 표준) + 44pt hitSlop + 스크린리더
+// 라벨/역할. map 내 인라인 화살표 onPress 대신 태그 단위 컴포넌트로 분리(React.memo)해
+// 부모 리렌더 시 불필요한 핸들러 재생성·자식 리렌더를 막는다.
+const KeywordTag = React.memo(function KeywordTag({ keyword, onRemove }: KeywordTagProps) {
+  const { colors, typography: typo } = useTheme();
+  const handleRemove = useCallback(() => onRemove(keyword), [onRemove, keyword]);
+  return (
+    <View
+      style={[kwStyles.tag, { backgroundColor: colors.primaryLight, borderColor: colors.primary }]}
+    >
+      <Text style={[typo.body, { color: colors.primary, fontWeight: '600' }]}>{keyword}</Text>
+      <TouchableOpacity
+        onPress={handleRemove}
+        hitSlop={REMOVE_KEYWORD_HIT_SLOP}
+        accessibilityRole="button"
+        accessibilityLabel={`${keyword} 키워드 삭제`}
+      >
+        <Feather name="x" size={REMOVE_KEYWORD_ICON_SIZE} color={colors.primary} />
+      </TouchableOpacity>
+    </View>
+  );
+});
+
 interface KeywordTagInputProps {
   keywords: string[];
   onChange: (keywords: string[]) => void;
@@ -386,9 +514,13 @@ function KeywordTagInput({ keywords, onChange, maxKeywords }: KeywordTagInputPro
     onChange([...keywords, trimmed]);
   };
 
-  const removeKeyword = (keyword: string) => {
-    onChange(keywords.filter((k) => k !== keyword));
-  };
+  // D-5: memo 된 KeywordTag 에 전달하므로 안정 참조로 유지.
+  const removeKeyword = useCallback(
+    (keyword: string) => {
+      onChange(keywords.filter((k) => k !== keyword));
+    },
+    [keywords, onChange],
+  );
 
   const handleSubmitEditing = () => {
     addKeyword(input);
@@ -410,17 +542,7 @@ function KeywordTagInput({ keywords, onChange, maxKeywords }: KeywordTagInputPro
       {keywords.length > 0 && (
         <View style={kwStyles.tagContainer}>
           {keywords.map((keyword) => (
-            <View
-              key={keyword}
-              style={[kwStyles.tag, { backgroundColor: colors.primaryLight, borderColor: colors.primary }]}
-            >
-              <Text style={[typo.body, { color: colors.primary, fontWeight: '600' }]}>
-                {keyword}
-              </Text>
-              <TouchableOpacity onPress={() => removeKeyword(keyword)} hitSlop={8}>
-                <X size={14} color={colors.primary} weight="bold" />
-              </TouchableOpacity>
-            </View>
+            <KeywordTag key={keyword} keyword={keyword} onRemove={removeKeyword} />
           ))}
         </View>
       )}
@@ -515,4 +637,19 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   typeContent: { flex: 1 },
+  // UXR-5 D-4: 공시 유형 섹션 인라인 로딩/에러 상태 행.
+  typesStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  // D-4: 텍스트 링크형 재시도 버튼 — 유효 터치 영역 44pt 보장(sizing.minTouchTarget).
+  typesRetryButton: {
+    minHeight: sizing.minTouchTarget,
+    minWidth: sizing.minTouchTarget,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+  },
 });

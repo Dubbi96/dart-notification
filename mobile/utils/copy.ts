@@ -36,6 +36,9 @@ export const RISK_CONTEXT_NOTE: Record<string, string> = {
   TRADING_HALT: '거래정지 이력이 있는 종목임 (참고)',
 };
 
+// 신호 탭 헤더 서브타이틀(UXR-3 W1-B13) — 탭 정체 1줄 안내. '참고' 어휘 포함(과신·단정 금지).
+export const SIGNALS_HEADER_SUBTITLE = '공시·시세 기반 매수·매도 참고 신호';
+
 // '(참고)' 강제 가드 — __DEV__에서 모든 해석 카피가 꼬리표를 포함하는지 검증.
 // eslint 커스텀 룰 도입 전, 회귀 시 즉시 드러나도록 런타임 자기검증.
 if (__DEV__) {

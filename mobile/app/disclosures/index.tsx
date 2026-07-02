@@ -148,14 +148,15 @@ const DisclosureRow = React.memo(DisclosureRowBase);
 export default function DisclosuresScreen() {
   const { colors, typography: typo, isDark } = useTheme();
   const { isAuthenticated, requireAuth } = useRequireAuth();
-  const params = useLocalSearchParams<{ watchlistOnly?: string }>();
+  // UXR-6/E-10: query 파라미터 — 기업 상세 '이 기업 공시 전체 보기' 진입 시 기업명 프리필 검색.
+  const params = useLocalSearchParams<{ watchlistOnly?: string; query?: string }>();
   const { data: disclosureTypes = [] } = useDisclosureTypes();
   const filters = useMemo(() => ['전체', ...disclosureTypes.map((t) => t.id)], [disclosureTypes]);
   const [activeFilter, setActiveFilter] = useState<string>('전체');
   const [watchlistOnly, setWatchlistOnly] = useState(params.watchlistOnly === 'true');
   const [period, setPeriod] = useState<PeriodKey>('all');
   const [sort, setSort] = useState<SortKey>('latest');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(params.query ?? '');
   // 디바운스를 공통 useDebounce 훅으로 통일(E11): 수동 setTimeout/타이머 상태·handleSearchChange 제거 →
   // 키 입력마다 핸들러 재생성·추가 렌더 없이 입력값만 갱신하고 파생 상태로 디바운스한다.
   const debouncedQuery = useDebounce(searchQuery, 300).trim();

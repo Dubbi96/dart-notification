@@ -10,8 +10,11 @@ import {
   buyScoreColor,
   exitScoreColor,
   nextCutGap,
+  clampBuyScoreForDisplay,
+  scoreBarPercent,
   BUY_SCORE_CUTS,
   EXIT_SCORE_CUTS,
+  BUY_GRADE_THRESHOLDS,
 } from '@utils/signalDisplay';
 import { SIGNAL_TERMS } from '@utils/signalTerms';
 import { InfoSheet, type InfoSheetSection } from '@components/common/InfoSheet';
@@ -27,6 +30,9 @@ import { InfoSheet, type InfoSheetSection } from '@components/common/InfoSheet';
 //   리스트·카루셀 카드(accessibilityHidden=true, 상위 카드가 표현·접근성을 소유)에서는 정적이다.
 //   리스트가 removeClippedSubviews로 카드를 재활용할 때 매-마운트 0→값 애니메이션이 반복돼
 //   스크롤이 산만해지던 결함(B5)을 컴포넌트 기본값에서 차단한다. reduce-motion 시 항상 정적.
+// UXR-2(B-1·B-3): 등급 컷·색 밴드는 백엔드 SIGNAL_GRADE_THRESHOLDS 와 동기(signalDisplay SSOT).
+//   buy 점수는 백엔드 스케일(-100~100)을 그대로 표기하고 막대 지오메트리만 0 바닥으로 그린다 —
+//   음수를 0으로 표기하면 같은 화면의 Score 근거 총점(-N점)과 수치 교차 모순이 생긴다.
 
 // 등급 구간 카피·각주(B1) — 점수의 정의·구간·행동 가이드(전부 한국어). 컷 숫자는 게이지가
 // 실제로 그리는 등급 컷(BUY/EXIT_SCORE_CUTS)에서 가져와 게이지 지오메트리와 드리프트 0.
@@ -64,24 +70,27 @@ function buildScoreInfoSections(kind: 'buy' | 'exit'): InfoSheetSection[] {
       },
     ];
   }
-  const [low, mid, high] = BUY_SCORE_CUTS; // 30, 60, 80
+  const [low, mid, high] = BUY_SCORE_CUTS; // 30, 45, 50 — 백엔드 등급 컷과 동기(UXR-2 B-1)
+  const neutral = BUY_GRADE_THRESHOLDS.NEUTRAL; // -29 — 미만은 회피
   return [
     {
       icon: 'help-circle',
       heading: 'Buy Score란?',
       body:
-        '공시·시세·이벤트 통계를 합산해 매수 매력도를 0~100으로 나타낸 참고 점수입니다. ' +
-        '점수가 높을수록 과거 유사 신호의 성과가 좋았음을 뜻하며, 미래 수익을 보장하지 않습니다.',
+        '공시·시세·이벤트 통계를 합산해 매수 매력도를 -100~100으로 나타낸 참고 점수입니다. ' +
+        '점수가 높을수록 과거 유사 신호의 성과가 좋았음을 뜻하며, 미래 수익을 보장하지 않습니다. ' +
+        '0 미만이면 부정 요인이 우세하다는 뜻이고 게이지 막대는 비운 채 숫자만 음수로 표시합니다.',
     },
     {
       icon: 'bar-chart-2',
       heading: '점수 구간 읽는 법',
       body:
-        `${high}점 이상은 강세 구간, ` +
-        `${mid}~${high - 1}점은 양호 구간, ` +
-        `${low}~${mid - 1}점은 주의 구간, ` +
-        `${low}점 미만은 약세 구간입니다. ` +
-        '막대 색과 숫자·등급 라벨이 같은 구간을 함께 가리킵니다(색만으로 의미를 전달하지 않습니다).',
+        `${high}점 이상은 강한매수 구간, ` +
+        `${mid}~${high - 1}점은 매수 구간, ` +
+        `${low}~${mid - 1}점은 관망 구간, ` +
+        `${neutral}~${low - 1}점은 중립 구간, ${neutral}점 미만은 회피 구간입니다. ` +
+        '구간 경계는 등급 칩과 같은 기준이라 막대 색·숫자·등급 라벨이 같은 등급 구간을 가리킵니다' +
+        '(색만으로 의미를 전달하지 않으며, 위험 차단 시에는 차단 등급 표기가 우선합니다).',
     },
     {
       icon: 'compass',
@@ -98,7 +107,7 @@ function buildScoreInfoSections(kind: 'buy' | 'exit'): InfoSheetSection[] {
 const INFO_HIT_SLOP = { top: 15, bottom: 15, left: 15, right: 15 };
 
 interface ScoreGaugeProps {
-  /** 0~100 */
+  /** buy: 백엔드 스케일 -100~100(음수 그대로 표기, 막대만 0 바닥) · exit: 0~100 */
   score: number;
   kind?: 'buy' | 'exit';
   /** 좌측 레이블 (예: "Buy Score") */
@@ -134,11 +143,16 @@ export function ScoreGauge({
 }: ScoreGaugeProps) {
   const { colors, typography: typo } = useTheme();
   const { light } = useHaptics();
-  const clamped = Math.max(0, Math.min(100, score));
-  const color = kind === 'exit' ? exitScoreColor(clamped, colors) : buyScoreColor(clamped, colors);
+  // 표시값(UXR-2 B-3): buy 는 백엔드 스케일(-100~100) 그대로 — Score 근거 총점과 동일 규칙.
+  // 음수를 0으로 뭉개면 같은 화면에서 헤더 '0' vs 근거 '-N점' 수치 모순이 생긴다. exit 는 0~100.
+  const shownScore = kind === 'exit' ? scoreBarPercent(score) : clampBuyScoreForDisplay(score);
+  // 막대·노브 지오메트리(0~100%): 음수 점수는 빈 막대(0 바닥). 숫자 표기는 shownScore 가 담당.
+  const clamped = scoreBarPercent(score);
+  const color =
+    kind === 'exit' ? exitScoreColor(shownScore, colors) : buyScoreColor(shownScore, colors);
   const title = kind === 'exit' ? SIGNAL_TERMS.exitScore : SIGNAL_TERMS.buyScore;
   const cuts = kind === 'exit' ? EXIT_SCORE_CUTS : BUY_SCORE_CUTS;
-  const nextGap = nextCutGap(clamped, kind);
+  const nextGap = nextCutGap(shownScore, kind);
 
   // 다음 등급까지 N (캡션·접근성 공용). nextGap은 '+2' 형태.
   const nextGapValue = nextGap ? nextGap.replace('+', '') : null;
@@ -168,6 +182,9 @@ export function ScoreGauge({
   const [animValue] = useState(() => new Animated.Value(0));
   // 정적(리스트·카루셀 / reduce-motion)이면 렌더-페이즈에서 즉시 최종값. 매 프레임 setState 0 → B5 해소.
   const displayScore = shouldAnimate ? animatedScore : clamped;
+  // 헤드라인 숫자(UXR-2 B-3): 0 이상은 카운트업 표시값, 음수(buy)는 참값을 정적으로 표기.
+  // (음수 구간은 막대가 0 바닥이라 카운트업 대상 지오메트리가 없다 — 숫자만 그대로 보여준다.)
+  const headlineScore = shownScore < 0 ? shownScore : displayScore;
 
   useEffect(() => {
     if (!shouldAnimate) {
@@ -201,7 +218,7 @@ export function ScoreGauge({
       accessibilityLabel={
         accessibilityHidden
           ? undefined
-          : `${label ?? title} ${clamped}점${statusText ? `, ${statusText} 구간` : ''}${
+          : `${label ?? title} ${shownScore}점${statusText ? `, ${statusText} 구간` : ''}${
               nextGapValue ? `, 다음 등급까지 ${nextGapValue}` : ''
             }${oneLiner ? `, ${oneLiner}` : ''}`
       }
@@ -224,7 +241,7 @@ export function ScoreGauge({
         </View>
         {/* DAR-143: 카드 주인공인 점수값을 h2(22px/700)로 승격 — 좌측 라벨(small 12px) 대비
             명확한 타이포 위계 확보. 색상은 buy/exit 등급 로직(color) 유지(하드코딩 금지). */}
-        <Text style={[typo.h2, { color }]}>{displayScore}</Text>
+        <Text style={[typo.h2, { color }]}>{headlineScore}</Text>
       </View>
 
       {/* 바 + 등급 컷 틱 + 노브 (position:relative 컨테이너).

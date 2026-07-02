@@ -53,12 +53,19 @@ export default function StockChartScreen() {
     return () => sub.remove();
   }, []);
 
-  const quotePollInterval = resolveQuotePollInterval({
-    isFocused,
-    appActive,
-    now: new Date(),
-    intervalMs: QUOTE_POLL_INTERVAL_MS,
-  });
+  // UXR-6/P-8: refetchInterval 을 함수로 전달 — React Query 가 매 폴링 틱·렌더마다 장중 여부를
+  // 재판정한다(useMinuteCandles 패턴과 일관). 렌더 시점 정적 평가는 장 개장/마감 경계를 넘겨도
+  // 재판정되지 않아 개장 후 미폴링·마감 후 과폴링이 남았다.
+  const quotePollInterval = useCallback(
+    () =>
+      resolveQuotePollInterval({
+        isFocused,
+        appActive,
+        now: new Date(),
+        intervalMs: QUOTE_POLL_INTERVAL_MS,
+      }),
+    [isFocused, appActive],
+  );
   const { quotes, dataUpdatedAt: quoteUpdatedAt } = useStockQuotes([code], {
     refetchInterval: quotePollInterval,
   });

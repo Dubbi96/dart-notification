@@ -39,8 +39,10 @@ function ok(name: string, cond: boolean) {
 }
 
 // ── 구간 추출 ──────────────────────────────────────────────────────────────
-const listHeaderBlock = slice(homeSrc, 'const ListHeader = useCallback(', 'const ListEmpty = useCallback(');
-const listFooterBlock = slice(homeSrc, 'const ListFooter = useCallback(', 'return (');
+// UXR-10(A-3): ListHeader/Empty/Footer 는 useCallback 컴포넌트 → useMemo 엘리먼트로 전환
+//   (세그먼트 토글 시 헤더 서브트리 리마운트 방지). 마커를 새 식별자에 동기화.
+const listHeaderBlock = slice(homeSrc, 'const listHeaderElement = useMemo(', 'const listEmptyElement = useMemo(');
+const listFooterBlock = slice(homeSrc, 'const listFooterElement = useMemo(', 'return (');
 const summaryBlock = slice(homeSrc, '<View style={styles.summaryContent}>', '</GlassCard>');
 
 // ── A-HOME-2: 헤더 축소 + 공시/신호 상단, 졸업/퍼널은 헤더에서 제거 ─────────────

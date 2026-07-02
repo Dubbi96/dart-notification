@@ -8,7 +8,7 @@
  * 재설계(이 PR):
  *  - 카드 ① 핵심: 평가금액 + 손익 칩(=누적수익률) + 승률(신호 적중률 D+5)을 진입 즉시 노출.
  *  - 카드 ② 자산곡선(async 논블로킹 유지).
- *  - 카드 ③ 상세 졸업지표: 접이(More) 점진적 공개 — 기본 접힘.
+ *  - 카드 ③ 상세 검증 지표(구 '상세 졸업지표' — UXR-4 C-2 사용자 어휘 치환): 접이(More) 점진적 공개 — 기본 접힘.
  *  - 드릴다운(성과 리포트·철학 체크): 인라인 카드 → 푸터 바(경량 버튼)로 강등.
  *  - '보유 포지션' 라벨: 리스트 헤더로 시각 축소(typo.small textSecondary + 카운트).
  *
@@ -58,7 +58,7 @@ check('핵심카드에 신호 적중률(D+5) 인라인 노출', /신호 적중�
 check('승률 인라인 keyMetric 스타일 사용', /styles\.keyMetric/.test(header), true);
 // 승률(hitRateD5)이 접이(상세지표) 이전, 즉 핵심카드 영역에 위치하는지 순서로 확인
 const hitRateIdx = header.indexOf('신호 적중률(D+5)');
-const collapseIdx = header.indexOf('상세 졸업지표');
+const collapseIdx = header.indexOf('상세 검증 지표');
 check('승률이 접이 섹션보다 위(즉시 노출)', hitRateIdx > -1 && hitRateIdx < collapseIdx, true);
 
 // 3) 점진적 공개 — 접이 토글 상태 + 기본 접힘(useState false) + 펼침 조건부 렌더
@@ -91,7 +91,16 @@ check(
 
 // 6) 회귀 — 리스트 안정성 불변식 유지(keyExtractor corpCode, refreshing/onRefresh).
 check('keyExtractor corpCode 유지', /keyExtractor=\{\(item\) => item\.corpCode\}/.test(src), true);
-check('refreshing/onRefresh props 유지(커스텀 refreshControl 금지)', /refreshing=\{query\.isRefetching\}/.test(src) && /onRefresh=\{query\.refetch\}/.test(src), true);
+// UXR-4 C-1: onRefresh 가 status 만 refetch 하면 '자산곡선 최신점과 동일' 단언이 스스로 깨짐 →
+// 형제 쿼리(equity-curve)까지 일괄 refetch 하는 handleRefresh 로 교체(커스텀 refreshControl 은 여전히 금지).
+check('refreshing/onRefresh props 유지(커스텀 refreshControl 금지)', /refreshing=\{isRefreshing\}/.test(src) && /onRefresh=\{handleRefresh\}/.test(src), true);
+check(
+  '당겨 새로고침이 형제 쿼리(status+equity-curve) 동시 갱신(UXR-4 C-1)',
+  /\['simulation', 'status'\]/.test(src) &&
+    /\['simulation', 'equity-curve'\]/.test(src) &&
+    /queryClient\.refetchQueries\(/.test(src),
+  true,
+);
 check('면책 배너(정직 라벨) 유지', /실제 주문이 아닙니다/.test(header), true);
 check('async 자산곡선 논블로킹(EquityCurveCard 내부 로딩/에러 처리) 유지', /자산곡선 불러오는 중/.test(src), true);
 

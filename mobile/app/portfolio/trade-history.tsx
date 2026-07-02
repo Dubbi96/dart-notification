@@ -6,7 +6,7 @@ import { Surface, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, sizing } from '@theme/spacing';
 import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
 import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
@@ -183,7 +183,7 @@ function SummaryRow({
             <Text style={[typo.small, { color: colors.textTertiary }]}>추이 데이터 대기</Text>
           )}
         </View>
-        <Feather name="chevron-right" size={18} color={colors.textTertiary} />
+        <Feather name="chevron-right" size={sizing.icon.md} color={colors.textTertiary} />
       </Surface>
     </TouchableOpacity>
   );
@@ -220,14 +220,14 @@ function UrgentCalibrationBanner({ onPress }: { onPress: () => void }) {
       accessibilityLabel={`가장 시급한 보정 권고: ${label} 기준점수 ${deltaText} 조정 검토. 보정 권고 탭에서 전체 보기. 자동 반영 없음.`}
     >
       <Surface elevation={1} style={[styles.urgentBanner, { backgroundColor: colors.surfaceSecondary, borderColor: colors.warning }]}>
-        <Feather name="alert-circle" size={16} color={colors.warning} />
+        <Feather name="alert-circle" size={sizing.icon.sm} color={colors.warning} />
         <View style={styles.urgentBody}>
           <Text style={[typo.small, { color: colors.textSecondary }]}>가장 시급한 보정 권고 · 사람 검토용</Text>
           <Text style={[typo.caption, { color: colors.text, marginTop: 2 }]} numberOfLines={2}>
             {label} 기준점수 {deltaText} 조정 검토 (자동 반영 없음)
           </Text>
         </View>
-        <Feather name="chevron-right" size={16} color={colors.textTertiary} />
+        <Feather name="chevron-right" size={sizing.icon.sm} color={colors.textTertiary} />
       </Surface>
     </TouchableOpacity>
   );

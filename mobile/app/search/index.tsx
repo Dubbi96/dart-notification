@@ -17,7 +17,7 @@ import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
-import { useDebounce } from '@hooks/useDebounce';
+import { useDebounce, SEARCH_DEBOUNCE_MS } from '@hooks/useDebounce';
 import { useUnifiedSearch, shouldUnifiedSearch } from '@hooks/useUnifiedSearch';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { formatYmdDots } from '@utils/datetime';
@@ -35,9 +35,6 @@ function marketLabel(market: string | null): string {
   if (market === 'KOSDAQ') return '코스닥';
   return '';
 }
-
-// DAR-457: 검색 입력 디바운스 공통 규약 — 통합검색·관심기업 검색이 동일 지연(300ms)을 공유한다.
-const SEARCH_DEBOUNCE_MS = 300;
 
 export default function UnifiedSearchScreen() {
   const { colors, typography: typo, isDark } = useTheme();

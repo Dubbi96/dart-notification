@@ -28,7 +28,9 @@ const chipBlock = src.slice(chipStart, src.indexOf('</Chip>', chipStart));
 // --- a11y 추가분 ---
 ok('accessibilityState={{ selected }} 노출', /accessibilityState=\{\{\s*selected\s*\}\}/.test(chipBlock));
 ok("accessibilityRole='button' 지정", /accessibilityRole="button"/.test(chipBlock));
-ok('accessibilityLabel 에 정렬명(opt.label) 포함', /accessibilityLabel=\{`\$\{opt\.label\}\s*정렬`\}/.test(chipBlock));
+// DAR-472: 라벨 구조가 `${opt.label}, ${opt.a11ySortDirection}` 로 진화(DAR-470 ▼방향 표기 +
+// DAR-472 시급도순 실제 정렬기준 분기). 정렬명(opt.label)이 라벨 머리에 포함되는지로 검증한다.
+ok('accessibilityLabel 에 정렬명(opt.label) 포함', /accessibilityLabel=\{`\$\{opt\.label\},\s*\$\{opt\.a11ySortDirection\}`\}/.test(chipBlock));
 
 // --- 시각·동작 불변(회귀) ---
 ok('mode 토글 보존(flat/outlined)', /mode=\{selected \? 'flat' : 'outlined'\}/.test(chipBlock));

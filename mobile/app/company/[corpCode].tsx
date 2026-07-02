@@ -16,7 +16,8 @@ import { Ionicons, Feather } from '@expo/vector-icons';
 import { Chip } from 'react-native-paper';
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, sizing } from '@theme/spacing';
+import { verticalHitSlopForHeight } from '@utils/touchTarget';
 import { Card } from '@components/common/Card';
 import { useCompanyDetail } from '@hooks/useCompanyDetail';
 import {
@@ -61,12 +62,17 @@ type CompanyTab = 'decision' | 'disclosures' | 'financials' | 'insider' | 'stats
 const QUOTE_POLL_INTERVAL_MS = 15 * 1000;
 
 // DAR-452/E4: 헤더 뒤로가기 아이콘 크기. 우측 스페이서 폭과 공유해 타이틀을 시각적으로 중앙 정렬한다.
-const BACK_ICON_SIZE = 26;
-// DAR-452/E4: 분봉 차트 헤더의 접기/펼치기 chevron·전체화면 아이콘 크기(매직넘버 토큰화).
-const CHART_CHEVRON_SIZE = 18;
+// DAR-472: per-file 매직넘버 → 공용 sizing.icon 패밀리 SSOT(값 보존: lg=26·md=18).
+const BACK_ICON_SIZE = sizing.icon.lg;
+// DAR-452/E4: 분봉 차트 헤더의 접기/펼치기 chevron·전체화면 아이콘 크기.
+const CHART_CHEVRON_SIZE = sizing.icon.md;
+// 전체화면 링크의 보조 아이콘 — 스케일 밖 작은 값(14)이라 토큰 미적용(의도적 one-off).
 const CHART_LINK_ICON_SIZE = 14;
-// DAR-452/E4: 분봉 차트 헤더 두 터치 타깃(접기 토글·"크게 보기")의 hitSlop — 시각 높이 유지 + 유효 터치 ≥44pt.
+// DAR-452/E4: 접기 토글 hitSlop — 시각 높이 유지 + 유효 터치 ≥44pt. (chevron+제목 ≈26pt + 24 = 50pt)
 const CHART_TOUCH_HIT_SLOP = { top: spacing.md, bottom: spacing.md, left: spacing.sm, right: spacing.sm } as const;
+// DAR-472: "크게 보기" 링크의 시각 높이(typo.small lineHeight=16; 아이콘 14<16). verticalHitSlopForHeight 로
+// 세로 터치를 정확히 44pt까지 보정한다(기존 CHART_TOUCH_HIT_SLOP 으론 16+24=40pt < 44pt 였음).
+const CHART_LINK_VISUAL_HEIGHT = 16;
 // DAR-452/E4: 상단 6탭 칩 hitSlop(기존 인라인 {8,8,4,4} 토큰화). 가로는 인접 칩 오탭 방지로 좁게.
 const TAB_CHIP_HIT_SLOP = { top: spacing.sm, bottom: spacing.sm, left: spacing.xs, right: spacing.xs } as const;
 
@@ -627,7 +633,7 @@ export default function CompanyDetailScreen() {
               {/* DAR-355: 전용 풀스크린 차트 화면(app/stock/[stockCode]) 진입. 접힘 여부와 무관하게 항상 노출. */}
               <TouchableOpacity
                 onPress={() => router.push(`/stock/${company.stockCode}`)}
-                hitSlop={CHART_TOUCH_HIT_SLOP}
+                hitSlop={verticalHitSlopForHeight(CHART_LINK_VISUAL_HEIGHT)}
                 accessibilityRole="button"
                 accessibilityLabel="전체화면 차트 보기"
                 style={styles.chartExpandLink}
@@ -880,7 +886,7 @@ function CompanyPhilosophyTab({ corpCode, corpName }: CompanyPhilosophyTabProps)
           <Card variant="elevated" style={styles.tableCard}>
             <View style={styles.philosophyFitHeader}>
               <Text style={[typo.bodyMedium, { color: colors.text }]}>{fit.investorName}</Text>
-              <Feather name="chevron-right" size={16} color={colors.textTertiary} />
+              <Feather name="chevron-right" size={sizing.icon.sm} color={colors.textTertiary} />
             </View>
             <View style={{ marginTop: spacing.sm }}>
               <PhilosophyFitBreakdown fit={fit} showBreakdown={false} />
@@ -965,7 +971,7 @@ function CompanySignalBadgeRow({ corpCode }: { corpCode: string }) {
         </View>
       )}
       <View style={styles.flexSpacer} />
-      <Feather name="chevron-right" size={16} color={colors.textTertiary} />
+      <Feather name="chevron-right" size={sizing.icon.sm} color={colors.textTertiary} />
     </TouchableOpacity>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface } from 'react-native-paper';
@@ -10,6 +10,7 @@ import { ScreenHeader } from '@components/common/ScreenHeader';
 import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
 import { EquityCurveChart } from '@components/portfolio/EquityCurveChart';
 import { useBacktestTrackRecord } from '@hooks/useBacktestTrackRecord';
+import { useManualRefresh } from '@hooks/useManualRefresh';
 import { pnlColor } from '@utils/signalDisplay';
 import { formatReturnPct } from '@utils/numberFormat';
 import { getEventTypeLabel } from '@utils/disclosureType';
@@ -202,18 +203,9 @@ export default function BacktestTrackRecordScreen() {
   const { colors, typography: typo } = useTheme();
   const query = useBacktestTrackRecord();
   const record = query.data;
-  const { refetch } = query;
 
-  // C8: 수동 새로고침 어포던스 — 트랙레코드는 폴링하지 않으므로 사용자가 당겨서 최신 리플레이를 받는다.
-  const [refreshing, setRefreshing] = useState(false);
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await refetch();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [refetch]);
+  // C8: 수동 새로고침 어포던스 — 트랙레코드는 폴링하지 않으므로 사용자가 당겨서 최신 리플레이를 받는다(DAR-472 공통 훅).
+  const { refreshing, onRefresh } = useManualRefresh(query.refetch);
 
   // 자산곡선 → EquityCurveChart 계약(snapshotDate/totalValue/returnPct)으로 매핑.
   const equityPoints: EquityCurvePoint[] = useMemo(

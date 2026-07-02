@@ -92,7 +92,14 @@ function MetricCell({ label, value, valueColor }: MetricCellProps) {
   const { colors, typography: typo } = useTheme();
   return (
     <View style={styles.metricCell}>
-      <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={1}>
+      {/* DAR-472(DAR-466 후속): 라벨도 값과 동일하게 한 줄 고정 + 폭 초과 시 축소 —
+          좁은 기기에서 '승률(D+5)'·'D+20 초과' 라벨이 말줄임되지 않고 또렷이 유지된다. */}
+      <Text
+        style={[typo.small, { color: colors.textTertiary }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.85}
+      >
         {label}
       </Text>
       {/* DAR-466: 좁은 기기에서 '-100.0%' 등 절단 방지 — 한 줄 고정 + 폭 초과 시 축소(adjustsFontSizeToFit). */}

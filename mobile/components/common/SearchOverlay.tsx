@@ -17,7 +17,7 @@ import { useRouter } from 'expo-router';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
-import { useDebounce } from '@hooks/useDebounce';
+import { useDebounce, SEARCH_DEBOUNCE_MS } from '@hooks/useDebounce';
 import { useHaptics } from '@hooks/useHaptics';
 import { useCompanySearch, usePopularCompanies, shouldSearch } from '@hooks/useCompanySearch';
 import {
@@ -35,9 +35,6 @@ import type { HitSlop } from '@utils/touchTarget';
 import type { Company, WatchlistItem } from '@app-types/user.types';
 
 const MAX_WATCHLIST_COUNT = 30;
-
-// DAR-457: 검색 입력 디바운스 공통 규약 — 통합검색·관심기업 검색이 동일 지연(300ms)을 공유한다.
-const SEARCH_DEBOUNCE_MS = 300;
 
 // 아이콘 전용 X 버튼의 유효 터치 영역을 sizing.minTouchTarget(44pt)까지 확장(DAR-146 규약·DAR-267).
 // 칩처럼 텍스트 좌우 패딩으로 가로폭이 이미 확보되는 컨트롤과 달리, 아이콘만 있는 X 버튼은

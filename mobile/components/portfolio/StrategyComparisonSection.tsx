@@ -1,10 +1,11 @@
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, sizing } from '@theme/spacing';
+import { InlineDisclosure } from '@components/common/InlineDisclosure';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
 import { EmptyState, ErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
@@ -88,47 +89,6 @@ function PrimaryStat({ label, value, sub }: { label: string; value: string; sub?
           {sub}
         </Text>
       ) : null}
-    </View>
-  );
-}
-
-// 인라인 접기(DAR-194 패턴) — 전문/희귀 지표·룰을 '한 탭 뒤'로 숨겨 카드 과밀을 줄인다.
-// 색 단독 의미 금지 — 아이콘(형태)+평문 병행. 44pt 터치영역.
-function InlineDisclosure({
-  label,
-  icon,
-  children,
-}: {
-  label: string;
-  icon?: keyof typeof Feather.glyphMap;
-  children: React.ReactNode;
-}) {
-  const { colors, typography: typo } = useTheme();
-  const [expanded, setExpanded] = useState(false);
-  const toggle = useCallback(() => setExpanded((v) => !v), []);
-  return (
-    <View>
-      <TouchableOpacity
-        activeOpacity={0.7}
-        onPress={toggle}
-        style={styles.discHeader}
-        accessibilityRole="button"
-        accessibilityState={{ expanded }}
-        accessibilityLabel={`${label}, ${expanded ? '펼침' : '접힘'}`}
-      >
-        <View style={styles.discHeaderLeft}>
-          {icon ? <Feather name={icon} size={14} color={colors.textTertiary} /> : null}
-          <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
-            {label}
-          </Text>
-        </View>
-        <Feather
-          name={expanded ? 'chevron-up' : 'chevron-down'}
-          size={16}
-          color={colors.textTertiary}
-        />
-      </TouchableOpacity>
-      {expanded ? <View style={styles.discBody}>{children}</View> : null}
     </View>
   );
 }
@@ -219,7 +179,7 @@ function StrategyCard({ perf, isBest }: { perf: StrategyPerformance; isBest: boo
       >
         <Feather name="list" size={14} color={colors.primary} />
         <Text style={[typo.small, { color: colors.primary, flex: 1 }]}>매수/매도 타임라인 보기</Text>
-        <Feather name="chevron-right" size={16} color={colors.primary} />
+        <Feather name="chevron-right" size={sizing.icon.sm} color={colors.primary} />
       </TouchableOpacity>
     </Surface>
   );
@@ -424,23 +384,6 @@ const styles = StyleSheet.create({
   },
   primaryValue: {
     fontWeight: '700',
-  },
-  discHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 44,
-    gap: spacing.sm,
-  },
-  discHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    flexShrink: 1,
-  },
-  discBody: {
-    paddingBottom: spacing.xs,
-    gap: spacing.sm,
   },
   ruleBox: {
     gap: spacing.xs,

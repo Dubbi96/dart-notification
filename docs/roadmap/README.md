@@ -15,6 +15,7 @@
 | 문서 | 내용 |
 |------|------|
 | [cc-resume-plan-2026-07-02](./cc-resume-plan-2026-07-02.md) | **재개 계획 + M0~M12 상태 매트릭스 + 문서/브랜치 위생 감사 결과** |
+| [cc-live-readiness-diagnosis-2026-07-03](./cc-live-readiness-diagnosis-2026-07-03.md) | **실투자 전환 준비도 진단 — 사용자/화면/시스템 준비 체크리스트, Track B 재해석(측정 오염), 1차 고도화 백로그** |
 | [cc-pause-handoff-2026-06-28](./cc-pause-handoff-2026-06-28.md) | 일시중단 복원 런북 (DB 복원·서비스 재기동) |
 | [cc-ux-review-2026-07-02](./cc-ux-review-2026-07-02.md) | **UI/UX 정밀 리뷰 — 현행 UX 백로그 정본** (확정 76건, UXR-1~ 이슈 분해) |
 | [cc-ui-ux-audit-2026-06-27](./cc-ui-ux-audit-2026-06-27.md) | UI/UX 전수 감사 — 24건 처리 완료(W1·W5·W7 잔여는 위 리뷰로 이관) |

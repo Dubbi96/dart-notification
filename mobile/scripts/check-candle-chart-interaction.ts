@@ -35,15 +35,16 @@ function assertChart(label: string, src: string) {
   assert('  스크럽 오버레이(onStartShouldSetResponder)', /onStartShouldSetResponder=\{\(\) => true\}/.test(src));
   assert('  스크럽 grant/move 핸들러 배선', /onResponderGrant=\{handleScrub\}/.test(src) && /onResponderMove=\{handleScrub\}/.test(src));
   assert('  전체 높이(≥44pt) 터치영역(absoluteFill)', /style=\{StyleSheet\.absoluteFill\}/.test(src));
-  // E6 — locationX → 인덱스
-  assert('  locationX → 가장 가까운 인덱스(indexFromX)', /indexFromX/.test(src) && /e\.nativeEvent\.locationX/.test(src));
-  assert('  인덱스 clamp(0..n-1)', /Math\.min\(n - 1, Math\.max\(0, raw\)\)/.test(src));
+  // E6 — DAR-472: 스크럽 로직은 공용 훅 useCandleScrub 로 추출. 차트는 import + 호출 + 구조분해만.
+  assert('  가로 스크럽 공용 훅 import', /from '@hooks\/useCandleScrub'/.test(src));
+  assert('  공용 훅 호출(count/slotW/padLeft 지오메트리 주입)', /useCandleScrub\(\{[\s\S]*?count:[\s\S]*?slotW[\s\S]*?padLeft:/.test(src));
+  assert('  훅 반환 구조분해(activeIndex/handleScrub/handleA11yAction)', /const \{ activeIndex, handleScrub, handleA11yAction \} = useCandleScrub/.test(src));
   // E6 — 크로스헤어 시각화
   assert('  크로스헤어 세로 점선(strokeDasharray)', /strokeDasharray="3 3"/.test(src));
   assert('  종가 마커 Circle', /<Circle\b/.test(src));
   // E6 — a11y adjustable(스크린리더 스크럽 대체)
   assert('  adjustable role + 증/감 액션', /accessibilityRole="adjustable"/.test(src) && /name: 'increment'/.test(src) && /name: 'decrement'/.test(src));
-  assert('  a11y 액션 핸들러 배선', /onAccessibilityAction=\{handleA11yAction\}/.test(src) && /actionName === 'increment'/.test(src));
+  assert('  a11y 액션 핸들러 배선', /onAccessibilityAction=\{handleA11yAction\}/.test(src));
   assert('  a11y 현재 선택값 평문(accessibilityValue)', /accessibilityValue=\{\{ text:/.test(src));
   // E7 — 구현용어 미노출
   assert('  구현용어 미노출(앱 환경 시계 제거)', !/앱 환경 시계/.test(src));
@@ -51,8 +52,24 @@ function assertChart(label: string, src: string) {
   assert('  렌더 purity(Date.now 직접 호출 없음)', !/Date\.now\(/.test(src));
 }
 
+/** DAR-472: 일봉/분봉 공용 스크럽 로직(useCandleScrub) — 추출 전 차트에 있던 순수 로직 불변식. */
+function assertHook(src: string) {
+  console.log('hooks/useCandleScrub.ts (일봉/분봉 공용 스크럽 로직)');
+  assert('  locationX → 가장 가까운 인덱스(indexFromX)', /indexFromX/.test(src) && /e\.nativeEvent\.locationX/.test(src));
+  assert(
+    '  인덱스 clamp(round((x-padLeft)/slotW - 0.5) → [0,count-1])',
+    /Math\.round\(\(x - padLeft\) \/ slotW - 0\.5\)/.test(src) && /Math\.min\(count - 1, Math\.max\(0,/.test(src),
+  );
+  assert('  a11y 증/감 액션 → 한 칸 이동', /actionName === 'increment'/.test(src) && /actionName === 'decrement'/.test(src));
+  assert('  기본 선택 = 최신(selected ?? count - 1)', /selected \?\? count - 1/.test(src));
+  assert('  렌더 purity(Date.now 직접 호출 없음)', !/Date\.now\(/.test(src));
+}
+
 function main() {
   const root = join(__dirname, '..');
+
+  const hook = readFileSync(join(root, 'hooks', 'useCandleScrub.ts'), 'utf8');
+  assertHook(hook);
 
   const minute = readFileSync(join(root, 'components', 'company', 'MinuteCandleChart.tsx'), 'utf8');
   assertChart('components/company/MinuteCandleChart.tsx', minute);

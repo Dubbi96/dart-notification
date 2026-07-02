@@ -40,6 +40,9 @@ function check(label: string, ok: boolean, detail = ''): void {
 
 const AUTO = readFileSync(join(root, 'app/portfolio/auto-trading.tsx'), 'utf8');
 const BACKTEST = readFileSync(join(root, 'app/portfolio/backtest-track-record.tsx'), 'utf8');
+// DAR-472: 두 화면의 새로고침 보일러플레이트(refreshing useState + onRefresh useCallback→refetch)를
+// 공통 훅 useManualRefresh 로 추출. C8 어포던스(당겨서 refetch)는 훅 안에 보존된다.
+const REFRESH_HOOK = readFileSync(join(root, 'hooks/useManualRefresh.ts'), 'utf8');
 
 // ── (A) auto-trading: RN 코어 RefreshControl 도입 ───────────────────────────
 check(
@@ -54,7 +57,8 @@ check(
   'auto-trading: RefreshControl 에 refreshing/onRefresh 바인딩',
   /<RefreshControl[\s\S]*?refreshing=\{refreshing\}[\s\S]*?onRefresh=\{onRefresh\}/.test(AUTO),
 );
-check('auto-trading: refreshing 로컬 상태(useState)', /useState\(false\)/.test(AUTO));
+check('auto-trading: 공통 새로고침 훅 사용(useManualRefresh)', /const \{ refreshing, onRefresh \} = useManualRefresh\(query\.refetch\)/.test(AUTO));
+check('공통 훅: refreshing 로컬 상태(useState(false)) 소유', /useState\(false\)/.test(REFRESH_HOOK));
 
 // ── (B) auto-trading(C5): 트랙레코드 진입점 상단 승격 ────────────────────────
 // 진입점(TrackRecordEntryCard 렌더)이 리스크게이트·감사트레일보다 먼저 등장해야 한다.
@@ -80,10 +84,14 @@ check(
   `kill@${killIdx} < entry@${entryIdx}`,
 );
 
-// ── (C) auto-trading: 수동 갱신이 refetch 기반 ──────────────────────────────
+// ── (C) 수동 갱신이 refetch 기반(C8 어포던스는 공통 훅에 보존) ─────────────────
 check(
-  'auto-trading: onRefresh 가 refetch() 호출',
-  /onRefresh\s*=\s*useCallback\(async[\s\S]*?await refetch\(\)/.test(AUTO),
+  '공통 훅: onRefresh 가 useCallback(async)→await refetch()',
+  /onRefresh\s*=\s*useCallback\(async[\s\S]*?await refetch\(\)/.test(REFRESH_HOOK),
+);
+check(
+  '공통 훅: finally 로 스피너 해제(무한 로딩 방지)',
+  /finally\s*\{\s*setRefreshing\(false\)/.test(REFRESH_HOOK),
 );
 
 // ── (D) backtest: RN 코어 RefreshControl 도입 ───────────────────────────────
@@ -100,8 +108,8 @@ check(
   /<RefreshControl[\s\S]*?refreshing=\{refreshing\}[\s\S]*?onRefresh=\{onRefresh\}/.test(BACKTEST),
 );
 check(
-  'backtest: onRefresh 가 refetch() 호출',
-  /onRefresh\s*=\s*useCallback\(async[\s\S]*?await refetch\(\)/.test(BACKTEST),
+  'backtest: 공통 새로고침 훅 사용(useManualRefresh)',
+  /const \{ refreshing, onRefresh \} = useManualRefresh\(query\.refetch\)/.test(BACKTEST),
 );
 
 // ── (E) backtest(C10): 총수익률 vs 승률 위계 분리 ───────────────────────────

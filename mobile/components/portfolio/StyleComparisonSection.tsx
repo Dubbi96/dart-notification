@@ -1,9 +1,9 @@
-import React, { useMemo, useCallback, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useMemo, useCallback } from 'react';
+import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { Surface, Banner } from 'react-native-paper';
-import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
+import { InlineDisclosure } from '@components/common/InlineDisclosure';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
 import { EmptyState, ErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
@@ -83,55 +83,6 @@ function PrimaryStat({ label, value, sub }: { label: string; value: string; sub?
           {sub}
         </Text>
       ) : null}
-    </View>
-  );
-}
-
-// 인라인 접기(DAR-194) — 전문/희귀 지표를 '한 탭 뒤'로 숨겨 카드 과밀을 줄인다. CollapsibleCard와
-// 동일한 summary-first/detail-on-tap 상호작용(chevron·accessibilityState expanded·44pt)을 따르되,
-// 카드 내부에 중첩하므로 카드 크롬 없이 경량 노출한다. 색 단독 의미 금지 — 아이콘(형태)+평문 병행.
-function InlineDisclosure({
-  label,
-  icon,
-  accent = false,
-  defaultExpanded = false,
-  children,
-}: {
-  label: string;
-  icon?: keyof typeof Feather.glyphMap;
-  accent?: boolean;
-  defaultExpanded?: boolean;
-  children: React.ReactNode;
-}) {
-  const { colors, typography: typo } = useTheme();
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const toggle = useCallback(() => setExpanded((v) => !v), []);
-  const tone = accent ? colors.warning : colors.textSecondary;
-  return (
-    <View>
-      <TouchableOpacity
-        activeOpacity={0.7}
-        onPress={toggle}
-        style={styles.discHeader}
-        accessibilityRole="button"
-        accessibilityState={{ expanded }}
-        accessibilityLabel={`${label}, ${expanded ? '펼침' : '접힘'}`}
-      >
-        <View style={styles.discHeaderLeft}>
-          {icon ? (
-            <Feather name={icon} size={14} color={accent ? colors.warning : colors.textTertiary} />
-          ) : null}
-          <Text style={[typo.small, { color: tone }]} numberOfLines={1}>
-            {label}
-          </Text>
-        </View>
-        <Feather
-          name={expanded ? 'chevron-up' : 'chevron-down'}
-          size={16}
-          color={colors.textTertiary}
-        />
-      </TouchableOpacity>
-      {expanded ? <View style={styles.discBody}>{children}</View> : null}
     </View>
   );
 }
@@ -362,22 +313,6 @@ const styles = StyleSheet.create({
   },
   primaryValue: {
     fontWeight: '700',
-  },
-  discHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 44,
-    gap: spacing.sm,
-  },
-  discHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    flexShrink: 1,
-  },
-  discBody: {
-    paddingBottom: spacing.xs,
   },
   headerDisclosure: {
     marginTop: spacing.xs,

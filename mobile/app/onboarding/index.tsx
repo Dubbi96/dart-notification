@@ -9,6 +9,7 @@ import {
   Platform,
   BackHandler,
   Linking,
+  type ListRenderItem,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -65,11 +66,48 @@ export default function OnboardingScreen() {
     return () => sub.remove();
   }, [step, handleBack]);
 
-  const toggleCompany = (corpCode: string) => {
+  // DAR-472: setSelected 함수형 업데이트만 사용 → 의존성 없는 안정 참조(renderCompany 재생성 방지).
+  const toggleCompany = useCallback((corpCode: string) => {
     setSelected((prev) =>
       prev.includes(corpCode) ? prev.filter((c) => c !== corpCode) : [...prev, corpCode],
     );
-  };
+  }, []);
+
+  // DAR-472: 인기 기업 리스트 renderItem 을 useCallback 으로 분리 — 선택/테마 변경 시에만
+  // 재생성되어 매 렌더의 함수 재할당을 피한다(toggleCompany 안정 참조와 함께).
+  const renderCompany = useCallback<ListRenderItem<(typeof popularCompanies)[number]>>(
+    ({ item }) => {
+      const isSelected = selected.includes(item.corpCode);
+      return (
+        <TouchableOpacity
+          style={[
+            styles.companyItem,
+            {
+              backgroundColor: isSelected ? colors.primaryLight : colors.surface,
+              borderColor: isSelected ? colors.primary : colors.border,
+            },
+          ]}
+          onPress={() => toggleCompany(item.corpCode)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityState={{ selected: isSelected }}
+          accessibilityLabel={`${item.corpName} ${item.stockCode}`}
+          accessibilityHint={
+            isSelected ? '두 번 탭하면 관심 기업에서 제외해요' : '두 번 탭하면 관심 기업에 추가해요'
+          }
+        >
+          <View>
+            <Text style={[typo.bodyMedium, { color: colors.text }]}>{item.corpName}</Text>
+            <Text style={[typo.small, { color: colors.textSecondary }]}>{item.stockCode}</Text>
+          </View>
+          {isSelected && (
+            <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
+          )}
+        </TouchableOpacity>
+      );
+    },
+    [selected, colors, typo, toggleCompany],
+  );
 
   // 마찰제거(DAR-65): 관심기업 선택은 선택 사항 — 0개여도 다음 단계로 진행한다.
   // (선택 안 하면 홈 첫 종목 코치마크가 이어서 등록을 유도)
@@ -316,36 +354,7 @@ export default function OnboardingScreen() {
             style={styles.list}
             contentContainerStyle={popularCompanies.length === 0 ? styles.listEmptyContent : undefined}
             showsVerticalScrollIndicator={false}
-            renderItem={({ item }) => {
-              const isSelected = selected.includes(item.corpCode);
-              return (
-                <TouchableOpacity
-                  style={[
-                    styles.companyItem,
-                    {
-                      backgroundColor: isSelected ? colors.primaryLight : colors.surface,
-                      borderColor: isSelected ? colors.primary : colors.border,
-                    },
-                  ]}
-                  onPress={() => toggleCompany(item.corpCode)}
-                  activeOpacity={0.7}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isSelected }}
-                  accessibilityLabel={`${item.corpName} ${item.stockCode}`}
-                  accessibilityHint={
-                    isSelected ? '두 번 탭하면 관심 기업에서 제외해요' : '두 번 탭하면 관심 기업에 추가해요'
-                  }
-                >
-                  <View>
-                    <Text style={[typo.bodyMedium, { color: colors.text }]}>{item.corpName}</Text>
-                    <Text style={[typo.small, { color: colors.textSecondary }]}>{item.stockCode}</Text>
-                  </View>
-                  {isSelected && (
-                    <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
-                  )}
-                </TouchableOpacity>
-              );
-            }}
+            renderItem={renderCompany}
             // A-ONB-1: 빈/에러 상태에 빈 공백 대신 사유 + 재시도 경로 노출.
             ListEmptyComponent={
               isError ? (

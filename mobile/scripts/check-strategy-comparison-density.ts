@@ -37,6 +37,11 @@ function check(name: string, cond: boolean, detail = '') {
   }
 }
 
+// DAR-472: 두 섹션에 글자 단위로 복제돼 있던 로컬 InlineDisclosure 를 공용 컴포넌트로 추출.
+const inlineDisclosureSrc = readFileSync(
+  join(root, 'components/common/InlineDisclosure.tsx'),
+  'utf8',
+);
 const comparisonSrc = readFileSync(
   join(root, 'components/portfolio/StrategyComparisonSection.tsx'),
   'utf8',
@@ -118,13 +123,18 @@ for (const [label, src] of [
 }
 
 console.log('\n[E] 공통 — 44pt 터치영역 · refreshControl 규약');
+// DAR-472: 로컬 정의 제거 + 공용 InlineDisclosure import. 44pt 헤더 불변식은 공용 컴포넌트에서 검증.
 check(
-  'InlineDisclosure 헤더 44pt(StrategyComparisonSection)',
-  /discHeader:\s*\{[^}]*minHeight:\s*44/s.test(comparisonSrc),
+  '공용 InlineDisclosure import(StrategyComparisonSection)',
+  /from '@components\/common\/InlineDisclosure'/.test(comparisonSrc) && !/function InlineDisclosure/.test(comparisonSrc),
 );
 check(
-  'InlineDisclosure 헤더 44pt(IntradayScalpSection)',
-  /discHeader:\s*\{[^}]*minHeight:\s*44/s.test(scalpSrc),
+  '공용 InlineDisclosure import(IntradayScalpSection)',
+  /from '@components\/common\/InlineDisclosure'/.test(scalpSrc) && !/function InlineDisclosure/.test(scalpSrc),
+);
+check(
+  '공용 InlineDisclosure 헤더 44pt(sizing.minTouchTarget)',
+  /discHeader:\s*\{[^}]*minHeight:\s*sizing\.minTouchTarget/s.test(inlineDisclosureSrc),
 );
 check(
   'refreshControl 커스텀 래퍼 금지(refreshing/onRefresh 사용)',

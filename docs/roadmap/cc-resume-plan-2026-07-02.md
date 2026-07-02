@@ -49,7 +49,7 @@
 |---|---|---|
 | 0-1 | 오픈 PR #388/#389 **클로즈 (사용자 실행 필요)** | 중복 확정 — 동등 수정이 #387(ed388c4a)/#390(e979027e)으로 이미 main 머지됨, 둘 다 CONFLICTING. `gh pr close 388 389` |
 | 0-2 | PR #424(DAR-471)·#425(DAR-472) **상호평가→머지→재배포** | 둘 다 MERGEABLE/CLEAN 확인됨. 절차: pause 핸드오프 §1 |
-| 0-3 | 시한부 테스트 수정 이슈 발행 | `ai-usage-log.service.spec.ts` 상대 윈도우化 → 3231 전부 green 복귀 |
+| 0-3 | ~~시한부 테스트 수정~~ | ✅ 2026-07-02 처리 — 상대 윈도우化, **PR #430** (jest 3254 전그린) |
 | 0-4 | 로컬 브랜치 정리 | ✅ 2026-07-02 처리 — 머지 확인 255개 삭제, 잔여는 §5-3 |
 | 0-5 | (로컬 개발 필요 시) DB 복원 | pause 핸드오프 §3 — TimescaleDB pre/post_restore 필수, 백업: `dart-db-backups/dart_notification_2026-06-27.dump` |
 | 0-6 | Paperclip 플릿 재기동 | `cd rubberducksim-agents/paperclip && pnpm dev` |
@@ -60,14 +60,16 @@
 
 1. **라이브AI 상시 가동**: SMOKE_LLM 활성화 + engine2 배치가 신규 공시에 상시 동작하는지 OCI에서 확인. AIUsageLog 비용 모니터링(비용게이트 L0~L3 동작 검증).
 2. **30일 모의운용 완주**: OCI에서 이미 누적 중 — **중단시키지 말 것**. ≈7/21 이후 `integration-regression.ts` 재실행으로 졸업 게이트(G1~G7, [cc-mvp-definition §9](./cc-mvp-definition.md)) 측정.
-   - ⚠️ 재실행 전 확인: 현행 스크립트는 DAR-68 확장 게이트(G6 MDD/G7 alpha)를 재현하지 못함(G6가 'AI 금지영역'으로 재정의됨) — 게이트 행 재반영 필요.
+   - ✅ (2026-07-02 처리) DAR-68 확장 게이트(G6 MDD/G7 alpha) 행 재반영 완료 — **PR #430** (`graduation-gate-rows.ts` + 단위테스트 21건). 머지 후 재실행 가능.
 3. **졸업 판정 리포트** 생성 → `docs/roadmap/`에 새 리포트로 커밋(구 리포트는 archive에 있음).
 
 ### Track B — 매수논리 엣지 재검증 (Track A와 병행)
 
-- [buy-logic-validation-baseline](./buy-logic-validation-baseline.md)의 재검증 프로토콜 실행: 결함 A(EventStudy 이상치, DAR-402)·B(등급 역전, DAR-403) 수정 반영 후 1년 백테스트 재실행.
-- 판정 기준: baseline -14.5% 대비 개선 + 단순보유 대비 알파. **엣지 미확인 시 M11 진입 보류**가 원칙(RSI 사례처럼 정직하게 보류).
-- 데이터는 그때 시점으로 재산정(문서의 "공시 247K·7개월 윈도" 전제는 이미 낡음 — 현재 264만 건·일봉 16년치).
+- ✅ **재검증 1회차 실행됨 (2026-07-02) — 판정: 불합격.** 상세: [buy-logic-validation-baseline §6](./buy-logic-validation-baseline.md).
+  - replay -24.71%(429tr·PF 0.546·sharpe -1.00), d20 robust median -13.38%, **isRobustMonotonic=false(rankCorr -0.8)**.
+  - ★핵심: DAR-410의 "robust로 단조성 성립" 결론이 확장 표본에서 **반전** — BLOCKED(회피)가 median +14.18·승률 69.6%로 최고 성과. 회피 룰이 상승 신호를 걸러내는 구조적 역예측 가능성.
+- **후속 이슈(발행 대상)**: ① BLOCKED 조건 분해 진단(92건 역추적) ② WATCH 등급 재설계(승률 6.7%) ③ calibration 응답 공백 확인. 해소 후 재검증 2회차.
+- **M11 진입 보류 유지 확정** (§4-2 조건 미충족).
 
 ### Track C — M11 반자동매매 준비 (M10 졸업 후 착수)
 
@@ -84,15 +86,20 @@
 | 스토어 출시 | EAS APK 직접 배포 단계 → Play Store 등록 준비(BMC의 채널 전략) |
 | 백업 자동화 | 수동 pg_dump(6/27) → 주기 백업 cron 검토 |
 
-### Track F — UI/UX 개선 백로그 (2026-07-02 정밀 리뷰, 이슈化하여 플릿 처리)
+### Track F — UI/UX 개선 백로그 (2026-07-02 정밀 리뷰)
 
 - 정본: [cc-ux-review-2026-07-02](./cc-ux-review-2026-07-02.md) — 확정 76건(high 10/medium 33/low 33), 파일별 1이슈 분해안 UXR-1~23 + low 패턴 묶음.
-- 순서: **#424/#425 머지 먼저**(중복 4건 자동 해소, UXR-6/9는 같은 파일이라 머지 후 착수) → 1차 UXR-1~10(high) → 2차 → 3차. 처리 후 에뮬레이터 인터랙션 패스 + 재검증(§6).
-- 6/27 감사 잔여: W1(신호 탭 서브타이틀·코치마크), W5(배너 토큰·BuyScoreCard 정리), W7(GlassCard·LogoMark 토큰) — UXR 분해안에 포함됨.
+- ✅ **전량 구현 완료 (2026-07-02 수정 개발 세션)** — 오픈 PR 중복 4건 제외 72건 전부:
+  - 1차 high 10건 → **PR #431** (base: main+#424+#425 통합, tsc0·lint0)
+  - 2차 medium 13이슈 → **PR #432** (base #431 스택)
+  - 3차 low 번들 6건 + 검증 스크립트 정비 → **PR #433** (base #432 스택, **check 124/124 PASS**)
+  - 6/27 감사 잔여 W1(서브타이틀·EVENT_TYPE_LABEL 18종)·W5(배너 토큰)·W7(토큰 스윕·LogoMark 정리) 포함 해소. 미포함: W1 코치마크(신호 탭 첫 진입)만 잔여.
+- 잔여: **에뮬레이터 인터랙션 실기 패스**(§6 체크리스트 + 탭바 높이·홈 푸터·약관 링크 시각 확인) + 머지 후 재검증 미니 패스.
 
-### Track E — 문서 현행화 백로그 (감사 결과, 이슈化하여 플릿 처리)
+### Track E — 문서 현행화 백로그
 
-이번 정리 PR에서 **아카이브 21건 + 위험 수정(CLAUDE.md 엔진표, QUICK_START 파괴 명령 제거, cc-data-model SSOT 이관, KNOWN_FAILURES 2건 추가)** 은 완료. 남은 update 백로그(우선순위순):
+이번 정리 PR에서 **아카이브 21건 + 위험 수정(CLAUDE.md 엔진표, QUICK_START 파괴 명령 제거, cc-data-model SSOT 이관, KNOWN_FAILURES 2건 추가)** 은 완료.
+✅ **P1+P2 완료 (2026-07-02, PR #434)** — 아래 P1·P2 항목 전부 코드 실측 기반 현행화됨(엔진 CLAUDE.md 6종, 01-execution-roadmap 상태 열, api-specification v1.30 컨트롤러 44/44, database-schema v2.9 모델 49종, deployment 실토폴로지, workflow 배치 현행화, PROJECT_STRUCTURE 트리). **P3·P4만 잔여.**
 
 **P1 — 에이전트 오도 방지 (자동 로드 컨텍스트):**
 - `backend/src/engine2-ai-analyst/CLAUDE.md`("스캐폴딩" 주장 → 실제 완성) · `engine3-quant-market/CLAUDE.md`("M4 스켈레톤" → 99src 완성) — 가장 심각
@@ -115,11 +122,11 @@
 **P4 — 소개·기획·런북:**
 - `README.md` 전면 재작성(이번 PR은 최소 수정만) · `QUICK_START.md` env 49줄 반영 · `docs/01-service-overview.md`/`02-BMC`(GCP→OCI, 제품 범위) · `docs/multi-agent-harness.md` 상태절 · `docs/work/m0/policy-non-advisory.md` · `docs/dart-disclosure-types.md` 코드 경로
 
-**잠재 코드 이슈 (감사 중 발견, 이슈화 대상):**
-1. 시한부 테스트(§2 0-3) — 즉시
-2. 파싱→추출 체이닝 미발화 잠재버그(메모리 기록, 미해소 확인 필요)
-3. 배당 HYBRID 미분류 known-gap(`KNOWN_FAILURES.md` 승계됨) — 저우선
-4. `integration-regression.ts` DAR-68 게이트 행 소실(§3 Track A)
+**잠재 코드 이슈 (감사 중 발견):**
+1. ~~시한부 테스트~~ ✅ PR #430
+2. 파싱→추출 체이닝 미발화 잠재버그(메모리 기록, 미해소 확인 필요) — 잔여
+3. 배당 HYBRID 미분류 known-gap(`KNOWN_FAILURES.md` 승계됨) — 저우선 잔여
+4. ~~integration-regression DAR-68 게이트 행 소실~~ ✅ PR #430
 
 ## 4. 결정 필요 사항 (사용자 판단)
 
@@ -147,3 +154,38 @@
 
 ---
 *최종 수정: 2026-07-02 · 다음 갱신 트리거: M10 졸업 측정(≈2026-07-21) 또는 트랙 상태 변경 시*
+
+---
+
+## 7. 수정 개발 세션 처리 결과 (2026-07-02) — PR 체인·머지 순서
+
+> 사용자 지시 "문서 세트 기준 수정 개발 진행"에 따라 완료 가능한 전 트랙 처리. **머지는 전부 사용자 승인**(자기승인 차단 정책).
+
+### 7-1. 머지 순서 (체인별 독립)
+
+| 체인 | 순서 | 내용 |
+|---|---|---|
+| 문서 | **#428 → #429 → #434** | 감사·정리 → UX 리뷰 정본 → Track E 현행화(P1+P2)+Track B 기록 |
+| 백엔드 | **#430** (독립) | 시한부 테스트·졸업 게이트 G6/G7·승패 정의 통일 (jest 3254 그린) |
+| 모바일 UX | **#424 → #425 → #431 → #432 → #433** | 플릿 2건(상호평가 4/4 PASS) → UX 1·2·3차 (최종 check 124/124) |
+| 클로즈 | #388, #389 | 중복 확정 — `gh pr close 388 389` |
+
+### 7-2. 트랙별 결과 요약
+
+| 트랙 | 결과 |
+|---|---|
+| Track 0 | ✅ 시한부 테스트(#430)·브랜치 정리(255개)·상호평가 완료. DB 복원 검증 완료(행수 일치) |
+| Track A | 🚧 준비 완료 — G6/G7 게이트 재반영(#430). **측정은 ≈7/21 캘린더 도달 후** |
+| Track B | ✅ 재검증 1회차 실행 — **불합격**(자세히: [baseline §6](./buy-logic-validation-baseline.md)). BLOCKED 역예측 반전 발견 → 후속 진단 이슈 3건 발행 대상 |
+| Track C | ⬜ 게이트 유지 — M10 졸업 + Track B 합격 전 착수 금지 재확인 |
+| Track D | ⬜ 잔여 — FCM V1 서버키(대화식)·ARM 확보·스토어 출시(전부 사용자/외부 의존) |
+| Track E | ✅ P1+P2 완료(#434). P3(비전·엔진아키·MVP정의·phase-13 등)·P4는 후속 |
+| Track F | ✅ 72/76건 구현(#431~433). 잔여: 에뮬레이터 실기 패스, W1 코치마크 |
+
+### 7-3. 다음 세션 우선순위
+
+1. PR 체인 머지(§7-1) → OCI 백엔드 재배포(#430 반영) + **APK 재빌드**(EAS oci 프로파일 — 모바일 변경 반영, 외부 빌드라 사용자 승인)
+2. 에뮬레이터 인터랙션 패스(cc-ux-review §6) + 머지 후 재검증 미니 패스
+3. Track B 후속: BLOCKED 조건 분해 진단·WATCH 재설계·calibration 공백 — 이슈 발행
+4. ≈7/21 M10 졸업 게이트 측정(`integration-regression.ts`)
+5. Track E P3/P4 문서 잔여 + phase-13 현행화(M11 착수 전 필수)

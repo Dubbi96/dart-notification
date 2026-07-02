@@ -2,57 +2,55 @@
 
 ## 1. 사용자 시나리오 플로우
 
-### 1.1 회원가입 및 초기 설정
+### 1.1 로그인(카카오 OAuth) 및 초기 설정
 
 ```mermaid
 graph TD
     A[앱 실행] --> B{로그인 여부}
-    B -->|미로그인| C[회원가입 화면]
+    B -->|미로그인| C[로그인 화면]
     B -->|로그인됨| D[홈 화면]
 
-    C --> E[이메일/비밀번호 입력]
-    E --> F[회원가입 API 호출]
-    F --> G[JWT 토큰 저장]
+    C -->|카카오로 로그인| E[시스템 브라우저 OAuth 인증]
+    C -->|둘러보기| P[게스트 모드]
+    E --> F[백엔드 콜백에서 JWT 발급]
+    F --> G[expo-secure-store에 토큰 저장]
     G --> H[푸시 토큰 등록]
     H --> I[온보딩 화면]
 
-    I --> J[관심 기업 검색]
-    J --> K[최소 1개 기업 등록]
-    K --> L[공시 유형 선택]
-    L --> M[알림 설정 완료]
-    M --> D
+    I --> J[1단계: 관심 기업 선택 - 선택사항]
+    J --> K[2단계: 푸시 알림 동의]
+    K --> L[3단계: 신호·포트폴리오 가치 안내]
+    L --> D
 ```
 
 **단계별 설명**:
 
 1. **앱 실행 및 로그인 체크**
-   - AsyncStorage에서 Refresh Token 확인
-   - 있으면 자동 로그인, 없으면 회원가입 화면
+   - expo-secure-store 에 영속된 인증 상태(Zustand persist `auth-storage` — accessToken/refreshToken) 확인
+   - 있으면 자동 로그인, 없으면 로그인 화면 (AsyncStorage 미사용 — Expo Go 미지원)
 
-2. **회원가입**
-   - `POST /auth/signup` 호출
-   - 이메일, 비밀번호, 이름 입력
-   - 서버에서 JWT 발급
-   - 로컬에 Access Token (메모리) + Refresh Token (AsyncStorage) 저장
+2. **로그인 — 카카오 OAuth 전용** (모바일에 이메일/비밀번호 회원가입 없음)
+   - "카카오로 로그인" 버튼 → `WebBrowser.openAuthSessionAsync` 로 kauth.kakao.com authorize 진입
+   - 카카오 인증 완료 → 백엔드 `GET /auth/kakao/callback` 이 code 를 교환해 JWT 발급·임시 저장(state 키)
+   - 앱이 `GET /auth/kakao/result?state=...` 폴링으로 Access + Refresh Token 수령
+     (앱이 code 를 직접 획득한 경우 `POST /auth/kakao` 경로도 지원)
+   - 토큰은 `useAuthStore`(Zustand) → expo-secure-store 에 저장. 서버 User 데이터는 React Query(`useMe`)가 SSOT — 스토어에 복제하지 않음(DAR-262)
+   - 로그인 없이 **게스트(둘러보기)** 진입 가능 — 공시 둘러보기 동선(DAR-43)
 
 3. **푸시 토큰 등록**
    - Expo Notifications.getExpoPushTokenAsync() 호출
    - `POST /devices/register` 호출
 
-4. **온보딩 - 관심 기업 등록**
-   - "어떤 기업의 공시를 받아보시겠어요?" 안내
+4. **온보딩 1단계 - 관심 기업 선택 (선택사항)**
    - 검색창에서 기업명 입력 → `GET /companies/search?query=삼성`
-   - 자동완성 목록에서 선택
-   - `POST /watchlist` 호출하여 등록
-   - 최소 1개 등록 필수
+   - 자동완성 목록에서 선택 → `POST /watchlist` 등록
+   - 마찰 제거(DAR-65): 0개여도 다음 단계 진행 가능 (공시 유형 선택은 설정 화면 §1.4 로 이동)
 
-5. **온보딩 - 공시 유형 선택**
-   - 5개 공시 유형 체크박스 표시
-   - 기본값: 모두 선택
-   - `PATCH /notification-settings` 호출
+5. **온보딩 2단계 - 푸시 알림 동의**
+   - OS 알림 권한 요청. 거부 시 인라인 안내 후 진행(무음 실패 방지)
 
-6. **완료**
-   - 홈 화면으로 이동
+6. **온보딩 3단계 - 신호·포트폴리오 가치 안내 (DAR-209)**
+   - 서비스 핵심 가치 안내 후 '신호 보러 가기' 또는 '홈으로' 이동
 
 ---
 
@@ -68,7 +66,7 @@ sequenceDiagram
     participant Mobile
     participant User
 
-    Note over Scheduler: 매 10분마다 실행
+    Note over Scheduler: 평일 08~18시 10분 간격<br/>(장외 06~07·18~22시 1시간 간격)
 
     Scheduler->>DART API: 최근 공시 조회
     DART API-->>Scheduler: 공시 목록 반환
@@ -100,7 +98,7 @@ sequenceDiagram
 **단계별 설명**:
 
 1. **공시 수집 (Scheduler)**
-   - 매 10분마다 cron 실행
+   - 평일 08:00~17:50 10분 간격 cron 실행(`*/10 8-17 * * 1-5` KST) + 장외 시간대(06~07시·18~22시) 1시간 간격 보조 슬롯(`0 6-7,18-22 * * 1-5`)
    - DART API 호출: `GET /api/list.json?bgn_de=20260307&end_de=20260307`
    - 중복 체크: `rcpNo` 기준으로 DB 조회
    - 신규 공시만 `Disclosures` 테이블에 저장
@@ -248,11 +246,14 @@ graph TD
 
 ## 2. 백엔드 배치 작업 플로우
 
-### 2.1 공시 수집 및 알림 발송 (10분마다)
+### 2.1 공시 수집 및 알림 발송 (평일 08~18시 10분 간격)
+
+실제 크론: `SchedulerService.collectDisclosures` — `@Cron('*/10 8-17 * * 1-5')`(KST) +
+장외 보조 슬롯 `collectDisclosuresOffHours` — `@Cron('0 6-7,18-22 * * 1-5')`(이른 아침/저녁 공시 대비, 동일 경로 재호출).
 
 ```typescript
 // 의사코드
-@Cron('*/10 * * * *')  // 매 10분마다
+@Cron('*/10 8-17 * * 1-5', { timeZone: KST })  // 평일 08:00~17:50 10분 간격
 async collectDisclosuresAndNotify() {
   try {
     // 1. DART API 호출
@@ -531,7 +532,7 @@ fetch 해도 신호 0 → 쿼터 낭비. (라이브 dev DB 실측: PENDING 195,6
 
 ---
 
-### 2.6 공시 원문(rawText) S3 오프로드 드레인 (매 10분, DAR-395)
+### 2.7 공시 원문(rawText) S3 오프로드 드레인 (매 10분, DAR-395)
 
 **진단(용량)**: DB TOP `disclosure_documents` 약 1.7GB — `rawText` 원문이 본질이며 증가 중. 1년치만으로
 1.7GB → 멀티이어 백필 시 수십~수백 GB 폭증. rawText 는 추출 시점에만 필요한 콜드 데이터.
@@ -560,9 +561,9 @@ async drainOffload() {
 
 **AI/Risk 무관**: 순수 인프라/용량 작업. 신규 AI 호출 0, Engine5 하드룰과 무관.
 
-### 2.7 공시 파싱 표(tables) S3 오프로드 드레인 (매 10분, DAR-399)
+### 2.8 공시 파싱 표(tables) S3 오프로드 드레인 (매 10분, DAR-399)
 
-**진단(용량)**: rawText 전량 오프로드(§2.6) 후에도 `disclosure_documents` 가 1.7GB 잔존. TOAST 분해
+**진단(용량)**: rawText 전량 오프로드(§2.7) 후에도 `disclosure_documents` 가 1.7GB 잔존. TOAST 분해
 실측 — **진짜 bulk 는 rawText 가 아니라 `tables` JSONB(약 1,619MB·58k 문서)**. `parsedJson` 은 5MB뿐
 (콜드 아님 → DB 유지). 즉 로컬 대용량은 파싱된 표였다.
 
@@ -583,7 +584,7 @@ async drainOffload() {
 
 **AI/Risk 무관**: 순수 인프라/용량 작업. 신규 AI 호출 0, Engine5 하드룰과 무관.
 
-### 2.8 과거 메타데이터 연속 확장 백필 (매시간, DAR-396)
+### 2.9 과거 메타데이터 연속 확장 백필 (매시간, DAR-396)
 
 **진단**: 공시 `rcpDt` 범위가 최근 1년(`20250619~20260619`)에 머물러 있다(실측: 총 247,766건, 그중
 백필 241,700건, 최소 rcpDt 20250619). DART 는 과거 수년치(대략 1999~)를 제공하나, 기존 백필(DAR-129
@@ -613,10 +614,10 @@ list/document 공유 일일 쿼터(20,000건)가 자주 소진되어 일회성 �
 - **진행 가시성**: `GET /scheduler/backfill-coverage`(최소·최대 rcpDt·총건수·프런티어·하한 도달).
   수동 드레인 `POST /scheduler/backfill-extend`(maxChunks, 인증 필수).
 
-**대용량 주의**: 과거 다년치 수집 시 `disclosure_documents` 가 폭증한다 → 문서 본문 S3 오프로드(§2.6 DAR-395)
-및 파싱 표 오프로드(§2.7 DAR-399)로 흡수. **메타 수집(본 경로)은 경량(list API)이라 우선 진행 가능**하다.
+**대용량 주의**: 과거 다년치 수집 시 `disclosure_documents` 가 폭증한다 → 문서 본문 S3 오프로드(§2.7 DAR-395)
+및 파싱 표 오프로드(§2.8 DAR-399)로 흡수. **메타 수집(본 경로)은 경량(list API)이라 우선 진행 가능**하다.
 
-### 2.9 전략 변형 다중 트랙 갱신 (매일 05:00, DAR-404)
+### 2.10 전략 변형 다중 트랙 갱신 (매일 05:00, DAR-404)
 
 **배경**: 단일 모의매매(라이브 1년 리플레이, DAR-385)를 진입/청산/사이징 룰이 다른 **전략 변형 4종**
 (`event-edge`/`short-momentum`/`conservative-value`/`aggressive-diversified`)으로 분기해 각각
@@ -632,6 +633,29 @@ async refreshDaily() { /* StrategyTrackService.refreshAll() */ }
 - **부분 성공**: 한 전략 실패해도 나머지는 계속(throw 금지 — cron 유지, recorder FAILED 기록).
 - **point-in-time 불가침**: 실행은 BacktestReplayService(다음 거래일 시가 진입·asOf 절단)에 위임 — 미래정보 0.
 - **신선도**: cron-health `strategy.track-refresh`(48h 임계). 비교/거래내역 엔드포인트는 항상 최신 완료 트랙을 읽는다.
+
+### 2.11 DART 라이브 쿼터 예약분 가드 (횡단 가드, DAR-445)
+
+**진단(prod 실측)**: DART 무료키는 **일일 20,000콜 하드 쿼터**를 list/문서 fetch 가 공유한다.
+문서 파싱 드레인(벌크)이 쿼터를 먼저 소진하면 **라이브 목록수집(오늘치 공시)이 굶어** 공시가
+며칠씩 정체됐다(2026-06 공시 6/19 정체의 근본 원인). 크론이 아니라 `DartApiService` 의 모든
+DART 호출에 적용되는 **횡단 일일 콜 예산 가드**로 수정했다.
+
+```typescript
+// engine1-disclosure/dart-api/dart-api.service.ts
+const DART_DAILY_BUDGET = 19_000;  // 무료키 한도(20,000) 아래 보수 상한(시계 오차·키 공유 마진)
+const DART_LIVE_RESERVE = 2_000;   // ★라이브 목록수집 전용 예약분 — 벌크는 절대 침범 못 함
+const DART_BULK_CEILING = DART_DAILY_BUDGET - DART_LIVE_RESERVE;  // 벌크(문서/백필/재무) 누적 상한 = 17,000
+```
+
+- **라이브 통과**: 라이브 목록수집(`bulk=false`, 10분 카덴스 ≈ 1,200콜/일)은 누적이 예약분 구간에
+  닿아도 **차단 없이 실제 호출**된다 — 오늘치 공시 수집이 항상 최우선.
+- **벌크 사전 차단(쿼터 비소모)**: 누적 콜이 `BULK_CEILING` 도달 시 —
+  벌크 list(`getAllDisclosuresWithMeta`)는 HTTP 없이 **합성 `020`**(quotaExceeded=true)으로 종료,
+  문서 fetch(`downloadDocument`)는 `DartQuotaReservedError` throw(QUOTA 로 분류 — `retryCount`
+  비소모 → 멀쩡한 문서가 영구 SKIPPED 되지 않음).
+- **리셋**: 콜 카운터는 KST 자정 리셋. 실제 `020` 관측 시 `quotaExhaustedDay` 하드스톱 백스톱.
+- 기존 적응형 백오프(DAR-392)·PARTIAL 재시도(§2.9)와 결합 — 자정 리셋 후 벌크 드레인 자동 재개.
 
 ---
 
@@ -1017,7 +1041,47 @@ IExitCheckScheduler.runPreMarketCheck() / runIntradayCheck() / runPostMarketChec
   corpCode 중복 제거, 순차 호출 + 겹침 락(`isIntradayRunning`)으로 분 경계 누적·rate-limit 위반 차단. CronRunLog 는 실제 평가가 돈 틱만 기록.
 - ★AI 금지영역 불변: 능동 fetch 는 engine3 market-data primitive(HTTP/캐시), 손절은 순수 Rule — Engine5 독립, AI(engine2) 미개입.
 
+### 6.7 분봉 단타 모의트랙 — 장중 윈도우 스캔 + 15:20 강제청산 (DAR-411·DAR-415·DAR-418)
+
+당일 진입·당일 청산(오버나잇 금지) 실시간 페이퍼 트랙. 분봉은 KIS **forward-only**(당일치만 제공,
+과거 분봉 없음) → 백테스트 불가 → 정규장 중 실시간 모의로만 누적한다. 기존 4종 일봉 전략(§2.10)과 별개.
+
+| 잡 | Cron (KST) | 설명 |
+|-----|------|------|
+| 진입·청산 사이클 | `2-59/10 9-15 * * 1-5` | `IntradayScalpScheduler.runCycle` — 평일 09:02~15:52 매 10분(분봉수집기 §5.7 `*/10` 직후 **+2분 오프셋**). 유니버스→진입 평가→청산 평가 |
+| 전량 강제청산 | `20 15 * * 1-5` | `runForceClose` — 15:20 손익 무관 전량 청산(당일 청산 보장) |
+
+- **게이트는 서비스가 정본**: 정규장(09:00~15:30)·신규 진입 마감(`ENTRY_CUTOFF_HHMM='1520'`)은
+  `IntradayScalpService` 가 강제 — cron 은 발화만. 장외 틱은 스킵·CronRunLog 미기록(`paper.intraday-scalp` 키는 실제 평가 틱만).
+- ★**DAR-415 윈도우 스캔(진입 누락 수정)**: 종전엔 최신 1봉만 검사해 10분 사이클 사이 충족 순간이
+  대부분 누락됐다(0619 실측: 215 stock-min 충족 → 진입 0). 수정 — `scanEntrySignals`(engine3 순수 함수)가
+  직전 스캔 이후 도착한 **신규 분봉 전부를 각 봉을 '현재'로** point-in-time 평가(미래 분봉 미참조)해
+  **첫 충족봉**을 포착한다. 진입ts = 충족봉 시각(사이클 발화 시각 아님)·진입가 = 충족봉 종가.
+  종목별 커서(다음 스캔 시작 인덱스) + 당일 진입 이력 종목 dedup(종목당 1라운드트립).
+- **리스크 파라미터(순수 Rule, fee-aware DAR-418)**: 순(net) 익절 +2.0% / 순 손절 -1.2%
+  (gross 수익률에서 왕복비용율 ≈0.31% 차감 후 판정), 동시 보유 최대 5종목, 종목당 가상원금의 3%,
+  가상원금 1,000만 원. 진입 fee 허들(기대이동이 왕복비용+0.3% 마진 초과 시에만 진입).
+- ★AI 금지영역 불가침: engine2/AI import 0 — 진입·청산·체결·리스크 전부 순수 Rule.
+  **실주문 경로 0** — `simulateFill`(순수 시뮬)만 사용, 증권사 주문 API 호출 없음.
+
+### 6.8 매수/매도 체결 푸시 알림 (이벤트 구동, DAR-424)
+
+Cron 이 아니라 **체결 직후 발행**되는 이벤트 구동 경로 — engine5 라이브 페이퍼 체결
+(시스템 모의 `PaperSimulationService`·분봉 단타 `IntradayScalpService`)이 포지션 OPEN/CLOSED
+영속 직후 `NOTIFY_JOB.TRADE_ENTRY / TRADE_EXIT` 큐 잡을 발행한다.
+
+- **graceful 발행**: producer 는 `@Optional`(큐 미설정 환경/테스트 no-op), 발행 실패해도 체결을 깨지 않는다.
+  체결 시점 포트폴리오 스냅샷(현금·평가금)을 발행 측이 산출해 페이로드에 담는다(point-in-time 보존).
+- **브로드캐스트 수신**: 시스템 모의/단타는 전역 단일 시뮬 → 수신자는 포지션 소유자(합성 시스템 유저)가
+  아니라 **실제 앱 사용자 전원**(provider='system' 합성 유저 제외).
+- **토글 게이트**: `tradePushEnabled`(기본 ON, 설정행 미존재=ON)가 **인박스·푸시를 함께** 게이트 —
+  OFF 면 인박스도 남기지 않는다(브로드캐스트 과알림 방지). 푸시는 추가로 master `isEnabled` + 유효 디바이스 토큰 필요.
+- **멱등**: `(userId, type, refId)` NotificationHistory unique — 같은 체결 단위(refId)라도 매수/매도는 별개 적재.
+- **표기(DAR-432)**: 제목 앞에 출처 이모지+출처명(🤖 모의 / ⚡ 단타 등). 매수 본문 `₩{가}×{수량} · 잔액 ₩{현금}`,
+  매도 본문 `손익 {±%}({사유}) · 평가금 ₩{총}`. 딥링크·data 페이로드에 strategyKey 포함.
+- ★알림은 통지일 뿐 — 주문 결정/실주문과 무관(AI 금지영역 불침범).
+
 ---
 
 **작성일**: 2026-03-07
-**버전**: 1.4 (DAR-366: 장중 연속 손절 모니터 — 보유종목 실시간 능동 fetch → 실가 -8% 손절 발화 유일 경로)
+**최종 수정일**: 2026-07-02 (현행화 — §1.1 카카오 OAuth·expo-secure-store·온보딩 3단계 정합, §2 절 번호 재정렬, 분봉 단타(§6.7)·체결 푸시(§6.8)·DART 라이브 쿼터 예약분 가드(§2.11) 반영)

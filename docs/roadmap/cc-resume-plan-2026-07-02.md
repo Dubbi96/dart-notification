@@ -49,7 +49,7 @@
 |---|---|---|
 | 0-1 | 오픈 PR #388/#389 **클로즈 (사용자 실행 필요)** | 중복 확정 — 동등 수정이 #387(ed388c4a)/#390(e979027e)으로 이미 main 머지됨, 둘 다 CONFLICTING. `gh pr close 388 389` |
 | 0-2 | PR #424(DAR-471)·#425(DAR-472) **상호평가→머지→재배포** | 둘 다 MERGEABLE/CLEAN 확인됨. 절차: pause 핸드오프 §1 |
-| 0-3 | 시한부 테스트 수정 이슈 발행 | `ai-usage-log.service.spec.ts` 상대 윈도우化 → 3231 전부 green 복귀 |
+| 0-3 | ~~시한부 테스트 수정~~ | ✅ 2026-07-02 처리 — 상대 윈도우化, **PR #430** (jest 3254 전그린) |
 | 0-4 | 로컬 브랜치 정리 | ✅ 2026-07-02 처리 — 머지 확인 255개 삭제, 잔여는 §5-3 |
 | 0-5 | (로컬 개발 필요 시) DB 복원 | pause 핸드오프 §3 — TimescaleDB pre/post_restore 필수, 백업: `dart-db-backups/dart_notification_2026-06-27.dump` |
 | 0-6 | Paperclip 플릿 재기동 | `cd rubberducksim-agents/paperclip && pnpm dev` |
@@ -60,14 +60,16 @@
 
 1. **라이브AI 상시 가동**: SMOKE_LLM 활성화 + engine2 배치가 신규 공시에 상시 동작하는지 OCI에서 확인. AIUsageLog 비용 모니터링(비용게이트 L0~L3 동작 검증).
 2. **30일 모의운용 완주**: OCI에서 이미 누적 중 — **중단시키지 말 것**. ≈7/21 이후 `integration-regression.ts` 재실행으로 졸업 게이트(G1~G7, [cc-mvp-definition §9](./cc-mvp-definition.md)) 측정.
-   - ⚠️ 재실행 전 확인: 현행 스크립트는 DAR-68 확장 게이트(G6 MDD/G7 alpha)를 재현하지 못함(G6가 'AI 금지영역'으로 재정의됨) — 게이트 행 재반영 필요.
+   - ✅ (2026-07-02 처리) DAR-68 확장 게이트(G6 MDD/G7 alpha) 행 재반영 완료 — **PR #430** (`graduation-gate-rows.ts` + 단위테스트 21건). 머지 후 재실행 가능.
 3. **졸업 판정 리포트** 생성 → `docs/roadmap/`에 새 리포트로 커밋(구 리포트는 archive에 있음).
 
 ### Track B — 매수논리 엣지 재검증 (Track A와 병행)
 
-- [buy-logic-validation-baseline](./buy-logic-validation-baseline.md)의 재검증 프로토콜 실행: 결함 A(EventStudy 이상치, DAR-402)·B(등급 역전, DAR-403) 수정 반영 후 1년 백테스트 재실행.
-- 판정 기준: baseline -14.5% 대비 개선 + 단순보유 대비 알파. **엣지 미확인 시 M11 진입 보류**가 원칙(RSI 사례처럼 정직하게 보류).
-- 데이터는 그때 시점으로 재산정(문서의 "공시 247K·7개월 윈도" 전제는 이미 낡음 — 현재 264만 건·일봉 16년치).
+- ✅ **재검증 1회차 실행됨 (2026-07-02) — 판정: 불합격.** 상세: [buy-logic-validation-baseline §6](./buy-logic-validation-baseline.md).
+  - replay -24.71%(429tr·PF 0.546·sharpe -1.00), d20 robust median -13.38%, **isRobustMonotonic=false(rankCorr -0.8)**.
+  - ★핵심: DAR-410의 "robust로 단조성 성립" 결론이 확장 표본에서 **반전** — BLOCKED(회피)가 median +14.18·승률 69.6%로 최고 성과. 회피 룰이 상승 신호를 걸러내는 구조적 역예측 가능성.
+- **후속 이슈(발행 대상)**: ① BLOCKED 조건 분해 진단(92건 역추적) ② WATCH 등급 재설계(승률 6.7%) ③ calibration 응답 공백 확인. 해소 후 재검증 2회차.
+- **M11 진입 보류 유지 확정** (§4-2 조건 미충족).
 
 ### Track C — M11 반자동매매 준비 (M10 졸업 후 착수)
 

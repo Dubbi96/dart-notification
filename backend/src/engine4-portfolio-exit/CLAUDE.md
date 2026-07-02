@@ -3,16 +3,19 @@
 > 상위: `backend/CLAUDE.md` · 설계: `docs/roadmap/phase-07-position-thesis.md`, `phase-08-portfolio-exit.md` · Phase: M7~M8
 > 이 폴더는 **Portfolio Exit 도메인**(Bounded Context)이다. 격리 컨텍스트로 작업한다.
 
-## 책임
+## 책임 (모듈 지도)
 
 | 하위 영역 | 위치 | 책임 |
 |---|---|---|
-| 도메인 타입 | `domain/` | InvalidCondition 구조화 타입, ThesisStatus, PositionThesisRecord, ExitEngine 타입 |
-| Exit Score 계산기 | `domain/exit-score.calculator.ts` | 6트리거 × 5액션 순수 Rule 계산 (AI 금지) |
-| 리포지토리 | `repositories/` | IPositionThesisRepository, IExitSignalRepository 인터페이스 + 인메모리 어댑터 |
-| Thesis 서비스 | `services/` | BUY 신호 → Thesis 자동 생성, 생명주기 전이 |
-| Exit 엔진 서비스 | `services/exit-engine.service.ts` | 포지션별 Exit Score 계산 → ExitSignal 저장 |
-| Exit 스케줄러 | `services/exit-check-scheduler.interface.ts` | 하루 3회 점검 스케줄 (09:00/13:00/16:30) |
+| 도메인 타입 | `domain/` | InvalidCondition 구조화 타입, ThesisStatus, PositionThesisRecord, ExitEngine 타입(InsiderFlowSnapshot 포함) |
+| Exit Score 계산기 | `domain/exit-score.calculator.ts` | 6트리거 × 5액션 순수 Rule 계산 (AI 금지) — engine5 모의운용 사이클이 직접 호출하는 실사용 코어 |
+| 리포지토리 | `repositories/` | IPositionThesisRepository·IExitSignalRepository 인터페이스 + **Prisma 어댑터(운영 배선, DAR-34)** + 인메모리 어댑터(테스트·폴백 유지) |
+| Thesis 서비스 | `services/position-thesis.service.ts` | BUY 신호 → Thesis 자동 생성, 생명주기 전이 |
+| Exit 엔진 서비스 | `services/exit-engine.service.ts` | IPositionProvider 계약으로 포지션별 Exit Score 계산 → ExitSignal 저장(내부자 흐름 결합 DAR-94) |
+| Exit 스케줄러 | `services/exit-check-scheduler.interface.ts` | 하루 3회 점검(09:00/13:00/16:30) 인터페이스 + 인메모리 구현 — 실 트리거는 engine5 `paper-simulation` 사이클(19:30 일일 + 장중 5분 모니터)이 담당 |
+| 포트폴리오 조회 API | `portfolio/` | `PortfolioController`(포트폴리오·포지션·리스크 스냅샷 읽기, MDD 계산) + `PositionThesisController`(논지 조회, thesis-status 매핑) — 모바일 화면 진입점 |
+
+배선: `portfolio-exit.module.ts`가 Prisma 리포지토리를 DI 토큰(POSITION_THESIS_REPOSITORY/EXIT_SIGNAL_REPOSITORY)에 바인딩하고 컨트롤러 2종을 노출한다.
 
 ## 로드맵 (M7~M8)
 
@@ -20,6 +23,7 @@
 |---|---|---|
 | **M7 (DAR-11)** | PositionThesis Prisma 모델 + 자동 생성 서비스 + fixture 테스트 | ✅ 완료 |
 | **M8 (DAR-12)** | Exit Score 계산, 6트리거, 5액션, thesis훼손→EXIT, ExitSignal 저장 | ✅ 완료 |
+| (하류) M10 | Exit 엔진이 engine5 모의운용에서 매일 실데이터로 가동 중 | 🚧 30일 모의운용 진행(≈7/21) |
 
 ## Exit Score 구조 (M8 — AI 금지영역)
 
@@ -72,13 +76,13 @@
 | `STOP_LOSS_PCT` | M4 시세 | `value` (% 손실) |
 | `MAX_HOLD_DAYS` | 경과일 | `value` (일) |
 
-## DoD (M8 기준)
+## DoD
 
 - `npx tsc --noEmit` 0 · `npm test` 그린(회귀 0)
-- Exit Score 계산기 (6트리거 × 5액션) 구현 완료
-- ExitSignal 인메모리 저장소 구현
-- 하루 3회 점검 스케줄 인터페이스 정의
-- Prisma 모델: Portfolio, Position, PositionDailySnapshot, ExitSignal, PortfolioRiskSnapshot
-- 마이그레이션 파일 생성 (20260604170000_m8_portfolio_exit)
-- exit-engine.spec.ts fixture 테스트 통과 (40개 이상)
+- Exit Score 계산기 (6트리거 × 5액션) 회귀 스펙 유지 (`exit-score.calculator.regression.spec.ts`)
+- 리포지토리: Prisma 어댑터(운영) + 인메모리(테스트) 이중 구현 유지, 통합 스펙(`*.integration-spec.ts`)은 실 DB 필요
+- Prisma 모델: Portfolio, Position, PositionDailySnapshot, PositionThesis, ExitSignal, PortfolioRiskSnapshot
 - AI 금지영역 미침범
+
+---
+*최종 수정: 2026-07-02*

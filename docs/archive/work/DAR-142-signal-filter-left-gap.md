@@ -2,6 +2,7 @@
 
 > 등록: 2026-06-08 (사용자 리포트, Android 에뮬레이터 실측) · layer: mobile · severity: low · effort: small
 > 담당: Paperclip 플릿(fe). branch: `feat/DAR-142-signal-filter-left-gap`
+> 📦 아카이브(2026-07-02) — 해소 경위: PR #99(fix/DAR-141-142-ui-bugs)는 머지 없이 클로즈됐고, 실제 해소는 DAR-196 필터 토글 전면 재작업(커밋 74eefdb0) + 에뮬레이터 검증. 원인으로 지목된 `flexGrow:1` 스타일은 SignalExplorer.tsx에 미수정 잔존하나 증상은 재현되지 않음.
 
 ## 증상
 신호(Signals) 화면 `전체 신호 탐색` 필터 영역 — `등급 / 투자성향 / 이벤트` 칩 행에서 **왼쪽에 불필요한 공백**. 칩 행 좌측 시작 정렬이 어색하게 떨어져 있음.

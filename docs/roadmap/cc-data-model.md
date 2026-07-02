@@ -2,9 +2,10 @@
 
 # 전체 DB 확장 설계 (Canonical Data Model)
 
-> 이 문서는 **데이터 모델의 단일 진실 공급원(SSOT)** 이다.  
-> 새 모델 추가·필드 변경·인덱스 조정 시 이 문서를 먼저 갱신한 뒤 마이그레이션을 작성한다.  
-> 최종 수정일: 2026-06-02
+> ⚠️ **SSOT 지위 이관(2026-07-02)**: 실 스키마의 단일 진실 공급원은 `backend/prisma/schema.prisma`(코드)와 [docs/database-schema.md](../database-schema.md)(문서)다.
+> 이 문서는 2026-06-02 시점의 **초기 확장 설계 기록**으로, 자연키 FK 정책·TradingAuditLog INSERT-ONLY·AI 금지 필드 등 설계 원칙의 근거로 유지한다.
+> 개별 모델 스케치는 실 스키마(49개 모델)와 다를 수 있음 — 필드 확인은 반드시 schema.prisma 기준.  
+> 최종 수정일: 2026-07-02
 
 ---
 

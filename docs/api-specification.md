@@ -1,7 +1,7 @@
 # API 명세서
 
 ## 목차
-1. [인증 (Auth)](#1-인증-auth)
+1. [인증 (Auth)](#1-인증-auth) — 카카오 OAuth(정식) + 이메일(dev/test)
 2. [사용자 (Users)](#2-사용자-users)
 3. [디바이스 (Devices)](#3-디바이스-devices)
 4. [기업 (Companies)](#4-기업-companies)
@@ -17,6 +17,22 @@
 14. [포트폴리오 리스크 스냅샷 (Portfolio Risk, DAR-163)](#14-포트폴리오-리스크-스냅샷-portfolio-risk--dar-163)
 15. [시장지수 (Market Index, DAR-160)](#15-시장지수-market-index-dar-160)
 16. [이벤트 스터디 (Event Study)](#16-이벤트-스터디-event-study)
+17. [구간 캔들 (Candles — TimescaleDB)](#17-구간-캔들-candles--timescaledb-dar-378)
+18. [시스템 트레이딩 전략 변형 트랙 (Strategy Tracks)](#18-시스템-트레이딩-전략-변형-트랙-strategy-tracks-dar-404)
+19. [분봉 단타 모의전략 트랙 (Intraday Scalp)](#19-분봉-단타-모의전략-트랙-intraday-scalp-dar-411)
+20. [라이브 페이퍼 체결 알림 (Trade Notifications)](#20-라이브-페이퍼-체결-알림-trade-notifications-dar-424)
+21. [시스템 모의운용 (Paper Simulation, Engine5)](#21-시스템-모의운용-paper-simulation-engine5)
+22. [포트폴리오·포지션 (Portfolio, Engine4)](#22-포트폴리오포지션-portfolio-engine4)
+23. [저장한 공시 (Saved Disclosures)](#23-저장한-공시-saved-disclosures)
+24. [투자 철학 (Philosophy, Engine2)](#24-투자-철학-philosophy-engine2)
+25. [재무지표·내부자 지분 (Financials·Insider Holdings, Engine1)](#25-재무지표내부자-지분-financialsinsider-holdings-engine1)
+26. [공시 원문 파싱·정량 팩트·이벤트 (Engine1)](#26-공시-원문-파싱정량-팩트이벤트-engine1)
+27. [수집 파이프라인·스케줄러 운영 (Engine1)](#27-수집-파이프라인스케줄러-운영-engine1)
+28. [시세 수집·지표·종목상태 운영 (Engine3)](#28-시세-수집지표종목상태-운영-engine3)
+29. [백테스트·신호 정확도·신호 생성 (Engine3)](#29-백테스트신호-정확도신호-생성-engine3)
+30. [졸업 게이트·감사 로그 (Engine5)](#30-졸업-게이트감사-로그-engine5)
+31. [운영·관측 (Ops·Health·Storage)](#31-운영관측-opshealthstorage)
+- [부록 A. Rate Limiting](#부록-a-rate-limiting) / [부록 B. 푸시 알림 Payload](#부록-b-푸시-알림-payload)
 
 ---
 
@@ -25,12 +41,17 @@
 ### Base URL
 ```
 Development: http://localhost:3000/api
-Production: https://api.dart-notification.com/api
+Production:  https://168.138.198.152.nip.io/api
 ```
 
+- Production은 OCI 2-micro(micro1 앱 + micro2 DB) 위에서 Caddy + Let's Encrypt(nip.io 도메인)로 HTTPS 서빙한다 (v0.1.1 라이브).
+- Swagger 문서: `{BaseURL 호스트}/api/docs`
+
 ### 인증 방식
-- **JWT Bearer Token** (대부분의 API)
+- **JWT Bearer Token** (쓰기·개인화 API)
 - Authorization Header: `Bearer {accessToken}`
+- 정식 로그인 수단은 **카카오 OAuth**(§1.5~1.7). 이메일 회원가입/로그인(§1.1~1.2)은 dev/test 전용.
+- 다수의 읽기 전용·비개인 데이터 API는 `OptionalJwt`(게스트 열람 가능) 또는 무가드(공개)다 — 각 엔드포인트에 표기.
 
 ### 공통 Response Format
 
@@ -72,7 +93,9 @@ Production: https://api.dart-notification.com/api
 
 ## 1. 인증 (Auth)
 
-### 1.1 회원가입
+> **정식 로그인은 카카오 OAuth**(§1.5~1.7, Kakao OAuth + JWT Access/Refresh). 이메일 회원가입/로그인(§1.1~1.2)은 **dev/test 전용**(테스트 계정·개발 편의·dev-login 딥링크)으로 유지한다.
+
+### 1.1 회원가입 (dev/test 전용)
 
 **Endpoint**: `POST /auth/signup`
 
@@ -116,7 +139,7 @@ Production: https://api.dart-notification.com/api
 
 ---
 
-### 1.2 로그인
+### 1.2 로그인 (dev/test 전용)
 
 **Endpoint**: `POST /auth/login`
 
@@ -197,6 +220,94 @@ Production: https://api.dart-notification.com/api
 - `deviceToken`을 전달하면 해당 디바이스의 푸시 토큰을 서버에서 삭제하여 로그아웃 후 알림이 오지 않도록 처리
 
 **Response**: `204 No Content`
+
+---
+
+### 1.5 카카오 로그인 (인가 코드 교환)
+
+**Endpoint**: `POST /auth/kakao`
+
+**Rate Limit**: 10 requests / 분 (IP 기준)
+
+**Request Body**:
+```json
+{
+  "code": "카카오 인가 코드",
+  "redirectUri": "인가 코드 발급에 사용한 리다이렉트 URI"
+}
+```
+
+**처리 흐름**: 카카오 인가 코드 → 카카오 access token 교환(`kauth.kakao.com/oauth/token`) → 카카오 사용자 조회(`kapi.kakao.com/v2/user/me`) → `provider='kakao'` 사용자 find-or-create → JWT Access/Refresh 토큰 발급.
+
+**Response**: `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "clx...",
+      "email": "user@example.com",
+      "name": "홍길동",
+      "createdAt": "2026-03-07T12:00:00Z"
+    },
+    "tokens": {
+      "accessToken": "eyJ...",
+      "refreshToken": "eyJ...",
+      "expiresIn": 900
+    },
+    "isNewUser": true
+  }
+}
+```
+
+**특징**:
+- 카카오가 이메일을 제공하지 않으면 `kakao_{kakaoId}@kakao.user` 합성 이메일로 생성.
+- 신규 가입 시 알림 설정(`NotificationSettings`)을 기본값으로 자동 생성. 기존 사용자는 카카오 닉네임 변경 시 이름 동기화.
+- `isNewUser`: 신규 생성이거나 **관심 기업이 0개**(온보딩 필요)면 `true`.
+
+**Errors**:
+- `401 Unauthorized`: 카카오 인증 실패 (인가 코드 만료·redirectUri 불일치 등)
+
+---
+
+### 1.6 카카오 OAuth 콜백 (브라우저 → 앱 복귀)
+
+**Endpoint**: `GET /auth/kakao/callback?code={인가코드}&state={state}`
+
+모바일 `openAuthSessionAsync` 흐름의 서버 사이드 콜백(정본 패턴, DAR-443). 카카오 개발자 콘솔의 redirect URI는 prod 기준 `https://168.138.198.152.nip.io/api/auth/kakao/callback`.
+
+- **`state` 형식**: `{nonce}~{encodeURIComponent(returnUrl)}` — `returnUrl`은 모바일이 만든 앱 복귀 딥링크(Expo Go `exp://.../--/kakao`, 빌드 `gongsion://kakao`). 파싱 실패 시 `gongsion://kakao` 폴백.
+- **처리**: `code`를 서버 redirectUri(`{API_BASE_URL}/auth/kakao/callback`) 기준으로 교환·로그인 처리 → 결과를 `state` 키로 **5분 TTL 임시 저장** → **HTTP 302 redirect**.
+  - 성공: `Location: {returnUrl}?state={state}` — 앱이 §1.7로 결과를 회수.
+  - 실패: `Location: {returnUrl}?error={사유}` — 로그인 화면이 실패 사유를 표면화.
+- 302 redirect가 정본인 이유: `openAuthSessionAsync`는 returnUrl로의 네비게이션(302 Location 포함)을 OS 레벨에서 가로채 인앱 브라우저를 자동 종료하고 앱으로 복귀시킨다 (HTML+JS custom-scheme 자동 이동은 인앱 브라우저가 차단).
+
+**Response**: `302 Found` (Location: 앱 딥링크)
+
+---
+
+### 1.7 카카오 로그인 결과 조회
+
+**Endpoint**: `GET /auth/kakao/result?state={state}`
+
+콜백(§1.6)이 `state` 키로 저장해둔 로그인 결과를 앱이 회수한다. **일회성**(조회 즉시 삭제)·TTL 5분.
+
+**Response**: `200 OK` (결과 존재 시 — §1.5와 동일한 `{ user, tokens, isNewUser }`)
+```json
+{
+  "success": true,
+  "data": {
+    "user": { "...": "..." },
+    "tokens": { "...": "..." },
+    "isNewUser": false
+  }
+}
+```
+
+결과 없음(만료·미존재·이미 소비):
+```json
+{ "success": false, "data": null }
+```
 
 ---
 
@@ -305,7 +416,7 @@ Production: https://api.dart-notification.com/api
 
 **Endpoint**: `GET /companies/search`
 
-**Headers**: `Authorization: Bearer {accessToken}`
+**인증**: 불요 (게스트 열람 가능)
 
 **Query Parameters**:
 - `query` (required): 검색어 (예: "삼성")
@@ -352,7 +463,7 @@ GET /companies/search?query=삼성&limit=5
 
 **Endpoint**: `GET /companies/:corpCode`
 
-**Headers**: `Authorization: Bearer {accessToken}`
+**인증**: 불요 (게스트 열람 가능)
 
 **Response**: `200 OK`
 ```json
@@ -370,6 +481,18 @@ GET /companies/search?query=삼성&limit=5
 
 **Errors**:
 - `404 Not Found`: 존재하지 않는 기업
+
+---
+
+### 4.3 인기 기업 목록 (온보딩용)
+
+**Endpoint**: `GET /companies/popular`
+
+**인증**: 불요 (게스트 열람 가능)
+
+온보딩 화면에서 관심 기업 첫 등록을 돕는 인기 기업 목록을 반환한다. 응답 형태는 4.1 검색 결과와 동일한 기업 배열.
+
+> 기업별 이벤트 스터디 통계 `GET /companies/:corpCode/event-study`(OptionalJwt)는 §16.3 참조.
 
 ---
 
@@ -556,7 +679,7 @@ GET /companies/search?query=삼성&limit=5
 
 **Endpoint**: `GET /disclosures`
 
-**Headers**: `Authorization: Bearer {accessToken}`
+**인증**: OptionalJwt (게스트 열람 가능)
 
 **Query Parameters**:
 - `page` (optional): 페이지 번호 (기본: 1)
@@ -602,7 +725,7 @@ GET /disclosures?page=1&limit=20&corpCode=00126380
 
 **Endpoint**: `GET /disclosures/:rcpNo`
 
-**Headers**: `Authorization: Bearer {accessToken}`
+**인증**: 불요 (게스트 열람 가능)
 
 **Response**: `200 OK`
 ```json
@@ -632,7 +755,7 @@ GET /disclosures?page=1&limit=20&corpCode=00126380
 
 **Endpoint**: `GET /disclosures/search`
 
-**Headers**: `Authorization: Bearer {accessToken}`
+**인증**: 불요 (게스트 열람 가능)
 
 **Query Parameters**:
 - `q` (required): 검색어 (공시명 또는 기업명)
@@ -752,6 +875,26 @@ GET /disclosures/today-count
 - `count`: 그 날짜의 공시 건수(`rcpDt` 날짜 prefix 일치 기준). 데이터 없으면 `0`.
 
 > `rcpDt`는 `YYYYMMDD` 또는 `YYYYMMDDHHmmss` 혼재 형식이라, 날짜 prefix(앞 8자리) `startsWith`로 동일일을 판정한다(`@@index([rcpDt])` 범위 스캔). 백필 공시 포함 여부와 무관하게 홈 피드와 동일하게 전량 카운트한다.
+
+---
+
+### 7.6 공시 유형 목록 조회
+
+**Endpoint**: `GET /disclosures/types`
+
+**인증**: 불요 (게스트 열람 가능)
+
+필터 UI에 쓰는 공시 유형(정기공시·주요사항보고·발행공시·지분공시·기타공시) 목록을 반환한다.
+
+---
+
+### 7.7 공시 AI 분석 결과 조회
+
+**Endpoint**: `GET /disclosures/:rcpNo/analysis`
+
+**인증**: 불요 (게스트 열람 가능)
+
+Engine2가 산출한 해당 공시의 AI 분석(`DisclosureAnalysis`) — 요약·polarity(극성)·Persona 해석 — 을 반환한다. 분석이 없으면 빈 상태로 흡수(모바일 공시 상세 AI 카드 미표시).
 
 ---
 
@@ -897,48 +1040,6 @@ GET /notifications?category=trade&page=1&limit=20
 
 ---
 
-## 10. Rate Limiting
-
-### 전역 제한
-- **60 requests / 분** (IP 기준)
-
-### 인증 엔드포인트 제한
-- **5 requests / 분** (IP 기준)
-  - `POST /auth/signup`
-  - `POST /auth/login`
-
-### Headers
-```
-X-RateLimit-Limit: 60
-X-RateLimit-Remaining: 45
-X-RateLimit-Reset: 1678190400
-```
-
----
-
-## 11. 푸시 알림 Payload
-
-**Expo Push Notification 형식**:
-```json
-{
-  "to": "ExponentPushToken[...]",
-  "sound": "default",
-  "title": "새 공시: 삼성전자",
-  "body": "주주총회소집공고",
-  "data": {
-    "type": "disclosure",
-    "disclosureRcpNo": "20260307000123"
-  }
-}
-```
-
-**Deep Link**:
-- 앱 내 라우팅: `disclosure/:rcpNo`
-
----
-
----
-
 ## 10. AI 비용 거버넌스 (AI Cost Governance)
 
 > **인증 불필요** (내부 대시보드용 읽기 전용 API). Engine2 `AIUsageLog` 집계 기반.
@@ -1074,6 +1175,16 @@ GET /api/ai-cost/cross-engine
 ```
 
 단위: KRW (1 USD = 1,380원 환산). `aiCostToNetPnlRatio = -1`은 순익 없음.
+
+---
+
+### 10.6 라이브 AI 비용게이트 헬스
+
+```
+GET /api/ai-cost/health
+```
+
+라이브 AI 비용게이트 상시 모니터링 헬스 — 수용기준·한도 충족 플래그를 반환한다(read-only).
 
 ---
 
@@ -1762,6 +1873,10 @@ GET /api/paper-trading/simulation/strategies/comparison   (OptionalJwt — 게�
 `StrategyTrackService` 직렬화는 그 타입과 1:1(DAR-407 정합). `winRate`는 0~1 비율, `equityCurve`는
 `{snapshotDate,totalValue,returnPct}`(모바일 EquityCurvePoint).
 
+★ **승률 통일 정의 (S신뢰/G-1)** — 모든 표면(백테스트 `PerformanceCalculatorService`·모의운용 성적표
+`trade-scorecard`·분봉 단타)에서 **승률 = 순손익>0 거래 / 전체 청산 거래**. 본전(순손익 0)은 승도 패도
+아니며 분모에만 포함(승률 과대표시 방지). 패 카운트(`lostTrades`/`lossCount`)는 순손익<0 만 집계.
+
 ★ **자산곡선 일별 flat-fill (DAR-412)** — `equityCurve`(원천 `backtest-equity-curve.ts buildEquityCurve`)는
 평가액이 변동하는 청산일마다 **"그 직전 달력일"에 변동 직전 평가액을 유지하는 flat 앵커 점**을 함께
 넣는다. 거래가 없던 구간이 직선 보간으로 뭉개지지 않고 **평평(원금/직전 평가액 유지) → 청산 시점
@@ -2036,5 +2151,315 @@ GET /api/paper-trading/simulation/intraday-scalp/trade-history   (게스트 허�
 
 ---
 
-**작성일**: 2026-06-24
-**버전**: 1.29 (평가자료·인과코퍼스 §16.4 — DAR-379: 공시별 [AI/Rule 사전평가(극성·신뢰도·AI분석 유무) + 실현 EventStudy 사후결과(D+5/D+20 누적초과수익) + 일치/괴리 라벨]을 결합한 라벨 코퍼스를 이벤트유형별로 집계하는 `GET /api/backtest/evaluation-corpus`(게스트 열람) 추가 — `DisclosureEvent ⨝ DisclosureAnalysis ⨝ EventStudyObservation` 을 `rcpNo` 로 결합한 read-time 파생 뷰(마이그레이션 불요)·사전 극성(POSITIVE+1/NEGATIVE-1/MIXED·UNKNOWN 0)이 사후 실현 AR 부호를 맞히면 AGREE/불일치 DIVERGE/실현결과 없음·방향예측 없음·정확히 0 은 NEUTRAL(과신 방지)·`hitRate=AGREE/(AGREE+DIVERGE)`·AI 커버리지와 실현 커버리지 분리 집계로 calibration 통계근거 산출·일봉 윈도가 깊어질수록 실현 커버리지 상승(★데이터축적A 의존)·read-only 집계(신규수집·외부호출·AI 개입 0)·★AI 금지영역 불가침(코퍼스는 참고 평가자료일 뿐 주문 직접결정 금지, Buy/Exit Score=Rule 공식·Risk·체결=Engine5 독립, `disclaimer=CORPUS_REFERENCE_ONLY` 명시; 분봉 단타 청산 시각 timebase 통일 §19.2 — DAR-435: 단타 거래 카드에서 진입>청산 시각역전·`holdMinutes=0`(CLOSED 전건)·장외 19:14 류 표시 버그 해소 — 근본원인은 `entryTs`(분봉 KST 벽시계를 UTC 컴포넌트에 담은 naive instant)와 `exitTs`(`new Date()` 진짜 UTC instant)의 **timebase 불일치**(9시간 어긋남)였음. **① 청산 ts 통일** — `closePosition`/`forceCloseAll` 가 `exitTs: now` 대신 진입 거래일(`trade.tradeDate`) 기준 청산 KST 벽시계 분봉 ts(`minuteTimestamp(tradeDate, hhmm(now)) ?? now` graceful 폴백)로 영속해 entryTs 와 동일 naive-KST timebase 로 정렬(날짜 경계 교차 차단); **② holdMinutes 재계산** — `exitTsKst − entryTs` instant 차(동일 timebase → 정확한 분 차, 0 clamp 소멸); **③ 직렬화 계약 고정** — `getTradeHistory` 가 `entryTs`/`exitTs` 를 `toISOString()`(UTC `Z`) 대신 **`+09:00` 오프셋 명시 ISO**(`kstWallClockIso`, `minute-timestamp.ts` 신규)로 직렬화 → 모바일 `new Date(iso)`+Asia/Seoul 변환의 **이중 오프셋(+9 중복→19:14)** 해소(모바일 무변경); 진입 경로는 항상 분봉 충족봉 `scan.candle.ts` 사용을 회귀로 봉인(`new Date()` 진입 영속 금지); 스키마·마이그 무변경(신규 거래부터 정상화·과거 19행은 별도 백필 후속)·AI 금지영역 불침범·Engine5 독립성 유지; BE tsc0·build0·engine5+market-data jest 736/736(신규: 청산 timebase·진입 회귀·`kstWallClockIso` 단위 spec) 회귀0; 1.27 알림 메시지 전략 재설계 §20.1 — DAR-432: 푸시·인앱 알림을 **출처별 고유 이모지+출처명**으로 한눈 구분·한 줄 이해·탭→상세(DAR-431 딥링크)로 재설계 — be↔fe **출처 SSOT 공유**(`notification-source.ts`↔`notificationSource.ts`, parity 체크 `check-notification-sources.ts`): 📢 공시·📈 매수신호·🔻 청산·⚠️ 논리훼손·🤖 모의·⚡ 단타·🎯 이벤트엣지·🛡️ 보수가치·🚀 단기모멘텀·💥 공격분산(미상 🔔 폴백·이모지 고유); 체결 title `{이모지} {출처명} · {종목명} 매수/매도 {±%}`·body 핵심 수치 한 줄(`₩{가}×{수량}·잔액`/`손익 {±%}({사유})·평가금`), 신호 `📈 {기업명} 매수신호 {등급(한국어)}`·`{점수}점·{근거}`, 공시 `📢 {기업명}·{공시유형}`(DAR-430 채널·DAR-431 딥링크 data 동봉); **`[ ]`대괄호 전면 제거**(이모지+`·` 구분, DAR-430 정합); 모바일 알림탭은 비공시는 백엔드 title 그대로·공시 행은 조인 데이터에 📢 SSOT 프리픽스; 스키마·마이그 무변경(문자열 템플릿만)·AI 무관; 1.26 알림 카테고리화 §8.1 — DAR-430: 푸시·인앱 알림을 3 버킷(공시/신호/체결)으로 카테고리화 — **Android 알림 채널 3개**(`disclosure`/`signal`/`trade`) 앱 시작 시 `setNotificationChannelAsync` 등록(공시=DEFAULT·신호/체결=HIGH·소리)·백엔드 `NotifyConsumer.sendPush` 가 NotificationType→카테고리→`channelId` 산출해 Expo Push `channelId`+`data.channelId` 지정 → OS 가 채널별 그룹화·누적·중요도 분리·iOS 는 무시(인앱 아이콘/필터 폴백); **체결 알림 제목 `[전략]` 프리픽스 제거**('[분봉 단타] 삼성전자 매수'→'삼성전자 매수')·출처는 본문 앞(`분봉 단타 · 체결…`)+`data.source`/`data.strategyKey` 로 전달; `GET /notifications?category=disclosure|signal|trade` 필터 파라미터 추가(category>type 우선·버킷 IN 조회)·응답 `meta.unreadByCategory`(3 버킷 미읽음 합산) 추가; 모바일 알림탭 상단 카테고리 칩(전체·공시·신호·체결) 필터·행 단위 타입 아이콘/색/라벨은 DAR-161 유지; 스키마 무변경(NotificationType enum 재사용·마이그 불요); 1.25 체결 알림 딥링크 라우팅 + 전략별 트랙 식별 §20 — DAR-431: 체결 알림 탭이 '포트폴리오 루트'로만 가던 버그 해소 — 시스템 모의 deepLink 를 `/portfolio`→**`/portfolio?tab=sim`**(포트폴리오 '시스템 모의' 서브탭 직행)으로 고정·분봉 단타는 기존 `/portfolio/strategy/intraday-scalp` 유지(둘 다 `@utils/deeplink` `/portfolio` prefix 화이트리스트 통과·루트 폴백 X); 푸시 `data` 에 `strategyKey`·`strategyName` 동봉(`NotifyConsumer.sendPush` extraData·빈 값 제외·legacy 호환)으로 클라이언트 전략별 라우팅/필터 지원; 포트폴리오 화면이 딥링크 `?tab=` 파라미터를 초기 서브탭으로 해석(`resolveInitialSubTab` — 허용 목록 밖/미지정은 `live` 폴백, 마운트 후 새 딥링크도 render-phase 동기화); 트랙 SSOT `@utils/tradeTracks`(5+1트랙 key/label/deepLink·`trackByKey`/`trackByDeepLink` 역식별·라이브 발행=단타·시스템 모의 2종만, 4전략은 백테스트 전용 드릴다운 경로만); 알림 제목 `[{전략}]` prefix 로 인박스 트랙 식별(기존)·트랙별 분리 조회는 포트폴리오 시스템 모의/전략 탭+드릴다운(기존); 인앱 알림 탭 전략 서브필터는 DAR-430 카테고리 세그먼트 합성으로 후속; 스키마 변경 0·실주문 0·AI 금지영역 불침범; BE tsc0·notifications jest 31/31(신규1)·engine5 paper-sim 264/264 회귀0; mobile tsc0·eslint0err·결정론 `check-trade-deeplink-routing` 45/45·`check-portfolio-tabs` 14/14 회귀0; 1.24 (시스템 모의 클린 리셋 §21 — DAR-429: `POST /api/paper-trading/simulation/reset`(JWT 필수 + `body.confirm="RESET"` 필수 — 휴먼 승인 게이트·cron 자동호출 0) 추가 — 과레버리지(DAR-426 이전 현금 -11.3M·자본초과)+리베이스로 오염된 시스템 모의 이력을 제거하고 초기상태(현금=초기자본 10,000,000·OPEN 0)로 복원('원칙만 남기고 다시 시작'); ★해당 sim 유저(`paper-sim@system.local`)의 단일 포트폴리오 범위 DELETE 만(DB 전역 파괴 금지) — `Position`(portfolioId 가드, `PositionDailySnapshot`·`ExitSignal` 캐스케이드)+`PaperTrade`(sim `positionThesisId` 한정·타 트랙 무침범)+`PortfolioRiskSnapshot`+`SignalEntryFunnelDaily`(portfolioId 범위); 멱등(재실행 0건·현금 10M 유지)·`$transaction` 전부-or-전무(부분실패 롤백); 현금은 파생 SSOT(`초기자본+실현손익−보유진입원가`)라 Position 삭제 시 10M 자동 복원; 리셋 후 cron 은 현금가드(DAR-426)+매수기준(`SIM_MIN_ENTRY_GRADE`/`buyScore`) 적용 상태로 0포지션·10M 에서 원칙적 재누적; 단타(intraday-scalp)는 별개(리셋 대상 아님)·동일 현금가드 이미 적용(`15% < 100%` 구조 안전+`cash≥0` enforce 재확인); 스키마 변경 0(데이터 정리만)·AI 금지영역 불침범·실주문 0; 1.23 (라이브 페이퍼 체결 알림 §20 — DAR-424: 모의투자 체결(분봉 단타·시스템 모의 진입/청산)을 종목별로 통지 — `NotificationType.TRADE_ENTRY`/`TRADE_EXIT` 추가(비파괴 enum ADD VALUE)·`NotificationSettings.tradePushEnabled` 토글(기본 ON·OFF면 인박스·푸시 모두 생략) 추가·엔진5 체결 직후 `NotificationProducerService.enqueueTradeEntry/Exit`→`QUEUE.NOTIFY`(`notify.trade-entry`/`notify.trade-exit`)→`NotifyConsumer`가 실 사용자 전원 브로드캐스트(합성 시스템 유저 제외)로 인박스 적재+Expo Push(토글 ON+master+토큰 시)·매수=체결가·수량·현금·평가금/매도=+손익%·청산사유 본문·멱등 `(userId,type,refId)`·발행 graceful(체결 무파손)·AI 금지영역 불침범; 모바일 인앱 알림 탭 TRADE 타입 렌더+설정 '체결 알림' 토글; 4종 백테스트 replay는 라이브 이벤트 아님 제외; 1.22 인트라데이 거래일 분리 §19 — DAR-423: 장중 분봉/단타 `tradeDate`가 어제로 라벨되던 버그 해소 — 일봉 발행 기준 `resolveLatestAvailableTradeDate()`(장중 '오늘 일봉 미게시'→직전 거래일)를 분봉/단타가 그대로 써서, 장중인데도 분봉/단타 보유가 어제(예 6/22) 기준으로 표시됐음. **인트라데이 전용 해석기 `resolveIntradayTradeDate()` 분리** — 평일이고 KST 개장(≥09:00)이면 오늘(today), 장외(개장 전·주말·휴장)면 직전 거래일 폴백; 분봉 수집기 `collectOnce`·단타 `resolveTradeDate`(진입·청산·강제청산·유니버스)가 이 해석기로 정렬; 일봉 resolver는 **무변경**(일봉 수집·EventStudy 등 일봉 맥락 유지·이중 의미 분리); 실제 휴장은 KIS 빈 분봉→유니버스 비고 거래 0 graceful; 이미 수집된 어제 라벨 데이터는 마이그레이션 불요(신규부터 today); 1.21 '최신 공시' 라벨 명확화 §7.5 — DAR-422: 모바일 홈 요약 카드 라벨을 '오늘의 공시 (MM/DD)'→**'최신 공시 (MM/DD)'**로 변경 — DART 공시 데이터 최신일(예 06/19)이 달력 today(예 06/23)보다 뒤처질 수 있어(주말·미게시 지연) '오늘' 표현이 '오늘은 today인데 왜 6/19?' 혼란을 유발했음. 집계 로직·`GET /disclosures/today-count` 응답(`date`/`count`)·숫자(건수) 모두 무변경 — 라벨/문구·accessibilityLabel('최신 공시 MM/DD 기준 N건')만 변경; 1.20 '오늘의 공시' 최신 가용일 집계 §7.5 — DAR-420: `GET /disclosures/today-count`(게스트 허용) 추가 — '오늘' = 최신 가용 공시일(`max(rcpDt)`의 날짜) 건수 반환(전체 누적 137만도, 환경시계 today 0건도 아님; 날짜 prefix `startsWith` 동일일 판정) + 모바일 홈 요약 카드 '오늘의 공시'가 무한쿼리 `meta.total`(전체 누적) 대신 이 집계를 사용·라벨에 최신일(MM/DD) 보조표기; 1.19 분봉 단타 수수료 인지 거래 §19 — DAR-418: TP/SL 청산 임계를 **순(net) 기준**으로 환산 — gross 가격수익률에서 왕복 거래비용율(`2·수수료+매도세+2·슬리피지=0.31%`, 체결 파라미터 `FillParams`에서 `roundTripCostPct()` 산출 SSOT)을 차감한 net 수익률로 익절 +2%/손절 -1.2% 판정(순 +2% 익절=gross +2.31%·순 -1.2% 손절=gross -0.89%로 과손실 방지)·`gross +2%` 소액 익절이 수수료에 먹혀 net +1.69% 적자전환하던 문제 차단; 진입 fee 허들 게이트(기대이동 < 왕복비용+최소마진 0.3% 면 진입 보류); 표시 투명화 — `status`에 `roundTripCostPct`·`takeProfitNetPct`·`stopLossNetPct`·`totalFees`, `trade-history`에 `roundTripCostPct`·행별 `grossReturnPct`·`netReturnPct`·`totalFees` 노출, 모바일 카드/타임라인 '순수익(수수료 후)' 명시; 15:20 강제청산·당일청산·리스크 하드룰 무변경; 1.18 분봉 단타 응답 계약 래핑 §19.1·§19.2 — DAR-417: `intraday-scalp` `status`·`trade-history` 컨트롤러 반환을 `{ success, data }` 로 래핑(strategy-track 등 전 엔드포인트 일관) — 모바일 `simulation.service.ts` 가 `r.data.data` 로 추출하는데 래핑이 없어 `r.data.data`=undefined → React Query `Query data cannot be undefined` 로 '전략' 탭 단타 트랙 카드가 로드 실패하던 블로킹 버그 해소; 1.17 분봉 단타 거래 타임라인 §19.2 — DAR-416: `GET /intraday-scalp/trade-history`(최신 진입순·종목명 결합·OPEN 청산필드 null·게스트 허용) 추가 + 모바일 '전략' 탭 단타 트랙 표면화(`IntradayScalpSection` 별도 섹션·`intraday-scalp.tsx` 드릴다운·실시간 모의/백테스트 불가 시각 구분); 1.16 분봉 단타 진입평가 윈도우 스캔 §19 — DAR-415: 진입 평가가 최신 1봉이 아니라 직전 사이클 이후 도착 분봉 윈도우 전체를 순회(engine3 `scanEntrySignals(candles, fromIndex)` point-in-time 첫 충족봉)·engine5 종목별 스캔 커서로 중복평가 차단·종목당 1라운드트립(OPEN/CLOSED) 과진입 차단·진입ts=충족봉 시각 — 10분 간격 평가가 사이클 사이 충족 순간을 놓쳐 거래 0이던 버그 해소; 1.15 분봉 단타 tradeDate SSOT 정렬 §19 — DAR-414: 단타 진입·청산·강제청산·유니버스가 분봉 수집기와 동일 해석기(`resolveLatestAvailableTradeDate()`, KRX 실 가용 거래일)로 거래일을 해석 — 환경시계 today 직접사용 제거로 분봉 라벨 불일치(거래 0) 버그 해소; 1.14 자산곡선 일별 flat-fill — DAR-412: backtest `buildEquityCurve` + 분봉 단타 `equityCurve` 가 변동 청산일마다 직전 달력일 flat 앵커를 추가해 거래 없는 구간 직선 보간 제거(평평→계단)·4종 전략·단타 동일 적용·표본0/저표본 graceful 유지; 1.13 분봉 단타 트랙 §19 — DAR-411: 분봉(stock_minute_prices) 기반 당일 진입·당일 청산 forward-only 페이퍼 트랙 — 거래량 폭발+돌파+VWAP 3조건 진입·익절+2%/손절-1.2%/15:20 강제청산·engine5 Risk 하드룰·★실주문 0·전용 status 엔드포인트·백테스트 불가 graceful; 1.12 전략 변형 트랙 §18 — DAR-404: 시스템 트레이딩 전략 변형 4종 다중 트랙 비교/거래내역/갱신 엔드포인트·strategyKey 그룹핑·누적수익 ranking·게스트 데모; 이벤트 스터디 분포 §16.2-b — DAR-402: 버킷 D+N 초과수익 분포(평균/중앙값/분위수) 산출로 이상치 오염 표면화 + event_study_results robust 컬럼(median/winsorized) 추가·신호 스코어 event edge 강건화; 1.11 구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)
+## 21. 시스템 모의운용 (Paper Simulation, Engine5)
+
+M10 30일 모의운용의 정본 트랙. **전역 단일 시스템 모의**(합성 시스템 유저 `provider='system'`)라 사용자별 분기가 없다 — 조회는 게스트 데모(OptionalJwt), 실행/리셋 등 쓰기는 JWT 필수. persona 4종 분기 운용은 §11, 전략 변형 4종 트랙은 §18, 분봉 단타는 §19 참조.
+
+### 21.1 시스템 모의 기본 트랙
+
+| 엔드포인트 | 인증 | 요약 |
+|---|---|---|
+| `GET /paper-trading/simulation/status` | JWT | 모의운용 누적 졸업지표·포트폴리오 진척 조회 |
+| `GET /paper-trading/simulation/equity-curve` | OptionalJwt | 모의 자산곡선(일별 평가금액 시계열) + 졸업 진척 |
+| `GET /paper-trading/simulation/trade-history` | OptionalJwt | 모의 매매 사유 추적 + 성적표 — 진입/청산 근거·승률·평균손익·누적수익률 |
+| `POST /paper-trading/simulation/run-once` | JWT | 모의운용 1일치 사이클 수동 실행(매수→스냅샷→Exit→지표) |
+| `POST /paper-trading/simulation/reset` | JWT | 시스템 모의 클린 리셋(DAR-429) — 아래 상세 |
+| `GET /paper-trading/portfolio` | JWT | 모의투자 포트폴리오 조회 |
+
+**시스템 모의 클린 리셋 (DAR-429)** — `POST /paper-trading/simulation/reset`은 **body `{ "confirm": "RESET" }` 필수**(휴먼 승인 게이트·cron 자동호출 0). 오염된 모의 이력을 제거하고 초기상태(현금 = 초기자본 10,000,000·OPEN 0)로 복원한다. 해당 sim 유저의 단일 포트폴리오 범위 DELETE만 수행(DB 전역 파괴 금지)·멱등·`$transaction` 전부-or-전무. 단타(intraday-scalp)는 별개 트랙이라 리셋 대상이 아니다.
+
+### 21.2 철학 스타일별 모의운용 (Philosophy Style Simulation)
+
+| 엔드포인트 | 인증 | 요약 |
+|---|---|---|
+| `GET /paper-trading/simulation/styles/comparison` | OptionalJwt | 철학 스타일별 모의운용 성과 비교 — 스타일별 자산곡선·승률·누적수익·졸업지표 |
+| `POST /paper-trading/simulation/styles/run-once` | JWT | 철학 스타일별 1일치 사이클 수동 실행(스타일×4 분기 운용) |
+
+---
+
+## 22. 포트폴리오·포지션 (Portfolio, Engine4)
+
+활성 포트폴리오·포지션·투자 논리(Position Thesis)·청산 신호(ExitSignal)의 읽기 전용 조회. 모두 JWT 필수.
+
+| 엔드포인트 | 요약 |
+|---|---|
+| `GET /positions` | 보유 포지션 목록 조회 (OPEN) |
+| `GET /positions/:id` | 단일 포지션 조회 |
+| `GET /positions/:id/thesis` | Position Thesis(투자 논리) 조회 |
+| `GET /positions/:id/exit` | 최신 ExitSignal 조회 |
+| `GET /portfolio/summary` | 활성 포트폴리오 요약 조회 |
+| `GET /portfolio/risk/latest` | 최신 리스크 스냅샷 조회 — 상세는 §14 |
+
+---
+
+## 23. 저장한 공시 (Saved Disclosures)
+
+사용자가 나중에 보려고 저장(북마크)한 공시. 모두 JWT 필수.
+
+| 엔드포인트 | 요약 |
+|---|---|
+| `GET /saved-disclosures` | 저장된 공시 목록 조회 |
+| `POST /saved-disclosures` | 공시 저장 — body `{ "rcpNo": "20260306000885" }` (14자리 숫자, DAR-282 형식 검증) |
+| `DELETE /saved-disclosures/:id` | 저장된 공시 삭제 (by id) |
+| `DELETE /saved-disclosures/rcpNo/:rcpNo` | 저장된 공시 삭제 (by rcpNo) |
+| `GET /saved-disclosures/check/:rcpNo` | 공시 저장 여부 확인 |
+
+---
+
+## 24. 투자 철학 (Philosophy, Engine2)
+
+거장 철학(P-A 시드) × 종목 적합도(0~100, 결정론적 Rule 산출). 모두 읽기 전용·교육/발견 가치 → **OptionalJwt(게스트 열람 가능)**.
+
+| 엔드포인트 | 요약 |
+|---|---|
+| `GET /philosophies` | 투자자 철학 목록 (P-A 시드 — 지표·출처 포함) |
+| `GET /philosophies/:id/fit?corpCode={8자리}&fsDiv=CFS\|OFS` | 철학 1종 × 종목 적합도(0~100) + 통과/미달 근거. `corpCode` 필수(누락 시 400), `fsDiv` 기본 `CFS` |
+| `GET /companies/:corpCode/philosophy-fit?fsDiv=` | 종목 × 거장별 적합도 (전체 철학, 점수 내림차순) |
+| `GET /companies/:corpCode/persona-philosophy-fusion` | 종목 × 거장 철학 × AI 관점 결합 (결합점수·근거·표본·신뢰도) — 순수 Rule 결합, AI 신규 호출 0 |
+
+---
+
+## 25. 재무지표·내부자 지분 (Financials·Insider Holdings, Engine1)
+
+### 25.1 재무지표 (Financials)
+
+| 엔드포인트 | 인증 | 요약 |
+|---|---|---|
+| `GET /financials/latest?corpCode={8자리}&fsDiv=CFS\|OFS` | OptionalJwt | 기업 최신 재무지표 조회 (종목 상세 펀더멘털 카드, DAR-96 — 게스트 열람) |
+| `POST /financials/collect?bsnsYear=&reprtCode=&fsDiv=&limit=&scope=` | JWT | 재무지표 수동 수집 (DART 재무제표 → `CompanyFinancial`, 멱등) |
+| `POST /financials/backfill?bsnsYears=&fsDiv=&limit=&scope=` | JWT | 재무지표 분기 시계열 백필 (reprtCode 11011~11014 × 연도, 멱등) |
+
+### 25.2 내부자/대량보유 지분변동 (Insider Holdings)
+
+```
+GET /api/insider-holdings   (OptionalJwt — 게스트 열람)
+```
+
+| 쿼리 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `corpCode` | string | 선택 | 기업 필터 |
+| `tradeType` | string | 선택 | 순매수 방향 (`BUY` \| `SELL` \| `MIXED` \| `UNKNOWN`) |
+| `source` | string | 선택 | 출처 (`MAJOR_STOCK` 대량보유 \| `EXECUTIVE` 임원·주요주주) |
+| `from` / `to` | string (YYYYMMDD) | 선택 | 기간 필터 |
+| `page` / `limit` | number | 선택 | 페이지네이션 |
+
+---
+
+## 26. 공시 원문 파싱·정량 팩트·이벤트 (Engine1)
+
+### 26.1 공시 원문 파싱 (document-parsing) — JWT 필수(운영)
+
+| 엔드포인트 | 요약 |
+|---|---|
+| `POST /document-parsing/parse/:rcpNo` | 단건 공시 원문 파싱 (수동 트리거) |
+| `POST /document-parsing/batch` | PENDING 상태 배치 파싱 |
+| `POST /document-parsing/retry` | 파싱 실패 건 재처리 큐 강제 실행 |
+| `GET /document-parsing/stats` | 파싱 상태 현황 집계 (ParseStatus별 건수) |
+| `GET /document-parsing/:rcpNo` | 파싱 결과 단건 조회 (rawText 제외) |
+| `POST /document-parsing/facts/backfill` | `DartFiledFact` 일괄 backfill (DONE 문서 소급 적재) |
+| `POST /document-parsing/facts/:rcpNo` | 단건 공시 정량 fact 적재 (parsedJson → `DartFiledFact`) |
+| `GET /document-parsing/facts/:rcpNo` | 단건 공시 적재 fact 조회 (factKey 정렬) |
+
+### 26.2 공시 본문 정량 fact 조회 (게스트)
+
+```
+GET /api/disclosure-facts/:rcpNo   (인증 불요 — 공시 상세 화면 소비용, DAR-112)
+```
+
+공시 본문에서 추출·적재된 정량값(계약금액·전환가·배당성향 등)을 rcpNo 단위로 반환한다(read-only). 추출 fact가 없으면 빈 배열(화면 빈 상태 분기).
+
+### 26.3 공시 이벤트 (disclosure-events)
+
+| 엔드포인트 | 인증 | 요약 |
+|---|---|---|
+| `GET /disclosure-events?corpCode=&eventType=&extractionStatus=&page=&limit=` | 불요 | 이벤트 목록 조회 (필터·페이지네이션) |
+| `GET /disclosure-events/:rcpNo` | 불요 | 단건 이벤트 조회 |
+| `POST /disclosure-events/extract/:rcpNo` | JWT | 단건 이벤트 추출 (수동 트리거) |
+| `POST /disclosure-events/batch?limit=` | JWT | 미처리 이벤트 일괄 추출 |
+| `POST /disclosure-events/reprocess?limit=` | JWT | 신규 extractor 재추출 |
+
+---
+
+## 27. 수집 파이프라인·스케줄러 운영 (Engine1)
+
+운영/내부용 트리거·리포트. **모두 JWT 필수.**
+
+### 27.1 공시 수집 스케줄러 (scheduler)
+
+| 엔드포인트 | 요약 |
+|---|---|
+| `POST /scheduler/collect` | 공시 수동 수집 (날짜 지정) |
+| `GET /scheduler/collection-logs` | 공시 수집 이력 조회 (최근 50건) |
+| `GET /scheduler/backfill-coverage` | 연속 과거 확장 백필 커버리지(read-only) — 최소·최대 rcpDt·총건수·프런티어·하한 도달 여부 |
+| `POST /scheduler/backfill-extend` | 연속 과거 확장 백필 1회 실행 (멱등·쿼터 인지·알림 미발송, cron과 동일 경로) |
+
+### 27.2 파이프라인 운영 (pipeline)
+
+| 엔드포인트 | 요약 |
+|---|---|
+| `GET /pipeline/health` | 수집→파싱→이벤트→AI 단계별 건수·지연·실패 행 스냅샷 (read-only) |
+| `GET /pipeline/drain-progress` | 문서 파싱 DONE%·잔여 백로그·ETA (DAR-392, read-only) |
+| `POST /pipeline/drain` | 폐루프 누락분 backfill 1회 실행 (멱등 — 누락문서 큐등록→PENDING 파싱→무이벤트 추출, AI는 자동 체이닝) |
+| `POST /pipeline/reprocess-ai` | AI summary 미도달 자격 이벤트(SUCCESS\|NEEDS_REVIEW) 큐 재발행 (운영자 수동 전용·멱등) |
+| `GET /pipeline/event-coverage` | rcpDt 월(YYYYMM)별 이벤트 추출 커버리지 분포 (read-only) |
+| `POST /pipeline/event-backfill` | 과거 백필 공시 이벤트 추출 1회 실행 (멱등·Rule 추출·AI 신규 호출 0) |
+| `GET /pipeline/rawtext-offload-progress` | rawText 오프로드 진행 리포트 — 잔여/완료율·활성 드라이버(s3\|local) |
+| `POST /pipeline/rawtext-offload` | 과거 rawText → 객체 스토리지(S3/로컬) 1회 오프로드 (멱등·DB 컬럼 비움) |
+| `GET /pipeline/tables-offload-progress` | tables 오프로드 진행 리포트 — 잔여/완료율·활성 드라이버 |
+| `POST /pipeline/tables-offload` | 과거 tables → 객체 스토리지 1회 오프로드 (멱등·DB 컬럼 비움) |
+
+---
+
+## 28. 시세 수집·지표·종목상태 운영 (Engine3)
+
+### 28.1 KRX/KIS 시세 수집·백필 (market-data) — JWT 필수(운영)
+
+읽기 전용 시세 조회(quote·minute-candles·candles·indices/latest)는 §13·§15·§17 참조.
+
+| 엔드포인트 | 요약 |
+|---|---|
+| `POST /market-data/collect/daily` | KRX 일봉 수동 수집 (날짜 지정) |
+| `POST /market-data/collect/indices` | KRX 시장지수 수동 수집 |
+| `POST /market-data/backfill/indices` | 시장지수 히스토리 백필 |
+| `POST /market-data/collect/status` | KRX 종목상태 수동 수집 |
+| `POST /market-data/collect/all` | KRX EOD 통합 수집 (일봉+지수+종목상태) |
+| `POST /market-data/collect/catch-up` | KRX 일봉·지수 캐치업 — 마지막 적재일~최신 가용 거래일 갭 멱등 백필 (DAR-375, KRX 프로브로 정체 극복) |
+| `POST /market-data/sync-company-markets?basDd=` | KRX 기준정보로 `company.market` KOSPI/KOSDAQ 분류·백필 (DAR-328, 멱등) |
+| `POST /market-data/backfill/daily` | KRX 히스토리컬 일봉 백필 (과거 N거래일, 멱등) |
+| `POST /market-data/backfill/deep?days=` | KRX 일봉 과거 깊이 백필 — 가장 오래된 적재일부터 더 과거로 (DAR-376, 재개 가능·멱등, 기본 120거래일) |
+| `POST /market-data/collect/minute-prices` | 분봉 수동 수집 — §13.3 참조 |
+| `GET /market-data/coverage` | 일봉 적재 커버리지·갭 리포트 (DAR-376) — 유니버스 대비 누락 종목·거래일 범위·총 행수 |
+| `GET /market-data/collection-logs` | 시세 수집 이력 조회 (최근 20건) |
+
+### 28.2 기술지표 백필 (indicators)
+
+```
+POST /api/indicators/backfill   (JWT 필수)
+```
+
+DB 일봉 → `technical_indicators` 기술지표 백필 (멱등).
+
+### 28.3 종목 위험상태 (stock-status)
+
+```
+GET /api/stock-status/risk?corpCode=&stockCode=   (OptionalJwt — 게스트 열람)
+```
+
+관리종목·거래정지·상폐위험 조회 (DART 공시 폴백·근사값, 손실 회피 1차 방어선, DAR-99).
+
+---
+
+## 29. 백테스트·신호 정확도·신호 생성 (Engine3)
+
+### 29.1 1년 리플레이 백테스트 (backtest)
+
+| 엔드포인트 | 인증 | 요약 |
+|---|---|---|
+| `POST /backtest/replay` | JWT | 1년 자동매매 point-in-time 리플레이 실행 + 트랙레코드 저장 (미래모름 백테스트) |
+| `GET /backtest/track-record` | OptionalJwt | 최신 1년 백테스트 트랙레코드 조회 (게스트 데모) |
+| `GET /backtest/track-record/:id` | OptionalJwt | id별 트랙레코드 조회 (게스트 데모) |
+
+### 29.2 신호 사후검증·보정 (signal-accuracy) — OptionalJwt
+
+공통 쿼리: `limit`·`eventType`·`signalGrade`.
+
+| 엔드포인트 | 요약 |
+|---|---|
+| `GET /backtest/signal-accuracy` | 신호 사후검증 — 등급·스코어구간·eventType별 D+5/D+20 실현 초과수익 정밀도 |
+| `GET /backtest/calibration` | 신호 보정 루프 — 실현 초과수익 vs `EVENT_BASE_SCORES` 괴리·권장 delta (diff형 권고, **자동적용 금지**) |
+| `GET /backtest/feature-ab` | 피처 A/B 백테스트 — 성장률/DartFiledFact/내부자 피처 포함 vs 미포함 재채점 비교 (증거 리포트, **가중치 자동변경 금지**) |
+| `GET /backtest/evaluation-corpus` | 평가자료·인과코퍼스 — §16.4 참조 |
+
+### 29.3 신호 생성 운영 (signal-generation) — JWT 필수
+
+| 엔드포인트 | 요약 |
+|---|---|
+| `POST /signals/generate` | 매수 신호 수동 생성 (대상: 이벤트+시세 있고 `TradingSignal` 없는 공시) |
+| `POST /signals/regenerate` | 매수 신호 재생성·재채점 (기존 신호 upsert 갱신 — TI 백필 후 chart/entryReady 반영, DAR-50) |
+| `POST /signals/generate-backfill` | 과거(백필) 공시 point-in-time 신호 백필 (분석·백테스트용 — 가격≤rcpDt as-of, 멱등, AI 미개입, DAR-389) |
+
+---
+
+## 30. 졸업 게이트·감사 로그 (Engine5)
+
+| 엔드포인트 | 인증 | 요약 |
+|---|---|---|
+| `GET /graduation/metrics` | OptionalJwt | 졸업 게이트(G1 적중률·G2 누적수익·G3 AI비용/순익·G5 Exit정확도) 현재값 vs 기준·통과여부·표본수 + 30일 모의운용 진행률(경과/잔여일·측정대기) |
+| `GET /graduation/funnel` | OptionalJwt | 신호→진입 퍼널(DAR-109) — 당일 생성 신호→후보 통과→체결의 일별·누적 전환율(채택률·체결률·신호→체결). 졸업 표본 누적 모니터링 |
+| `GET /trading/audit-logs?from=&to=&actorKind=&action=&orderRequestId=&page=&limit=` | JWT | 거래 감사로그 조회 (DAR-351, 운영자용) |
+| `GET /trading/auto-status` | OptionalJwt | 자동매매 실행상태(읽기전용 투명성) — 상세는 §11.4 |
+
+---
+
+## 31. 운영·관측 (Ops·Health·Storage)
+
+### 31.1 헬스체크 (인증 불요)
+
+| 엔드포인트 | 요약 |
+|---|---|
+| `GET /health` | readiness — DB·BullMQ(Redis) 도달성 + 외부키(DART/KRX/LLM) 존재/형식 점검(실호출 없음). prod 외부 헬스체크·배포 검증에 사용 |
+| `GET /health/live` | liveness — 프로세스 응답 가능 여부 (외부 의존 점검 없음) |
+
+### 31.2 운영 지표·수집 현황 (인증 불요 — 운영/내부용)
+
+| 엔드포인트 | 요약 |
+|---|---|
+| `GET /ops/metrics` | 운영 핵심 카운터(JSON) — AI누적·최근신호·모의포지션·마지막수집(freshness)·졸업지표 G1/G2/G3/G5 |
+| `GET /collection/status` | 수집 현황 집계 — 공시·재무·시세지표·모의운용 파이프라인 커버리지·최근 수집시각·성숙도 배지 (read-only) |
+| `GET /collection/freshness` | 데이터 신선도/크론 헬스 — 수집 크론 마지막 성공시각·처리건수·stale(정체) 판정 (read-only, 조용한 수집 정체 안전망) |
+
+### 31.3 스토리지 운영 (storage) — JWT 필수
+
+| 엔드포인트 | 요약 |
+|---|---|
+| `GET /storage/health` | DB 크기·테이블별 용량·rawText 오프로드 진행·객체 스토리지 용량·로컬 임계 경고 (read-only) |
+| `POST /storage/vacuum?table=&full=` | VACUUM (FULL) 디스크 실회수 + 전후 크기 리포트 (★운영자 수동·오프피크 전용·ACCESS EXCLUSIVE 락·테이블 화이트리스트) |
+| `POST /storage/cleanup-local-artifacts?limit=` | 로컬 원시 파일(rawFilePath) 삭제 + 컬럼 비움 1회 배치 (멱등) |
+| `POST /storage/lifecycle` | rawText 객체 콜드 라이프사이클(STANDARD_IA@30d→GLACIER@90d) 적용 (멱등, S3만 실적용·로컬 no-op) |
+
+---
+
+## 부록 A. Rate Limiting
+
+### 전역 제한
+- **60 requests / 분** (IP 기준, `ThrottlerGuard` 전역 적용)
+
+### 인증 엔드포인트 제한
+- **5 requests / 분**: `POST /auth/signup`, `POST /auth/login`
+- **10 requests / 분**: `POST /auth/kakao`
+
+### Headers
+```
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 45
+X-RateLimit-Reset: 1678190400
+```
+
+---
+
+## 부록 B. 푸시 알림 Payload
+
+**Expo Push Notification 형식** (공시 알림 예):
+```json
+{
+  "to": "ExponentPushToken[...]",
+  "sound": "default",
+  "title": "📢 삼성전자 · 정기공시",
+  "body": "주주총회소집공고",
+  "channelId": "disclosure",
+  "data": {
+    "type": "DISCLOSURE",
+    "disclosureRcpNo": "20260307000123",
+    "channelId": "disclosure",
+    "deepLink": "/disclosure/20260307000123"
+  }
+}
+```
+
+- 타입별 제목/본문 템플릿(출처 이모지+출처명)·`data` 필드(`deepLink`/`source`/`strategyKey` 등)는 §20·§20.1(DAR-432), Android 채널 3종(`disclosure`/`signal`/`trade`)은 §8.1(DAR-430) 참조.
+- Android 푸시는 FCM V1 경유(EAS 빌드 `google-services.json` 주입).
+
+---
+
+**최종 수정일**: 2026-07-02
+**버전**: 1.30 (2026-07-02 전면 현행화 — Base URL을 실제 prod `https://168.138.198.152.nip.io/api`(OCI 2-micro·Caddy+Let's Encrypt)로 교체; 카카오 OAuth 3종 §1.5~1.7(`POST /auth/kakao`·`GET /auth/kakao/callback` 302 딥링크 복귀·`GET /auth/kakao/result` 일회성 회수) 추가 + 이메일 signup/login dev/test 전용 표기; 미수록 컨트롤러 전수 보강 §21~§31(시스템 모의운용+철학 스타일 §21, 포트폴리오·포지션·Thesis·Exit §22, 저장한 공시 §23, 투자 철학·융합 §24, 재무지표·내부자 지분 §25, 공시 원문 파싱·정량 팩트·이벤트 §26, 수집 파이프라인·스케줄러 §27, 시세 수집·지표·종목상태 운영 §28, 백테스트·신호 정확도·신호 생성 §29, 졸업 게이트·감사 로그 §30, 운영·관측 헬스/ops/collection/storage §31) + §4.3 인기 기업·§7.6 공시 유형·§7.7 공시 AI 분석·§10.6 AI 비용게이트 헬스 추가; §10/§11 중복 번호 충돌 해소 — 구 'Rate Limiting'·'푸시 알림 Payload'를 부록 A/B로 재배치·현행화(카카오 10req/min·채널/딥링크 payload); 게스트 열람 가드 표기를 코드 기준으로 정정(companies·disclosures 등); 이전 이력: 1.29 평가자료·인과코퍼스 §16.4 — DAR-379: 공시별 [AI/Rule 사전평가(극성·신뢰도·AI분석 유무) + 실현 EventStudy 사후결과(D+5/D+20 누적초과수익) + 일치/괴리 라벨]을 결합한 라벨 코퍼스를 이벤트유형별로 집계하는 `GET /api/backtest/evaluation-corpus`(게스트 열람) 추가 — `DisclosureEvent ⨝ DisclosureAnalysis ⨝ EventStudyObservation` 을 `rcpNo` 로 결합한 read-time 파생 뷰(마이그레이션 불요)·사전 극성(POSITIVE+1/NEGATIVE-1/MIXED·UNKNOWN 0)이 사후 실현 AR 부호를 맞히면 AGREE/불일치 DIVERGE/실현결과 없음·방향예측 없음·정확히 0 은 NEUTRAL(과신 방지)·`hitRate=AGREE/(AGREE+DIVERGE)`·AI 커버리지와 실현 커버리지 분리 집계로 calibration 통계근거 산출·일봉 윈도가 깊어질수록 실현 커버리지 상승(★데이터축적A 의존)·read-only 집계(신규수집·외부호출·AI 개입 0)·★AI 금지영역 불가침(코퍼스는 참고 평가자료일 뿐 주문 직접결정 금지, Buy/Exit Score=Rule 공식·Risk·체결=Engine5 독립, `disclaimer=CORPUS_REFERENCE_ONLY` 명시; 분봉 단타 청산 시각 timebase 통일 §19.2 — DAR-435: 단타 거래 카드에서 진입>청산 시각역전·`holdMinutes=0`(CLOSED 전건)·장외 19:14 류 표시 버그 해소 — 근본원인은 `entryTs`(분봉 KST 벽시계를 UTC 컴포넌트에 담은 naive instant)와 `exitTs`(`new Date()` 진짜 UTC instant)의 **timebase 불일치**(9시간 어긋남)였음. **① 청산 ts 통일** — `closePosition`/`forceCloseAll` 가 `exitTs: now` 대신 진입 거래일(`trade.tradeDate`) 기준 청산 KST 벽시계 분봉 ts(`minuteTimestamp(tradeDate, hhmm(now)) ?? now` graceful 폴백)로 영속해 entryTs 와 동일 naive-KST timebase 로 정렬(날짜 경계 교차 차단); **② holdMinutes 재계산** — `exitTsKst − entryTs` instant 차(동일 timebase → 정확한 분 차, 0 clamp 소멸); **③ 직렬화 계약 고정** — `getTradeHistory` 가 `entryTs`/`exitTs` 를 `toISOString()`(UTC `Z`) 대신 **`+09:00` 오프셋 명시 ISO**(`kstWallClockIso`, `minute-timestamp.ts` 신규)로 직렬화 → 모바일 `new Date(iso)`+Asia/Seoul 변환의 **이중 오프셋(+9 중복→19:14)** 해소(모바일 무변경); 진입 경로는 항상 분봉 충족봉 `scan.candle.ts` 사용을 회귀로 봉인(`new Date()` 진입 영속 금지); 스키마·마이그 무변경(신규 거래부터 정상화·과거 19행은 별도 백필 후속)·AI 금지영역 불침범·Engine5 독립성 유지; BE tsc0·build0·engine5+market-data jest 736/736(신규: 청산 timebase·진입 회귀·`kstWallClockIso` 단위 spec) 회귀0; 1.27 알림 메시지 전략 재설계 §20.1 — DAR-432: 푸시·인앱 알림을 **출처별 고유 이모지+출처명**으로 한눈 구분·한 줄 이해·탭→상세(DAR-431 딥링크)로 재설계 — be↔fe **출처 SSOT 공유**(`notification-source.ts`↔`notificationSource.ts`, parity 체크 `check-notification-sources.ts`): 📢 공시·📈 매수신호·🔻 청산·⚠️ 논리훼손·🤖 모의·⚡ 단타·🎯 이벤트엣지·🛡️ 보수가치·🚀 단기모멘텀·💥 공격분산(미상 🔔 폴백·이모지 고유); 체결 title `{이모지} {출처명} · {종목명} 매수/매도 {±%}`·body 핵심 수치 한 줄(`₩{가}×{수량}·잔액`/`손익 {±%}({사유})·평가금`), 신호 `📈 {기업명} 매수신호 {등급(한국어)}`·`{점수}점·{근거}`, 공시 `📢 {기업명}·{공시유형}`(DAR-430 채널·DAR-431 딥링크 data 동봉); **`[ ]`대괄호 전면 제거**(이모지+`·` 구분, DAR-430 정합); 모바일 알림탭은 비공시는 백엔드 title 그대로·공시 행은 조인 데이터에 📢 SSOT 프리픽스; 스키마·마이그 무변경(문자열 템플릿만)·AI 무관; 1.26 알림 카테고리화 §8.1 — DAR-430: 푸시·인앱 알림을 3 버킷(공시/신호/체결)으로 카테고리화 — **Android 알림 채널 3개**(`disclosure`/`signal`/`trade`) 앱 시작 시 `setNotificationChannelAsync` 등록(공시=DEFAULT·신호/체결=HIGH·소리)·백엔드 `NotifyConsumer.sendPush` 가 NotificationType→카테고리→`channelId` 산출해 Expo Push `channelId`+`data.channelId` 지정 → OS 가 채널별 그룹화·누적·중요도 분리·iOS 는 무시(인앱 아이콘/필터 폴백); **체결 알림 제목 `[전략]` 프리픽스 제거**('[분봉 단타] 삼성전자 매수'→'삼성전자 매수')·출처는 본문 앞(`분봉 단타 · 체결…`)+`data.source`/`data.strategyKey` 로 전달; `GET /notifications?category=disclosure|signal|trade` 필터 파라미터 추가(category>type 우선·버킷 IN 조회)·응답 `meta.unreadByCategory`(3 버킷 미읽음 합산) 추가; 모바일 알림탭 상단 카테고리 칩(전체·공시·신호·체결) 필터·행 단위 타입 아이콘/색/라벨은 DAR-161 유지; 스키마 무변경(NotificationType enum 재사용·마이그 불요); 1.25 체결 알림 딥링크 라우팅 + 전략별 트랙 식별 §20 — DAR-431: 체결 알림 탭이 '포트폴리오 루트'로만 가던 버그 해소 — 시스템 모의 deepLink 를 `/portfolio`→**`/portfolio?tab=sim`**(포트폴리오 '시스템 모의' 서브탭 직행)으로 고정·분봉 단타는 기존 `/portfolio/strategy/intraday-scalp` 유지(둘 다 `@utils/deeplink` `/portfolio` prefix 화이트리스트 통과·루트 폴백 X); 푸시 `data` 에 `strategyKey`·`strategyName` 동봉(`NotifyConsumer.sendPush` extraData·빈 값 제외·legacy 호환)으로 클라이언트 전략별 라우팅/필터 지원; 포트폴리오 화면이 딥링크 `?tab=` 파라미터를 초기 서브탭으로 해석(`resolveInitialSubTab` — 허용 목록 밖/미지정은 `live` 폴백, 마운트 후 새 딥링크도 render-phase 동기화); 트랙 SSOT `@utils/tradeTracks`(5+1트랙 key/label/deepLink·`trackByKey`/`trackByDeepLink` 역식별·라이브 발행=단타·시스템 모의 2종만, 4전략은 백테스트 전용 드릴다운 경로만); 알림 제목 `[{전략}]` prefix 로 인박스 트랙 식별(기존)·트랙별 분리 조회는 포트폴리오 시스템 모의/전략 탭+드릴다운(기존); 인앱 알림 탭 전략 서브필터는 DAR-430 카테고리 세그먼트 합성으로 후속; 스키마 변경 0·실주문 0·AI 금지영역 불침범; BE tsc0·notifications jest 31/31(신규1)·engine5 paper-sim 264/264 회귀0; mobile tsc0·eslint0err·결정론 `check-trade-deeplink-routing` 45/45·`check-portfolio-tabs` 14/14 회귀0; 1.24 (시스템 모의 클린 리셋 §21 — DAR-429: `POST /api/paper-trading/simulation/reset`(JWT 필수 + `body.confirm="RESET"` 필수 — 휴먼 승인 게이트·cron 자동호출 0) 추가 — 과레버리지(DAR-426 이전 현금 -11.3M·자본초과)+리베이스로 오염된 시스템 모의 이력을 제거하고 초기상태(현금=초기자본 10,000,000·OPEN 0)로 복원('원칙만 남기고 다시 시작'); ★해당 sim 유저(`paper-sim@system.local`)의 단일 포트폴리오 범위 DELETE 만(DB 전역 파괴 금지) — `Position`(portfolioId 가드, `PositionDailySnapshot`·`ExitSignal` 캐스케이드)+`PaperTrade`(sim `positionThesisId` 한정·타 트랙 무침범)+`PortfolioRiskSnapshot`+`SignalEntryFunnelDaily`(portfolioId 범위); 멱등(재실행 0건·현금 10M 유지)·`$transaction` 전부-or-전무(부분실패 롤백); 현금은 파생 SSOT(`초기자본+실현손익−보유진입원가`)라 Position 삭제 시 10M 자동 복원; 리셋 후 cron 은 현금가드(DAR-426)+매수기준(`SIM_MIN_ENTRY_GRADE`/`buyScore`) 적용 상태로 0포지션·10M 에서 원칙적 재누적; 단타(intraday-scalp)는 별개(리셋 대상 아님)·동일 현금가드 이미 적용(`15% < 100%` 구조 안전+`cash≥0` enforce 재확인); 스키마 변경 0(데이터 정리만)·AI 금지영역 불침범·실주문 0; 1.23 (라이브 페이퍼 체결 알림 §20 — DAR-424: 모의투자 체결(분봉 단타·시스템 모의 진입/청산)을 종목별로 통지 — `NotificationType.TRADE_ENTRY`/`TRADE_EXIT` 추가(비파괴 enum ADD VALUE)·`NotificationSettings.tradePushEnabled` 토글(기본 ON·OFF면 인박스·푸시 모두 생략) 추가·엔진5 체결 직후 `NotificationProducerService.enqueueTradeEntry/Exit`→`QUEUE.NOTIFY`(`notify.trade-entry`/`notify.trade-exit`)→`NotifyConsumer`가 실 사용자 전원 브로드캐스트(합성 시스템 유저 제외)로 인박스 적재+Expo Push(토글 ON+master+토큰 시)·매수=체결가·수량·현금·평가금/매도=+손익%·청산사유 본문·멱등 `(userId,type,refId)`·발행 graceful(체결 무파손)·AI 금지영역 불침범; 모바일 인앱 알림 탭 TRADE 타입 렌더+설정 '체결 알림' 토글; 4종 백테스트 replay는 라이브 이벤트 아님 제외; 1.22 인트라데이 거래일 분리 §19 — DAR-423: 장중 분봉/단타 `tradeDate`가 어제로 라벨되던 버그 해소 — 일봉 발행 기준 `resolveLatestAvailableTradeDate()`(장중 '오늘 일봉 미게시'→직전 거래일)를 분봉/단타가 그대로 써서, 장중인데도 분봉/단타 보유가 어제(예 6/22) 기준으로 표시됐음. **인트라데이 전용 해석기 `resolveIntradayTradeDate()` 분리** — 평일이고 KST 개장(≥09:00)이면 오늘(today), 장외(개장 전·주말·휴장)면 직전 거래일 폴백; 분봉 수집기 `collectOnce`·단타 `resolveTradeDate`(진입·청산·강제청산·유니버스)가 이 해석기로 정렬; 일봉 resolver는 **무변경**(일봉 수집·EventStudy 등 일봉 맥락 유지·이중 의미 분리); 실제 휴장은 KIS 빈 분봉→유니버스 비고 거래 0 graceful; 이미 수집된 어제 라벨 데이터는 마이그레이션 불요(신규부터 today); 1.21 '최신 공시' 라벨 명확화 §7.5 — DAR-422: 모바일 홈 요약 카드 라벨을 '오늘의 공시 (MM/DD)'→**'최신 공시 (MM/DD)'**로 변경 — DART 공시 데이터 최신일(예 06/19)이 달력 today(예 06/23)보다 뒤처질 수 있어(주말·미게시 지연) '오늘' 표현이 '오늘은 today인데 왜 6/19?' 혼란을 유발했음. 집계 로직·`GET /disclosures/today-count` 응답(`date`/`count`)·숫자(건수) 모두 무변경 — 라벨/문구·accessibilityLabel('최신 공시 MM/DD 기준 N건')만 변경; 1.20 '오늘의 공시' 최신 가용일 집계 §7.5 — DAR-420: `GET /disclosures/today-count`(게스트 허용) 추가 — '오늘' = 최신 가용 공시일(`max(rcpDt)`의 날짜) 건수 반환(전체 누적 137만도, 환경시계 today 0건도 아님; 날짜 prefix `startsWith` 동일일 판정) + 모바일 홈 요약 카드 '오늘의 공시'가 무한쿼리 `meta.total`(전체 누적) 대신 이 집계를 사용·라벨에 최신일(MM/DD) 보조표기; 1.19 분봉 단타 수수료 인지 거래 §19 — DAR-418: TP/SL 청산 임계를 **순(net) 기준**으로 환산 — gross 가격수익률에서 왕복 거래비용율(`2·수수료+매도세+2·슬리피지=0.31%`, 체결 파라미터 `FillParams`에서 `roundTripCostPct()` 산출 SSOT)을 차감한 net 수익률로 익절 +2%/손절 -1.2% 판정(순 +2% 익절=gross +2.31%·순 -1.2% 손절=gross -0.89%로 과손실 방지)·`gross +2%` 소액 익절이 수수료에 먹혀 net +1.69% 적자전환하던 문제 차단; 진입 fee 허들 게이트(기대이동 < 왕복비용+최소마진 0.3% 면 진입 보류); 표시 투명화 — `status`에 `roundTripCostPct`·`takeProfitNetPct`·`stopLossNetPct`·`totalFees`, `trade-history`에 `roundTripCostPct`·행별 `grossReturnPct`·`netReturnPct`·`totalFees` 노출, 모바일 카드/타임라인 '순수익(수수료 후)' 명시; 15:20 강제청산·당일청산·리스크 하드룰 무변경; 1.18 분봉 단타 응답 계약 래핑 §19.1·§19.2 — DAR-417: `intraday-scalp` `status`·`trade-history` 컨트롤러 반환을 `{ success, data }` 로 래핑(strategy-track 등 전 엔드포인트 일관) — 모바일 `simulation.service.ts` 가 `r.data.data` 로 추출하는데 래핑이 없어 `r.data.data`=undefined → React Query `Query data cannot be undefined` 로 '전략' 탭 단타 트랙 카드가 로드 실패하던 블로킹 버그 해소; 1.17 분봉 단타 거래 타임라인 §19.2 — DAR-416: `GET /intraday-scalp/trade-history`(최신 진입순·종목명 결합·OPEN 청산필드 null·게스트 허용) 추가 + 모바일 '전략' 탭 단타 트랙 표면화(`IntradayScalpSection` 별도 섹션·`intraday-scalp.tsx` 드릴다운·실시간 모의/백테스트 불가 시각 구분); 1.16 분봉 단타 진입평가 윈도우 스캔 §19 — DAR-415: 진입 평가가 최신 1봉이 아니라 직전 사이클 이후 도착 분봉 윈도우 전체를 순회(engine3 `scanEntrySignals(candles, fromIndex)` point-in-time 첫 충족봉)·engine5 종목별 스캔 커서로 중복평가 차단·종목당 1라운드트립(OPEN/CLOSED) 과진입 차단·진입ts=충족봉 시각 — 10분 간격 평가가 사이클 사이 충족 순간을 놓쳐 거래 0이던 버그 해소; 1.15 분봉 단타 tradeDate SSOT 정렬 §19 — DAR-414: 단타 진입·청산·강제청산·유니버스가 분봉 수집기와 동일 해석기(`resolveLatestAvailableTradeDate()`, KRX 실 가용 거래일)로 거래일을 해석 — 환경시계 today 직접사용 제거로 분봉 라벨 불일치(거래 0) 버그 해소; 1.14 자산곡선 일별 flat-fill — DAR-412: backtest `buildEquityCurve` + 분봉 단타 `equityCurve` 가 변동 청산일마다 직전 달력일 flat 앵커를 추가해 거래 없는 구간 직선 보간 제거(평평→계단)·4종 전략·단타 동일 적용·표본0/저표본 graceful 유지; 1.13 분봉 단타 트랙 §19 — DAR-411: 분봉(stock_minute_prices) 기반 당일 진입·당일 청산 forward-only 페이퍼 트랙 — 거래량 폭발+돌파+VWAP 3조건 진입·익절+2%/손절-1.2%/15:20 강제청산·engine5 Risk 하드룰·★실주문 0·전용 status 엔드포인트·백테스트 불가 graceful; 1.12 전략 변형 트랙 §18 — DAR-404: 시스템 트레이딩 전략 변형 4종 다중 트랙 비교/거래내역/갱신 엔드포인트·strategyKey 그룹핑·누적수익 ranking·게스트 데모; 이벤트 스터디 분포 §16.2-b — DAR-402: 버킷 D+N 초과수익 분포(평균/중앙값/분위수) 산출로 이상치 오염 표면화 + event_study_results robust 컬럼(median/winsorized) 추가·신호 스코어 event edge 강건화; 1.11 구간 캔들 §17 — DAR-378: TimescaleDB 분봉 하이퍼테이블/연속집계 구간·해상도·페이지네이션·서버측 다운샘플; 1.10 시장지수 실시간 소스 + 신선도 정직 — DAR-371: KIS 업종지수 우선·EOD 폴백 종가 기준일 라벨·source/asOf 필드; 1.9 매매 신호 목록 조회 §12.3 + 기업별 이벤트 스터디 §16.3 문서화 — DAR-222; 1.8 EventStudy 버킷 관측치 드릴다운 — DAR-166; 1.7 시장지수 최신값 — DAR-160; 1.6 포트폴리오 리스크 — DAR-163; 1.5 종목 최신 시세 — DAR-158; 1.4 종목별 최신 신호 — DAR-159)

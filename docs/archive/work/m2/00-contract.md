@@ -2,7 +2,8 @@
 
 > 작성: BE 리드 · 작성일: 2026-06-03  
 > 이 문서는 M2 구현 에이전트(BE·DQ)가 그대로 따를 수 있는 구현 계약이다.  
-> 상위 문서: [실행 로드맵](../../roadmap/01-execution-roadmap.md) · [BE 역할](../../roadmap/roles/be.md) · [Phase 03 상세 설계](../../roadmap/phase-03-event-extraction.md)
+> 상위 문서: [실행 로드맵](../../../roadmap/01-execution-roadmap.md) · [BE 역할](../../../roadmap/roles/be.md) · [Phase 03 상세 설계](../../../roadmap/phase-03-event-extraction.md)
+> 📦 아카이브(2026-07-02): M2 구현 완료(schema.prisma·engine1 extractors에 shipped). 모듈 경로 표기는 DDD 이관 전 기준 — 역사 기록.
 
 ---
 

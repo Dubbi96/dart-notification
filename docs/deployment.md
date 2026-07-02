@@ -1,13 +1,18 @@
 # 배포 가이드
 
+> **현행 프로덕션(2026-07-02)**: OCI Always Free **AMD 2-micro** — backend **v0.1.1 라이브**
+> (`https://168.138.198.152.nip.io/api`, Caddy + nip.io + Let's Encrypt HTTPS) +
+> Android APK **공시온 v1.0.0**(EAS `oci` 프로파일).
+> 실배포 런북 §3.1 · 모바일 배포 §3.5 · (대안) ARM A1 §3.6.
+
 ## 1. 개발 환경 설정
 
 ### 1.1 필수 요구사항
 
 **로컬 개발 환경**:
 - Node.js 20+ (권장: 20.11.0 LTS)
-- pnpm 9+
-- PostgreSQL 15+
+- npm 10+ (Node 20 동봉 — **pnpm/yarn 사용 금지**, 설치 시 `--legacy-peer-deps` 필수)
+- PostgreSQL 15+ (TimescaleDB — Docker Compose 권장)
 - Git
 - Docker & Docker Compose (선택)
 
@@ -31,11 +36,11 @@ cd dart-notification
 
 # 2. 백엔드 설치
 cd backend
-pnpm install
+npm install --legacy-peer-deps
 
 # 3. 모바일 설치
 cd ../mobile
-pnpm install
+npm install --legacy-peer-deps
 ```
 
 ---
@@ -52,11 +57,11 @@ PORT=3000
 # Database
 DATABASE_URL="postgresql://postgres:password@localhost:5432/dart_notification?schema=public"
 
-# JWT
+# JWT (각 최소 16자 — env.validation.ts 가 부팅 시 강제)
+# 토큰 만료는 코드 고정: access 15m · refresh 90d (backend/src/auth/auth.service.ts,
+# RefreshToken.expiresAt = 발급 + 90d). 환경변수로 만료를 바꿀 수 없다.
 JWT_SECRET="your-super-secret-key-change-in-production"
 JWT_REFRESH_SECRET="your-refresh-secret-key-change-in-production"
-JWT_EXPIRES_IN="15m"
-JWT_REFRESH_EXPIRES_IN="7d"
 
 # DART API
 DART_API_KEY="your-dart-api-key"
@@ -104,31 +109,12 @@ EXPO_PUBLIC_APP_ENV=development
 
 #### Option 1: Docker Compose (권장)
 
-```yaml
-# docker-compose.dev.yml
-version: '3.8'
+저장소 루트의 `docker-compose.dev.yml` 을 그대로 사용한다. 구성 요약(정본은 파일 자체):
 
-services:
-  postgres:
-    # DAR-378: TimescaleDB(pg15 기반) — 대규모 분봉/일봉 시계열 효율화.
-    # pg15 호환 이미지라 기존 postgres_data(PG15) 볼륨을 그대로 사용한다(데이터 손실 0).
-    image: timescale/timescaledb:2.17.2-pg15
-    container_name: dart-notification-db
-    restart: always
-    # DAR-382: 확장 적재를 위해 shared_preload_libraries 를 영구 지정(이미지가 자동으로 conf 를 고치지 않음).
-    command: postgres -c shared_preload_libraries=timescaledb
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: dart_notification
-    ports:
-      - '5432:5432'
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-volumes:
-  postgres_data:
-```
+- **postgres**: `timescale/timescaledb:2.17.2-pg15` (DAR-378 — 분봉/일봉 시계열 하이퍼테이블·압축).
+  `command: postgres -c shared_preload_libraries=timescaledb` 로 확장 사전적재 영구 반영(DAR-382).
+  포트 `5432`, 계정 `postgres/password`, DB `dart_notification`.
+- **redis**: `redis:7-alpine` (BullMQ 큐), 포트 `6379`, appendonly 영속.
 
 ```bash
 # Docker Compose 실행
@@ -302,51 +288,19 @@ createdb dart_notification
 cd backend
 
 # 1. Prisma Client 생성
-pnpm prisma generate
+npx prisma generate
 
 # 2. 마이그레이션 실행
-pnpm prisma migrate dev --name init
+npx prisma migrate dev
 
-# 3. 기업 마스터 데이터 시드 (선택)
-pnpm prisma db seed
+# 3. 기업 마스터 데이터 시드 (선택 — DART_API_KEY 필요)
+npm run prisma:seed
 ```
 
-**시드 스크립트** (`backend/prisma/seed.ts`):
-```typescript
-import { PrismaClient } from '@prisma/client';
-import axios from 'axios';
-
-const prisma = new PrismaClient();
-
-async function main() {
-  console.log('Seeding companies...');
-
-  // DART API에서 기업 목록 가져오기
-  // (실제로는 XML 파싱 필요, 여기서는 샘플 데이터)
-  const companies = [
-    { corpCode: '00126380', corpName: '삼성전자', stockCode: '005930', market: 'KOSPI' },
-    { corpCode: '00164779', corpName: '삼성물산', stockCode: '028260', market: 'KOSPI' },
-    { corpCode: '00164742', corpName: '삼성SDI', stockCode: '006400', market: 'KOSPI' },
-    // ... 더 많은 기업
-  ];
-
-  await prisma.company.createMany({
-    data: companies,
-    skipDuplicates: true,
-  });
-
-  console.log(`Seeded ${companies.length} companies`);
-}
-
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
-```
+**시드 스크립트** (`backend/prisma/seed.ts`): DART Open API `corpCode.xml`(ZIP)을 내려받아
+XML 파싱 후 **전체 기업 마스터**를 upsert 한다(샘플 데이터가 아니라 실데이터 전량 시드 —
+`.env` 의 `DART_API_KEY` 필수). 보조 시드로 `npm run seed:notifications`(알림 샘플),
+`npm run seed:philosophy`(투자철학) 도 있다.
 
 ---
 
@@ -356,7 +310,7 @@ main()
 cd backend
 
 # 개발 모드 (hot reload)
-pnpm run start:dev
+npm run start:dev
 
 # 로그 확인
 # [Nest] 12345  - 2026-03-07 12:00:00     LOG [NestFactory] Starting Nest application...
@@ -365,10 +319,10 @@ pnpm run start:dev
 # [Nest] 12345  - 2026-03-07 12:00:00     LOG Application is running on: http://localhost:3000
 ```
 
-**API Health Check**:
+**API Health Check** (`/health` 는 글로벌 `api` prefix **제외** 경로 — `main.ts` DAR-111):
 ```bash
-curl http://localhost:3000/api/health
-# Expected: {"status":"ok","timestamp":"2026-03-07T12:00:00.000Z"}
+curl http://localhost:3000/health        # readiness
+curl http://localhost:3000/health/live   # liveness
 ```
 
 ---
@@ -379,11 +333,11 @@ curl http://localhost:3000/api/health
 cd mobile
 
 # Expo 개발 서버 시작
-pnpm expo start
+npx expo start
 
 # 또는 특정 플랫폼으로 바로 실행
-pnpm expo start --ios      # iOS 시뮬레이터
-pnpm expo start --android  # Android 에뮬레이터
+npx expo start --ios      # iOS 시뮬레이터
+npx expo start --android  # Android 에뮬레이터
 ```
 
 **Expo Go 앱 설치**:
@@ -428,46 +382,52 @@ EXPO_PUBLIC_APP_ENV=staging
 
 ### 2.2 Docker 빌드 및 배포
 
-#### Backend Dockerfile
+#### Backend Dockerfile (실제 `backend/Dockerfile`)
 
 ```dockerfile
-# backend/Dockerfile
+# backend/Dockerfile — npm 기반 2-stage 빌드 (정본은 파일 자체)
 FROM node:20-alpine AS builder
 
+RUN apk add --no-cache openssl
+
 WORKDIR /app
 
-# pnpm 설치
-RUN npm install -g pnpm
+COPY package.json package-lock.json ./
+RUN npm ci --legacy-peer-deps
 
-# 의존성 설치
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY prisma ./prisma
+RUN npx prisma generate
 
-# 소스 복사 및 빌드
 COPY . .
-RUN pnpm prisma generate
-RUN pnpm run build
+RUN npm run build
 
-# Production stage
+# ------- production -------
 FROM node:20-alpine
 
+# tzdata + TZ: 컨테이너 기본 TZ(UTC) 고정 해소(DAR-199) — 시스템 TZ도 KST 일관.
+RUN apk add --no-cache openssl tzdata
+ENV TZ=Asia/Seoul
+
 WORKDIR /app
 
-RUN npm install -g pnpm
-
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --prod
+COPY --from=builder /app/package.json /app/package-lock.json ./
+RUN npm ci --legacy-peer-deps --omit=dev
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY prisma ./prisma
+COPY --from=builder /app/prisma ./prisma
 
 EXPOSE 3000
 
-CMD ["pnpm", "run", "start:prod"]
+CMD ["node", "dist/src/main"]
 ```
 
-#### docker-compose.staging.yml
+#### docker-compose.staging.yml (예시 — 저장소 미포함)
+
+> 아래는 스테이징을 별도 구성할 때의 **예시**다(저장소에는 이 파일이 없다). 실제 운영 배포는
+> §3.1(OCI 2-micro)·§3.6(단일 VM `docker-compose.prod.yml`)을 따른다.
+> postgres 이미지는 마이그레이션의 `CREATE EXTENSION timescaledb` 때문에
+> `timescale/timescaledb:2.17.2-pg15` + `shared_preload_libraries=timescaledb` 를 써야 한다(§1.4).
 
 ```yaml
 version: '3.8'
@@ -494,9 +454,10 @@ services:
       - dart-network
 
   postgres:
-    image: postgres:15-alpine
+    image: timescale/timescaledb:2.17.2-pg15
     container_name: dart-notification-db
     restart: always
+    command: postgres -c shared_preload_libraries=timescaledb
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -542,7 +503,7 @@ cp .env.example .env.staging
 docker-compose -f docker-compose.staging.yml up -d --build
 
 # 3. 마이그레이션 실행
-docker exec dart-notification-backend pnpm prisma migrate deploy
+docker exec dart-notification-backend npx prisma migrate deploy
 
 # 4. 로그 확인
 docker logs -f dart-notification-backend
@@ -550,92 +511,133 @@ docker logs -f dart-notification-backend
 
 ---
 
-### 2.3 모바일 앱 빌드 (Staging)
+### 2.3 모바일 앱 빌드 (EAS 프로파일)
 
-#### EAS Build 설정
+#### EAS Build 설정 (실제 `mobile/eas.json`)
+
+실제 프로파일은 4종이다 — `staging` 프로파일은 없다. **현행 배포 프로파일은 `oci`**(§3.5 참조).
 
 ```json
-// mobile/eas.json
+// mobile/eas.json (요약 — 정본은 파일 자체)
 {
-  "cli": {
-    "version": ">= 5.0.0"
-  },
+  "cli": { "version": ">= 18.0.0", "appVersionSource": "local" },
   "build": {
-    "development": {
-      "developmentClient": true,
+    "development": { "developmentClient": true, "distribution": "internal" },
+    "preview": {
+      "env": { "EXPO_PUBLIC_API_URL": "http://dart-notification-alb-....elb.amazonaws.com/api" },
       "distribution": "internal",
-      "env": {
-        "EXPO_PUBLIC_API_URL": "http://localhost:3000/api",
-        "EXPO_PUBLIC_APP_ENV": "development"
-      }
+      "android": { "buildType": "apk" }
     },
-    "staging": {
+    "oci": {
+      "env": { "EXPO_PUBLIC_API_URL": "https://168.138.198.152.nip.io/api" },
       "distribution": "internal",
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://staging-api.dart-notification.com/api",
-        "EXPO_PUBLIC_APP_ENV": "staging"
-      },
-      "ios": {
-        "simulator": false
-      },
-      "android": {
-        "buildType": "apk"
-      }
+      "android": { "buildType": "apk" }
     },
     "production": {
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.dart-notification.com/api",
-        "EXPO_PUBLIC_APP_ENV": "production"
-      }
+      "env": { "EXPO_PUBLIC_API_URL": "http://dart-notification-alb-....elb.amazonaws.com/api" },
+      "android": { "buildType": "app-bundle" }
     }
-  },
-  "submit": {
-    "production": {}
   }
 }
 ```
+
+> ⚠️ `preview`/`production` 의 `EXPO_PUBLIC_API_URL` 은 **(구) AWS ALB 잔재**다(해당 인프라 미사용).
+> 스토어 제출 전 `production` 을 현행 엔드포인트(nip.io 또는 실도메인)로 갱신해야 한다.
 
 #### 빌드 실행
 
 ```bash
 cd mobile
 
-# 1. EAS CLI 설치
+# 1. EAS CLI 설치 + 로그인 (EAS 프로젝트: @duvbi/dart-alert)
 npm install -g eas-cli
-
-# 2. EAS 로그인
 eas login
 
-# 3. 프로젝트 설정
-eas build:configure
+# 2. 개발/QA 빌드 (dev-client 포함 APK)
+eas build --profile development --platform android
 
-# 4. Staging 빌드 (iOS)
-eas build --profile staging --platform ios
-
-# 5. Staging 빌드 (Android)
-eas build --profile staging --platform android
-
-# 빌드 완료 후 내부 테스터에게 공유
+# 3. 현행 배포 빌드는 oci 프로파일 — §3.5 참조
 ```
 
 ---
 
 ## 3. 프로덕션 배포
 
-### 3.1 클라우드 서비스 선택
+### 3.1 현행 라이브 토폴로지 — OCI Always Free AMD 2-micro (★정본)
 
-**권장 옵션**:
+클라우드는 **Oracle Cloud Always Free** 로 결정·운영 중이다(비용 0원, 24/7).
+백엔드 **v0.1.1 이 라이브**이며 공개 엔드포인트는 `https://168.138.198.152.nip.io/api` 다.
 
-| 서비스 | 백엔드 | 데이터베이스 | 장점 |
-|--------|--------|--------------|------|
-| **AWS** | ECS / Elastic Beanstalk | RDS PostgreSQL | 안정성, 확장성 |
-| **GCP** | Cloud Run | Cloud SQL | 간편한 배포, 자동 스케일링 |
-| **Heroku** | Heroku Dynos | Heroku Postgres | 가장 빠른 배포 |
-| **Fly.io** | Fly Apps | Fly Postgres | 저렴한 비용, 글로벌 배포 |
+#### 토폴로지 (2026-06-24 배포, 라이브)
+
+| 호스트 | 역할 | 접근 |
+|--------|------|------|
+| **micro1** (앱) | backend(NestJS, 3000) + Redis + **Caddy**(80/443 HTTPS 종단) | 공개 IP `168.138.198.152` |
+| **micro2** (DB) | PostgreSQL(TimescaleDB) | 사설 `10.0.1.151:5432` (외부 비공개 — VCN 내부만) |
+
+- 셰이프: Always Free AMD `VM.Standard.E2.1.Micro`(1GB RAM) × 2대.
+- SSH 접속: `ssh -i ~/.ssh/oci_instance ubuntu@168.138.198.152` — **키 지정 필수**
+  (`-i` 없이 접속하면 `Permission denied (publickey)`). 정본: `AGENTS.md` "배포 접속 (OCI 프로덕션)".
+- 2-micro 분리 운영에서는 `docker-compose.prod.yml` 의 `postgres` 서비스(단일 VM용, §3.6) 대신
+  micro1 의 `backend/.env.prod` `DATABASE_URL` 이 micro2 사설 IP(`10.0.1.151:5432`)를 가리킨다.
+
+#### HTTPS — Caddy + nip.io + Let's Encrypt (비용 0)
+
+- micro1 호스트의 **Caddy** 가 443 을 종단하고 backend `localhost:3000` 으로 역프록시한다.
+- 도메인은 **nip.io**(`168.138.198.152.nip.io` — 공인 IP를 도메인으로 매핑해 주는 무료 DNS),
+  인증서는 Caddy 가 **Let's Encrypt** 로 자동 발급·갱신한다.
+- 카카오 OAuth redirect URI 도 이 도메인 기준: `https://168.138.198.152.nip.io/api/auth/kakao/callback`
+  (`.env.prod` 의 `API_BASE_URL=https://168.138.198.152.nip.io/api` 와 일치).
+
+#### 실배포 절차 — Mac amd64 크로스빌드 → ssh 스트리밍 load → compose
+
+micro(1GB RAM)에서는 backend 이미지 빌드가 불가능하다(OOM). **Mac 에서 linux/amd64 로
+크로스빌드해 이미지를 ssh 로 스트리밍 전송**하는 것이 정본 절차다.
+
+> ⚠️ OCI 프로덕션 배포와 `prisma migrate deploy` 는 **휴먼 승인 대상**(`AGENTS.md`) — 실행 전 사용자 확인.
+
+```bash
+# ① (Mac) linux/amd64 크로스빌드 — compose 의 image 태그와 동일하게
+docker buildx build --platform linux/amd64 \
+  -t dart-notification-backend:prod ./backend --load
+
+# ② 이미지 스트리밍 전송(중간 파일 없이 gzip 파이프로 바로 docker load)
+docker save dart-notification-backend:prod | gzip | \
+  ssh -i ~/.ssh/oci_instance ubuntu@168.138.198.152 'gunzip | docker load'
+
+# ③ (micro1) 재기동 — 로드된 이미지를 그대로 사용(★--build 금지: micro 에서 빌드 불가)
+ssh -i ~/.ssh/oci_instance ubuntu@168.138.198.152 \
+  'cd dart-notification && docker compose -f docker-compose.prod.yml up -d backend'
+
+# ④ 스키마 변경이 포함된 배포만 (휴먼 승인 후):
+ssh -i ~/.ssh/oci_instance ubuntu@168.138.198.152 \
+  'cd dart-notification && docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate'
+```
+
+#### 배포 검증 (헬스체크 + 데이터 신선도)
+
+```bash
+# HTTPS 헬스 (Caddy 경유 — /health 는 글로벌 prefix 제외 경로)
+curl -i https://168.138.198.152.nip.io/health
+
+# 데이터 신선도 — 최신 공시 rcpDt 가 당일(영업일)인지 확인. 1일 이상 정체면 수집 cron 점검.
+curl -s "https://168.138.198.152.nip.io/api/disclosures?limit=1"
+
+# 컨테이너 상태
+ssh -i ~/.ssh/oci_instance ubuntu@168.138.198.152 \
+  'docker compose -f dart-notification/docker-compose.prod.yml ps'
+```
+
+> 환경변수(`backend/.env.prod`)·방화벽(VCN Security List + iptables)·TimescaleDB preload 등
+> 공통 세팅 절차는 §3.6 의 ⑤~⑧ 을 그대로 사용한다(단, DB 관련은 micro2 대상).
 
 ---
 
-### 3.2 AWS 배포 예시
+### 3.2 (구) AWS 배포 예시 — 과거 경로 · 현재 미사용
+
+> **(구) 2026-06 이전 검토·일부 사용된 AWS 경로다. 현재 프로덕션은 §3.1(OCI 2-micro)이며
+> 이 절의 인프라(ECS/RDS/ALB)는 미사용이다.** `infra/*.tf`(Terraform)도 같은 시기의 레거시.
+> ARM 확보 시 대안은 §3.6 참조.
 
 #### 3.2.1 RDS PostgreSQL 생성
 
@@ -713,7 +715,10 @@ docker push 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/dart-notification:
 
 ---
 
-### 3.3 환경 변수 관리 (AWS Secrets Manager)
+### 3.3 (구) 환경 변수 관리 (AWS Secrets Manager) — 현재 미사용
+
+> **(구)** §3.2 와 같은 과거 AWS 경로. 현행 시크릿 관리는 서버의 `backend/.env.prod`
+> (gitignore, 저장소에는 `.env.prod.example` 만 커밋 — §3.6 ⑤ 참조).
 
 ```bash
 # 시크릿 생성
@@ -728,7 +733,9 @@ aws secretsmanager create-secret \
 
 ---
 
-### 3.4 CI/CD 파이프라인 (GitHub Actions)
+### 3.4 (구) CI/CD 파이프라인 (GitHub Actions → ECS) — 현재 미사용
+
+> **(구)** ECS 배포 전제의 과거 예시. 현행 배포는 §3.1 의 수동 런북(휴먼 승인 게이트)이다.
 
 ```yaml
 # .github/workflows/deploy-backend.yml
@@ -782,41 +789,57 @@ jobs:
 
 ---
 
-### 3.5 모바일 앱 스토어 배포
+### 3.5 모바일 앱 배포 — 현행: EAS Android APK (`oci` 프로파일)
 
-#### iOS App Store
+현행 배포는 스토어가 아니라 **EAS 빌드 APK 직접 설치**다. 라이브 앱: **공시온 v1.0.0**
+(`com.gongsion.app`, EAS 프로젝트 `@duvbi/dart-alert`, projectId 는 `mobile/app.json`
+`extra.eas.projectId`).
+
+#### google-services.json 주입 (FCM 푸시 — EAS 파일 시크릿 + app.config.js)
+
+`google-services.json` 은 비밀 취급으로 `.gitignore` 되어 저장소에 없다. 빌드 배선(DAR-447):
+
+- EAS **파일 환경변수(secret)** `GOOGLE_SERVICES_JSON` 으로 등록 → 빌드 시 임시 경로로
+  materialize 되고 그 경로가 `process.env.GOOGLE_SERVICES_JSON` 에 들어온다.
+- `mobile/app.config.js` 가 app.json 을 베이스로 `android.googleServicesFile` 에 이 경로를
+  주입한다. 로컬(`expo start`)에선 env 미설정 → 작업트리의 `./google-services.json` 폴백.
+- 잔여 작업: **FCM V1 서버키 등록**(Firebase 콘솔, 대화식) 후 standalone APK 푸시 토큰 검증.
+
+#### APK 빌드·배포
 
 ```bash
-# 1. Production 빌드
-eas build --profile production --platform ios
+cd mobile
 
-# 2. App Store Connect에 제출
-eas submit --platform ios
+# oci 프로파일 = 현행 prod API(https://168.138.198.152.nip.io/api) 고정 + buildType: apk
+eas build --profile oci --platform android
+
+# 빌드 완료 후 EAS 가 주는 URL/QR 로 기기에서 APK 다운로드·설치
+# (또는 로컬: adb install -r <path>.apk)
 ```
 
-**App Store Connect 설정**:
-- 앱 정보, 스크린샷, 설명 입력
-- 개인정보 처리방침 URL
-- 심사 노트
+#### (향후) 스토어 제출
 
-#### Google Play Store
+Play Store 등록은 M10 졸업 전후 결정 사항(재개 계획 §4). 제출 시:
 
 ```bash
-# 1. Production 빌드
+# production 프로파일(app-bundle) — ★제출 전 EXPO_PUBLIC_API_URL 을 현행 엔드포인트로 갱신(§2.3 주의)
 eas build --profile production --platform android
-
-# 2. Google Play Console에 제출
-eas submit --platform android
+eas submit --platform android   # eas.json submit.production (service account key)
 ```
 
-**Google Play Console 설정**:
-- 앱 정보, 스크린샷, 설명 입력
-- 개인정보 처리방침 URL
-- 콘텐츠 등급
+- Google Play Console: 앱 정보·스크린샷·개인정보 처리방침 URL·콘텐츠 등급.
+- iOS 는 미착수(현행 타깃은 Android APK).
 
 ---
 
-### 3.6 무료클라우드 배포 — Oracle Cloud Always Free (ARM64) · docker-compose.prod (DAR-427)
+### 3.6 (대안) ARM A1 확보 시 — 단일 VM 풀스택 배포 · docker-compose.prod (DAR-427)
+
+> **현재 미확보.** Ampere A1 은 Tokyo 리전 용량 부족("Out of host capacity")이 지속되어
+> `scripts/oci-arm-a1-retry.sh` 가 확보 루프를 돈다(4 OCPU/24GB → 2/12 → 1/6 폴백·지수 백오프,
+> 성공 시 OCID/공개 IP 출력 — 동일 SSH 키 `~/.ssh/oci_instance` 사용).
+> **확보 전까지 프로덕션 정본은 §3.1(AMD 2-micro)이다.** 확보 시 아래 절차로 단일 VM 에
+> 풀스택(backend+Postgres+Redis)을 통합 이전한다 — A1 은 RAM 이 충분해 호스트 로컬 빌드가
+> 가능하므로 §3.1 의 Mac 크로스빌드가 불필요해진다.
 
 비용 0원으로 백엔드 + Postgres(TimescaleDB) + Redis 를 **단일 VM 에 24/7** 구동하는 절차다.
 Oracle Cloud 의 **Always Free** 등급은 Ampere A1(ARM64) VM 을 영구 무료로 제공한다(최대 4 OCPU /
@@ -839,7 +862,8 @@ Oracle Cloud 의 **Always Free** 등급은 Ampere A1(ARM64) VM 을 영구 무료
 3. **SSH 키**: 로컬 공개키 업로드(또는 콘솔 생성 키 다운로드).
 4. 생성 후 인스턴스의 **공인 IP(Public IP)** 를 기록한다.
 
-> A1 용량이 가끔 "Out of capacity" 면 다른 가용 도메인(AD)·리전으로 재시도하거나 잠시 후 재시도.
+> A1 용량이 "Out of capacity" 면 다른 가용 도메인(AD)·리전으로 재시도하거나
+> `scripts/oci-arm-a1-retry.sh` 백오프 루프를 돌린다(`nohup bash scripts/oci-arm-a1-retry.sh > /tmp/oci-arm-retry.log 2>&1 &`).
 
 #### ③ Docker / Docker Compose 설치 (VM 접속 후)
 
@@ -933,8 +957,9 @@ sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 3000 -j ACCEPT
 sudo netfilter-persistent save
 ```
 
-> (선택·권장) 외부에 80/443 만 노출하고 backend 3000 은 내부로 두려면 nginx + Let's Encrypt 역프록시를
-> 앞단에 둔다. 위 2.2 staging compose 의 nginx 패턴 참고. 최소 구성은 3000 직노출로 충분하다.
+> (선택·권장) 외부에 80/443 만 노출하고 backend 3000 은 내부로 두려면 **Caddy + nip.io +
+> Let's Encrypt** 역프록시를 앞단에 둔다 — 현행 2-micro 라이브에서 실사용 중인 패턴(§3.1 HTTPS 절).
+> 최소 구성은 3000 직노출로 충분하다.
 
 #### ⑨ 헬스체크 (배포 검증)
 
@@ -983,9 +1008,11 @@ if (process.env.NODE_ENV === 'production') {
 }
 ```
 
-**CloudWatch Logs** (AWS):
-- ECS Task에서 자동으로 로그 수집
-- 로그 그룹: `/ecs/dart-notification`
+**현행 로그 확인** (OCI micro1):
+```bash
+ssh -i ~/.ssh/oci_instance ubuntu@168.138.198.152 \
+  'docker compose -f dart-notification/docker-compose.prod.yml logs -f backend'
+```
 
 ---
 
@@ -1009,29 +1036,29 @@ Sentry.init({
 
 ### 5.1 데이터베이스 백업
 
-**자동 백업 (AWS RDS)**:
-- RDS 자동 백업 활성화 (7일 보관)
-- 매일 자정 스냅샷 생성
+**현행: 수동 pg_dump** (자동화는 백로그 — 재개 계획 Track D "주기 백업 cron 검토"):
 
-**수동 백업**:
 ```bash
-# PostgreSQL 덤프
-pg_dump -h db.example.com -U admin -d dart_notification > backup_$(date +%Y%m%d).sql
-
-# S3에 업로드
-aws s3 cp backup_$(date +%Y%m%d).sql s3://dart-notification-backups/
+# PostgreSQL 덤프 (custom format 권장 — 병렬 복원·선택 복원 가능)
+pg_dump -Fc -h <DB호스트> -U <사용자> -d dart_notification \
+  -f dart_notification_$(date +%Y-%m-%d).dump
 ```
+
+- 최근 검증 백업: `dart-db-backups/dart_notification_2026-06-27.dump` (복원 가능 검증 완료).
+- (구) AWS RDS 자동 백업 절차는 폐기 — RDS 미사용(§3.2).
 
 ---
 
 ### 5.2 복구
 
-```bash
-# 1. S3에서 백업 다운로드
-aws s3 cp s3://dart-notification-backups/backup_20260307.sql ./
+> ★**TimescaleDB 주의**: 하이퍼테이블 포함 DB 복원은 `timescaledb_pre_restore()` →
+> `pg_restore` → `timescaledb_post_restore()` 순서가 **필수**다. 상세 런북:
+> `docs/roadmap/cc-pause-handoff-2026-06-28.md` §3.
 
-# 2. 데이터베이스 복구
-psql -h db.example.com -U admin -d dart_notification < backup_20260307.sql
+```bash
+psql "$DATABASE_URL" -c "SELECT timescaledb_pre_restore();"
+pg_restore -h <DB호스트> -U <사용자> -d dart_notification dart_notification_2026-06-27.dump
+psql "$DATABASE_URL" -c "SELECT timescaledb_post_restore();"
 ```
 
 ---
@@ -1054,5 +1081,5 @@ psql -h db.example.com -U admin -d dart_notification < backup_20260307.sql
 
 ---
 
-**작성일**: 2026-03-07
-**버전**: 1.0 (MVP)
+**작성일**: 2026-03-07 · **최종 수정일**: 2026-07-02
+**버전**: 2.0 — OCI 2-micro 라이브 토폴로지·실배포 런북 반영(AWS 경로 (구) 강등, pnpm → npm)

@@ -203,7 +203,7 @@
 
 ## 사용자 리포트 UI 버그 백로그 (2026-06-08)
 
-> ★사용자 직접 리포트(Android 에뮬레이터 실측). Paperclip 플릿(fe) 처리 대상. 상세 작업문서: `docs/work/DAR-141-*.md`, `docs/work/DAR-142-*.md`.
+> ★사용자 직접 리포트(Android 에뮬레이터 실측). Paperclip 플릿(fe) 처리 대상. 상세 작업문서: `docs/archive/work/DAR-141-*.md`, `docs/archive/work/DAR-142-*.md` (2026-07-02 아카이브 이동).
 
 | # | 항목 | severity/effort | layer | 영향 파일 |
 |---|---|---|---|---|

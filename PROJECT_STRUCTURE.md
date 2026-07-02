@@ -160,6 +160,16 @@ dart-notification/
 │   │   ├── expo-push/         # Expo Push 서비스 (알림 횡단)
 │   │   │   ├── expo-push.service.ts
 │   │   │   └── expo-push.module.ts
+│   │   ├── saved-disclosures/ # 공시 저장(북마크) — /api/saved-disclosures
+│   │   ├── search/            # 통합 검색 (기업·공시) — /api/search
+│   │   ├── collection-status/ # 공시 수집 상태 집계 — /api/collection
+│   │   ├── cron-health/       # 크론 실행 기록(CronRunLog)·데이터 신선도(freshness) 진단
+│   │   ├── ops/               # 운영 헬스체크·메트릭 (prisma/redis/외부키 인디케이터) — /api/ops
+│   │   ├── storage-ops/       # S3 스토리지 헬스·유지보수 — /api/storage
+│   │   ├── config/            # 환경변수 검증 (env.validation.ts)
+│   │   ├── e2e/               # E2E 통합 회귀 스크립트
+│   │   │   ├── integration-regression.ts  # M2→M8→모의체결 전구간 회귀 + 졸업 준비도 리포트 (DAR-14/39)
+│   │   │   └── graduation-gate-rows.ts    # 졸업 게이트 행 데이터 (PR #430)
 │   │   ├── prisma/            # Prisma 서비스 모듈
 │   │   │   ├── prisma.service.ts
 │   │   │   └── prisma.module.ts
@@ -202,7 +212,20 @@ dart-notification/
 │   │   ├── company/
 │   │   │   └── [corpCode].tsx # 기업 상세
 │   │   ├── disclosure/
-│   │   │   └── [id].tsx       # 공시 상세 + AI 분석 섹션(/disclosure-events 실연동) [DAR-21]
+│   │   │   ├── [id].tsx       # 공시 상세 + AI 분석 섹션(/disclosure-events 실연동) [DAR-21]
+│   │   │   └── viewer.tsx     # 공시 원문 뷰어
+│   │   ├── disclosures/
+│   │   │   └── index.tsx      # 공시 전체 리스트 (유형 필터)
+│   │   ├── search/
+│   │   │   └── index.tsx      # 통합검색 (기업·공시, 300ms 디바운스) [DAR-457]
+│   │   ├── stock/
+│   │   │   └── [stockCode].tsx # 종목 차트 전용 화면 (풀스크린 분봉+일봉) [DAR-355/384]
+│   │   ├── event-stats/
+│   │   │   └── index.tsx      # 이벤트 유형별 시장 통계 (Event Study 집계) [DAR-81]
+│   │   ├── philosophy/        # 투자거장 4철학 (버핏·린치·그린블라트·드러켄밀러)
+│   │   │   ├── index.tsx      # 철학 카드 목록 (게스트 열람 가능) [DAR-54]
+│   │   │   ├── [id].tsx       # 철학 상세 — 종목별 적합도
+│   │   │   └── checklist.tsx  # 항목별 통과/미달 체크리스트 분해 [DAR-57]
 │   │   ├── signals/
 │   │   │   └── [id].tsx       # 매수 후보 상세 [DAR-21]
 │   │   ├── portfolio/
@@ -214,6 +237,8 @@ dart-notification/
 │   │   │       └── intraday-scalp.tsx # 분봉 단타 드릴다운 — 오늘 거래 타임라인 [DAR-416]
 │   │   ├── onboarding/
 │   │   │   └── index.tsx      # 온보딩
+│   │   ├── intro/
+│   │   │   └── index.tsx      # 서비스 소개 캐러셀 (첫 실행 인트로)
 │   │   ├── legal/             # 법적 문서
 │   │   │   ├── terms.tsx      # 서비스 이용약관
 │   │   │   └── privacy.tsx    # 개인정보 처리방침
@@ -222,6 +247,7 @@ dart-notification/
 │   │   │   ├── notification-settings.tsx  # 알림 설정
 │   │   │   └── profile.tsx    # 프로필 수정
 │   │   ├── +not-found.tsx
+│   │   ├── kakao.tsx          # 카카오 로그인 딥링크 콜백 (gongsion://kakao)
 │   │   ├── _layout.tsx
 │   │   └── index.tsx
 │   ├── components/            # 재사용 컴포넌트
@@ -241,6 +267,11 @@ dart-notification/
 │   │   │   ├── BuyScoreCard.tsx       # 매수 신호 카드
 │   │   │   ├── ExitScoreCard.tsx      # 매도 신호 카드
 │   │   │   └── ScoreBreakdownSection.tsx  # Buy/Exit Score 7컴포넌트 분해 섹션 [DAR-32]
+│   │   ├── company/                  # 기업/종목 상세 (탭·차트) — DecisionHubTab, Fundamentals/InsiderHoldingsTab, Daily/MinuteCandleChart 등 8종
+│   │   ├── disclosure/               # 공시 상세 섹션 — DisclosureAiAnalysisSection, DisclosureFiledFactsSection, DisclosureSignalLink
+│   │   ├── home/                     # 홈 화면 — DisclosureFeedCard, HomeSignalPreview, MarketIndexBadge, GraduationTracker 등 6종
+│   │   ├── persona/                  # 투자 페르소나 — PersonaSelectCard, MarketRegimeCard, personaDisplay
+│   │   ├── philosophy/               # 투자거장 철학 — PhilosophyMasterCard, PhilosophyChecklist, PhilosophyFitBreakdown 등 5종
 │   │   └── portfolio/                # [DAR-21]
 │   │       └── PositionCard.tsx       # 포지션 카드
 │   ├── services/              # API 클라이언트
@@ -310,11 +341,21 @@ dart-notification/
 │   ├── api-specification.md   # API 명세서
 │   ├── workflow.md            # 업무 흐름도
 │   ├── deployment.md          # 배포 가이드
-│   └── development-plan.md    # 개발 계획
+│   ├── roadmap/               # 로드맵 정본 (비전·실행 로드맵·phase 명세·재개 계획)
+│   ├── work/                  # 진행 중 작업 문서 (완료분은 archive/로 이동)
+│   ├── mobile/                # 모바일 기획 (screen-plan 등)
+│   └── archive/               # 완료·대체된 문서 보관 (2026-07-02 문서 감사로 신설)
+│
+├── harness/                    # paperclip 하네스 증거 문서 (VERIFICATION·KNOWN_FAILURES·ENTROPY_CHECK·tools)
+├── infra/                      # Terraform IaC (AWS ECS/RDS 초안 — 현 prod는 OCI compose 배포)
+├── scripts/                    # 운영 스크립트 (oci-arm-a1-retry.sh — OCI ARM A1 용량 확보 재시도)
 │
 ├── .env.example
 ├── .gitignore
-├── docker-compose.dev.yml     # 개발용
+├── docker-compose.dev.yml     # 개발용 (PostgreSQL/Redis)
+├── docker-compose.prod.yml    # 프로덕션 (TimescaleDB·Redis·backend·migrate — OCI 2-micro)
+├── AGENTS.md                  # paperclip 플릿 규약 (브랜치/PR/worktree/통지)
+├── CLAUDE.md                  # Claude Code 프로젝트 지침
 ├── NEXT_STEPS.md
 ├── PROJECT_STRUCTURE.md       # 이 파일
 ├── QUICK_START.md
@@ -374,12 +415,12 @@ dart-notification/
 - PrismaService: Prisma Client 래퍼
 - PrismaModule: 전역 Prisma 모듈
 
-### src/scheduler/
+### src/engine1-disclosure/scheduler/
 - @nestjs/schedule 사용
 - 공시 수집 배치 (10분마다)
 - 만료 토큰 정리 (매일 자정)
 
-### src/dart-api/
+### src/engine1-disclosure/dart-api/
 - DART Open API 클라이언트
 - HTTP 요청, 재시도 로직
 - 공시 유형 분류
@@ -503,15 +544,14 @@ import type { User } from '@app-types/user.types';
 ### 브랜치 구조
 
 ```
-main (프로덕션)
-  ↑
-develop (개발)
-  ↑
-feature/auth      (기능 개발)
-feature/watchlist
-feature/notifications
-hotfix/bug-123    (긴급 수정)
+main (프로덕션, origin/main) — 직접 커밋 금지
+  ↑ PR (squash-merge)
+feat/<issue-id>-<slug>   # 작업 단위 = GitHub Issue 1건, origin/main 기준 worktree에서 작업
 ```
+
+- 브랜치 생성: `git worktree add ../wt-<issue-id> -b feat/<issue-id>-<slug> origin/main`
+- 머지: PR squash-merge → 머지 후 로컬 main은 stale이므로 새 브랜치는 항상 origin/main 기준으로 생성
+- 상세 규약: `AGENTS.md`
 
 ### 커밋 메시지 규칙
 
@@ -575,10 +615,10 @@ EXPO_PUBLIC_APP_ENV=development
 **주의**:
 - `.env` 파일은 절대 Git에 커밋하지 않음
 - `.env.example` 파일로 예시 제공
-- 프로덕션 환경 변수는 AWS Secrets Manager 등 사용
+- 프로덕션 환경 변수는 OCI 서버의 `backend/.env.prod`로 관리 (`docker-compose.prod.yml`의 `env_file`로 주입)
 
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-06-05
-**버전**: 2.0 (5엔진 DDD 구조·engine2 추가·engine4/5 Prisma 어댑터·mobile 신규 컴포넌트 반영)
+**최종 수정일**: 2026-07-02
+**버전**: 2.1 (횡단 모듈 8종·모바일 신규 라우트/컴포넌트 디렉터리·루트 harness/infra/scripts·브랜치 전략(feat+squash)·prod env 관리 현행화)

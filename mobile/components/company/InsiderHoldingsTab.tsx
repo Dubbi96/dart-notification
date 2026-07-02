@@ -141,7 +141,13 @@ const InsiderRow = React.memo(function InsiderRow({ item }: { item: InsiderHoldi
 
 export function InsiderHoldingsTab({ corpCode }: InsiderHoldingsTabProps) {
   const { colors, typography: typo } = useTheme();
-  const { data, isLoading, isError, refetch } = useCompanyInsiderHoldings(corpCode);
+  const { data, isLoading, isError, refetch, isRefetching } = useCompanyInsiderHoldings(corpCode);
+
+  // [UXR-21] 같은 화면 공시·통계·적합도 탭과 동일한 pull-to-refresh 제스처.
+  // 크로스플랫폼 가드: FlatList 는 refreshControl 엘리먼트 대신 refreshing/onRefresh props 사용.
+  const handleRefresh = useCallback(() => {
+    void refetch();
+  }, [refetch]);
 
   const renderItem = useCallback<ListRenderItem<InsiderHoldingChange>>(
     ({ item }) => <InsiderRow item={item} />,
@@ -173,6 +179,8 @@ export function InsiderHoldingsTab({ corpCode }: InsiderHoldingsTabProps) {
       renderItem={renderItem}
       contentContainerStyle={styles.listContent}
       showsVerticalScrollIndicator={false}
+      refreshing={isRefetching}
+      onRefresh={handleRefresh}
       ListHeaderComponent={
         <Text style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.sm }]}>
           최근 지분변동 {data.length}건 · 보고일 최신순

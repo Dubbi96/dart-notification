@@ -44,7 +44,10 @@ export default function KakaoCallback() {
           settleToHome(false);
           return;
         }
-        router.replace('/auth/sign-in');
+        // 실패 사유를 버리지 않고 route param 으로 sign-in 에 전달 → 사유+둘러보기
+        // 다이얼로그로 표면화(UXR-11, DAR-43 §3 무음 실패 방지). 콜드스타트 딥링크
+        // 복귀로 sign-in 이 새로 마운트되는 경우에도 param 으로 사유가 전달된다.
+        router.replace({ pathname: '/auth/sign-in', params: { kakaoError: error } });
         return;
       }
       if (!state) {

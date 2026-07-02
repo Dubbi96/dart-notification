@@ -1,9 +1,14 @@
+import { useCallback } from 'react';
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { signalService } from '@services/signal.service';
 import { eventStudyService } from '@services/event-study.service';
 import { CURATION_BUY_GRADES } from '@utils/signalCuration';
 
-import type { SignalFilters, SignalExploreFilters } from '@app-types/signal.types';
+import type {
+  SignalFilters,
+  SignalExploreFilters,
+  TradingSignal,
+} from '@app-types/signal.types';
 
 /**
  * 홈/신호탭 '상위 매수 신호' 큐레이션 기본 필터(DAR-193).
@@ -16,38 +21,55 @@ const CURATION_FILTERS: SignalFilters = {
   sort: 'score',
 };
 
+/**
+ * 매수 신호 피드 queryKey 빌더(UXR-23 P-2) — 피드(useBuySignals)와 종목 1건
+ * select(useCompanyBuySignal)가 문자 그대로 같은 캐시 엔트리를 공유하도록 단일화한다.
+ */
+function buySignalsFeedKey(filters: SignalFilters) {
+  return [
+    'signals',
+    'buy',
+    filters.personaType,
+    filters.grade,
+    filters.entryReady,
+    filters.sort,
+  ];
+}
+
+/** 피드 공유 staleTime — 피드·종목 관찰자가 같은 신선도 기준을 써 중복 refetch를 막는다(UXR-23 P-2). */
+const BUY_FEED_STALE_TIME_MS = 60 * 1000;
+
 export function useBuySignals(filters?: SignalFilters) {
   // 인자 미지정 시 점수순 매수등급 큐레이션을 기본으로 사용(홈 프리뷰·신호탭 L1 공통).
   const effective = filters ?? CURATION_FILTERS;
   return useQuery({
-    queryKey: [
-      'signals',
-      'buy',
-      effective.personaType,
-      effective.grade,
-      effective.entryReady,
-      effective.sort,
-    ],
+    queryKey: buySignalsFeedKey(effective),
     queryFn: () => signalService.getBuySignals(effective),
     retry: 1,
+    staleTime: BUY_FEED_STALE_TIME_MS,
   });
 }
 
 /**
- * 종목 의사결정 허브(DAR-59) — 특정 corpCode의 최신 매수 신호 1건.
- * 기존 /signals 피드(전체 매수 신호)를 조립해 해당 종목 신호를 client-side로 선별한다.
- * 별도 종목별 신호 엔드포인트가 없으므로 피드에 미노출이면 null(결측 graceful 부분노출).
+ * 종목 의사결정 허브(DAR-59) — 특정 corpCode의 최신 매수 신호 1건(scoreBreakdown 포함).
+ * 종목별 scoreBreakdown 단건 엔드포인트가 없으므로 홈/신호탭과 같은 큐레이션 피드를 쓰되,
+ * queryKey를 피드 공통 키로 통일하고 select로 해당 종목 1건만 추출한다(UXR-23 P-2).
+ * (기존: corpCode별 queryKey + 무필터 전량 fetch — 종목 상세를 옮겨 다닐 때마다
+ * 동일 피드를 재다운로드하며 캐시 공유 0. 홈/신호탭 드릴다운이면 이제 추가 요청 0)
+ * 피드에 미노출이면 null(결측 graceful 부분노출) — 기존 계약 유지.
  */
 export function useCompanyBuySignal(corpCode: string | undefined) {
+  const selectCompanySignal = useCallback(
+    (signals: TradingSignal[]) => signals.find((s) => s.corpCode === corpCode) ?? null,
+    [corpCode],
+  );
   return useQuery({
-    queryKey: ['signals', 'company', corpCode],
-    queryFn: async () => {
-      const signals = await signalService.getBuySignals();
-      return signals.find((s) => s.corpCode === corpCode) ?? null;
-    },
+    queryKey: buySignalsFeedKey(CURATION_FILTERS),
+    queryFn: () => signalService.getBuySignals(CURATION_FILTERS),
     enabled: !!corpCode,
     retry: 1,
-    staleTime: 60 * 1000,
+    staleTime: BUY_FEED_STALE_TIME_MS,
+    select: selectCompanySignal,
   });
 }
 

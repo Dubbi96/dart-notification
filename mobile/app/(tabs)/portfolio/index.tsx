@@ -5,13 +5,13 @@ import { Surface, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router, useScrollToTop, useLocalSearchParams } from 'expo-router';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, sizing } from '@theme/spacing';
 import { PositionCard } from '@components/portfolio/PositionCard';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { GuestPrompt } from '@components/common/GuestPrompt';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { guestPromptCopy } from '@components/common/guestPromptCopy';
-import { SkeletonList } from '@components/common/SkeletonCard';
+import { SkeletonList, SkeletonBar, useSkeletonPulse } from '@components/common/SkeletonCard';
 import { useAuthStore } from '@stores/authStore';
 import { SimulationStatusSection } from '@components/portfolio/SimulationStatusSection';
 import { StyleComparisonSection } from '@components/portfolio/StyleComparisonSection';
@@ -44,6 +44,62 @@ const STATUS_ORDER: Record<Position['thesisStatus'], number> = {
   ACTIVE: 3,
 };
 
+// UXR-13 C-6: 손익 금액 부호 정본 — formatReturnPct 부호 규칙과 동일(양수만 '+', 0 은 부호
+// 없음, 반올림 -0 은 0 으로 정규화 — DAR-312 음수영점 가드). 실전·내 모의 두 탭이 이
+// 포맷터를 공유해 '+N원 vs N원' 부호 병기 비일관을 제거한다.
+function formatSignedKrw(amount: number): string {
+  const rounded = Math.round(amount);
+  const display = rounded === 0 ? 0 : rounded;
+  return `${display > 0 ? '+' : ''}${display.toLocaleString()}원`;
+}
+
+// UXR-13 C-6(DAR-451 C2 후속): 실전·내 모의 총손익 헤드라인 행 공용 렌더 — 아이콘(trending)
+// + 타이포(bodyMedium 700) + 부호 병기를 두 탭 동일 시각 문법으로 통일한다.
+// 파라미터명 summary: 이 행은 요약(실전 summary / 내 모의 paper)의 손익 필드 쌍을 그린다.
+interface PnlHeadlineRowProps {
+  totalPnl: number;
+  totalPnlPercent: number;
+}
+
+function PnlHeadlineRow(summary: PnlHeadlineRowProps) {
+  const { colors, typography: typo } = useTheme();
+  return (
+    <View
+      style={styles.headlinePnlRow}
+      accessibilityRole="text"
+      accessibilityLabel={`총 손익 ${formatSignedKrw(summary.totalPnl)}, ${formatPnlPercent(summary.totalPnlPercent)}`}
+    >
+      <Feather
+        name={summary.totalPnlPercent < 0 ? 'trending-down' : 'trending-up'}
+        size={sizing.icon.sm}
+        color={pnlColor(summary.totalPnlPercent, colors)}
+      />
+      <Text style={[typo.bodyMedium, styles.headlinePnl, { color: pnlColor(summary.totalPnlPercent, colors) }]}>
+        {formatSignedKrw(summary.totalPnl)} ({formatPnlPercent(summary.totalPnlPercent)})
+      </Text>
+    </View>
+  );
+}
+
+// UXR-13 C-3: 요약 로딩 중 자리 유지 스켈레톤 — 헤드라인 팝인 점프(레이아웃 시프트) 제거.
+// 실제 요약 카드와 동일한 Surface 골격에 라벨·헤드라인·손익 3줄 자리를 유지한다.
+function SummaryHeadlineSkeleton() {
+  const { colors } = useTheme();
+  const opacity = useSkeletonPulse();
+  return (
+    <Surface
+      elevation={1}
+      style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}
+      accessibilityRole="progressbar"
+      accessibilityLabel="포트폴리오 요약 로딩 중"
+    >
+      <SkeletonBar width={88} height={12} opacity={opacity} />
+      <SkeletonBar width="55%" height={30} opacity={opacity} style={styles.headlineValue} />
+      <SkeletonBar width="40%" height={16} opacity={opacity} style={styles.headlineValue} />
+    </Surface>
+  );
+}
+
 export default function PortfolioScreen() {
   const { colors, typography: typo } = useTheme();
   // DAR-431: 체결 알림 딥링크(`/portfolio?tab=sim` 등)가 해당 트랙 서브탭으로 직행하도록
@@ -69,17 +125,36 @@ export default function PortfolioScreen() {
 
   // DAR-181: 탭 재탭 시 최상단 복귀. 실전·모의 FlatList는 상호배타로 하나만 마운트되어
   // 동일 ref를 공유한다(비활성 list는 언마운트되어 ref.current=null).
+  // UXR-13 C-8: 시스템 검증 서브탭은 각 섹션이 자체 FlatList 에 useScrollToTop 을 등록한다
+  // (StrategyComparisonSection 반영 — 나머지 섹션은 각 담당 이슈 범위에서 확장).
   const listRef = useRef<FlatList<Position>>(null);
   useScrollToTop(listRef);
 
-  const positionsQuery = usePositions();
-  const summaryQuery = usePortfolioSummary();
-  const riskQuery = usePortfolioRisk();
-  const paperQuery = usePaperPortfolio();
+  // UXR-13 P-5: 활성 서브탭이 실제로 그리는 쿼리만 발화(DAR-471 접힘 게이팅과 동일 사상).
+  // 딥링크(?tab=sim 등)로 시스템 검증 트랙에 직행하면 실전 3종+모의 쿼리가 전부 무발화 —
+  // 체결 알림 동선에서 무관 API 4건이 트랙 데이터와 대역폭을 경쟁하지 않는다.
+  // 게스트는 GuestPrompt 만 렌더하므로 전 쿼리 무발화(401 소음 0).
+  const isLiveTab = subTab === 'live';
+  const positionsQuery = usePositions({ enabled: isAuthenticated && isLiveTab });
+  const summaryQuery = usePortfolioSummary({ enabled: isAuthenticated && isLiveTab });
+  const riskQuery = usePortfolioRisk({ enabled: isAuthenticated && isLiveTab });
+  const paperQuery = usePaperPortfolio({ enabled: isAuthenticated && subTab === 'paper' });
 
   const handlePositionPress = useCallback((position: Position) => {
     router.push(`/portfolio/${position.portfolioId}/position/${position.id}`);
   }, []);
+
+  // UXR-13 C-3: 헤드라인 존(요약+리스크) 실패 재시도 — 두 쿼리를 함께 복구해
+  // '요약만 살고 하드룰 경보는 죽은' 반쪽 복구를 막는다.
+  const handleRetryHeadline = useCallback(() => {
+    summaryQuery.refetch();
+    riskQuery.refetch();
+  }, [summaryQuery, riskQuery]);
+
+  // UXR-13 C-3: 리스크만 실패한 경우의 단독 재시도(요약 불필요 재요청 방지).
+  const handleRetryRisk = useCallback(() => {
+    riskQuery.refetch();
+  }, [riskQuery]);
 
   const sortedPositions = useMemo(() => {
     const data = positionsQuery.data ?? [];
@@ -175,7 +250,13 @@ export default function PortfolioScreen() {
           }}
           ListHeaderComponent={
           <View style={styles.liveHeader}>
-            {summary ? (
+            {/* UXR-13 C-3: 요약 쿼리 상태를 명시 처리 — 실패 시 헤드라인 무음 소실 금지.
+                로딩은 자리 유지 스켈레톤(팝인 점프 제거), 캐시가 있으면 데이터 우선(리프레시
+                실패로 화면을 비우지 않음), 캐시 없는 실패만 컴팩트 인라인 에러+재시도
+                (EquityCurveCard '불러오지 못했습니다 · 다시 시도' 패턴 재사용). */}
+            {summaryQuery.isLoading ? (
+              <SummaryHeadlineSkeleton />
+            ) : summary ? (
               <Surface elevation={1} style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 {/* DAR-356 GROUND-1: 총평가금액(대형) 1줄 + 손익 색조 1줄 = 2줄 헤드라인.
                     무스크롤 최상단에서 '내 상태 어때?'를 2초 내 글랜스로 파악. */}
@@ -194,18 +275,27 @@ export default function PortfolioScreen() {
                 >
                   {summary.totalValue.toLocaleString()}원
                 </Text>
-                <View style={styles.headlinePnlRow}>
-                  <Feather
-                    name={summary.totalPnlPercent < 0 ? 'trending-down' : 'trending-up'}
-                    size={16}
-                    color={pnlColor(summary.totalPnlPercent, colors)}
-                  />
-                  <Text style={[typo.bodyMedium, styles.headlinePnl, { color: pnlColor(summary.totalPnlPercent, colors) }]}>
-                    {summary.totalPnl >= 0 ? '+' : ''}{summary.totalPnl.toLocaleString()}원 ({formatPnlPercent(summary.totalPnlPercent)})
-                  </Text>
-                </View>
-                {/* DAR-163/356: 리스크 스냅샷(하드룰 위반 전폭 배너 우선 → 일손익·집중도 1줄). 없으면 미표시. */}
-                <PortfolioRiskBadge snapshot={riskQuery.data} style={styles.riskBadge} />
+                {/* UXR-13 C-6: 손익 행은 내 모의 탭과 공용 렌더(아이콘+bodyMedium 700+부호 정본). */}
+                <PnlHeadlineRow totalPnl={summary.totalPnl} totalPnlPercent={summary.totalPnlPercent} />
+                {/* DAR-163/356: 리스크 스냅샷(하드룰 위반 전폭 배너 우선 → 일손익·집중도 1줄). 없으면 미표시.
+                    UXR-13 C-3: 캐시 우선(리프레시 실패가 하드룰 경보를 지우지 않도록) —
+                    캐시 없는 실패만 '스냅샷 없음'과 구분해 1줄 고지+재시도(무음 소실 방지). */}
+                {riskQuery.data ? (
+                  <PortfolioRiskBadge snapshot={riskQuery.data} style={styles.riskBadge} />
+                ) : riskQuery.isError ? (
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={handleRetryRisk}
+                    accessibilityRole="button"
+                    accessibilityLabel="리스크 정보를 불러오지 못했습니다. 다시 시도"
+                    style={[styles.inlineRetry, styles.riskBadge]}
+                  >
+                    <Feather name="refresh-cw" size={14} color={colors.primary} />
+                    <Text style={[typo.small, { color: colors.primary }]}>
+                      리스크 정보를 불러오지 못했습니다 · 다시 시도
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
                 {summary.mddBreached ? (
                   <Banner visible actions={[]} style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}>
                     <Text style={[typo.small, { color: colors.error }]}>
@@ -213,6 +303,22 @@ export default function PortfolioScreen() {
                     </Text>
                   </Banner>
                 ) : null}
+              </Surface>
+            ) : summaryQuery.isError ? (
+              <Surface elevation={1} style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[typo.small, { color: colors.textSecondary }]}>총 평가금액</Text>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={handleRetryHeadline}
+                  accessibilityRole="button"
+                  accessibilityLabel="요약을 불러오지 못했습니다. 다시 시도"
+                  style={styles.inlineRetry}
+                >
+                  <Feather name="refresh-cw" size={14} color={colors.primary} />
+                  <Text style={[typo.small, { color: colors.primary }]}>
+                    요약을 불러오지 못했습니다 · 다시 시도
+                  </Text>
+                </TouchableOpacity>
               </Surface>
             ) : null}
 
@@ -307,9 +413,9 @@ export default function PortfolioScreen() {
                 >
                   {paper.totalAsset.toLocaleString()}원
                 </Text>
-                <Text style={[typo.captionMedium, { color: pnlColor(paper.totalPnlPercent, colors), marginTop: spacing.xs }]}>
-                  {paper.totalPnl.toLocaleString()}원 ({formatPnlPercent(paper.totalPnlPercent)})
-                </Text>
+                {/* UXR-13 C-6(DAR-451 C2 후속): 손익 행도 실전 탭과 동일 공용 렌더로 통일 —
+                    아이콘·bodyMedium 700·양수 '+' 부호 병기(같은 지표=같은 시각 문법). */}
+                <PnlHeadlineRow totalPnl={paper.totalPnl} totalPnlPercent={paper.totalPnlPercent} />
                 {typeof paper.signalHitRate === 'number' ? (
                   <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.sm }]}>
                     신호 적중률 {Math.round(paper.signalHitRate * 100)}%
@@ -516,6 +622,13 @@ const styles = StyleSheet.create({
   },
   riskBadge: {
     marginTop: spacing.md,
+  },
+  // UXR-13 C-3: 컴팩트 인라인 에러 재시도 행(EquityCurveCard curveRetry 패턴) — 44pt 터치영역.
+  inlineRetry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    minHeight: sizing.minTouchTarget,
   },
   collapseToggle: {
     flexDirection: 'row',

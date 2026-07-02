@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, sizing } from '@theme/spacing';
 import { getEventTypeLabel } from '@utils/disclosureType';
 import { formatReturnPct, formatWinRate, returnColor } from '@utils/numberFormat';
 import { DataLimitBadge } from '@components/common/DataLimitBadge';
@@ -187,6 +187,9 @@ const styles = StyleSheet.create({
   tab: {
     flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    // UXR-14 C-4: typo.small(16)+padding(8×2)≈32pt로 44pt 미달 — 유효 터치영역 보장.
+    minHeight: sizing.minTouchTarget,
     paddingVertical: spacing.sm,
     borderRadius: radius.sm,
   },

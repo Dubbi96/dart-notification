@@ -13,22 +13,30 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, sizing } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { useDebounce, SEARCH_DEBOUNCE_MS } from '@hooks/useDebounce';
 import { useUnifiedSearch, shouldUnifiedSearch } from '@hooks/useUnifiedSearch';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
+import { symmetricHitSlopForIcon } from '@utils/touchTarget';
 import { formatYmdDots } from '@utils/datetime';
 
 import type { Company } from '@app-types/user.types';
 import type { Disclosure } from '@app-types/disclosure.types';
 
+// 아이콘 전용 버튼의 유효 터치 영역을 44pt까지 확장(A-6) — SearchOverlay 정본과 동일한 공용 유틸.
+// 뒤로가기(chevron-back 26) → 26 + 9*2 = 44pt
+const BACK_HIT_SLOP = symmetricHitSlopForIcon(sizing.icon.lg);
+// 입력 초기화(x-circle 18) → 18 + 13*2 = 44pt
+const CLEAR_INPUT_HIT_SLOP = symmetricHitSlopForIcon(sizing.icon.md);
+
 type SearchRow =
   | { kind: 'sectionHeader'; key: string; label: string; count: number }
   | { kind: 'company'; key: string; company: Company }
-  | { kind: 'disclosure'; key: string; disclosure: Disclosure };
+  | { kind: 'disclosure'; key: string; disclosure: Disclosure }
+  | { kind: 'seeAllDisclosures'; key: string; total: number };
 
 function marketLabel(market: string | null): string {
   if (market === 'KOSPI') return '코스피';
@@ -64,15 +72,21 @@ export default function UnifiedSearchScreen() {
       );
     }
     if (disclosures.length > 0) {
+      const disclosureTotal = data?.disclosures.total ?? disclosures.length;
       out.push({
         kind: 'sectionHeader',
         key: 'h-disclosure',
         label: '공시',
-        count: data?.disclosures.total ?? disclosures.length,
+        count: disclosureTotal,
       });
       disclosures.forEach((d) =>
         out.push({ kind: 'disclosure', key: `d-${d.rcpNo}`, disclosure: d }),
       );
+      // E-2: 헤더에 '공시 N건' 총계만 보여주고 첫 페이지 이후로 갈 다음 행동이 없던
+      // 막다른 길 해소 — 잘린 결과가 있으면 전체 공시 화면(무한 스크롤 검색)으로 잇는다.
+      if (disclosureTotal > disclosures.length) {
+        out.push({ kind: 'seeAllDisclosures', key: 'see-all-disclosures', total: disclosureTotal });
+      }
     }
     return out;
   }, [data]);
@@ -84,6 +98,11 @@ export default function UnifiedSearchScreen() {
   const openDisclosure = useCallback((rcpNo: string) => {
     router.push(`/disclosure/${rcpNo}`);
   }, []);
+
+  // E-2: 첫 페이지 밖 공시 결과는 전체 공시 화면에 검색어를 프리필해 이어본다(query 파라미터 수용 완료).
+  const openAllDisclosures = useCallback(() => {
+    router.push({ pathname: '/disclosures', params: { query: term } });
+  }, [term]);
 
   const renderItem = useCallback(
     ({ item }: { item: SearchRow }) => {
@@ -131,6 +150,24 @@ export default function UnifiedSearchScreen() {
         );
       }
 
+      if (item.kind === 'seeAllDisclosures') {
+        return (
+          <TouchableOpacity
+            style={styles.seeAllRow}
+            activeOpacity={0.7}
+            onPress={openAllDisclosures}
+            accessibilityRole="button"
+            accessibilityLabel={`공시 검색 결과 전체 보기, 총 ${item.total.toLocaleString()}건`}
+            accessibilityHint="전체 공시 화면에서 검색 결과 전체를 확인합니다"
+          >
+            <Text style={[typo.bodyMedium, { color: colors.primary }]}>
+              공시 검색 결과 전체 보기
+            </Text>
+            <Feather name="chevron-right" size={sizing.icon.sm} color={colors.primary} />
+          </TouchableOpacity>
+        );
+      }
+
       const d = item.disclosure;
       const typeStyle = getTypeStyle(d.disclosureType, isDark);
       return (
@@ -162,7 +199,7 @@ export default function UnifiedSearchScreen() {
         </TouchableOpacity>
       );
     },
-    [colors, typo, isDark, openCompany, openDisclosure],
+    [colors, typo, isDark, openCompany, openDisclosure, openAllDisclosures],
   );
 
   const renderBody = () => {
@@ -213,11 +250,11 @@ export default function UnifiedSearchScreen() {
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <TouchableOpacity
             onPress={() => router.back()}
-            hitSlop={8}
+            hitSlop={BACK_HIT_SLOP}
             accessibilityRole="button"
             accessibilityLabel="뒤로 가기"
           >
-            <Ionicons name="chevron-back" size={26} color={colors.text} />
+            <Ionicons name="chevron-back" size={sizing.icon.lg} color={colors.text} />
           </TouchableOpacity>
           <Text
             style={[typo.h3, { color: colors.text, marginLeft: spacing.sm }]}
@@ -255,11 +292,11 @@ export default function UnifiedSearchScreen() {
             {query.length > 0 ? (
               <TouchableOpacity
                 onPress={() => setQuery('')}
-                hitSlop={8}
+                hitSlop={CLEAR_INPUT_HIT_SLOP}
                 accessibilityRole="button"
                 accessibilityLabel="검색어 지우기"
               >
-                <Feather name="x-circle" size={18} color={colors.textTertiary} />
+                <Feather name="x-circle" size={sizing.icon.md} color={colors.textTertiary} />
               </TouchableOpacity>
             ) : null}
           </View>
@@ -312,6 +349,15 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
   },
   card: {
+    marginBottom: spacing.sm,
+  },
+  // 공시 섹션 푸터 '전체 보기' 행(E-2) — 44pt 터치 타깃을 minHeight로 보장.
+  seeAllRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: sizing.minTouchTarget,
+    gap: spacing.xs,
     marginBottom: spacing.sm,
   },
   companyRow: {

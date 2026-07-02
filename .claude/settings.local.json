@@ -1,5 +1,15 @@
 {
   "permissions": {
-    "allow": []
+    "allow": [
+      "Bash(export DEVELOPER_DIR=/Library/Developer/CommandLineTools)",
+      "Bash(gh pr create --base main --head feat/dar-446-push-project-conflict --title 'fix\\(expo-push\\): 혼재 Expo 프로젝트 토큰 청크 거부 시 메시지 단위 폴백 \\(DAR-446\\)' --body ' *)",
+      "Bash(gh pr create --base main --head feat/dar-447-fcm-push-build --title 'fix\\(mobile\\): FCM 푸시 빌드 배선 + projectId 동적화 + 비밀 분리 \\(DAR-447\\)' --body ' *)",
+      "Bash(gh pr *)",
+      "Bash(export DEVELOPER_DIR=/Library/Developer/CommandLineTools EAS_NO_VCS=1)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'docs\\(ux\\): UI/UX 정밀 리뷰 정본 \\(2026-07-02\\) — 확정 76건·이슈 분해안·6/27 감사 후속 판정 *)",
+      "Bash(git checkout *)",
+      "Bash(git commit *)"
+    ]
   }
 }

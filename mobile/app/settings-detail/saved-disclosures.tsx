@@ -1,11 +1,10 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import {
   View,
   Text,
   FlatList,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,7 +14,7 @@ import { useTheme } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
 import { Card } from '@components/common/Card';
-import { EmptyState, ApiErrorState } from '@components/common/StateView';
+import { LoadingState, EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
@@ -28,14 +27,7 @@ import { useHaptics } from '@hooks/useHaptics';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { formatYmdDots } from '@utils/datetime';
 
-interface SavedDisclosureItem {
-  id: string;
-  rcpNo: string;
-  reportName: string;
-  corpName: string;
-  rcpDt: string;
-  disclosureType: string;
-}
+import type { SavedDisclosure } from '@hooks/useSavedDisclosures';
 
 export default function SavedDisclosuresScreen() {
   const { colors, typography: typo, isDark } = useTheme();
@@ -45,28 +37,63 @@ export default function SavedDisclosuresScreen() {
   const removeMutation = useRemoveSavedDisclosure();
   const saveMutation = useSaveDisclosure();
 
-  const items = data?.data ?? [];
+  // handleRemove가 items를 참조하므로 참조 안정화(useCallback 의존성 매 렌더 변동 방지).
+  const items = useMemo(() => data?.data ?? [], [data]);
 
-  // 해제는 즉시 mutate하되, SearchOverlay 워치리스트 패턴과 동일하게 '실행 취소'(rcpNo 재저장) 동선 제공.
+  // UXR-17(D-3): 해제는 낙관적 제거(훅 onMutate)로 목록에서 즉시 사라지고, 스낵바·햅틱은 결과로 분기 —
+  // 성공 시에만 '실행 취소'(rcpNo 재저장 + 항목 낙관적 복원) 안내, 실패 시 훅 롤백과 함께 실패 안내.
   const handleRemove = useCallback(
     (id: string, rcpNo: string) => {
-      removeMutation.mutate(id);
-      haptics.light();
-      showSnackbar(snackbarCopy.disclosureUnsaved, {
-        duration: SNACKBAR_DURATION.success,
-        action: { label: '실행 취소', onPress: () => saveMutation.mutate(rcpNo) },
+      // '실행 취소' 낙관적 복원용 원본 항목을 제거 전에 캡처.
+      const removed = items.find((item) => item.id === id);
+      removeMutation.mutate(id, {
+        onSuccess: () => {
+          haptics.light();
+          showSnackbar(snackbarCopy.disclosureUnsaved, {
+            duration: SNACKBAR_DURATION.success,
+            action: {
+              label: '실행 취소',
+              onPress: () =>
+                saveMutation.mutate(
+                  { rcpNo, optimisticItem: removed },
+                  {
+                    onError: () =>
+                      showSnackbar(snackbarCopy.disclosureSaveFailed, {
+                        duration: SNACKBAR_DURATION.error,
+                      }),
+                  },
+                ),
+            },
+          });
+        },
+        onError: () =>
+          // 제거 실패 카피는 §3-1 표의 범용 문구(watchlistRemoveFailed)를 재사용.
+          showSnackbar(snackbarCopy.watchlistRemoveFailed, {
+            duration: SNACKBAR_DURATION.error,
+          }),
       });
     },
-    [removeMutation, saveMutation, haptics, showSnackbar],
+    [items, removeMutation, saveMutation, haptics, showSnackbar],
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: SavedDisclosureItem }) => {
+    ({ item }: { item: SavedDisclosure }) => {
     const typeStyle = getTypeStyle(item.disclosureType, isDark);
+    // UXR-17(A-8): notifications 행 패턴 이식 — 행 전체를 단일 버튼으로 읽는 합성 라벨(유형·제목·기업명·날짜).
+    const rowA11yLabel = [
+      getTypeLabel(item.disclosureType),
+      item.reportName,
+      item.corpName,
+      formatYmdDots(item.rcpDt),
+    ]
+      .filter(Boolean)
+      .join(', ');
     return (
       <TouchableOpacity
         activeOpacity={0.7}
         onPress={() => router.push(`/disclosure/${item.rcpNo}`)}
+        accessibilityRole="button"
+        accessibilityLabel={rowA11yLabel}
       >
         <Card style={styles.card} variant="elevated">
           <View style={styles.cardHeader}>
@@ -114,9 +141,8 @@ export default function SavedDisclosuresScreen() {
       />
 
       {isLoading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
+        // UXR-17(D-1): 수제 스피너 대신 표준 StateView.LoadingState로 통일(에러/빈 상태와 같은 계열).
+        <LoadingState message="저장된 공시를 불러오는 중..." />
       ) : isError ? (
         // 장애를 '저장 0건' 빈 상태로 위장하지 않도록 에러는 명시 분기 + 재시도 동선 제공.
         <ApiErrorState
@@ -154,12 +180,6 @@ export default function SavedDisclosuresScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 80,
   },
   listContent: {
     paddingHorizontal: spacing.lg,

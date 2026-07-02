@@ -126,14 +126,16 @@ function StyleCard({ perf, isBest }: { perf: StylePerformance; isBest: boolean }
       </View>
 
       {/* 2차: 전문/희귀 리스크 지표는 한 탭 뒤로(progressive disclosure) */}
-      <InlineDisclosure label="상세 지표 — 적중률·Sharpe·MDD·vs KOSPI">
+      {/* UXR-14 B-1: 'Sharpe' 원어 라벨 → 홈(DAR-446) 정본 어휘 '위험 대비 수익(Sharpe)' 병기.
+          접이 라벨은 numberOfLines=1 잘림 방지 위해 축약('등'), 병기는 펼침 내부 StatPair에. */}
+      <InlineDisclosure label="상세 지표 — 적중률·위험 대비 수익·MDD 등">
         <View style={styles.statGrid}>
           <StatPair
             label="신호 적중률(D+5)"
             value={`${Math.round(g.hitRatePct)}%`}
             sub={`n=${g.hitRateSampleSize}`}
           />
-          <StatPair label="Sharpe" value={formatSharpe(g.sharpe)} />
+          <StatPair label="위험 대비 수익(Sharpe)" value={formatSharpe(g.sharpe)} />
           <StatPair label="MDD" value={formatSignedPct(g.mddPct)} />
           <StatPair label="vs KOSPI" value={formatSignedPct(g.benchmarkAlphaPct)} />
         </View>
@@ -159,8 +161,9 @@ function ComparisonHeader({ data }: { data: StyleComparison }) {
         icon="flask"
         style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}
       >
+        {/* UXR-14 B-1: '졸업지표'(운영자 M10 어휘) → 사용자 어휘 '검증 지표'(UXR-4 정본과 동일). */}
         <Text style={[typo.small, { color: colors.info }]}>
-          철학 스타일별 모의운용 비교 — 실제 주문이 아닙니다. 졸업지표는 참고용입니다.
+          철학 스타일별 모의운용 비교 — 실제 주문이 아닙니다. 검증 지표는 참고용입니다.
         </Text>
       </Banner>
 

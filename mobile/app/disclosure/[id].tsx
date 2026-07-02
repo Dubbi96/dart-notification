@@ -460,9 +460,16 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
   },
+  // 뒤로가기 44pt 보장(E-5): philosophy/company 헤더와 동일하게 minWidth/minHeight로 유효 터치
+  // 영역을 sizing.minTouchTarget(44pt) 이상으로 통일한다(종전 42pt). 로딩 셸의 우측 스페이서도
+  // 같은 스타일을 공유해 제목 중앙 정렬 대칭을 유지한다.
   headerButton: {
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.sm,
+    minWidth: sizing.minTouchTarget,
+    minHeight: sizing.minTouchTarget,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerActions: {
     flexDirection: 'row',

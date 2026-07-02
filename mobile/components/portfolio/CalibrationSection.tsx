@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, sizing } from '@theme/spacing';
 import { getEventTypeLabel } from '@utils/disclosureType';
 import { formatReturnPct, formatWinRate, returnColor } from '@utils/numberFormat';
 import { DataLimitBadge } from '@components/common/DataLimitBadge';
@@ -337,6 +337,9 @@ const styles = StyleSheet.create({
   tab: {
     flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    // UXR-14 C-4: typo.small(16)+padding(8×2)≈32pt로 44pt 미달 — 유효 터치영역 보장.
+    minHeight: sizing.minTouchTarget,
     paddingVertical: spacing.sm,
     borderRadius: radius.sm,
   },
@@ -347,6 +350,12 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   horizonChipTouch: {
+    // UXR-14 C-4: 텍스트+패딩(4×2)≈24pt — hitSlop 대신 자체 크기로 44pt 확정 보장
+    // (인접 칩 hitSlop 중첩 오탭 방지, 우측 정렬 토글이라 높이 확장 여유 있음).
+    minWidth: sizing.minTouchTarget,
+    minHeight: sizing.minTouchTarget,
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
   },

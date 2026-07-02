@@ -36,8 +36,11 @@ const src = readFileSync(
 );
 
 // ───────────────────────────── E11: 디바운스 훅 통일 ─────────────────────────────
-check('공통 useDebounce 훅 import', /import \{ useDebounce \} from '@hooks\/useDebounce'/.test(src), true);
-check('useDebounce(searchQuery, 300) 파생 사용', /useDebounce\(searchQuery,\s*300\)\.trim\(\)/.test(src), true);
+// UXR-20/E-8: 지연도 SSOT 상수 SEARCH_DEBOUNCE_MS(useDebounce 모듈)로 통일 — 인라인 300 잔존 금지
+// (통합검색·관심기업 검색과 동일 규약, check-search-convention.ts ① 정렬).
+check('공통 useDebounce+SEARCH_DEBOUNCE_MS import', /import \{[^}]*\buseDebounce\b[^}]*\bSEARCH_DEBOUNCE_MS\b[^}]*\} from '@hooks\/useDebounce'/.test(src), true);
+check('useDebounce(searchQuery, SEARCH_DEBOUNCE_MS) 파생 사용', /useDebounce\(searchQuery,\s*SEARCH_DEBOUNCE_MS\)\.trim\(\)/.test(src), true);
+check('인라인 300 디바운스 잔존 없음', /useDebounce\(searchQuery,\s*300\)/.test(src), false);
 // 수동 타이머/추가 상태/핸들러 제거 — 음성 대조
 check('수동 setTimeout 디바운스 제거', /setTimeout\(\(\)\s*=>\s*setDebouncedQuery/.test(src), false);
 check('debouncedQuery useState 제거', /useState[^\n]*\bsetDebouncedQuery\b/.test(src), false);

@@ -106,9 +106,19 @@ interface SignalExplorerProps {
   ListHeaderComponent?: React.ReactElement | null;
   /** DAR-181: 탭 재탭 시 최상단 복귀(useScrollToTop)를 위해 내부 FlatList ref를 부모에 노출. */
   listRef?: React.RefObject<FlatList<TradingSignal> | null>;
+  /**
+   * UXR-12(B-5): pull-to-refresh 시 ListHeaderComponent 쪽 쿼리(L1 큐레이션 등)를 함께 갱신하는
+   * 부모 주입 콜백. 미지정 시 기존처럼 explore 쿼리만 재조회.
+   */
+  onRefreshHeader?: () => void;
 }
 
-export function SignalExplorer({ searchQuery = '', ListHeaderComponent, listRef }: SignalExplorerProps) {
+export function SignalExplorer({
+  searchQuery = '',
+  ListHeaderComponent,
+  listRef,
+  onRefreshHeader,
+}: SignalExplorerProps) {
   const { colors, typography: typo } = useTheme();
   const [grade, setGrade] = useState<SignalGrade | undefined>(undefined);
   const [persona, setPersona] = useState<string | undefined>(undefined);
@@ -175,6 +185,14 @@ export function SignalExplorer({ searchQuery = '', ListHeaderComponent, listRef 
   const handlePress = useCallback((signal: TradingSignal) => {
     router.push(`/signals/${signal.id}`);
   }, []);
+
+  // UXR-12(B-5): 당겨서 새로고침이 explore 피드만 갱신하고 함께 보이는 헤더 큐레이션(별도 쿼리)은
+  // stale로 남던 비일관 해소 — 부모 콜백을 refetch와 병행 호출.
+  const refetchExplore = query.refetch;
+  const handleRefresh = useCallback(() => {
+    onRefreshHeader?.();
+    refetchExplore();
+  }, [onRefreshHeader, refetchExplore]);
 
   const renderItem = useCallback(
     ({ item }: { item: TradingSignal }) => (
@@ -343,7 +361,7 @@ export function SignalExplorer({ searchQuery = '', ListHeaderComponent, listRef 
       }}
       onEndReachedThreshold={0.4}
       refreshing={query.isRefetching && !query.isFetchingNextPage}
-      onRefresh={query.refetch}
+      onRefresh={handleRefresh}
       ListHeaderComponent={filterHeader}
       ListFooterComponent={
         items.length > 0 && !query.isLoading ? (

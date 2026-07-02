@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { router, useScrollToTop, type Href } from 'expo-router';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
@@ -24,7 +24,7 @@ import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy
 import { useNotifications, useMarkAsRead, useMarkAllAsRead } from '@hooks/useNotifications';
 import { getTypeLabel } from '@utils/disclosureType';
 import { resolveDeepLink } from '@utils/deeplink';
-import { sourceByType } from '@utils/notificationSource';
+import { stripSourceEmoji } from '@utils/notificationSource';
 import { relativeTime } from '@utils/datetime';
 
 import type {
@@ -34,19 +34,20 @@ import type {
 } from '@app-types/notification.types';
 
 // DAR-84: 통합 인박스 — 타입별 아이콘/색상 토큰(하드코딩 색상 0) + 폴백 라벨
+// UXR-16(D-9): Ionicons → Feather(thin stroke) 통일 — DAR-470 후속, 이 화면 범위.
 type TypeMeta = {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: keyof typeof Feather.glyphMap;
   colorKey: 'primary' | 'success' | 'warning' | 'error';
   label: string;
 };
 const NOTIFICATION_TYPE_META: Record<NotificationType, TypeMeta> = {
-  DISCLOSURE: { icon: 'document-text-outline', colorKey: 'primary', label: '공시' },
-  SIGNAL: { icon: 'trending-up-outline', colorKey: 'success', label: '신호' },
-  EXIT: { icon: 'log-out-outline', colorKey: 'warning', label: '청산' },
-  THESIS_VIOLATED: { icon: 'alert-circle-outline', colorKey: 'error', label: '논리훼손' },
+  DISCLOSURE: { icon: 'file-text', colorKey: 'primary', label: '공시' },
+  SIGNAL: { icon: 'trending-up', colorKey: 'success', label: '신호' },
+  EXIT: { icon: 'log-out', colorKey: 'warning', label: '청산' },
+  THESIS_VIOLATED: { icon: 'alert-circle', colorKey: 'error', label: '논리훼손' },
   // DAR-424: 라이브 페이퍼 체결 — 매수(녹색 매수 진입)·매도(주황 청산 확정).
-  TRADE_ENTRY: { icon: 'arrow-down-circle-outline', colorKey: 'success', label: '매수 체결' },
-  TRADE_EXIT: { icon: 'arrow-up-circle-outline', colorKey: 'warning', label: '매도 체결' },
+  TRADE_ENTRY: { icon: 'arrow-down-circle', colorKey: 'success', label: '매수 체결' },
+  TRADE_EXIT: { icon: 'arrow-up-circle', colorKey: 'warning', label: '매도 체결' },
 };
 const getTypeMeta = (type: NotificationType): TypeMeta =>
   NOTIFICATION_TYPE_META[type] ?? NOTIFICATION_TYPE_META.DISCLOSURE;
@@ -72,6 +73,9 @@ const CATEGORY_LABEL: Record<NotificationCategory, string> = {
 };
 const getCategoryLabel = (category: NotificationCategory): string =>
   CATEGORY_LABEL[category];
+
+// UXR-16(D-2): '모두 읽음' 실패 카피 — snackbarCopy 정본은 이 이슈의 파일 경계 밖이라 로컬 상수로 유지.
+const MARK_ALL_READ_FAILED_COPY = '모두 읽음 처리에 실패했어요. 다시 시도해 주세요.';
 
 // DAR-161: 세그먼트 칩 — 타입별 미읽음 점 배지. 활성 시 primary 배경 + primaryForeground 텍스트.
 interface TypeSegmentChipProps {
@@ -151,11 +155,14 @@ function NotificationRowBase({ item, onPress }: NotificationRowProps) {
   const meta = getTypeMeta(item.type);
   const accent = colors[meta.colorKey];
   // DAR-84 다형 표시: 공시는 조인 데이터 우선, 그 외 타입은 title/body 사용.
-  // DAR-432: 공시 행은 조인 데이터로 렌더하므로 출처 이모지(📢)를 SSOT 에서 직접 덧붙인다.
-  //   그 외 타입(신호/청산/논리훼손/체결)은 백엔드 title 이 이미 이모지+출처명을 포함해 그대로 렌더한다.
+  // UXR-16(C-1): 인앱 행은 Feather 아이콘으로 일원화 — 이모지 SSOT(DAR-432)는 푸시 페이로드 전용.
+  //   공시 행은 조인 데이터를 이모지 없이 렌더하고, 백엔드 title(이모지 프리픽스 포함)은
+  //   stripSourceEmoji 로 선두 출처 이모지만 결정론 제거해 이중 표기를 없앤다.
   const primaryText = item.disclosure
-    ? `${sourceByType('DISCLOSURE').emoji} ${item.disclosure.corpName} · ${getTypeLabel(item.disclosure.disclosureType)}`
-    : (item.title ?? meta.label);
+    ? `${item.disclosure.corpName} · ${getTypeLabel(item.disclosure.disclosureType)}`
+    : item.title
+      ? stripSourceEmoji(item.title)
+      : meta.label;
   const secondaryText = item.disclosure?.reportName ?? item.body ?? '';
   const sentAtLabel = relativeTime(item.sentAt);
 
@@ -187,7 +194,7 @@ function NotificationRowBase({ item, onPress }: NotificationRowProps) {
       accessibilityLabel={a11yLabel}
     >
       <View style={[styles.iconWrap, { backgroundColor: colors.surface }]}>
-        <Ionicons name={meta.icon} size={18} color={accent} />
+        <Feather name={meta.icon} size={18} color={accent} />
         {!item.isRead && (
           <View style={[styles.unreadDot, { backgroundColor: accent, borderColor: colors.surface }]} />
         )}
@@ -205,7 +212,7 @@ function NotificationRowBase({ item, onPress }: NotificationRowProps) {
           {sentAtLabel}
         </Text>
       </View>
-      <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+      <Feather name="chevron-right" size={18} color={colors.textTertiary} />
     </TouchableOpacity>
   );
 }
@@ -268,11 +275,19 @@ export default function NotificationsScreen() {
     [markAsRead, showSnackbar],
   );
 
+  // UXR-16(D-2): 낙관적 갱신(훅 onMutate)으로 행·배지는 즉시 반영되고,
+  // 성공 스낵바는 서버 확인 후(onSuccess), 실패 시 훅이 롤백 + 여기서 실패 스낵바 안내.
   const handleMarkAllAsRead = useCallback(() => {
     if (unreadCount === 0) return;
     const count = unreadCount;
-    markAllAsRead.mutate();
-    showSnackbar(snackbarCopy.allNotificationsRead(count), { duration: SNACKBAR_DURATION.success });
+    markAllAsRead.mutate(undefined, {
+      onSuccess: () =>
+        showSnackbar(snackbarCopy.allNotificationsRead(count), {
+          duration: SNACKBAR_DURATION.success,
+        }),
+      onError: () =>
+        showSnackbar(MARK_ALL_READ_FAILED_COPY, { duration: SNACKBAR_DURATION.error }),
+    });
   }, [unreadCount, markAllAsRead, showSnackbar]);
 
   const renderItem = useCallback(

@@ -50,7 +50,8 @@ for (const label of PRIMARY_LABELS) {
 }
 
 // 2차 전문 4지표는 StatPair 로 InlineDisclosure 안에 존재(기본 접힘)
-const DETAIL_LABELS = ['신호 적중률(D+5)', 'Sharpe', 'MDD', 'vs KOSPI'];
+// UXR-14 B-1: 'Sharpe' 원어 단독 라벨 → '위험 대비 수익(Sharpe)' 병기(홈 DAR-446 정본 어휘 통일)
+const DETAIL_LABELS = ['신호 적중률(D+5)', '위험 대비 수익(Sharpe)', 'MDD', 'vs KOSPI'];
 const discIdx = SRC.indexOf('<InlineDisclosure');
 const styleDiscBlock = SRC.slice(discIdx);
 for (const label of DETAIL_LABELS) {

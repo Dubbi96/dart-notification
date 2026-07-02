@@ -15,6 +15,7 @@ import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
+import { ScreenHeader } from '@components/common/ScreenHeader';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { ScoreBreakdownSection } from '@components/signals/ScoreBreakdownSection';
@@ -22,7 +23,7 @@ import { SignalFreshnessBadge } from '@components/signals/SignalFreshnessBadge';
 import { CompanyHubLink } from '@components/company/CompanyHubLink';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
 import { isDataLimited } from '@utils/dataLimit';
-import { ErrorState } from '@components/common/StateView';
+import { ApiErrorState } from '@components/common/StateView';
 import { DetailSkeleton } from '@components/common/DetailSkeleton';
 import { useSignalDetail } from '@hooks/useSignals';
 import {
@@ -104,7 +105,7 @@ function SuppressionReasonBadge({ reason }: { reason: string }) {
 export default function SignalDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors, typography: typo } = useTheme();
-  const { data: signal, isLoading, isError, refetch, isRefetching } = useSignalDetail(id!);
+  const { data: signal, isLoading, isError, error, refetch, isRefetching } = useSignalDetail(id!);
   const relatedRcpNo = signal?.relatedDisclosureRcpNo;
 
   const handleRelatedDisclosure = useCallback(() => {
@@ -113,22 +114,15 @@ export default function SignalDetailScreen() {
     }
   }, [relatedRcpNo]);
 
+  // UXR-12(B-4): push 상세는 GNB가 없어 헤더 back이 유일한 복귀 동선 — 4개 분기(로딩/에러/없음/본문)
+  // 공통 핸들러. 헤더 자체는 공용 ScreenHeader(44pt 터치·hitSlop·중앙 타이틀)로 통일한다.
+  const handleBack = useCallback(() => router.back(), []);
+
   if (isLoading) {
     // 헤더는 유지하고 콘텐츠 영역만 점수카드·섹션 골격 스켈레톤으로 채워 레이아웃 점프 제거(DAR-147).
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-        <View style={[styles.header, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            accessibilityRole="button"
-            accessibilityLabel="뒤로 가기"
-          >
-            <Feather name="arrow-left" size={22} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={[typo.h3, { color: colors.text, flex: 1, marginLeft: spacing.md }]}>
-            매수 후보 상세
-          </Text>
-        </View>
+        <ScreenHeader title="매수 후보 상세" onBack={handleBack} />
         <DetailSkeleton cards={[{ chip: true, gauge: true, lines: 1 }, { lines: 3 }, { lines: 2 }]} />
       </SafeAreaView>
     );
@@ -136,22 +130,17 @@ export default function SignalDetailScreen() {
 
   if (isError) {
     // 로딩/없음 분기와 동일하게 좌상단 < 뒤로가기 헤더를 유지(DAR-311) — push 상세는 GNB가 없어
-    // 헤더의 back이 유일한 복귀 동선이다. 그 아래 ErrorState를 배치해 세 상태 헤더 일관.
+    // 헤더의 back이 유일한 복귀 동선이다. UXR-12(B-7): 리스트 3개 표면(SignalExplorer·매도 피드·
+    // 큐레이션)과 동일하게 ApiErrorState로 연결 실패(wifi-off·원인 안내)를 구분한다.
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-        <View style={[styles.header, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            accessibilityRole="button"
-            accessibilityLabel="뒤로 가기"
-          >
-            <Feather name="arrow-left" size={22} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={[typo.h3, { color: colors.text, flex: 1, marginLeft: spacing.md }]}>
-            매수 후보 상세
-          </Text>
-        </View>
-        <ErrorState title="신호를 불러오지 못했습니다." onRetry={refetch} />
+        <ScreenHeader title="매수 후보 상세" onBack={handleBack} />
+        <ApiErrorState
+          error={error}
+          title="신호를 불러오지 못했습니다."
+          description="잠시 후 다시 시도해 주세요."
+          onRetry={refetch}
+        />
       </SafeAreaView>
     );
   }
@@ -159,18 +148,7 @@ export default function SignalDetailScreen() {
   if (!signal) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-        <View style={[styles.header, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            accessibilityRole="button"
-            accessibilityLabel="뒤로 가기"
-          >
-            <Feather name="arrow-left" size={22} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={[typo.h3, { color: colors.text, flex: 1, marginLeft: spacing.md }]}>
-            매수 후보 상세
-          </Text>
-        </View>
+        <ScreenHeader title="매수 후보 상세" onBack={handleBack} />
         <View style={styles.emptyState}>
           <Feather name="zap-off" size={48} color={colors.textTertiary} />
           <Text style={[typo.bodyMedium, { color: colors.text, marginTop: spacing.md }]}>
@@ -183,11 +161,13 @@ export default function SignalDetailScreen() {
 
   const isExpired =
     signal.expiresAt ? new Date(signal.expiresAt) < new Date() : false;
-  // 게이지 옆 표본 동반(DAR-56) — 통계 근거 항목 중 최대 표본수를 대표값으로 노출(과신 방지).
+  // 게이지 옆 표본 동반(DAR-56) — UXR-12(B-10): 통계 근거 항목 중 '최소' 표본수를 대표값으로
+  // 노출(보수적 계수). 최대값 채택은 n=1093·n=3 혼재 신호에서 점수 전체가 대형 표본 기반인 듯
+  // 과대표현했다. min 기준이라 데이터 한계 배지(isDataLimited)도 가장 약한 근거로 판정된다.
   const evidenceSampleN = (signal.scoreBreakdown ?? [])
     .map((c) => c.sampleN)
     .filter((n): n is number => typeof n === 'number' && n > 0)
-    .reduce<number | undefined>((max, n) => (max === undefined ? n : Math.max(max, n)), undefined);
+    .reduce<number | undefined>((min, n) => (min === undefined ? n : Math.min(min, n)), undefined);
 
   // 위험 맥락 고지(§6) — riskFlags의 매핑 키 + 만료 임박을 면책 contextNotes로 승격(약화 아님, 추가만)
   const expiresSoon =
@@ -208,18 +188,7 @@ export default function SignalDetailScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          accessibilityRole="button"
-          accessibilityLabel="뒤로 가기"
-        >
-          <Feather name="arrow-left" size={22} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[typo.h3, { color: colors.text, flex: 1, marginLeft: spacing.md }]}>
-          매수 후보 상세
-        </Text>
-      </View>
+      <ScreenHeader title="매수 후보 상세" onBack={handleBack} />
 
       <ScrollView
         contentContainerStyle={styles.scroll}
@@ -402,15 +371,8 @@ export default function SignalDetailScreen() {
           </Surface>
         ) : null}
 
-        {/* 유효 기간 */}
-        {signal.expiresAt ? (
-          <View style={styles.expiryRow}>
-            <Feather name="clock" size={13} color={colors.textTertiary} />
-            <Text style={[typo.small, { color: colors.textTertiary }]}>
-              {isExpired ? '만료됨' : `${new Date(signal.expiresAt).toLocaleString('ko-KR')} 만료`}
-            </Text>
-          </View>
-        ) : null}
+        {/* UXR-12(B-8): 최하단 '만료' 행 제거 — 만료 시점은 상단 '유효: … 까지' 메타행(DAR-447 B2)
+            하나로 통합. 만료된 신호는 상단 Banner('유효 기간이 지난 신호입니다')가 이미 담당한다. */}
       </ScrollView>
 
       {/* DisclaimerSection — 화면 최하단 고정(§10-2). contextNotes는 면책 위에 추가만(§6) */}
@@ -431,13 +393,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: radius.md,
     marginTop: spacing.sm,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
   },
   scroll: {
     padding: spacing.lg,
@@ -507,12 +462,6 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     borderRadius: radius.md,
     borderWidth: 1,
-  },
-  expiryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    justifyContent: 'flex-end',
   },
   disclaimer: { margin: spacing.lg },
   emptyState: {

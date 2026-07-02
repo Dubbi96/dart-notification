@@ -11,7 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@theme';
-import { spacing } from '@theme/spacing';
+import { spacing, sizing } from '@theme/spacing';
 import { ErrorState } from '@components/common/StateView';
 
 const DART_VIEWER_URL = 'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=';
@@ -71,11 +71,10 @@ export default function DisclosureViewerScreen() {
         <TouchableOpacity
           onPress={() => router.back()}
           style={styles.headerButton}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           accessibilityRole="button"
           accessibilityLabel="뒤로 가기"
         >
-          <Ionicons name="chevron-back" size={26} color={colors.text} />
+          <Ionicons name="chevron-back" size={sizing.icon.lg} color={colors.text} />
         </TouchableOpacity>
         <Text
           style={[typo.bodyMedium, styles.headerTitle, { color: colors.text }]}
@@ -145,9 +144,16 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
   },
+  // 뒤로가기 44pt 보장(E-5): philosophy/company 헤더와 동일하게 minWidth/minHeight로 유효 터치
+  // 영역을 sizing.minTouchTarget(44pt) 이상으로 통일한다(hitSlop 보정 불필요). 우측 스페이서도
+  // 같은 스타일을 공유해 제목 중앙 정렬 대칭을 유지한다.
   headerButton: {
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.sm,
+    minWidth: sizing.minTouchTarget,
+    minHeight: sizing.minTouchTarget,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   webviewContainer: {
     flex: 1,

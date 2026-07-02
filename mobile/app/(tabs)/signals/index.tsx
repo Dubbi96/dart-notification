@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { SegmentedButtons } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router, useScrollToTop } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ExitScoreCard } from '@components/signals/ExitScoreCard';
@@ -37,6 +38,22 @@ export default function SignalsScreen() {
   useScrollToTop(sellListRef);
 
   const exitQuery = useExitSignals();
+
+  // UXR-12(B-5): 당겨서 새로고침 시 헤더의 L1 '오늘 주목할 신호' 큐레이션(CurationSlot의
+  // useBuySignals — queryKey ['signals','buy',…])도 함께 갱신한다. 기존엔 피드 쿼리만 재조회돼
+  // '새로고침했는데 추천 카루셀(점수·신선도 배지)은 오래됨' 모순이 남았다(감사 ⑤ 잔존).
+  // invalidateQueries는 활성(마운트된) 큐레이션 쿼리를 즉시 refetch, 비활성은 stale 마킹만.
+  const queryClient = useQueryClient();
+  const refreshCuration = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['signals', 'buy'] });
+  }, [queryClient]);
+
+  // 매도 탭 pull-to-refresh — exit 피드 + 헤더 큐레이션 동시 갱신.
+  const refetchExit = exitQuery.refetch;
+  const handleSellRefresh = useCallback(() => {
+    refreshCuration();
+    refetchExit();
+  }, [refreshCuration, refetchExit]);
 
   // UXR-3(B-2): 검색 입력이 sellHeader에도 있는데 매도 리스트에는 필터가 없어 무기능이었다
   // (SignalSearchInput 힌트는 '매수·매도 신호 검색'을 약속). SignalExplorer(DAR-117)와 동일한
@@ -202,7 +219,14 @@ export default function SignalsScreen() {
 
     if (feedTab === 'buy') {
       // L2 SignalExplorer가 단일 스크롤 컨테이너. 상단 슬롯은 ListHeaderComponent로 주입.
-      return <SignalExplorer searchQuery={search} ListHeaderComponent={buyHeader} listRef={buyListRef} />;
+      return (
+        <SignalExplorer
+          searchQuery={search}
+          ListHeaderComponent={buyHeader}
+          listRef={buyListRef}
+          onRefreshHeader={refreshCuration}
+        />
+      );
     }
 
     // 매도 피드 — 큐레이션·검색 아래의 전체 매도 신호. 토글로 진입.
@@ -245,7 +269,7 @@ export default function SignalsScreen() {
         maxToRenderPerBatch={8}
         windowSize={7}
         refreshing={exitQuery.isRefetching}
-        onRefresh={exitQuery.refetch}
+        onRefresh={handleSellRefresh}
         ListHeaderComponent={sellHeader}
         ListEmptyComponent={
           isSearchEmpty ? (

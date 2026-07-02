@@ -134,10 +134,14 @@ function FactList({ label, icon, color, items }: FactListProps) {
 
 export function DisclosureAiAnalysisSection({ rcpNo }: { rcpNo: string }) {
   const { colors, typography: typo } = useTheme();
-  const { data, isLoading, isError, error, refetch } = useDisclosureAnalysis(rcpNo);
   // E8(DAR-453): 인지 과부하 완화 — 가장 무거운 섹션이라 기본 접힘. 사용자가 헤더를 탭해 펼친다.
   const [expanded, setExpanded] = React.useState(false);
   const toggle = React.useCallback(() => setExpanded((v) => !v), []);
+  // DAR-471: 지연 로딩 — 펼칠 때만(enabled: expanded) AI 분석 쿼리를 발화. 접힘 상태에선 네트워크 0건.
+  //   에러는 펼친 뒤에만 발생(접힘=미발화)하므로 항상 펼친 화면에서 노출된다 → 별도 '에러 시 자동 펼침' 불필요.
+  const { data, isLoading, isError, error, refetch } = useDisclosureAnalysis(rcpNo, {
+    enabled: expanded,
+  });
 
   if (isLoading) {
     return (

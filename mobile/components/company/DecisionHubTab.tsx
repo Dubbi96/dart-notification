@@ -1,5 +1,12 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  RefreshControl,
+} from 'react-native';
 import { Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -118,14 +125,50 @@ interface DecisionHubTabProps {
 export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
   const { colors, typography: typo } = useTheme();
 
-  const { data: company, isLoading, isError, refetch } = useCompanyDetail(corpCode);
+  const {
+    data: company,
+    isLoading,
+    isError,
+    refetch,
+    isRefetching,
+  } = useCompanyDetail(corpCode);
   const latestDisclosure = company?.recentDisclosures?.[0];
   const latestRcpNo = latestDisclosure?.rcpNo ?? '';
 
-  const { data: disclosureEvent } = useDisclosureEvent(latestRcpNo);
-  const { data: buySignal, dataUpdatedAt: buyUpdatedAt } = useCompanyBuySignal(corpCode);
-  const { data: philosophyFit } = useCompanyPhilosophyFit(corpCode);
-  const { data: fusion } = useCompanyPersonaPhilosophyFusion(corpCode);
+  const { data: disclosureEvent, refetch: refetchEvent } = useDisclosureEvent(latestRcpNo);
+  const {
+    data: buySignal,
+    dataUpdatedAt: buyUpdatedAt,
+    refetch: refetchBuySignal,
+    isRefetching: isRefetchingBuySignal,
+  } = useCompanyBuySignal(corpCode);
+  const {
+    data: philosophyFit,
+    refetch: refetchFit,
+    isRefetching: isRefetchingFit,
+  } = useCompanyPhilosophyFit(corpCode);
+  const {
+    data: fusion,
+    refetch: refetchFusion,
+    isRefetching: isRefetchingFusion,
+  } = useCompanyPersonaPhilosophyFusion(corpCode);
+
+  // [UXR-21] 같은 화면 공시·통계·적합도 탭과 동일한 pull-to-refresh 제스처 —
+  // 판단 캔버스를 구성하는 쿼리(기업·매수신호·거장 적합도·결합)를 묶어 재조회한다.
+  // 최신 공시 AI 이벤트는 rcpNo 가 있을 때만 포함(disabled 쿼리 강제 발화 방지).
+  const handleRefresh = useCallback(() => {
+    const tasks: Promise<unknown>[] = [
+      refetch(),
+      refetchBuySignal(),
+      refetchFit(),
+      refetchFusion(),
+    ];
+    if (latestRcpNo) tasks.push(refetchEvent());
+    void Promise.all(tasks);
+  }, [refetch, refetchBuySignal, refetchFit, refetchFusion, refetchEvent, latestRcpNo]);
+
+  const refreshing =
+    isRefetching || isRefetchingBuySignal || isRefetchingFit || isRefetchingFusion;
 
   const keyFigures = useMemo(
     () => extractKeyFigures(disclosureEvent?.extractedData),
@@ -178,7 +221,18 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
   const topFusion = computableFusions[0];
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.scroll}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          colors={[colors.primary]}
+          tintColor={colors.primary}
+        />
+      }
+    >
       {/* ① 최신 핵심공시 — 이벤트 분류 · 극성(DisclosureEvent) */}
       <CollapsibleSection
         icon="file-text"

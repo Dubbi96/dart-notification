@@ -9,10 +9,10 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@theme';
-import { spacing, radius } from '@theme/spacing';
+import { spacing, radius, sizing } from '@theme/spacing';
 import { verticalHitSlopForHeight } from '@utils/touchTarget';
 import { Card } from '@components/common/Card';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
@@ -20,7 +20,8 @@ import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { InfiniteListFooter } from '@components/common/InfiniteListFooter';
 import { useDisclosures, useDisclosureSearch } from '@hooks/useDisclosures';
-import { useDebounce } from '@hooks/useDebounce';
+import { useDebounce, SEARCH_DEBOUNCE_MS } from '@hooks/useDebounce';
+import { MIN_SEARCH_LENGTH } from '@hooks/useUnifiedSearch';
 import {
   PERIOD_OPTIONS,
   SORT_OPTIONS,
@@ -41,6 +42,15 @@ const FILTER_CHIP_HEIGHT = 34;
 const SUB_FILTER_CHIP_HEIGHT = 30;
 const FILTER_CHIP_HIT_SLOP = verticalHitSlopForHeight(FILTER_CHIP_HEIGHT);
 const SUB_FILTER_CHIP_HIT_SLOP = verticalHitSlopForHeight(SUB_FILTER_CHIP_HEIGHT);
+
+// 기업명 보조 링크(E-5): 시각 높이는 caption lineHeight=20(아이콘 13<20) — 세로 hitSlop으로
+// 유효 터치 높이를 44pt까지 확장한다. 가로는 기존 슬롭을 유지해 카드 본 탭(공시 상세)과의 오탭을 피한다.
+const CORP_LINK_VISUAL_HEIGHT = 20;
+const CORP_LINK_HIT_SLOP = {
+  ...verticalHitSlopForHeight(CORP_LINK_VISUAL_HEIGHT),
+  left: spacing.xs,
+  right: spacing.md,
+};
 
 // rcpNo는 14자리 자연키로 모든 공시에서 고유 → 안정적 keyExtractor(모듈 상수로 참조 고정).
 const keyExtractor = (item: Disclosure) => item.rcpNo;
@@ -124,7 +134,7 @@ function DisclosureRowBase({ item, onPress, onPressCompany }: DisclosureRowProps
             style={styles.corpLink}
             onPress={handlePressCompany}
             activeOpacity={0.6}
-            hitSlop={{ top: 8, bottom: 8, left: 4, right: 12 }}
+            hitSlop={CORP_LINK_HIT_SLOP}
             accessibilityRole="link"
             accessibilityLabel={`${item.corpName} 기업 정보 보기`}
           >
@@ -159,13 +169,16 @@ export default function DisclosuresScreen() {
   const [searchQuery, setSearchQuery] = useState(params.query ?? '');
   // 디바운스를 공통 useDebounce 훅으로 통일(E11): 수동 setTimeout/타이머 상태·handleSearchChange 제거 →
   // 키 입력마다 핸들러 재생성·추가 렌더 없이 입력값만 갱신하고 파생 상태로 디바운스한다.
-  const debouncedQuery = useDebounce(searchQuery, 300).trim();
+  // 지연은 통합 검색과 동일한 SSOT 상수 SEARCH_DEBOUNCE_MS를 공유한다(E-8 검색 규약 통일).
+  const debouncedQuery = useDebounce(searchQuery, SEARCH_DEBOUNCE_MS).trim();
   const [searchFocused, setSearchFocused] = useState(false);
   // 보조 필터행(기간·정렬) 접이 상태(E10): 기본 접힘으로 고정 chrome 1행 축소.
   const [showMoreFilters, setShowMoreFilters] = useState(false);
 
   const disclosureType = activeFilter === '전체' ? undefined : activeFilter;
-  const isSearching = debouncedQuery.length > 0;
+  // 검색 발동 임계를 통합 검색(MIN_SEARCH_LENGTH=2)과 통일(E-8): 1자 검색의 저품질 결과·불필요 요청을 막고,
+  // 임계 미만이면 전체 목록(브라우즈)을 그대로 유지한다.
+  const isSearching = debouncedQuery.length >= MIN_SEARCH_LENGTH;
   const from = useMemo(() => periodToFrom(period), [period]);
   const isFilterActive = activeFilter !== '전체' || watchlistOnly || period !== 'all';
 
@@ -186,7 +199,13 @@ export default function DisclosuresScreen() {
   }, []);
 
   const listQuery = useDisclosures(disclosureType, watchlistOnly, undefined, from);
-  const searchQueryResult = useDisclosureSearch(debouncedQuery, disclosureType, sort, from);
+  // 임계 미만이면 빈 문자열을 넘겨 훅의 enabled 게이트로 요청 자체를 차단한다(E-8).
+  const searchQueryResult = useDisclosureSearch(
+    isSearching ? debouncedQuery : '',
+    disclosureType,
+    sort,
+    from,
+  );
 
   const activeQuery = isSearching ? searchQueryResult : listQuery;
 
@@ -276,14 +295,14 @@ export default function DisclosuresScreen() {
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity
           onPress={() => router.back()}
-          hitSlop={8}
+          style={styles.backButton}
           accessibilityRole="button"
           accessibilityLabel="뒤로 가기"
         >
-          <Ionicons name="chevron-back" size={26} color={colors.text} />
+          <Ionicons name="chevron-back" size={sizing.icon.lg} color={colors.text} />
         </TouchableOpacity>
         <Text
-          style={[typo.h3, { color: colors.text, marginLeft: spacing.sm }]}
+          style={[typo.h3, { color: colors.text }]}
           accessibilityRole="header"
         >
           전체 공시
@@ -302,7 +321,8 @@ export default function DisclosuresScreen() {
           borderColor: searchFocused ? colors.primary : colors.inputBorder,
         },
       ]}>
-        <Ionicons name="search" size={18} color={searchFocused ? colors.primary : colors.textTertiary} />
+        {/* 검색바 아이콘은 통합 검색(SearchOverlay 정본)과 동일한 Feather 계열로 통일(E-8). */}
+        <Feather name="search" size={sizing.icon.md} color={searchFocused ? colors.primary : colors.textTertiary} />
         <TextInput
           style={[typo.body, styles.searchInput, { color: colors.inputText }]}
           placeholder="기업명·보고서명 검색"
@@ -323,7 +343,7 @@ export default function DisclosuresScreen() {
             accessibilityRole="button"
             accessibilityLabel="검색어 지우기"
           >
-            <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+            <Feather name="x-circle" size={sizing.icon.md} color={colors.textTertiary} />
           </TouchableOpacity>
         )}
       </View>
@@ -377,6 +397,9 @@ export default function DisclosuresScreen() {
               onPress={() => setWatchlistOnly(!watchlistOnly)}
               activeOpacity={0.7}
               hitSlop={FILTER_CHIP_HIT_SLOP}
+              accessibilityRole="button"
+              accessibilityState={{ selected: watchlistOnly }}
+              accessibilityLabel="관심목록 필터"
             >
               <Ionicons
                 name="star"
@@ -399,6 +422,7 @@ export default function DisclosuresScreen() {
           {filters.map((filter) => {
             const isActive = activeFilter === filter;
             const typeStyle = filter !== '전체' ? getTypeStyle(filter, isDark) : null;
+            const label = filter === '전체' ? '전체' : getTypeLabel(filter);
             return (
               <TouchableOpacity
                 key={filter}
@@ -411,6 +435,9 @@ export default function DisclosuresScreen() {
                 onPress={() => handleFilterPress(filter)}
                 activeOpacity={0.7}
                 hitSlop={FILTER_CHIP_HIT_SLOP}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={`${label} 유형 필터`}
               >
                 {typeStyle && (
                   // 유형색 도트를 활성 칩에도 유지해 색 단서가 사라지지 않게 한다(DAR-148).
@@ -436,7 +463,7 @@ export default function DisclosuresScreen() {
                     },
                   ]}
                 >
-                  {filter === '전체' ? '전체' : getTypeLabel(filter)}
+                  {label}
                 </Text>
               </TouchableOpacity>
             );
@@ -590,9 +617,18 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingRight: spacing.lg,
+    paddingVertical: spacing.sm,
     borderBottomWidth: 1,
+  },
+  // 헤더 뒤로가기 44pt 보장(E-5): philosophy/company 헤더와 동일 패턴 — 아이콘 시각 크기는 유지하고
+  // 패딩+minWidth/minHeight로 유효 터치 영역만 sizing.minTouchTarget(44pt) 이상으로 통일한다.
+  backButton: {
+    padding: spacing.sm,
+    paddingHorizontal: spacing.base,
+    minWidth: sizing.minTouchTarget,
+    minHeight: sizing.minTouchTarget,
+    justifyContent: 'center',
   },
   searchBar: {
     flexDirection: 'row',

@@ -10,6 +10,7 @@ import { ScreenHeader } from '@components/common/ScreenHeader';
 import { QuoteHeader } from '@components/common/QuoteHeader';
 import { MinuteCandleChart } from '@components/company/MinuteCandleChart';
 import { DailyCandleChart } from '@components/company/DailyCandleChart';
+import { useCompanyDetail } from '@hooks/useCompanyDetail';
 import { useStockQuotes } from '@hooks/useStockQuotes';
 import { useMinuteCandles } from '@hooks/useMinuteCandles';
 import { useDailyCandles, type DailyRangePreset } from '@hooks/useDailyCandles';
@@ -21,6 +22,9 @@ import { resolveQuotePollInterval } from '@utils/marketQuoteDisplay';
 // ★정직(DAR-458 E7/E2): 정직 고지는 한 곳에만 — 분봉/현재가의 실시간성은 QuoteHeader(실시간/종가 배지)와
 //   각 차트(MinuteCandleChart/DailyCandleChart, asOf/source 내부 렌더)가 단독 노출. 화면 상단 중복 배너 제거.
 // 일봉 탭(DAR-384): 백필 일봉(StockDailyPrice, source=EOD)을 실제 일봉 차트로 렌더 + 구간 선택(3M/1Y/전체).
+// ★UXR-22(E-6): 헤더 제목=기업명 (코드) — corpName 진입 param 우선, 미전달 시 시세 corpCode 로 기업 메타
+//   조회 폴백. 부제 실시간성은 QuoteHeader 배지와 동일한 quote.source 에서 파생('실시간'/'종가 기준')해
+//   장 마감·종가 상태에서 헤더가 '실시간'을 단정하는 화면 내 자기모순을 없앤다.
 
 const QUOTE_POLL_INTERVAL_MS = 15 * 1000;
 
@@ -34,6 +38,9 @@ const DAILY_RANGE_OPTIONS: { value: DailyRangePreset; label: string }[] = [
 
 export default function StockChartScreen() {
   const { stockCode } = useLocalSearchParams<{ stockCode: string }>();
+  // UXR-22(E-6): corpName 은 선택 진입 파라미터(제목 '기업명 (코드)' 표기용) — 기존 stockCode 호출
+  // 시그니처를 보존하기 위해 별도 호출로 읽는다(check-stock-chart-screen.ts 정적 계약).
+  const { corpName } = useLocalSearchParams<{ corpName?: string }>();
   const { colors } = useTheme();
   const code = (stockCode ?? '').trim();
 
@@ -71,6 +78,23 @@ export default function StockChartScreen() {
   });
   const quote = code ? quotes[code] : null;
 
+  // UXR-22(E-6): 제목 기업명 — 진입 params(corpName) 우선, 미전달 시 시세의 corpCode 로 기업 메타를
+  // 조회해 보강(30분 캐시 — company 상세 '크게 보기' 진입 경로에선 캐시 적중이라 추가 요청 없음).
+  const { data: companyDetail } = useCompanyDetail(quote?.corpCode ?? '');
+  const displayName = (corpName ?? '').trim() || (companyDetail?.corpName ?? '').trim();
+  const title =
+    displayName && code ? `${displayName} (${code})` : code ? `종목 ${code}` : '종목 차트';
+
+  // UXR-22(E-6): 부제 실시간성은 QuoteHeader 배지와 같은 진실원(quote.source)에서 파생 —
+  // REALTIME 일 때만 '실시간'을 주장하고, 종가 폴백(DAILY)엔 '종가 기준'으로 정직 고지.
+  // 시세 미도착(QuoteHeader 미표시 조건과 동일)엔 실시간성 단정 없는 중립 카피.
+  const subtitle =
+    quote && quote.price > 0
+      ? quote.source === 'REALTIME'
+        ? '실시간 분봉 · 현재가'
+        : '종가 기준 · 분봉 · 일봉'
+      : '분봉 · 일봉 차트';
+
   // 당일 분봉(인트라데이) — 장중에만 1분 폴링(훅 내부 게이트).
   const {
     candles: minuteCandles,
@@ -95,11 +119,7 @@ export default function StockChartScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      <ScreenHeader
-        title={code ? `종목 ${code}` : '종목 차트'}
-        subtitle="실시간 분봉 · 현재가"
-        onBack={() => router.back()}
-      />
+      <ScreenHeader title={title} subtitle={subtitle} onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* ★정직(E7/E2): 화면 상단 중복 고지 제거 — 실시간성은 QuoteHeader 배지 + 각 차트가 단독 노출. */}

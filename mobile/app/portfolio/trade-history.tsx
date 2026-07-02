@@ -550,6 +550,9 @@ const styles = StyleSheet.create({
   tab: {
     flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    // UXR-14 C-4: typo.small(16)+padding(8×2)≈32pt로 44pt 미달 — 유효 터치영역 보장.
+    minHeight: sizing.minTouchTarget,
     paddingVertical: spacing.sm,
     borderRadius: radius.sm,
   },

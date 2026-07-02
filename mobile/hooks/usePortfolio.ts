@@ -17,26 +17,36 @@ export const portfolioKeys = {
   paper: () => [...PORTFOLIO_KEY, 'paper'] as const,
 };
 
-export function usePositions() {
+// UXR-13 P-5(DAR-471 접힘 게이팅과 동일 사상): 포트폴리오 화면은 6개 서브탭이 한 화면을
+// 공유하므로, 활성 서브탭이 실제로 그리는 쿼리만 발화하도록 호출부가 enabled 를 주입한다.
+// 미지정(undefined)은 기존 동작 보존(발화) — 다른 호출부(탭 배지 등) 회귀 0.
+export interface PortfolioQueryOptions {
+  enabled?: boolean;
+}
+
+export function usePositions(options?: PortfolioQueryOptions) {
   return useQuery({
     queryKey: portfolioKeys.positions(),
     queryFn: () => portfolioService.getPositions(),
+    enabled: options?.enabled ?? true,
     retry: 1,
   });
 }
 
-export function usePortfolioSummary() {
+export function usePortfolioSummary(options?: PortfolioQueryOptions) {
   return useQuery({
     queryKey: portfolioKeys.summary(),
     queryFn: () => portfolioService.getSummary(),
+    enabled: options?.enabled ?? true,
     retry: 1,
   });
 }
 
-export function usePortfolioRisk() {
+export function usePortfolioRisk(options?: PortfolioQueryOptions) {
   return useQuery({
     queryKey: portfolioKeys.risk(),
     queryFn: () => portfolioService.getRiskSnapshot(),
+    enabled: options?.enabled ?? true,
     retry: 1,
   });
 }
@@ -59,10 +69,11 @@ export function usePositionThesis(positionId: string) {
   });
 }
 
-export function usePaperPortfolio() {
+export function usePaperPortfolio(options?: PortfolioQueryOptions) {
   return useQuery({
     queryKey: portfolioKeys.paper(),
     queryFn: () => portfolioService.getPaperPortfolio(),
+    enabled: options?.enabled ?? true,
     retry: 1,
   });
 }

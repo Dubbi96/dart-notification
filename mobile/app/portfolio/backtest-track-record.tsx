@@ -99,9 +99,11 @@ function CoreMetricsCard({ metrics }: { metrics: BacktestMetrics }) {
   const { colors, typography: typo } = useTheme();
   const items: MetricItem[] = [
     { label: '승률', value: formatPct(metrics.winRate) },
-    { label: 'Profit Factor', value: formatNumber(metrics.profitFactor) },
+    // UXR-14 B-1: 내부 용어 원어 노출 금지 — 홈(DAR-446 '위험 대비 수익') 정본 어휘에
+    // '최대낙폭(MDD)'과 동일한 한국어 우선·원어 병기 패턴으로 통일.
+    { label: '손익비(Profit Factor)', value: formatNumber(metrics.profitFactor) },
     { label: '최대낙폭(MDD)', value: formatPct(metrics.mdd), tone: colors.error },
-    { label: 'Sharpe', value: formatNumber(metrics.sharpe) },
+    { label: '위험 대비 수익(Sharpe)', value: formatNumber(metrics.sharpe) },
     { label: '총 거래', value: `${metrics.totalTrades}건` },
     { label: '평균 보유', value: `${formatNumber(metrics.avgHoldDays, 1)}일` },
     { label: '평균 수익(승)', value: formatReturnPct(metrics.avgWin, { digits: 2 }), tone: colors.success },

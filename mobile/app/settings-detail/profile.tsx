@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback } from 'react';
 import { View, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -10,8 +10,7 @@ import { ScreenHeader } from '@components/common/ScreenHeader';
 import { Input } from '@components/common/Input';
 import { Button } from '@components/common/Button';
 import { useDialog } from '@components/common/DialogProvider';
-import { useMe } from '@hooks/useAuth';
-import { api } from '@services/api';
+import { useMe, useUpdateMe } from '@hooks/useAuth';
 
 interface ProfileForm {
   name: string;
@@ -22,7 +21,9 @@ export default function ProfileScreen() {
   const { showDialog } = useDialog();
   // 서버 User SSOT = useMe().data (authStore 복제 제거, DAR-262).
   const { data: user } = useMe();
-  const [isSaving, setIsSaving] = useState(false);
+  // 저장은 useUpdateMe(useMutation) 경유 — onSuccess 에서 ['users','me'] 캐시가 갱신되어
+  // 홈 헤더 인사말 등 useMe 소비 화면과 표기가 즉시 일치한다(UXR-18/D-6).
+  const { mutate: updateMe, isPending: isSaving } = useUpdateMe();
 
   // useMe().data 는 비동기 로드 → 콜드 캐시/딥링크 진입 시 마운트 시점엔 비어 있을 수 있다.
   // `values` 로 데이터 도착 시 이름을 반영하고, 동일 데이터 refetch 는 구조적 공유로 편집을 보존한다.
@@ -30,18 +31,20 @@ export default function ProfileScreen() {
     values: { name: user?.name ?? '' },
   });
 
-  const onSubmit = async (data: ProfileForm) => {
-    setIsSaving(true);
-    try {
-      await api.patch('/users/me', { name: data.name });
-      showDialog({ title: '저장 완료', message: '프로필이 업데이트되었습니다.', icon: { name: 'check-circle' } });
-      router.back();
-    } catch {
-      showDialog({ title: '오류', message: '프로필 저장에 실패했습니다.', icon: { name: 'alert-circle', color: colors.error } });
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  const onSubmit = useCallback((data: ProfileForm) => {
+    updateMe(
+      { name: data.name },
+      {
+        onSuccess: () => {
+          showDialog({ title: '저장 완료', message: '프로필이 업데이트되었습니다.', icon: { name: 'check-circle' } });
+          router.back();
+        },
+        onError: () => {
+          showDialog({ title: '오류', message: '프로필 저장에 실패했습니다.', icon: { name: 'alert-circle', color: colors.error } });
+        },
+      },
+    );
+  }, [updateMe, showDialog, colors.error]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>

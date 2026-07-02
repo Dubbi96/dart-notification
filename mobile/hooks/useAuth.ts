@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import { authService } from '@services/auth.service';
 import { useAuthStore } from '@stores/authStore';
@@ -41,6 +41,20 @@ export function useMe() {
     enabled: isAuthenticated,
     retry: false,
     staleTime: 1000 * 60 * 5, // 5분
+  });
+}
+
+export function useUpdateMe() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: authService.updateMe,
+    // PATCH /users/me 응답이 갱신된 User(SSOT 상위집합)를 담으므로 즉시 캐시에 반영해
+    // 홈 헤더 인사말 등 useMe 소비 화면이 재조회 없이 새 이름을 보게 하고,
+    // invalidate 로 백그라운드 재검증까지 걸어 GET 전용 필드 드리프트를 방지한다(UXR-18/D-6).
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['users', 'me'], updated);
+      queryClient.invalidateQueries({ queryKey: ['users', 'me'] });
+    },
   });
 }
 

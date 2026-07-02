@@ -19,4 +19,9 @@ export const authService = {
 
   getMe: () =>
     api.get<ApiResponse<{ id: string; email: string; name: string | null }>>('/users/me').then((r) => r.data.data),
+
+  updateMe: (payload: { name: string }) =>
+    api
+      .patch<ApiResponse<{ id: string; email: string; name: string | null; updatedAt: string }>>('/users/me', payload)
+      .then((r) => r.data.data),
 };

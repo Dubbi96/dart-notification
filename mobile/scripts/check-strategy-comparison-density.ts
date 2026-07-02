@@ -136,11 +136,20 @@ check(
   '공용 InlineDisclosure 헤더 44pt(sizing.minTouchTarget)',
   /discHeader:\s*\{[^}]*minHeight:\s*sizing\.minTouchTarget/s.test(inlineDisclosureSrc),
 );
+// UXR-13 이월 C-1: onRefresh 가 strategy-comparison 만 refetch 하면 헤더의 단타 카드
+// (IntradayScalpSection)가 stale 로 남음 → 형제 쿼리(intraday-scalp)까지 일괄 refetch 하는
+// handleRefresh 로 교체(UXR-4 C-1 SIM_REFRESH_KEYS 패턴 — 커스텀 refreshControl 은 여전히 금지).
 check(
   'refreshControl 커스텀 래퍼 금지(refreshing/onRefresh 사용)',
-  comparisonSrc.includes('refreshing={query.isRefetching}')
-    && comparisonSrc.includes('onRefresh={query.refetch}')
+  comparisonSrc.includes('refreshing={isRefreshing}')
+    && comparisonSrc.includes('onRefresh={handleRefresh}')
     && !comparisonSrc.includes('refreshControl='),
+);
+check(
+  '당겨 새로고침이 형제 쿼리(전략 4종+단타) 동시 갱신(UXR-13 이월 C-1)',
+  /\['simulation', 'strategy-comparison'\]/.test(comparisonSrc)
+    && /\['simulation', 'intraday-scalp', 'status'\]/.test(comparisonSrc)
+    && /queryClient\.refetchQueries\(/.test(comparisonSrc),
 );
 
 console.log(`\n결과: ${pass} PASS · ${fail} FAIL`);

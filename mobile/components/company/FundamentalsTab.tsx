@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing } from '@theme/spacing';
@@ -148,13 +148,31 @@ function SectionCard({ title, children }: { title: string; children: React.React
   );
 }
 
-function FundamentalContent({ snap }: { snap: FinancialSnapshot }) {
+interface FundamentalContentProps {
+  snap: FinancialSnapshot;
+  /** [UXR-21] 같은 화면 공시·통계·적합도 탭과 동일한 pull-to-refresh 제스처. */
+  refreshing: boolean;
+  onRefresh: () => void;
+}
+
+function FundamentalContent({ snap, refreshing, onRefresh }: FundamentalContentProps) {
   const { colors, typography: typo } = useTheme();
   const reprtLabel = REPRT_LABEL[snap.reprtCode] ?? snap.reprtCode;
   const fsLabel = FS_DIV_LABEL[snap.fsDiv] ?? snap.fsDiv;
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.scroll}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={[colors.primary]}
+          tintColor={colors.primary}
+        />
+      }
+    >
       <Text style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.base }]}>
         {snap.bsnsYear}년 {reprtLabel} · {fsLabel} 재무 기준
       </Text>
@@ -222,7 +240,7 @@ function FundamentalContent({ snap }: { snap: FinancialSnapshot }) {
 }
 
 export function FundamentalsTab({ corpCode, corpName }: FundamentalsTabProps) {
-  const { data, isLoading, isError, refetch } = useFinancials(corpCode);
+  const { data, isLoading, isError, refetch, isRefetching } = useFinancials(corpCode);
 
   // 로딩도 화면 진입 스켈레톤(DetailSkeleton)으로 통일 — 탭 전환 시 중앙 스피너 →
   // 콘텐츠 점프를 제거(E17·DAR-467). 카드 골격은 FundamentalContent의 3개 SectionCard
@@ -246,7 +264,7 @@ export function FundamentalsTab({ corpCode, corpName }: FundamentalsTabProps) {
       />
     );
 
-  return <FundamentalContent snap={data} />;
+  return <FundamentalContent snap={data} refreshing={isRefetching} onRefresh={refetch} />;
 }
 
 const styles = StyleSheet.create({

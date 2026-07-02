@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,7 +15,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import * as Linking from 'expo-linking';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@theme';
 import { palette } from '@theme/colors';
 import { spacing, radius, sizing } from '@theme/spacing';
@@ -73,23 +73,44 @@ export default function SignInScreen() {
   }, [guard]);
 
   // 게스트(둘러보기) 진입 — 로그인 실패/미진입 시 공시 둘러보기 동선(DAR-43 §2).
-  const goGuest = () => {
+  const goGuest = useCallback(() => {
     useAuthStore.getState().enterGuest();
     router.replace('/(tabs)/home');
-  };
+  }, []);
 
   // 카카오 로그인 실패 사유를 표면화하고 둘러보기 대안을 함께 제시(DAR-43 §3).
-  const showKakaoFailure = (message: string) => {
-    showDialog({
-      title: '카카오 로그인 실패',
-      message,
-      icon: { name: 'alert-circle', color: palette.red500 },
-      buttons: [
-        { text: '닫기', style: 'cancel' },
-        { text: '둘러보기', onPress: goGuest },
-      ],
-    });
-  };
+  const showKakaoFailure = useCallback(
+    (message: string) => {
+      showDialog({
+        title: '카카오 로그인 실패',
+        message,
+        icon: { name: 'alert-circle', color: palette.red500 },
+        buttons: [
+          { text: '닫기', style: 'cancel' },
+          { text: '둘러보기', onPress: goGuest },
+        ],
+      });
+    },
+    [showDialog, goGuest],
+  );
+
+  // UXR-11: 딥링크 콜백(kakao.tsx)이 route param 으로 전달한 카카오 실패 사유 표면화.
+  // 콜드스타트 복귀로 sign-in 이 새로 마운트돼도 인라인 경로와 동일한
+  // 사유+둘러보기 다이얼로그를 띄운다(DAR-43 §3 무음 실패 방지).
+  const { kakaoError } = useLocalSearchParams<{ kakaoError?: string }>();
+  const kakaoErrorHandled = useRef(false);
+  useEffect(() => {
+    if (!kakaoError || kakaoErrorHandled.current) return;
+    kakaoErrorHandled.current = true;
+    let message = kakaoError;
+    try {
+      // 딥링크 단계에서 인코딩된 채 전달될 수 있어 방어적으로 디코딩.
+      message = decodeURIComponent(kakaoError);
+    } catch {
+      // 이미 디코딩된 문자열(% 리터럴 포함 등) — 원문 그대로 표기.
+    }
+    showKakaoFailure(message);
+  }, [kakaoError, showKakaoFailure]);
 
   const pollForResult = (state: string) => {
     let attempts = 0;

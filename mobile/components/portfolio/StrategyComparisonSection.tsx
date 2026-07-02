@@ -1,8 +1,9 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useScrollToTop } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { InlineDisclosure } from '@components/common/InlineDisclosure';
@@ -152,9 +153,11 @@ function StrategyCard({ perf, isBest }: { perf: StrategyPerformance; isBest: boo
       </InlineDisclosure>
 
       {/* 2차: 전문/희귀 지표 + 룰은 한 탭 뒤로(progressive disclosure). */}
-      <InlineDisclosure label="상세 — Sharpe·MDD·vs KOSPI·진입/청산 룰" icon="info">
+      {/* UXR-14 B-1: 'Sharpe' 원어 라벨 → 홈(DAR-446) 정본 어휘 '위험 대비 수익(Sharpe)' 병기.
+          접이 라벨은 numberOfLines=1 잘림 방지 위해 축약, 병기는 펼침 내부 StatPair에. */}
+      <InlineDisclosure label="상세 — 위험 대비 수익·MDD·진입/청산 룰" icon="info">
         <View style={styles.statGrid}>
-          <StatPair label="Sharpe" value={formatSharpe(perf.sharpe)} />
+          <StatPair label="위험 대비 수익(Sharpe)" value={formatSharpe(perf.sharpe)} />
           <StatPair label="MDD" value={formatSignedPct(perf.maxDrawdownPct)} />
           <StatPair label="vs KOSPI" value={formatSignedPct(perf.benchmarkAlphaPct)} />
           <StatPair label="청산 표본" value={`${perf.sampleSize}건`} />
@@ -260,9 +263,37 @@ function ComparisonHeader({ data }: { data: StrategyComparison }) {
   );
 }
 
+// UXR-13 이월 C-1(H4): 당겨 새로고침이 함께 갱신해야 하는 형제 쿼리키 매핑
+// (SimulationStatusSection 의 SIM_REFRESH_KEYS 패턴). 이 스크롤은 백테스트 4종 비교와
+// 헤더의 IntradayScalpSection(단타 '실시간 모의')을 함께 그리므로, strategy-comparison 만
+// refetch 하면 최상단 단타 카드가 stale 로 남는다.
+const STRATEGY_REFRESH_KEYS: readonly (readonly string[])[] = [
+  ['simulation', 'strategy-comparison'],
+  ['simulation', 'intraday-scalp', 'status'],
+];
+
 export function StrategyComparisonSection() {
   const { colors } = useTheme();
+  const queryClient = useQueryClient();
   const query = useStrategyComparison();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // UXR-13 C-8(DAR-181): 하단 탭 재탭 시 최상단 복귀 — 전략 서브탭 FlatList 자체 등록.
+  // 포트폴리오 화면의 listRef 는 실전·내 모의 리스트만 커버하므로 섹션이 스스로 등록한다.
+  const listRef = useRef<FlatList<StrategyPerformance>>(null);
+  useScrollToTop(listRef);
+
+  // 당겨 새로고침: 이 화면이 실제로 그리는 쿼리(전략 4종+단타)를 일괄 refetch (UXR-13 이월 C-1).
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all(
+        STRATEGY_REFRESH_KEYS.map((queryKey) => queryClient.refetchQueries({ queryKey, exact: true })),
+      );
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [queryClient]);
 
   // 랭킹(누적수익률 내림차순)대로 카드 정렬.
   const ordered = useMemo<StrategyPerformance[]>(() => {
@@ -290,6 +321,7 @@ export function StrategyComparisonSection() {
 
   return (
     <FlatList
+      ref={listRef}
       data={ordered}
       renderItem={renderCard}
       keyExtractor={(item) => item.key}
@@ -298,8 +330,8 @@ export function StrategyComparisonSection() {
       windowSize={5}
       contentContainerStyle={styles.listContent}
       showsVerticalScrollIndicator={false}
-      refreshing={query.isRefetching}
-      onRefresh={query.refetch}
+      refreshing={isRefreshing}
+      onRefresh={handleRefresh}
       // ★DAR-419: 분봉 단타(forward·실시간 모의) 트랙을 최상단으로 이동.
       //   단타 섹션 → (구분선) → 4종 백테스트 비교 헤더 순. 성격이 달라 같은 카드
       //   랭킹에 섞지 않되, 위계상 단타를 상단에 강조한다. 단타는 자체 훅이라 data

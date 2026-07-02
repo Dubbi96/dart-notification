@@ -142,6 +142,7 @@ function HeroScorecard({ scorecard }: { scorecard: TradeScorecard }) {
         >
           <Text style={[typo.small, { color: colors.textSecondary }]}>누적 수익률</Text>
           <Text style={[typo.h2, { color: cumColor }]}>{formatReturnPct(scorecard.cumulativeReturnPct)}</Text>
+          <Text style={[typo.small, { color: colors.textTertiary }]}>실현 기준 · 청산 손익만 반영</Text>
         </View>
       </View>
 

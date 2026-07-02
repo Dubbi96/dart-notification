@@ -104,7 +104,8 @@ const hexColor = src.match(/#[0-9a-fA-F]{3,8}\b/g) ?? [];
 const rgbColor = src.match(/rgba?\(/g) ?? [];
 check('hex 색상 리터럴 0', hexColor.length === 0);
 check('rgb(a) 색상 리터럴 0', rgbColor.length === 0);
-check('히어로/배지 색상 theme colors.* 사용', /colors\.borderLight/.test(hero) && /backgroundColor: colors\.warning/.test(tabbar));
+// DAR-461 C3: 배지 배경은 warning → error(솔리드+onColor 대비)로 교정됨 — 기대값 동기화.
+check('히어로/배지 색상 theme colors.* 사용', /colors\.borderLight/.test(hero) && /backgroundColor: colors\.error/.test(tabbar));
 
 console.log(`\n결과: ${pass} pass / ${fail} fail`);
 process.exit(fail === 0 ? 0 : 1);

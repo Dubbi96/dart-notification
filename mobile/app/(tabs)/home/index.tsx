@@ -69,8 +69,17 @@ export default function HomeScreen() {
   const watchlistCount = watchlistData?.meta?.total ?? 0;
 
   const hasWatchlist = isAuthenticated && watchlistCount > 0;
-  const [feedTab, setFeedTab] = useState<'all' | 'watchlist'>(hasWatchlist ? 'watchlist' : 'all');
+  // UXR-10(A-4): 기본 탭을 파생(derived)으로 계산. 기존 useState 초기값은 첫 렌더 1회만
+  //   평가되는데 그 시점엔 watchlist 쿼리가 로딩 중(count=0)이라 관심기업 보유자도 항상
+  //   '전체 공시'로 진입했다. 사용자가 수동 전환(override)하기 전에는 관심기업 보유 시
+  //   'watchlist'를 기본으로 하고, 관심기업 0개면 'all'로 강제해 stale 'watchlist' 상태
+  //   (관심기업 전부 삭제 후 빈 관심 피드 표시)를 차단한다.
+  const [feedTabOverride, setFeedTabOverride] = useState<'all' | 'watchlist' | null>(null);
+  const feedTab: 'all' | 'watchlist' = hasWatchlist ? (feedTabOverride ?? 'watchlist') : 'all';
   const isWatchlistFeed = feedTab === 'watchlist';
+
+  const selectAllTab = useCallback(() => setFeedTabOverride('all'), []);
+  const selectWatchlistTab = useCallback(() => setFeedTabOverride('watchlist'), []);
 
   // 홈 헤더 검색 직결(§10) — 1탭 진입. 통합 검색(기업+공시)은 읽기전용 탐색이라 게스트도 접근 가능(DAR-164).
   const handleSearchOpen = useCallback(() => {
@@ -161,7 +170,12 @@ export default function HomeScreen() {
   // 화면 전체가 단일 FlatList로 스크롤되게 한다(ScrollView 금지 규칙 준수).
   // listContent의 paddingHorizontal(spacing.lg)이 헤더에도 적용되므로, 헤더는 자체 가로
   // 마진을 가진 컴포넌트(카드/카루셀)들로 구성되어 있어 음수 마진 래퍼로 이중 패딩을 상쇄한다.
-  const ListHeader = useCallback(
+  // UXR-10(A-3): 컴포넌트 함수(useCallback)가 아니라 useMemo 엘리먼트로 전달한다.
+  //   함수형이면 deps(feedTab 등) 변경 시 함수 정체성이 바뀌어 React가 다른 컴포넌트 타입으로
+  //   간주 → 헤더 서브트리(시장배지·신호 캐러셀·코치마크)를 통째로 unmount/remount했다
+  //   (세그먼트 토글마다 캐러셀 스크롤 초기화·스켈레톤 재시작). 엘리먼트는 루트 타입(View)이
+  //   고정이라 리렌더만 일어난다. ListEmpty/ListFooter 도 동일 패턴으로 고정.
+  const listHeaderElement = useMemo(
     () => (
       <View style={styles.listHeader}>
         {/* 시장 한눈에 배지(DAR-160) — KOSPI·KOSDAQ 최신 지수·전일대비 등락률. 데이터 없으면 미표시. */}
@@ -184,9 +198,13 @@ export default function HomeScreen() {
                   ? { backgroundColor: colors.primary }
                   : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
               ]}
-              onPress={() => setFeedTab('all')}
+              onPress={selectAllTab}
               activeOpacity={0.7}
               hitSlop={SEGMENT_TAB_HIT_SLOP}
+              // UXR-10(S-A-3): 선택 상태가 색 단독이던 세그먼트에 role/state 부여
+              //   (trade-history.tsx TabBar 정본 패턴 이식) — 스크린리더가 탭·선택 여부 안내.
+              accessibilityRole="tab"
+              accessibilityState={{ selected: feedTab === 'all' }}
             >
               <Text
                 style={[
@@ -208,9 +226,11 @@ export default function HomeScreen() {
                     ? { backgroundColor: colors.primary }
                     : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
                 ]}
-                onPress={() => setFeedTab('watchlist')}
+                onPress={selectWatchlistTab}
                 activeOpacity={0.7}
                 hitSlop={SEGMENT_TAB_HIT_SLOP}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: feedTab === 'watchlist' }}
               >
                 <Ionicons
                   name="star"
@@ -268,10 +288,12 @@ export default function HomeScreen() {
       colors,
       typo,
       handleSearchOpen,
+      selectAllTab,
+      selectWatchlistTab,
     ],
   );
 
-  const ListEmpty = useCallback(
+  const listEmptyElement = useMemo(
     () =>
       isLoading ? (
         // DAR-108(#10): 헤더는 유지한 채 피드 영역만 스켈레톤으로 채운다.
@@ -292,7 +314,7 @@ export default function HomeScreen() {
   // DAR-446(A-HOME-2/3): '운용 성과'(졸업 트래커+전환 현황)를 핵심 공시 피드 아래(footer)로
   //   강등해 첫인상에서 피드가 묻히지 않게 한다. 로그인 사용자에게만 노출 — 게스트에겐 모의운용
   //   누적 측정값을 보여주지 않는다(인증 게이트). 기존 페이지네이션 스피너는 그대로 유지한다.
-  const ListFooter = useCallback(
+  const listFooterElement = useMemo(
     () => (
       <>
         {isAuthenticated ? (
@@ -454,9 +476,9 @@ export default function HomeScreen() {
           // 통째로 미렌더시킨다. RN 권장인 refreshing/onRefresh props로 교체(Fabric 호환).
           refreshing={isRefetching && !isFetchingNextPage}
           onRefresh={refetch}
-          ListHeaderComponent={ListHeader}
-          ListFooterComponent={ListFooter}
-          ListEmptyComponent={ListEmpty}
+          ListHeaderComponent={listHeaderElement}
+          ListFooterComponent={listFooterElement}
+          ListEmptyComponent={listEmptyElement}
         />
       </View>
     </View>

@@ -20,14 +20,21 @@ import { useTheme } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { Button } from '@components/common/Button';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
+import { useSnackbar } from '@components/common/SnackbarProvider';
+import { SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { useAddToWatchlist } from '@hooks/useWatchlist';
 import { usePopularCompanies } from '@hooks/useCompanySearch';
 import { useAuthStore } from '@stores/authStore';
 import { deviceService } from '@services/device.service';
 import { notificationSettingsService } from '@services/notification-settings.service';
+import { EAS_PROJECT_ID } from '@utils/easProjectId';
+import { isOfflineMutationBlockedError } from '@utils/offlineMutation';
 import { ONBOARDING_TOTAL_STEPS, onboardingExitRoute } from '@utils/onboardingFlow';
+import { verticalHitSlopForHeight } from '@utils/touchTarget';
 
-const PROJECT_ID = 'dbdd30ba-72aa-4f90-ae45-54aa8fd43aa7';
+// UXR-1/A-9: skipButton 시각 높이(paddingVertical sm×2 + captionMedium lineHeight 20)=36pt.
+// 44pt 미달분은 hitSlop 으로 보정한다(시각 크기는 유지).
+const SKIP_BUTTON_VISUAL_HEIGHT = 36;
 
 export default function OnboardingScreen() {
   const { colors, typography: typo } = useTheme();
@@ -37,6 +44,7 @@ export default function OnboardingScreen() {
   // A-ONB-2: 알림 권한 거부 시 무음 실패 대신 인라인 안내를 띄우기 위한 플래그.
   const [permissionDenied, setPermissionDenied] = useState(false);
   const addToWatchlist = useAddToWatchlist();
+  const { showSnackbar } = useSnackbar();
   const completeOnboarding = useAuthStore((s) => s.completeOnboarding);
   const setExpoPushToken = useAuthStore((s) => s.setExpoPushToken);
   const {
@@ -117,17 +125,25 @@ export default function OnboardingScreen() {
       return;
     }
     setIsSubmitting(true);
-    try {
-      const selectedCompanies = popularCompanies.filter((c) => selected.includes(c.corpCode));
-      for (const company of selectedCompanies) {
-        await addToWatchlist.mutateAsync({ corpCode: company.corpCode, corpName: company.corpName });
-      }
-    } catch {
-      // 일부 실패해도 계속 진행
-    } finally {
-      setIsSubmitting(false);
-      setStep(2);
+    // UXR-1/A-6: 순차 await 는 첫 실패에서 나머지 등록까지 끊기고 무음으로 다음 단계로 넘어갔다.
+    // allSettled 로 개별 실패를 수집해 나머지는 계속 등록하고, 실패 건수를 스낵바로 알린다.
+    const selectedCompanies = popularCompanies.filter((c) => selected.includes(c.corpCode));
+    const results = await Promise.allSettled(
+      selectedCompanies.map((company) =>
+        addToWatchlist.mutateAsync({ corpCode: company.corpCode, corpName: company.corpName }),
+      ),
+    );
+    // 오프라인 차단 센티넬은 가드가 자체 안내를 이미 띄웠으므로 일반 실패 문구로 덮지 않는다(DAR-226).
+    const failedCount = results.filter(
+      (r) => r.status === 'rejected' && !isOfflineMutationBlockedError(r.reason),
+    ).length;
+    if (failedCount > 0) {
+      showSnackbar(`${failedCount}개 기업 등록에 실패했어요. 나중에 다시 시도해 주세요.`, {
+        duration: SNACKBAR_DURATION.error,
+      });
     }
+    setIsSubmitting(false);
+    setStep(2);
   };
 
   const handleEnableNotifications = async () => {
@@ -147,7 +163,9 @@ export default function OnboardingScreen() {
         return;
       }
       setPermissionDenied(false);
-      const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: PROJECT_ID });
+      // UXR-1/A-1: projectId 는 빌드 설정 동적 해소 단일원천(EAS_PROJECT_ID)을 공유 —
+      // 하드코딩된 구(舊) 프로젝트로 발급한 무효 토큰이 서버에 등록되는 것을 방지.
+      const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: EAS_PROJECT_ID });
       const token = tokenData.data;
       const platform = Platform.OS === 'ios' ? 'ios' : 'android';
       await deviceService.register(token, platform);
@@ -230,6 +248,7 @@ export default function OnboardingScreen() {
             onPress={() => handleFinish('home')}
             accessibilityRole="button"
             accessibilityLabel="홈으로 이동"
+            hitSlop={verticalHitSlopForHeight(SKIP_BUTTON_VISUAL_HEIGHT)}
           >
             <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>홈으로 가기</Text>
           </TouchableOpacity>
@@ -316,9 +335,13 @@ export default function OnboardingScreen() {
             size="lg"
             loading={isSubmitting}
           />
+          {/* UXR-1/A-9: 3단계 스킵과 동일하게 role/label 부여 + 36pt 시각 높이의 터치 부족분 보정. */}
           <TouchableOpacity
             style={styles.skipButton}
             onPress={handleSkipNotifications}
+            accessibilityRole="button"
+            accessibilityLabel="알림 설정 나중에 하기"
+            hitSlop={verticalHitSlopForHeight(SKIP_BUTTON_VISUAL_HEIGHT)}
           >
             <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>나중에 하기</Text>
           </TouchableOpacity>

@@ -33,9 +33,11 @@ import { gradeColor, gradeLabel } from '@utils/signalDisplay';
 import { formatReturnPct, returnColor } from '@utils/numberFormat';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
 import { formatYmdDots } from '@utils/datetime';
+import { isDataLimited } from '@utils/dataLimit';
 import { LoadingState, EmptyState, ErrorState, ApiErrorState } from '@components/common/StateView';
 import { DetailSkeleton } from '@components/common/DetailSkeleton';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
+import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { PhilosophyFitBreakdown } from '@components/philosophy/PhilosophyFitBreakdown';
 import { DecisionHubTab } from '@components/company/DecisionHubTab';
 import { EventStudyObservationsDrilldown } from '@components/company/EventStudyObservationsDrilldown';
@@ -124,11 +126,12 @@ function EventStudyTab({ corpCode }: EventStudyTabProps) {
   const { colors, typography: typo } = useTheme();
   const [selectedEventType, setSelectedEventType] = useState<string | undefined>(undefined);
 
-  const { data, isLoading, isError, refetch, isRefetching } = useCompanyEventStudy(
-    corpCode,
-    selectedEventType,
-  );
+  // UXR-6/E-1: 서버 필터 없이 전체 유형을 1회 조회하고 selectedEventType 은 클라이언트에서 고른다.
+  // 종전엔 칩 탭마다 eventType 별 새 쿼리가 돌아 ①탭 전체가 로딩 화면으로 플래시되고
+  // ②필터된 응답에서 eventTypes 가 1개로 줄어 칩 행 자체가 소멸(다른 유형 복귀 불가 트랩)했다.
+  const { data, isLoading, isError, refetch, isRefetching } = useCompanyEventStudy(corpCode);
 
+  // 무필터 응답 기준으로 고정 — 칩 선택과 무관하게 전체 유형 목록이 유지된다.
   const eventTypes = useMemo(() => {
     if (!data) return [];
     return Array.from(new Set(data.map((r) => r.eventType)));
@@ -136,7 +139,8 @@ function EventStudyTab({ corpCode }: EventStudyTabProps) {
 
   const selected = useMemo<EventStudyResult | undefined>(() => {
     if (!data || data.length === 0) return undefined;
-    if (selectedEventType) return data.find((r) => r.eventType === selectedEventType);
+    // 선택 유형이 응답에서 사라진 극단 케이스는 첫 유형으로 graceful 폴백.
+    if (selectedEventType) return data.find((r) => r.eventType === selectedEventType) ?? data[0];
     return data[0];
   }, [data, selectedEventType]);
 
@@ -153,7 +157,7 @@ function EventStudyTab({ corpCode }: EventStudyTabProps) {
     return (
       <EmptyState
         icon="bar-chart-2"
-        title="이 이벤트 유형의 과거 통계가 아직 없습니다."
+        title="이 기업의 과거 이벤트 통계가 아직 없습니다."
         description="이벤트 스터디 데이터가 쌓이면 여기에 표시됩니다."
       />
     );
@@ -201,17 +205,13 @@ function EventStudyTab({ corpCode }: EventStudyTabProps) {
             {selected.eventType} 이벤트 통계 · 표본: {selected.sampleCount}건 기준
           </Text>
 
-          {/* Sample size warning */}
-          {selected.sampleCount < 30 && (
-            <View
-              style={[styles.warningBanner, { backgroundColor: colors.warning + '22', borderColor: colors.warning }]}
-              accessibilityLabel={`표본 ${selected.sampleCount}건 — 통계 신뢰도 제한 안내`}
-            >
-              <Feather name="alert-triangle" size={14} color={colors.warning} />
-              <Text style={[typo.small, { color: colors.warning, marginLeft: spacing.xs, flex: 1 }]}>
-                {selected.sampleCount < 10
-                  ? `표본이 부족해 통계 신뢰도가 낮습니다. (${selected.sampleCount}건)`
-                  : `표본 ${selected.sampleCount}건으로 통계 신뢰도가 제한적입니다. 참고용으로만 활용하세요.`}
+          {/* UXR-6/E-7: 표본 경고를 공용 규약(isDataLimited + DataLimitBadge, DAR-121 §6)으로 통일 —
+              event-stats 와 동일 판정(유의성 반영) + 자체 배너·알파 hex 합성(warning+'22') 제거. */}
+          {isDataLimited({ sampleCount: selected.sampleCount, isSignificant: selected.isSignificant }) && (
+            <View style={styles.dataLimitWrap}>
+              <DataLimitBadge />
+              <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+                표본이 적거나 통계적으로 유의하지 않아 신뢰도가 제한적입니다. 참고용으로만 활용하세요.
               </Text>
             </View>
           )}
@@ -352,12 +352,19 @@ export default function CompanyDetailScreen() {
     });
     return () => sub.remove();
   }, []);
-  const quotePollInterval = resolveQuotePollInterval({
-    isFocused,
-    appActive,
-    now: new Date(),
-    intervalMs: QUOTE_POLL_INTERVAL_MS,
-  });
+  // UXR-6/P-8: refetchInterval 을 함수로 전달 — React Query 가 매 폴링 틱·렌더마다 장중 여부를
+  // 재판정한다(useMinuteCandles 패턴과 일관). 렌더 시점 정적 평가(number|false)는 개장 전(예: 08:58)
+  // 진입 시 09:00 이후에도 폴링이 시작되지 않고, 장중 진입 시 15:30 이후에도 폴링이 멈추지 않았다.
+  const quotePollInterval = useCallback(
+    () =>
+      resolveQuotePollInterval({
+        isFocused,
+        appActive,
+        now: new Date(),
+        intervalMs: QUOTE_POLL_INTERVAL_MS,
+      }),
+    [isFocused, appActive],
+  );
   // DAR-158/353: 최신 시세(현재가·전일대비·출처·갱신시각). 가격 없으면 헤더 미표시.
   const { quotes, dataUpdatedAt: quoteUpdatedAt } = useStockQuotes([company?.stockCode], {
     refetchInterval: quotePollInterval,
@@ -399,6 +406,14 @@ export default function CompanyDetailScreen() {
     refetchCompany();
     refetchRisk();
   }, [refetchCompany, refetchRisk]);
+
+  // UXR-6/E-10: '최근 공시'는 서버가 자른 최근분만 — 전체 이력은 전체 공시 화면에
+  // 기업명 프리필 검색(query 파라미터)으로 잇는다(기업명 재타이핑 없는 허브 응집 동선).
+  const corpName = company?.corpName;
+  const handleViewAllDisclosures = useCallback(() => {
+    if (!corpName) return;
+    router.push({ pathname: '/disclosures', params: { query: corpName } });
+  }, [corpName]);
 
   // DAR-165: 관심 종목 상세 진입 시 조회 시각 갱신 → 신규 공시 unread 배지 소거.
   // 관심목록에 있고 미확인 신규 공시가 있을 때 corpCode당 1회만 호출(중복 mutation 방지).
@@ -802,6 +817,24 @@ export default function CompanyDetailScreen() {
                 </TouchableOpacity>
               ))
             )}
+            {/* UXR-6/E-10: 이 기업 공시 전체 이력 동선 — 전체 공시 화면에 기업명 프리필 검색 진입. */}
+            {company.recentDisclosures.length > 0 && (
+              <TouchableOpacity
+                style={[
+                  styles.allDisclosuresLink,
+                  { backgroundColor: colors.surface, borderColor: colors.borderLight },
+                ]}
+                onPress={handleViewAllDisclosures}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`${company.corpName} 공시 전체 보기`}
+              >
+                <Text style={[typo.bodyMedium, { color: colors.primary, fontWeight: '600' }]}>
+                  이 기업 공시 전체 보기
+                </Text>
+                <Feather name="chevron-right" size={sizing.icon.sm} color={colors.primary} />
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.bottomSpacer} />
@@ -942,8 +975,10 @@ function CompanySignalBadgeRow({ corpCode }: { corpCode: string }) {
       accessibilityRole="button"
       accessibilityLabel={`매수 신호 ${label}, 점수 ${data.buyScore}점${data.entryReady ? ', 진입 준비 완료' : ''}. 신호 상세 보기`}
     >
+      {/* UXR-6/E-7: 알파 hex 합성(color+'22') 제거 — 등급칩 서피스는 신호 카드들과 동일하게
+          surfaceSecondary 토큰(BuyScoreCard/CuratedSignalCard 규약), 등급색은 테두리·라벨로 유지. */}
       <View
-        style={[styles.gradeChip, { backgroundColor: color + '22', borderColor: color }]}
+        style={[styles.gradeChip, { backgroundColor: colors.surfaceSecondary, borderColor: color }]}
       >
         <Text
           style={[typo.small, { color, fontWeight: '700' }]}
@@ -1177,13 +1212,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: spacing.sm,
   },
-  warningBanner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    padding: spacing.sm,
-    borderRadius: radius.sm,
-    borderWidth: 1,
+  // UXR-6/E-7: 공용 DataLimitBadge + 보조 문구 래퍼(자체 warningBanner 대체).
+  dataLimitWrap: {
     marginBottom: spacing.base,
+  },
+  // UXR-6/E-10: '이 기업 공시 전체 보기' 행 — 유효 터치 ≥44pt.
+  allDisclosuresLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    minHeight: 44,
   },
   chipRow: {
     marginBottom: spacing.sm,

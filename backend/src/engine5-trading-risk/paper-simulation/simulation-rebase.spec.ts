@@ -81,7 +81,10 @@ function makePrismaMock(legacy: ReturnType<typeof buildPosition> | null) {
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       findMany: jest.fn().mockResolvedValue([]),
     },
-    exitSignal: { create: jest.fn().mockResolvedValue({ id: 'ex1' }) },
+    exitSignal: {
+      create: jest.fn().mockResolvedValue({ id: 'ex1' }),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     aIUsageLog: { aggregate: jest.fn().mockResolvedValue({ _sum: { costUsd: 0 } }) },
     portfolioRiskSnapshot: {
       findFirst: jest.fn().mockResolvedValue(null),
@@ -89,6 +92,13 @@ function makePrismaMock(legacy: ReturnType<typeof buildPosition> | null) {
     },
     company: { findMany: jest.fn().mockResolvedValue([]) },
     tradingSignal: { findMany: jest.fn().mockResolvedValue([]) }, // 신규 후보 없음
+    // 장외 체결 의미론(2026-07): 사이클이 매수 예약(PENDING PaperTrade)을 조회한다 — 이 스펙은
+    // 재기준 격리 검증이므로 예약 없음([]).
+    paperTrade: {
+      findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn().mockResolvedValue({ id: 'pt1' }),
+      update: jest.fn().mockResolvedValue({}),
+    },
     stockDailyPrice: {
       findFirst: jest.fn().mockResolvedValue(null),
       findMany: jest.fn().mockResolvedValue([]),

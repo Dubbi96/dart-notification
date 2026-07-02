@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Easing, TouchableOpacity } from 'react-native';
 import { ProgressBar } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, gauge } from '@theme/spacing';
 import { useReducedMotion } from '@hooks/useReducedMotion';
 import { useHaptics } from '@hooks/useHaptics';
@@ -106,6 +106,10 @@ function buildScoreInfoSections(kind: 'buy' | 'exit'): InfoSheetSection[] {
 // 14 + 15*2 = 44.
 const INFO_HIT_SLOP = { top: 15, bottom: 15, left: 15, right: 15 };
 
+// 캡션 자리 예약용 플레이스홀더(NBSP) — 같은 typo.small 텍스트 라인을 차지하므로 고정 px 없이
+// OS 글꼴 배율과 무관하게 '다음 등급까지 +N' 유무에 따른 카드 높이 편차(≈20px)를 없앤다.
+const CAPTION_PLACEHOLDER = '\u00A0';
+
 interface ScoreGaugeProps {
   /** buy: 백엔드 스케일 -100~100(음수 그대로 표기, 막대만 0 바닥) · exit: 0~100 */
   score: number;
@@ -129,6 +133,18 @@ interface ScoreGaugeProps {
    * 노출한다 — 리스트·카루셀 카드는 카드 전체가 상세로 이동하는 터치 대상이라 중첩 터치를 피한다.
    */
   showInfo?: boolean;
+  /**
+   * '다음 등급까지 +N' 캡션 자리 상시 예약(카루셀 카드 균일 높이). true 면 캡션이 없어도
+   * 같은 typo.small 한 줄 자리를 확보한다 — 고정 px 가 아니라 텍스트 라인 예약이므로 OS 글꼴
+   * 배율에도 카드 간 높이가 같다. 기본 false: 기존 사용처 시각 불변.
+   */
+  reserveCaptionSpace?: boolean;
+  /**
+   * oneLiner 최대 줄수(카루셀 카드 균일 높이용). 지정 시 줄수 고정 + 칩 배율 캡
+   * (MAX_CHIP_FONT_SCALE, DAR-174 정본) 동반 — 카드별 줄바꿈 편차를 없앤다.
+   * 기본 미지정: 기존 사용처(상세 표면 등) 줄바꿈 동작 불변.
+   */
+  oneLinerNumberOfLines?: number;
 }
 
 export function ScoreGauge({
@@ -140,6 +156,8 @@ export function ScoreGauge({
   accessibilityHidden = false,
   animated,
   showInfo,
+  reserveCaptionSpace = false,
+  oneLinerNumberOfLines,
 }: ScoreGaugeProps) {
   const { colors, typography: typo } = useTheme();
   const { light } = useHaptics();
@@ -268,15 +286,28 @@ export function ScoreGauge({
         />
       </View>
 
-      {/* '다음 등급까지 +N' 캡션 — 우측 정렬, 색상 외 텍스트 신호 */}
-      {nextGap ? (
+      {/* '다음 등급까지 +N' 캡션 — 우측 정렬, 색상 외 텍스트 신호.
+          reserveCaptionSpace(카루셀 카드): 캡션이 없어도 같은 typo.small 한 줄 자리(NBSP)를
+          상시 확보해 카드 간 높이 편차를 없앤다. 예약 시 두 경로 모두 1줄 + 배율 캡으로
+          카드별 줄바꿈 편차까지 차단(글꼴 배율 안전, 고정 height 아님). */}
+      {nextGap || reserveCaptionSpace ? (
         <View style={styles.captionRow}>
-          <Text style={[typo.small, { color: colors.textSecondary }]}>다음 등급까지 {nextGap}</Text>
+          <Text
+            style={[typo.small, { color: colors.textSecondary }]}
+            numberOfLines={reserveCaptionSpace ? 1 : undefined}
+            maxFontSizeMultiplier={reserveCaptionSpace ? MAX_CHIP_FONT_SCALE : undefined}
+          >
+            {nextGap ? <>다음 등급까지 {nextGap}</> : CAPTION_PLACEHOLDER}
+          </Text>
         </View>
       ) : null}
 
       {oneLiner ? (
-        <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+        <Text
+          style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}
+          numberOfLines={oneLinerNumberOfLines}
+          maxFontSizeMultiplier={oneLinerNumberOfLines !== undefined ? MAX_CHIP_FONT_SCALE : undefined}
+        >
           {oneLiner}
         </Text>
       ) : null}

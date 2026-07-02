@@ -57,6 +57,27 @@ const SCORE_BREAKDOWN_LABEL: Record<string, string> = {
  */
 const STAT_DERIVED_KEYS = ['historicalEvent'] as const;
 
+/**
+ * 표본수 조회가 소비하는 EventStudy 버킷 좌표(코어스 버킷 고정).
+ * `@@unique([eventType, bucketKey, marketType])` 이므로 (eventType, '__ALL__', 'ALL')은
+ * eventType당 최대 1행 — "최신 1건 채택"의 버킷 비결정성을 제거한다(홈 카드 '표본' 오표시 결함).
+ */
+const SAMPLE_SOURCE_BUCKET_KEY = '__ALL__';
+const SAMPLE_SOURCE_MARKET_TYPE = 'ALL';
+
+/**
+ * scoreBreakdown.sampleScope 계약값 — 모바일(BuyScoreComponent.sampleScope?: string)이
+ * `${EVENT_TYPE_LABEL(eventType)}(${sampleScope})` 형태로 괄호에 **그대로** 병기한다
+ * (mobile/types/signal.types.ts · components/home/HomeSignalPreview.tsx).
+ * 표시 목표 '표본 1,871건 · 대규모 공급계약(전체시장)' → 값은 리터럴 '전체시장'.
+ * 현재 표본수 출처가 (marketType=ALL, bucketKey=__ALL__) 코어스 버킷으로 고정이므로
+ * sampleN이 존재할 때 항상 이 스코프가 부여된다(표시 표본의 출처 정직화).
+ * NOTE(후속): 표시 표본 ≠ 점수 계산 소비 버킷(스코어링은 시장별 세분 버킷 소비) 문제의
+ * 근본 해결은 신호 생성 시 실제 소비한 버킷 좌표를 TradingSignal에 persist하는 것 —
+ * 이 이슈 범위 밖(별도 후속 이슈).
+ */
+const SAMPLE_SCOPE_ALL_MARKET = '전체시장';
+
 function mapGrade(grade: SignalGrade): MobileGrade {
   switch (grade) {
     case SignalGrade.STRONG_BUY_CANDIDATE:
@@ -117,6 +138,7 @@ function mapScoreBreakdown(
   score: number;
   max: number;
   sampleN?: number;
+  sampleScope?: string;
 }[] {
   if (!breakdown || typeof breakdown !== 'object' || Array.isArray(breakdown)) {
     return [];
@@ -129,8 +151,12 @@ function mapScoreBreakdown(
       label: SCORE_BREAKDOWN_LABEL[key] ?? key,
       score: typeof obj[key] === 'number' ? (obj[key] as number) : 0,
       max: SCORE_BREAKDOWN_MAX[key],
-      // 표본수가 있는 통계 항목에만 sampleN 부여, 그 외는 키 자체를 생략(undefined 유지)
-      ...(typeof sampleN === 'number' ? { sampleN } : {}),
+      // 표본수가 있는 통계 항목에만 sampleN + 출처 스코프(sampleScope) 부여.
+      // 표본수 출처가 (ALL, __ALL__) 코어스 버킷으로 고정이므로 스코프도 상수 —
+      // 그 외 항목은 키 자체를 생략(undefined 유지, 기존 응답 필드 불변·하위호환).
+      ...(typeof sampleN === 'number'
+        ? { sampleN, sampleScope: SAMPLE_SCOPE_ALL_MARKET }
+        : {}),
     };
   });
 }
@@ -184,7 +210,9 @@ export class SignalsService {
 
   /**
    * 주어진 eventType들의 통계 표본수(EventStudyResult.sampleCount)를 일괄 조회한다.
-   * marketType='ALL'·status='READY' 기준 최신(calculatedAt desc) 1건의 sampleCount를
+   * (marketType='ALL', bucketKey='__ALL__')·status='READY' 코어스 버킷 고정 —
+   * `@@unique([eventType, bucketKey, marketType])` 이므로 eventType당 최대 1행이라
+   * 결과가 결정적이다(기존 "최신 1건" 채택은 세분 버킷들 사이에서 비결정적이었음).
    * eventType별로 매핑(N+1 회피용 단일 쿼리). 집계가 없으면 맵에서 누락.
    */
   private async sampleCountByEventType(
@@ -195,7 +223,12 @@ export class SignalsService {
     if (unique.length === 0) return map;
 
     const results = await this.prisma.eventStudyResult.findMany({
-      where: { eventType: { in: unique }, marketType: 'ALL', status: 'READY' },
+      where: {
+        eventType: { in: unique },
+        marketType: SAMPLE_SOURCE_MARKET_TYPE,
+        bucketKey: SAMPLE_SOURCE_BUCKET_KEY,
+        status: 'READY',
+      },
       orderBy: { calculatedAt: 'desc' },
       select: { eventType: true, sampleCount: true },
     });

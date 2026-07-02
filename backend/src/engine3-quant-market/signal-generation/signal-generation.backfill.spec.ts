@@ -10,6 +10,9 @@ import { BuySignalService } from '../buy-signal/buy-signal.service';
  *    절대 참조하지 않는다(tradeDate ≤ rcpDt as-of 상한).
  *  - 신호 발생 시점(rcpDt)이 연중 분포 → 월별 분포가 여러 달에 퍼진다.
  *  - 멱등(기존 신호 skip)·calibration 미적용(calibratedConfidence = buyScore)·통지 enqueue 0·AI 0.
+ *  - ★TB-1(2026-07-03): 상태플래그(StockStatus 현재 스냅샷) 하드차단은 백필에 미적용
+ *    (현재 상태로 과거 신호를 BLOCKED 처리 = 등급 배정 lookahead). 이벤트타입 하드블록
+ *    3종(rcpDt 시점 정보 파생, PIT 안전)은 백필에도 유지.
  */
 describe('SignalGenerationService.generateBackfillSignals (DAR-389)', () => {
   function makeEvent(rcpNo: string, rcpDt: string, over: Partial<any> = {}) {
@@ -29,6 +32,8 @@ describe('SignalGenerationService.generateBackfillSignals (DAR-389)', () => {
     pages: any[][]; // disclosureEvent.findMany 페이지(커서 순회)
     pricedStockCodes: string[];
     existingSignals?: { rcpNo: string; persona: string }[];
+    /** TB-1: 현재 상태 스냅샷 mock (라이브라면 하드차단을 유발할 플래그) */
+    stockStatus?: Record<string, boolean> | null;
   }) {
     const upsertCalls: any[] = [];
     const priceWheres: any[] = [];
@@ -60,7 +65,7 @@ describe('SignalGenerationService.generateBackfillSignals (DAR-389)', () => {
         }),
       },
       stockStatus: {
-        findUnique: jest.fn(async () => null),
+        findUnique: jest.fn(async () => opts.stockStatus ?? null),
       },
       marketIndex: {
         findMany: jest.fn(async ({ where }: any) => {
@@ -245,5 +250,51 @@ describe('SignalGenerationService.generateBackfillSignals (DAR-389)', () => {
     expect(eventWheres.length).toBeGreaterThanOrEqual(2);
     expect(result.batches).toBe(2);
     expect(result.created).toBe(8); // 2 공시 × 4 persona
+  });
+
+  // ── TB-1 (2026-07-03) — 상태플래그 하드차단: 백필 미적용·이벤트타입 하드블록 유지 ──
+
+  it('★TB-1: 현재 상태 스냅샷(관리종목 등)이어도 백필 신호는 BLOCKED 되지 않는다(등급 lookahead 차단)', async () => {
+    const { prisma, upsertCalls } = buildPrisma({
+      pages: [[makeEvent('20250815000001', '20250815')], []],
+      pricedStockCodes: ['000100'],
+      // 라이브 경로라면 riskPenalty=Infinity → BLOCKED 를 유발할 현재 스냅샷.
+      stockStatus: {
+        isTradingSuspended: true,
+        isManagement: true,
+        isInvestmentCaution: true,
+        isAbnormalSurge: true,
+      },
+    });
+    const service = makeService(prisma);
+
+    const result = await service.generateBackfillSignals();
+
+    // 백필은 현재 상태 스냅샷을 조회조차 하지 않는다(적용 0).
+    expect(prisma.stockStatus.findUnique).not.toHaveBeenCalled();
+    // 4 persona 신호 전부 상태플래그 하드차단 미발동.
+    expect(result.created).toBe(4);
+    for (const call of upsertCalls) {
+      expect(call.create.signal).not.toBe('BLOCKED');
+    }
+  });
+
+  it('★TB-1: 이벤트타입 하드블록(TRADING_SUSPENSION 등 3종)은 백필에도 유지(PIT 안전)', async () => {
+    const { prisma, upsertCalls } = buildPrisma({
+      pages: [
+        [makeEvent('20250815000001', '20250815', { eventType: 'TRADING_SUSPENSION' })],
+        [],
+      ],
+      pricedStockCodes: ['000100'],
+    });
+    const service = makeService(prisma);
+
+    const result = await service.generateBackfillSignals();
+
+    // 공시 자신(rcpDt 시점 정보)에서 파생된 하드블록 → 백필에서도 BLOCKED.
+    expect(result.created).toBe(4);
+    for (const call of upsertCalls) {
+      expect(call.create.signal).toBe('BLOCKED');
+    }
   });
 });

@@ -67,6 +67,14 @@ export const DEFAULT_RISK_LIMITS: RiskLimits = {
   maxDailyTrades: 10,
 };
 
+// GAP-11: Kill Switch 모드 — 스키마 동결(웨이브1)로 KillSwitchState DB 컬럼 대신 코드 상수 기본 정책.
+//   REDUCE_ONLY(기본): 발동 중 신규 진입(BUY) 차단, 위험 축소(SELL·청산)는 허용.
+//   FULL_HALT: 발동 중 모든 주문 차단(전면 중단 — 필요 시 상수 교체로 전환).
+// 순수 Rule — AI 개입 0.
+export type KillSwitchMode = 'REDUCE_ONLY' | 'FULL_HALT';
+
+export const DEFAULT_KILL_SWITCH_MODE: KillSwitchMode = 'REDUCE_ONLY';
+
 // Kill Switch 자동 발동 조건
 export interface AutoKillConditions {
   consecutiveLossCount: number;    // 연속 손실 횟수

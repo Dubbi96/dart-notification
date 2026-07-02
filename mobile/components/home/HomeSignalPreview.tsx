@@ -14,6 +14,7 @@ import { SkeletonCard } from '@components/common/SkeletonCard';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { guestPromptCopy } from '@components/common/guestPromptCopy';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
+import { getEventTypeLabel } from '@utils/disclosureType';
 import { SIGNAL_TERMS, buildSignalCardA11yLabel } from '@utils/signalTerms';
 import { curateBuySignals } from '@utils/signalCuration';
 import { isChartableTicker, navigateToStockChart } from '@utils/stockChartLink';
@@ -37,12 +38,30 @@ interface HomeSignalPreviewProps {
   isAuthenticated: boolean;
 }
 
-/** scoreBreakdown 표본 중 대표값(최대) — 과신 방지 신뢰표기(DAR-56). 없으면 undefined. */
-function representativeSampleN(signal: TradingSignal): number | undefined {
-  return (signal.scoreBreakdown ?? [])
-    .map((c) => c.sampleN)
-    .filter((n): n is number => typeof n === 'number' && n > 0)
-    .reduce<number | undefined>((max, n) => (max === undefined ? n : Math.max(max, n)), undefined);
+// '표본 N건'의 의미 고정: scoreBreakdown 전체 max 집계(의미 불명) 대신 통계 파생 항목인
+// historicalEvent(과거 유사 공시 EventStudy 표본)를 직접 참조한다 — 백엔드 signals.service
+// STAT_DERIVED_KEYS(historicalEvent)와 1:1. 과신 방지 신뢰표기(DAR-56)는 그대로 유지.
+const HISTORICAL_EVENT_KEY = 'historicalEvent';
+
+interface HistoricalEvidence {
+  /** historicalEvent 항목의 표본수(EventStudyResult.sampleCount). */
+  n: number;
+  /** 백엔드 sampleScope(후속 옵셔널) 존재 시 '이벤트 라벨(스코프)' 병기 라벨. */
+  scopeLabel?: string;
+}
+
+/** historicalEvent 항목의 표본 근거. 표본이 없으면 undefined(호출부가 정직 결측 표기). */
+function historicalEventEvidence(signal: TradingSignal): HistoricalEvidence | undefined {
+  const item = (signal.scoreBreakdown ?? []).find((c) => c.key === HISTORICAL_EVENT_KEY);
+  if (!item || typeof item.sampleN !== 'number' || item.sampleN <= 0) return undefined;
+  // '표본 1,871건 · 대규모 공급계약(전체시장)' 형식 — 이벤트 라벨은 EVENT_TYPE_LABEL 재사용
+  // (raw enum 노출 방지). sampleScope 미도착 시 현행 '표본 N건' 유지(방어적 지원).
+  const scopeLabel = item.sampleScope
+    ? signal.eventType
+      ? `${getEventTypeLabel(signal.eventType)}(${item.sampleScope})`
+      : item.sampleScope
+    : undefined;
+  return { n: item.sampleN, scopeLabel };
 }
 
 interface SignalPreviewCardProps {
@@ -54,7 +73,7 @@ interface SignalPreviewCardProps {
 
 function SignalPreviewCard({ signal, onPress, cardWidth }: SignalPreviewCardProps) {
   const { colors, typography: typo } = useTheme();
-  const sampleN = representativeSampleN(signal);
+  const evidence = historicalEventEvidence(signal);
   const handlePress = useCallback(() => onPress(signal), [onPress, signal]);
   // DAR-363: 홈 프리뷰 카드에서 해당 종목 실시간 차트로 직접 진입. 6자리 종목코드 있을 때만.
   const handleChartPress = useCallback(() => navigateToStockChart(signal.ticker), [signal.ticker]);
@@ -124,18 +143,26 @@ function SignalPreviewCard({ signal, onPress, cardWidth }: SignalPreviewCardProp
         </View>
 
         <View style={styles.gaugeWrap}>
+          {/* 카드 3장 균일 높이(슬롯 예약): '다음 등급까지 +N' 캡션 자리 상시 확보 +
+              oneLiner 1줄 고정 — 데이터 유무에 따른 카드별 세로 편차 제거(고정 height 금지). */}
           <ScoreGauge
             score={signal.buyScore}
             kind="buy"
             statusText={gradeLabel(signal.grade)}
             oneLiner={scoreOneLiner(signal.buyScore, signal.grade)}
             accessibilityHidden
+            reserveCaptionSpace
+            oneLinerNumberOfLines={1}
           />
         </View>
 
-        {sampleN !== undefined ? (
-          <EvidenceMeta sample={{ n: sampleN, unit: '건' }} style={styles.evidence} />
-        ) : null}
+        {/* 표본 행 슬롯 상시 렌더(균일 높이): 표본이 없으면 같은 지오메트리의 정직 결측 행
+            '표본 통계 없음'(EvidenceMeta 규약)으로 대체 — 행 유무에 따른 ≈24px 편차 제거. */}
+        <EvidenceMeta
+          sample={evidence ? { n: evidence.n, unit: '건', scopeLabel: evidence.scopeLabel } : undefined}
+          sampleFallback="표본 통계 없음"
+          style={styles.evidence}
+        />
 
         <View style={styles.cardFooter}>
           <AiReferenceLabel />

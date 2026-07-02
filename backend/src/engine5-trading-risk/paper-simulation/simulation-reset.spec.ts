@@ -34,6 +34,7 @@ function makePrismaMock(
 
   const calls: Record<string, any[]> = {
     paperTradeDelete: [],
+    pendingDelete: [],
     positionDelete: [],
     riskDelete: [],
     funnelDelete: [],
@@ -65,6 +66,13 @@ function makePrismaMock(
     },
     paperTrade: {
       deleteMany: jest.fn(async ({ where }: { where?: any }) => {
+        // 장외 체결 의미론(2026-07): 리셋은 ① thesis 연결 원장 + ② 시스템 모의 네임스페이스의
+        //   매수 예약(PENDING)을 각각 범위 한정 삭제한다. where 형태로 두 경로를 분기 검증.
+        if (where?.status === 'PENDING') {
+          calls.pendingDelete.push(where);
+          expect(where?.styleTag).toBe('paper-simulation'); // ★네임스페이스 한정(타 트랙 무침범)
+          return { count: 0 };
+        }
         calls.paperTradeDelete.push(where);
         expect(where?.positionThesisId?.in).toEqual(thesisIds); // ★sim thesis 한정
         return { count: thesisIds.length };
@@ -139,6 +147,13 @@ describe('DAR-429 시스템 모의 클린 리셋 — 초기상태 복원·범위
     expect(prisma._calls.paperTradeDelete[0]).toEqual({
       positionThesisId: { in: ['th1', 'th2'] },
     });
+    // (2-b) 매수 예약(PENDING)은 시스템 모의 네임스페이스(styleTag)로만 한정 삭제.
+    expect(prisma._calls.pendingDelete).toHaveLength(1);
+    expect(prisma._calls.pendingDelete[0]).toEqual({
+      styleTag: 'paper-simulation',
+      status: 'PENDING',
+    });
+    expect(r.deletedPendingEntries).toBe(0);
   });
 
   it('DAR-426 오염 시나리오(46 포지션·과레버리지) → 리셋 후 현금 10M·0포지션·thesis 한정 PaperTrade 삭제', async () => {
@@ -171,8 +186,10 @@ describe('DAR-429 시스템 모의 클린 리셋 — 초기상태 복원·범위
     expect(r.deletedPaperTrades).toBe(0);
     expect(r.cashAfter).toBe(INITIAL);
     expect(r.openPositionsAfter).toBe(0);
-    // thesis 0 → PaperTrade.deleteMany 호출 자체를 생략(불필요 쿼리 0).
-    expect(prisma._tx.paperTrade.deleteMany).not.toHaveBeenCalled();
+    // thesis 0 → thesis 한정 PaperTrade 삭제는 생략(불필요 쿼리 0). 예약(PENDING) 정리는
+    //   포트폴리오 상태와 무관하게 항상 시도(멱등·0건) — styleTag 경로 1회만 호출.
+    expect(prisma._calls.paperTradeDelete).toHaveLength(0);
+    expect(prisma._calls.pendingDelete).toHaveLength(1);
     // 포트폴리오 범위 삭제는 항상 시도(멱등·0건).
     expect(prisma._tx.position.deleteMany).toHaveBeenCalledTimes(1);
     expect(prisma._tx.portfolioRiskSnapshot.deleteMany).toHaveBeenCalledTimes(1);

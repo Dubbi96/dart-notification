@@ -21,6 +21,13 @@ const MARKET_HOURS = new Date('2026-06-19T03:00:00Z'); // KST 금 12:00 (장중)
 const AFTER_HOURS = new Date('2026-06-19T10:30:00Z'); // KST 금 19:30 (장외)
 const WEEKEND = new Date('2026-06-20T03:00:00Z'); // KST 토 12:00 (주말)
 
+// 장외 REALTIME 오염 게이트(2026-07)가 quote 의 fetchedAtMs(=Date.now())로 정규장 여부를 판정한다.
+// 테스트 실행 시각(벽시계)에 좌우되지 않도록 Date.now 를 '장중' 고정 시각으로 스핀(결정론).
+let nowSpy: jest.SpyInstance;
+beforeEach(() => {
+  nowSpy = jest.spyOn(Date, 'now').mockReturnValue(MARKET_HOURS.getTime());
+});
+
 const POS = {
   id: 'pos1',
   corpCode: '00126380',
@@ -45,7 +52,11 @@ function makePrisma() {
     _updates: updates,
     _state: state,
     user: { findFirst: jest.fn().mockResolvedValue({ id: 'u1' }), create: jest.fn() },
-    portfolio: { findFirst: jest.fn().mockResolvedValue({ id: 'pf1', maxSinglePositionPct: 10 }), create: jest.fn() },
+    portfolio: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'pf1', maxSinglePositionPct: 10 }),
+      findMany: jest.fn().mockResolvedValue([{ id: 'pf1', name: '모의운용 포트폴리오' }]),
+      create: jest.fn(),
+    },
     position: {
       findMany: jest.fn(async ({ select }: { where?: any; select?: any }) => {
         if (state.closed) return [];
@@ -64,8 +75,15 @@ function makePrisma() {
     },
     positionThesis: { findUnique: jest.fn().mockResolvedValue(null) },
     positionDailySnapshot: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-    exitSignal: { create: jest.fn().mockResolvedValue({ id: 'ex1' }) },
-    paperTrade: { update: jest.fn().mockResolvedValue({}) },
+    exitSignal: {
+      create: jest.fn().mockResolvedValue({ id: 'ex1' }),
+      findMany: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockResolvedValue({}),
+    },
+    paperTrade: {
+      update: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     // 실시간 미가용(KIS 미설정) 시 latestPriceRow 가 REAL 폴백으로 조회 — 데이터 없음(null) → 평가 스킵.
     stockDailyPrice: { findFirst: jest.fn().mockResolvedValue(null) },
     simulatedDailyPrice: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -90,7 +108,10 @@ function kisStub(price: number, configured = true) {
   };
 }
 
-afterEach(() => jest.clearAllMocks());
+afterEach(() => {
+  nowSpy.mockRestore();
+  jest.clearAllMocks();
+});
 
 describe('DAR-366 — 장중 손절 모니터(능동 fetch → 실가 -8% EXIT)', () => {
   it('장중 + 실시간 -10% → 능동 fetch 후 EXIT 발화', async () => {
@@ -187,15 +208,9 @@ describe('DAR-366 — 장중 손절 모니터(능동 fetch → 실가 -8% EXIT)'
 });
 
 // ── F1(2026-06-26): 장중 실시간 손절 vs cross-source 가짜손절 (entry=REAL 신선도 가드) ──
-const ymdUtc = (d: Date) => {
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}${m}${day}`;
-};
-
 describe('F1 — entry=REAL 장중 손절 신선도 가드', () => {
-  // REAL 일봉을 tradeDate(=sourceDate)로 통제. 실시간 sourceDate 는 오늘(fetchedAtMs=Date.now()).
+  // REAL 일봉을 tradeDate(=sourceDate)로 통제. 실시간 sourceDate 는 '오늘'(fetchedAtMs=Date.now(),
+  // 위 스파이로 20260619 고정 — 결정론).
   function makePrismaReal(barClose: number, barTradeDate: string) {
     const updates: Array<Record<string, unknown>> = [];
     const state = { closed: false };
@@ -205,6 +220,7 @@ describe('F1 — entry=REAL 장중 손절 신선도 가드', () => {
       user: { findFirst: jest.fn().mockResolvedValue({ id: 'u1' }), create: jest.fn() },
       portfolio: {
         findFirst: jest.fn().mockResolvedValue({ id: 'pf1', maxSinglePositionPct: 10 }),
+        findMany: jest.fn().mockResolvedValue([{ id: 'pf1', name: '모의운용 포트폴리오' }]),
         create: jest.fn(),
       },
       position: {
@@ -223,8 +239,15 @@ describe('F1 — entry=REAL 장중 손절 신선도 가드', () => {
       },
       positionThesis: { findUnique: jest.fn().mockResolvedValue(null) },
       positionDailySnapshot: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      exitSignal: { create: jest.fn().mockResolvedValue({ id: 'ex1' }) },
-      paperTrade: { update: jest.fn().mockResolvedValue({}) },
+      exitSignal: {
+        create: jest.fn().mockResolvedValue({ id: 'ex1' }),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      paperTrade: {
+        update: jest.fn().mockResolvedValue({}),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       // REAL 일봉 — entry 소스 정렬 조회 대상. tradeDate 로 신선/정체 통제.
       stockDailyPrice: {
         findFirst: jest.fn().mockResolvedValue({
@@ -241,7 +264,7 @@ describe('F1 — entry=REAL 장중 손절 신선도 가드', () => {
   }
 
   it('신선한 일봉(당일) + 실시간 -10% → 실시간 손절 발화(F1 복원)', async () => {
-    const today = ymdUtc(new Date());
+    const today = '20260619'; // = 고정 스파이 시각(MARKET_HOURS)의 거래일
     const prisma = makePrismaReal(10000, today); // REAL 일봉=진입가(손실 아님), 당일=신선
     const cache = new RealtimeQuoteCache();
     const priceSource = new SimulationPriceSourceService(prisma as never, cache);
@@ -266,7 +289,7 @@ describe('F1 — entry=REAL 장중 손절 신선도 가드', () => {
   });
 
   it('정체 일봉(40일 전) + 실시간 -10% → 미발화(DAR-433 가짜손절 가드 보존)', async () => {
-    const staleBar = ymdUtc(new Date(Date.now() - 40 * 86_400_000));
+    const staleBar = '20260510'; // 고정 스파이 시각(20260619) 대비 40일 전 = 정체
     const prisma = makePrismaReal(10000, staleBar); // REAL 일봉=진입가(정체), 실시간만 9000
     const cache = new RealtimeQuoteCache();
     const priceSource = new SimulationPriceSourceService(prisma as never, cache);
@@ -317,6 +340,7 @@ describe('F3 — 악재 공시·지표 주입으로 청산점수 복원', () => 
       user: { findFirst: jest.fn().mockResolvedValue({ id: 'u1' }), create: jest.fn() },
       portfolio: {
         findFirst: jest.fn().mockResolvedValue({ id: 'pf1', maxSinglePositionPct: 10 }),
+        findMany: jest.fn().mockResolvedValue([{ id: 'pf1', name: '모의운용 포트폴리오' }]),
         create: jest.fn(),
       },
       position: {
@@ -339,8 +363,13 @@ describe('F3 — 악재 공시·지표 주입으로 청산점수 복원', () => 
           exitSignals.push(data);
           return { id: 'ex1' };
         }),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue({}),
       },
-      paperTrade: { update: jest.fn().mockResolvedValue({}) },
+      paperTrade: {
+        update: jest.fn().mockResolvedValue({}),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       technicalIndicator: { findFirst: jest.fn().mockResolvedValue(null) },
       disclosureEvent: { findMany: jest.fn().mockResolvedValue(opts.events) },
       stockDailyPrice: {
@@ -409,6 +438,7 @@ describe('F2 — 익절 부분 스케일아웃', () => {
       user: { findFirst: jest.fn().mockResolvedValue({ id: 'u1' }), create: jest.fn() },
       portfolio: {
         findFirst: jest.fn().mockResolvedValue({ id: 'pf1', maxSinglePositionPct: 10 }),
+        findMany: jest.fn().mockResolvedValue([{ id: 'pf1', name: '모의운용 포트폴리오' }]),
         create: jest.fn(),
       },
       position: {
@@ -431,8 +461,15 @@ describe('F2 — 익절 부분 스케일아웃', () => {
       },
       positionThesis: { findUnique: jest.fn().mockResolvedValue(null) },
       positionDailySnapshot: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      exitSignal: { create: jest.fn().mockResolvedValue({ id: 'ex1' }) },
-      paperTrade: { update: jest.fn().mockResolvedValue({}) },
+      exitSignal: {
+        create: jest.fn().mockResolvedValue({ id: 'ex1' }),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      paperTrade: {
+        update: jest.fn().mockResolvedValue({}),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       technicalIndicator: { findFirst: jest.fn().mockResolvedValue(null) },
       disclosureEvent: { findMany: jest.fn().mockResolvedValue([]) },
       stockDailyPrice: {
@@ -541,5 +578,260 @@ describe('F7 — 매수 수수료 차감', () => {
     expect(closed).toBeDefined();
     // gross=(9000-10000)*10=-10000, buyComm=100000×0.00015=15, sellComm=50, tax=100 → -10165
     expect(closed.unrealizedPnl).toBeCloseTo(-10165, 5);
+  });
+});
+
+// ── 장외 체결 의미론(2026-07): 개장 체결기 · 다중 포트폴리오 모니터 · 장외 warm 게이트 ──
+
+/** KST ymd 자정 Date — 예약 entryDate 규약(서비스 kstMidnight 과 동일). */
+const kstMidnight = (ymd: string) =>
+  new Date(`${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}T00:00:00+09:00`);
+
+describe('개장 체결기 — 장중 첫 유효 틱이 매수 예약을 당일 시가(실시간 open)로 체결', () => {
+  function makeFillPrisma() {
+    const created: Array<Record<string, unknown>> = [];
+    const reservations: Array<Record<string, unknown>> = [
+      {
+        id: 'pt1',
+        corpCode: POS.corpCode,
+        stockCode: POS.stockCode,
+        direction: 'BUY',
+        orderedShares: 10,
+        entryPrice: 10000, // 예약 기준가(전일 평가가)
+        entryDate: kstMidnight('20260619'), // 오늘 체결 예정
+        positionThesisId: null,
+        status: 'PENDING',
+        styleTag: 'paper-simulation',
+        createdAt: new Date('2026-06-18T10:30:00Z'),
+      },
+    ];
+    return {
+      _created: created,
+      _reservations: reservations,
+      user: { findFirst: jest.fn().mockResolvedValue({ id: 'u1' }), create: jest.fn() },
+      portfolio: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'pf1', maxSinglePositionPct: 10 }),
+        findMany: jest.fn().mockResolvedValue([{ id: 'pf1', name: '모의운용 포트폴리오' }]),
+        create: jest.fn(),
+      },
+      position: {
+        findMany: jest.fn().mockResolvedValue([]), // 보유 없음(신규 체결 검증)
+        create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          created.push(data);
+          return { id: `pos${created.length}` };
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      positionThesis: { findUnique: jest.fn().mockResolvedValue(null) },
+      positionDailySnapshot: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      exitSignal: {
+        create: jest.fn().mockResolvedValue({ id: 'ex1' }),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      paperTrade: {
+        findMany: jest.fn(async () => reservations.filter((r) => r.status === 'PENDING')),
+        update: jest.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          const rec = reservations.find((r) => r.id === where.id);
+          if (rec) Object.assign(rec, data);
+          return {};
+        }),
+      },
+      stockDailyPrice: { findFirst: jest.fn().mockResolvedValue(null) },
+      simulatedDailyPrice: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+  }
+
+  it('첫 틱: 예약 → KIS 실시간 quote 의 open(당일 시가)으로 체결 + entryPriceSource=REALTIME', async () => {
+    const prisma = makeFillPrisma();
+    const cache = new RealtimeQuoteCache();
+    const priceSource = new SimulationPriceSourceService(prisma as never, cache);
+    // KIS: 현재가 9500·당일 시가 9400 — 체결은 '시가(9400)' 기준이어야 한다(현재가 아님).
+    const kis = {
+      isConfigured: true,
+      fetchCurrentPrice: jest.fn(async () => ({ price: 9500, open: 9400, high: 9550, low: 9350, volume: 1000 })),
+    };
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTradeStub() as never,
+      undefined,
+      priceSource,
+      kis as never,
+      cache,
+    );
+
+    const r = await svc.runIntradayExitMonitor(MARKET_HOURS);
+
+    expect(r.ran).toBe(true);
+    expect(r.entryFilled).toBe(1);
+    // 체결가 = 시가(9400) × 동적 슬리피지 → 호가 정렬(9420). 현재가(9500) 기준이 아니다.
+    expect(prisma._created.length).toBe(1);
+    const pos = prisma._created[0] as any;
+    expect(pos.entryPriceSource).toBe('REALTIME');
+    expect(pos.entryPrice).toBe(9420);
+    expect(pos.quantity).toBe(10);
+    // 예약 원장이 FILLED 로 확정.
+    expect((prisma._reservations[0] as any).status).toBe('FILLED');
+    expect((prisma._reservations[0] as any).filledShares).toBe(10);
+  });
+
+  it('멱등: 체결 후 다음 틱에서는 PENDING 이 없어 재체결 0', async () => {
+    const prisma = makeFillPrisma();
+    const cache = new RealtimeQuoteCache();
+    const priceSource = new SimulationPriceSourceService(prisma as never, cache);
+    const kis = {
+      isConfigured: true,
+      fetchCurrentPrice: jest.fn(async () => ({ price: 9500, open: 9400, high: 9550, low: 9350, volume: 1000 })),
+    };
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTradeStub() as never,
+      undefined,
+      priceSource,
+      kis as never,
+      cache,
+    );
+
+    const first = await svc.runIntradayExitMonitor(MARKET_HOURS);
+    const second = await svc.runIntradayExitMonitor(MARKET_HOURS);
+
+    expect(first.entryFilled).toBe(1);
+    expect(second.entryFilled).toBe(0);
+    expect(prisma._created.length).toBe(1); // Position 중복 생성 없음
+  });
+});
+
+describe('다중 포트폴리오 모니터 — 시스템 모의 + styleTag 네임스페이스 전 트랙 손절', () => {
+  const POS_B = { ...POS, id: 'pos2', corpCode: '00999999', stockCode: '000660' };
+
+  function makeMultiPrisma() {
+    const closed = new Set<string>();
+    const updates: Array<Record<string, unknown>> = [];
+    const byPortfolio: Record<string, typeof POS> = { pf1: POS, pf2: POS_B };
+    return {
+      _updates: updates,
+      user: { findFirst: jest.fn().mockResolvedValue({ id: 'u1' }), create: jest.fn() },
+      portfolio: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'pf1', maxSinglePositionPct: 10 }),
+        // 이름 규약(prefix)으로 시스템 모의 + 스타일 트랙이 함께 잡힌다 — 하드코딩 목록 없음.
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'pf1', name: '모의운용 포트폴리오' },
+          { id: 'pf2', name: '모의운용 포트폴리오 [BUFFETT]' },
+        ]),
+        create: jest.fn(),
+      },
+      position: {
+        findMany: jest.fn(async ({ where, select }: { where?: any; select?: any }) => {
+          const pos = byPortfolio[where?.portfolioId as string];
+          if (!pos || closed.has(pos.id)) return [];
+          if (select && select.corpCode && select.stockCode && !select.entryPrice) {
+            return [{ corpCode: pos.corpCode, stockCode: pos.stockCode }];
+          }
+          return [pos];
+        }),
+        update: jest.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          updates.push({ id: where.id, ...data });
+          if (data.status === 'CLOSED') closed.add(where.id);
+          return {};
+        }),
+      },
+      positionThesis: { findUnique: jest.fn().mockResolvedValue(null) },
+      positionDailySnapshot: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      exitSignal: {
+        create: jest.fn().mockResolvedValue({ id: 'ex1' }),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      paperTrade: {
+        update: jest.fn().mockResolvedValue({}),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      technicalIndicator: { findFirst: jest.fn().mockResolvedValue(null) },
+      disclosureEvent: { findMany: jest.fn().mockResolvedValue([]) },
+      stockDailyPrice: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      simulatedDailyPrice: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+  }
+
+  it('두 트랙(pf1·pf2) 보유 종목 모두 실시간 -10% → 둘 다 손절 발화(단일 포트폴리오 하드코딩 아님)', async () => {
+    const prisma = makeMultiPrisma();
+    const cache = new RealtimeQuoteCache();
+    const priceSource = new SimulationPriceSourceService(prisma as never, cache);
+    const kis = kisStub(9000); // 두 종목 다 -10%
+    const paperTrade = paperTradeStub();
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTrade as never,
+      undefined,
+      priceSource,
+      kis as never,
+      cache,
+    );
+
+    const r = await svc.runIntradayExitMonitor(MARKET_HOURS);
+
+    expect(r.portfolios).toBe(2);
+    expect(r.exited).toBe(2);
+    // 두 종목 모두 능동 fetch 됐다(트랙별 보유 종목).
+    expect(kis.fetchCurrentPrice).toHaveBeenCalledWith(POS.stockCode);
+    expect(kis.fetchCurrentPrice).toHaveBeenCalledWith(POS_B.stockCode);
+    // 두 포지션 모두 CLOSED.
+    expect(prisma._updates.filter((u) => u.status === 'CLOSED').length).toBe(2);
+  });
+});
+
+describe('장외 warm 게이트 — 정규장 밖 KIS fetch 차단(REALTIME 오염 방지)', () => {
+  it('장외 시각을 넘기면 warmRealtimeQuotes 가 no-op(fetch 0·KIS 미호출)', async () => {
+    const prisma = makePrisma();
+    const cache = new RealtimeQuoteCache();
+    const priceSource = new SimulationPriceSourceService(prisma as never, cache);
+    const kis = kisStub(9000);
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTradeStub() as never,
+      undefined,
+      priceSource,
+      kis as never,
+      cache,
+    );
+
+    const r = await (svc as unknown as {
+      warmRealtimeQuotes: (
+        t: Array<{ corpCode: string | null; stockCode: string | null }>,
+        now: Date,
+      ) => Promise<{ fetched: number; cached: number }>;
+    }).warmRealtimeQuotes([{ corpCode: POS.corpCode, stockCode: POS.stockCode }], AFTER_HOURS);
+
+    expect(r.fetched).toBe(0);
+    expect(r.cached).toBe(0);
+    expect(kis.fetchCurrentPrice).not.toHaveBeenCalled();
+  });
+
+  it('장중 시각이면 warm 이 동작(대조)', async () => {
+    const prisma = makePrisma();
+    const cache = new RealtimeQuoteCache();
+    const priceSource = new SimulationPriceSourceService(prisma as never, cache);
+    const kis = kisStub(9000);
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTradeStub() as never,
+      undefined,
+      priceSource,
+      kis as never,
+      cache,
+    );
+
+    const r = await (svc as unknown as {
+      warmRealtimeQuotes: (
+        t: Array<{ corpCode: string | null; stockCode: string | null }>,
+        now: Date,
+      ) => Promise<{ fetched: number; cached: number }>;
+    }).warmRealtimeQuotes([{ corpCode: POS.corpCode, stockCode: POS.stockCode }], MARKET_HOURS);
+
+    expect(r.fetched).toBe(1);
+    expect(kis.fetchCurrentPrice).toHaveBeenCalledWith(POS.stockCode);
   });
 });

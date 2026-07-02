@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
@@ -7,6 +7,7 @@ import { spacing, radius, sizing } from '@theme/spacing';
 import { getEventTypeLabel } from '@utils/disclosureType';
 import { formatReturnPct, formatWinRate, returnColor } from '@utils/numberFormat';
 import { DataLimitBadge } from '@components/common/DataLimitBadge';
+import { InfoSheet, type InfoSheetSection } from '@components/common/InfoSheet';
 import { useSignalAccuracy } from '@hooks/useSignalAccuracy';
 
 import type { AccuracyBucket, HorizonAccuracy } from '@app-types/signal-accuracy.types';
@@ -14,6 +15,8 @@ import type { AccuracyBucket, HorizonAccuracy } from '@app-types/signal-accuracy
 // 신호 정밀도(사후검증) 섹션 — DAR-73.
 // 과거 신호의 등급/이벤트별 D+5/D+20 실현 초과수익(시장 대비)·승률·표본을 표시한다.
 // ★ read-only 리포트 — 가중치/임계값 조정은 휴먼 판단. 표본<5는 LOW_SAMPLE 투명 배지.
+// TRUST-02: 1차 수치 = 중앙값(robustExcessReturn) — 평균은 소수 극단치에 오염될 수 있어
+//           보조 표기로 강등한다(설명은 InfoSheet). 승률·표본 병기는 유지.
 // 테마토큰만(하드코딩 색상 0)·접근성·로딩/에러/빈 처리.
 
 type Dimension = 'grade' | 'eventType';
@@ -33,20 +36,36 @@ function bucketLabel(dimension: Dimension, key: string): string {
   return getEventTypeLabel(key);
 }
 
-/** D+N 한 지평 요약(평균 초과수익·승률·표본·유의) */
+// info 버튼(아이콘 14px)의 유효 터치 영역을 44pt로 확장(ScoreGauge B1 패턴). 14 + 15*2 = 44.
+const INFO_HIT_SLOP = { top: 15, bottom: 15, left: 15, right: 15 };
+
+// TRUST-02: 1차 수치를 평균→중앙값으로 교체한 근거 설명(InfoSheet).
+const ACCURACY_INFO_SECTIONS: InfoSheetSection[] = [
+  {
+    icon: 'bar-chart-2',
+    heading: '1차 수치는 중앙값',
+    body: '표시되는 초과수익은 실현 표본의 중앙값(median)입니다. 평균은 극단치에 민감해 소수의 폭등·폭락 표본이 대표값을 왜곡할 수 있어, 전형값인 중앙값을 1차로 보여드려요. 평균은 아래 보조 표기로 함께 제공합니다.',
+  },
+];
+
+const ACCURACY_INFO_FOOTNOTE =
+  '사후검증 리포트는 참고 정보입니다. 가중치·임계값 조정은 사람의 판단입니다.';
+
+/** D+N 한 지평 요약(중앙값 초과수익 1차 + 평균 보조·승률·표본·유의) */
 function HorizonStat({ label, h }: { label: string; h: HorizonAccuracy }) {
   const { colors, typography: typo } = useTheme();
   const hasSample = h.sampleCount > 0;
+  // TRUST-02: 1차 수치·색조 = 중앙값(robustExcessReturn). 평균은 극단치 오염 가능 → 보조 표기.
   const valColor = !hasSample
     ? colors.textTertiary
-    : returnColor(h.avgExcessReturn ?? 0, colors);
+    : returnColor(h.robustExcessReturn ?? 0, colors);
   return (
     <View
       style={styles.horizon}
       accessibilityRole="text"
-      accessibilityLabel={`${label} 평균 초과수익 ${formatReturnPct(h.avgExcessReturn)}, 승률 ${formatWinRate(
-        h.winRate,
-      )}, 표본 ${h.sampleCount}`}
+      accessibilityLabel={`${label} 중앙값 초과수익 ${formatReturnPct(h.robustExcessReturn)}, 평균 ${formatReturnPct(
+        h.avgExcessReturn,
+      )}, 승률 ${formatWinRate(h.winRate)}, 표본 ${h.sampleCount}`}
     >
       <View style={styles.horizonHead}>
         <Text style={[typo.small, { color: colors.textSecondary }]}>{label}</Text>
@@ -55,10 +74,13 @@ function HorizonStat({ label, h }: { label: string; h: HorizonAccuracy }) {
         ) : null}
       </View>
       <Text style={[typo.captionMedium, { color: valColor, marginTop: spacing.xs }]}>
-        {formatReturnPct(h.avgExcessReturn)}
+        {formatReturnPct(h.robustExcessReturn)}
       </Text>
       <Text style={[typo.small, { color: colors.textTertiary }]}>
         승률 {formatWinRate(h.winRate)} · 표본 {h.sampleCount}
+      </Text>
+      <Text style={[typo.small, { color: colors.textTertiary }]}>
+        평균 {formatReturnPct(h.avgExcessReturn)}
       </Text>
     </View>
   );
@@ -89,6 +111,9 @@ function BucketRow({ bucket, dimension }: { bucket: AccuracyBucket; dimension: D
 export function SignalAccuracySection() {
   const { colors, typography: typo } = useTheme();
   const [dimension, setDimension] = useState<Dimension>('grade');
+  const [infoVisible, setInfoVisible] = useState(false);
+  const openInfo = useCallback(() => setInfoVisible(true), []);
+  const closeInfo = useCallback(() => setInfoVisible(false), []);
   const query = useSignalAccuracy();
   const data = query.data;
 
@@ -105,13 +130,25 @@ export function SignalAccuracySection() {
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
     >
       <View style={styles.cardHeader}>
-        <Text style={[typo.captionMedium, { color: colors.text }]}>신호 정밀도 (사후검증)</Text>
+        <View style={styles.titleGroup}>
+          <Text style={[typo.captionMedium, { color: colors.text }]}>신호 정밀도 (사후검증)</Text>
+          {/* TRUST-02: 중앙값 1차 표기 근거 설명 진입점(ScoreGauge B1 패턴 재사용). */}
+          <TouchableOpacity
+            onPress={openInfo}
+            style={styles.infoBtn}
+            hitSlop={INFO_HIT_SLOP}
+            accessibilityRole="button"
+            accessibilityLabel="신호 정밀도 수치 설명 보기"
+          >
+            <Feather name="info" size={14} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
         {data ? (
           <Text style={[typo.small, { color: colors.textTertiary }]}>신호 {data.totalSignals}건</Text>
         ) : null}
       </View>
       <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.sm }]}>
-        과거 신호의 D+5/D+20 실현 초과수익(시장 대비)·승률을 검증합니다. 조정은 사람의 판단입니다.
+        과거 신호의 D+5/D+20 실현 초과수익(시장 대비) 중앙값·승률을 검증합니다. 조정은 사람의 판단입니다.
       </Text>
 
       {/* 차원 탭: 등급별 / 이벤트별 */}
@@ -166,6 +203,15 @@ export function SignalAccuracySection() {
           ))}
         </View>
       )}
+
+      {/* TRUST-02: '평균은 극단치에 민감' 설명 바텀시트. */}
+      <InfoSheet
+        visible={infoVisible}
+        onClose={closeInfo}
+        title="신호 정밀도 안내"
+        sections={ACCURACY_INFO_SECTIONS}
+        footnote={ACCURACY_INFO_FOOTNOTE}
+      />
     </Surface>
   );
 }
@@ -178,6 +224,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: spacing.xs,
   },
+  titleGroup: { flexDirection: 'row', alignItems: 'center' },
+  infoBtn: { marginLeft: spacing.xs },
   tabs: {
     flexDirection: 'row',
     borderRadius: radius.md,

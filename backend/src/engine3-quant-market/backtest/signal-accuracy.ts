@@ -94,6 +94,13 @@ export interface SignalAccuracyReport {
    * 신호 0/실현표본 0 이면 hasData=false 로 graceful 표기.
    */
   gradePrecision: GradePrecisionMatrix;
+  /**
+   * ★리스크 차단 축 분리 보고 (TB-3, 2026-07-03): BLOCKED 는 '더 낮은 수익 기대' 등급이
+   * 아니라 리스크 하드차단(회피 판단)이므로 수익 서열(단조성)에서 제외하고 건수만 따로
+   * 보고한다. '차단이 옳았는가'(차단 종목의 후속 거래정지/관리종목 실현 여부) 검증은 상태
+   * 이력 테이블 부재로 현 데이터로는 불가 — 카운트만 제공.
+   */
+  riskBlockStats: RiskBlockStats;
 }
 
 /** 오름차순 정렬 후 중앙값. 빈 배열이면 null */
@@ -227,6 +234,126 @@ export function buildSignalAccuracyReport(
     realizedD5: returns.filter((r) => r.arD5 !== null).length,
     realizedD20: returns.filter((r) => r.arD20 !== null).length,
     gradePrecision: buildGradePrecisionMatrix(returns),
+    riskBlockStats: computeRiskBlockStats(returns),
+  };
+}
+
+// =====================================================================
+// TB-2 (2026-07-03) — 표본 설계: (rcpNo,eventType) dedup + 월별 층화 샘플링
+//
+// 문제: 종전 '최신순 take(1000)' 표본은 ① 동일 공시이벤트가 persona 4행으로 복제돼
+//   실현수익(같은 종목·같은 rcpDt → arD5/arD20 동일)이 4배 가중되는 유사복제
+//   (pseudo-replication), ② 최근 공시일에 표본이 쏠려 단일 장세(국면)만 측정하는
+//   기간 편향을 만든다. 아래 순수 함수가 dedup·층화로 이를 교정한다.
+// ★ 순수 함수 — I/O·AI 0. service 가 조회한 행을 받아 표본만 재구성한다(read-only).
+// =====================================================================
+
+/** (rcpNo,eventType) dedup 대상 행의 최소 형태 — 공시이벤트 자연키 */
+export interface DisclosureEventKeyedRow {
+  rcpNo: string;
+  eventType: string;
+}
+
+/**
+ * (rcpNo,eventType) 단위 dedup — persona 4행 복제 → 대표 1행.
+ * ★대표 선정 규칙(명시): **입력 순서상 첫 행**. 실현수익(arD5/arD20)은 같은 종목·같은
+ *   rcpDt 에서 산출되므로 persona 무관 공통값이라 어느 행이든 동일하고, 점수 축
+ *   (buyScore/signalGrade)은 호출부가 결정론 정렬(persona ASC)로 넘겨
+ *   '첫 행 = 사전순 첫 persona' 로 고정한다(재실행 불변).
+ */
+export function dedupByDisclosureEvent<T extends DisclosureEventKeyedRow>(
+  rows: T[],
+): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const r of rows) {
+    const key = `${r.rcpNo}::${r.eventType}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
+
+/** 월별 층화 샘플링 대상 행의 최소 형태 — 공시 접수일시 rcpDt(YYYYMMDD[HHmmss]) */
+export interface RcpDtKeyedRow {
+  rcpDt: string | null;
+}
+
+/** rcpDt 결측 행의 월 버킷 키(방어 — 실 조회는 rcpDt 필터로 결측을 원천 배제한다) */
+export const UNKNOWN_MONTH_KEY = 'UNKNOWN';
+
+/** rcpDt(YYYYMMDD[HHmmss]) → 접수월 키(YYYYMM). 결측/짧은 값은 UNKNOWN_MONTH_KEY */
+export function monthKeyOf(rcpDt: string | null | undefined): string {
+  return rcpDt && rcpDt.length >= 6 ? rcpDt.slice(0, 6) : UNKNOWN_MONTH_KEY;
+}
+
+/**
+ * 월별 층화 샘플링 — 기간 내 접수월(YYYYMM)별 균등 추출.
+ * 월 키 오름차순으로 라운드로빈(각 월에서 1행씩)하며 limit 까지 채운다. 표본이 부족한
+ * 월은 있는 만큼만 내고, 잔여 쿼터는 자연히 다른 월로 흘러간다(균등 우선·전량 활용).
+ * 월 내 순서는 입력 순서 보존 — 호출부의 결정론 정렬이 곧 추출 순서다(재실행 불변).
+ * rows.length ≤ limit 이면 전량 반환(층화 불필요).
+ */
+export function stratifySampleByMonth<T extends RcpDtKeyedRow>(
+  rows: T[],
+  limit: number,
+): T[] {
+  if (limit <= 0) return [];
+  if (rows.length <= limit) return [...rows];
+
+  const byMonth = new Map<string, T[]>();
+  for (const r of rows) {
+    const key = monthKeyOf(r.rcpDt);
+    const arr = byMonth.get(key);
+    if (arr) arr.push(r);
+    else byMonth.set(key, [r]);
+  }
+  const months = [...byMonth.keys()].sort(); // YYYYMM 오름차순(UNKNOWN 은 숫자 뒤)
+
+  const cursors = new Map<string, number>(months.map((m) => [m, 0]));
+  const out: T[] = [];
+  while (out.length < limit) {
+    let took = false;
+    for (const m of months) {
+      if (out.length >= limit) break;
+      const arr = byMonth.get(m)!;
+      const cursor = cursors.get(m)!;
+      if (cursor >= arr.length) continue; // 해당 월 소진
+      out.push(arr[cursor]);
+      cursors.set(m, cursor + 1);
+      took = true;
+    }
+    if (!took) break; // 전 월 소진 — limit 미달이어도 종료
+  }
+  return out;
+}
+
+/** KST(UTC+9) 오프셋 — rcpDt 는 DART 접수일(KST) 기준이라 기본 기간도 KST 로 계산 */
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/**
+ * 기본 집계 기간 — 최근 12개월(KST 오늘 포함, from = 12개월 전 같은 날).
+ * 파라미터(from/to) 미지정 시 이 기간에 월별 층화가 걸린다(연중 장세 고른 측정).
+ * now 주입 가능 — 결정론 테스트용.
+ */
+export function defaultAccuracyWindow(now: Date = new Date()): {
+  from: string;
+  to: string;
+} {
+  const kst = new Date(now.getTime() + KST_OFFSET_MS);
+  const y = kst.getUTCFullYear();
+  const m = kst.getUTCMonth();
+  const d = kst.getUTCDate();
+  const fmt = (ms: number): string => {
+    const dt = new Date(ms);
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getUTCDate()).padStart(2, '0');
+    return `${dt.getUTCFullYear()}${mm}${dd}`;
+  };
+  return {
+    from: fmt(Date.UTC(y, m - 12, d)), // Date.UTC 가 월 언더플로를 자동 정규화
+    to: fmt(Date.UTC(y, m, d)),
   };
 }
 
@@ -240,8 +367,12 @@ export function buildSignalAccuracyReport(
 // =====================================================================
 
 /**
- * 등급 서열(우수→열위). confusion 의 positive 클래스 판정과 단조성 비교축.
- * SignalGrade enum 순서와 일치. 미등재(unknown) 등급은 최하위로 취급.
+ * 등급 서열(우수→열위) — ★수익 기대 '소프트 축'만 (TB-3, 2026-07-03).
+ * BLOCKED 는 '더 낮은 수익 기대' 등급이 아니라 리스크 하드차단(회피 판단)이라 수익
+ * 서열에서 제외한다 — computeGradeMonotonicity·isRobustMonotonic 은 소프트 축
+ * (STRONG>BUY>WATCH>NEUTRAL>AVOID)만 판정하고, BLOCKED 는 riskBlockStats 로 건수
+ * 분리 보고(confusion 은 기존대로 비매수 클래스에 포함 — 회피 정확도 축은 유지).
+ * SignalGrade enum 순서와 일치. 미등재(unknown)·BLOCKED 등급은 서열 밖(끝)으로 취급.
  */
 export const GRADE_RANK_ORDER: readonly string[] = [
   'STRONG_BUY_CANDIDATE',
@@ -249,8 +380,10 @@ export const GRADE_RANK_ORDER: readonly string[] = [
   'WATCH',
   'NEUTRAL',
   'AVOID',
-  'BLOCKED',
 ];
+
+/** 리스크 하드차단 등급 — 수익 서열(GRADE_RANK_ORDER) 밖의 별도 축 (TB-3) */
+export const RISK_BLOCKED_GRADE = 'BLOCKED';
 
 /** 매수(양수익 기대) 등급 집합 — confusion 의 'predicted positive' 클래스. */
 export const BULLISH_GRADES: ReadonlySet<string> = new Set([
@@ -313,7 +446,7 @@ export interface GradeMonotonicityRow {
  */
 export interface GradeMonotonicity {
   horizon: 'd5' | 'd20';
-  /** 서열대로(우수→열위) 정렬된 등급별 평균AR·승률. 실현표본 있는 등급만. */
+  /** 서열대로(우수→열위) 정렬된 등급별 평균AR·승률. 실현표본 있는 등급만(BLOCKED 는 TB-3 리스크 축 분리로 제외). */
   orderedGrades: GradeMonotonicityRow[];
   /** 단조성 평가에 쓴 인접 등급쌍 수(양쪽 metric 모두 non-null) */
   comparedPairs: number;
@@ -448,6 +581,8 @@ export function computeGradeMonotonicity(
   // 등급별 실현수익 모으기
   const byGrade = new Map<string, number[]>();
   for (const r of returns) {
+    // TB-3: BLOCKED 는 리스크 차단 축 — 수익 서열(단조성) 판정에서 제외(riskBlockStats 분리).
+    if (r.signalGrade === RISK_BLOCKED_GRADE) continue;
     const ar = pick(r);
     if (ar === null) continue;
     const arr = byGrade.get(r.signalGrade);
@@ -529,6 +664,28 @@ export function computeGradeMonotonicity(
     isMonotonic: comparedPairs >= 1 && avgReturnViolations === 0,
     isRobustMonotonic: comparedPairs >= 1 && robustReturnViolations === 0,
   };
+}
+
+/**
+ * 리스크 차단 축 분리 통계 (TB-3, 2026-07-03).
+ * BLOCKED 는 수익 서열이 아니라 회피 판단 — 단조성에서 제외하고 건수만 보고한다.
+ * '차단이 옳았는가'(차단 종목의 후속 거래정지/관리종목 실현 여부)는 상태 이력 테이블
+ * 부재(StockStatus 는 현재 스냅샷뿐)로 현 데이터로는 검증 불가 → 카운트만 제공.
+ */
+export interface RiskBlockStats {
+  /** 표본 내 BLOCKED 등급 신호 수(차단 건수) */
+  blockedCount: number;
+}
+
+/** BLOCKED 등급 건수 집계 — 수익 서열과 분리된 리스크 축 보고 (TB-3) */
+export function computeRiskBlockStats(
+  returns: SignalRealizedReturn[],
+): RiskBlockStats {
+  let blockedCount = 0;
+  for (const r of returns) {
+    if (r.signalGrade === RISK_BLOCKED_GRADE) blockedCount++;
+  }
+  return { blockedCount };
 }
 
 /**

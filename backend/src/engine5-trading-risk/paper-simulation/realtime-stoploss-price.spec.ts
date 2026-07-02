@@ -2,7 +2,8 @@
  * realtime-stoploss-price.spec.ts — DAR-364 손절 평가 가격을 실시간 실가로 통일
  *
  * 검증(표시=엔진, 손절 실발화):
- *   1) evaluateExits: 보유 포지션 실시간 실가가 -8% 이하면 하드 스탑로스로 EXIT 발화(모의 매도 체결).
+ *   1) evaluateExits(일일 19:30 경로): 실시간 실가 -8% 이하면 EXIT '판정·기록'(deferredFill 마킹)
+ *      — ★장외 체결 의미론(2026-07): 당일 즉시 체결 금지, 체결은 익일 시가로 이연.
  *   2) getSimulationStatus: 보유 포지션 currentPrice·평가손익·priceSource 가 실시간 실가를 반영
  *      (사용자가 보는 손실 = 엔진이 손절 평가에 쓰는 손실).
  *   3) computeMetrics equity 도 같은 실시간 실가로 재평가(표시·엔진 동일 가격).
@@ -106,9 +107,11 @@ function makeOpen(overrides: Partial<OpenRow> = {}): OpenRow {
 function makePrisma(open: OpenRow) {
   const state = { closed: false };
   const updates: Array<Record<string, unknown>> = [];
+  const exitSignals: Array<Record<string, unknown>> = [];
   return {
     _updates: updates,
     _state: state,
+    _exitSignals: exitSignals,
     user: { findFirst: jest.fn().mockResolvedValue({ id: 'u1' }), create: jest.fn() },
     portfolio: { findFirst: jest.fn().mockResolvedValue(PF), create: jest.fn() },
     position: {
@@ -151,8 +154,19 @@ function makePrisma(open: OpenRow) {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findMany: jest.fn().mockResolvedValue([]),
     },
-    exitSignal: { create: jest.fn().mockResolvedValue({ id: 'ex1' }), findMany: jest.fn().mockResolvedValue([]) },
-    paperTrade: { update: jest.fn().mockResolvedValue({}) },
+    exitSignal: {
+      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        exitSignals.push(data);
+        return { id: 'ex1' };
+      }),
+      findMany: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockResolvedValue({}),
+    },
+    paperTrade: {
+      update: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn().mockResolvedValue({ id: 'pt1' }),
+    },
     aIUsageLog: { aggregate: jest.fn().mockResolvedValue({ _sum: { costUsd: 0 } }) },
     portfolioRiskSnapshot: { findFirst: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockResolvedValue({}) },
     company: { findMany: jest.fn().mockResolvedValue([]) },
@@ -165,11 +179,11 @@ function makePrisma(open: OpenRow) {
 }
 
 describe('DAR-364 — 손절 평가 가격 = 실시간 실가(표시=엔진, -8% 손절 실발화)', () => {
-  it('실시간 실가가 -10%(≤ -8% 손절)면 evaluateExits 가 EXIT(모의 매도) 발화', async () => {
+  it('일일(19:30) 경로: 실시간 실가 -10%(≤ -8%)면 EXIT 판정·이연 기록만 — 당일 체결 0(장외 체결 의미론)', async () => {
     const open = makeOpen(); // entry 10000, stopLoss 8%
     const prisma = makePrisma(open);
     const paperTrade = paperTradeStub();
-    // 실시간 실가 9000 → pnl -10% ≤ -8% → 하드 스탑로스 EXIT
+    // 실시간 실가 9000 → pnl -10% ≤ -8% → 하드 스탑로스 EXIT '판정'
     const svc = new PaperSimulationService(
       prisma as never,
       paperTrade as never,
@@ -179,18 +193,23 @@ describe('DAR-364 — 손절 평가 가격 = 실시간 실가(표시=엔진, -8%
 
     const result = await svc.runDailyCycle('20260619');
 
-    expect(result.exited).toBe(1);
+    // 판정은 기록되되(exitDeferred=1) 당일 종가/실시간가 즉시 체결은 금지(상향 편향 차단).
+    expect(result.exitDeferred).toBe(1);
+    expect(result.exited).toBe(0);
     const sellCalls = (paperTrade.placeOrder as jest.Mock).mock.calls.filter(
       (c) => c[0].direction === 'SELL',
     );
-    expect(sellCalls.length).toBe(1);
-    // 청산은 실시간 실가(9000) 기준 체결
-    expect(sellCalls[0][0].entryPrice).toBe(9000);
-    // 포지션이 CLOSED 로 전이
-    expect(prisma._updates.some((u) => u.status === 'CLOSED')).toBe(true);
+    expect(sellCalls.length).toBe(0);
+    expect(prisma._updates.some((u) => u.status === 'CLOSED')).toBe(false);
+    // ExitSignal 에 이연 마킹(deferredFill=true) + 일일 경로 checkTime=POST_MARKET.
+    const sig = prisma._exitSignals[0] as any;
+    expect(sig).toBeDefined();
+    expect(sig.exitAction).toBe('EXIT');
+    expect(sig.checkTime).toBe('POST_MARKET');
+    expect(sig.scoreDetail.deferredFill).toBe(true);
   });
 
-  it('실시간 실가가 -5%(> -8%)면 손절 미발화(HOLD)', async () => {
+  it('실시간 실가가 -5%(> -8%)면 손절 미발화(HOLD) — 이연 판정도 0', async () => {
     const open = makeOpen();
     const prisma = makePrisma(open);
     const paperTrade = paperTradeStub();
@@ -203,11 +222,16 @@ describe('DAR-364 — 손절 평가 가격 = 실시간 실가(표시=엔진, -8%
 
     const result = await svc.runDailyCycle('20260619');
 
+    expect(result.exitDeferred).toBe(0);
     expect(result.exited).toBe(0);
     const sellCalls = (paperTrade.placeOrder as jest.Mock).mock.calls.filter(
       (c) => c[0].direction === 'SELL',
     );
     expect(sellCalls.length).toBe(0);
+    // HOLD 신호에는 이연 마킹이 붙지 않는다.
+    const sig = prisma._exitSignals[0] as any;
+    expect(sig.exitAction).toBe('HOLD');
+    expect(sig.scoreDetail.deferredFill).toBeUndefined();
   });
 
   it('getSimulationStatus: 보유 포지션 currentPrice·평가손익·priceSource 가 실시간 실가(-20%) 반영', async () => {

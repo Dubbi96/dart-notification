@@ -155,6 +155,12 @@ export interface NotifyThesisViolatedJobData {
 export interface NotifyTradeJobData {
   /** 'ENTRY' = 매수 체결, 'EXIT' = 매도 체결 */
   kind: 'ENTRY' | 'EXIT';
+  /**
+   * 장외 체결 의미론(2026-07, ENTRY 전용): 'RESERVED' = 주문 예약(익일 시가 체결 예정),
+   * 'FILLED' = 당일 시가 체결. additive optional — 미지정(레거시 발행자·기존 소비자)은
+   * 종전 '체결' 의미로 동작(호환 유지).
+   */
+  phase?: 'RESERVED' | 'FILLED';
   /** 멱등 자연키 — 체결 단위 식별(분봉 단타 trade id / 시스템 모의 position id). */
   refId: string;
   /** 트랙 식별 키(딥링크·data 페이로드용). 예: 'intraday-scalp' | 'paper-simulation' */

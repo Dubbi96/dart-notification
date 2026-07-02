@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
 import { ApiErrorState, EmptyState } from '@components/common/StateView';
@@ -50,6 +50,34 @@ function formatNumber(value: number | null | undefined, digits = 2): string {
   return value.toFixed(digits);
 }
 
+/**
+ * CONF-02: 검증 상태 뱃지 — 매수 로직 재검증이 진행 중임을 헤더에서 고지한다.
+ * DataLimitBadge 톤(warning 테두리·아이콘+평문, 색 단독 의미 금지) 재사용.
+ * ★불합격 수치·rankCorr 등 구체 수치는 절대 비노출 — 2회차 확정값만 표면화 방침.
+ */
+function VerificationStatusBadge() {
+  const { colors, typography: typo } = useTheme();
+  return (
+    <View
+      style={[
+        styles.verifyBadge,
+        { backgroundColor: colors.surfaceSecondary, borderColor: colors.warning },
+      ]}
+      accessibilityRole="text"
+      accessibilityLabel="검증 상태: 매수 로직 재검증 진행 중. 확정 전까지 참고용입니다."
+    >
+      <Feather name="alert-triangle" size={11} color={colors.warning} />
+      <Text
+        numberOfLines={1}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        style={[typo.small, { color: colors.warning, marginLeft: spacing.xs, fontWeight: '600' }]}
+      >
+        매수 로직 재검증 진행 중 (참고)
+      </Text>
+    </View>
+  );
+}
+
 /** ① 헤더 요약 — 기간·초기자본·총수익률(대형 색조)·승률(대형). */
 function SummaryHeaderCard({ record }: { record: BacktestTrackRecord }) {
   const { colors, typography: typo } = useTheme();
@@ -62,6 +90,9 @@ function SummaryHeaderCard({ record }: { record: BacktestTrackRecord }) {
       elevation={1}
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
     >
+      {/* CONF-02: 검증 상태 뱃지 — 헤더 1개소. */}
+      <VerificationStatusBadge />
+
       <Text style={[typo.small, { color: colors.textSecondary }]}>
         {dotDate(record.startDate)} ~ {dotDate(record.endDate)} · 초기자본{' '}
         {record.initialCapital.toLocaleString('ko-KR')}원
@@ -327,6 +358,17 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     padding: spacing.base,
+  },
+  // CONF-02: DataLimitBadge 와 동일 마크업 톤(아이콘+평문 칩).
+  verifyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs / 2,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
   },
   headlineRow: {
     flexDirection: 'row',

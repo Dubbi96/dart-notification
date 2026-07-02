@@ -228,8 +228,15 @@ export class NotifyConsumer extends WorkerHost {
     let title: string;
     let body: string;
     if (data.kind === 'ENTRY') {
-      title = `${sourcePrefix(src)} · ${label} 매수`;
-      body = `₩${priceStr} × ${data.shares}주 · 잔액 ₩${cashStr}`;
+      // 장외 체결 의미론(2026-07): phase='RESERVED' 는 체결이 아니라 '주문 예약'(익일 시가 체결
+      // 예정) — 예약 기준가를 체결가처럼 표기하지 않는다(정직). phase 미지정/FILLED 는 종전 문구.
+      if (data.phase === 'RESERVED') {
+        title = `${sourcePrefix(src)} · ${label} 매수 예약`;
+        body = `기준 ₩${priceStr} × ${data.shares}주 · 익일 시가 체결 예정`;
+      } else {
+        title = `${sourcePrefix(src)} · ${label} 매수`;
+        body = `₩${priceStr} × ${data.shares}주 · 잔액 ₩${cashStr}`;
+      }
     } else {
       const pct = signedPct(data.pnlPct);
       const reason = data.exitReason ? `(${data.exitReason})` : '';

@@ -11,6 +11,7 @@ import { ExitScoreCard } from '@components/signals/ExitScoreCard';
 import { SignalExplorer } from '@components/signals/SignalExplorer';
 import { CurationSlot } from '@components/signals/CurationSlot';
 import { SignalSearchInput } from '@components/signals/SignalSearchInput';
+import { SignalsCoachmark } from '@components/signals/SignalsCoachmark';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { GuestSignalPreview } from '@components/signals/GuestSignalPreview';
@@ -308,6 +309,9 @@ export default function SignalsScreen() {
           {SIGNALS_HEADER_SUBTITLE}
         </Text>
       </View>
+      {/* W1 잔여(6/27 감사): 신호 탭 첫 진입 코치마크 — 점수 게이지·등급 칩·표본 읽는 법.
+          닫기 후 재노출 없음(SecureStore). 게스트는 미리보기 상태라 미노출(1회성 소모 방지). */}
+      {isAuthenticated && <SignalsCoachmark />}
       {renderBody()}
     </SafeAreaView>
   );

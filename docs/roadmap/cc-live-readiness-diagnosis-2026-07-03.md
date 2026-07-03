@@ -126,4 +126,7 @@
 - prod 검증: backend/redis healthy, 하드닝 반영(mem_limit 640m·restart always·redis noeviction, 메모리 사용 16%), 수집 무중단(당일 rcpDt·290만 건), 전략 forward 4트랙 엔드포인트 `GET /api/paper-trading/simulation/strategies-forward/comparison` 라이브(첫 사이클 = 배포 당일 19:45 KST 대기).
 - **DB 백업 자동화 가동**(PR #438): `scripts/backup-prod-db.sh` → micro1 crontab `30 18 * * *`(UTC=03:30 KST), S3 업로드 검증 완료(`s3://dano-s3-dubbi/backups/…2026-07-03.dump.gz` 129MB). prod 실행 결함 3종(Prisma URL·pg 버전·이미지 용량) 수정 반영. **RPO 무한대(OPS-1 blocker) 해소.**
 - APK 재빌드 완료(모바일 wave2 반영): https://expo.dev/artifacts/eas/TmYoC9nYT6DETAK7ab-qSIaa3ZlHmiiXF9u0f7cg32k.apk
-- **잔여 결정(§8-1) — 미해결·사용자 판단 대기**: 체결 의미론 변경으로 오늘 19:30 사이클부터 레짐이 바뀐다. M10 졸업 30일 측정 기산점을 **①배포일(7/3)로 클록 리셋(권장 — 편향 제거 후 정직 구간 측정)** vs ②기존 기산 유지 중 선택 필요. 클록 리셋 시 졸업 목표일이 ≈7/21 → ≈8/2로 이동.
+- **§8-1 결정 완료 — ①클록 리셋 채택(사용자 승인, 2026-07-03 실행)**: 체결 의미론 수정으로 오늘 19:30 사이클부터 레짐이 바뀌므로, 편향 구간을 버리고 post-fix 정직 구간만 측정하기로 결정.
+  - **실행**: 시뮬 포트폴리오(`cmq0jsj8r0002l6kgie4416ip`) 클린 리셋 — 포지션 169건(열림 29)·자산곡선 스냅샷 210·리스크 스냅샷 7·ExitSignal 13,698 삭제, 현금 1천만원 초기화. `POST /paper-trading/simulation/reset` (confirm 게이트·휴먼 승인). pre-reset 상태는 당일 S3 백업(129MB)에 보존.
+  - **효과**: 졸업 클록 앵커 2026-06-23(편향) → 리셋으로 비워짐 → 오늘 밤 19:30 예약 → **익일(7/4) 시가 첫 체결이 새 앵커** → 30일 윈도우 완성 ≈**8/3**. `integration-regression.ts` 재실행 시 그 시점 지표는 post-fix 정직 데이터만 반영(G1~G7 클린 측정).
+  - 타 트랙(철학 스타일·전략 forward·단타)은 리셋 범위 밖 — 각자 오늘부터 독립 누적.

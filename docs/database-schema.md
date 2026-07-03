@@ -762,6 +762,34 @@ model StockMinutePrice {
 | isAbnormalSurge | BOOL | 이상급등 여부 |
 | statusNote | TEXT? | 상태 사유 |
 
+> **StockStatus vs StockStatusDaily (DAR-486)**: `StockStatus` 는 종목별 **현재 상태 단일행**(upsert)이다.
+> 과거 백테스트에 현재 상태를 소급 적용하면 lookahead(미래정보 누설)이므로 백테스트는 이 테이블을
+> 참조하지 않는다. 대신 아래 `StockStatusDaily` 일별 이력을 point-in-time 으로 참조한다.
+
+### 7.4.1 StockStatusDaily (stock_status_daily) — DAR-486 신규 (견고화 W3·P25)
+
+종목상태 **일별 이력**. 매 거래일 08:50 종목상태 수집 시점의 이상상태(거래정지·관리종목 등) 스냅샷을
+`(stockCode, tradeDate)` 자연키로 **forward-only** 축적한다. 백테스트 어댑터(`prisma-price-data.adapter`)가
+일별 플래그를 공급받아 거래정지·관리종목 종목의 진입을 걸러 **생존편향/상한가추격 낙관 편향**을 줄인다.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| stockCode | TEXT | 종목코드 6자리 (복합 PK) |
+| tradeDate | TEXT | 상태 스냅샷 거래일 YYYYMMDD (수집일 = point-in-time, 복합 PK) |
+| isTradingSuspended | BOOL | 거래정지 여부 |
+| isManagement | BOOL | 관리종목 여부 |
+| isInvestmentCaution | BOOL | 투자주의 여부 |
+| isAbnormalSurge | BOOL | 이상급등 여부 |
+| statusNote | TEXT? | 상태 사유 |
+| createdAt | TIMESTAMP | 적재 시각 |
+
+- **복합 PK** `(stockCode, tradeDate)` — 하루 1행/종목, 같은 날 재수집에도 멱등(upsert).
+- **★소급 백필 금지(lookahead 불가침)**: `tradeDate` 는 항상 수집일이며, 과거 날짜의 현재 상태를
+  소급 적재하지 않는다. 이력이 없는 과거 거래일은 어댑터가 미설정(false)으로 처리 → forward-only 라
+  과거 백테스트 거동은 무변경이고 이력이 쌓일수록 현실성이 좋아진다.
+- **저장 절약**: '정상'(전 플래그 false) 종목은 적재하지 않는다(부재 = 정상). 이상상태 행만 남긴다.
+- 신선도: cron-health `market.status-collect`(평일 08:50) 로 적재 실행 헬스를 표면화.
+
 ### 7.5 MarketDataCollectionLog (market_data_collection_logs) — DAR-8 신규
 
 KRX EOD 수집 이력 로그 (DART DisclosureCollectionLog 동일 패턴).
@@ -1146,7 +1174,7 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 | entryDate | DateTime | **다음 거래일 시가 진입** (공시 당일 종가 진입 금지) |
 | entryPrice / entryShares / entryValue | Decimal/Int | 진입 가격·수량·금액 |
 | exitDate / exitPrice / exitShares / exitValue | Decimal?/Int? | 청산 정보 |
-| exitReason | ExitReason? | TAKE_PROFIT / STOP_LOSS / TRAILING_STOP / THESIS_BREAK / MAX_HOLD_DAYS / CHART_BREAK / LIQUIDITY_EXIT / FORCE_EXIT |
+| exitReason | ExitReason? | TAKE_PROFIT / STOP_LOSS / TRAILING_STOP / THESIS_BREAK / MAX_HOLD_DAYS / CHART_BREAK / LIQUIDITY_EXIT / FORCE_EXIT / **DELISTED**(DAR-486 상폐 감액 청산) |
 | commission / tax / slippage | Decimal | 비용 |
 | grossPnl / netPnl | Decimal? | 수수료 전/후 손익 |
 | returnPct / holdDays | Decimal?/Int? | 수익률·보유기간 |
@@ -1763,6 +1791,6 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-03 (DAR-479 P04: §38 BacktestForwardDivergenceSnapshot 추가 — 백테스트 vs forward 괴리 일일 스냅샷, read-only 측정) · 2026-07-03 (DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산 + notification_settings.opsPushEnabled 추가 — 리스크·운영 알림 채널 신설)
+**최종 수정일**: 2026-07-03 (DAR-486 P25: §7.4.1 StockStatusDaily 신규 — 종목상태 일별 이력(forward-only, 백테스트 생존편향) + ExitReason 에 DELISTED 가산) · 2026-07-03 (DAR-479 P04: §38 BacktestForwardDivergenceSnapshot 추가 — 백테스트 vs forward 괴리 일일 스냅샷, read-only 측정) · 2026-07-03 (DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산 + notification_settings.opsPushEnabled 추가 — 리스크·운영 알림 채널 신설)
 **이전 수정일**: 2026-07-02 (전수 현행화 — 미문서 모델 15종 전용 섹션 추가(§23~§37: CompanyOverview·SavedDisclosure·CronRunLog·DisclosureCollectionLog·DisclosureEvent·DartFiledFact·CompanyFinancial·FinancialCollectionLog·DisclosureAnalysis·PersonaAnalysis·InvestorPhilosophy·PhilosophyMetric·PhilosophySource·SignalEntryFunnelDaily·IntradayScalpTrade), User 카카오 OAuth(password nullable·provider/providerId·(provider,providerId) unique) 반영, NotificationHistory 통합 인박스(type/refId 멱등키) 반영, §17 절 번호 충돌 정리, SSOT 관계(schema.prisma=SSOT·본 문서=해설·총 50개 모델) 헤더 명시)
-**버전**: 3.1 (2026-07-03 DAR-479 P04: BacktestForwardDivergenceSnapshot 신규 테이블(마이그레이션 20260703130000_dar479_backtest_forward_divergence_snapshot) — 백테스트 vs forward 괴리 일일 스냅샷, 조회·적재 전용 측정; 3.0 DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산(additive 마이그레이션 20260703010000_dar473_risk_ops_notifications) + notification_settings.opsPushEnabled(기본 ON) 추가 — 능동 리스크/운영 알림 채널 신설(카테고리 4 버킷: 공시·신호·체결·운영); 2.9 2026-07-02 전수 현행화; 2.8 DAR-424: NotificationType 에 TRADE_ENTRY/TRADE_EXIT 가산 + notification_settings.tradePushEnabled 추가 — 라이브 페이퍼 체결 알림; 2.7 DAR-404: BacktestRun.strategyKey 비파괴 추가 + @@index — 트레이딩 로직 축 다중 트랙; DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)
+**버전**: 3.2 (2026-07-03 DAR-486 P25: StockStatusDaily 신규 테이블 + ExitReason.DELISTED 가산(마이그레이션 20260703140000_dar486_stock_status_daily_survivorship) — 종목상태 일별 이력 forward-only 축적 + 상폐 감액 청산 옵션, 백테스트 생존편향 처리(측정·데이터층 전용·운용 매매 무접촉); 3.1 DAR-479 P04: BacktestForwardDivergenceSnapshot 신규 테이블(마이그레이션 20260703130000_dar479_backtest_forward_divergence_snapshot) — 백테스트 vs forward 괴리 일일 스냅샷, 조회·적재 전용 측정; 3.0 DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산(additive 마이그레이션 20260703010000_dar473_risk_ops_notifications) + notification_settings.opsPushEnabled(기본 ON) 추가 — 능동 리스크/운영 알림 채널 신설(카테고리 4 버킷: 공시·신호·체결·운영); 2.9 2026-07-02 전수 현행화; 2.8 DAR-424: NotificationType 에 TRADE_ENTRY/TRADE_EXIT 가산 + notification_settings.tradePushEnabled 추가 — 라이브 페이퍼 체결 알림; 2.7 DAR-404: BacktestRun.strategyKey 비파괴 추가 + @@index — 트레이딩 로직 축 다중 트랙; DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)

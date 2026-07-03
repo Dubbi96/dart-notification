@@ -11,9 +11,28 @@ interface PriceRow {
   volume: bigint;
 }
 
-function makePrisma(rows: PriceRow[]) {
+interface StatusRow {
+  stockCode: string;
+  tradeDate: string; // YYYYMMDD
+  isTradingSuspended: boolean;
+  isManagement: boolean;
+}
+
+function makePrisma(rows: PriceRow[], statusRows: StatusRow[] = []) {
   const findManyArgs: Array<{ where: { tradeDate: { gte: string; lte: string } } }> = [];
   const prisma = {
+    // DAR-486: 일별 종목상태 이력 — 기본 빈 배열(과거 백테스트 = forward 이력 부재 → 미설정 false).
+    stockStatusDaily: {
+      findMany: jest.fn(
+        async (args: { where: { stockCode: string; tradeDate: { gte: string; lte: string } } }) =>
+          statusRows.filter(
+            (s) =>
+              s.stockCode === args.where.stockCode &&
+              s.tradeDate >= args.where.tradeDate.gte &&
+              s.tradeDate <= args.where.tradeDate.lte,
+          ),
+      ),
+    },
     stockDailyPrice: {
       findMany: jest.fn(async (args: { where: { stockCode: string; tradeDate: { gte: string; lte: string } } }) => {
         findManyArgs.push(args as never);
@@ -91,5 +110,41 @@ describe('PrismaBacktestPriceAdapter — DB 일봉 PriceDataPort', () => {
     const adapter = new PrismaBacktestPriceAdapter(prisma, '2025-06-18');
     expect(await adapter.getDailyPrices('005930', '2025-06-19', '2025-06-20')).toEqual([]);
     expect(await adapter.getTradingDays('2025-06-19', '2025-06-20')).toEqual([]);
+  });
+
+  // DAR-486: 일별 종목상태 이력(거래정지/관리종목) 공급 — 생존편향/상한가추격 차단 입력.
+  describe('일별 종목상태 이력(StockStatusDaily) 공급', () => {
+    it('이력 없으면 플래그 미설정(false) — forward 이전 과거 백테스트 거동 무변경', async () => {
+      const { prisma } = makePrisma(ROWS); // status 이력 없음
+      const adapter = new PrismaBacktestPriceAdapter(prisma);
+      const prices = await adapter.getDailyPrices('005930', '2025-06-19', '2025-06-20');
+      expect(prices[0].isTradingSuspended).toBe(false);
+      expect(prices[0].isAdminStock).toBe(false);
+    });
+
+    it('이력 있으면 해당 거래일만 point-in-time 플래그 공급(거래정지→isTradingSuspended, 관리→isAdminStock)', async () => {
+      const { prisma } = makePrisma(ROWS, [
+        { stockCode: '005930', tradeDate: '20250619', isTradingSuspended: true, isManagement: false },
+        { stockCode: '005930', tradeDate: '20250620', isTradingSuspended: false, isManagement: true },
+      ]);
+      const adapter = new PrismaBacktestPriceAdapter(prisma);
+      const prices = await adapter.getDailyPrices('005930', '2025-06-19', '2025-06-20');
+      expect(prices).toHaveLength(2);
+      // 6/19 = 거래정지
+      expect(prices[0]).toMatchObject({ date: '2025-06-19', isTradingSuspended: true, isAdminStock: false });
+      // 6/20 = 관리종목
+      expect(prices[1]).toMatchObject({ date: '2025-06-20', isTradingSuspended: false, isAdminStock: true });
+    });
+
+    it('asOf 초과 종목상태는 조회 구간이 절단되어 미반영(lookahead 가드)', async () => {
+      const { prisma } = makePrisma(ROWS, [
+        // asOf(2025-06-20) 초과 상태는 절단된 일봉과 함께 반환 대상에서 제외.
+        { stockCode: '005930', tradeDate: '20251231', isTradingSuspended: true, isManagement: false },
+      ]);
+      const adapter = new PrismaBacktestPriceAdapter(prisma, '2025-06-20');
+      const prices = await adapter.getDailyPrices('005930', '2025-06-19', '2025-12-31');
+      expect(prices.map((p) => p.date)).toEqual(['2025-06-19', '2025-06-20']);
+      expect(prices.every((p) => p.isTradingSuspended === false)).toBe(true);
+    });
   });
 });

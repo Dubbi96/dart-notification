@@ -37,7 +37,7 @@ function isStrategyKey(value: string | undefined): value is StrategyKey {
   return !!value && (VALID_KEYS as readonly string[]).includes(value);
 }
 
-/** 청산 사유 한글 라벨 — BE ExitReasonType 8종 1:1. OPEN(null)은 '보유 중'. */
+/** 청산 사유 한글 라벨 — BE ExitReasonType 9종 1:1. OPEN(null)은 '보유 중'. */
 const EXIT_REASON_LABEL: Record<StrategyExitReason, string> = {
   TAKE_PROFIT: '익절',
   STOP_LOSS: '손절',
@@ -47,6 +47,7 @@ const EXIT_REASON_LABEL: Record<StrategyExitReason, string> = {
   CHART_BREAK: '차트 이탈',
   LIQUIDITY_EXIT: '유동성 청산',
   FORCE_EXIT: '강제 청산',
+  DELISTED: '상폐 감액', // DAR-486
 };
 
 function exitReasonLabel(reason: StrategyExitReason | null): string {

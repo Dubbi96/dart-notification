@@ -46,6 +46,15 @@ export interface StrategyParams {
   sizeRule: 'EQUAL_WEIGHT' | 'SCORE_WEIGHT';
   maxPositions: number;
   initialCapital: number;
+  /**
+   * DAR-486: 백테스트 종료 시점에 가격이 소멸(상폐 proxy)해 청산 불가한 미청산 포지션 처리 옵션.
+   * 생존편향(delisted-to-worthless 포지션이 손실로 잡히지 않아 수익률이 낙관 편향) 처리용.
+   *  - 'PRESERVE'(기본·미지정): 기존 동작 — 미실현으로 보존(청산 미기록). 생존편향 잔존.
+   *  - 'ZERO': 상폐 감액 — 0원 청산(전액손실 가정, 정리매매 최악 근사). 생존편향 제거(보수적).
+   *  - 'LAST_PRICE': 마지막 관측 종가(정리매매 근사)로 청산. 관측 종가 전무 시 0원 폴백.
+   * 기본값 미지정 = 'PRESERVE' 로 기존 백테스트 결과 무변경(측정 트랙 무영향).
+   */
+  delistingLiquidation?: 'PRESERVE' | 'ZERO' | 'LAST_PRICE';
 }
 
 export interface BacktestCostParams {
@@ -101,7 +110,9 @@ export type ExitReasonType =
   | 'MAX_HOLD_DAYS'
   | 'CHART_BREAK'
   | 'LIQUIDITY_EXIT'
-  | 'FORCE_EXIT';
+  | 'FORCE_EXIT'
+  // DAR-486: 상폐(가격 소멸) 확정 감액 청산 — delistingLiquidation 옵션(ZERO/LAST_PRICE) 활성 시.
+  | 'DELISTED';
 
 export interface PerformanceMetrics {
   totalReturn: number;          // %

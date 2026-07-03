@@ -173,6 +173,10 @@ function makeFakePrisma() {
         return SIGNAL_ROWS.filter((s) => s.disclosure.rcpDt >= gte && s.disclosure.rcpDt <= lte);
       }),
     },
+    // DAR-486: 일별 종목상태 이력 — 이 테스트엔 이력 없음(빈 배열) → 어댑터가 플래그 미설정(false).
+    stockStatusDaily: {
+      findMany: jest.fn(async () => [] as unknown[]),
+    },
     stockDailyPrice: {
       findMany: jest.fn(async (args: { where: { stockCode: string; tradeDate: { gte: string; lte: string } } }) =>
         PRICE_ROWS.filter(
@@ -367,6 +371,10 @@ function makeFakePrismaWithZeroPrice() {
         const { gte, lte } = args.where.disclosure.rcpDt;
         return extraSignalRows.filter((s) => s.disclosure.rcpDt >= gte && s.disclosure.rcpDt <= lte);
       }),
+    },
+    // DAR-486: 일별 종목상태 이력 — 이 테스트엔 이력 없음(빈 배열) → 어댑터가 플래그 미설정(false).
+    stockStatusDaily: {
+      findMany: jest.fn(async () => [] as unknown[]),
     },
     stockDailyPrice: {
       findMany: jest.fn(async (args: { where: { stockCode: string; tradeDate: { gte: string; lte: string } } }) =>

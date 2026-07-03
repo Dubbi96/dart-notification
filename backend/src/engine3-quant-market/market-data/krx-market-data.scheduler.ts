@@ -286,10 +286,20 @@ export class KrxMarketDataScheduler {
     return this.syncCompanyMarkets(await this.resolveLatestAvailableTradeDate(), 'CRON');
   }
 
-  /** 평일 08:50(KST) — 종목상태 수집 (장 시작 전) */
+  /**
+   * 평일 08:50(KST) — 종목상태 수집 (장 시작 전).
+   * DAR-486: 이력 적재(stock_status_daily)의 cron 실행 헬스를 CronRunLog 에 first-class 로 남긴다
+   *   (일봉 EOD 와 대칭). recorder 미주입(테스트 등) 시 기존 거동(직접 호출) 보존. 락 조기반환은 SKIPPED.
+   */
   @Cron('50 8 * * 1-5', { timeZone: KST_TIMEZONE })
   async collectStockStatuses(): Promise<{ processed: number; message?: string }> {
-    return this.collectStockStatusesForDate(await this.resolveLatestAvailableTradeDate(), 'CRON');
+    const run = async () =>
+      this.collectStockStatusesForDate(await this.resolveLatestAvailableTradeDate(), 'CRON');
+    if (!this.cronRunRecorder) return run();
+    return this.cronRunRecorder.record(CRON_JOB_KEYS.STOCK_STATUS_COLLECT, run, {
+      countOf: (r) => r.processed,
+      isSkipped: (r) => r.message === '이전 작업 진행 중',
+    });
   }
 
   async collectStockStatusesForDate(
@@ -345,6 +355,15 @@ export class KrxMarketDataScheduler {
             isAbnormalSurge: s.isSurge,
             statusNote,
           },
+        });
+
+        // DAR-486: forward-only 일별 이력 적재 — 이상상태 행만(정상은 어댑터가 이력 부재=false 로 해석).
+        await this.recordDailyStatus(s.stockCode, basDd, {
+          isTradingSuspended,
+          isManagement,
+          isInvestmentCaution: s.isWarning,
+          isAbnormalSurge: s.isSurge,
+          statusNote,
         });
         processed++;
       }
@@ -404,11 +423,58 @@ export class KrxMarketDataScheduler {
           statusNote: d.statusNote,
         },
       });
+
+      // DAR-486: forward-only 일별 이력 적재(폴백 경로도 동일). 여기 도달한 종목은 이미 이상상태만.
+      await this.recordDailyStatus(c.stockCode, basDd, {
+        isTradingSuspended: d.isHalted,
+        isManagement: d.isManagement,
+        statusNote: d.statusNote,
+      });
       processed++;
     }
 
     this.logger.log(`[DART폴백] 종목상태 적재 완료 processed=${processed}`);
     return { processed };
+  }
+
+  /**
+   * DAR-486: 종목상태 일별 이력(stock_status_daily)에 forward-only 스냅샷을 적재한다.
+   *
+   * - 이상상태(거래정지/관리종목/투자주의/이상급등) 행만 남긴다. '정상'(전 플래그 false)은
+   *   백테스트 어댑터가 이력 부재 = 정상(false)으로 해석하므로 저장하지 않는다(저장 절약).
+   * - (stockCode, tradeDate) 복합 PK 로 upsert → 같은 날 재수집·재실행에도 멱등.
+   * - ★소급 백필 금지: tradeDate = 수집일(basDd) 이므로 항상 point-in-time. 과거 날짜의 현재
+   *   상태를 소급 적재하지 않는다(lookahead 불가침 — 어댑터 주석과 동일 원칙).
+   */
+  private async recordDailyStatus(
+    stockCode: string,
+    tradeDate: string,
+    flags: {
+      isTradingSuspended: boolean;
+      isManagement: boolean;
+      isInvestmentCaution?: boolean;
+      isAbnormalSurge?: boolean;
+      statusNote?: string | null;
+    },
+  ): Promise<void> {
+    const isInvestmentCaution = flags.isInvestmentCaution ?? false;
+    const isAbnormalSurge = flags.isAbnormalSurge ?? false;
+    const anyAbnormal =
+      flags.isTradingSuspended || flags.isManagement || isInvestmentCaution || isAbnormalSurge;
+    if (!anyAbnormal) return; // 정상 종목 — 이력 미적재(어댑터가 부재=false 로 처리)
+
+    const record = {
+      isTradingSuspended: flags.isTradingSuspended,
+      isManagement: flags.isManagement,
+      isInvestmentCaution,
+      isAbnormalSurge,
+      statusNote: flags.statusNote ?? null,
+    };
+    await this.prisma.stockStatusDaily.upsert({
+      where: { stockCode_tradeDate: { stockCode, tradeDate } },
+      create: { stockCode, tradeDate, ...record },
+      update: record,
+    });
   }
 
   /**

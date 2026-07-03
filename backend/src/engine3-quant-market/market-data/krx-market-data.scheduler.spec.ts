@@ -58,6 +58,8 @@ function makePrisma(): jest.Mocked<PrismaService> {
       findFirst: jest.fn().mockResolvedValue(null),
     },
     stockStatus: { upsert: jest.fn().mockResolvedValue({}) },
+    // DAR-486: 종목상태 일별 이력(forward-only) — 이상상태 행만 적재.
+    stockStatusDaily: { upsert: jest.fn().mockResolvedValue({}) },
     marketDataCollectionLog: {
       create: jest.fn().mockResolvedValue({ id: 'log-1' }),
       update: jest.fn().mockResolvedValue({}),
@@ -379,6 +381,14 @@ describe('KrxMarketDataScheduler.collectStockStatusesForDate', () => {
         update: expect.objectContaining({ isManagement: true }),
       }),
     );
+    // DAR-486: 일별 이력은 이상상태 행만 적재 — 정상(005930)은 제외, 관리종목(000040)만 1건.
+    expect(prisma.stockStatusDaily.upsert).toHaveBeenCalledTimes(1);
+    expect(prisma.stockStatusDaily.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { stockCode_tradeDate: { stockCode: '000040', tradeDate: '20260604' } },
+        create: expect.objectContaining({ tradeDate: '20260604', isManagement: true }),
+      }),
+    );
   });
 
   it('주말 스킵', async () => {
@@ -425,6 +435,13 @@ describe('KrxMarketDataScheduler.collectStockStatusesForDate', () => {
       expect.objectContaining({
         where: { stockCode: '000040' },
         update: expect.objectContaining({ isManagement: true, isTradingSuspended: false }),
+      }),
+    );
+    // DAR-486: DART 폴백 경로도 이상상태(관리종목) 일별 이력을 적재.
+    expect(prisma.stockStatusDaily.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { stockCode_tradeDate: { stockCode: '000040', tradeDate: '20260604' } },
+        create: expect.objectContaining({ isManagement: true, isTradingSuspended: false }),
       }),
     );
   });

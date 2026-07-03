@@ -12,6 +12,8 @@ import { StrategyTrackService } from './strategies/strategy-track.service';
 import { StrategyTrackController } from './strategies/strategy-track.controller';
 import { StrategyTrackScheduler } from './strategies/strategy-track.scheduler';
 import { EventEdgeSelectorService } from './strategies/event-edge-selector.service';
+import { ParameterSweepService } from './strategies/parameter-sweep.service';
+import { ParameterSweepController } from './strategies/parameter-sweep.controller';
 import { EventStudyModule } from '../event-study/event-study.module';
 
 // BacktestRunnerService는 PriceDataPort 구현체 주입이 필요하므로 이 모듈에서 제공/내보내지 않는다.
@@ -21,7 +23,12 @@ import { EventStudyModule } from '../event-study/event-study.module';
 //   PriceDataPort 모듈 바인딩 없이도 point-in-time 1년 리플레이를 오케스트레이션한다.
 @Module({
   imports: [EventStudyModule],
-  controllers: [SignalAccuracyController, BacktestReplayController, StrategyTrackController],
+  controllers: [
+    SignalAccuracyController,
+    BacktestReplayController,
+    StrategyTrackController,
+    ParameterSweepController,
+  ],
   providers: [
     MarketCalendarService,
     PriceConstraintService,
@@ -33,6 +40,7 @@ import { EventStudyModule } from '../event-study/event-study.module';
     StrategyTrackService,
     StrategyTrackScheduler,
     EventEdgeSelectorService,
+    ParameterSweepService,
   ],
   exports: [
     MarketCalendarService,

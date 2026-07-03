@@ -12,6 +12,10 @@ import { TradingRiskModule } from '../trading-risk.module';
 import { PaperTradeService } from '../services/paper-trade.service';
 import { KillSwitchManager } from '../domain/kill-switch';
 import { RiskGuardService } from '../services/risk-guard.service';
+// DAR-498(견고화 W2·P22): 주문 6관문 섀도 원장 + 일일 원장 대조. 예약/체결/취소 훅으로 병행 기록.
+import { OrderShadowLedgerService } from '../services/order-shadow-ledger.service';
+import { OrderLedgerReconcileService } from './order-ledger-reconcile.service';
+import { OrderLedgerReconcileScheduler } from './order-ledger-reconcile.scheduler';
 import { PaperSimulationService } from './paper-simulation.service';
 import { PaperSimulationController } from './paper-simulation.controller';
 import { PaperSimulationScheduler } from './paper-simulation.scheduler';
@@ -28,6 +32,10 @@ import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realt
   controllers: [PaperSimulationController],
   providers: [
     PaperSimulationScheduler,
+    // DAR-498(P22): 일일 원장 대조 서비스 + 크론(매일 20:45). NotificationProducer 는 @Optional 로
+    //   서비스가 자체 주입(불일치 OPS_ALERT). CronRunRecorder 는 @Global(CronHealthModule).
+    OrderLedgerReconcileService,
+    OrderLedgerReconcileScheduler,
     // DAR-124/137: 시세 소스(REAL / SYNTHETIC / REAL_THEN_SYNTHETIC).
     //   PAPER_SIM_SYNTHETIC_FEED=합성 전용, PAPER_SIM_REAL_FEED=실가 우선·합성 폴백(하이브리드).
     SimulationPriceSourceService,
@@ -47,6 +55,7 @@ import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realt
         realtimeCache?: RealtimeQuoteCache,
         killSwitch?: KillSwitchManager,
         riskGuard?: RiskGuardService,
+        shadowLedger?: OrderShadowLedgerService,
       ) =>
         new PaperSimulationService(
           prisma,
@@ -57,6 +66,7 @@ import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realt
           realtimeCache,
           killSwitch,
           riskGuard,
+          shadowLedger,
         ),
       inject: [
         PrismaService,
@@ -69,6 +79,8 @@ import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realt
         { token: KillSwitchManager, optional: true },
         // DAR-496(P18): 공용 진입 게이트(SHADOW) — TradingRiskModule export. 미주입 시 no-op.
         { token: RiskGuardService, optional: true },
+        // DAR-498(P22): 주문 6관문 섀도 원장 — TradingRiskModule export. 미주입 시 no-op(섀도 라이트).
+        { token: OrderShadowLedgerService, optional: true },
       ],
     },
   ],

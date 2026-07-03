@@ -11,6 +11,9 @@
 import { Module } from '@nestjs/common';
 import { PaperTradeService } from './services/paper-trade.service';
 import { OrderRiskService } from './services/order-risk.service';
+// DAR-498(견고화 W2·P22): 주문 6관문 섀도 원장(OrderRequest/OrderExecution 병행 기록). 시스템
+//   모의 트랙이 @Optional 로 주입받아 예약→체결/취소를 원장에 병행 기록(매매 무변경). AI 개입 0.
+import { OrderShadowLedgerService } from './services/order-shadow-ledger.service';
 import { AuditLogQueryService } from './services/audit-log-query.service';
 import { AuditLogQueryController } from './services/audit-log-query.controller';
 import { AutoTradingStatusService } from './services/auto-status.service';
@@ -103,6 +106,14 @@ import { RiskGuardService } from './services/risk-guard.service';
     // DAR-496(P18): 공용 진입 게이트 서비스 — PrismaService(RiskDecisionLog 영속) +
     //   @Optional NotificationProducerService(위반 OPS_ALERT). 순수 게이트 소비·AI 개입 0.
     RiskGuardService,
+    // DAR-498(P22): 주문 6관문 섀도 원장 — PrismaService(원장 영속) + OrderRiskService(③한도 관문
+    //   첫 실소비). ExecutionPort 는 기본 PaperExecutionAdapter(생성자 기본값·M12 KIS 치환점).
+    {
+      provide: OrderShadowLedgerService,
+      useFactory: (prisma: PrismaService, orderRisk: OrderRiskService) =>
+        new OrderShadowLedgerService(prisma, orderRisk),
+      inject: [PrismaService, OrderRiskService],
+    },
   ],
   exports: [
     PaperTradeService,
@@ -115,6 +126,8 @@ import { RiskGuardService } from './services/risk-guard.service';
     // DAR-496(P18): 공용 진입 게이트를 각 모의 트랙 모듈(paper-sim·philosophy·strategy-fwd·
     //   dual-momentum)이 @Optional 로 주입받도록 export.
     RiskGuardService,
+    // DAR-498(P22): 섀도 원장 서비스를 PaperSimulationModule(예약/체결/취소 훅)이 @Optional 로 주입.
+    OrderShadowLedgerService,
   ],
 })
 export class TradingRiskModule {}

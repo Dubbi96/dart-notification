@@ -37,7 +37,9 @@
 | — **듀얼모멘텀 코어 forward** | `paper-simulation/dual-momentum-forward/` | 코어 트랙(styleTag `alloc:dual-momentum`·자본 65% 배분·독립 가상원금 10M) ETF 월말 리밸런싱 forward(모의). 판정=engine3 P12 `decideMonthlyRebalance`(순수 함수·252 룩백) 재사용·EtfDailyPrice 주입. 평일 19:50 크론 매일 발화, 판정은 월말 거래일 1회(P09 `isLastTradingDayOfMonth`+당일 데이터 게이트, cron 'L' 우회). 체결=예약→익일 시가(PENDING) — 매도(현금 확보)→매수. ETF 비용(거래세 0). 결측 fail-safe=무행동+OPS_ALERT. **FK 없는 전용 모델 `DualMomentumForwardTrade`**(ETF 는 corpCode 없음 → Position/PaperTrade 부적합). 킬스위치 REDUCE_ONLY·현금≥0 자동 적용. 활성 근거=룰북 §9.3.2 위험조정 게이트(사람 승인). 위성(변동성 돌파)은 기각·배선 없음. ★모의 전용·AI 0. DAR-494 |
 | 졸업 측정 | `simulation/` | M10 졸업 게이트·지표 계산기(graduation-gates/metrics), signal-funnel, position-sizing, SimulationOrchestrator + `GET /api/graduation/*` (DAR-67/109) |
 | 수동 모의매매 API | `paper-trading/` | PaperTradingController/Service — 사용자 수동 모의 주문 진입점 |
-| 서비스 | `services/` | PaperTradeService · **OrderRiskService**(Risk veto + Audit Log) · AuditLogQuery(감사로그 조회 API) · **AutoTradingStatus**(자동매매 실행상태 read-only 투명성: 킬스위치·리스크게이트·최근 주문 집계, DAR-361) |
+| 서비스 | `services/` | PaperTradeService · **OrderRiskService**(Risk veto + Audit Log) · AuditLogQuery(감사로그 조회 API) · **AutoTradingStatus**(자동매매 실행상태 read-only 투명성: 킬스위치·리스크게이트·최근 주문 집계, DAR-361) · **OrderShadowLedgerService**(주문 6관문 섀도 원장, DAR-498) |
+| **주문 6관문 섀도 원장** | `services/order-shadow-ledger.service.ts` + `domain/execution-port.ts` | 시스템 모의 예약(PENDING)→체결(FILLED)/취소(CANCELLED)를 OrderRequest/OrderExecution 로 **병행 기록**(PaperTrade 경로 무변경·섀도 라이트: 기록 실패가 체결에 영향 0·try/catch 격리). 멱등키=`paper-sim-shadow:<tradingSignalId>`(기존 멱등 체인 기반 결정적). 예약 직전 **OrderRiskService.evaluateOrder 첫 실소비**(veto 여도 기록만·SHADOW). 전송·체결확인은 **ExecutionPort** 추상(현 구현체 `PaperExecutionAdapter`=fill-simulator 위임, M12 KisExecutionAdapter 치환점). 스키마 무변경(기존 OrderRequest/OrderExecution 재사용·additive 0). ★모의 원장 기록(실주문 아님)·AI 0. DAR-498 |
+| — 일일 원장 대조 | `paper-simulation/order-ledger-reconcile*` | 장마감 후(매일 20:45) PaperTrade(파생) vs 섀도 원장(EXECUTED) 건수·수량·금액 정합 대조(순수 함수 `reconcileOrderLedger`), 불일치 시 P02 OPS_ALERT(하루 1건 멱등). CronRunRecorder(`paper.order-ledger-reconcile`) + FRESHNESS 등록. read-only 관측·알림 전용(매매 무접점). DAR-498 |
 | 리포지토리 | `repositories/` | IPaperTradeRepository·IAuditLogRepository·KillSwitchState — **Prisma 어댑터(운영 배선, DAR-36)** + 인메모리(테스트·폴백) |
 | 테스트 | `*.spec.ts` | fixture 기반 단위 테스트 (통합 스펙 `*.integration-spec.ts`는 실 DB 필요) |
 
@@ -50,7 +52,7 @@
 | **M10-A (DAR-16)** | PaperTrade Prisma 모델 + 체결 시뮬 + 가상 포트폴리오 + 비용지표 + fixture | ✅ |
 | **M10-B** | 실데이터(KIS 실시간·KRX 일봉) 30일 캘린더 모의운용 | 🚧 OCI prod에서 진행 중 — 다중전략 트랙 기동(6/21~22) 기준 **≈7/21 도달** 후 졸업 게이트(G1~G7) 측정 |
 | **M11-A (DAR-18)** | Risk 하드룰·veto·Kill Switch·이벤트 게이트 + Prisma OrderRequest/Execution/AuditLog | ✅ |
-| **M11 잔여** | **실주문 루프(OrderRequest) 미연동** — 스키마·Risk 게이트는 완비됐으나 OrderRequest를 생성·소비하는 주문 루프 실사용 0. 모든 모의 경로는 `simulateFill`만 사용(실주문 API 호출 0). M10 졸업 + 전략 엣지 확인이 진입 게이트 | ⬜ |
+| **M11 잔여** | **실주문 루프(OrderRequest) 미연동** — 스키마·Risk 게이트는 완비됐고, DAR-498(P22)로 시스템 모의 예약→체결/취소가 OrderRequest/OrderExecution 에 **섀도 병행 기록**(모의·실주문 전송 0)되며 OrderRiskService.evaluateOrder 가 첫 실소비된다. M12 착수 시 ExecutionPort 를 KisExecutionAdapter 로 치환하면 실주문 전송만 남는다. 모든 모의 체결은 여전히 `simulateFill`(실주문 API 호출 0). M10 졸업 + 전략 엣지 확인이 진입 게이트 | 🚧 섀도 원장까지 |
 | **M12** | 실주문 연결 (증권사 API) + 이벤트 게이트 발효 | ⬜ |
 
 ## Risk 하드룰 파라미터 (DEFAULT_RISK_LIMITS)
@@ -136,7 +138,8 @@
 ## 절대 규칙
 
 - Engine2(AI) import 금지
-- **실주문 경로 0** — 모든 체결은 `simulateFill`(순수 시뮬). 증권사 주문 API 호출·OrderRequest 실사용은 M11 실주문 루프 연동 전까지 금지
+- **실주문 전송 0** — 모든 체결은 `simulateFill`(순수 시뮬). 증권사 주문 API 호출·실계좌 전송은 M12 연동 전까지 절대 금지.
+  - **모의 섀도 원장 기록은 허용(DAR-498 후속, 명확화)**: OrderRequest/OrderExecution 에 시스템 모의 체결을 **병행 기록**하는 것은 실주문이 아니므로(전송 0·PaperTrade 파생 상태 SSOT 무변경) 이 규칙의 취지(실주문 금지) 위반이 아니다. 전송·체결확인은 `ExecutionPort` 추상 뒤에 있고, 현 구현체(`PaperExecutionAdapter`)는 fill-simulator 위임(외부호출 0). M12 에서 KisExecutionAdapter 로 치환할 때 비로소 실전송이 발생한다.
 - 상대경로 import만 사용
 - 모든 Rule 계산은 순수 함수 (side-effect 없음)
 - **전략 룰·파라미터 변경 절차**: Risk 하드룰·킬스위치·손절·익절·한도 등 모든 값 변경은 룰북 정본 `docs/trading/strategy-rulebook.md §8 변경 절차`(문서 개정→재검증→사람 승인)를 따른다. M10 측정 트랙의 ENFORCE 플립은 졸업 측정 완료 전 금지(§8.5).

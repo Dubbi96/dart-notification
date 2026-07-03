@@ -1355,10 +1355,18 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 | `weeklyLossSnapshot` | Decimal | 판정 시점 주간 손실 |
 | `positionWeightSnap` | Decimal | 판정 시점 종목 비중 |
 | `buyScoreSnapshot` | Int? | Buy Score 스냅샷 (Risk veto 증적) |
+| `paperTradeId` | String? | 연결 PaperTrade (섀도 원장 링크, DAR-498) |
 | `executionId` | String? | FK → OrderExecution |
 | `createdAt` | DateTime | 생성 시각 |
 
 **인덱스**: `idempotencyKey`(unique), `corpCode`, `stockCode`, `status`, `createdAt`
+
+> **섀도 원장 쓰기(DAR-498, 견고화 W2·P22)**: M11 실주문 루프는 미연동이나, 시스템 모의 예약→체결/취소가
+> OrderRequest/OrderExecution 에 **병행 기록**된다(모의·실주문 전송 0). 멱등키 접두 `paper-sim-shadow:`
+> (= `paper-sim-shadow:<tradingSignalId>`)로 M11 실주문 OrderRequest 와 네임스페이스 분리. status 는
+> 예약 시 판정 결과(APPROVED/REJECTED/KILLED) → 체결 시 EXECUTED 로 전이한다(REJECTED→EXECUTED 는
+> M11 ENFORCE 라면 차단됐을 주문이 측정 트랙 SHADOW 에서 체결된 관측 신호). **스키마 변경 0**(기존
+> 모델 재사용). 일일 원장 대조 잡이 PaperTrade(파생) 대비 건수·수량·금액 정합을 검사한다(불일치→OPS_ALERT).
 
 ### 16.2 OrderExecution 모델
 

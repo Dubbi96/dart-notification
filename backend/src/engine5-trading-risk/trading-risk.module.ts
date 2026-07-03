@@ -103,6 +103,9 @@ import { NotificationProducerService } from '../notifications/notification-produ
     OrderRiskService,
     PrismaAuditLogRepository,
     KillSwitchManager,
+    // DAR-487(견고화 W3·P26): 장 시작 전 프리플라이트가 킬스위치·리스크 게이트 상태를 read-only 로
+    //   재사용(OpsModule 주입). 실행 액션 없는 조회 서비스(executionEnabled 항상 false).
+    AutoTradingStatusService,
   ],
 })
 export class TradingRiskModule {}

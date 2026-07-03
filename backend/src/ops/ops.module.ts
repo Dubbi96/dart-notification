@@ -10,6 +10,10 @@ import { OpsMetricsController } from './ops-metrics.controller';
 import { OpsMetricsService } from './ops-metrics.service';
 import { OpsDailyReportService } from './ops-daily-report.service';
 import { OpsDailyReportScheduler } from './ops-daily-report.scheduler';
+import { PreMarketPreflightService } from './pre-market-preflight.service';
+import { PreMarketPreflightScheduler } from './pre-market-preflight.scheduler';
+import { MarketDataModule } from '../engine3-quant-market/market-data/market-data.module';
+import { TradingRiskModule } from '../engine5-trading-risk/trading-risk.module';
 import { PrismaHealthIndicator } from './indicators/prisma-health.indicator';
 import { RedisHealthIndicator } from './indicators/redis-health.indicator';
 import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.indicator';
@@ -40,6 +44,10 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
     PipelineModule,
     // DAR-477: 일일 운영 리포트 발송(enqueueOpsAlert) — producer 전용 경량 모듈.
     NotificationProducerModule,
+    // DAR-487(견고화 W3·P26): 프리플라이트가 KIS 토큰 워밍(KisApiService)·리스크 상태
+    //   (AutoTradingStatusService)를 read-only 재사용. 두 모듈의 export 만 취한다(싱글턴 재사용).
+    MarketDataModule,
+    TradingRiskModule,
   ],
   controllers: [OpsHealthController, OpsMetricsController],
   providers: [
@@ -47,6 +55,9 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
     // DAR-477(견고화 W0·P05): 일일 운영 리포트 생성 서비스 + 20:30 KST 발송 스케줄러.
     OpsDailyReportService,
     OpsDailyReportScheduler,
+    // DAR-487(견고화 W3·P26): 장 시작 전 종합 프리플라이트 점검 서비스 + 08:30 KST 스케줄러.
+    PreMarketPreflightService,
+    PreMarketPreflightScheduler,
     PrismaHealthIndicator,
     RedisHealthIndicator,
     ExternalKeysHealthIndicator,

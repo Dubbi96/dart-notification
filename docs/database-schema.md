@@ -1210,6 +1210,7 @@ Exit Score = lossRiskScore + thesisBreakScore + chartBreakScore
 | `fillRate` | Decimal(5,4) | 체결률 0~1 |
 | `entryPrice` | Decimal(12,2) | 진입 기준가 (다음거래일 시가) |
 | `filledPrice` | Decimal(12,2)? | 실제 체결가 (슬리피지 반영) |
+| `expectedPrice` | Decimal(12,2)? | **DAR-474** 신호시점 기대가(예약 시점 기준가). 체결기가 `entryPrice`를 체결일 시가로 덮어써도 신호→체결 슬리피지 측정을 위해 보존. 측정 표면 전용(additive nullable, 레거시=null·graceful) |
 | `commission` | Decimal(12,2) | 수수료 (KRW) |
 | `tax` | Decimal(12,2) | 세금: 매도 시 증권거래세 (KRW) |
 | `slippage` | Decimal(12,2) | 슬리피지 비용 (KRW) |

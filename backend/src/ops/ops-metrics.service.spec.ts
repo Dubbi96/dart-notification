@@ -80,6 +80,10 @@ describe('OpsMetricsService (DAR-111)', () => {
     positionGroups?: Array<{ status: string; _count: { _all: number } }>;
     freshness?: () => Promise<FreshnessReport>;
     graduation?: () => Promise<GraduationMetrics>;
+    // DAR-474: 슬리피지 집계용 mock 행(부분 형태 — 서비스가 Number()로 정규화).
+    paperTrades?: unknown[];
+    paperTradesFindMany?: () => Promise<unknown[]>;
+    scalpTrades?: unknown[];
   }) {
     const counts = opts.signalCounts ?? [0, 0, 0];
     let countIdx = 0;
@@ -99,6 +103,17 @@ describe('OpsMetricsService (DAR-111)', () => {
       },
       position: {
         groupBy: jest.fn().mockResolvedValue(opts.positionGroups ?? []),
+      },
+      paperTrade: {
+        findMany: jest
+          .fn()
+          .mockImplementation(
+            opts.paperTradesFindMany ??
+              (() => Promise.resolve(opts.paperTrades ?? [])),
+          ),
+      },
+      intradayScalpTrade: {
+        findMany: jest.fn().mockResolvedValue(opts.scalpTrades ?? []),
       },
     } as unknown as PrismaService;
 
@@ -223,6 +238,127 @@ describe('OpsMetricsService (DAR-111)', () => {
     });
     const result = await service.getMetrics(NOW);
     expect(result.graduation).toBeNull();
+  });
+
+  // ─── DAR-474: 슬리피지 측정 표면 ──────────────────────────────────────
+  describe('슬리피지 분포 집계(DAR-474)', () => {
+    it('트랙(styleTag)별 평균·p95 KRW + 신호시점 기대가 대비 bps 를 산출한다', async () => {
+      const service = makeService({
+        paperTrades: [
+          // 시스템 모의 매수 2건 — expectedPrice(신호시점) 보존분: bps 산정.
+          {
+            styleTag: 'paper-simulation',
+            direction: 'BUY',
+            slippage: 100,
+            commission: 15,
+            tax: 0,
+            expectedPrice: 1000, // 신호시점 기대가
+            entryPrice: 1010, // 체결일 시가(덮어쓰기됨) — bps 산정엔 미사용
+            filledPrice: 1020, // 실제 체결가 → +2% = 200bps 불리
+          },
+          {
+            styleTag: 'paper-simulation',
+            direction: 'BUY',
+            slippage: 50,
+            commission: 10,
+            tax: 0,
+            expectedPrice: 2000,
+            entryPrice: 2005,
+            filledPrice: 2010, // +0.5% = 50bps
+          },
+        ],
+      });
+
+      const result = await service.getMetrics(NOW);
+      expect(result.slippage).not.toBeNull();
+      const track = result.slippage!.byTrack.find((t) => t.styleTag === 'paper-simulation')!;
+      expect(track.tradeCount).toBe(2);
+      expect(track.avgSlippageKrw).toBe(75); // (100+50)/2
+      expect(track.p95SlippageKrw).toBe(100); // nearest-rank
+      expect(track.totalFeesKrw).toBe(25); // 15+10 — ★슬리피지와 별도
+      expect(track.avgSlippageBps).toBe(125); // (200+50)/2
+      expect(track.p95SlippageBps).toBe(200);
+      expect(track.bpsSampleSize).toBe(2);
+      // overall = 전 트랙 합산
+      expect(result.slippage!.overall.tradeCount).toBe(2);
+      expect(result.slippage!.overall.avgSlippageBps).toBe(125);
+    });
+
+    it('단타 트랙은 totalFees(수수료+세금)를 슬리피지와 구분해 노출하고 bps 는 미산정(null)', async () => {
+      const service = makeService({
+        scalpTrades: [
+          { styleTag: 'intraday-scalp', slippage: 100, commission: 30, tax: 20 },
+        ],
+      });
+      const result = await service.getMetrics(NOW);
+      const track = result.slippage!.byTrack.find((t) => t.styleTag === 'intraday-scalp')!;
+      expect(track.tradeCount).toBe(1);
+      expect(track.avgSlippageKrw).toBe(100); // 슬리피지
+      expect(track.totalFeesKrw).toBe(50); // 수수료 30 + 세금 20 — ★슬리피지(100)와 구분
+      expect(track.avgSlippageBps).toBeNull(); // expectedPrice 미보존 → 산정 불가
+      expect(track.bpsSampleSize).toBe(0);
+    });
+
+    it('expectedPrice 부재 시 entryPrice 로 폴백하고 매도는 저가체결을 불리(+bps)로 정규화', async () => {
+      const service = makeService({
+        paperTrades: [
+          {
+            styleTag: 'strategy:momentum',
+            direction: 'SELL',
+            slippage: 30,
+            commission: 5,
+            tax: 3,
+            expectedPrice: null, // 미보존(placeOrder 트랙)
+            entryPrice: 5000, // 폴백 기준가
+            filledPrice: 4950, // 1% 저가 체결 → 매도 불리 = +100bps
+          },
+        ],
+      });
+      const result = await service.getMetrics(NOW);
+      const track = result.slippage!.byTrack.find((t) => t.styleTag === 'strategy:momentum')!;
+      expect(track.avgSlippageBps).toBe(100); // -(-0.01)*10000
+      expect(track.bpsSampleSize).toBe(1);
+    });
+
+    it('styleTag null 행은 (untagged) 버킷으로 집계된다', async () => {
+      const service = makeService({
+        paperTrades: [
+          {
+            styleTag: null,
+            direction: 'SELL',
+            slippage: 20,
+            commission: 2,
+            tax: 1,
+            expectedPrice: null,
+            entryPrice: 1000,
+            filledPrice: 995,
+          },
+        ],
+      });
+      const result = await service.getMetrics(NOW);
+      const tags = result.slippage!.byTrack.map((t) => t.styleTag);
+      expect(tags).toContain('(untagged)');
+    });
+
+    it('표본 0건이면 분포는 graceful 빈값(카운트 0·평균 null)', async () => {
+      const service = makeService({});
+      const result = await service.getMetrics(NOW);
+      expect(result.slippage).not.toBeNull();
+      expect(result.slippage!.overall.tradeCount).toBe(0);
+      expect(result.slippage!.overall.avgSlippageKrw).toBeNull();
+      expect(result.slippage!.overall.avgSlippageBps).toBeNull();
+      expect(result.slippage!.byTrack).toEqual([]);
+    });
+
+    it('집계 실패 시 slippage=null(graceful, 카운터 본체 유지)', async () => {
+      const service = makeService({
+        signalCounts: [1, 1, 1],
+        paperTradesFindMany: () => Promise.reject(new Error('DB down')),
+      });
+      const result = await service.getMetrics(NOW);
+      expect(result.slippage).toBeNull();
+      expect(result.signals.total).toBe(1); // 본체 카운터 정상
+    });
   });
 
   it('신호 카운트는 24h/7d 윈도 경계를 쿼리에 전달한다', async () => {

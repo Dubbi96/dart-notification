@@ -2267,6 +2267,12 @@ engine3 리플레이 트랙(§18, 과거 1년 재생)과 **별개의 forward 실
 
 **모바일 표면(DAR-495)**: 포트폴리오 '전략' 서브탭(시스템 검증 트랙 비교 화면) 최상단에 **코어 트랙 카드**(`CoreTrackSection`)를 추가 — `scorecard` 응답을 `useCoreTrackScorecard`(React Query·staleTime 5분·장중 폴링 없음)로 소비하고, `trade-scorecard` 통일 정의(누적수익·승률·표본)·`DataLimitBadge`(LOW_SAMPLE)를 재사용한다. **유형 라벨 '자산배분(월단위)'**(layers 아이콘)로 단타·백테스트 4종과 유형을 구분하고(감사 C2), 월 1회 리밸런싱 특성(다음 판정 예정일)·현재 보유(ETF 이름)·미니 자산곡선·리밸런싱 이력을 표기(theme 토큰만·하드코딩 색상 0·read-only 표면). 위성 트랙 관련 표면 없음(기각).
 
+### 21.6 주문 6관문 섀도 원장 · 일일 원장 대조 (Order Shadow Ledger, 견고화 W2·P22, DAR-498)
+
+시스템 모의 예약(PENDING)→체결(FILLED)/취소(CANCELLED)를 **OrderRequest/OrderExecution 원장에 병행 기록**한다(모의·실주문 전송 0). PaperTrade 경로는 무변경(섀도 라이트: 기록 실패가 체결에 영향 0·try/catch 격리). 멱등키=`paper-sim-shadow:<tradingSignalId>`(기존 멱등 체인 기반 결정적). 예약 확정 직전 **`OrderRiskService.evaluateOrder` 첫 실소비**로 판정을 원장에 남긴다(veto 여도 기록만·SHADOW — 모의 체결은 기존 경로 그대로). 전송·체결확인은 **`ExecutionPort`** 인터페이스로 추상화되고, 현 구현체 `PaperExecutionAdapter` 는 fill-simulator 에 위임(외부호출 0)하며 M12 에서 `KisExecutionAdapter` 로 **치환만** 하면 실주문 전송이 발효된다. 스키마 변경 0(기존 OrderRequest/OrderExecution 재사용).
+
+**일일 원장 대조 잡**: 매일 20:45 KST 크론(`OrderLedgerReconcileScheduler`, cron-health `paper.order-ledger-reconcile`)이 같은 KST 거래일 창에서 PaperTrade(파생) 체결과 섀도 원장(EXECUTED+OrderExecution)을 **건수·수량·금액** 정합 대조하고, 불일치(orphan/ghost/수량/금액) 시 P02 `OPS_ALERT`(하루 1건 멱등 `dedupeKey=order-ledger-reconcile:<거래일>`)를 발행한다. ★HTTP 엔드포인트 없음(크론 전용)·read-only 관측·알림 전용 — 매매/원장 무접점(M10 클록 보호)·실주문 0·AI 0(순수 산술). M12 착수 시 '원장 vs 실계좌 대조'로 승격된다.
+
 ---
 
 ## 22. 포트폴리오·포지션 (Portfolio, Engine4)

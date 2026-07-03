@@ -35,6 +35,7 @@ import { DEFAULT_FILL_PARAMS, roundToTick, simulateFill } from '../domain/fill-s
 import { nextTradingDay } from '../../engine3-quant-market/event-study/utils/d0-calculator';
 import { NotificationProducerService } from '../../notifications/notification-producer.service';
 import { RiskGuardService } from '../services/risk-guard.service';
+import { OrderShadowLedgerService } from '../services/order-shadow-ledger.service';
 import { PrismaExitSignalRepository } from '../../engine4-portfolio-exit/repositories/prisma-exit-signal.repository';
 import {
   calculateExitScore,
@@ -206,6 +207,11 @@ export class PaperSimulationService {
     //   @Optional — 미주입(단위 테스트)이면 no-op. ★측정 트랙이라 SHADOW 는 절대 BLOCK 없음 → 매매 무변경.
     @Optional()
     private readonly riskGuard?: RiskGuardService,
+    // DAR-498(견고화 W2·P22): 주문 6관문 섀도 원장 — 예약→체결/취소를 OrderRequest/OrderExecution 에
+    //   병행 기록(PaperTrade 경로 무변경). @Optional·섀도 라이트: 미주입이면 no-op, 기록 실패는
+    //   서비스 내부에서 삼켜 체결·매매 흐름에 영향 0(M10 클록 보호).
+    @Optional()
+    private readonly shadowLedger?: OrderShadowLedgerService,
   ) {}
 
   /** 모의운용 전용 포트폴리오 find-or-create (고정 시스템 유저) */
@@ -1189,6 +1195,24 @@ export class PaperSimulationService {
         select: { id: true },
       });
       openedCorpCodes.add(sig.corpCode);
+      // DAR-498(P22): 주문 6관문 섀도 원장 — 예약(PENDING) 확정 직후 병행 기록(OrderRiskService
+      //   evaluateOrder 첫 실소비). availableCash 는 선차감 전(잔고 관문 스냅샷). ★섀도 라이트:
+      //   실패해도 예약·매매 무영향(서비스 내부 try/catch). PaperTrade 경로·현금·수량 무변경.
+      await this.shadowLedger?.recordReservation({
+        tradingSignalId: sig.id,
+        paperTradeId: reservation.id,
+        corpCode: sig.corpCode,
+        stockCode: sig.stockCode,
+        orderedShares: shares,
+        referencePrice: price,
+        totalCapital: PaperSimulationService.INITIAL_CAPITAL,
+        dailyRealizedPnl,
+        availableCash,
+        openOrderCount: pendingEntries.length + opened,
+        todayTradeCount: opened,
+        buyScore: sig.buyScore ?? undefined,
+        killSwitchActive: this.killSwitch?.isActive() ?? false,
+      });
       // DAR-426: 예약 몫(≈ 슬리피지 반영가 × 주문수량 ≤ budget)만큼 가용현금에서 선차감 —
       //   같은 사이클 내 후보 간 이중 배분 방지. SSOT 현금은 체결 시점에만 변한다(체결기 재클램프).
       availableCash -= shares * effPrice;
@@ -1209,6 +1233,20 @@ export class PaperSimulationService {
       });
     }
     return opened;
+  }
+
+  // DAR-498(P22): 섀도 원장 예약 취소 기록(guarded no-op). PaperTrade 취소 지점마다 1줄로 호출 —
+  //   미체결 OrderRequest 를 CANCELLED 로 종결(섀도 라이트: 실패해도 매매 무영향).
+  private async shadowCancel(
+    t: { id: string; tradingSignalId: string | null },
+    reason: string,
+  ): Promise<void> {
+    if (!t.tradingSignalId) return;
+    await this.shadowLedger?.recordCancellation({
+      tradingSignalId: t.tradingSignalId,
+      paperTradeId: t.id,
+      reason,
+    });
   }
 
   // ─── 1-b) 개장 체결기: 매수 예약 → 당일 시가 체결 ─────────────────────
@@ -1253,6 +1291,7 @@ export class PaperSimulationService {
         this.logger.warn(
           `[PaperSim][체결기] 예약 취소(이월 상한 초과) trade=${t.id} corp=${t.corpCode} 예정일=${entryYmd}`,
         );
+        await this.shadowCancel(t, '이월 상한 초과(미체결 예약)');
         continue;
       }
       due.push(t);
@@ -1289,6 +1328,7 @@ export class PaperSimulationService {
           where: { id: t.id },
           data: { status: 'CANCELLED' },
         });
+        await this.shadowCancel(t, '이미 보유(중복 진입 방지)');
         continue;
       }
       if (availableCash <= 0) continue; // 현금 없음 — 이월(청산으로 회복 가능, 상한이 정리)
@@ -1367,6 +1407,7 @@ export class PaperSimulationService {
             where: { id: t.id },
             data: { status: 'CANCELLED' },
           });
+          await this.shadowCancel(t, '부분 유니크 충돌(이미 보유)');
           heldCorpCodes.add(t.corpCode);
           continue;
         }
@@ -1393,6 +1434,21 @@ export class PaperSimulationService {
         },
       });
       heldCorpCodes.add(t.corpCode);
+      // DAR-498(P22): 섀도 원장 — 체결(FILLED) 확정 직후 병행 기록. ExecutionPort(전송·체결확인)가
+      //   동일 입력(수량·시가·거래량)으로 결정론적 체결을 확인해 OrderExecution 생성 + OrderRequest
+      //   EXECUTED 연결. ★섀도 라이트: 실패해도 체결·현금·매매 무영향(서비스 내부 try/catch).
+      if (t.tradingSignalId) {
+        await this.shadowLedger?.recordFill({
+          tradingSignalId: t.tradingSignalId,
+          paperTradeId: t.id,
+          corpCode: t.corpCode,
+          stockCode: t.stockCode,
+          orderedShares: shares,
+          referencePrice: openPrice,
+          dayVolume: dayVol,
+          executedAt: new Date(),
+        });
+      }
       // F7: 매수 수수료 포함 실지출 차감 — cash≥0 불변식.
       availableCash -= fillPrice * fill.filledShares + fill.commission;
       filled++;

@@ -65,6 +65,10 @@ export const CRON_JOB_KEYS = {
   //   판정은 월말 거래일 1회(P09 게이트). 월 단위 잡이라 stale 임계 ~35일. 가동이 멈추면 룰북
   //   §9.3.2 위험조정 게이트로 활성한 코어 트랙이 조용히 정체되므로 안전망에 노출.
   DUAL_MOMENTUM_FORWARD: 'paper.dual-momentum-forward',
+  // DAR-498(견고화 W2·P22): 주문 원장 대조 — 매일 20:45 시스템 모의 체결(PaperTrade 파생)과 섀도
+  //   원장(OrderRequest/OrderExecution)의 건수·수량·금액 정합을 대조(불일치→OPS_ALERT). 이 잡이
+  //   조용히 멈추면 M11 실주문 계층의 원장 드리프트가 무감지로 쌓이므로 안전망에 노출.
+  ORDER_LEDGER_RECONCILE: 'paper.order-ledger-reconcile',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -375,5 +379,16 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: 50_400, // 35일 — 월 단위 잡(월말 판정 1회), 한 달 no-op 흡수
     cadence: '평일 19:50(판정은 월말 거래일 1회)',
+  },
+  {
+    // DAR-498(견고화 W2·P22): 주문 원장 대조. 매일 20:45 가동(주말 포함 — 신규 체결 없으면 '정합 0건'
+    //   무소음 SUCCESS). 매일 발화 + 하루 누락까지 허용하도록 임계를 넉넉히(48h). 가동 자체가
+    //   멈춰야만 stale → 원장 드리프트 무감지 리스크가 표면화된다.
+    jobKey: CRON_JOB_KEYS.ORDER_LEDGER_RECONCILE,
+    label: '주문 원장 대조',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: 2_880, // 48시간 — 매일 20:45, 하루 누락까지 허용
+    cadence: '매일 20:45',
   },
 ];

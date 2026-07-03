@@ -18,6 +18,7 @@ import { MarketDataService } from './market-data.service';
 import { CandleHistoryService } from './candle-history.service';
 import { CANDLE_RESOLUTIONS, CandleQueryError } from './candle-query';
 import { StockMinutePriceCollector } from './stock-minute-price.collector';
+import { EtfDailyBackfillService } from './etf-daily-backfill.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../auth/guards/optional-jwt-auth.guard';
 
@@ -32,6 +33,7 @@ export class MarketDataController {
     private readonly marketData: MarketDataService,
     private readonly candleHistory: CandleHistoryService,
     private readonly minuteCollector: StockMinutePriceCollector,
+    private readonly etfBackfill: EtfDailyBackfillService,
   ) {}
 
   // 가격 배지 종단연결(DAR-158): 읽기 전용 시세 조회는 게스트 열람 허용(DAR-99 패턴).
@@ -326,5 +328,54 @@ export class MarketDataController {
   @ApiQuery({ name: 'tradeDate', required: false, description: '날짜 필터 YYYYMMDD' })
   async getCollectionLogs(@Query('tradeDate') tradeDate?: string) {
     return this.scheduler.getCollectionLogs(tradeDate);
+  }
+
+  /**
+   * ETF 과거 일봉 백필 (DAR-490 [견고화 W1·P11]) — KIS 기간별시세 페이지네이션 + S3 원본 보관.
+   *
+   * 유니버스 4종(etf-universe.ts) 과거 일봉을 가능한 최장(목표 3년+)으로 EtfDailyPrice 에 멱등 적재.
+   * 창별 KIS 원본 응답(JSON)을 S3 콜드 보관(결정적 키). 커버리지 리포트 반환(P16 게이트 근거).
+   *
+   * ★상시 크론 아님(일일 증분은 P10 크론) — 수동 단발 실행 전용.
+   * ★KIS 키 미설정 시 적재 0, 기존 DB 커버리지만 반환.
+   */
+  @Post('backfill/etf-daily')
+  @ApiOperation({
+    summary:
+      'ETF 과거 일봉 백필 — KIS 기간별시세 페이지네이션·S3 원본 보관·커버리지 리포트 (DAR-490, 수동 단발)',
+  })
+  @ApiQuery({
+    name: 'minStartYmd',
+    required: false,
+    description: '백필 하한 YYYYMMDD (기본 20100101 — 상장 이전 구간은 빈 창 조기종료로 자동 스킵)',
+  })
+  @ApiQuery({
+    name: 'endYmd',
+    required: false,
+    description: '조회 종료일 YYYYMMDD (기본 KST 오늘)',
+  })
+  async backfillEtfDaily(
+    @Query('minStartYmd') minStartYmd?: string,
+    @Query('endYmd') endYmd?: string,
+  ) {
+    const result = await this.etfBackfill.backfill({
+      minStartYmd: minStartYmd || undefined,
+      endYmd: endYmd || undefined,
+    });
+    return { success: true, data: result };
+  }
+
+  /**
+   * ETF 일봉 커버리지 리포트 (DAR-490) — 적재 없이 현재 DB 상태만 조회.
+   * 종목별 시작일·행수·갭(누락 거래일 추정)·의심 홀 요약 → P16 데이터 품질 판단 근거.
+   */
+  @Get('backfill/etf-daily/coverage')
+  @ApiOperation({
+    summary:
+      'ETF 일봉 커버리지 리포트 — 종목별 시작일·행수·갭(누락 거래일 추정). 백필 없이 현재 DB 상태만 (DAR-490)',
+  })
+  async etfDailyCoverage() {
+    const data = await this.etfBackfill.coverageReport();
+    return { success: true, data };
   }
 }

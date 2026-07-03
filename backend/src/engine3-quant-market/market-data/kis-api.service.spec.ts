@@ -340,4 +340,41 @@ describe('KisApiService (DAR-140)', () => {
       ).rejects.toBeInstanceOf(KisApiUnavailableError);
     });
   });
+
+  describe('fetchDailyPricesRaw — 정규화 바 + KIS 원본 응답 동시 반환 (DAR-490)', () => {
+    it('bars 는 fetchDailyPrices 와 동일, raw 는 axios 응답 본문(data) 그대로', async () => {
+      const body = {
+        rt_cd: '0',
+        output2: [
+          { stck_bsop_date: '20260703', stck_oprc: '10000', stck_hgpr: '10200', stck_lwpr: '9900', stck_clpr: '10100', acml_vol: '123456', acml_tr_pbmn: '1250000000' },
+          { stck_bsop_date: '20260702', stck_oprc: '9800', stck_hgpr: '9950', stck_lwpr: '9750', stck_clpr: '9900', acml_vol: '111222', acml_tr_pbmn: '1100000000' },
+        ],
+      };
+      mockClient.post.mockResolvedValue({ data: { access_token: 'tok', expires_in: 86400 } });
+      mockClient.get.mockResolvedValue({ data: body });
+      const svc = new KisApiService(makeConfig(KEYS));
+
+      const { bars, raw } = await svc.fetchDailyPricesRaw('069500', '20260624', '20260703', 0);
+      expect(bars.map((b) => b.tradeDate)).toEqual(['20260702', '20260703']); // 오름차순
+      expect(raw).toBe(body); // 원본 그대로(가공 없음) — S3 보관용
+    });
+
+    it('네트워크 에러는 graceful { bars: [], raw: null }', async () => {
+      mockClient.post.mockResolvedValue({ data: { access_token: 'tok', expires_in: 86400 } });
+      mockClient.get.mockRejectedValue(new Error('boom'));
+      const svc = new KisApiService(makeConfig(KEYS));
+
+      expect(await svc.fetchDailyPricesRaw('069500', '20260624', '20260703', 0)).toEqual({
+        bars: [],
+        raw: null,
+      });
+    });
+
+    it('키 미설정이면 KisApiUnavailableError throw', async () => {
+      const svc = new KisApiService(makeConfig({}));
+      await expect(
+        svc.fetchDailyPricesRaw('069500', '20260624', '20260703', 0),
+      ).rejects.toBeInstanceOf(KisApiUnavailableError);
+    });
+  });
 });

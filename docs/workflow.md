@@ -1038,7 +1038,43 @@ Wave1 신규 2트랙(월단위 듀얼모멘텀 P12/P13 · 변동성 돌파 P14/P
   주말·연휴 흡수) 구간을 받아 `createMany skipDuplicates` 로 누락일만 삽입 → 재실행·짧은 정체 자가복구.
 - ★**결측 감지**: 크론 헬스는 `FRESHNESS_JOB_SPECS`(`market.etf-daily-collect`, ALWAYS·72h)로 감시.
   stale 전환 시 `DataFreshnessMonitorScheduler`(P02)가 OPS_ALERT 발송(별도 배선 불요 — SSOT 경유).
-- 백필(3년+)은 **P11 별도 이슈**. 이 트랙은 모델+어댑터+일일 증분까지(데이터층 전용·매매 무접점).
+- 백필(3년+)은 **P11(DAR-490)** 이 담당. 이 트랙은 모델+어댑터+일일 증분까지(데이터층 전용·매매 무접점).
+
+### 5.12 ETF 과거 일봉 백필 (DAR-490 [견고화 W1·P11])
+
+백테스트(P16) 검증에 3년+, 듀얼모멘텀 모멘텀 계산(P12)에 최소 13개월 이력이 필요해 P11 에서 과거 일봉을 소급 적재한다.
+
+**아키텍처:**
+- **서비스**: `EtfDailyBackfillService` — KIS 기간별시세(FHKST03010100)를 날짜 구간 페이지네이션으로 반복 호출. 창(window)당 달력일 100일(≈거래일 70행), 종목당 최대 40창. 연속 빈 창 2회에 조기종료(상장 이전 도달 감지).
+- **S3 원본 보관**: 창별 KIS 원본 응답을 `EtfDailyRawStoreService` 로 gzip 콜드 보관. 키: `etf-daily-raw/{etfCode}/{startYmd}-{endYmd}.json.gz` (결정적·멱등 덮어쓰기). 보관 실패는 best-effort — DB 적재 차단 안 함.
+- **멱등 적재**: `isValidDailyOhlc` 손상행 배제 후 `EtfDailyPrice.createMany(skipDuplicates)`. `(etfCode,tradeDate)` 유니크 재실행 안전.
+- **상시 크론 아님**: 일일 증분은 P10 크론(`EtfDailyPriceCollector@19:10`)이 담당. 백필은 수동 단발 실행 전용.
+
+**실행 방법 (택 1):**
+
+```bash
+# 1) JWT API (HTTP — 백엔드 기동 상태, 인증 필요)
+POST /market-data/backfill/etf-daily?minStartYmd=20100101
+GET  /market-data/backfill/etf-daily/coverage   # 적재 없이 커버리지만 조회
+
+# 2) 수동 러너 (ts-node — DB 직접, .env 주입)
+cd backend
+npx ts-node -r dotenv/config \
+  src/engine3-quant-market/market-data/etf-daily-backfill.manual.ts \
+  [minStartYmd] [endYmd]
+# 예: ... 20200101              → 2020-01-01 하한부터 오늘까지 가능한 최장
+# 예: ... 20200101 20260630     → 2020-01-01 ~ 2026-06-30
+# 예: report                    → 적재 없이 커버리지 리포트만 출력
+```
+
+**커버리지 리포트 항목:**
+- `rowCount` / `startDate` / `endDate` — DB 현재 상태
+- `expectedTradingDays` — [startDate,endDate] 추정 거래일수(상한 추정)
+- `missingVsExpected` — 누락 의심 수(0 = 홀 없음 추정)
+- `suspiciousGaps` — 달력일 7일+ 인접 간격(구조적 홀 탐지)
+- `note` — 상장 이전 구간 부재 정직 고지. 예: TIGER 미국S&P500(360750)은 2020-08 상장이라 그 이전 일봉 부재는 정상.
+
+**콜 수(KIS 레이트리밋):** ETF당 최대 40창 × 200ms 스로틀 → 4종 총 최대 160콜, 실제 상장일 조기종료로 훨씬 적음(~12콜/종목 예상).
 
 ---
 

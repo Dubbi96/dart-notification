@@ -82,11 +82,44 @@ export class NotificationProducerService {
     message: string,
     meta?: { dedupeKey?: string; deepLink?: string; data?: Record<string, unknown> },
   ): Promise<void> {
-    // 멱등 자연키: 명시 dedupeKey 우선, 없으면 source+message 로 도출(동일 사건 중복 억제).
-    //   ★반복 발화 이벤트(매일 크론 stale 등)는 호출부가 시간 버킷을 포함한 dedupeKey 를 넘겨야 한다.
+    await this.enqueueSystemAlert('OPS_ALERT', severity, source, message, meta);
+  }
+
+  /**
+   * DAR-476(P02): 리스크(RISK_ALERT) 알림 발행 — 감지점 배선 전용(킬스위치 발동·청산 실패
+   * 에스컬레이션). P01 이 신설한 RISK_ALERT 타입/카테고리/채널로 consumer 의 동일 경로를 탄다.
+   * OPS_ALERT 와 동일한 NOTIFY_JOB.OPS_ALERT 잡을 쓰되 payload.type 으로 구분한다
+   * (notifyJobId 가 'risk-' 접두로 자연키를 분리 → 다경로 재발행 중복 적재 방지).
+   *
+   * @param severity 심각도. 킬스위치·청산 실패는 통상 ERROR/CRITICAL.
+   * @param source   발행 출처 키(감지점 식별). 예: 'kill-switch' | 'scalp-catchup'.
+   * @param message  사용자 표시 본문(한국어).
+   * @param meta     선택 옵션 — dedupeKey(멱등 자연키·미지정 시 source+message), deepLink, data.
+   */
+  async enqueueRiskAlert(
+    severity: OpsAlertSeverity,
+    source: string,
+    message: string,
+    meta?: { dedupeKey?: string; deepLink?: string; data?: Record<string, unknown> },
+  ): Promise<void> {
+    await this.enqueueSystemAlert('RISK_ALERT', severity, source, message, meta);
+  }
+
+  /**
+   * RISK_ALERT/OPS_ALERT 공통 발행 경로(DAR-473 P01 채널·DAR-476 P02 배선).
+   * 카테고리는 둘 다 'system'이며 type 만 다르다. dedupeKey 미지정 시 source+message 로 도출.
+   * ★반복 발화 이벤트(매일 크론 stale 등)는 호출부가 시간 버킷을 포함한 dedupeKey 를 넘겨야 한다.
+   */
+  private async enqueueSystemAlert(
+    type: NotifyOpsAlertJobData['type'],
+    severity: OpsAlertSeverity,
+    source: string,
+    message: string,
+    meta?: { dedupeKey?: string; deepLink?: string; data?: Record<string, unknown> },
+  ): Promise<void> {
     const dedupeKey = meta?.dedupeKey ?? `${source}:${message}`;
     const payload: NotifyOpsAlertJobData = {
-      type: 'OPS_ALERT',
+      type,
       severity,
       source,
       message,

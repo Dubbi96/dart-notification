@@ -43,6 +43,40 @@ describe('KillSwitchManager 영속화 (DAR-350)', () => {
     expect(persisted?.deactivatedAt).toBeNull();
   });
 
+  // ─── DAR-476(P02): 발동 통지 포트 ─────────────────────────────────────
+  it('activate → 통지 포트 onActivated 1회 호출(reason·triggeredBy·activatedAt)', async () => {
+    const repo = new InMemoryKillSwitchStateRepository();
+    const onActivated = jest.fn();
+    const ks = new KillSwitchManager(repo, { onActivated });
+
+    await ks.activate('연속 손실 5회', 'SYSTEM');
+
+    expect(onActivated).toHaveBeenCalledTimes(1);
+    const event = onActivated.mock.calls[0][0];
+    expect(event).toMatchObject({ reason: '연속 손실 5회', triggeredBy: 'SYSTEM' });
+    expect(event.activatedAt).toBeInstanceOf(Date);
+  });
+
+  it('autoCheck 자동 발동도 통지 포트로 흐른다(수동/자동 불문)', async () => {
+    const repo = new InMemoryKillSwitchStateRepository();
+    const onActivated = jest.fn();
+    const ks = new KillSwitchManager(repo, { onActivated });
+
+    // 연속손실 임계 초과 → autoCheck 가 activate 를 호출.
+    await ks.autoCheck({ consecutiveLossCount: 99, marketDropPct: 0, apiErrorCount: 0 });
+
+    expect(onActivated).toHaveBeenCalledTimes(1);
+    expect(onActivated.mock.calls[0][0].triggeredBy).toBe('SYSTEM');
+  });
+
+  it('통지 포트 미주입이어도 activate 는 정상(하위호환·룰 불변)', async () => {
+    const repo = new InMemoryKillSwitchStateRepository();
+    const ks = new KillSwitchManager(repo); // notifier 미주입
+
+    await expect(ks.activate('이유', 'USER')).resolves.toBeUndefined();
+    expect(ks.isActive()).toBe(true);
+  });
+
   it('deactivate → 레포에 비활성 전이 append (히스토리 누적)', async () => {
     const repo = new InMemoryKillSwitchStateRepository();
     const ks = new KillSwitchManager(repo);

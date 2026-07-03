@@ -1,8 +1,14 @@
 import { AiCostMonitorScheduler } from './ai-cost-monitor.scheduler';
 import { AiCostHealthService } from './ai-cost-health.service';
 import { AiCostHealthSnapshot } from '../types/ai-analyst.types';
+import { NotificationProducerService } from '../../notifications/notification-producer.service';
 
 describe('AiCostMonitorScheduler', () => {
+  // DAR-476(P02): 위반 시 OPS_ALERT 발송 — producer 목으로 관측(주문/Kill 경로 없음).
+  function makeProducer() {
+    return { enqueueOpsAlert: jest.fn().mockResolvedValue(undefined) };
+  }
+
   function snapshot(over: Partial<AiCostHealthSnapshot> = {}): AiCostHealthSnapshot {
     return {
       evaluatedAt: '2026-06-06T00:00:00.000Z',
@@ -75,14 +81,20 @@ describe('AiCostMonitorScheduler', () => {
     const health = {
       getHealth: jest.fn().mockResolvedValue(snap),
     } as unknown as AiCostHealthService;
-    const scheduler = new AiCostMonitorScheduler(health);
+    const producer = makeProducer();
+    const scheduler = new AiCostMonitorScheduler(
+      health,
+      producer as unknown as NotificationProducerService,
+    );
 
     const result = await scheduler.runDaily();
     expect(health.getHealth).toHaveBeenCalledTimes(1);
     expect(result).toBe(snap);
+    // 위반 없음 → OPS_ALERT 미발송.
+    expect(producer.enqueueOpsAlert).not.toHaveBeenCalled();
   });
 
-  it('위반 시에도 스케줄러는 플래그 산출만 — 주문/Kill 의존성 없음(health만 주입)', async () => {
+  it('DAR-476: 위반 시 OPS_ALERT 발송 — 주문/Kill 경로는 여전히 없음(관측·알림만)', async () => {
     const violatedSnap = snapshot({
       acceptance: {
         costPerDisclosureUsd: 0.02,
@@ -98,10 +110,21 @@ describe('AiCostMonitorScheduler', () => {
     const health = {
       getHealth: jest.fn().mockResolvedValue(violatedSnap),
     } as unknown as AiCostHealthService;
-    const scheduler = new AiCostMonitorScheduler(health);
+    const producer = makeProducer();
+    const scheduler = new AiCostMonitorScheduler(
+      health,
+      producer as unknown as NotificationProducerService,
+    );
 
-    // 유일한 협력자는 AiCostHealthService — 주문/Kill 실행 경로가 구조적으로 부재.
     const result = await scheduler.runDaily();
     expect(result.alert.violated).toBe(true);
+    // 위반 → OPS_ALERT 1회(WARNING·source 'ai-cost-monitor'·일자 dedupe). 자동 조치 없음.
+    expect(producer.enqueueOpsAlert).toHaveBeenCalledTimes(1);
+    const [severity, source, message, meta] =
+      producer.enqueueOpsAlert.mock.calls[0];
+    expect(severity).toBe('WARNING');
+    expect(source).toBe('ai-cost-monitor');
+    expect(message).toContain('공시당 평균 비용 초과');
+    expect(meta.dedupeKey).toBe('ai-cost-monitor:violation:2026-06-06');
   });
 });

@@ -78,7 +78,9 @@ export class KrxApiService {
     });
     axiosRetry(this.client, {
       retries: 3,
-      retryDelay: (retryCount) => retryCount * 2_000,
+      // 지수 백오프(2^n·100ms + 지터, Retry-After 존중) — 주석과 실구현 일치(DAR-480).
+      // 이전엔 주석은 exponential 이나 실제는 선형(retryCount×2000)이었다. engine1·KIS 와 동일 패턴.
+      retryDelay: axiosRetry.exponentialDelay,
       retryCondition: (error) => {
         const status = error.response?.status;
         return axiosRetry.isNetworkError(error) || status === 429 || status === 503;

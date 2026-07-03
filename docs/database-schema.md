@@ -1736,8 +1736,25 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 
 **인덱스**: `status` · `tradeDate` · `stockCode` · `corpCode` · `styleTag`.
 
+## 38. Engine5 — BacktestForwardDivergenceSnapshot (backtest_forward_divergence_snapshots) — DAR-479
+
+**목적**: 백테스트(리플레이) vs forward(실운용) 성과 괴리의 일별 스냅샷(추세 추적용). 리플레이 트랙(`BacktestRun.strategyKey`, 과거 1년 재생)과 forward 트랙(`styleTag='strategy:<key>'`)을 strategyKey 로 조인한 괴리(수익률·승률·거래빈도·보유기간)를 매일 1행 적재. 졸업 판정 핵심 지표. ★측정·적재 전용 — 트레이딩 행동(매수·체결·청산) 무접촉·AI 미개입(순수 산술). 표본 부족(백테스트<20·forward<5)은 `lowSample=true` 정직 표기.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | String PK | cuid |
+| strategyKey | String | 전략 변형 키(event-edge 등) — 자연 그룹핑 키, 인덱스만(FK 없음) |
+| snapshotDate | String | 거래일 YYYYMMDD (KST) |
+| backtestReturnPct / backtestWinRate / backtestTradeCount / backtestAvgHoldDays / backtestTradesPerMonth | Float? / Float? / Int / Float? / Float? | 리플레이 기준값(승률 0~1·거래빈도 월 환산). 표본 0이면 null |
+| forwardReturnPct / forwardWinRate / forwardTradeCount / forwardAvgHoldDays / forwardTradesPerMonth | Float? / Float? / Int / Float? / Float? | forward 실운용 누적값(동일 척도) |
+| returnGapPct / winRateGap / tradeFreqGap / holdDaysGap | Float? | 괴리 = forward − backtest (양쪽 산출 가능할 때만) |
+| lowSample | Boolean (default true) | 표본 부족 정직 표기(과신 방지) |
+| createdAt / updatedAt | DateTime | 생성·갱신 시각 |
+
+**인덱스·제약**: Composite Unique `(strategyKey, snapshotDate)` — 멱등키 · `(strategyKey, snapshotDate)` 인덱스.
+
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-02 (전수 현행화 — 미문서 모델 15종 전용 섹션 추가(§23~§37: CompanyOverview·SavedDisclosure·CronRunLog·DisclosureCollectionLog·DisclosureEvent·DartFiledFact·CompanyFinancial·FinancialCollectionLog·DisclosureAnalysis·PersonaAnalysis·InvestorPhilosophy·PhilosophyMetric·PhilosophySource·SignalEntryFunnelDaily·IntradayScalpTrade), User 카카오 OAuth(password nullable·provider/providerId·(provider,providerId) unique) 반영, NotificationHistory 통합 인박스(type/refId 멱등키) 반영, §17 절 번호 충돌 정리, SSOT 관계(schema.prisma=SSOT·본 문서=해설·총 49개 모델) 헤더 명시)
+**최종 수정일**: 2026-07-03 (DAR-479: §38 BacktestForwardDivergenceSnapshot 추가 — 백테스트 vs forward 괴리 일일 스냅샷, read-only 측정) · 2026-07-02 (전수 현행화 — 미문서 모델 15종 전용 섹션 추가(§23~§37: CompanyOverview·SavedDisclosure·CronRunLog·DisclosureCollectionLog·DisclosureEvent·DartFiledFact·CompanyFinancial·FinancialCollectionLog·DisclosureAnalysis·PersonaAnalysis·InvestorPhilosophy·PhilosophyMetric·PhilosophySource·SignalEntryFunnelDaily·IntradayScalpTrade), User 카카오 OAuth(password nullable·provider/providerId·(provider,providerId) unique) 반영, NotificationHistory 통합 인박스(type/refId 멱등키) 반영, §17 절 번호 충돌 정리, SSOT 관계(schema.prisma=SSOT·본 문서=해설·총 49개 모델) 헤더 명시)
 **버전**: 2.9 (2026-07-02 전수 현행화; 2.8 DAR-424: NotificationType 에 TRADE_ENTRY/TRADE_EXIT 가산 + notification_settings.tradePushEnabled 추가 — 라이브 페이퍼 체결 알림; 2.7 DAR-404: BacktestRun.strategyKey 비파괴 추가 + @@index — 트레이딩 로직 축 다중 트랙; DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)

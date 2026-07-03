@@ -1392,6 +1392,52 @@ model SignalEntryFunnelDaily {
 }
 
 // ====================================
+// DAR-479 [견고화 W0·P04]: 백테스트 vs forward 성과 괴리 일일 스냅샷 (engine5 read-only 측정)
+//
+// 리플레이 트랙(BacktestRun.strategyKey, 과거 1년 재생)과 forward 트랙(styleTag='strategy:<key>',
+// 오늘 신호→오늘 진입 누적)을 strategyKey 로 조인한 괴리(수익률·승률·거래빈도·보유기간)를
+// 추세 추적용으로 매일 1행 적재한다. SignalEntryFunnelDaily 스냅샷 패턴 계승 —
+// 멱등키 (strategyKey, snapshotDate), 자연 그룹핑 키(strategyKey)는 인덱스만(FK 관계 없음).
+// ★ 측정·적재 전용 — 트레이딩 행동 무접촉(매수·체결·청산 경로 무변경). AI 미개입(순수 산술).
+//   표본 부족(기존 임계 미달)은 lowSample=true 로 정직 표기.
+// ====================================
+model BacktestForwardDivergenceSnapshot {
+  id           String @id @default(cuid())
+  strategyKey  String // 전략 변형 키 (event-edge / short-momentum / conservative-value / aggressive-diversified)
+  snapshotDate String // 거래일 (YYYYMMDD, KST)
+
+  // 백테스트(리플레이) 기준값 — BacktestRun.summary.metrics
+  backtestReturnPct      Float? // 누적 수익률(%). 트랙 미산출이면 null
+  backtestWinRate        Float? // 승률(0~1). 표본 0이면 null
+  backtestTradeCount     Int    @default(0) // 청산 완료 트레이드 수(표본)
+  backtestAvgHoldDays    Float? // 평균 보유일수. 표본 0이면 null
+  backtestTradesPerMonth Float? // 30일 환산 거래빈도. 산출불가 null
+
+  // forward 실운용 누적값 — 전략 forward 포트폴리오 성적표
+  forwardReturnPct      Float? // 누적 수익률(%). 표본 0이면 null
+  forwardWinRate        Float? // 승률(0~1). 표본 0이면 null
+  forwardTradeCount     Int    @default(0) // 청산 완료 트레이드 수(표본)
+  forwardAvgHoldDays    Float? // 평균 보유일수. 표본 0이면 null
+  forwardTradesPerMonth Float? // 30일 환산 거래빈도. 산출불가 null
+
+  // 괴리 = forward - backtest (양쪽 산출 가능할 때만; 아니면 null)
+  returnGapPct Float? // 수익률 괴리(%p)
+  winRateGap   Float? // 승률 괴리(0~1 차)
+  tradeFreqGap Float? // 거래빈도 괴리(월 환산 건수 차)
+  holdDaysGap  Float? // 보유기간 괴리(일 차)
+
+  // 표본 부족 정직 표기(백테스트 또는 forward 표본이 기존 임계 미만)
+  lowSample Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([strategyKey, snapshotDate])
+  @@index([strategyKey, snapshotDate])
+  @@map("backtest_forward_divergence_snapshots")
+}
+
+// ====================================
 // M9-A: 백테스트 엔진 (DAR-13)
 // AI 금지영역: 백테스트 로직·체결 시뮬은 순수 Rule. AI 개입 0.
 // ====================================

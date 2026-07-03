@@ -32,6 +32,7 @@
 | — 철학 스타일 분기 | `paper-simulation/philosophy-style*` | BUFFETT/LYNCH/GREENBLATT/DRUCKENMILLER 4개 거장 스타일별 분기 모의운용(philosophy-fit ≥50 적격 진입, 누적수익 랭킹, LOW_SAMPLE 정직 표기) |
 | — 페르소나 | `paper-simulation/persona/` | 시장국면(market-regime) 판정 + 페르소나 추천·트레이딩 API |
 | — **분봉 단타** | `paper-simulation/intraday-scalp/` | 당일 진입·당일 청산 실시간 페이퍼 트랙(장중 10분 간격 진입스캔, 15:20 강제청산). 신호 정의는 engine3 `intraday-scalp-signal` 순수 함수 호출, 체결·리스크·청산·영속은 engine5 독립 강제. 분봉은 forward-only(KIS 당일치만) → 백테스트 불가, 실시간 모의로만 누적 |
+| — **백테스트 vs forward 괴리** | `paper-simulation/backtest-forward-divergence*` | 리플레이 트랙(BacktestRun.strategyKey)과 forward 트랙(styleTag='strategy:<key>')을 strategyKey 로 조인한 괴리(수익률·승률·거래빈도·보유기간) read-only 리포트 + 일일 스냅샷(`BacktestForwardDivergenceSnapshot`, 멱등키 strategyKey+snapshotDate). ForwardTracksScheduler 가 forward 크론(19:45) 직후 적재. 승률=trade-scorecard 통일 정의·gap=engine3 calibration 의미론 계승. 표본 부족 LOW_SAMPLE 정직. ★측정·적재 전용(매매 무접촉·AI 0). DAR-479 |
 | 졸업 측정 | `simulation/` | M10 졸업 게이트·지표 계산기(graduation-gates/metrics), signal-funnel, position-sizing, SimulationOrchestrator + `GET /api/graduation/*` (DAR-67/109) |
 | 수동 모의매매 API | `paper-trading/` | PaperTradingController/Service — 사용자 수동 모의 주문 진입점 |
 | 서비스 | `services/` | PaperTradeService · **OrderRiskService**(Risk veto + Audit Log) · AuditLogQuery(감사로그 조회 API) · **AutoTradingStatus**(자동매매 실행상태 read-only 투명성: 킬스위치·리스크게이트·최근 주문 집계, DAR-361) |

@@ -2197,6 +2197,16 @@ engine3 리플레이 트랙(§18, 과거 1년 재생)과 **별개의 forward 실
 | `GET /paper-trading/simulation/strategies-forward/comparison` | OptionalJwt | 전략별 forward 자산곡선·성적표(승률·누적수익·표본)·랭킹 비교 — 리플레이 비교(§18)와 별개 |
 | `POST /paper-trading/simulation/strategies-forward/run-once` | JWT | 전략 4종 forward 1일치 사이클 수동 실행 |
 
+### 21.4 백테스트 vs forward 성과 괴리 (Backtest-Forward Divergence, 견고화 W0·P04, DAR-479)
+
+리플레이 트랙(§18, 과거 1년 재생)과 forward 트랙(§21.3, 오늘 신호→오늘 진입 누적)을 **strategyKey 로 조인**해 백테스트 대비 실운용 괴리를 산출하는 **read-only 측정 표면**(졸업 판정 핵심 지표). 지표 4종 — 수익률·승률·거래빈도(월 환산)·보유기간 — 각각 `gap = forward − backtest` 와 판정(`ALIGNED`/`DIVERGED`/`LOW_SAMPLE`)을 노출한다. 승률은 통일 정의(순손익>0 / 전체 청산, 0~1), gap 판정은 calibration 의미론(|gap|<ε 이면 ALIGNED, 표본 부족은 판정 보류) 계승. 표본 임계는 기존값 준수(백테스트 20건·forward 5건 미만이면 `LOW_SAMPLE`). 일별 스냅샷은 `backtest_forward_divergence_snapshots`(멱등키 strategyKey+snapshotDate)에 forward 크론(19:45 KST) 직후 적재된다. ★조회·적재 전용 — 트레이딩 행동(매수·체결·청산) 무접촉, 실주문 0·AI 0(순수 산술). 전략 파라미터·임계값을 자동 변경하지 않는다.
+
+| 엔드포인트 | 인증 | 요약 |
+|---|---|---|
+| `GET /paper-trading/simulation/backtest-forward/divergence` | OptionalJwt | 전략 4종 백테스트 대비 forward 괴리(수익률·승률·거래빈도·보유기간)+임계·판정 |
+| `GET /paper-trading/simulation/backtest-forward/:key/trend` | OptionalJwt | 한 전략의 일별 괴리 추세(스냅샷 시계열; `limit` 최근 N일, 기본 90·최대 365) |
+| `POST /paper-trading/simulation/backtest-forward/snapshot-once` | JWT | 당일 괴리 스냅샷 수동 적재(멱등 upsert) — 검증·백필 경로 |
+
 ---
 
 ## 22. 포트폴리오·포지션 (Portfolio, Engine4)

@@ -29,17 +29,30 @@ import { PhilosophyStyleSimulationService } from './philosophy-style-simulation.
 import { PhilosophyStyleSimulationController } from './philosophy-style-simulation.controller';
 import { StrategyForwardSimulationService } from './strategy-forward-simulation.service';
 import { StrategyForwardSimulationController } from './strategy-forward-simulation.controller';
+import { BacktestForwardDivergenceService } from './backtest-forward-divergence.service';
+import { BacktestForwardDivergenceController } from './backtest-forward-divergence.controller';
 import { ForwardTracksScheduler } from './forward-tracks.scheduler';
 
 @Module({
   imports: [PrismaModule, TradingRiskModule, PhilosophyModule, GraduationModule, EventStudyModule],
-  controllers: [PhilosophyStyleSimulationController, StrategyForwardSimulationController],
+  controllers: [
+    PhilosophyStyleSimulationController,
+    StrategyForwardSimulationController,
+    // DAR-479: 백테스트 vs forward 괴리 조인 리포트·추세·수동 스냅샷(read-only 측정).
+    BacktestForwardDivergenceController,
+  ],
   providers: [
     PhilosophyStyleSimulationService,
     EventEdgeSelectorService,
     StrategyForwardSimulationService,
+    // DAR-479: 괴리 산출·스냅샷 서비스(ForwardTracksScheduler 가 @Optional 로 주입받아 일일 적재).
+    BacktestForwardDivergenceService,
     ForwardTracksScheduler,
   ],
-  exports: [PhilosophyStyleSimulationService, StrategyForwardSimulationService],
+  exports: [
+    PhilosophyStyleSimulationService,
+    StrategyForwardSimulationService,
+    BacktestForwardDivergenceService,
+  ],
 })
 export class PhilosophyStyleSimulationModule {}

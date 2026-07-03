@@ -13,6 +13,7 @@ import { KisRealtimePoller } from './kis-realtime.poller';
 import { StockMinutePriceCollector } from './stock-minute-price.collector';
 import { KisEtfDailySource } from './kis-etf-daily.source';
 import { EtfDailyPriceCollector } from './etf-daily-price.collector';
+import { EtfDailyBackfillService } from './etf-daily-backfill.service';
 import { RealtimeQuoteModule } from './realtime-quote.module';
 
 @Module({
@@ -35,6 +36,8 @@ import { RealtimeQuoteModule } from './realtime-quote.module';
     // DAR-484: ETF 일봉 소스 어댑터(KIS) + 증분 수집기(EOD 19:10 cron, 키 미설정 시 graceful no-op).
     KisEtfDailySource,
     EtfDailyPriceCollector,
+    // DAR-490: ETF 과거 일봉 백필 서비스(수동 러너 전용 — 상시 크론 아님. S3 원본 보관 + 커버리지 리포트).
+    EtfDailyBackfillService,
   ],
   exports: [
     MarketDataService,
@@ -48,6 +51,8 @@ import { RealtimeQuoteModule } from './realtime-quote.module';
     // DAR-484: Wave1 전략(P12~P15)이 ETF 일봉 소스·수집기를 소비.
     KisEtfDailySource,
     EtfDailyPriceCollector,
+    // DAR-490: 수동 러너(app.get)가 백필 서비스를 해석할 수 있도록 export.
+    EtfDailyBackfillService,
   ],
 })
 export class MarketDataModule {}

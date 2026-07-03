@@ -403,6 +403,26 @@ export class KisApiService {
     endYmd: string,
     nowMs?: number,
   ): Promise<KisDailyBar[]> {
+    return (await this.fetchDailyPricesRaw(code, startYmd, endYmd, nowMs)).bars;
+  }
+
+  /**
+   * 기간별시세(일봉) 조회 — 정규화 바 + **KIS 원본 응답(raw)** 동시 반환 (DAR-490 [견고화 W1·P11]).
+   *
+   * fetchDailyPrices 와 완전히 동일한 호출 경로(엔드포인트·파라미터·재시도·정렬)지만, ETF 과거 일봉
+   * 백필의 'S3 원본 보관'(raw 는 S3, 결정적 키 — DAR-401 원칙)을 위해 axios 응답 본문(data)을 가공 없이
+   * 그대로 노출한다. 소비측(백필 러너)이 raw 를 gzip 으로 콜드 보관하고, 정규화 bars 를 EtfDailyPrice 에
+   * 멱등 적재한다. 순수 읽기 전용 시세 — AI·체결·하드룰 무관(데이터층 전용).
+   *
+   * ★graceful: 키 미설정 예외(KisApiUnavailableError)는 throw, 그 외 실패는 { bars: [], raw: null }.
+   *   raw=null 은 '보관할 원본 없음'(호출 실패)을 뜻해 소비측이 원본 보관을 건너뛴다.
+   */
+  async fetchDailyPricesRaw(
+    code: string,
+    startYmd: string,
+    endYmd: string,
+    nowMs?: number,
+  ): Promise<{ bars: KisDailyBar[]; raw: unknown }> {
     try {
       const headers = await this.authHeaders('FHKST03010100', nowMs);
       const { data } = await this.client.get(
@@ -430,15 +450,16 @@ export class KisApiService {
           close: this.parseNum(r['stck_clpr']),
           volume: this.parseNum(r['acml_vol']),
           tradingValue: this.parseNum(r['acml_tr_pbmn']),
-        }));
-      // KIS 는 최신→과거 순으로 준다 → 거래일 오름차순으로 정렬(일관성).
-      return bars.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+        }))
+        // KIS 는 최신→과거 순으로 준다 → 거래일 오름차순으로 정렬(일관성).
+        .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+      return { bars, raw: data };
     } catch (e) {
       if (e instanceof KisApiUnavailableError) throw e;
       this.logger.error(
         `[KIS] inquire-daily-itemchartprice 일봉 소실 ${code}: ${this.failureReason(e)}`,
       );
-      return [];
+      return { bars: [], raw: null };
     }
   }
 

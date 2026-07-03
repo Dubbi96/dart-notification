@@ -14,6 +14,7 @@ import { createAwsS3Backend, S3Config } from './s3-backend';
 import { RawTextStoreService } from './raw-text-store.service';
 import { TablesStoreService } from './tables-store.service';
 import { RawHtmlStoreService } from './raw-html-store.service';
+import { EtfDailyRawStoreService } from './etf-daily-raw-store.service';
 
 /**
  * env → ObjectStorageService 인스턴스 해석.
@@ -66,12 +67,15 @@ export function resolveObjectStorage(
     RawTextStoreService,
     TablesStoreService,
     RawHtmlStoreService,
+    // DAR-490: ETF 과거 일봉 백필의 KIS 원본 응답(JSON) 콜드 보관 스토어.
+    EtfDailyRawStoreService,
   ],
   exports: [
     ObjectStorageService,
     RawTextStoreService,
     TablesStoreService,
     RawHtmlStoreService,
+    EtfDailyRawStoreService,
   ],
 })
 export class StorageModule {}

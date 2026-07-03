@@ -344,6 +344,7 @@ dart-notification/
 │   ├── api-specification.md   # API 명세서
 │   ├── workflow.md            # 업무 흐름도
 │   ├── deployment.md          # 배포 가이드
+│   ├── trading/               # 매매 전략 룰 정본 (strategy-rulebook.md — 전 트랙 진입/청산/사이징/한도 SSOT)
 │   ├── roadmap/               # 로드맵 정본 (비전·실행 로드맵·phase 명세·재개 계획)
 │   ├── work/                  # 진행 중 작업 문서 (완료분은 archive/로 이동)
 │   ├── mobile/                # 모바일 기획 (screen-plan 등)

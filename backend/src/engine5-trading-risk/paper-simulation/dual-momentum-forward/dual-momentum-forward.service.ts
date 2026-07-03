@@ -33,9 +33,19 @@ import {
   CORE_OFFENSE_DOMESTIC_CODE,
   CORE_ABS_MOMENTUM_FILTER_CODE,
   CORE_DEFENSE_BOND_CODE,
+  CORE_CAPITAL_ALLOCATION_PCT,
+  DUAL_MOMENTUM_PRESET,
 } from '../../../engine3-quant-market/dual-momentum/dual-momentum.constants';
-import { nextTradingDay, isLastTradingDayOfMonth } from '../../../common/time/market-calendar';
+import {
+  nextTradingDay,
+  isLastTradingDayOfMonth,
+  lastTradingDayOfMonth,
+} from '../../../common/time/market-calendar';
+import { formatKstDateCompact } from '../../../common/time/kst';
+import { etfByCode } from '../../../engine3-quant-market/market-data/etf-universe';
 import { PaperSimulationService } from '../paper-simulation.service';
+import { buildEquityCurve, EquityCurvePoint } from '../equity-curve';
+import { buildTradeRationale, calculateTradeScorecard, TradeScorecard } from '../trade-scorecard';
 
 /** 코어 트랙 독립 가상원금(원) — 기존 forward 트랙 관례 10M, 룰북 §9.2 정합. */
 export const DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL = 10_000_000;
@@ -59,6 +69,37 @@ const CORE_UNIVERSE = [
 
 /** 청산 표본 과신 방지 임계(월단위 트랙 — 소수). */
 export const DUAL_MOMENTUM_FORWARD_LOW_SAMPLE_THRESHOLD = 6;
+
+/**
+ * 코어 트랙 유형 라벨 SSOT(감사 C2 — 사용자 표면의 유형 구분).
+ * 기존 트랙(전략 변형·단타)과 성격이 다른 '자산배분(월단위)' 트랙임을 모바일 카드가 명시한다.
+ */
+export const CORE_TRACK_TYPE_LABEL = '자산배분(월단위)';
+
+/** 리밸런싱 주기 — 월 1회(매월 마지막 거래일 판정). */
+export type RebalanceFrequency = 'MONTHLY';
+
+/** 코어 트랙 한 줄 컨셉(룰북 §9.2 — 월말 절대·상대 모멘텀 배분, 자본 65%). */
+export const CORE_TRACK_TAGLINE = `월말 절대·상대 모멘텀으로 공격 ETF·방어채권 배분 (${MOMENTUM_LOOKBACK_DAYS}거래일 룩백·자본 ${Math.round(
+  CORE_CAPITAL_ALLOCATION_PCT * 100,
+)}%)`;
+
+/**
+ * 다음 월말 리밸런싱 판정 예정일(YYYYMMDD) — refYmd(오늘/최근 거래일) 기준. 순수 캘린더(데이터 무참조).
+ *
+ * 이번 달 마지막 거래일이 아직 오지 않았으면(≥ refYmd) 이번 달, 이미 지났으면 다음 달의 마지막
+ * 거래일을 반환한다. 월 1회 리밸런싱 특성(다음 판정일) 표기용 — 실제 판정 발화는 크론이 데이터
+ * 주도(당일 ETF 일봉 존재)로 확정하므로, 여기서는 '언제쯤 판정하는지' 안내용 근사치다.
+ */
+export function nextMonthEndDecisionDate(refYmd: string): string {
+  const year = Number(refYmd.slice(0, 4));
+  const month = Number(refYmd.slice(4, 6));
+  const thisMonthEnd = lastTradingDayOfMonth(year, month);
+  if (thisMonthEnd >= refYmd) return thisMonthEnd;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const nextYear = month === 12 ? year + 1 : year;
+  return lastTradingDayOfMonth(nextYear, nextMonth);
+}
 
 /** 코어 forward 포트폴리오 이름 — '모의운용 포트폴리오 [alloc:dual-momentum]'(forward 트랙 명명 관례). */
 export function dualMomentumForwardPortfolioName(): string {
@@ -105,6 +146,63 @@ export interface DualMomentumForwardStatus {
     netPnl: number | null;
     returnPct: number | null;
   }[];
+}
+
+/** 리밸런싱(회전) 이력 한 행 — etfName 병기(코드 대신 사람 읽는 이름). */
+export interface CoreRebalanceTradeRow {
+  decisionDate: string;
+  etfCode: string;
+  /** ETF 표시 이름(유니버스 매핑, 없으면 null → 코드 대체 표시). */
+  etfName: string | null;
+  status: string;
+  entryPrice: number | null;
+  exitDate: string | null;
+  exitPrice: number | null;
+  netPnl: number | null;
+  returnPct: number | null;
+}
+
+/**
+ * 코어 트랙 스코어카드(read-only) — 비교 표면/모바일 카드 계약 (DAR-495 [견고화 W1·P17]).
+ *
+ * 기존 `getStatus`(DAR-494)와 별개 표면(하위호환 유지) — 통일 성적표(trade-scorecard SSOT)를
+ * 재사용하고, 월단위 트랙 특성(다음 판정 예정일·유형 라벨·느린 표본 축적 LOW_SAMPLE)을 명시한다.
+ */
+export interface DualMomentumForwardScorecard {
+  styleTag: string;
+  /** 유형 라벨(모바일 유형 구분) — '자산배분(월단위)'. */
+  trackTypeLabel: string;
+  /** 리밸런싱 주기 — 월 1회. */
+  rebalanceFrequency: RebalanceFrequency;
+  /** 한 줄 컨셉(룰북 §9.2). */
+  tagline: string;
+  initialCapital: number;
+  /** 현재 보유 ETF 코드(현금이면 null). */
+  holding: string | null;
+  /** 현재 보유 ETF 표시 이름(현금이면 null). */
+  holdingName: string | null;
+  /** 대기 중(미체결) 예약 ETF 코드(있으면). */
+  pendingTarget: string | null;
+  /** 대기 중 예약 ETF 표시 이름(없으면 null). */
+  pendingTargetName: string | null;
+  /** 평가액(원). */
+  equity: number;
+  /** 누적 수익률(%) — 평가액 기준(미실현 포함). */
+  cumulativeReturnPct: number;
+  /** 통일 성적표(승률·평균손익·표본·lowSample) — trade-scorecard SSOT 재사용. */
+  scorecard: TradeScorecard;
+  /** 일별 자산곡선(오름차순; 0·1개도 정직하게 그대로). */
+  equityCurve: EquityCurvePoint[];
+  /** 마지막 스냅샷일(YYYYMMDD, 없으면 null). */
+  latestSnapshotDate: string | null;
+  /** 리밸런싱(회전) 이력. */
+  rebalanceHistory: CoreRebalanceTradeRow[];
+  /** 다음 월말 판정 예정일(YYYYMMDD) — 월 1회 리밸런싱 특성. */
+  nextDecisionDate: string;
+  /** 과신 방지 — 청산 표본 < 트랙 임계(월단위 트랙 느린 축적). */
+  lowSample: boolean;
+  /** 저표본 임계(청산 거래 수) — 라벨/문구 표기용. */
+  lowSampleThreshold: number;
 }
 
 /** EtfDailyPrice 한 행(내부 조회 결과 정규화). */
@@ -480,6 +578,103 @@ export class DualMomentumForwardService {
         netPnl: r.netPnl !== null ? Number(r.netPnl) : null,
         returnPct: r.returnPct !== null ? Number(r.returnPct) : null,
       })),
+    };
+  }
+
+  // ─── 스코어카드 조회(read-only, DAR-495 [견고화 W1·P17]) ──────────────────
+  /**
+   * 코어 트랙 스코어카드 — 자산곡선·누적수익·거래 이력·현재 보유·다음 판정 예정일을
+   * 통일 성적표(trade-scorecard SSOT)와 함께 반환한다. read-only(신규 수집·체결·AI 0).
+   *
+   * ★ getStatus(DAR-494)와 별개 표면 — 기존 응답 무변경(하위호환). 통일 정의 재사용:
+   *   buildEquityCurve(자산곡선)·calculateTradeScorecard(승률·평균손익·표본). LOW_SAMPLE 은
+   *   월단위 트랙 임계(=6, 느린 표본 축적)로 정직 표기한다.
+   */
+  async getScorecard(): Promise<DualMomentumForwardScorecard> {
+    const pf = await this.getOrCreatePortfolio();
+    const holding = await this.currentOpenHolding();
+    const pending = await this.currentPending();
+    const tradeDate = await this.latestTradeDate();
+    const equity = await this.computeEquity(tradeDate);
+
+    const snapshots = await this.prisma.portfolioRiskSnapshot.findMany({
+      where: { portfolioId: pf.id },
+      orderBy: { snapshotDate: 'asc' },
+      select: { snapshotDate: true, totalValue: true },
+    });
+    const equityCurve = buildEquityCurve(snapshots, DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL);
+
+    const rows = await this.prisma.dualMomentumForwardTrade.findMany({
+      where: { styleTag: CORE_STYLE_TAG, status: { in: ['OPEN', 'CLOSED'] } },
+      orderBy: { decisionDate: 'asc' },
+    });
+
+    // 통일 성적표: CLOSED 회전을 trade-scorecard 정의(승률·평균손익·누적수익률)로 집계.
+    // ETF 는 corpCode 가 없어 stockCode 자리에 etfCode 를 넣고 corpCode 는 빈 문자열(표시 미사용).
+    const closedRationales = rows
+      .filter((r) => r.status === 'CLOSED')
+      .map((r) =>
+        buildTradeRationale({
+          positionId: r.id,
+          corpCode: '',
+          stockCode: r.etfCode,
+          corpName: etfByCode(r.etfCode)?.name ?? null,
+          status: 'CLOSED',
+          // CLOSED 는 항상 진입 체결(entryTs) 후이지만, 방어적으로 예약생성일(createdAt) 폴백.
+          entryDate: r.entryTs ?? r.createdAt,
+          entryPrice: r.entryPrice !== null ? Number(r.entryPrice) : 0,
+          quantity: r.shares,
+          closedAt: r.exitTs,
+          pnl: r.netPnl !== null ? Number(r.netPnl) : 0,
+          pnlPct: r.returnPct !== null ? Number(r.returnPct) : 0,
+          stopLossPct: null,
+          takeProfitPct: null,
+          maxHoldDays: null,
+          entryReason: null,
+          initialThesis: null,
+          exitAction: null,
+          exitTriggers: [],
+        }),
+      );
+    const scorecard = calculateTradeScorecard(
+      closedRationales,
+      DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL,
+    );
+
+    return {
+      styleTag: CORE_STYLE_TAG,
+      trackTypeLabel: CORE_TRACK_TYPE_LABEL,
+      rebalanceFrequency: 'MONTHLY',
+      tagline: CORE_TRACK_TAGLINE,
+      initialCapital: DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL,
+      holding: holding?.etfCode ?? null,
+      holdingName: holding ? (etfByCode(holding.etfCode)?.name ?? null) : null,
+      pendingTarget: pending?.etfCode ?? null,
+      pendingTargetName: pending ? (etfByCode(pending.etfCode)?.name ?? null) : null,
+      equity,
+      cumulativeReturnPct:
+        ((equity - DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL) /
+          DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL) *
+        100,
+      scorecard,
+      equityCurve,
+      latestSnapshotDate:
+        equityCurve.length > 0 ? equityCurve[equityCurve.length - 1].snapshotDate : null,
+      rebalanceHistory: rows.map((r) => ({
+        decisionDate: r.decisionDate,
+        etfCode: r.etfCode,
+        etfName: etfByCode(r.etfCode)?.name ?? null,
+        status: r.status,
+        entryPrice: r.entryPrice !== null ? Number(r.entryPrice) : null,
+        exitDate: r.exitDate,
+        exitPrice: r.exitPrice !== null ? Number(r.exitPrice) : null,
+        netPnl: r.netPnl !== null ? Number(r.netPnl) : null,
+        returnPct: r.returnPct !== null ? Number(r.returnPct) : null,
+      })),
+      // 다음 판정 예정일은 '오늘(KST)' 기준 — 데이터가 아닌 캘린더 스케줄(월 1회 안내).
+      nextDecisionDate: nextMonthEndDecisionDate(formatKstDateCompact(new Date())),
+      lowSample: scorecard.sampleSize < DUAL_MOMENTUM_FORWARD_LOW_SAMPLE_THRESHOLD,
+      lowSampleThreshold: DUAL_MOMENTUM_FORWARD_LOW_SAMPLE_THRESHOLD,
     };
   }
 

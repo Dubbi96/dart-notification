@@ -14,7 +14,9 @@ import { FEE_BASIS_NOTICE } from '@components/common/feeBasisCopy';
 import { EquityCurveChart } from '@components/portfolio/EquityCurveChart';
 import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { IntradayScalpSection } from '@components/portfolio/IntradayScalpSection';
+import { CoreTrackSection } from '@components/portfolio/CoreTrackSection';
 import { useStrategyComparison } from '@hooks/useStrategyComparison';
+import { CORE_TRACK_QUERY_KEY } from '@hooks/useCoreTrackScorecard';
 import { formatReturnPct, formatWinRate } from '@utils/numberFormat';
 
 import type {
@@ -275,6 +277,8 @@ function ComparisonHeader({ data }: { data: StrategyComparison }) {
 const STRATEGY_REFRESH_KEYS: readonly (readonly string[])[] = [
   ['simulation', 'strategy-comparison'],
   ['simulation', 'intraday-scalp', 'status'],
+  // DAR-495: 코어 자산배분 트랙(월단위)도 이 스크롤에 렌더되므로 함께 refetch(stale 방지).
+  [...CORE_TRACK_QUERY_KEY],
 ];
 
 export function StrategyComparisonSection() {
@@ -343,6 +347,10 @@ export function StrategyComparisonSection() {
       //   유무와 무관하게 항상 렌더하고, ComparisonHeader 만 data 가드를 유지한다.
       ListHeaderComponent={
         <>
+          {/* ★DAR-495: 코어 자산배분 트랙(월단위)을 최상단으로 — 단타·백테스트 4종과 유형이
+              다른(월 1회 리밸런싱·모멘텀 배분) 트랙이라 같은 랭킹에 섞지 않고 별도 섹션 카드로
+              노출한다(감사 C2 — 사용자 표면의 유형 구분). 자체 훅이라 data 유무와 무관하게 렌더. */}
+          <CoreTrackSection />
           <IntradayScalpSection />
           {data ? <ComparisonHeader data={data} /> : null}
         </>

@@ -1,8 +1,9 @@
 /**
  * DualMomentumForwardController — 코어 forward 트랙 상태 조회 + 수동 1회 실행 (DAR-494 [견고화 W1·P13])
  *
- * GET  /api/paper-trading/simulation/dual-momentum-forward/status   — 보유·자산곡선·리밸런싱 이력(게스트 데모 가능)
- * POST /api/paper-trading/simulation/dual-momentum-forward/run-once — 1일 사이클 즉시 실행(수동 시작·재현 경로, JWT)
+ * GET  /api/paper-trading/simulation/dual-momentum-forward/status    — 보유·자산곡선·리밸런싱 이력(게스트 데모 가능)
+ * GET  /api/paper-trading/simulation/dual-momentum-forward/scorecard — 코어 트랙 스코어카드(통일 성적표·다음 판정일, DAR-495)
+ * POST /api/paper-trading/simulation/dual-momentum-forward/run-once  — 1일 사이클 즉시 실행(수동 시작·재현 경로, JWT)
  *
  * ★ 모의 전용 — 실주문 없음. 판정·사이징·체결은 순수 Rule(AI 미개입).
  */
@@ -33,6 +34,17 @@ export class DualMomentumForwardController {
   })
   async status() {
     const data = await this.service.getStatus();
+    return { success: true, data };
+  }
+
+  @Get('scorecard')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      '듀얼모멘텀 코어 트랙 스코어카드 — 자산곡선·누적수익·통일 성적표·현재 보유·다음 판정 예정일(유형: 자산배분(월단위), 게스트 데모 가능)',
+  })
+  async scorecard() {
+    const data = await this.service.getScorecard();
     return { success: true, data };
   }
 

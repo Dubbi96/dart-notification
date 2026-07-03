@@ -1153,6 +1153,9 @@ export class PaperSimulationService {
           filledShares: 0,
           fillRate: 0,
           entryPrice: price,
+          // DAR-474: 신호시점 기대가 보존 — 체결기가 entryPrice를 체결일 시가로 덮어써도
+          //   이 값은 유지되어 신호→체결 슬리피지 측정의 기준가로 쓰인다(측정 표면 전용).
+          expectedPrice: price,
           status: 'PENDING',
           entryDate: this.kstMidnight(entryTradeYmd),
           tradingSignalId: sig.id,
@@ -1350,6 +1353,8 @@ export class PaperSimulationService {
 
       // 예약(PENDING) → 체결 확정: 같은 원장 행을 갱신(주문 1건 = 행 1건 보존).
       //   entryPrice 는 '진입 기준가(체결일 시가)'로 갱신 — 스키마 주석 시맨틱과 일치.
+      //   ★DAR-474: expectedPrice(신호시점 기대가)는 여기서 **덮어쓰지 않는다** — 예약 시점 값을
+      //     보존해야 신호→체결 슬리피지가 측정 가능하다(측정 표면 전제).
       await this.prisma.paperTrade.update({
         where: { id: t.id },
         data: {

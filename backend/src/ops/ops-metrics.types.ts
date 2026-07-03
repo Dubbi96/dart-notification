@@ -63,6 +63,46 @@ export interface GraduationGateSummary {
   sampleSize: number | null;
 }
 
+/**
+ * DAR-474 — 슬리피지 분포 집계(트랙 공통 형태). 체결 완료 거래 단위.
+ *
+ * 두 가지 관점을 **혼동 없이 분리**해 노출한다:
+ *   · Krw(원): 체결 시 기록된 `slippage` 원가 절대값(체결일 기준가 대비 체결 마찰).
+ *   · Bps(1/10000): 신호시점 기대가(`expectedPrice`) 대비 실현 슬리피지(부호=불리 방향 양수) —
+ *     실전 전환 게이트("슬리피지 기대 이내 시 증액")가 소비하는 정규화 지표.
+ *     expectedPrice 보존분(신규 예약·체결)만 산정 — 레거시/미보존 트랙은 null(graceful).
+ */
+export interface SlippageDistribution {
+  /** 집계 대상 체결 건수(slippage 기록이 있는 체결·청산 완료 거래). */
+  tradeCount: number;
+  /** 평균 슬리피지 원가(KRW, 절대값). 표본 0이면 null. */
+  avgSlippageKrw: number | null;
+  /** p95 슬리피지 원가(KRW). 표본 0이면 null. */
+  p95SlippageKrw: number | null;
+  /** ★슬리피지와 구분 유지 — 수수료+세금 합(KRW). 단타 트랙 totalFees SSOT와 정합. */
+  totalFeesKrw: number;
+  /** 신호시점 기대가 대비 평균 실현 슬리피지(bps). bps 표본 0이면 null. */
+  avgSlippageBps: number | null;
+  /** 신호시점 기대가 대비 p95 실현 슬리피지(bps). bps 표본 0이면 null. */
+  p95SlippageBps: number | null;
+  /** bps 산정 표본수(expectedPrice·filledPrice 모두 있는 건). */
+  bpsSampleSize: number;
+}
+
+/** 트랙(styleTag)별 슬리피지 분포 — 전체 합산 관점 포함. */
+export interface SlippageTrackDistribution extends SlippageDistribution {
+  /** 트랙 식별 태그(styleTag): 시스템 모의·전략 4종·철학 4종·분봉 단타. */
+  styleTag: string;
+}
+
+/** 슬리피지 측정 표면(DAR-474) — 전체 합산 + 트랙별 분포. */
+export interface SlippageSummary {
+  /** 전 트랙 합산 분포. */
+  overall: SlippageDistribution;
+  /** 트랙(styleTag)별 분포 — styleTag 오름차순. */
+  byTrack: SlippageTrackDistribution[];
+}
+
 /** 운영 메트릭 스냅샷. */
 export interface OpsMetrics {
   /** 집계 생성 시각 ISO8601 */
@@ -79,4 +119,9 @@ export interface OpsMetrics {
    * PipelineModule 미배선/집계 실패 시 null(graceful) — 카운터 본체는 항상 반환.
    */
   pipeline: PipelineHealth | null;
+  /**
+   * DAR-474 — 슬리피지 분포(트랙별·전체). 신호시점 기대가 대비 실현 슬리피지 측정 표면.
+   * 집계 실패 시 null(graceful) — 카운터 본체는 항상 반환.
+   */
+  slippage: SlippageSummary | null;
 }

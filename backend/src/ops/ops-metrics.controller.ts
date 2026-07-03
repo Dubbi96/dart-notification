@@ -21,7 +21,7 @@ export class OpsMetricsController {
   @Get('metrics')
   @ApiOperation({
     summary:
-      '운영 핵심 카운터(JSON) — AI누적·최근신호·모의포지션·마지막수집(freshness)·졸업지표 G1/G2/G3/G5. 운영/내부용',
+      '운영 핵심 카운터(JSON) — AI누적·최근신호·모의포지션·마지막수집(freshness)·졸업지표 G1/G2/G3/G5·슬리피지 분포(트랙별 평균/p95·bps·수수료 구분, DAR-474). 운영/내부용',
   })
   async metrics(): Promise<{ success: true; data: OpsMetrics }> {
     const data = await this.metricsService.getMetrics();

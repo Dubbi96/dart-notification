@@ -185,6 +185,8 @@ describe('합성 시세 모의 사이클(DAR-124 + 장외 체결 의미론) — 
     // DAR-362 사이징 보존: WATCH·buyScore41 → 270,000 예산 → floor(270000/50100)=5주 주문.
     expect(res.orderedShares).toBe(5);
     expect(res.entryPrice).toBe(SYNTH_CLOSE);
+    // DAR-474: 예약 시 신호시점 기대가(expectedPrice)를 기준가로 보존한다(측정 표면 전제).
+    expect(res.expectedPrice).toBe(SYNTH_CLOSE);
     // 체결 예정일 = 다음 거래일(20260608 월 → 20260609 화).
     expect(res.entryDate).toEqual(kstMidnight('20260609'));
 
@@ -198,6 +200,14 @@ describe('합성 시세 모의 사이클(DAR-124 + 장외 체결 의미론) — 
     expect(pos.quantity).toBe(4);
     expect(pos.entryPriceSource).toBe('SYNTHETIC');
     expect(res.status).toBe('FILLED');
+    // DAR-474: 체결기가 entryPrice 를 '체결일 시가'로 갱신하지만 expectedPrice(신호시점 기대가)는
+    //   보존한다 — 체결 update 페이로드에 expectedPrice 가 포함되지 않아야 원천값이 살아남는다.
+    expect(res.expectedPrice).toBe(SYNTH_CLOSE);
+    const ptUpdateCalls = (prisma.paperTrade.update as jest.Mock).mock.calls;
+    expect(ptUpdateCalls.length).toBeGreaterThan(0);
+    for (const [arg] of ptUpdateCalls) {
+      expect((arg.data as Record<string, unknown>)).not.toHaveProperty('expectedPrice');
+    }
 
     // 스냅샷이 합성 종가(50,000) 기준 평가손익을 반영 — 체결가(50,100) 대비 가격변동 반영.
     expect(d1.snapshotted).toBeGreaterThan(0);

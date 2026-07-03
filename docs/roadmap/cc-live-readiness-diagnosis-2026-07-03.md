@@ -117,3 +117,13 @@
 
 ---
 *작성: 2026-07-03 진단 세션(10 에이전트). §1-③은 조사 완료 후 갱신. 다음 갱신: wave1 머지·재검증 2회차 후.*
+
+---
+
+## 9. 1차 웨이브 반영 완료 (2026-07-03 배포)
+
+- **PR #437(웨이브 wave1+2) main 머지·OCI prod 배포 완료.** 게이트: BE jest 3321/3321·MO check 127/127.
+- prod 검증: backend/redis healthy, 하드닝 반영(mem_limit 640m·restart always·redis noeviction, 메모리 사용 16%), 수집 무중단(당일 rcpDt·290만 건), 전략 forward 4트랙 엔드포인트 `GET /api/paper-trading/simulation/strategies-forward/comparison` 라이브(첫 사이클 = 배포 당일 19:45 KST 대기).
+- **DB 백업 자동화 가동**(PR #438): `scripts/backup-prod-db.sh` → micro1 crontab `30 18 * * *`(UTC=03:30 KST), S3 업로드 검증 완료(`s3://dano-s3-dubbi/backups/…2026-07-03.dump.gz` 129MB). prod 실행 결함 3종(Prisma URL·pg 버전·이미지 용량) 수정 반영. **RPO 무한대(OPS-1 blocker) 해소.**
+- APK 재빌드 완료(모바일 wave2 반영): https://expo.dev/artifacts/eas/TmYoC9nYT6DETAK7ab-qSIaa3ZlHmiiXF9u0f7cg32k.apk
+- **잔여 결정(§8-1) — 미해결·사용자 판단 대기**: 체결 의미론 변경으로 오늘 19:30 사이클부터 레짐이 바뀐다. M10 졸업 30일 측정 기산점을 **①배포일(7/3)로 클록 리셋(권장 — 편향 제거 후 정직 구간 측정)** vs ②기존 기산 유지 중 선택 필요. 클록 리셋 시 졸업 목표일이 ≈7/21 → ≈8/2로 이동.

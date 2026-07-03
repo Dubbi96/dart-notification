@@ -84,7 +84,7 @@ dart-notification/
 │   │   │   └── ai-analyst.module.ts
 │   │   ├── engine3-quant-market/ # 🟧 Engine3: Quant Market 엔진 (M4~M6, M9, DAR-25)
 │   │   │   ├── CLAUDE.md
-│   │   │   ├── market-data/         # KRX/증권사 시세 수집 (Phase 5+) · ETF 일봉(KIS 소스 어댑터, DAR-484)
+│   │   │   ├── market-data/         # KRX/증권사 시세 수집 (Phase 5+) · ETF 일봉(KIS 소스 어댑터, DAR-484) · ETF 과거 일봉 백필+S3 원본 보관(DAR-490)
 │   │   │   ├── indicators/          # 기술지표 계산 (MA/RSI/MACD/BB/ATR/VWAP)
 │   │   │   ├── buy-signal/          # Buy Score 7컴포넌트 계산 (Rule 기반)
 │   │   │   │   ├── config/

@@ -961,6 +961,23 @@ npx ts-node -r dotenv/config src/engine3-quant-market/market-data/backfill-histo
 > EventStudy backbone 오염을 차단한다. 전일대비 ±상한 시계열 이상치는 종목별 직전 종가 조회가
 > 필요해 bulk 경로에 부적합하므로 향후 별도 배치로 분리한다(행 내 정합성만 여기서 검사).
 
+### 5.9 거래일·휴장일 캘린더 SSOT (`common/time/market-calendar.ts`, DAR-481)
+
+거래일 판정이 3곳(EventStudy D0 `d0-calculator`, 백테스트 데이터주도 `getTradingDays`, KRX 스케줄러
+`isWeekend`)에 산재했던 것을 단일 모듈로 수렴. 각 호출부는 자기 의미론에 맞는 함수로 **위임**해
+결과 동치(무행동 변경)를 유지하고, 2026 하반기 공휴일 누락(시한성 버그)을 보강했다.
+
+- **판정 API**: `isTradingDay/nextTradingDay/prevTradingDay/isHoliday/isWeekend`(YYYYMMDD),
+  `isWeekendDate`(Date·getDay 기반, 스케줄러 위임용).
+- **반일장/지연개장**: `KRX_HALF_DAYS`(세션 override 스키마)·`isHalfDay`·`getMarketSession`.
+  현재 등록: 수능일(2026-11-19, 10:00~16:30 지연개장). 정규장 hot-path 는 미참조(세션-인지 신규
+  소비자용 주입 구조).
+- **월말 거래일**: `lastTradingDayOfMonth(year, month, { actualTradingDays })`·`isLastTradingDayOfMonth`
+  — Wave 1 P13(월말 리밸런싱 크론) 전제. 실재 일봉을 넘기면 데이터 주도로 확정(캘린더 불완전 오발화 방지).
+- **★연 1회 갱신(시한성)**: KRX 는 매년 말 익년도 공식 휴장일을 공시(KIND). 매년 11~12월에 공식
+  휴장일 + 대체공휴일 + 근로자의날(5/1) + 연말 최종휴장일(12/31) + 수능일을 `market-calendar.ts`
+  상단 절차대로 추가. 과거연도(2024·2025) 목록은 D0 이력 재현성 위해 동결(소급 수정 금지).
+
 ---
 
 ## 6. Portfolio & Exit 엔진 점검 스케줄 (M8-A DAR-12)

@@ -5,6 +5,7 @@ import {
   resolveRiskGuardMode,
   DEFAULT_RISK_GUARD_MODES,
   RISK_GUARD_DAILY_LOSS_MAX_PCT,
+  RISK_GUARD_MONTHLY_LOSS_MAX_PCT,
   RISK_GUARD_DRAWDOWN_CUT_MAX_PCT,
   RiskGuardDrawdownInput,
   RiskGuardEntryInput,
@@ -48,6 +49,44 @@ describe('evaluateRiskGuardEntry (순수 게이트)', () => {
     it('totalCapital<=0 이면 손실 판정 스킵(0 나눗셈 방지)', () => {
       const d = evaluateRiskGuardEntry(base({ totalCapital: 0, dailyRealizedPnl: -1_000_000 }));
       expect(d.violations.map((v) => v.code)).not.toContain('DAILY_LOSS');
+    });
+  });
+
+  describe('MONTHLY_LOSS 규칙 (P21·DAR-501)', () => {
+    it('상수는 −10%(frozen·명세 3-3 근거)', () => {
+      expect(RISK_GUARD_MONTHLY_LOSS_MAX_PCT).toBe(-0.1);
+    });
+
+    it('당월 실현손익이 −10% 미만이면 위반 (ENFORCE → BLOCK)', () => {
+      // −10% 경계보다 더 큰 손실(−12%)
+      const d = evaluateRiskGuardEntry(base({ mode: 'ENFORCE', monthlyRealizedPnl: -1_200_000 }));
+      expect(d.violations.map((v) => v.code)).toContain('MONTHLY_LOSS');
+      expect(d.action).toBe('BLOCK');
+    });
+
+    it('정확히 −10%(경계)는 위반 아님(< 비교)', () => {
+      const d = evaluateRiskGuardEntry(
+        base({ monthlyRealizedPnl: RISK_GUARD_MONTHLY_LOSS_MAX_PCT * 10_000_000 }),
+      );
+      expect(d.violations.map((v) => v.code)).not.toContain('MONTHLY_LOSS');
+      expect(d.action).toBe('ALLOW');
+    });
+
+    it('monthlyRealizedPnl 미제공(undefined)이면 룰 스킵(산정 미배선 경로 안전 무판정)', () => {
+      // base()는 monthlyRealizedPnl 을 넣지 않는다 → 극단 일일손실만 있어도 MONTHLY_LOSS 는 없음.
+      const d = evaluateRiskGuardEntry(base({ mode: 'ENFORCE', dailyRealizedPnl: -5_000_000 }));
+      expect(d.violations.map((v) => v.code)).not.toContain('MONTHLY_LOSS');
+    });
+
+    it('totalCapital<=0 이면 월간손실 판정 스킵(0 나눗셈 방지)', () => {
+      const d = evaluateRiskGuardEntry(base({ totalCapital: 0, monthlyRealizedPnl: -9_999_999 }));
+      expect(d.violations.map((v) => v.code)).not.toContain('MONTHLY_LOSS');
+    });
+
+    it('당월 이익(+)이면 위반 없음', () => {
+      const d = evaluateRiskGuardEntry(base({ monthlyRealizedPnl: 500_000 }));
+      expect(d.violations.map((v) => v.code)).not.toContain('MONTHLY_LOSS');
+      expect(d.action).toBe('ALLOW');
     });
   });
 

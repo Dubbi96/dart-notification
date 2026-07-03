@@ -113,6 +113,29 @@ describe('RiskGuardService.evaluateEntry', () => {
     expect(alerts[0].meta?.dedupeKey).toContain('risk-guard:block:dual-momentum-forward:20260704');
   });
 
+  it('MONTHLY_LOSS(P21): ENFORCE 코어가 당월 실현손실 −10% 초과면 BLOCK + meta 에 monthlyRealizedPnl 기록', async () => {
+    const { svc, created } = makeService();
+    const d = await svc.evaluateEntry(
+      base({
+        track: 'dual-momentum-forward',
+        monthlyRealizedPnl: -1_500_000, // −15% ≪ −10%
+        corpCode: '360750',
+      }),
+    );
+    expect(d.action).toBe('BLOCK');
+    expect(created[0].violationCodes).toContain('MONTHLY_LOSS');
+    expect((created[0].meta as Record<string, unknown>).monthlyRealizedPnl).toBe(-1_500_000);
+  });
+
+  it('MONTHLY_LOSS(P21): SHADOW 측정 트랙은 −10% 초과여도 BLOCK 아님(기록만)', async () => {
+    const { svc, created } = makeService();
+    const d = await svc.evaluateEntry(
+      base({ track: 'paper-simulation', monthlyRealizedPnl: -9_999_999 }),
+    );
+    expect(d.action).toBe('SHADOW_VIOLATION');
+    expect(created[0].violationCodes).toContain('MONTHLY_LOSS');
+  });
+
   it('영속 실패해도 판정은 정상 반환(graceful)', async () => {
     const { svc, prisma } = makeService();
     (prisma.riskDecisionLog.create as jest.Mock).mockRejectedValueOnce(new Error('db down'));

@@ -30,6 +30,7 @@
 | **이벤트 게이트** | `domain/event-list.ts` | 화이트리스트(6종)/블랙리스트(9종) M12 자동매매 게이트용 |
 | **RiskGuard 공용 진입 게이트** | `domain/risk-guard-gate.ts` + `services/risk-guard.service.ts` | 일일손실 한도 + 현금 불변식(cash≥0, DAR-426) 2종을 트랙 컨텍스트만 받는 **순수 게이트**로 추출(ALLOW / SHADOW_VIOLATION / BLOCK). 전 진입 트랙이 진입 확정 직전 1줄로 소비. 측정 트랙(시스템 모의·철학·전략 forward)은 **SHADOW**(기록만·차단 0), 듀얼모멘텀 코어 forward 는 **ENFORCE**(위반 시 매수 차단). 분봉 단타는 기존 `checkRisk` 하드룰 유지(중복 배선 금지). 판정 영속=`RiskDecisionLog`(FK 없는 전용 additive 모델), 위반=P02 OPS_ALERT(SHADOW 일 1회 dedupe·ENFORCE 즉시). ★불변식: SHADOW 는 절대 BLOCK 없음 → 매매 행동 무변경(M10 클록 보호). 순수 Rule·AI 0. DAR-496 |
 | **드로다운 컷 + HWM 추적** | `domain/risk-guard-gate.ts`(`evaluateDrawdownCut`) + `services/risk-guard.service.ts`(`evaluateDrawdownCut`) | 계좌 고점(High-Water Mark) forward-only 영속 추적(`AccountHighWaterMark`·FK 없음·포트폴리오 단위·초기값=최초 관측 총자산·과거 소급 금지) + 고점 대비 **−15%**(frozen·G6 정합) 드로다운 컷. 일일 사이클 총자산 산출 직후 소비. 측정 트랙 **SHADOW**(기록+OPS_ALERT·차단 0), 코어 forward **ENFORCE**→`KillSwitchManager.activate(REDUCE_ONLY)`(DB 영속·수동 해제만=자동 재개 금지·이미 발동 중이면 재발동 금지). MDD=engine4 `computeMaxDrawdownPct` 재사용. ★SHADOW 는 −99% 에도 절대 BLOCK 없음. 순수 Rule·AI 0. DAR-497 |
+| **월간 손실 한도** | `domain/risk-guard-gate.ts`(`evaluateRiskGuardEntry` 3번째 룰·`RISK_GUARD_MONTHLY_LOSS_MAX_PCT`) | §7.4 진입 게이트에 룰 1종 추가(새 게이트 아님). 당월(KST 캘린더 월) 실현손실 합계 / 트랙 원금 **< −10%**(frozen·명세 3-3) → `MONTHLY_LOSS`. 각 트랙 진입 확정 직전 `monthlyRealizedPnl` 산정(기존 청산 컬럼 `closedAt`/`exitDate` 당월분 합산·스키마 무변경) 후 게이트에 전달. 측정 트랙 **SHADOW**(기록만·차단 0), 코어 forward **ENFORCE**→진입 게이트 **BLOCK**(당월 신규 매수 차단·**월 바뀌면 자동 재개**·킬스위치 아님=드로다운 컷과 구분). BUY 진입만 게이트(GAP-11 side-gate). ★SHADOW 는 극단 위반에도 절대 BLOCK 없음. 순수 Rule·AI 0. DAR-501 |
 | **시스템 모의운용** | `paper-simulation/` | 일일 사이클(평일 19:30 KST: 매수 예약→시가평가→Exit 판정, 체결은 익일 시가 — 장외 체결 의미론)·장중 5분 모니터(개장 체결기 + forward 트랙 전 포트폴리오 실시간 청산)·실가 가격소스(`simulation-price-source`)·자산곡선·트레이드 스코어카드·졸업지표 적재. `paper-simulation.service.ts`가 오케스트레이터 |
 | — 철학 스타일 분기 | `paper-simulation/philosophy-style*` | BUFFETT/LYNCH/GREENBLATT/DRUCKENMILLER 4개 거장 스타일별 분기 모의운용(philosophy-fit ≥50 적격 진입, 누적수익 랭킹, LOW_SAMPLE 정직 표기) |
 | — 페르소나 | `paper-simulation/persona/` | 시장국면(market-regime) 판정 + 페르소나 추천·트레이딩 API |
@@ -89,8 +90,9 @@
 - **★수용 기준**: 측정 트랙 기본값 SHADOW 는 M10 클록 보호(매매 행동 무변경)의 절대 조건이다.
   ENFORCE 플립은 환경변수 `RISK_GUARD_MODE_<TRACK>=ENFORCE` 로 **코드 변경 없이** 가능하나,
   측정 트랙 플립은 **M10 졸업 측정 완료 + 사용자 승인 전까지 금지**(룰북 §8.5).
-- **판정 2종(P18 골격)**: ① 일일손실 한도(dailyRealizedPnl/totalCapital < -2%, `DEFAULT_RISK_LIMITS`
-  재사용) ② 현금 불변식(availableCash − entryBudget ≥ 0, DAR-426). 월간 한도·자동 킬은 후속(P20~P21).
+- **판정 룰(P18 골격 + P21 확장)**: ① 일일손실 한도(dailyRealizedPnl/totalCapital < -2%, `DEFAULT_RISK_LIMITS`
+  재사용) ② 월간 손실 한도(monthlyRealizedPnl/totalCapital < -10%, DAR-501 — 아래 참조) ③ 현금 불변식
+  (availableCash − entryBudget ≥ 0, DAR-426). 자동 킬은 후속.
 - **불변식**: `evaluateRiskGuardEntry` 는 mode==='ENFORCE' 일 때만 BLOCK 을 반환한다 → SHADOW 트랙은
   절대 차단되지 않아 배선 전후 진입 후보·수량·예약이 동일하다(neutrality 스펙으로 증명).
 
@@ -111,6 +113,22 @@
   드로다운 컷 경로는 ENFORCE 에서 별도 OPS_ALERT 를 내지 않는다(SHADOW 만 OPS_ALERT).
 - **★SHADOW 중립성 봉인**: `evaluateDrawdownCut` 도 mode==='ENFORCE' 일 때만 BLOCK →
   측정 트랙은 −99% 드로다운에도 절대 차단 없음(`risk-guard-shadow-neutrality.spec.ts` 전수 증명).
+
+## 월간 손실 한도 (DAR-501 [견고화 W2·P21])
+
+- **갭 A14(명세 3-3 "월간 손익 −10% 도달 시 당월 전략 중단")**: 손실 한도가 일간(−2%)/주간(−5%)까지만
+  있고 월간 한도는 전무했다. §7.4 진입 게이트에 **룰 1종 추가**(P18/P19 골격 재사용·새 게이트·모델 없음).
+- **MONTHLY_LOSS 룰**(`RISK_GUARD_MONTHLY_LOSS_MAX_PCT = -0.10`, frozen·명세 3-3): 당월(KST 캘린더 월)
+  실현손실 합계 / 트랙 원금 < −10% → 위반. `monthlyRealizedPnl` 미제공(undefined)이면 룰 스킵(안전 무판정).
+- **입력 산정**(P18 `dailyRealizedPnl` 준비 패턴 확장·스키마 무변경): paper-sim=`closedAt >= kstMonthStart`,
+  철학/전략 forward=`formatKstDateCompact(closedAt).slice(0,6) === YYYYMM`, 코어=DualMomentumForwardTrade
+  `exitDate` 당월 프리픽스 합. 각 트랙 진입 확정 직전 1줄로 게이트에 전달(SHADOW 3종·ENFORCE 코어).
+- **모드별 동작**: 측정 트랙(**SHADOW**)=`RiskDecisionLog` 기록 + OPS_ALERT(트랙+거래일 dedupe)만·차단 0.
+  코어 forward(**ENFORCE**)=진입 게이트 **BLOCK**→당월 신규 매수 취소(현금 보유). **킬스위치가 아니다** —
+  월이 바뀌면 당월 실현손실 합이 0 으로 리셋돼 **익월 자동 재개**(명세 취지·드로다운 컷과 구분).
+- **side-gate(GAP-11)**: 매수(BUY) 진입만 게이트 — 청산(SELL) 미차단.
+- **★SHADOW 중립성 봉인**: `evaluateRiskGuardEntry` 는 mode==='ENFORCE' 일 때만 BLOCK →
+  측정 트랙은 월간 극단 손실에도 절대 차단 없음(`risk-guard-shadow-neutrality.spec.ts` 세 규칙 전수 증명).
 
 ## 체결 시뮬레이터 파라미터
 

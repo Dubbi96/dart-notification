@@ -286,6 +286,16 @@ export class PhilosophyStyleSimulationService {
           : s,
       0,
     );
+    // DAR-501(P21): 당월(KST) 실현손익 — closedAt 의 연·월(YYYYMM)이 tradeDate 와 같은 청산분 합산
+    //   (월간 손실 한도 게이트 입력·SHADOW 관측). 월이 바뀌면 합이 리셋(익월 자동 재개·명세 3-3).
+    const yearMonth = tradeDate.slice(0, 6);
+    const monthlyRealizedPnl = closedForCash.reduce(
+      (s, p) =>
+        p.closedAt && formatKstDateCompact(p.closedAt).slice(0, 6) === yearMonth
+          ? s + (p.unrealizedPnl ?? 0)
+          : s,
+      0,
+    );
     let availableCash = PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl - investedPrincipal;
 
     const baseBudget = PaperSimulationService.INITIAL_CAPITAL * (pf.maxSinglePositionPct / 100);
@@ -319,6 +329,7 @@ export class PhilosophyStyleSimulationService {
         tradeDate,
         totalCapital: PaperSimulationService.INITIAL_CAPITAL,
         dailyRealizedPnl,
+        monthlyRealizedPnl,
         availableCash,
         entryBudget: shares * price,
         corpCode: sig.corpCode,

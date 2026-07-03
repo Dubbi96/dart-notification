@@ -33,9 +33,10 @@ export type RiskGuardMode = 'SHADOW' | 'ENFORCE';
  * 게이트 위반 코드.
  *   - P18(DAR-496): DAILY_LOSS(일일손실)·CASH_GUARD(현금 불변식) — 진입 게이트.
  *   - P19(DAR-497): DRAWDOWN_CUT(고점 대비 −15% 드로다운 컷) — 계좌 레벨 게이트.
- * (월간 한도·자동 킬은 후속 P20~P21.)
+ *   - P21(DAR-501): MONTHLY_LOSS(당월 실현손실 −10% 도달) — 진입 게이트(당월 신규 진입 차단).
+ * (자동 킬은 후속.)
  */
-export type RiskGuardViolationCode = 'DAILY_LOSS' | 'CASH_GUARD' | 'DRAWDOWN_CUT';
+export type RiskGuardViolationCode = 'DAILY_LOSS' | 'CASH_GUARD' | 'DRAWDOWN_CUT' | 'MONTHLY_LOSS';
 
 /** 게이트 판정 액션. ALLOW=통과 · SHADOW_VIOLATION=위반이나 기록만 · BLOCK=위반으로 차단. */
 export type RiskGuardAction = 'ALLOW' | 'SHADOW_VIOLATION' | 'BLOCK';
@@ -51,7 +52,12 @@ export interface RiskGuardEntryInput {
   track: RiskGuardTrack;
   mode: RiskGuardMode;
   totalCapital: number; // 트랙 가상원금(KRW)
-  dailyRealizedPnl: number; // 당일 실현손익(음수=손실). 손실한도 판정 기준.
+  dailyRealizedPnl: number; // 당일 실현손익(음수=손실). 일일손실 한도 판정 기준.
+  /**
+   * 당월(KST 캘린더 월) 실현손익 합계(음수=손실). 월간 손실 한도(MONTHLY_LOSS) 판정 기준.
+   *   미제공(undefined)이면 월간 룰 스킵 — 호출측이 산정을 배선하지 않은 경로는 안전 무판정.
+   */
+  monthlyRealizedPnl?: number;
   availableCash: number; // 진입 직전 가용현금(KRW)
   entryBudget: number; // 이번 진입 예산(체결 예상 진입원가, KRW)
   killSwitchActive?: boolean; // 킬스위치 상태(로그 통합용 — 차단 자체는 각 트랙이 개별 처리)
@@ -100,18 +106,29 @@ export function resolveRiskGuardMode(
 export const RISK_GUARD_DAILY_LOSS_MAX_PCT = DEFAULT_RISK_LIMITS.dailyLossMaxPct;
 
 /**
- * evaluateRiskGuardEntry — 순수 함수. 트랙 컨텍스트를 받아 일일손실·현금 2종 위반을 판정한다.
+ * 월간 손실 한도(음수, 기본 −0.10 = −10%). **frozen 상수** — 명세 3-3("월간 손익 −10% 도달 시 당월
+ * 전략 중단")이 근거. 일간(−2%)·주간(−5%) 사다리를 월간으로 확장한다. 값 변경은 룰북 §8.1 3게이트 필수.
+ * ★기간 리셋(당월 KST 캘린더 월) = 월이 바뀌면 자동 재개 → 킬스위치(DRAWDOWN_CUT)가 아닌 **진입 게이트
+ *   BLOCK**으로 처리한다(명세 취지: 당월만 중단, 익월 자동 재개). 근거: risk-guard-gate.spec 회귀로 봉인.
+ */
+export const RISK_GUARD_MONTHLY_LOSS_MAX_PCT = -0.1;
+
+/**
+ * evaluateRiskGuardEntry — 순수 함수. 트랙 컨텍스트를 받아 일일손실·월간손실·현금 3종 위반을 판정한다.
  *
  * 규칙:
- *   1) DAILY_LOSS  : dailyRealizedPnl / totalCapital < dailyLossMaxPct(-2%)  → 위반
- *   2) CASH_GUARD  : availableCash − entryBudget < 0 (cash≥0 불변식 위배)     → 위반
+ *   1) DAILY_LOSS   : dailyRealizedPnl / totalCapital < dailyLossMaxPct(-2%)         → 위반
+ *   2) MONTHLY_LOSS : monthlyRealizedPnl / totalCapital < monthlyLossMaxPct(-10%)    → 위반
+ *                     (monthlyRealizedPnl 미제공 시 스킵 — 산정 미배선 경로 안전 무판정)
+ *   3) CASH_GUARD   : availableCash − entryBudget < 0 (cash≥0 불변식 위배)           → 위반
  *
  * 액션:
  *   - 위반 0                         → ALLOW
  *   - 위반 ≥1 && mode==='SHADOW'     → SHADOW_VIOLATION (기록만, 차단 0)
- *   - 위반 ≥1 && mode==='ENFORCE'    → BLOCK (진입 차단)
+ *   - 위반 ≥1 && mode==='ENFORCE'    → BLOCK (진입 차단 — 코어 forward 는 당월 신규 진입만 차단, 월 바뀌면 자동 재개)
  *
  * ★불변식: BLOCK 은 mode==='ENFORCE' 일 때만 반환된다 → SHADOW 트랙은 절대 차단되지 않는다.
+ * ★MONTHLY_LOSS 는 킬스위치가 아니라 진입 게이트 BLOCK 이다(명세 3-3: 당월만 중단, 익월 자동 재개).
  * ★side-effect 0 (영속·알림은 RiskGuardService 소관). AI 개입 0.
  */
 export function evaluateRiskGuardEntry(input: RiskGuardEntryInput): RiskGuardDecision {
@@ -134,7 +151,25 @@ export function evaluateRiskGuardEntry(input: RiskGuardEntryInput): RiskGuardDec
     }
   }
 
-  // 2) 현금 불변식(cash≥0) — 진입 예산이 가용현금을 넘으면 위반(DAR-426 패턴).
+  // 2) 월간 손실 한도(P21·DAR-501) — 당월 실현손실 합계 / 트랙 원금 < −10% 이면 위반.
+  //   monthlyRealizedPnl 미제공(undefined) 이거나 totalCapital≤0 이면 스킵(안전 무판정).
+  if (input.totalCapital > 0 && input.monthlyRealizedPnl !== undefined) {
+    const monthlyLossPct = input.monthlyRealizedPnl / input.totalCapital;
+    if (monthlyLossPct < RISK_GUARD_MONTHLY_LOSS_MAX_PCT) {
+      violations.push({
+        code: 'MONTHLY_LOSS',
+        message: `월간손실 한도 초과: ${(monthlyLossPct * 100).toFixed(2)}% < 허용 ${(RISK_GUARD_MONTHLY_LOSS_MAX_PCT * 100).toFixed(0)}%`,
+        details: {
+          monthlyRealizedPnl: input.monthlyRealizedPnl,
+          totalCapital: input.totalCapital,
+          actualPct: monthlyLossPct,
+          limitPct: RISK_GUARD_MONTHLY_LOSS_MAX_PCT,
+        },
+      });
+    }
+  }
+
+  // 3) 현금 불변식(cash≥0) — 진입 예산이 가용현금을 넘으면 위반(DAR-426 패턴).
   const cashAfter = input.availableCash - input.entryBudget;
   if (cashAfter < 0) {
     violations.push({

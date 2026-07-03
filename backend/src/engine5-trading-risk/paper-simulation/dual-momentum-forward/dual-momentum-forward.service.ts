@@ -423,15 +423,20 @@ export class DualMomentumForwardService {
         continue;
       }
 
-      // DAR-496(P18): 공용 진입 게이트 — 코어 트랙은 **ENFORCE**. 매수 체결 직전 1줄.
+      // DAR-496(P18)+DAR-501(P21): 공용 진입 게이트 — 코어 트랙은 **ENFORCE**. 매수 체결 직전 1줄.
       //   현금 불변식(cash≥0)이 활성 룰: shares=floor(cash/perShareCost) 라 진입원가 ≤ cash → 통상 ALLOW
       //   (게이트가 불변식을 재확증). 일일손실은 월말 리밸런싱 트랙 특성상 '당일 매매 손실' 개념이 없어
-      //   dailyRealizedPnl=0(월말 실현손익을 일일손실로 오인해 리밸런싱을 차단하지 않는다). BLOCK 이면 매수 취소.
+      //   dailyRealizedPnl=0(월말 실현손익을 일일손실로 오인해 리밸런싱을 차단하지 않는다).
+      //   ★월간 손실 한도(MONTHLY_LOSS·명세 3-3): 당월 실현손실 합계(직전 매도 반영)/원금 < −10% 이면 BLOCK
+      //     → 당월 신규 매수 차단(현금 보유). 월이 바뀌면 monthlyRealizedNetPnl 이 0 으로 리셋돼 자동 재개.
+      //     킬스위치가 아니라 게이트 BLOCK 으로 처리(당월만 중단하는 명세 취지 — DRAWDOWN_CUT 와 구분).
+      const monthlyRealizedPnl = await this.monthlyRealizedNetPnl(tradeDate);
       const gate = await this.riskGuard?.evaluateEntry({
         track: 'dual-momentum-forward',
         tradeDate,
         totalCapital: DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL,
         dailyRealizedPnl: 0,
+        monthlyRealizedPnl,
         availableCash: cash,
         entryBudget: shares * perShareCost,
         killSwitchActive: this.killSwitch?.isActive() ?? false,
@@ -439,7 +444,10 @@ export class DualMomentumForwardService {
         stockCode: p.etfCode,
       });
       if (gate?.action === 'BLOCK') {
-        await this.cancelTrade(p.id, 'RiskGuard ENFORCE 차단(현금 불변식)');
+        const reason = gate.violations.some((v) => v.code === 'MONTHLY_LOSS')
+          ? 'RiskGuard ENFORCE 차단(월간 손실 한도 −10% — 당월 신규 진입 중단)'
+          : 'RiskGuard ENFORCE 차단(현금 불변식)';
+        await this.cancelTrade(p.id, reason);
         continue;
       }
 
@@ -559,6 +567,20 @@ export class DualMomentumForwardService {
       select: { netPnl: true },
     });
     return closed.reduce((s, r) => s + Number(r.netPnl ?? 0), 0);
+  }
+
+  /**
+   * 당월(KST 캘린더 월) 실현손익 합계 — 월간 손실 한도(MONTHLY_LOSS·P21·DAR-501) 게이트 입력.
+   *   매도 체결일(exitDate, YYYYMMDD)의 연·월이 tradeDate 와 같은 CLOSED 거래의 netPnl 합.
+   *   ★기간 리셋: exitDate 월 프리픽스로 필터하므로 월이 바뀌면 합이 0 으로 리셋 → 익월 자동 재개.
+   */
+  private async monthlyRealizedNetPnl(tradeDate: string): Promise<number> {
+    const yearMonth = tradeDate.slice(0, 6);
+    const closedThisMonth = await this.prisma.dualMomentumForwardTrade.findMany({
+      where: { styleTag: CORE_STYLE_TAG, status: 'CLOSED', exitDate: { startsWith: yearMonth } },
+      select: { netPnl: true },
+    });
+    return closedThisMonth.reduce((s, r) => s + Number(r.netPnl ?? 0), 0);
   }
 
   private async snapshotEquity(

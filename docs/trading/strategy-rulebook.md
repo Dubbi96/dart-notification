@@ -327,7 +327,7 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
   | 듀얼모멘텀 코어 forward | **ENFORCE** | 측정 대상 아님(§9.3.2 위험조정 게이트 통과 신규 트랙) |
 
 - **★수용 기준(§8.5 준수)**: 측정 트랙 기본값 **SHADOW** 는 M10 클록 보호의 절대 조건이다. ENFORCE 플립은 환경변수 `RISK_GUARD_MODE_<TRACK>=ENFORCE` 로 **코드 변경 없이** 가능하나, 측정 트랙 플립은 **M10 졸업 측정 완료 + §8.1 3게이트(문서→재검증→사람 승인) 통과 전까지 금지**(Wave 2 P23). 순수 게이트의 불변식상 SHADOW 는 절대 BLOCK 을 반환하지 않아 배선 전후 진입 후보·수량·예약이 동일하다.
-- **영속·알림**: 판정을 `RiskDecisionLog`(FK 없는 additive 모델)에 기록. 위반은 P02 OPS_ALERT — SHADOW 는 트랙+거래일 dedupe(일 1회 요약), ENFORCE BLOCK 은 즉시. 월간 한도·자동 킬은 후속(P20~P21).
+- **영속·알림**: 판정을 `RiskDecisionLog`(FK 없는 additive 모델)에 기록. 위반은 P02 OPS_ALERT — SHADOW 는 트랙+거래일 dedupe(일 1회 요약), ENFORCE BLOCK 은 즉시. 드로다운 컷=§7.5, 월간 손실 한도=§7.6.
 
 ### 7.5 드로다운 컷 (고점 추적 + −15% REDUCE_ONLY 자동 발동, DAR-497 [견고화 W2·P19])
 
@@ -351,6 +351,29 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 
 - **알림 중복 방지**: ENFORCE 발동 시 킬스위치 activate 가 **P02 RISK_ALERT 를 단독 발행**(§7.4 배선)하므로, 드로다운 컷 경로는 ENFORCE 에서 별도 OPS_ALERT 를 내지 않는다(SHADOW 만 OPS_ALERT).
 - **★SHADOW 중립성 봉인(§8.5)**: 순수 게이트 불변식상 SHADOW 트랙은 DRAWDOWN_CUT 극단 위반(−99%)에도 절대 BLOCK 을 반환하지 않는다(`risk-guard-shadow-neutrality.spec.ts` 전수 증명). 측정 트랙 ENFORCE 플립은 M10 졸업 + §8.1 3게이트 통과 전까지 금지(P23).
+
+### 7.6 월간 손실 한도 (당월 실현손실 −10% → 당월 신규 진입 중단, DAR-501 [견고화 W2·P21])
+
+코드: `backend/src/engine5-trading-risk/domain/risk-guard-gate.ts`(`RISK_GUARD_MONTHLY_LOSS_MAX_PCT`·`evaluateRiskGuardEntry` 3번째 룰) + `services/risk-guard.service.ts`(영속·알림). **§7.4 진입 게이트 골격에 룰 1종 추가**(새 게이트 아님).
+
+- **역할(갭 A14 — 명세 3-3 "월간 손익 −10% 도달 시 당월 전략 중단")**: 손실 한도가 일간(−2%·§7.1)·주간(−5%·§7.1)까지만 있고 월간 한도는 전무했다. 일간/주간 사다리를 **월간**으로 확장한다.
+- **입력**: 트랙 단위 **당월(KST 캘린더 월) 실현손실 합계 / 트랙 원금**. 산정은 §7.4 진입 게이트의 `dailyRealizedPnl` 준비 패턴 확장 — 각 트랙 기존 청산 컬럼(PaperTrade/Position `closedAt`·DualMomentumForwardTrade `exitDate`)에서 당월분만 합산(스키마 변경 없음).
+
+  | 규칙 | 임계값 | 발동 |
+  |---|---|---|
+  | **MONTHLY_LOSS** | 당월 실현손실 / 원금 **< −10%**(`RISK_GUARD_MONTHLY_LOSS_MAX_PCT`, frozen·명세 3-3) | 도달 시 위반 |
+
+  > frozen: −10% 는 명세 3-3 이 근거. 값 변경은 §8.1 3게이트 필수(`risk-guard-gate.spec.ts` 가 −0.1 을 회귀로 봉인).
+
+- **트리거 시 모드별 동작**(§7.4 모드 플래그 재사용):
+
+  | 모드 | 동작 |
+  |---|---|
+  | **측정 트랙(SHADOW)** | `RiskDecisionLog` 기록 + OPS_ALERT(트랙+거래일 dedupe·일 1회) **만** — 차단 0(매매 행동 무변경·M10 클록 보호) |
+  | **코어 forward(ENFORCE)** | 진입 게이트 **BLOCK** → 당월 신규 매수 차단(현금 보유). **킬스위치가 아니다** — 월이 바뀌면 당월 실현손실 합이 0 으로 리셋돼 **익월 자동 재개**(명세 취지: 당월만 중단). 드로다운 컷(§7.5·수동 해제까지 영속)과 명확히 구분 |
+
+- **side-gate(GAP-11) 준수**: 매수(BUY) 진입만 게이트 — 청산·위험 축소(SELL)는 미차단(§7.1 원칙 동일).
+- **★SHADOW 중립성 봉인(§8.5)**: 순수 게이트 불변식상 SHADOW 트랙은 MONTHLY_LOSS 극단 위반에도 절대 BLOCK 을 반환하지 않는다(`risk-guard-shadow-neutrality.spec.ts` 세 규칙 동시 극단 위반 전수 증명). 측정 트랙 ENFORCE 플립은 M10 졸업 + §8.1 3게이트 통과 전까지 금지(P23).
 
 ---
 
@@ -560,6 +583,7 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 | Risk 하드룰 | `engine5-trading-risk/domain/risk-check.types.ts` | `DEFAULT_RISK_LIMITS`·`DEFAULT_AUTO_KILL_CONDITIONS`·`DEFAULT_KILL_SWITCH_MODE` |
 | **RiskGuard 공용 진입 게이트** (§7.4) | `engine5-trading-risk/domain/risk-guard-gate.ts` | `evaluateRiskGuardEntry`·`resolveRiskGuardMode`·`DEFAULT_RISK_GUARD_MODES`(측정 SHADOW·코어 ENFORCE)·`RISK_GUARD_DAILY_LOSS_MAX_PCT`. 모델 `RiskDecisionLog`(FK 없음) |
 | **드로다운 컷 + HWM 추적** (§7.5) | `engine5-trading-risk/domain/risk-guard-gate.ts` + `services/risk-guard.service.ts` | `evaluateDrawdownCut`·`RISK_GUARD_DRAWDOWN_CUT_MAX_PCT`(−0.15, G6 정합·frozen)·`RiskGuardService.evaluateDrawdownCut`(HWM forward-only 갱신·측정 SHADOW/코어 ENFORCE→킬스위치 REDUCE_ONLY). 모델 `AccountHighWaterMark`(FK 없음). MDD=engine4 `computeMaxDrawdownPct` 재사용 |
+| **월간 손실 한도** (§7.6) | `engine5-trading-risk/domain/risk-guard-gate.ts`(`evaluateRiskGuardEntry` 3번째 룰) | `RISK_GUARD_MONTHLY_LOSS_MAX_PCT`(−0.10, 명세 3-3·frozen)·`MONTHLY_LOSS` 위반코드. 당월 실현손실/원금 < −10% → 측정 SHADOW(기록)·코어 ENFORCE(진입 게이트 BLOCK=당월 신규 진입 중단·익월 자동 재개, 킬스위치 아님) |
 | 체결 파라미터 | `engine5-trading-risk/domain/fill-simulator.ts` | `DEFAULT_FILL_PARAMS`·`roundTripCostPct` |
 | **변동성 돌파 위성 신호·사이징** (§9.1) | `engine3-quant-market/volatility-breakout/volatility-breakout-signal.ts` | `computeBreakoutTarget`·`computeVolAdjustedSizing`·`evaluateBreakoutEntry`·`BREAKOUT_ENTRY_TAG` |
 | **변동성 돌파 위성 상수** (§9.1) | `engine3-quant-market/volatility-breakout/volatility-breakout.constants.ts` | `VOL_BREAKOUT_K`·`TARGET_DAILY_VOL_PCT`·`VOLATILITY_BREAKOUT_PRESET`·`SATELLITE_TARGET_ETF_CODE` |
@@ -573,5 +597,5 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 
 ---
 
-*정본 버전: 1.8 (2026-07-04). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24) → 1.3 DAR-491 §9.1 변동성 돌파 위성 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P14) → 1.4 DAR-492 §9.2 듀얼모멘텀 코어 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P12) → 1.5 DAR-493 §9.3 2단 자본 프레임·ETF 비용 프로파일·백테스트 엣지 게이트 절차 신설·§10 SSOT 포인터 추가(견고화 W1·P16) → 1.6 DAR-494 §9.3.1 게이트 실행 결과 기록·§9.3.2 코어 한정 위험조정 게이트 기준(§8 사람 승인 2026-07-03)·§9.1 위성 기각 기록(견고화 W1·P13) → 1.7 DAR-496 §7.4 RiskGuard 공용 진입 게이트(일일손실·현금 2종·측정 SHADOW·코어 forward ENFORCE·§8.5 준수)·§10 SSOT 포인터 추가(견고화 W2·P18) → 1.8 DAR-497 §7.5 드로다운 컷(고점 추적 HWM + 고점 대비 −15% REDUCE_ONLY 자동 발동·G6 정합 frozen·측정 SHADOW/코어 ENFORCE→킬스위치·자동 재개 금지)·§10 SSOT 포인터 추가(견고화 W2·P19). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24·P14·Wave1·Wave2`.*
+*정본 버전: 1.9 (2026-07-04). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24) → 1.3 DAR-491 §9.1 변동성 돌파 위성 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P14) → 1.4 DAR-492 §9.2 듀얼모멘텀 코어 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P12) → 1.5 DAR-493 §9.3 2단 자본 프레임·ETF 비용 프로파일·백테스트 엣지 게이트 절차 신설·§10 SSOT 포인터 추가(견고화 W1·P16) → 1.6 DAR-494 §9.3.1 게이트 실행 결과 기록·§9.3.2 코어 한정 위험조정 게이트 기준(§8 사람 승인 2026-07-03)·§9.1 위성 기각 기록(견고화 W1·P13) → 1.7 DAR-496 §7.4 RiskGuard 공용 진입 게이트(일일손실·현금 2종·측정 SHADOW·코어 forward ENFORCE·§8.5 준수)·§10 SSOT 포인터 추가(견고화 W2·P18) → 1.8 DAR-497 §7.5 드로다운 컷(고점 추적 HWM + 고점 대비 −15% REDUCE_ONLY 자동 발동·G6 정합 frozen·측정 SHADOW/코어 ENFORCE→킬스위치·자동 재개 금지)·§10 SSOT 포인터 추가(견고화 W2·P19) → 1.9 DAR-501 §7.6 월간 손실 한도(당월 실현손실 −10% 도달 시 당월 신규 진입 중단·명세 3-3 frozen·측정 SHADOW/코어 ENFORCE→진입 게이트 BLOCK·월 바뀌면 자동 재개·킬스위치 아님·§7.4 골격 룰 1종 추가)·§10 SSOT 포인터 추가(견고화 W2·P21). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24·P14·Wave1·Wave2`.*
 *설립 시점 전값은 코드 상수를 무보정 전사했다(code=truth). 이후 변경은 §8 변경 절차(문서 개정→재검증→사람 승인)를 따른다.*

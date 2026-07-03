@@ -20,12 +20,13 @@ const MEASUREMENT_TRACKS: RiskGuardTrack[] = [
   'intraday-scalp',
 ];
 
-// 두 규칙(일일손실·현금)을 모두 극단 위반시키는 최악 입력.
+// 세 규칙(일일손실·월간손실·현금)을 모두 극단 위반시키는 최악 입력.
 const catastrophic = (track: RiskGuardTrack): RiskGuardEntryInput => ({
   track,
   mode: resolveRiskGuardMode(track, {}), // 환경 오버라이드 없이 기본 모드
   totalCapital: 10_000_000,
   dailyRealizedPnl: -9_999_999, // ≪ -2%
+  monthlyRealizedPnl: -9_999_999, // ≪ -10% (P21·DAR-501)
   availableCash: 0,
   entryBudget: 5_000_000, // ≫ 가용현금
 });
@@ -37,7 +38,7 @@ describe('SHADOW 무변경 증명 (DoD 항목5)', () => {
     }
   });
 
-  it('측정 트랙은 두 규칙 동시 극단 위반에도 BLOCK 되지 않는다 → 진입 흐름 무변경', () => {
+  it('측정 트랙은 세 규칙 동시 극단 위반에도 BLOCK 되지 않는다 → 진입 흐름 무변경', () => {
     for (const track of MEASUREMENT_TRACKS) {
       const d = evaluateRiskGuardEntry(catastrophic(track));
       // 핵심: action 은 SHADOW_VIOLATION(기록만) 이지 BLOCK 이 아니다.
@@ -45,6 +46,8 @@ describe('SHADOW 무변경 증명 (DoD 항목5)', () => {
       expect(d.action).toBe('SHADOW_VIOLATION');
       // 위반은 감지·기록되지만(관측 가치), 호출측의 BLOCK 분기는 발화하지 않는다.
       expect(d.violations.length).toBeGreaterThanOrEqual(1);
+      // P21(DAR-501): 월간손실 극단 위반도 SHADOW 에선 기록만(차단 0).
+      expect(d.violations.map((v) => v.code)).toContain('MONTHLY_LOSS');
     }
   });
 
@@ -61,6 +64,7 @@ describe('SHADOW 무변경 증명 (DoD 항목5)', () => {
       const d = evaluateRiskGuardEntry({
         ...catastrophic(track),
         dailyRealizedPnl: 0,
+        monthlyRealizedPnl: 0,
         availableCash: 10_000_000,
         entryBudget: 1_000_000,
       });

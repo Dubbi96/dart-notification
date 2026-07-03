@@ -1,5 +1,11 @@
 import { NotificationType } from '@prisma/client';
-import { NotifyConsumer, formatKrw, signedPct } from './notify.consumer';
+import {
+  NotifyConsumer,
+  formatKrw,
+  signedPct,
+  opsAlertTitle,
+  OPS_SEVERITY_LABEL,
+} from './notify.consumer';
 import { NOTIFY_JOB } from '../common/queues/queue.constants';
 
 /**
@@ -578,6 +584,129 @@ describe('NotifyConsumer (DAR-85)', () => {
       );
       const call = notifications.createNotificationIfAbsent.mock.calls[0][0];
       expect(call.title).toBe('⚠️ 삼성전자 투자논리 훼손');
+    });
+  });
+
+  // ── OPS_ALERT / RISK_ALERT (DAR-473 P01) ──────────────────────────────────
+  describe('리스크·운영 알림 (DAR-473 P01)', () => {
+    const opsJob = {
+      type: 'OPS_ALERT' as const,
+      severity: 'WARNING' as const,
+      source: 'cron-freshness',
+      message: '공시 수집 크론이 30분째 지연되고 있습니다.',
+      dedupeKey: 'cron-stale:2026-07-03',
+    };
+    const riskJob = {
+      type: 'RISK_ALERT' as const,
+      severity: 'CRITICAL' as const,
+      source: 'kill-switch',
+      message: '킬스위치가 발동했습니다. 신규 진입이 중단됩니다.',
+      dedupeKey: 'kill-switch:2026-07-03',
+    };
+
+    it('실제 사용자 전원 브로드캐스트 — 설정행 미존재=기본 ON(인박스+푸시)', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }, { id: 'u2' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([]); // 기본 ON
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+
+      await consumer.process(job(NOTIFY_JOB.OPS_ALERT, opsJob));
+
+      // 합성 시스템 유저 제외 조건으로 조회(체결 알림과 동일 브로드캐스트 배선).
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { provider: { not: 'system' } } }),
+      );
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledTimes(2);
+      const first = notifications.createNotificationIfAbsent.mock.calls[0][0];
+      expect(first).toMatchObject({
+        userId: 'u1',
+        type: NotificationType.OPS_ALERT,
+        refId: 'cron-stale:2026-07-03', // dedupeKey = 멱등 자연키
+        title: '⚙️ 운영 · 주의',
+        body: '공시 수집 크론이 30분째 지연되고 있습니다.',
+      });
+      // 채널: 카테고리 'system' → Android 채널 'system'.
+      expect(expoPush.sendPushNotifications).toHaveBeenCalledTimes(2);
+      expect(expoPush.sendPushNotifications.mock.calls[0][0][0].channelId).toBe('system');
+    });
+
+    it('RISK_ALERT → 🛑 리스크 제목·OPS_ALERT 타입 구분·system 채널', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([]);
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+
+      await consumer.process(job(NOTIFY_JOB.OPS_ALERT, riskJob));
+
+      const call = notifications.createNotificationIfAbsent.mock.calls[0][0];
+      expect(call.type).toBe(NotificationType.RISK_ALERT);
+      expect(call.title).toBe('🛑 리스크 · 긴급');
+      const msg = expoPush.sendPushNotifications.mock.calls[0][0][0];
+      expect(msg.channelId).toBe('system');
+      expect(msg.data).toMatchObject({ type: NotificationType.RISK_ALERT, refId: 'kill-switch:2026-07-03' });
+    });
+
+    it('opsPushEnabled=false 인 사용자는 인박스도 생략(과알림 방지)', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }, { id: 'u2' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: true, opsPushEnabled: false },
+        { userId: 'u2', isEnabled: true, opsPushEnabled: true },
+      ]);
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+
+      await consumer.process(job(NOTIFY_JOB.OPS_ALERT, opsJob));
+
+      // u1 OFF → 스킵, u2 만 인박스+푸시.
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledTimes(1);
+      expect(notifications.createNotificationIfAbsent.mock.calls[0][0]).toMatchObject({ userId: 'u2' });
+      expect(expoPush.sendPushNotifications).toHaveBeenCalledTimes(1);
+    });
+
+    it('master isEnabled=false → 인박스만, 푸시 미발송', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: false, opsPushEnabled: true },
+      ]);
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+
+      await consumer.process(job(NOTIFY_JOB.OPS_ALERT, opsJob));
+
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledTimes(1);
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('멱등: created=false 면 푸시 재발송 스킵', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([]);
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+      notifications.createNotificationIfAbsent.mockResolvedValue({
+        notification: { id: 'n1' },
+        created: false,
+      });
+
+      await consumer.process(job(NOTIFY_JOB.OPS_ALERT, opsJob));
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('수신 사용자 0명 → graceful no-op', async () => {
+      const { consumer, prisma, notifications } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([]);
+      await consumer.process(job(NOTIFY_JOB.OPS_ALERT, opsJob));
+      expect(notifications.createNotificationIfAbsent).not.toHaveBeenCalled();
+    });
+
+    it('opsAlertTitle 순수 함수 — 출처 이모지+라벨·심각도', () => {
+      expect(opsAlertTitle(NotificationType.OPS_ALERT, 'INFO')).toBe('⚙️ 운영 · 정보');
+      expect(opsAlertTitle(NotificationType.RISK_ALERT, 'CRITICAL')).toBe('🛑 리스크 · 긴급');
+      expect(OPS_SEVERITY_LABEL).toMatchObject({
+        INFO: '정보',
+        WARNING: '주의',
+        ERROR: '오류',
+        CRITICAL: '긴급',
+      });
     });
   });
 

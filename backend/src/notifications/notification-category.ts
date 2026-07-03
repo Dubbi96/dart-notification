@@ -12,13 +12,15 @@ import { NotificationType } from '@prisma/client';
  *  - 공시(disclosure): DISCLOSURE
  *  - 신호(signal):    SIGNAL · EXIT · THESIS_VIOLATED
  *  - 체결(trade):     TRADE_ENTRY · TRADE_EXIT  (시스템 트레이딩 체결)
+ *  - 운영(system):    RISK_ALERT · OPS_ALERT    (DAR-473 P01 리스크·운영 알림)
  */
-export type NotificationCategory = 'disclosure' | 'signal' | 'trade';
+export type NotificationCategory = 'disclosure' | 'signal' | 'trade' | 'system';
 
 export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
   'disclosure',
   'signal',
   'trade',
+  'system',
 ] as const;
 
 /** NotificationType → 카테고리 매핑. */
@@ -29,6 +31,9 @@ export const NOTIFICATION_CATEGORY: Record<NotificationType, NotificationCategor
   [NotificationType.THESIS_VIOLATED]: 'signal',
   [NotificationType.TRADE_ENTRY]: 'trade',
   [NotificationType.TRADE_EXIT]: 'trade',
+  // DAR-473(P01): 리스크·운영 알림 → 'system' 버킷.
+  [NotificationType.RISK_ALERT]: 'system',
+  [NotificationType.OPS_ALERT]: 'system',
 };
 
 /** 카테고리 → 포함 NotificationType 목록(쿼리 필터용). */
@@ -40,6 +45,8 @@ export const CATEGORY_TYPES: Record<NotificationCategory, NotificationType[]> = 
     NotificationType.THESIS_VIOLATED,
   ],
   trade: [NotificationType.TRADE_ENTRY, NotificationType.TRADE_EXIT],
+  // DAR-473(P01): 운영 버킷 — 리스크·운영 알림.
+  system: [NotificationType.RISK_ALERT, NotificationType.OPS_ALERT],
 };
 
 /**
@@ -50,6 +57,8 @@ export const CATEGORY_CHANNEL_ID: Record<NotificationCategory, string> = {
   disclosure: 'disclosure',
   signal: 'signal',
   trade: 'trade',
+  // DAR-473(P01): 리스크·운영 알림 채널.
+  system: 'system',
 };
 
 /** NotificationType → Android 채널 ID(=Expo push channelId). */

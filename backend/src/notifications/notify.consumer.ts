@@ -19,6 +19,8 @@ import {
   NotifyExitJobData,
   NotifyThesisViolatedJobData,
   NotifyTradeJobData,
+  NotifyOpsAlertJobData,
+  OpsAlertSeverity,
 } from '../common/queues/queue.constants';
 
 /** DAR-424: KRW 천단위 구분 표기(반올림·정수). 음수는 '-' 유지. */
@@ -31,6 +33,27 @@ export function signedPct(pct?: number | null): string {
   if (pct === undefined || pct === null || Number.isNaN(pct)) return '';
   const sign = pct >= 0 ? '+' : '';
   return `${sign}${pct.toFixed(2)}%`;
+}
+
+/** DAR-473(P01): 리스크·운영 알림 심각도 → 한국어 라벨(제목 표기용). */
+export const OPS_SEVERITY_LABEL: Record<OpsAlertSeverity, string> = {
+  INFO: '정보',
+  WARNING: '주의',
+  ERROR: '오류',
+  CRITICAL: '긴급',
+};
+
+/**
+ * DAR-473(P01): 리스크·운영 알림 제목 산출(순수 함수).
+ *   '{출처 이모지} {출처명} · {심각도}' 예: '🛑 리스크 · 긴급' / '⚙️ 운영 · 주의'.
+ *   출처(이모지+라벨)는 notification-source SSOT 에서 온다(risk→🛑리스크·ops→⚙️운영).
+ */
+export function opsAlertTitle(
+  type: NotificationType,
+  severity: OpsAlertSeverity,
+): string {
+  const src = sourceByType(type);
+  return `${src.emoji} ${src.label} · ${OPS_SEVERITY_LABEL[severity]}`;
 }
 
 /**
@@ -69,6 +92,8 @@ export class NotifyConsumer extends WorkerHost {
       case NOTIFY_JOB.TRADE_ENTRY:
       case NOTIFY_JOB.TRADE_EXIT:
         return this.handleTrade(job.data as NotifyTradeJobData);
+      case NOTIFY_JOB.OPS_ALERT:
+        return this.handleOpsAlert(job.data as NotifyOpsAlertJobData);
       default:
         this.logger.warn(`알 수 없는 NOTIFY 잡: ${job.name}`);
         return;
@@ -298,6 +323,71 @@ export class NotifyConsumer extends WorkerHost {
     );
   }
 
+  // ── OPS_ALERT / RISK_ALERT (DAR-473 P01) ────────────────────────────────────
+  //
+  // 리스크·운영 알림을 ★실제 앱 사용자 전원에게 브로드캐스트한다(체결 알림과 동일 배선).
+  //   - 수신자 = provider≠'system' 실 사용자 전원(합성 시스템 유저 제외).
+  //   - opsPushEnabled(기본 ON) 토글로 인박스·푸시를 함께 게이트(OFF면 인박스도 생략).
+  //     설정행 미존재 = 기본 ON.
+  //   - 푸시는 추가로 master isEnabled + 유효 디바이스 토큰 필요.
+  //   - 멱등: (userId, type, refId=dedupeKey) NotificationHistory unique.
+  //   - 채널: 카테고리 'system' → Android 채널 'system'(channelIdForType).
+  // ★관측·알림 계층 전용 — 주문 결정/실주문·Kill 과 무관(AI 금지영역·M10 클록 불침범).
+  private async handleOpsAlert(data: NotifyOpsAlertJobData): Promise<void> {
+    const type =
+      data.type === 'RISK_ALERT'
+        ? NotificationType.RISK_ALERT
+        : NotificationType.OPS_ALERT;
+    const title = opsAlertTitle(type, data.severity);
+    const body = data.message;
+    const refId = data.dedupeKey; // 멱등 자연키
+    const deepLink = data.deepLink;
+
+    // 수신자 = 실제 앱 사용자 전원(브로드캐스트). 합성 시스템 유저(provider='system') 제외.
+    const users = await this.prisma.user.findMany({
+      where: { provider: { not: 'system' } },
+      select: { id: true },
+    });
+    if (users.length === 0) {
+      this.logger.debug(`[NOTIFY:OPS:${data.type}] 수신 대상 사용자 없음 — 스킵`);
+      return;
+    }
+
+    // 토글 일괄 조회(설정행 미존재=기본 ON 으로 간주).
+    const settingsRows = await this.prisma.notificationSettings.findMany({
+      where: { userId: { in: users.map((u) => u.id) } },
+      select: { userId: true, isEnabled: true, opsPushEnabled: true },
+    });
+    const settingsByUser = new Map(settingsRows.map((s) => [s.userId, s]));
+
+    let inboxed = 0;
+    for (const u of users) {
+      const s = settingsByUser.get(u.id);
+      // ★기본 ON: 설정행 미존재 시 opsPushEnabled=true 로 간주.
+      const opsOn = s ? s.opsPushEnabled : true;
+      if (!opsOn) continue; // 인박스·푸시 모두 생략.
+
+      const { created } = await this.notifications.createNotificationIfAbsent({
+        userId: u.id,
+        type,
+        refId,
+        title,
+        body,
+        deepLink,
+      });
+      if (!created) continue; // 멱등 — 이미 통지(잡 재시도/재발화) → 푸시 재발송 스킵.
+      inboxed += 1;
+
+      // 푸시는 master isEnabled(기본 true) + 유효 토큰일 때만(운영 토글은 위에서 통과).
+      const masterOn = s ? s.isEnabled : true;
+      if (!masterOn) continue;
+      await this.sendPush(u.id, title, body, deepLink, type, refId);
+    }
+    this.logger.log(
+      `[NOTIFY:OPS:${data.type}] src=${data.source} sev=${data.severity} 수신자=${users.length} 신규인박스=${inboxed}`,
+    );
+  }
+
   // ── 공통: 인박스 기록(항상) + 토글 ON 시에만 실발송 ──────────────────────────
   private async dispatch(
     userId: string,
@@ -367,7 +457,8 @@ export class NotifyConsumer extends WorkerHost {
     userId: string,
     title: string,
     body: string,
-    deepLink: string,
+    // DAR-473: 운영·리스크 알림은 딥링크가 없을 수 있어 optional(미지정 시 앱 기본 진입).
+    deepLink: string | undefined,
     type: NotificationType,
     refId: string,
     // DAR-431: 체결 알림은 트랙 식별자(strategyKey/strategyName/source)를 push data 에 동봉해

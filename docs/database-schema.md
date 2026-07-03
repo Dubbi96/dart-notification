@@ -209,6 +209,8 @@ model NotificationSettings {
   thesisPushEnabled Boolean @default(false)
   // DAR-424: 라이브 페이퍼 체결 알림 토글(기본 ON). OFF면 인박스·푸시 모두 생략(과알림 방지).
   tradePushEnabled  Boolean @default(true)
+  // DAR-473(P01): 리스크·운영 알림 토글(기본 ON). OFF면 인박스·푸시 모두 생략.
+  opsPushEnabled    Boolean @default(true)
 
   updatedAt       DateTime @updatedAt
 
@@ -218,10 +220,12 @@ model NotificationSettings {
   @@map("notification_settings")
 }
 
-// 통합 알림 유형 (DAR-84/85/424)
+// 통합 알림 유형 (DAR-84/85/424/473)
 // DISCLOSURE(공시)·SIGNAL(매수신호)·EXIT(청산권고)·THESIS_VIOLATED(논리훼손)
 // ·TRADE_ENTRY(라이브 페이퍼 매수 체결)·TRADE_EXIT(라이브 페이퍼 매도 체결, DAR-424)
+// ·RISK_ALERT(리스크: 킬스위치·드로다운)·OPS_ALERT(운영: 크론 stale·수집/청산 실패·일일 리포트, DAR-473 P01)
 // NotificationHistory.type 으로 사용. 멱등 키 @@unique([userId, type, refId]).
+// 알림 카테고리(4 버킷): 공시(disclosure)·신호(signal)·체결(trade)·운영(system=RISK_ALERT+OPS_ALERT).
 
 // ====================================
 // 공시 데이터
@@ -404,7 +408,10 @@ model NotificationHistory {
 | userId | String | 사용자 ID | PK, FK -> users.id |
 | disclosureTypes | String[] | 공시 유형 배열 | default: [] |
 | keywords | String[] | 키워드 배열 | default: [] |
-| isEnabled | Boolean | 알림 전체 on/off | default: true |
+| isEnabled | Boolean | 알림 전체 on/off (master) | default: true |
+| signalPushEnabled / exitPushEnabled / thesisPushEnabled | Boolean | 신호·청산·논리훼손 푸시 토글 (DAR-85) | default: false |
+| tradePushEnabled | Boolean | 체결 알림 토글 (DAR-424) | default: true |
+| opsPushEnabled | Boolean | 리스크·운영 알림 토글 (DAR-473 P01) | default: true |
 | updatedAt | DateTime | 수정일시 | auto update |
 
 **인덱스**:
@@ -458,13 +465,13 @@ https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcpNo}
 
 ### 3.7 NotificationHistory
 
-**목적**: 통합 알림 인박스 (공시·신호·청산·논리훼손·체결) 발송 이력 및 중복 방지 (DAR-84/85/424)
+**목적**: 통합 알림 인박스 (공시·신호·청산·논리훼손·체결·운영/리스크) 발송 이력 및 중복 방지 (DAR-84/85/424/473)
 
 | 컬럼명 | 타입 | 설명 | 제약 조건 |
 |--------|------|------|----------|
 | id | String | 알림 고유 ID | PK, cuid() |
 | userId | String | 사용자 ID | FK -> users.id |
-| type | NotificationType | DISCLOSURE/SIGNAL/EXIT/THESIS_VIOLATED/TRADE_ENTRY/TRADE_EXIT | default: DISCLOSURE |
+| type | NotificationType | DISCLOSURE/SIGNAL/EXIT/THESIS_VIOLATED/TRADE_ENTRY/TRADE_EXIT/RISK_ALERT/OPS_ALERT | default: DISCLOSURE |
 | refId | String? | 다형 참조키 (rcpNo/signalId/positionId) — 앱레벨 무결성 | NULLABLE |
 | title / body / deepLink | String? | 통지 제목·본문·인앱 딥링크 (공시 외 타입용) | NULLABLE |
 | disclosureRcpNo | String? | DART 접수번호 (공시 외 타입은 null) | FK -> disclosures.rcpNo, NULLABLE |
@@ -1739,5 +1746,6 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-02 (전수 현행화 — 미문서 모델 15종 전용 섹션 추가(§23~§37: CompanyOverview·SavedDisclosure·CronRunLog·DisclosureCollectionLog·DisclosureEvent·DartFiledFact·CompanyFinancial·FinancialCollectionLog·DisclosureAnalysis·PersonaAnalysis·InvestorPhilosophy·PhilosophyMetric·PhilosophySource·SignalEntryFunnelDaily·IntradayScalpTrade), User 카카오 OAuth(password nullable·provider/providerId·(provider,providerId) unique) 반영, NotificationHistory 통합 인박스(type/refId 멱등키) 반영, §17 절 번호 충돌 정리, SSOT 관계(schema.prisma=SSOT·본 문서=해설·총 49개 모델) 헤더 명시)
-**버전**: 2.9 (2026-07-02 전수 현행화; 2.8 DAR-424: NotificationType 에 TRADE_ENTRY/TRADE_EXIT 가산 + notification_settings.tradePushEnabled 추가 — 라이브 페이퍼 체결 알림; 2.7 DAR-404: BacktestRun.strategyKey 비파괴 추가 + @@index — 트레이딩 로직 축 다중 트랙; DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)
+**최종 수정일**: 2026-07-03 (DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산 + notification_settings.opsPushEnabled 추가 — 리스크·운영 알림 채널 신설)
+**이전 수정일**: 2026-07-02 (전수 현행화 — 미문서 모델 15종 전용 섹션 추가(§23~§37: CompanyOverview·SavedDisclosure·CronRunLog·DisclosureCollectionLog·DisclosureEvent·DartFiledFact·CompanyFinancial·FinancialCollectionLog·DisclosureAnalysis·PersonaAnalysis·InvestorPhilosophy·PhilosophyMetric·PhilosophySource·SignalEntryFunnelDaily·IntradayScalpTrade), User 카카오 OAuth(password nullable·provider/providerId·(provider,providerId) unique) 반영, NotificationHistory 통합 인박스(type/refId 멱등키) 반영, §17 절 번호 충돌 정리, SSOT 관계(schema.prisma=SSOT·본 문서=해설·총 49개 모델) 헤더 명시)
+**버전**: 3.0 (2026-07-03 DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산(additive 마이그레이션 20260703010000_dar473_risk_ops_notifications) + notification_settings.opsPushEnabled(기본 ON) 추가 — 능동 리스크/운영 알림 채널 신설(카테고리 4 버킷: 공시·신호·체결·운영); 2.9 2026-07-02 전수 현행화; 2.8 DAR-424: NotificationType 에 TRADE_ENTRY/TRADE_EXIT 가산 + notification_settings.tradePushEnabled 추가 — 라이브 페이퍼 체결 알림; 2.7 DAR-404: BacktestRun.strategyKey 비파괴 추가 + @@index — 트레이딩 로직 축 다중 트랙; DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)

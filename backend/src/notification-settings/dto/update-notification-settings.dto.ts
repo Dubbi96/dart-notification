@@ -49,4 +49,10 @@ export class UpdateNotificationSettingsDto {
   @IsBoolean()
   @IsOptional()
   tradePushEnabled?: boolean;
+
+  // DAR-473(P01): 리스크·운영 알림 토글(기본 ON). OFF면 인박스·푸시 모두 생략.
+  @ApiProperty({ example: true, required: false, description: '리스크·운영 알림(기본 ON)' })
+  @IsBoolean()
+  @IsOptional()
+  opsPushEnabled?: boolean;
 }

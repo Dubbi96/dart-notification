@@ -48,6 +48,9 @@ const NOTIFICATION_TYPE_META: Record<NotificationType, TypeMeta> = {
   // DAR-424: 라이브 페이퍼 체결 — 매수(녹색 매수 진입)·매도(주황 청산 확정).
   TRADE_ENTRY: { icon: 'arrow-down-circle', colorKey: 'success', label: '매수 체결' },
   TRADE_EXIT: { icon: 'arrow-up-circle', colorKey: 'warning', label: '매도 체결' },
+  // DAR-473(P01): 리스크(경고 아이콘·error)·운영(설정 아이콘·warning) 알림.
+  RISK_ALERT: { icon: 'shield-off', colorKey: 'error', label: '리스크' },
+  OPS_ALERT: { icon: 'settings', colorKey: 'warning', label: '운영' },
 };
 const getTypeMeta = (type: NotificationType): TypeMeta =>
   NOTIFICATION_TYPE_META[type] ?? NOTIFICATION_TYPE_META.DISCLOSURE;
@@ -65,11 +68,15 @@ const SEGMENTS: readonly Segment[] = [
   { key: 'disclosure', label: '공시' },
   { key: 'signal', label: '신호' },
   { key: 'trade', label: '체결' },
+  // DAR-473(P01): 리스크·운영 알림 버킷.
+  { key: 'system', label: '운영' },
 ];
 const CATEGORY_LABEL: Record<NotificationCategory, string> = {
   disclosure: '공시',
   signal: '신호',
   trade: '체결',
+  // DAR-473(P01): 운영 버킷.
+  system: '운영',
 };
 const getCategoryLabel = (category: NotificationCategory): string =>
   CATEGORY_LABEL[category];

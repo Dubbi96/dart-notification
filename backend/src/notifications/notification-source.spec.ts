@@ -19,6 +19,9 @@ describe('notification-source SSOT (DAR-432)', () => {
     expect(NOTIFICATION_SOURCES['conservative-value']).toMatchObject({ emoji: '🛡️', label: '보수가치' });
     expect(NOTIFICATION_SOURCES['short-momentum']).toMatchObject({ emoji: '🚀', label: '단기모멘텀' });
     expect(NOTIFICATION_SOURCES['aggressive-diversified']).toMatchObject({ emoji: '💥', label: '공격분산' });
+    // DAR-473(P01): 리스크·운영 출처.
+    expect(NOTIFICATION_SOURCES.risk).toMatchObject({ emoji: '🛑', label: '리스크' });
+    expect(NOTIFICATION_SOURCES.ops).toMatchObject({ emoji: '⚙️', label: '운영' });
   });
 
   it('이모지는 출처마다 고유(중복 0)', () => {
@@ -40,6 +43,9 @@ describe('notification-source SSOT (DAR-432)', () => {
     expect(sourceByType(NotificationType.THESIS_VIOLATED).emoji).toBe('⚠️');
     // 체결 타입은 strategyKey 가 필요 → 폴백.
     expect(sourceByType(NotificationType.TRADE_ENTRY)).toBe(FALLBACK_SOURCE);
+    // DAR-473(P01): 리스크·운영 타입 매핑.
+    expect(sourceByType(NotificationType.RISK_ALERT).emoji).toBe('🛑');
+    expect(sourceByType(NotificationType.OPS_ALERT).emoji).toBe('⚙️');
   });
 
   it('sourcePrefix — "이모지 라벨"', () => {

@@ -352,6 +352,7 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 - 백테스트 결과 기반 **AI가 전략 파라미터를 자동 조정·최적화하는 행위는 과적합(overfitting) 위험으로 절대 금지**.
 - Gate 판정을 AI가 번복·예외 처리하는 행위 절대 금지. AI의 실전 수익 예측·보증 금지(백테스트는 과거 검증, 미래 보장 아님).
 - 변경 절차의 ②재검증·③승인은 전부 **순수 Rule/수식 + 사람** 경로다. engine2(AI/LLM)는 이 3게이트 어디에도 개입하지 않는다(§0 · engine5 AI 금지영역 불가침).
+- **파라미터 민감도 스윕 하니스(read-only, 견고화 W3·P24 / DAR-485)**: `engine3 backtest/strategies/parameter-sweep.*`(API `POST /paper-trading/simulation/strategies/:key/sensitivity-sweep`·수동 스크립트)는 프리셋 이웃값 그리드(손절 ±2%p·익절 ±5%p·보유일 ±5일·minBuyScore ±5)의 성과 안정성을 **측정·리포트만** 한다. 이 하니스는 §8.2 ②재검증에 쓸 근거(과최적화 여부·최민감 축)를 제공할 뿐, 결과를 근거로 파라미터를 **자동 변경하는 경로가 없다**. 반영은 반드시 §8.1 3게이트(문서 개정→재검증→사람 승인)로만 한다. 상시 크론 없음(수동 트리거·운용/측정 트랙 무접촉·BacktestRun 영속 0).
 
 ### 8.5 M10 클록 보호 — 측정 트랙 리스크 룰 ENFORCE 플립 금지 (Wave 2 P23 근거 조항)
 
@@ -396,5 +397,5 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 
 ---
 
-*정본 버전: 1.1 (2026-07-03). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07`.*
+*정본 버전: 1.2 (2026-07-03). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24`.*
 *설립 시점 전값은 코드 상수를 무보정 전사했다(code=truth). 이후 변경은 §8 변경 절차(문서 개정→재검증→사람 승인)를 따른다.*

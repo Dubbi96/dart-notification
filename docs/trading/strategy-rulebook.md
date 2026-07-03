@@ -463,6 +463,22 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 | styleTag | `alloc:dual-momentum` |
 | 활성 게이트 | P16 백테스트 엣지 양수 통과 후 — **현재 비활성** |
 
+### 9.3 2단 자본 프레임 + 검증 게이트 (DAR-493 P16)
+
+> 신규 2트랙(§9.1 위성·§9.2 코어) forward 활성의 **선행 조건**. 게이트는 계산 코드까지가 P16 범위이고,
+> **판정·활성 결정은 통합자·사용자 소관**이다(do-no-harm — RSI 엣지 없음 기각 전례).
+
+**2단 자본 프레임(frozen)**: 코어 65% / 위성 25% / 현금 버퍼 10% (합 100%). 코드: `two-tier-backtest/capital-frame.constants.ts`.
+
+**ETF 비용 프로파일**: ETF 는 증권거래세 **면제**(taxRate=0). 수수료·슬리피지는 개별주와 동일. 개별주 4전략 백테스트는 기존 프로파일(거래세 0.18%) 무변경. 코드: `two-tier-backtest/etf-cost-profile.ts`.
+
+**게이트 산출·기록 절차**:
+1. P11 수동 백필 러너로 ETF 일봉 3년 구간 적재 → 커버리지 확인(360750 상장 2020-08 고려).
+2. `two-tier-backtest.manual.ts`(또는 JWT `POST /api/paper-trading/backtest/two-tier-gate`)로 비용 반영 백테스트 실행 → 게이트 리포트.
+3. 리포트 지표: 트랙별 totalReturn·승률·PF·MDD·표본수 + **엣지 양수 여부**(비용 반영 후 `totalReturn > 0 && > 벤치마크(KODEX200 매수후보유)`).
+4. **코어는 월단위 관측 ≈12회/년 → 통계 검증력 낮음**(문헌 엣지 참조 불가피 — 정직 표기).
+5. 게이트 결과는 리뷰 산출물(리포트)로 기록하고, 통합자·사용자가 활성 여부를 결정한다. **불합격 시 파라미터 튜닝은 §8 변경 절차로만**(AI 자동조정 금지 §8.4).
+
 ---
 
 ## 10. 코드 SSOT 포인터 (문서↔코드 대조표)
@@ -482,11 +498,12 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 | **변동성 돌파 위성 상수** (§9.1) | `engine3-quant-market/volatility-breakout/volatility-breakout.constants.ts` | `VOL_BREAKOUT_K`·`TARGET_DAILY_VOL_PCT`·`VOLATILITY_BREAKOUT_PRESET`·`SATELLITE_TARGET_ETF_CODE` |
 | **듀얼모멘텀 코어 판정** (§9.2) | `engine3-quant-market/dual-momentum/dual-momentum-signal.ts` | `computeMomentum`·`decideDualMomentumTarget`·`resolveRebalanceAction`·`decideMonthlyRebalance` |
 | **듀얼모멘텀 코어 상수** (§9.2) | `engine3-quant-market/dual-momentum/dual-momentum.constants.ts` | `MOMENTUM_LOOKBACK_DAYS`·`DUAL_MOMENTUM_PRESET`·`CORE_OFFENSE_INTL_CODE`·`CORE_DEFENSE_BOND_CODE`·`CORE_CAPITAL_ALLOCATION_PCT` |
+| **2단 프레임·ETF 비용·게이트** (§9.3) | `engine3-quant-market/two-tier-backtest/` | `TWO_TIER_CAPITAL_FRAME`·`ETF_COST_PROFILE`·`backtestCoreDualMomentum`·`backtestSatelliteBreakout`·`assembleGateReport` |
 
 관련 API 문서: `docs/api-specification.md` §18(전략 변형 트랙)·§19(분봉 단타)·§21(시스템 모의·철학 스타일·전략 forward).
 스케줄 상세: `docs/workflow.md` §6.7(분봉 단타). 백테스트 리플레이 설계: `docs/roadmap/phase-10-backtest.md`.
 
 ---
 
-*정본 버전: 1.4 (2026-07-03). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24) → 1.3 DAR-491 §9.1 변동성 돌파 위성 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P14) → 1.4 DAR-492 §9.2 듀얼모멘텀 코어 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P12). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24·Wave1`.*
+*정본 버전: 1.5 (2026-07-03). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24) → 1.3 DAR-491 §9.1 변동성 돌파 위성 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P14) → 1.4 DAR-492 §9.2 듀얼모멘텀 코어 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P12) → 1.5 DAR-493 §9.3 2단 자본 프레임·ETF 비용 프로파일·백테스트 엣지 게이트 절차 신설·§10 SSOT 포인터 추가(견고화 W1·P16). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24·P14·Wave1`.*
 *설립 시점 전값은 코드 상수를 무보정 전사했다(code=truth). 이후 변경은 §8 변경 절차(문서 개정→재검증→사람 승인)를 따른다.*

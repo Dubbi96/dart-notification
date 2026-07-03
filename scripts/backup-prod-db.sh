@@ -50,7 +50,12 @@ if [[ -z "${S3_BUCKET:-}" ]]; then
   exit 1
 fi
 AWS_REGION="${AWS_REGION:-ap-northeast-2}"
-export DATABASE_URL AWS_REGION
+
+# Prisma 스타일 URL(`...?schema=public&connection_limit=...`)의 쿼리스트링을 제거한다.
+# libpq/pg_dump 의 URI 파서는 `schema` 등 Prisma 전용 쿼리 파라미터를 "invalid URI query
+# parameter" 로 거부하므로, 백업에는 `?` 이후를 잘라낸 순수 접속 URL만 넘긴다.
+PGDUMP_URL="${DATABASE_URL%%\?*}"
+export DATABASE_URL PGDUMP_URL AWS_REGION
 
 # ── ② 덤프 파일명·임시 경로 준비 (+실패/종료 시 임시파일 정리 trap) ──────────
 STAMP="$(date +%Y-%m-%d)"
@@ -67,16 +72,29 @@ if command -v ionice >/dev/null 2>&1; then
   NICE_CMD=(nice -n 19 ionice -c 3)
 fi
 
+# 호스트 pg_dump 는 서버(pg15) major 이상일 때만 사용 가능하다.
+# pg_dump 는 자신보다 높은 서버 버전을 덤프할 수 없다(예: 호스트 pg14 → 서버 pg15 거부).
+# 따라서 major<15 이거나 부재면 compose 와 동일한 pg15 이미지로 폴백한다.
+host_pgdump_usable() {
+  command -v pg_dump >/dev/null 2>&1 || return 1
+  local major
+  major="$(pg_dump --version 2>/dev/null | grep -oE '[0-9]+' | head -1)"
+  [[ -n "$major" && "$major" -ge 15 ]]
+}
+
 run_pg_dump() {
-  if command -v pg_dump >/dev/null 2>&1; then
-    "${NICE_CMD[@]}" pg_dump -Fc --no-password --dbname="$DATABASE_URL"
+  if host_pgdump_usable; then
+    "${NICE_CMD[@]}" pg_dump -Fc --no-password --dbname="$PGDUMP_URL"
   else
-    # 호스트에 pg_dump 없음 → compose 와 동일 이미지로 폴백(서버 pg15 와 버전 일치).
-    # DATABASE_URL 은 -e 로 컨테이너 env 에만 전달 — 호스트 ps/inspect args 에 비밀번호 미노출.
-    log "호스트 pg_dump 없음 — docker(timescale/timescaledb:2.17.2-pg15) 폴백"
-    "${NICE_CMD[@]}" docker run --rm -e DATABASE_URL \
-      timescale/timescaledb:2.17.2-pg15 \
-      sh -c 'exec pg_dump -Fc --no-password --dbname="$DATABASE_URL"'
+    # 호스트 pg_dump 부재 또는 서버보다 낮은 버전 → 서버 pg15 와 일치하는 이미지로 폴백.
+    # PGDUMP_URL 은 -e 로 컨테이너 env 에만 전달 — 호스트 ps/inspect args 에 비밀번호 미노출.
+    # postgres:15-alpine(~80MB) — pg_dump major 15 로 서버(pg15)와 일치하며 timescale 이미지(~400MB)
+    # 보다 가벼워 1GB micro 에 적합. -Fc 덤프는 확장 없이도 카탈로그·데이터를 담으며, TimescaleDB
+    # 복원은 restore 측에서 pre/post_restore 로 처리한다(§cc-pause-handoff DB 복원 절차).
+    log "호스트 pg_dump 사용 불가(부재 또는 major<15) — docker(postgres:15-alpine) 폴백"
+    "${NICE_CMD[@]}" docker run --rm -e PGDUMP_URL \
+      postgres:15-alpine \
+      sh -c 'exec pg_dump -Fc --no-password --dbname="$PGDUMP_URL"'
   fi
 }
 

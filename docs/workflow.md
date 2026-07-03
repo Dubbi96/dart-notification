@@ -1010,6 +1010,36 @@ PreMarketPreflightScheduler.runPreflight()   @Cron('30 8 * * 1-5', KST)  ← 평
   위해 `exit-check-scheduler.interface.ts`·`in-memory-exit-check-scheduler.ts`(자기참조 외 미사용)를
   삭제했다. Exit 평가 도메인(`ExitEngineService.checkAllPositions`)과 6절 흐름은 유지된다.
 
+### 5.11 ETF 일봉 증분 수집 (평일 19:10 EOD, DAR-484 [견고화 W1·P10])
+
+Wave1 신규 2트랙(월단위 듀얼모멘텀 P12/P13 · 변동성 돌파 P14/P15)이 소비할 ETF 일봉을 장마감 후
+증분 적재한다. 기존 KRX 일봉 크론(18:30/21:00)·지수(18:45/21:05)와 **시간대 분리**(19:10).
+
+```
+@Cron('10 19 * * 1-5')  EtfDailyPriceCollector.collectEtfDailyPricesCron (KST)
+  └─ 단일 실행 락 + CronRunRecorder(ETF_DAILY_COLLECT='market.etf-daily-collect') 헬스 래핑
+     └─ source(KisEtfDailySource).isAvailable() 게이트 — KIS 키 미설정이면 graceful no-op(적재 0)
+        └─ 유니버스(etf-universe.ts) 4~5종 순회 (etfDelayMs 스로틀)
+           └─ KisApiService.fetchDailyPrices(code, [오늘−N일, 오늘], 'D')  // 기간별시세, ETF 공용
+              └─ isValidDailyOhlc 행 단위 정합성 검사(손상행 배제)
+                 └─ EtfDailyPrice.createMany(skipDuplicates) — (etfCode,tradeDate) 멱등, source='KIS'
+     → CronRunLog(market.etf-daily-collect, SUCCESS, itemCount=rowsSaved)  // 락 조기반환만 SKIPPED
+```
+
+- ★**소스 어댑터 분리(2026-07-03 실검증)**: 1차 = **KIS 기간별시세**(`KisEtfDailySource`). KRX
+  `/etp/etf_bydd_trd` 는 HTTP 401(현재 키 ETF 상품 미구독 — 주식 일봉 `/sto/stk_bydd_trd` 는 200
+  정상)이라 `KrxEtpDailySource` 는 **인터페이스만·미구현**(구독 승인 시 소스 전환·폴백 체인 구성).
+  적재 행의 `source` 컬럼이 어느 어댑터가 넣었는지 기록(KIS | KRX_ETP) — 소스 전환을 관측 가능하게.
+- ★**유니버스(무레버리지)**: 공격A `360750 TIGER 미국S&P500` · 공격B `069500 KODEX 200` · 방어
+  `273130 KODEX 종합채권(AA-이상)액티브` · 현금성 `153130 KODEX 단기채권`. 레버리지·인버스 금지.
+  채권·단기채는 최상위 유동성 종목으로 1차 확정하고 대안을 병기 — '일평균 거래대금 최상위' 라이브
+  재확인은 Wave 완료 후 가동 시점 게이트(수동 러너 `etf-universe-liquidity.manual.ts`). 상위 변동 시 교체.
+- ★**증분·멱등**: 유량 부담 극소(일 4~5콜). 최근 N일(env `ETF_DAILY_LOOKBACK_DAYS`, 기본 10 —
+  주말·연휴 흡수) 구간을 받아 `createMany skipDuplicates` 로 누락일만 삽입 → 재실행·짧은 정체 자가복구.
+- ★**결측 감지**: 크론 헬스는 `FRESHNESS_JOB_SPECS`(`market.etf-daily-collect`, ALWAYS·72h)로 감시.
+  stale 전환 시 `DataFreshnessMonitorScheduler`(P02)가 OPS_ALERT 발송(별도 배선 불요 — SSOT 경유).
+- 백필(3년+)은 **P11 별도 이슈**. 이 트랙은 모델+어댑터+일일 증분까지(데이터층 전용·매매 무접점).
+
 ---
 
 ## 6. Portfolio & Exit 엔진 점검 스케줄 (M8-A DAR-12)

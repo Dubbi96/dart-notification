@@ -276,4 +276,68 @@ describe('KisApiService (DAR-140)', () => {
       await expect(svc.fetchIndexPrice('0001', 0)).rejects.toBeInstanceOf(KisApiUnavailableError);
     });
   });
+
+  describe('fetchDailyPrices — 기간별 일봉 파싱(ETF 공용, DAR-484)', () => {
+    it('output2(최신→과거)를 거래일 오름차순으로 파싱', async () => {
+      mockClient.post.mockResolvedValue({ data: { access_token: 'tok', expires_in: 86400 } });
+      mockClient.get.mockResolvedValue({
+        data: {
+          output2: [
+            // KIS 는 최신→과거 순으로 준다.
+            { stck_bsop_date: '20260703', stck_oprc: '10,000', stck_hgpr: '10200', stck_lwpr: '9900', stck_clpr: '10100', acml_vol: '123456', acml_tr_pbmn: '1250000000' },
+            { stck_bsop_date: '20260702', stck_oprc: '9800', stck_hgpr: '9950', stck_lwpr: '9750', stck_clpr: '9900', acml_vol: '111222', acml_tr_pbmn: '1100000000' },
+          ],
+        },
+      });
+      const svc = new KisApiService(makeConfig(KEYS));
+      const bars = await svc.fetchDailyPrices('069500', '20260624', '20260703', 0);
+      expect(bars.map((b) => b.tradeDate)).toEqual(['20260702', '20260703']);
+      expect(bars[1]).toEqual({
+        tradeDate: '20260703',
+        open: 10000,
+        high: 10200,
+        low: 9900,
+        close: 10100,
+        volume: 123456,
+        tradingValue: 1250000000,
+      });
+    });
+
+    it('올바른 엔드포인트·파라미터(FID_PERIOD_DIV_CODE=D, 시장코드 J)로 호출', async () => {
+      mockClient.post.mockResolvedValue({ data: { access_token: 'tok', expires_in: 86400 } });
+      mockClient.get.mockResolvedValue({ data: { output2: [] } });
+      const svc = new KisApiService(makeConfig(KEYS));
+      await svc.fetchDailyPrices('360750', '20260101', '20260103', 0);
+      const [url, cfg] = mockClient.get.mock.calls[0];
+      expect(url).toContain('/quotations/inquire-daily-itemchartprice');
+      expect(cfg.params).toMatchObject({
+        FID_COND_MRKT_DIV_CODE: 'J',
+        FID_INPUT_ISCD: '360750',
+        FID_INPUT_DATE_1: '20260101',
+        FID_INPUT_DATE_2: '20260103',
+        FID_PERIOD_DIV_CODE: 'D',
+      });
+    });
+
+    it('output2 결측/빈배열이면 [] (graceful)', async () => {
+      mockClient.post.mockResolvedValue({ data: { access_token: 'tok', expires_in: 86400 } });
+      mockClient.get.mockResolvedValue({ data: {} });
+      const svc = new KisApiService(makeConfig(KEYS));
+      expect(await svc.fetchDailyPrices('069500', '20260624', '20260703', 0)).toEqual([]);
+    });
+
+    it('네트워크 에러는 graceful [] (소실 정직 로깅)', async () => {
+      mockClient.post.mockResolvedValue({ data: { access_token: 'tok', expires_in: 86400 } });
+      mockClient.get.mockRejectedValue(new Error('boom'));
+      const svc = new KisApiService(makeConfig(KEYS));
+      expect(await svc.fetchDailyPrices('069500', '20260624', '20260703', 0)).toEqual([]);
+    });
+
+    it('키 미설정이면 KisApiUnavailableError throw', async () => {
+      const svc = new KisApiService(makeConfig({}));
+      await expect(
+        svc.fetchDailyPrices('069500', '20260624', '20260703', 0),
+      ).rejects.toBeInstanceOf(KisApiUnavailableError);
+    });
+  });
 });

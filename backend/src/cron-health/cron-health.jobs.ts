@@ -28,6 +28,10 @@ export const CRON_JOB_KEYS = {
   //   이 키는 '크론이 살아 돌았나'를 본다 — 이 둘이 분리돼 있어야 EOD 크론이 조용히 멈춘
   //   (일봉 6/18 정체) 사건이 신선도 안전망에 표면화된다.
   DAILY_PRICE_COLLECT: 'market.daily-collect',
+  // DAR-486(견고화 W3·P25): 종목상태 일별 이력 적재 — 평일 08:50 KRX/DART 종목상태 수집이
+  //   forward-only 로 stock_status_daily 에 스냅샷을 축적한다(백테스트 생존편향 처리 입력).
+  //   적재가 조용히 멈추면 백테스트 현실성 개선이 정체되므로 신선도 안전망에 노출한다.
+  STOCK_STATUS_COLLECT: 'market.status-collect',
   // DAR-379: AI 평가 백필 드레인 — 과거 미분석 공시를 비용게이트 내 점진 드레인(평가자료 코퍼스 적재).
   AI_BACKFILL_DRAIN: 'ai.backfill-drain',
   // DAR-391: 이벤트 추출 백필 드레인 — 과거 백필 공시를 rcpDt 시간순 추출/파싱등록(신호·백테스트 연중화 게이트).
@@ -214,6 +218,18 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 18:30, 주말 공백 흡수
     cadence: '평일 18:30 EOD',
+  },
+  {
+    // DAR-486: 종목상태 일별 이력 적재(08:50). forward-only 로 stock_status_daily 에 이상상태
+    //   스냅샷을 쌓아 백테스트 어댑터에 point-in-time 플래그를 공급한다. KRX/DART 미설정 환경에선
+    //   graceful(적재 0)이라 CronRunLog 에 SUCCESS 를 남겨 '크론 살아있음'이 유지된다 — 가동 자체가
+    //   멈춰야만 stale 로 표면화. 평일 08:50, 주말 공백(금→월 ≈72h) 흡수.
+    jobKey: CRON_JOB_KEYS.STOCK_STATUS_COLLECT,
+    label: '종목상태 일별 이력 적재',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 08:50, 주말 공백 흡수
+    cadence: '평일 08:50',
   },
   {
     // DAR-379: AI 평가 백필 드레인. 가동이 멈추면 과거 미분석 공시 적체가 영구화되어

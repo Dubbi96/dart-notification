@@ -16,7 +16,7 @@ export type StrategyKey =
   | 'aggressive-diversified';
 
 /**
- * 청산 사유 — BE BacktestTrade.exitReason(ExitReasonType)과 동일 8종.
+ * 청산 사유 — BE BacktestTrade.exitReason(ExitReasonType)과 동일 9종.
  * OPEN 포지션은 null.
  */
 export type StrategyExitReason =
@@ -27,7 +27,9 @@ export type StrategyExitReason =
   | 'MAX_HOLD_DAYS'
   | 'CHART_BREAK'
   | 'LIQUIDITY_EXIT'
-  | 'FORCE_EXIT';
+  | 'FORCE_EXIT'
+  // DAR-486: 상폐(가격 소멸) 확정 감액 청산 — 백테스트 생존편향 처리 옵션 활성 시.
+  | 'DELISTED';
 
 /** 전략의 진입/청산 룰 평문 요약(룰 공개용). */
 export interface StrategyRules {

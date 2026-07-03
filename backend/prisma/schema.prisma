@@ -909,6 +909,35 @@ model StockStatus {
 }
 
 // ====================================
+// 종목 상태 일별 이력 (DAR-486 견고화 W3·P25 — 백테스트 생존편향)
+// ====================================
+
+// 매 거래일 08:50 종목상태 수집 시점의 (거래정지·관리종목 등) 스냅샷을
+// (stockCode, tradeDate) 자연키로 forward-only 축적한다.
+//
+// ★소급 백필 금지(lookahead 불가침): 과거 날짜의 "현재 상태"를 그 시점 상태로
+//   소급 적재하면 미래정보 누설이다(prisma-price-data.adapter.ts 의 기존 판단과 동일 원칙).
+//   따라서 이력이 없는 과거 거래일은 백테스트에서 미설정(false)으로 남긴다.
+//   forward-only 이므로 조기 가동할수록 이력이 쌓여 백테스트 현실성이 좋아진다.
+//
+// 저장 절약: '정상' 종목(전 플래그 false)은 적재하지 않는다 — 어댑터가 이력 부재를
+//   정상(false)으로 해석하므로 이상상태(정지/관리/주의/급등) 행만 남긴다.
+model StockStatusDaily {
+  stockCode           String // Company.stockCode (6자리)
+  tradeDate           String // 상태 스냅샷 거래일 YYYYMMDD (수집일 = point-in-time)
+  isTradingSuspended  Boolean  @default(false) // 거래정지
+  isManagement        Boolean  @default(false) // 관리종목
+  isInvestmentCaution Boolean  @default(false) // 투자주의
+  isAbnormalSurge     Boolean  @default(false) // 이상급등(투자위험/경고)
+  statusNote          String? // 사유
+  createdAt           DateTime @default(now())
+
+  @@id([stockCode, tradeDate])
+  @@index([tradeDate])
+  @@map("stock_status_daily")
+}
+
+// ====================================
 // 시세 수집 로그 (M4-C KRX 수집, DAR-8)
 // ====================================
 
@@ -1494,6 +1523,8 @@ enum ExitReason {
   CHART_BREAK
   LIQUIDITY_EXIT
   FORCE_EXIT
+  // DAR-486: 상폐(가격 소멸) 확정 감액 청산 — 백테스트 생존편향 처리 옵션 활성 시에만 발생.
+  DELISTED
 }
 
 model BacktestRun {

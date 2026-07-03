@@ -25,9 +25,12 @@ function toIsoDate(tradeDate: string): string {
  *  - 선택적 `asOf` 상한(YYYY-MM-DD)을 받으면, 그 날짜를 초과하는 일봉을 절대 반환하지 않는다.
  *    (백테스트 러너는 일자별로 [day, day] 만 조회하므로 구조적으로 미래 미참조이나,
  *     상한 가드를 명시해 회귀·오용을 차단한다.)
- *  - 현재 StockStatus(거래정지/관리종목)는 stockCode 단일행(현재 상태)이라 과거 시점 상태가
- *    아니므로, 과거 백테스트에 현재 상태를 소급 적용하지 않는다(=lookahead 금지). 일봉이
- *    존재하면 그 날 거래가 성립한 것으로 간주(보수적·정직). 상하한가 플래그도 미저장 → 미설정.
+ *  - 거래정지/관리종목 일별 플래그는 StockStatusDaily(DAR-486, forward-only 이력)에서 공급한다.
+ *    현재 StockStatus 단일행(현재 상태)을 과거에 소급 적용하는 것은 lookahead 이므로 절대 배제하고,
+ *    수집일(tradeDate) 스냅샷으로 기록된 일별 이력만 point-in-time 으로 참조한다. 이력이 없는
+ *    과거 거래일은 기존과 동일하게 미설정(false) — 일봉이 존재하면 거래 성립으로 간주(보수적·정직).
+ *    forward-only 라 과거 백테스트 거동은 무변경이고, 이력이 쌓일수록 상한가 추격·정지종목 진입을
+ *    실제로 걸러 낙관 편향을 줄인다. 상하한가 플래그는 미저장 → 미설정(가격 유래 판정, 이력 대상 아님).
  *
  * AI 금지영역: 순수 데이터 어댑터. AI 개입 0.
  */
@@ -79,16 +82,33 @@ export class PrismaBacktestPriceAdapter extends PriceDataPort {
       },
     });
 
-    return rows.map((r) => ({
-      date: toIsoDate(r.tradeDate),
-      open: r.openPrice,
-      high: r.highPrice,
-      low: r.lowPrice,
-      close: r.closePrice,
-      volume: Number(r.volume),
-      // 상하한가·거래정지·관리종목 일별 이력 미저장 → 미설정(러너는 false 로 처리).
-      // 현재 StockStatus 소급 적용은 lookahead 이므로 의도적으로 배제.
-    }));
+    // DAR-486: 일별 종목상태 이력(거래정지/관리종목)을 같은 구간(asOf 절단 동일)에서 공급.
+    //   이상상태 행만 저장돼 있어 대부분의 (stockCode, tradeDate) 는 부재 → 미설정(false)로 처리.
+    //   이력이 없는 과거 거래일은 빈 맵 → 기존 거동과 완전 동일(forward-only, 회귀 0).
+    const statusRows = await this.prisma.stockStatusDaily.findMany({
+      where: {
+        stockCode,
+        tradeDate: { gte: toTradeDate(startDate), lte: toTradeDate(cappedEnd) },
+      },
+      select: { tradeDate: true, isTradingSuspended: true, isManagement: true },
+    });
+    const statusByDate = new Map(statusRows.map((s) => [s.tradeDate, s]));
+
+    return rows.map((r) => {
+      const status = statusByDate.get(r.tradeDate);
+      return {
+        date: toIsoDate(r.tradeDate),
+        open: r.openPrice,
+        high: r.highPrice,
+        low: r.lowPrice,
+        close: r.closePrice,
+        volume: Number(r.volume),
+        // 일별 이력이 있으면 point-in-time 플래그 공급, 없으면 미설정(false).
+        isTradingSuspended: status?.isTradingSuspended ?? false,
+        isAdminStock: status?.isManagement ?? false,
+        // 상하한가는 가격 유래 판정 — 이력 미저장 → 미설정(false).
+      };
+    });
   }
 
   async getOpenPrice(

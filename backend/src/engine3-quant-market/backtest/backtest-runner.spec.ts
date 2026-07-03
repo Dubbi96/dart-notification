@@ -841,3 +841,68 @@ describe('BacktestRunnerService — eventTypes allowlist (DAR-408)', () => {
     expect(trades).toHaveLength(0);
   });
 });
+
+// ==========================
+// DAR-486 — 상폐(가격 소멸) 미청산 포지션 처리 옵션(생존편향)
+// ==========================
+
+describe('BacktestRunnerService — 상폐 감액 처리 옵션 (DAR-486)', () => {
+  // 진입 후 가격이 소멸(상폐 proxy)해 종료일까지 청산가가 없는 시나리오.
+  // endDate 를 마지막 거래일(01-19)로 두면 메인 루프에서 청산되지 않고 미청산 루프로 흘러간다.
+  function delistedPrices(): Record<string, DailyPrice[]> {
+    return {
+      '005930': [
+        makePrice('2024-01-08', 70000, 70000),
+        makePrice('2024-01-09', 70000, 70000), // 진입 시가 70000
+        makePrice('2024-01-10', 70000, 70000), // 마지막 관측 종가 70000, 이후 가격 소멸(상폐)
+      ],
+    };
+  }
+  const signal = makeSignal({ disclosureAt: new Date('2024-01-08T10:00:00+09:00') });
+
+  it('기본(PRESERVE): 미청산 포지션은 미실현 보존 — 청산 미기록(기존 동작·회귀 0)', async () => {
+    const { runner } = buildRunner(delistedPrices());
+    const trades = await runner.run([signal], DEFAULT_STRATEGY, ZERO_COST, '2024-01-08', '2024-01-19');
+    expect(trades).toHaveLength(1);
+    expect(trades[0].exitReason).toBeUndefined(); // 미청산(보존)
+    expect(trades[0].netPnl).toBeUndefined();
+  });
+
+  it("'ZERO': 상폐 확정 0원 청산 → 전액손실 DELISTED 실현(생존편향 제거)", async () => {
+    const { runner } = buildRunner(delistedPrices());
+    const strategy: StrategyParams = { ...DEFAULT_STRATEGY, delistingLiquidation: 'ZERO' };
+    const trades = await runner.run([signal], strategy, ZERO_COST, '2024-01-08', '2024-01-19');
+    expect(trades).toHaveLength(1);
+    const t = trades[0];
+    expect(t.exitReason).toBe('DELISTED');
+    expect(t.exitPrice).toBe(0);
+    expect(t.exitValue).toBe(0);
+    expect(t.netPnl).toBeCloseTo(-t.entryValue, 5); // 전액손실
+    expect(t.returnPct).toBeCloseTo(-100, 5);
+  });
+
+  it("'LAST_PRICE': 마지막 관측 종가로 청산 → DELISTED, 손익 ≈ 마지막가 기준", async () => {
+    const { runner } = buildRunner(delistedPrices());
+    const strategy: StrategyParams = { ...DEFAULT_STRATEGY, delistingLiquidation: 'LAST_PRICE' };
+    const trades = await runner.run([signal], strategy, ZERO_COST, '2024-01-08', '2024-01-19');
+    expect(trades).toHaveLength(1);
+    const t = trades[0];
+    expect(t.exitReason).toBe('DELISTED');
+    expect(t.exitPrice).toBe(70000); // 마지막 관측 종가(01-10)
+    expect(t.netPnl).toBeCloseTo(0, 5); // 진입가=마지막가=70000, 무비용 → 본전
+  });
+
+  it('가격 소멸이 아니면(정상 종가 존재) 옵션과 무관하게 기존 FORCE_EXIT 경로 유지', async () => {
+    // endDate 를 마지막 거래일 이후(비거래일)로 두면 메인 루프의 day===endDate 가 안 걸려
+    // 미청산 루프로 흘러가지만, 마지막 거래일(01-19)에 정상 종가가 있으면 FORCE_EXIT 로 청산된다.
+    const prices: Record<string, DailyPrice[]> = {
+      '005930': Array.from({ length: 10 }, (_, i) => makePrice(TRADING_DAYS[i], 70000, 70000)),
+    };
+    const { runner } = buildRunner(prices);
+    const strategy: StrategyParams = { ...DEFAULT_STRATEGY, delistingLiquidation: 'ZERO' };
+    const trades = await runner.run([signal], strategy, ZERO_COST, '2024-01-08', '2024-01-22');
+    expect(trades).toHaveLength(1);
+    expect(trades[0].exitReason).toBe('FORCE_EXIT'); // 상폐 아님 — 정상 강제청산
+    expect(trades[0].exitPrice).toBe(70000);
+  });
+});

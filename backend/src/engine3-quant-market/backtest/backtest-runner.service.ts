@@ -251,47 +251,96 @@ export class BacktestRunnerService {
     }
 
     // 미청산 포지션 강제 청산
+    // DAR-486: 종료 시점 가격 소멸(상폐 proxy) 포지션은 delistingLiquidation 옵션에 따라 처리한다.
+    //   기본 'PRESERVE' = 기존 동작(미실현 보존) → 측정 트랙·기존 백테스트 결과 무변경(회귀 0).
+    const delistingMode = strategy.delistingLiquidation ?? 'PRESERVE';
     for (const trade of activePositions.values()) {
       const lastDay = tradingDays[tradingDays.length - 1];
       const prices = await this.priceDataPort.getDailyPrices(trade.stockCode, lastDay, lastDay);
       const dayPrice = prices[0];
-      // 종가 결측·이상치(DAR-390)도 가격 부재와 동일 취급 → 미청산(미실현)으로 보존.
-      if (!dayPrice || !Number.isFinite(dayPrice.close) || dayPrice.close <= 0) {
-        trades.push(trade);
+      // 종가 결측·이상치(DAR-390)도 가격 부재와 동일 취급 = 상폐 proxy.
+      const priceGone = !dayPrice || !Number.isFinite(dayPrice.close) || dayPrice.close <= 0;
+
+      if (priceGone) {
+        if (delistingMode === 'PRESERVE') {
+          // 기존 동작: 미청산(미실현)으로 보존 — 생존편향 잔존(옵션 비활성 기본값).
+          trades.push(trade);
+          continue;
+        }
+        // 상폐 감액 청산: 0원(ZERO) 또는 마지막 관측 종가(LAST_PRICE)로 확정 손실 실현.
+        const rawExitPrice = await this.resolveDelistingExitPrice(trade, lastDay, delistingMode);
+        trades.push(this.buildLiquidationTrade(trade, rawExitPrice, lastDay, costs, 'DELISTED'));
         continue;
       }
 
-      const exitPrice = this.constraint.applySlippage(dayPrice.close, costs.slippagePct, false);
-      const exitShares = trade.entryShares;
-      const exitValue = exitShares * exitPrice;
-      const exitCommission = this.constraint.calcCommission(exitValue, costs.commissionRate);
-      const exitTax = this.constraint.calcTax(exitValue, costs.taxRate);
-      const exitSlippage = exitValue * costs.slippagePct;
-
-      const entryDateStr = this.calendar.formatDate(trade.entryDate);
-      const holdDays = this.calendar.daysBetween(entryDateStr, lastDay);
-      const grossPnl = exitValue - trade.entryValue;
-      const totalCosts = trade.commission + exitCommission + exitTax + trade.slippage + exitSlippage;
-      const netPnl = grossPnl - totalCosts;
-
-      trades.push({
-        ...trade,
-        exitDate: this.calendar.parseDate(lastDay),
-        exitPrice,
-        exitShares,
-        exitValue,
-        exitReason: 'FORCE_EXIT',
-        commission: trade.commission + exitCommission,
-        tax: exitTax,
-        slippage: trade.slippage + exitSlippage,
-        grossPnl,
-        netPnl,
-        returnPct: (netPnl / trade.entryValue) * 100,
-        holdDays,
-      });
+      // 정상 종가 강제 청산(기존 경로).
+      trades.push(this.buildLiquidationTrade(trade, dayPrice.close, lastDay, costs, 'FORCE_EXIT'));
     }
 
     return trades;
+  }
+
+  /**
+   * 미청산 포지션 확정 청산 트레이드 산출 (순수 함수·point-in-time).
+   * FORCE_EXIT(정상 종가)·DELISTED(상폐 감액) 공용 — 슬리피지·수수료·세금·보유일 계산은 동일.
+   * rawExitPrice=0(상폐 전액손실) 이면 청산가·비용 모두 0 → netPnl = -(진입원가) 로 전액손실 실현.
+   */
+  private buildLiquidationTrade(
+    trade: SimulatedTrade,
+    rawExitPrice: number,
+    lastDay: string,
+    costs: BacktestCostParams,
+    exitReason: ExitReasonType,
+  ): SimulatedTrade {
+    const exitPrice = this.constraint.applySlippage(rawExitPrice, costs.slippagePct, false);
+    const exitShares = trade.entryShares;
+    const exitValue = exitShares * exitPrice;
+    const exitCommission = this.constraint.calcCommission(exitValue, costs.commissionRate);
+    const exitTax = this.constraint.calcTax(exitValue, costs.taxRate);
+    const exitSlippage = exitValue * costs.slippagePct;
+
+    const entryDateStr = this.calendar.formatDate(trade.entryDate);
+    const holdDays = this.calendar.daysBetween(entryDateStr, lastDay);
+    const grossPnl = exitValue - trade.entryValue;
+    const totalCosts = trade.commission + exitCommission + exitTax + trade.slippage + exitSlippage;
+    const netPnl = grossPnl - totalCosts;
+
+    return {
+      ...trade,
+      exitDate: this.calendar.parseDate(lastDay),
+      exitPrice,
+      exitShares,
+      exitValue,
+      exitReason,
+      commission: trade.commission + exitCommission,
+      tax: exitTax,
+      slippage: trade.slippage + exitSlippage,
+      grossPnl,
+      netPnl,
+      returnPct: (netPnl / trade.entryValue) * 100,
+      holdDays,
+    };
+  }
+
+  /**
+   * DAR-486: 상폐(가격 소멸) 확정 포지션의 청산 기준가 산출.
+   *  - 'ZERO': 0원(전액손실 가정 — 정리매매 최악 근사).
+   *  - 'LAST_PRICE': 진입일~마지막 거래일 사이 마지막 관측 종가(정리매매 근사). 관측 종가 전무 시 0원.
+   * (호출 시점에서 delistingMode 는 이미 PRESERVE 가 아님이 보장된다.)
+   */
+  private async resolveDelistingExitPrice(
+    trade: SimulatedTrade,
+    lastDay: string,
+    mode: 'ZERO' | 'LAST_PRICE',
+  ): Promise<number> {
+    if (mode === 'ZERO') return 0;
+    const entryDateStr = this.calendar.formatDate(trade.entryDate);
+    const history = await this.priceDataPort.getDailyPrices(trade.stockCode, entryDateStr, lastDay);
+    for (let i = history.length - 1; i >= 0; i--) {
+      const close = history[i].close;
+      if (Number.isFinite(close) && close > 0) return close;
+    }
+    return 0; // 관측 종가 전무 → 전액손실(보수적)
   }
 
   /** 트레일링 스탑 판정 — 최고가 대비 하락률 */

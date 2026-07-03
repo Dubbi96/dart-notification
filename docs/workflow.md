@@ -978,23 +978,64 @@ npx ts-node -r dotenv/config src/engine3-quant-market/market-data/backfill-histo
   휴장일 + 대체공휴일 + 근로자의날(5/1) + 연말 최종휴장일(12/31) + 수능일을 `market-calendar.ts`
   상단 절차대로 추가. 과거연도(2024·2025) 목록은 D0 이력 재현성 위해 동결(소급 수정 금지).
 
+### 5.10 장 시작 전 종합 프리플라이트 (평일 08:30, DAR-487, 견고화 W3·P26)
+
+기존 장 시작 전 잡은 데이터 준비 성격(5.3 종목상태 08:50 · 5.3a 시장분류 08:40)만 있었고,
+토큰·휴장일·전일 일봉 정합·리스크 상태를 한 번에 묶는 종합 프리플라이트가 없었다(갭 E6). 이 잡은
+데이터 준비 잡보다 앞선 08:30 에 네 항목을 일괄 점검한다. **점검 전용 — 매매 로직·판정 무변경**
+(M10 클록 보호). 각 점검은 try/catch 로 격리돼 한 점검 실패가 다른 점검·잡을 깨지 않는다.
+
+```
+PreMarketPreflightScheduler.runPreflight()   @Cron('30 8 * * 1-5', KST)  ← 평일만, 주말 미발화
+  └─ PreMarketPreflightService.buildReport(now)
+       1) 휴장일/반일장 판정 — market-calendar(isTradingDay/isHalfDay/getMarketSession, DAR-481 재사용)
+            └─ 휴장(평일 공휴일)이면 이후 점검 스킵 + 정상 로그 → CronRunLog SKIPPED(살아있음 유지)
+       2) KIS 토큰 사전 워밍 — KisApiService.getAccessToken(nowMs)
+            └─ 유효 캐시 있으면 재발급 없이 반환(발급 제한 존중) · 미설정이면 SKIPPED(dev graceful)
+       3) 전일 일봉 정합 — 최근 tradeDate 행을 daily-price-sanity.isValidDailyOhlc 로 검사(DAR-376 재사용)
+            └─ 손상 행 수 + 신선도(최근 일봉 < 예상 직전 거래일 = EOD 정체 의심). 데이터 없으면 SKIPPED
+       4) 킬스위치·리스크 게이트 — AutoTradingStatusService.getStatus() read-only 재사용(DAR-361)
+            └─ 발동/차단 중이면 RISK 소견(장을 차단 상태로 시작함을 상기)
+  → 이상 발견 시에만 즉시 알림(P02 채널): RISK 소견=enqueueRiskAlert · OPS 소견=enqueueOpsAlert
+     정상이면 무발송(로그만). 멱등키 preflight-(risk|ops):<KST거래일> 로 하루 최대 각 1건.
+  → CronRunRecorder(jobKey=ops.pre-market-preflight) 기록 + FRESHNESS_JOB_SPECS 등록(평일 08:30·72h)
+```
+
+- **발송 라우팅**: RISK(킬스위치·게이트) vs OPS(토큰·데이터)를 분리 발송. 각 채널 다건은 한 알림으로 묶음.
+- **M10 안전**: 실주문/체결/Exit 판정 무직결. 토큰 워밍은 인증 조작(발급)일 뿐 매매 행동 무변경.
+- **engine4 exit-check 인터페이스 정리(택1-b)**: 과거 M8 `IExitCheckScheduler`(09:00/13:00/16:30
+  `runPreMarketCheck` 등)는 크론 미배선 사(死)어댑터였고, 실제 Exit 평가는 라이브 스케줄러(모의운용
+  일일 사이클·장중 손절 모니터·분봉 단타)가 담당한다. 프리플라이트는 **점검 전용**이라 포지션 Exit
+  평가(`checkAllPositions`)를 호출하면 M10 위반이므로 그 인터페이스를 재사용하지 않는다. 혼동을 없애기
+  위해 `exit-check-scheduler.interface.ts`·`in-memory-exit-check-scheduler.ts`(자기참조 외 미사용)를
+  삭제했다. Exit 평가 도메인(`ExitEngineService.checkAllPositions`)과 6절 흐름은 유지된다.
+
 ---
 
 ## 6. Portfolio & Exit 엔진 점검 스케줄 (M8-A DAR-12)
 
 ### 6.1 하루 3회 점검 (평일만)
 
-| 점검 시간 | Cron | CheckTime 레이블 | 설명 |
-|-----------|------|-----------------|------|
-| 09:00 | `0 9 * * 1-5` | `PRE_MARKET` | 장 시작 전 — 전날 종가·overnight 리스크 점검 |
-| 13:00 | `0 13 * * 1-5` | `INTRADAY` | 장중 — VWAP·장중 이탈 점검 |
-| 16:30 | `30 16 * * 1-5` | `POST_MARKET` | 장 마감 후 — 종가 기준 일별 스냅샷 업데이트 |
+M8-A(DAR-12) 설계상 Exit 점검은 세 시점(PRE_MARKET/INTRADAY/POST_MARKET)의 `CheckTime` 으로
+`checkAllPositions(checkTime)` 를 호출한다.
+
+| 점검 시간 | CheckTime 레이블 | 설명 |
+|-----------|-----------------|------|
+| 09:00 | `PRE_MARKET` | 장 시작 전 — 전날 종가·overnight 리스크 점검 |
+| 13:00 | `INTRADAY` | 장중 — VWAP·장중 이탈 점검 |
+| 16:30 | `POST_MARKET` | 장 마감 후 — 종가 기준 일별 스냅샷 업데이트 |
+
+> **★배선 현황(DAR-487 정리)**: 초기 M8 스캐폴딩이던 독립 스케줄러 어댑터
+> (`IExitCheckScheduler`/`InMemoryExitCheckScheduler`)는 크론에 배선된 적이 없어 삭제했다. 실제
+> Exit 평가(`checkAllPositions`)는 라이브 스케줄러 — 모의운용 일일 사이클(6.9)·장중 연속 손절
+> 모니터(6.6)·분봉 단타(6.7) — 가 담당한다. 장 시작 전 토큰·데이터·리스크 **readiness** 점검은
+> 별도 관심사인 08:30 프리플라이트(5.10)가 read-only 로 커버하며, 포지션 Exit 평가는 트리거하지
+> 않는다(M10 클록 보호).
 
 ### 6.2 점검 흐름
 
 ```
-IExitCheckScheduler.runPreMarketCheck() / runIntradayCheck() / runPostMarketCheck()
-  └─ ExitEngineService.checkAllPositions(checkTime)
+ExitEngineService.checkAllPositions(checkTime)   ← 라이브 스케줄러(6.6/6.7/6.9)가 호출
        └─ for each OPEN Position:
             IPositionProvider.getTechnicalSnapshot(stockCode)
             IPositionProvider.getThesisSnapshot(positionId)

@@ -49,6 +49,10 @@ export const CRON_JOB_KEYS = {
   // DAR-477(견고화 W0·P05): 일일 운영 리포트 — 장마감 후(20:30) 손익·체결·오류율 요약을 OPS_ALERT 로 발송.
   //   forward 트랙(19:40/19:45) 이후 스냅샷. 발송 잡이 조용히 멈추면 운영 가시성이 사라지므로 안전망에 노출.
   OPS_DAILY_REPORT: 'ops.daily-report',
+  // DAR-487(견고화 W3·P26): 장 시작 전 종합 프리플라이트 — 평일 08:30 토큰·휴장일·전일 일봉 정합·
+  //   리스크 상태 일괄 점검(이상 시 RISK/OPS_ALERT). 이 잡이 조용히 멈추면 장 시작 전 이상 감지가
+  //   사라지므로 안전망에 노출. 휴장 평일은 SKIPPED 로 기록돼 '크론은 살아 있음'이 유지된다.
+  PRE_MARKET_PREFLIGHT: 'ops.pre-market-preflight',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -311,5 +315,16 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: 2_880, // 48시간 — 매일 20:30, 하루 누락까지 허용
     cadence: '매일 20:30',
+  },
+  {
+    // DAR-487(견고화 W3·P26): 장 시작 전 종합 프리플라이트. 평일 08:30 KST — 멈추면 장 시작 전
+    //   토큰·데이터·리스크 이상 감지가 사라지므로 안전망에 노출. 평일 가동(휴장은 SKIPPED 기록)이라
+    //   금요일 성공→월요일 평가(≈72h)의 주말 공백을 흡수하도록 임계를 넉넉히(72h).
+    jobKey: CRON_JOB_KEYS.PRE_MARKET_PREFLIGHT,
+    label: '장 시작 전 프리플라이트',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 08:30, 주말 공백 흡수
+    cadence: '평일 08:30',
   },
 ];

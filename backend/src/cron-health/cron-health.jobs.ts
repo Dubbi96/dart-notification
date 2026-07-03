@@ -46,6 +46,9 @@ export const CRON_JOB_KEYS = {
   STYLE_SIMULATION: 'paper.style-simulation',
   // live-readiness W1: 전략 변형 4종 forward 모의운용 — 리플레이(BacktestRun)와 별개의 실운용 트랙(평일 19:45).
   STRATEGY_FORWARD: 'paper.strategy-forward',
+  // DAR-477(견고화 W0·P05): 일일 운영 리포트 — 장마감 후(20:30) 손익·체결·오류율 요약을 OPS_ALERT 로 발송.
+  //   forward 트랙(19:40/19:45) 이후 스냅샷. 발송 잡이 조용히 멈추면 운영 가시성이 사라지므로 안전망에 노출.
+  OPS_DAILY_REPORT: 'ops.daily-report',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -298,5 +301,15 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 19:45, 주말 공백 흡수
     cadence: '평일 19:45',
+  },
+  {
+    // DAR-477(견고화 W0·P05): 일일 운영 리포트 발송 잡. 매일 20:30 KST — 발송이 멈추면 운영자가
+    //   손익·오류율 가시성을 잃으므로 안전망에 노출. 매일 가동이나 하루 누락(48h)까지 허용.
+    jobKey: CRON_JOB_KEYS.OPS_DAILY_REPORT,
+    label: '일일 운영 리포트',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: 2_880, // 48시간 — 매일 20:30, 하루 누락까지 허용
+    cadence: '매일 20:30',
   },
 ];

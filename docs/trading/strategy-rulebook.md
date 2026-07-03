@@ -523,7 +523,8 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 | **변동성 돌파 위성 상수** (§9.1) | `engine3-quant-market/volatility-breakout/volatility-breakout.constants.ts` | `VOL_BREAKOUT_K`·`TARGET_DAILY_VOL_PCT`·`VOLATILITY_BREAKOUT_PRESET`·`SATELLITE_TARGET_ETF_CODE` |
 | **듀얼모멘텀 코어 판정** (§9.2) | `engine3-quant-market/dual-momentum/dual-momentum-signal.ts` | `computeMomentum`·`decideDualMomentumTarget`·`resolveRebalanceAction`·`decideMonthlyRebalance` |
 | **듀얼모멘텀 코어 상수** (§9.2) | `engine3-quant-market/dual-momentum/dual-momentum.constants.ts` | `MOMENTUM_LOOKBACK_DAYS`·`DUAL_MOMENTUM_PRESET`·`CORE_OFFENSE_INTL_CODE`·`CORE_DEFENSE_BOND_CODE`·`CORE_CAPITAL_ALLOCATION_PCT` |
-| **2단 프레임·ETF 비용·게이트** (§9.3) | `engine3-quant-market/two-tier-backtest/` | `TWO_TIER_CAPITAL_FRAME`·`ETF_COST_PROFILE`·`backtestCoreDualMomentum`·`backtestSatelliteBreakout`·`assembleGateReport` |
+| **2단 프레임·ETF 비용·게이트** (§9.3) | `engine3-quant-market/two-tier-backtest/` | `TWO_TIER_CAPITAL_FRAME`·`ETF_COST_PROFILE`·`backtestCoreDualMomentum`·`backtestSatelliteBreakout`·`assembleGateReport`·`RISK_ADJUSTED_RETURN_FLOOR`(§9.3.2 위험조정)·`computeBuyHoldMddPct` |
+| **듀얼모멘텀 코어 forward 트랙**(§9.3.2 활성·모의) | `engine5-trading-risk/paper-simulation/dual-momentum-forward/dual-momentum-forward.service.ts` | `DualMomentumForwardService`(월말 판정=`decideMonthlyRebalance` 재사용·예약→익일 시가 체결)·`ETF_FILL_PARAMS`(거래세 0)·`DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL`(10M). 모델 `DualMomentumForwardTrade`(FK 없음) |
 
 관련 API 문서: `docs/api-specification.md` §18(전략 변형 트랙)·§19(분봉 단타)·§21(시스템 모의·철학 스타일·전략 forward).
 스케줄 상세: `docs/workflow.md` §6.7(분봉 단타). 백테스트 리플레이 설계: `docs/roadmap/phase-10-backtest.md`.

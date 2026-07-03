@@ -61,6 +61,10 @@ export const CRON_JOB_KEYS = {
   //   당일 일봉을 EtfDailyPrice 에 forward 적재(Wave1 듀얼모멘텀/변동성돌파 토대). 기존 KRX 일봉 크론
   //   (18:30/21:00)과 시간대 분리. 수집이 조용히 멈추면 전략 입력이 비므로 안전망에 노출(결측→OPS_ALERT).
   ETF_DAILY_COLLECT: 'market.etf-daily-collect',
+  // DAR-494(견고화 W1·P13): 듀얼모멘텀 코어 forward 트랙 — 평일 19:50 매일 발화(예약 체결·평가),
+  //   판정은 월말 거래일 1회(P09 게이트). 월 단위 잡이라 stale 임계 ~35일. 가동이 멈추면 룰북
+  //   §9.3.2 위험조정 게이트로 활성한 코어 트랙이 조용히 정체되므로 안전망에 노출.
+  DUAL_MOMENTUM_FORWARD: 'paper.dual-momentum-forward',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -359,5 +363,17 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 19:10, 주말 공백 흡수
     cadence: '평일 19:10 EOD',
+  },
+  {
+    // DAR-494(견고화 W1·P13): 듀얼모멘텀 코어 forward 트랙 일일 사이클(평일 19:50). 판정은 월말
+    //   거래일 1회(P09 게이트)뿐이고 그 외엔 예약 체결·평가 no-op 이라 **월 단위 잡**이다. 한 달 내내
+    //   no-op(SUCCESS 기록)이 정상이므로 stale 임계를 넉넉히(35일=50,400분) 둬 오탐을 막는다.
+    //   가동 자체가 멈춰야만 stale → DataFreshnessMonitorScheduler(P02)가 OPS_ALERT 로 발송.
+    jobKey: CRON_JOB_KEYS.DUAL_MOMENTUM_FORWARD,
+    label: '듀얼모멘텀 코어 forward 사이클',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: 50_400, // 35일 — 월 단위 잡(월말 판정 1회), 한 달 no-op 흡수
+    cadence: '평일 19:50(판정은 월말 거래일 1회)',
   },
 ];

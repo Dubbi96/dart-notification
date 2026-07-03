@@ -1840,9 +1840,29 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 
 **인덱스·제약**: Composite Unique `(strategyKey, snapshotDate)` — 멱등키 · `(strategyKey, snapshotDate)` 인덱스.
 
+## 39. Engine5 — DualMomentumForwardTrade (dual_momentum_forward_trades) — DAR-494 [견고화 W1·P13]
+
+**목적**: 듀얼모멘텀 코어 forward 트랙(모의)의 ETF 단일 보유 월말 리밸런싱 이력. ETF(360750/069500/153130/273130)는 DART corpCode 가 없어 Position/PaperTrade(→Company FK 필수)에 부적합 → **FK 없는 전용 모델**(EtfDailyPrice·IntradayScalpTrade 전례, 자연키 etfCode). **1행 = 1보유 라이프사이클** — PENDING(익일 시가 매수 예약) → OPEN(체결·보유) → CLOSED(다음 리밸런싱 SWITCH 매도). 결측/이월 상한 초과는 CANCELLED. 활성 근거: 룰북 §9.3.2 위험조정 게이트 통과(사람 승인 2026-07-03). ★가산·데이터층 전용 — 기존 측정 트랙 무접촉(M10 클록 안전). AI 미개입(판정=engine3 순수 함수).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | String PK | cuid |
+| etfCode | String | 대상/보유 ETF 6자리 단축코드 (자연키, 인덱스 없음 — styleTag 로 조회) |
+| styleTag | String | 트랙 식별 태그 (default "alloc:dual-momentum", 룰북 §9.2 SSOT) |
+| status | String | PENDING / OPEN / CLOSED / CANCELLED (default PENDING) |
+| decisionDate / entryTradeDate | String | 월말 판정 거래일 · 체결 예정 거래일(=nextTradingDay) YYYYMMDD |
+| reservedShares / reservedPrice | Int / Decimal(12,2) | 예약 명목 수량·기준가(판정일 종가 — 사이징 근거) |
+| entryTs / entryPrice / shares | DateTime? / Decimal(12,2)? / Int | 매수 체결 시각·체결가(슬리피지 반영)·체결 수량 |
+| exitTs / exitDate / exitPrice | DateTime? / String? / Decimal(12,2)? | 매도(리밸런싱 SWITCH) 체결 정보 |
+| commission / tax / slippage | Decimal(14,2) | 비용 누적 (KRW) — tax 는 ETF 면제 → 0 |
+| grossPnl / netPnl / returnPct | Decimal? | 손익·수익률(비용 후) |
+| createdAt / updatedAt | DateTime | 생성·갱신 시각 |
+
+**인덱스**: `status` · `styleTag` · `entryTradeDate` · `decisionDate`. (마이그레이션 `20260703160000_dar494_dual_momentum_forward_trade` — create-only)
+
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-03 (DAR-486 P25: §7.4.1 StockStatusDaily 신규 — 종목상태 일별 이력(forward-only, 백테스트 생존편향) + ExitReason 에 DELISTED 가산) · 2026-07-03 (DAR-479 P04: §38 BacktestForwardDivergenceSnapshot 추가 — 백테스트 vs forward 괴리 일일 스냅샷, read-only 측정) · 2026-07-03 (DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산 + notification_settings.opsPushEnabled 추가 — 리스크·운영 알림 채널 신설)
+**최종 수정일**: 2026-07-04 (DAR-494 P13: §39 DualMomentumForwardTrade 신규 — 듀얼모멘텀 코어 forward 트랙 ETF 월말 리밸런싱 이력(FK 없음·PENDING→OPEN→CLOSED), 마이그레이션 20260703160000_dar494_dual_momentum_forward_trade, 모의·데이터층 전용) · 2026-07-03 (DAR-486 P25: §7.4.1 StockStatusDaily 신규 — 종목상태 일별 이력(forward-only, 백테스트 생존편향) + ExitReason 에 DELISTED 가산) · 2026-07-03 (DAR-479 P04: §38 BacktestForwardDivergenceSnapshot 추가 — 백테스트 vs forward 괴리 일일 스냅샷, read-only 측정) · 2026-07-03 (DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산 + notification_settings.opsPushEnabled 추가 — 리스크·운영 알림 채널 신설)
 **이전 수정일**: 2026-07-02 (전수 현행화 — 미문서 모델 15종 전용 섹션 추가(§23~§37: CompanyOverview·SavedDisclosure·CronRunLog·DisclosureCollectionLog·DisclosureEvent·DartFiledFact·CompanyFinancial·FinancialCollectionLog·DisclosureAnalysis·PersonaAnalysis·InvestorPhilosophy·PhilosophyMetric·PhilosophySource·SignalEntryFunnelDaily·IntradayScalpTrade), User 카카오 OAuth(password nullable·provider/providerId·(provider,providerId) unique) 반영, NotificationHistory 통합 인박스(type/refId 멱등키) 반영, §17 절 번호 충돌 정리, SSOT 관계(schema.prisma=SSOT·본 문서=해설·총 50개 모델) 헤더 명시)
 **버전**: 3.2 (2026-07-03 DAR-486 P25: StockStatusDaily 신규 테이블 + ExitReason.DELISTED 가산(마이그레이션 20260703150000_dar486_stock_status_daily_survivorship) — 종목상태 일별 이력 forward-only 축적 + 상폐 감액 청산 옵션, 백테스트 생존편향 처리(측정·데이터층 전용·운용 매매 무접촉); 3.1 DAR-479 P04: BacktestForwardDivergenceSnapshot 신규 테이블(마이그레이션 20260703130000_dar479_backtest_forward_divergence_snapshot) — 백테스트 vs forward 괴리 일일 스냅샷, 조회·적재 전용 측정; 3.0 DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산(additive 마이그레이션 20260703010000_dar473_risk_ops_notifications) + notification_settings.opsPushEnabled(기본 ON) 추가 — 능동 리스크/운영 알림 채널 신설(카테고리 4 버킷: 공시·신호·체결·운영); 2.9 2026-07-02 전수 현행화; 2.8 DAR-424: NotificationType 에 TRADE_ENTRY/TRADE_EXIT 가산 + notification_settings.tradePushEnabled 추가 — 라이브 페이퍼 체결 알림; 2.7 DAR-404: BacktestRun.strategyKey 비파괴 추가 + @@index — 트레이딩 로직 축 다중 트랙; DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)

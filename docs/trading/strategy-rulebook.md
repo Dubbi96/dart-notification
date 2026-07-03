@@ -28,8 +28,9 @@
 | 항목 | 값 | 출처(코드/문서) |
 |---|---|---|
 | 초기 가상원금(전 트랙) | **10,000,000 KRW** | `STRATEGY_INITIAL_CAPITAL` · `PaperSimulationService.INITIAL_CAPITAL` · `SCALP_INITIAL_CAPITAL` (모두 10_000_000) |
-| 진입 시점(일봉 트랙) | **다음 거래일 시가**(`NEXT_OPEN`) — 공시 당일 체결 금지(lookahead bias 방지) | `StrategyParams.entryRule` · engine5 CLAUDE.md §"진입 규칙" |
-| 장마감(15:30) 후 공시 | +2 거래일 시가 진입 | engine5 CLAUDE.md §"진입 규칙" |
+| 진입 체결 — 시스템 모의·백테스트 리플레이 | **예약 → 다음 거래일 시가**(`NEXT_OPEN`) — 공시 당일 체결 금지(lookahead bias 방지). 리플레이는 시가에 슬리피지 반영 | `StrategyParams.entryRule='NEXT_OPEN'` · `backtest-runner.service.ts:130` · engine5 CLAUDE.md §"진입 규칙" |
+| 진입 체결 — 철학 스타일·전략 forward | **결정 당일 최근 종가 즉시체결**(예약 없음) — ★후속 "결정 → 익일 시가"(α) 규약으로 통일 예정(코드 주석 명시) | `philosophy-style-simulation.service.ts:269 latestClose` · `strategy-forward-simulation.service.ts:338 latestClose`(헤더 :22–23 α) |
+| 장마감(15:30) 후 공시(`NEXT_OPEN` 트랙 한정) | +2 거래일 시가 진입 | engine5 CLAUDE.md §"진입 규칙" |
 | 장외 체결 의미론(시스템 모의) | 19:30 사이클은 **주문 결정만**(매수 PENDING 예약·청산 판정) → 체결은 장중 첫 유효 틱 또는 19:30 폴백이 **당일 시가**로 수행. 미체결 예약은 이월(≤3거래일 초과 시 CANCELLED) | `PENDING_ENTRY_MAX_CARRY_TRADING_DAYS=3` · `docs/workflow.md §6.10` |
 | 실주문 | **0** — 모든 체결은 `simulateFill`(순수 시뮬). 증권사 주문 API 호출·OrderRequest 실사용 0(M11 실주문 루프 미연동) | engine5 CLAUDE.md §"절대 규칙" |
 | 승률 정의(전 표면 통일) | 순손익>0 거래 / 전체 청산 거래. 본전(0)은 분모만, 패는 순손익<0만 | api-spec §18.1 |
@@ -142,16 +143,18 @@ M10 30일 모의운용의 정본 트랙. 전역 단일 시스템 모의(합성 �
 단일 라이브 리플레이(DAR-385)를 **진입/청산/사이징 룰이 다른 전략 변형 4종**으로 분기한 '트레이딩 로직' 축.
 **정본 코드 = `backend/src/engine3-quant-market/backtest/strategies/strategy-presets.ts`** (`STRATEGY_PRESETS`).
 
-각 전략은 **두 표면**으로 운용된다(동일 `preset` 상수, 청산 적용 방식만 다름):
+각 전략은 **두 표면**으로 운용된다(동일 `preset` 상수 — 단 **진입 체결·사이징 envelope·청산 적용 방식이 다름**):
 1. **백테스트 리플레이**(§18) — 과거 1년 point-in-time 재생(`BacktestRun`/`BacktestTrade`), 매일 05:00 KST 갱신.
+   **진입 체결 = 예약 → 다음 거래일 시가**(시가에 슬리피지 반영, `backtest-runner.service.ts:130`, `preset.entryRule='NEXT_OPEN'` 준수).
    청산은 `BacktestRunnerService`가 아래 `exitRules`를 **리터럴 트리거**로 판정(익절/손절/최대보유 도달 = 청산).
 2. **라이브 forward 모의**(§21.3, live-readiness W1) — 라이브 신호에 동일 `preset.params` 적용,
    전용 포트폴리오 `styleTag='strategy:<key>'`, 평일 **19:45 KST** 크론(`paper.strategy-forward`).
+   **진입 체결 = 결정 당일 최근 종가 즉시체결**(예약 없음, `strategy-forward-simulation.service.ts:338 latestClose` — ★후속 α "익일 시가" 규약 통일 예정).
    청산은 시스템 모의와 같은 engine4 **합성 Exit Score(6-트리거, §3.2)** 경유
    (`strategy-forward-simulation.service.ts:524 calculateExitScore(..., [])`, 공시 이벤트 빈 배열) — 아래 `exitRules`는
    그 합성 안의 하드 오버라이드 보장선(`stopLossPct`·`takeProfitPct`·`maxHoldDays` 포지션 주입값)이 된다.
 
-공통: `entryRule='NEXT_OPEN'` · `initialCapital=10,000,000`. 아래 표의 사이징(`sizeRule`)은 **백테스트 리플레이의 배분 룰**이다.
+공통: `initialCapital=10,000,000`. 아래 표의 **`sizeRule`(EQUAL/SCORE_WEIGHT) 산식은 양 표면 동일**하되, **forward는 추가로 Risk envelope(원금 × `maxSinglePositionPct` 10%) 절단**(`min(budget, envelope)`, `strategyEntryBudget`)을 적용한다 — SCORE_WEIGHT 최대 1.5배 배분이 리플레이에선 envelope 미절단(예: 보수가치 고buyScore 최대 1.5M)이나 forward에선 1M 상한으로 바인딩된다.
 
 | key(라벨) | minBuyScore | 익절 | 손절 | 최대보유 | 사이징(sizeRule) | 최대종목 | 특이 |
 |---|---|---|---|---|---|---|---|
@@ -238,6 +241,8 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 ### 6.1 진입 (스타일 게이트 추가)
 
 - 후보: `signal ≥ SIM_MIN_ENTRY_GRADE`(WATCH) — 시스템 모의와 동일.
+- **진입 체결: 결정 당일 최근 종가 즉시체결**(예약 없음 — 시스템 모의의 예약→익일 시가와 다름).
+  `philosophy-style-simulation.service.ts:269 latestClose` + `entryDate=new Date()`. ★후속 α "익일 시가" 규약 통일 예정(코드 주석).
 - **스타일 적격 게이트**: 종목의 해당 스타일 **philosophy-fit score ≥ STYLE_ENTRY_MIN_FIT(50)** 이고 `computable`인 스타일에만 후보 진입.
   - 코드: `philosophy-style.ts STYLE_ENTRY_MIN_FIT = 50` · `eligibleStylesForCompany`.
 - **사이징: 등급 계수만** (시스템 모의와 다름 — buyScore 가중 미적용). `budget = entryBudget(baseBudget, grade)` =

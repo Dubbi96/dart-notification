@@ -38,8 +38,11 @@
 
 ## 2. 전 트랙 요약 매트릭스
 
-> 값은 코드 상수의 무보정 전사다. 트랙별 상세·근거·코드 포인터는 §3~§5 참조.
-> 사이징 열: **점수가중**=`SCORE_WEIGHT`, **균등**=`EQUAL_WEIGHT`, **등급×점수**=모의운용 차등 사이징(§3.1).
+> 값은 코드 상수의 무보정 전사다. 트랙별 상세·근거·코드 포인터는 §3~§6 참조.
+> 사이징 열: **점수가중**=`SCORE_WEIGHT`, **균등**=`EQUAL_WEIGHT`, **등급×점수**=등급계수×buyScore가중(`entryBudgetScored`, 시스템 모의 전용, §3.1),
+> **등급 계수만**=`entryBudget`(등급계수만·buyScore 가중 미적용, 철학 스타일, §6.1).
+> ★ 익절/손절/최대보유 열(일봉 트랙): 시스템 모의·철학·전략 forward에서 이 값들은 **단일 하드룰이 아니라 engine4 합성
+> Exit Score(6-트리거)의 하드 오버라이드 보장선**이다(§3.2). 전략 4종의 **백테스트 리플레이(§18)**에서는 리터럴 청산 트리거다(§4).
 
 ### 2.1 일봉 트랙 (시스템 모의 · 전략 변형 4종 · 철학 스타일 4종)
 
@@ -50,13 +53,13 @@
 | 3 | 단기모멘텀 | `short-momentum` | 매수점수 **≥40**(상위 ~3%) | **+10%** | **−5%** | **5거래일** | 균등 | **20** |
 | 4 | 보수가치 | `conservative-value` | 매수점수 **≥50**(상위 ~0.6%) | **+20%** | **−10%** | **20거래일** | 점수가중 | **10** |
 | 5 | 공격분산 | `aggressive-diversified` | 매수점수 **≥30**(상위 ~6.6%, 하한) | **+20%** | **−8%** | **20거래일** | 균등 | **50** |
-| 6 | 철학 버핏 | `BUFFETT` | 등급 ≥ WATCH **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급×점수 | **50** |
-| 7 | 철학 린치 | `LYNCH` | 등급 ≥ WATCH **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급×점수 | **50** |
-| 8 | 철학 그린블라트 | `GREENBLATT` | 등급 ≥ WATCH **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급×점수 | **50** |
-| 9 | 철학 드러켄밀러 | `DRUCKENMILLER` | 등급 ≥ WATCH **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급×점수 | **50** |
+| 6 | 철학 버핏 | `BUFFETT` | 등급 ≥ WATCH **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급 계수만 | **50** |
+| 7 | 철학 린치 | `LYNCH` | 등급 ≥ WATCH **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급 계수만 | **50** |
+| 8 | 철학 그린블라트 | `GREENBLATT` | 등급 ≥ WATCH **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급 계수만 | **50** |
+| 9 | 철학 드러켄밀러 | `DRUCKENMILLER` | 등급 ≥ WATCH **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급 계수만 | **50** |
 
-> 철학 스타일 4종(6~9)은 시스템 모의 축 위의 오버레이다 — 청산·사이징·한도는 시스템 모의(1)와 동일 상수를 재사용하고,
-> **진입에 스타일별 philosophy-fit ≥50 게이트만 추가**한다(§5).
+> 철학 스타일 4종(6~9)은 시스템 모의 축 위의 오버레이다 — **청산(§3.2)·한도**는 시스템 모의(1)와 동일 상수를 재사용하되
+> **사이징은 등급 계수만**(buyScore 가중·섹터 가드 미적용, §6.1)이고 **진입에 스타일별 philosophy-fit ≥50 게이트를 추가**한다(§6).
 
 ### 2.2 분봉 트랙 (당일 진입·당일 청산 · 단위가 다름)
 
@@ -89,17 +92,39 @@ M10 30일 모의운용의 정본 트랙. 전역 단일 시스템 모의(합성 �
   - 코드: `simulation-entry.ts sectorHeadroomBudget` · 호출부 `paper-simulation.service.ts`.
 - **진입 시점**: 다음 거래일 시가(장외 체결 의미론, §1).
 
-### 3.2 청산
+### 3.2 청산 — 합성 Exit Score 엔진 (engine4)
 
-| 규칙 | 값 | 코드 상수 |
+★ 시스템 모의의 실제 청산 판정은 **단일 하드 손절이 아니라 engine4 `calculateExitScore`(6-트리거 합성, 순수 Rule)**다
+(`paper-simulation.service.ts:1622` — 실 기술지표·악재 공시를 주입, F3 2026-06-26). 아래 DEFAULT 값은 그 합성 안에서
+**하드 오버라이드 보장선**으로 작동한다. 코드 정본: `backend/src/engine4-portfolio-exit/domain/exit-score.calculator.ts`.
+
+**액션 사다리**(`scoreToAction`, 0~100): HOLD 0–29 · WATCH 30–49 · REDUCE 50–69 · **EXIT 70–89** · **BLOCK_REBUY 90–100**.
+`exitAction ∈ {EXIT, BLOCK_REBUY}`일 때만 실제 매도(`EXIT_ACTIONS`). exitScore = 6 트리거 합 − 긍정모멘텀 보너스, 0~100 clamp.
+
+| # | 트리거(컴포넌트, 상한) | 핵심 임계(코드) |
 |---|---|---|
-| 손절 | **−8%** | `PaperSimulationService.DEFAULT_STOP_LOSS_PCT = 8` |
-| 익절 | **+20%** (도달 시 **부분 스케일아웃 50%**, 잔량 보유) | `DEFAULT_TAKE_PROFIT_PCT = 20` · `TAKE_PROFIT_SCALE_OUT_FRACTION = 0.5` |
-| 최대보유 | **20거래일** | `DEFAULT_MAX_HOLD_DAYS = 20` |
-| 장중 실시간 손절 | 진입소스(REAL) 일봉이 ≤2거래일 신선하면 실시간 하락 신뢰 → 즉시 손절 체결. 초과(정체 일봉)면 DAR-433 소스정렬 폴백(가짜손절 차단) | `INTRADAY_REAL_FRESH_MAX_DAYS = 2` |
+| 1 | 손실 리스크(0~20) | 하드 손절 pnl ≤ −`stopLossPct`(**−8%**) → 20(하드) · ATR 이탈 close < 진입 − **1.5×ATR14** → +15 · **트레일링 고점 −6%**(close < 고점×0.94) → +12 · 포트 일손실 한도 초과 → +10 |
+| 2 | 투자논리 훼손(0~20) | invalidConditions 충족수 1/2/≥3 → 8/14/20 · primary 충족 → 최소 16 |
+| 3 | 차트 훼손(0~20) | <MA5 +6 · <MA20 +10 · <VWAP +4 · <20일저가 +8 · 당일 캔들 −3% 이하 +6 |
+| 4 | 공시 악재(0~20) | 고위험 5종 단건 +16(severe) · 일반 악재 +5 · 내부자 대량 순매도 +12(severe) · 소프트 캡 20 |
+| 5 | 리밸런싱 과대비중(0~10) | 단일종목 비중 > `maxSinglePositionPct`(**10%**) 초과분 선형(상한 8) |
+| 6 | 시간 초과(0~10) | 보유 거래일 > `maxHoldDays`(**20**) → +8 · 5일+ 초과수익<0 → +4 · 5일 평균거래량비<0.5 → +2 |
+| − | 긍정 모멘텀 보너스(0~20, 감산) | 5일 초과수익 >5%/>2% → −8/−4 · 3일 거래량비 >1.5 → −6 |
 
-- **테제 오버라이드**: 포지션에 PositionThesis의 `exitRules`가 있으면 `stopLossPct`·`maxHoldDays`를 종목별로 대입할 수 있다
-  (`deriveExitParams`). 값이 없으면 위 DEFAULT 상수로 폴백. 익절(`takeProfitPct`)은 항상 DEFAULT(+20%).
+**하드 오버라이드**(순수 Rule, 모멘텀 감산보다 우위):
+- 하드 손절(손실점수=20) → **최소 EXIT 70** 보장.
+- **하드 익절**: pnl ≥ `takeProfitPct`(**+20%**) → 최소 EXIT 70 보장(`TAKE_PROFIT` 트리거 primary). 매도 시 **부분 스케일아웃 50%**(잔량 보유, `TAKE_PROFIT_SCALE_OUT_FRACTION=0.5`).
+- 투자논리 완전 훼손(=20) 또는 공시 severe → **최소 WATCH 30** 보장(권고 노출 — 자동 실주문 아님).
+
+| DEFAULT 하드 파라미터(포지션 주입값) | 값 | 코드 상수 |
+|---|---|---|
+| 하드 손절 `stopLossPct` | **−8%** | `PaperSimulationService.DEFAULT_STOP_LOSS_PCT = 8` |
+| 하드 익절 `takeProfitPct` | **+20%** | `DEFAULT_TAKE_PROFIT_PCT = 20` · 스케일아웃 `TAKE_PROFIT_SCALE_OUT_FRACTION = 0.5` |
+| 시간 초과 `maxHoldDays` | **20거래일** | `DEFAULT_MAX_HOLD_DAYS = 20` |
+| 장중 실시간 손절 신선도 게이트 | 진입소스(REAL) 일봉 ≤2거래일 신선 시 실시간 하락 신뢰→즉시 체결, 초과 시 DAR-433 소스정렬 폴백 | `INTRADAY_REAL_FRESH_MAX_DAYS = 2` |
+
+- **테제 오버라이드**: PositionThesis의 `exitRules`가 있으면 `stopLossPct`·`maxHoldDays`를 종목별로 대입(`deriveExitParams`),
+  없으면 위 DEFAULT 폴백. 익절은 항상 DEFAULT(+20%).
 
 ### 3.3 한도·주기
 
@@ -117,12 +142,16 @@ M10 30일 모의운용의 정본 트랙. 전역 단일 시스템 모의(합성 �
 단일 라이브 리플레이(DAR-385)를 **진입/청산/사이징 룰이 다른 전략 변형 4종**으로 분기한 '트레이딩 로직' 축.
 **정본 코드 = `backend/src/engine3-quant-market/backtest/strategies/strategy-presets.ts`** (`STRATEGY_PRESETS`).
 
-각 전략은 **두 표면에서 동일 규칙**으로 운용된다:
+각 전략은 **두 표면**으로 운용된다(동일 `preset` 상수, 청산 적용 방식만 다름):
 1. **백테스트 리플레이**(§18) — 과거 1년 point-in-time 재생(`BacktestRun`/`BacktestTrade`), 매일 05:00 KST 갱신.
-2. **라이브 forward 모의**(§21.3, live-readiness W1) — 라이브 신호에 동일 `preset.params`·`preset.exitRules` 적용,
+   청산은 `BacktestRunnerService`가 아래 `exitRules`를 **리터럴 트리거**로 판정(익절/손절/최대보유 도달 = 청산).
+2. **라이브 forward 모의**(§21.3, live-readiness W1) — 라이브 신호에 동일 `preset.params` 적용,
    전용 포트폴리오 `styleTag='strategy:<key>'`, 평일 **19:45 KST** 크론(`paper.strategy-forward`).
+   청산은 시스템 모의와 같은 engine4 **합성 Exit Score(6-트리거, §3.2)** 경유
+   (`strategy-forward-simulation.service.ts:524 calculateExitScore(..., [])`, 공시 이벤트 빈 배열) — 아래 `exitRules`는
+   그 합성 안의 하드 오버라이드 보장선(`stopLossPct`·`takeProfitPct`·`maxHoldDays` 포지션 주입값)이 된다.
 
-공통: `entryRule='NEXT_OPEN'` · `initialCapital=10,000,000`.
+공통: `entryRule='NEXT_OPEN'` · `initialCapital=10,000,000`. 아래 표의 사이징(`sizeRule`)은 **백테스트 리플레이의 배분 룰**이다.
 
 | key(라벨) | minBuyScore | 익절 | 손절 | 최대보유 | 사이징(sizeRule) | 최대종목 | 특이 |
 |---|---|---|---|---|---|---|---|
@@ -201,7 +230,8 @@ net 판정: `netReturnPct = grossReturnPct − roundTripCostPct`. 소액 익절�
 ## 6. 철학 스타일 4종 (`philosophy-style*`)
 
 Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그린블라트)/DRUCKENMILLER(드러켄밀러) 4개 거장
-스타일별 분기 모의운용. **시스템 모의 축 위의 오버레이** — 청산·사이징·한도는 §3 시스템 모의와 동일 상수 재사용.
+스타일별 분기 모의운용. **시스템 모의 축 위의 오버레이** — **청산(§3.2 합성 Exit Score)·한도**는 시스템 모의와 동일 상수를
+재사용하되, **사이징은 등급 계수만**(buyScore 가중·섹터 가드 미적용 — 시스템 모의와 차이)이고 **진입에 philosophy-fit ≥50 게이트를 추가**한다.
 
 - 코드: `philosophy-style.ts`(스타일 상수) · `philosophy-style-simulation.service.ts`(운용).
 
@@ -210,9 +240,18 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 - 후보: `signal ≥ SIM_MIN_ENTRY_GRADE`(WATCH) — 시스템 모의와 동일.
 - **스타일 적격 게이트**: 종목의 해당 스타일 **philosophy-fit score ≥ STYLE_ENTRY_MIN_FIT(50)** 이고 `computable`인 스타일에만 후보 진입.
   - 코드: `philosophy-style.ts STYLE_ENTRY_MIN_FIT = 50` · `eligibleStylesForCompany`.
-- 사이징: 시스템 모의와 동일(등급×점수, `baseBudget = 가상원금 × maxSinglePositionPct 10%`, `maxSectorPct 30%`).
+- **사이징: 등급 계수만** (시스템 모의와 다름 — buyScore 가중 미적용). `budget = entryBudget(baseBudget, grade)` =
+  `baseBudget × gradeSizingFactor`(STRONG 1.0 / BUY 0.75 / WATCH 0.4), `baseBudget = 가상원금 × maxSinglePositionPct 10%`.
+  buyScore 가중(`entryBudgetScored`)은 시스템 모의(§3.1) 전용이다.
+  - 코드: `philosophy-style-simulation.service.ts:272 entryBudget(baseBudget, sig.signal)` → `simulation-entry.ts:64 entryBudget`.
+- **섹터 분산 가드: 미적용**(시스템 모의 전용). 철학 진입 경로에는 `sectorHeadroomBudget` 호출이 없다 —
+  섹터 상한(`maxSectorPct 30%`)은 시스템 모의 `openNewPositions`(`paper-simulation.service.ts:1103`)에서만 enforce된다.
 
 ### 6.2 청산·한도·주기 (시스템 모의 재사용)
+
+청산 판정도 시스템 모의와 같은 engine4 **합성 Exit Score(6-트리거, §3.2)**를 쓴다
+(`philosophy-style-simulation.service.ts:447 calculateExitScore(posSnap, tech, thesisSnap, [])`). 단, 시스템 모의(악재 공시 주입)와
+달리 **공시 이벤트는 빈 배열(`[]`)**로 넘겨 트리거 4(공시 악재)는 항상 0이다. 아래 값은 §3.2 하드 오버라이드 보장선의 포지션 주입값이다.
 
 | 규칙 | 값 | 코드(재사용) |
 |---|---|---|
@@ -292,7 +331,8 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 |---|---|---|
 | 전략 변형 4종 | `engine3-quant-market/backtest/strategies/strategy-presets.ts` | `STRATEGY_PRESETS` · `STRATEGY_INITIAL_CAPITAL` |
 | 시스템 모의(청산·한도) | `engine5-trading-risk/paper-simulation/paper-simulation.service.ts` | `DEFAULT_STOP_LOSS_PCT`·`DEFAULT_TAKE_PROFIT_PCT`·`DEFAULT_MAX_HOLD_DAYS`·`MAX_HOLDINGS`·`INITIAL_CAPITAL` |
-| 모의 진입·사이징 | `engine5-trading-risk/paper-simulation/simulation-entry.ts` | `SIM_MIN_ENTRY_GRADE`·`GRADE_SIZING_FACTOR`·`buyScoreSizingMultiplier`·`ENTRY_FALLBACK_MIN_BUY_SCORE` |
+| **합성 Exit Score 엔진**(§3.2, 시스템 모의·철학·전략 forward 공용) | `engine4-portfolio-exit/domain/exit-score.calculator.ts` | `calculateExitScore`·`scoreToAction`(6-트리거·0~100 사다리·1.5×ATR·트레일링 −6%·하드 오버라이드 EXIT 70) |
+| 모의 진입·사이징 | `engine5-trading-risk/paper-simulation/simulation-entry.ts` | `SIM_MIN_ENTRY_GRADE`·`GRADE_SIZING_FACTOR`(등급계수만=`entryBudget`)·`buyScoreSizingMultiplier`(=`entryBudgetScored`, 시스템 모의 전용)·`ENTRY_FALLBACK_MIN_BUY_SCORE` |
 | 철학 스타일 | `engine5-trading-risk/paper-simulation/philosophy-style.ts` | `PHILOSOPHY_STYLES`·`STYLE_ENTRY_MIN_FIT` |
 | 분봉 단타 신호 | `engine3-quant-market/intraday-scalp/intraday-scalp-signal.ts` | `DEFAULT_SCALP_ENTRY_PARAMS`·`SCALP_ENTRY_TAG` |
 | 분봉 단타 청산·상수 | `engine5-trading-risk/paper-simulation/intraday-scalp/intraday-scalp-exit.ts` | `TAKE_PROFIT_PCT`·`STOP_LOSS_PCT`·`MAX_OPEN_POSITIONS`·`PER_POSITION_BUDGET_PCT`·`ENTRY_CUTOFF_HHMM`·`FORCE_EXIT_HHMM` |

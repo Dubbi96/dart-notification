@@ -34,6 +34,7 @@ import { PaperSimulationModule } from './engine5-trading-risk/paper-simulation/p
 import { GraduationModule } from './engine5-trading-risk/simulation/graduation.module';
 import { PhilosophyStyleSimulationModule } from './engine5-trading-risk/paper-simulation/philosophy-style-simulation.module';
 import { PersonaTradingModule } from './engine5-trading-risk/paper-simulation/persona/persona-trading.module';
+import { DualMomentumForwardModule } from './engine5-trading-risk/paper-simulation/dual-momentum-forward/dual-momentum-forward.module';
 import { IntradayScalpModule } from './engine5-trading-risk/paper-simulation/intraday-scalp/intraday-scalp.module';
 import { CollectionStatusModule } from './collection-status/collection-status.module';
 import { CronHealthModule } from './cron-health/cron-health.module';
@@ -134,6 +135,9 @@ import {
     // Engine 5 — 철학 스타일별(BUFFETT/LYNCH/GREENBLATT/DRUCKENMILLER) 모의운용 분기·비교 (DAR-76, P-D)
     PhilosophyStyleSimulationModule,
     PersonaTradingModule,
+
+    // Engine 5 — 듀얼모멘텀 코어 forward 트랙(모의) 월말 리밸런싱 (견고화 W1·P13, DAR-494)
+    DualMomentumForwardModule,
 
     // 횡단 — 수집 상태 대시보드 read-only 집계 (DAR-63)
     CollectionStatusModule,

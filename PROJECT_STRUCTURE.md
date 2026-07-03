@@ -154,6 +154,7 @@ dart-notification/
 │   │   │   ├── fill-simulator.spec.ts           # fixture 단위 테스트 (11건)
 │   │   │   ├── paper-portfolio.spec.ts          # fixture 단위 테스트 (9건)
 │   │   │   ├── cost-metrics.spec.ts             # fixture 단위 테스트 (5건)
+│   │   │   ├── paper-simulation/dual-momentum-forward/ # 듀얼모멘텀 코어 forward 트랙(모의) — 월말 리밸런싱·예약→익일시가·킬스위치 REDUCE_ONLY (DAR-494, P13). 모델 DualMomentumForwardTrade(FK 없음)
 │   │   │   └── trading-risk.module.ts
 │   │   ├── notifications/     # 알림 히스토리
 │   │   │   ├── dto/

@@ -2081,3 +2081,53 @@ model IntradayScalpTrade {
   @@index([styleTag])
   @@map("intraday_scalp_trades")
 }
+
+/// DAR-494 [견고화 W1·P13]: 듀얼모멘텀 코어 forward 트랙 — ETF 단일 보유 월말 리밸런싱 이력.
+///
+/// ETF 는 DART corpCode 가 없어 Position/PaperTrade(→Company FK 필수)에 부적합하다
+///   (EtfDailyPrice 가 전용 모델로 분리된 것과 동일 이유·DAR-484). 분봉 단타(IntradayScalpTrade)
+///   전례처럼 FK 없는 전용 모델로 분리한다. 자연키 = etfCode(6자리 단축코드), styleTag SSOT.
+///
+/// 라이프사이클(단일 자산 100% 배분): PENDING(익일 시가 매수 예약) → OPEN(체결·보유) →
+///   CLOSED(다음 리밸런싱 SWITCH 매도). 결측/이월 상한 초과 예약은 CANCELLED.
+/// ★가산(additive)·데이터층 전용 — 기존 측정 트랙 매매 행동 무접촉(M10 클록 안전).
+model DualMomentumForwardTrade {
+  id       String @id @default(cuid())
+  etfCode  String // 대상/보유 ETF 6자리 단축코드(360750/069500/153130/273130)
+  styleTag String @default("alloc:dual-momentum") // 트랙 식별 태그(룰북 §9.2 SSOT)
+
+  status String @default("PENDING") // PENDING | OPEN | CLOSED | CANCELLED
+
+  // 판정·예약 (월말 결정 시 기록)
+  decisionDate   String // 리밸런싱 판정 거래일 YYYYMMDD (매월 마지막 거래일)
+  entryTradeDate String // 체결 예정 거래일 YYYYMMDD (익일 시가) = nextTradingDay(decisionDate)
+  reservedShares Int     @default(0) // 예약 시 명목 수량(사이징 근거·상한). 체결 시 실수량으로 갱신.
+  reservedPrice  Decimal @db.Decimal(12, 2) // 예약 기준가(판정일 종가 — 사이징 근거)
+
+  // 진입 (익일 시가 체결 시 기록)
+  entryTs    DateTime? // 실제 매수 체결 시각
+  entryPrice Decimal?  @db.Decimal(12, 2) // 매수 체결가(슬리피지 반영)
+  shares     Int       @default(0) // 체결 수량
+
+  // 청산 (다음 리밸런싱 SWITCH 시 매도)
+  exitTs    DateTime? // 매도 체결 시각
+  exitDate  String? // 매도 체결 거래일 YYYYMMDD
+  exitPrice Decimal? @db.Decimal(12, 2) // 매도 체결가(슬리피지 반영)
+
+  // 비용·손익 (KRW 절대값)
+  commission Decimal  @default(0) @db.Decimal(14, 2) // 수수료(진입+청산 누적)
+  tax        Decimal  @default(0) @db.Decimal(14, 2) // 매도 증권거래세(ETF 면제 → 0)
+  slippage   Decimal  @default(0) @db.Decimal(14, 2) // 슬리피지 비용(진입+청산 누적)
+  grossPnl   Decimal? @db.Decimal(16, 2) // 총손익(비용 전)
+  netPnl     Decimal? @db.Decimal(16, 2) // 순손익(비용 후)
+  returnPct  Decimal? @db.Decimal(8, 4) // 순수익률(%)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([styleTag])
+  @@index([entryTradeDate])
+  @@index([decisionDate])
+  @@map("dual_momentum_forward_trades")
+}

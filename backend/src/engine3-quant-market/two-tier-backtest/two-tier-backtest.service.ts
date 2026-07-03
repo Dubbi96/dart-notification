@@ -20,6 +20,7 @@ import {
   buildTrackGateMetrics,
   assembleGateReport,
   computeBuyHoldReturnPct,
+  computeBuyHoldMddPct,
   GateReport,
 } from './gate-report';
 
@@ -137,10 +138,15 @@ export class TwoTierBacktestService {
     const satelliteResult = backtestSatelliteBreakout(satelliteBars, { initialCapital });
 
     // 벤치마크 = KODEX200(069500) 매수후보유(국내주식 기준선). 두 트랙 공통.
-    const benchmarkPct = computeBuyHoldReturnPct(bars.get(CORE_OFFENSE_DOMESTIC_CODE) || []);
+    const benchmarkBars = bars.get(CORE_OFFENSE_DOMESTIC_CODE) || [];
+    const benchmarkPct = computeBuyHoldReturnPct(benchmarkBars);
+    // 코어 위험조정 게이트(DAR-494·§8 승인)용 벤치마크 MDD — GTAA 목적(수익률 유사 + MDD 축소).
+    const benchmarkMddPct = computeBuyHoldMddPct(benchmarkBars);
 
     const coreMetrics = buildTrackGateMetrics(coreResult, benchmarkPct, {
       minTrades: CORE_MIN_TRADES,
+      // 코어 한정 위험조정 기준: 수익률 ≥ 벤치×0.9 && MDD 개선(전략 > 벤치). 위성·기타는 미지정=엄격.
+      riskAdjusted: { benchmarkMddPct },
       lowPowerNote: '코어=월단위 관측 ≈12회/년 — 통계 검증력 낮음(문헌 엣지 참조 불가피, 정직 고지)',
     });
     const satelliteMetrics = buildTrackGateMetrics(satelliteResult, benchmarkPct, {

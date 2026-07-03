@@ -1215,6 +1215,7 @@ Cron 이 아니라 **체결 직후 발행**되는 이벤트 구동 경로 — en
 |-----|------|------|------|
 | 철학 스타일 4트랙 | `40 19 * * 1-5` | `paper.style-simulation` | `PhilosophyStyleSimulationService.runDailyCycleAllStyles` — 시스템 모의(19:30) 직후, BUFFETT/LYNCH/GREENBLATT/DRUCKENMILLER 분기 사이클 |
 | 전략 forward 4트랙 | `45 19 * * 1-5` | `paper.strategy-forward` | `StrategyForwardSimulationService.runDailyCycleAllStrategies` — 스타일 직후 직렬화, 이벤트엣지/단기모멘텀/보수가치/공격분산 forward 운용 |
+| 듀얼모멘텀 코어 (DAR-494·P13) | `50 19 * * 1-5` | `paper.dual-momentum-forward` | `DualMomentumForwardScheduler.runDaily` → `DualMomentumForwardService.runDailyCycle` — 매일 발화하되 **판정은 월말 거래일 1회**(P09 `isLastTradingDayOfMonth` + 당일 ETF 데이터 게이트, nest cron 'L' 우회). 그 외엔 예약 체결·평가 스냅샷만 |
 
 - **전략 forward 진입 룰**: 라이브 TradingSignal(`disclosure.isBackfill=false`)에 preset.params
   (minBuyScore·eventTypes allowlist·maxPositions·EQUAL/SCORE_WEIGHT 사이징) 적용. 예산은 리플레이와
@@ -1228,6 +1229,12 @@ Cron 이 아니라 **체결 직후 발행**되는 이벤트 구동 경로 — en
 - **체결 의미론**: 현행은 스타일 시뮬과 동일한 당일 최근 종가 즉시체결 — "결정→익일 시가 체결" 규약으로
   후속 통일 예정.
 - ★AI 금지영역 불가침: 진입 필터·사이징·청산 전부 순수 Rule. **실주문 경로 0**(`simulateFill`만).
+
+**듀얼모멘텀 코어 forward(DAR-494·P13)** — 위 두 트랙과 별개 자산(ETF)·주기(월말):
+- **판정**: engine3 P12 `decideMonthlyRebalance`(순수 함수) 재사용 — `EtfDailyPrice`(4종: 360750/069500/153130/273130)에서 asOf 절단 종가 주입, **252 거래일** 룩백. 상대(argmax A,B) ∧ 절대(> 단기채) 모멘텀 → 단일 자산 100% 목표. 결측(253봉 미만)이면 **무행동 + 전월 유지 + OPS_ALERT**(월 1회 멱등, P02).
+- **체결**: "예약 → 익일 시가(PENDING)" 재사용. 월말 SWITCH 판정 시 목표 ETF `DualMomentumForwardTrade`(PENDING, `entryTradeDate=nextTradingDay`) 예약 → 익일 사이클이 **현재 보유 전량 매도(현금 확보) → 목표 전량 매수** 순서로 그 날 시가 집행. 비용은 ETF 프로파일(증권거래세 0, `ETF_FILL_PARAMS`).
+- **트랙 식별**: 포트폴리오 `모의운용 포트폴리오 [alloc:dual-momentum]` + `DualMomentumForwardTrade.styleTag='alloc:dual-momentum'`. ETF 는 DART corpCode 가 없어 Position/PaperTrade(→Company FK) 부적합 → **FK 없는 전용 모델**(IntradayScalpTrade 전례). 자산곡선은 `PortfolioRiskSnapshot` 재사용.
+- **ENFORCE**: 킬스위치(REDUCE_ONLY — 매도 허용·신규 매수 차단)·현금≥0 불변식은 체결기 경로에서 자동 적용. 활성 근거: 룰북 §9.3.2 위험조정 게이트 통과(2026-07-03 사람 승인). **위성(변동성 돌파)은 기각 — forward 배선 없음.**
 
 ### 6.10 장외 체결 의미론 — "19:30 = 주문 결정, 익일 개장 = 체결" (live-readiness W1, 시스템 모의)
 

@@ -12,6 +12,15 @@ import { BacktestCostParams } from '../backtest/ports/backtest.types';
 
 export type GateVerdict = 'EDGE_POSITIVE' | 'NO_EDGE' | 'LOW_SAMPLE';
 
+/**
+ * DAR-494 [P13]: 코어 한정 **위험조정** 게이트의 수익률 하한 계수(벤치마크 × 0.9).
+ * 근거: GTAA 원전 목적(룰북 2-5) = 벤치마크와 유사 수익률 + MDD 축소. 게이트 실행 결과
+ * 코어 +375.72%(벤치 +389.28%의 96.5%) · MDD -20.61%(벤치 -34.32% 대비 40% 개선)에 근거해
+ * 사용자가 §8 사람 승인(2026-07-03)으로 코어 한정 기준 개정을 승인했다. 위성·기타 트랙은
+ * 기존 엄격 기준(비용후>0 && >벤치) 유지 — 이 계수는 코어(riskAdjusted 옵션)에만 적용된다.
+ */
+export const RISK_ADJUSTED_RETURN_FLOOR = 0.9;
+
 export interface TrackGateMetrics {
   styleTag: string;
   totalReturnPct: number;
@@ -71,17 +80,29 @@ export function computeBuyHoldReturnPct(
 }
 
 /**
+ * 벤치마크 매수후보유 **MDD**(%) — 종가 시계열 peak-to-trough. ≤ 0.
+ * 코어 위험조정 게이트의 "MDD 개선(전략 MDD > 벤치마크 MDD)" 판정 입력.
+ * (첫 바 시가 진입 여부와 무관하게 낙폭은 종가 궤적의 상대 낙폭이므로 종가 시계열로 산출한다.)
+ */
+export function computeBuyHoldMddPct(bars: readonly DatedBar[]): number {
+  return computeMaxDrawdownPct(bars.map((b) => ({ equity: b.close })));
+}
+
+/**
  * 트랙 1개 게이트 지표 산출.
  *
  * @param result           트랙 백테스트 결과.
  * @param benchmarkReturnPct 벤치마크(매수후보유) 수익률%.
  * @param opts.minTrades   LOW_SAMPLE 임계(이 미만이면 검증력 부족 판정). 기본 20.
  * @param opts.lowPowerNote 트랙 특성 정직 라벨(코어: 월단위 관측 12회/년 등).
+ * @param opts.riskAdjusted **코어 한정** 위험조정 게이트(DAR-494·§8 승인 2026-07-03). 지정 시 엣지 판정 =
+ *   `비용후>0 && totalReturn ≥ 벤치마크×0.9 && 전략 MDD > 벤치마크 MDD`. 미지정(위성·기타)이면
+ *   기존 엄격 기준(`비용후>0 && >벤치`) — 회귀 무변경. benchmarkMddPct 는 computeBuyHoldMddPct 결과(≤0).
  */
 export function buildTrackGateMetrics(
   result: TrackBacktestResult,
   benchmarkReturnPct: number,
-  opts: { minTrades?: number; lowPowerNote?: string } = {},
+  opts: { minTrades?: number; lowPowerNote?: string; riskAdjusted?: { benchmarkMddPct: number } } = {},
 ): TrackGateMetrics {
   const minTrades = opts.minTrades ?? 20;
   const closed = result.trades.filter((t) => t.netPnl !== null);
@@ -101,7 +122,13 @@ export function buildTrackGateMetrics(
   const holdDaysVals = closed.map((t) => t.holdDays ?? 0);
   const avgHoldDays = holdDaysVals.length > 0 ? holdDaysVals.reduce((a, b) => a + b, 0) / holdDaysVals.length : 0;
 
-  const edgePositive = totalReturnPct > 0 && totalReturnPct > benchmarkReturnPct;
+  // 엣지 판정: 기본(위성·기타)=엄격(비용후>0 && >벤치). 코어 위험조정(DAR-494·§8 승인)=
+  //   비용후>0 && 수익률 ≥ 벤치×0.9 && MDD 개선(전략 MDD > 벤치 MDD, 둘 다 ≤0이므로 '>'=덜 깊음).
+  const edgePositive = opts.riskAdjusted
+    ? totalReturnPct > 0 &&
+      totalReturnPct >= benchmarkReturnPct * RISK_ADJUSTED_RETURN_FLOOR &&
+      mddPct > opts.riskAdjusted.benchmarkMddPct
+    : totalReturnPct > 0 && totalReturnPct > benchmarkReturnPct;
 
   let verdict: GateVerdict;
   if (totalTrades < minTrades) verdict = 'LOW_SAMPLE';
@@ -110,7 +137,10 @@ export function buildTrackGateMetrics(
   const baseNote = `표본 ${totalTrades}건(거래) / 판정 ${result.sampleCount}회 · totalReturn ${totalReturnPct.toFixed(
     2,
   )}% vs 벤치마크 ${benchmarkReturnPct.toFixed(2)}%`;
-  const note = opts.lowPowerNote ? `${baseNote} · ${opts.lowPowerNote}` : baseNote;
+  const riskAdjNote = opts.riskAdjusted
+    ? ` · 위험조정 게이트(수익률≥벤치×${RISK_ADJUSTED_RETURN_FLOOR} && MDD ${mddPct.toFixed(2)}%>벤치 ${opts.riskAdjusted.benchmarkMddPct.toFixed(2)}%)`
+    : '';
+  const note = `${baseNote}${riskAdjNote}${opts.lowPowerNote ? ` · ${opts.lowPowerNote}` : ''}`;
 
   return {
     styleTag: result.styleTag,

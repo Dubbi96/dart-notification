@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import axiosRetry from 'axios-retry';
 import { formatKstDateCompact } from '../../common/time/kst';
+import { isWeekendDate } from '../../common/time/market-calendar';
 
 /**
  * KRX_API_KEY 미설정 또는 오프라인 시 throw.
@@ -350,10 +351,13 @@ export class KrxApiService {
     }
   }
 
-  /** 거래일 여부 확인 — 토·일 + 단순 규칙(공휴일은 수집 실패로 자동 스킵) */
+  /**
+   * 거래일 여부 확인 — 토·일 + 단순 규칙(공휴일은 수집 실패로 자동 스킵).
+   * ★DAR-481: 주말 판정을 SSOT(market-calendar.isWeekendDate)로 위임 — 의미(getDay 기반)
+   *   그대로 유지(무행동 변경). 휴장일 미반영은 의도적(휴장일엔 KRX 데이터 부재로 자동 스킵).
+   */
   isWeekend(date: Date): boolean {
-    const day = date.getDay(); // 0=일, 6=토
-    return day === 0 || day === 6;
+    return isWeekendDate(date);
   }
 
   /**

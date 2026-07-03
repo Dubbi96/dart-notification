@@ -180,8 +180,11 @@ dart-notification/
 │   │   │   │   └── http-exception.filter.ts
 │   │   │   ├── interceptors/
 │   │   │   │   └── logging.interceptor.ts
-│   │   │   └── pipes/
-│   │   │       └── validation.pipe.ts
+│   │   │   ├── pipes/
+│   │   │   │   └── validation.pipe.ts
+│   │   │   └── time/          # KST 시간·거래캘린더 SSOT
+│   │   │       ├── kst.ts                # KST 날짜/세션 유틸(시스템 TZ 무관, DAR-199)
+│   │   │       └── market-calendar.ts    # KRX 거래일·휴장일·반일장·월말거래일 단일 판정(DAR-481)
 │   │   ├── app.module.ts
 │   │   └── main.ts
 │   ├── .env

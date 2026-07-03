@@ -53,6 +53,10 @@ export const CRON_JOB_KEYS = {
   //   리스크 상태 일괄 점검(이상 시 RISK/OPS_ALERT). 이 잡이 조용히 멈추면 장 시작 전 이상 감지가
   //   사라지므로 안전망에 노출. 휴장 평일은 SKIPPED 로 기록돼 '크론은 살아 있음'이 유지된다.
   PRE_MARKET_PREFLIGHT: 'ops.pre-market-preflight',
+  // DAR-484(견고화 W1·P10): ETF 일봉 증분 수집 — 장마감 후(19:10) KIS 기간별시세로 유니버스 4~5종
+  //   당일 일봉을 EtfDailyPrice 에 forward 적재(Wave1 듀얼모멘텀/변동성돌파 토대). 기존 KRX 일봉 크론
+  //   (18:30/21:00)과 시간대 분리. 수집이 조용히 멈추면 전략 입력이 비므로 안전망에 노출(결측→OPS_ALERT).
+  ETF_DAILY_COLLECT: 'market.etf-daily-collect',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -326,5 +330,18 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 08:30, 주말 공백 흡수
     cadence: '평일 08:30',
+  },
+  {
+    // DAR-484(견고화 W1·P10): ETF 일봉 증분 수집 EOD 크론. 평일 19:10 가동(KIS 기간별시세로 유니버스
+    //   4~5종 당일 일봉 forward 적재). 장 마감 후 발행~익일 가동까지의 공백 + 주말(금 성공→월 평가
+    //   ≈72h)을 흡수하도록 임계를 넉넉히(72h). KIS 키 미설정 환경에선 graceful no-op 이라 CronRunLog 에
+    //   SUCCESS(적재 0)를 남겨 '크론은 살아 있음'이 유지된다 — 가동 자체가 멈춰야만 stale 로 표면화한다.
+    //   stale 전환 시 DataFreshnessMonitorScheduler(P02)가 OPS_ALERT 로 발송(결측 감지 경로 연동).
+    jobKey: CRON_JOB_KEYS.ETF_DAILY_COLLECT,
+    label: 'ETF 일봉 증분 수집(EOD)',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 19:10, 주말 공백 흡수
+    cadence: '평일 19:10 EOD',
   },
 ];

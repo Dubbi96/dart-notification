@@ -11,6 +11,8 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { KisApiService } from './kis-api.service';
 import { KisRealtimePoller } from './kis-realtime.poller';
 import { StockMinutePriceCollector } from './stock-minute-price.collector';
+import { KisEtfDailySource } from './kis-etf-daily.source';
+import { EtfDailyPriceCollector } from './etf-daily-price.collector';
 import { RealtimeQuoteModule } from './realtime-quote.module';
 
 @Module({
@@ -30,6 +32,9 @@ import { RealtimeQuoteModule } from './realtime-quote.module';
     KisRealtimePoller,
     // DAR-377: 분봉 forward 축적 수집기(장중 10분 cron, 키 미설정 시 graceful no-op).
     StockMinutePriceCollector,
+    // DAR-484: ETF 일봉 소스 어댑터(KIS) + 증분 수집기(EOD 19:10 cron, 키 미설정 시 graceful no-op).
+    KisEtfDailySource,
+    EtfDailyPriceCollector,
   ],
   exports: [
     MarketDataService,
@@ -40,6 +45,9 @@ import { RealtimeQuoteModule } from './realtime-quote.module';
     DartStockStatusService,
     KisApiService,
     StockMinutePriceCollector,
+    // DAR-484: Wave1 전략(P12~P15)이 ETF 일봉 소스·수집기를 소비.
+    KisEtfDailySource,
+    EtfDailyPriceCollector,
   ],
 })
 export class MarketDataModule {}

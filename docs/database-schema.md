@@ -709,6 +709,58 @@ model StockMinutePrice {
 
 마이그레이션: `20260608100000_dar124_simulated_daily_price`(create-only, 적용 휴먼 승인).
 
+### 7.1c EtfDailyPrice (etf_daily_prices) — DAR-484 신규 [견고화 W1·P10]
+
+ETF 일봉 시세 데이터. Wave1 신규 2트랙(월단위 듀얼모멘텀 P12/P13 · 변동성 돌파 P14/P15)의 공통 토대.
+자연키: `(etfCode, tradeDate)`. **`StockDailyPrice`와 물리 분리** — ETF 는 DART `corpCode`가 없어
+Company FK 를 걸 수 없으므로 전용 모델로 둔다(FK 관계 없음, `etfCode` 6자리 단축코드가 자연키).
+
+★소스(2026-07-03 실검증): **1차 = KIS 기간별시세(일봉)**. KRX `/etp/etf_bydd_trd`는 HTTP 401
+(현재 키 ETF 상품 미구독 — 주식 일봉 `/sto/stk_bydd_trd`는 200 정상)이라 어댑터 인터페이스만 두고
+미구현. `source` 컬럼이 어느 소스 어댑터(KIS | KRX_ETP)가 적재했는지 기록해 향후 구독 승인 시
+소스 전환을 관측 가능하게 한다. 무레버리지 원칙(레버리지·인버스 ETF 금지).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | TEXT PK | CUID |
+| etfCode | TEXT | ETF 6자리 단축코드(예: 069500 KODEX 200) — FK 관계 없음 |
+| tradeDate | TEXT | 거래일 YYYYMMDD |
+| openPrice | INT | 시가 |
+| highPrice | INT | 고가 |
+| lowPrice | INT | 저가 |
+| closePrice | INT | 종가 |
+| volume | BIGINT | 거래량 |
+| tradingValue | BIGINT? | 거래대금(원) |
+| source | TEXT | 시세 소스 어댑터 — 기본 `'KIS'`(`"KIS" \| "KRX_ETP"`) |
+| createdAt | TIMESTAMP | 생성 시각 |
+
+수집기: `EtfDailyPriceCollector` — 평일 19:10 KST EOD(기존 KRX 일봉 18:30/21:00 크론과 시간대 분리).
+유니버스(`etf-universe.ts`) 4~5종 × 최근 N일 구간을 KIS 기간별시세로 받아 OHLC 정합성 검사 후 멱등
+적재(createMany skipDuplicates). 크론 헬스는 `CronRunLog`(jobKey `market.etf-daily-collect`)에 기록되어
+`FRESHNESS_JOB_SPECS`(72h 임계)로 감시 — 결측 시 P02 `DataFreshnessMonitorScheduler`가 OPS_ALERT 발송.
+백필(3년+)은 P11 별도 이슈. KIS 키 미설정 시 graceful no-op(실호출 0).
+
+마이그레이션: `20260703140000_dar484_etf_daily_price`(create-only, 적용 휴먼 승인).
+
+```prisma
+model EtfDailyPrice {
+  id           String   @id @default(cuid())
+  etfCode      String
+  tradeDate    String
+  openPrice    Int
+  highPrice    Int
+  lowPrice     Int
+  closePrice   Int
+  volume       BigInt
+  tradingValue BigInt?
+  source       String   @default("KIS")
+  createdAt    DateTime @default(now())
+  @@unique([etfCode, tradeDate])
+  @@index([tradeDate])
+  @@map("etf_daily_prices")
+}
+```
+
 ### 7.2 TechnicalIndicator (technical_indicators)
 
 기술지표 계산 결과. MA/RSI/MACD/BB/ATR/VWAP/VolumeRatio/52W/선행상승률. 자연키: `(stockCode, tradeDate)`.

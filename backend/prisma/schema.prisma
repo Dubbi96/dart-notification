@@ -727,6 +727,35 @@ model StockDailyPrice {
 }
 
 // ====================================
+// ETF 일봉 시세 (DAR-484 [견고화 W1·P10] — Wave1 듀얼모멘텀/변동성돌파 2트랙 공통 토대)
+// ====================================
+//
+// StockDailyPrice 는 corpCode FK → Company 필수라 DART corpCode 가 없는 ETF 에 부적합하다.
+// ETF 는 전용 모델로 분리한다(자연키 = etfCode 6자리 단축코드, FK 관계 없음 = Company 무변경).
+// 필드는 StockDailyPrice 에 준한다(OHLCV + 거래대금). `source` 는 어느 소스 어댑터가 적재했는지
+// (KIS | KRX_ETP) 를 기록해 향후 KRX etp 구독 승인 시 소스 전환을 관측 가능하게 한다.
+//
+// 1차 소스 = KIS 기간별시세(일봉). KRX /etp/etf_bydd_trd 는 2026-07-03 실검증 시 HTTP 401
+// (현재 키가 ETF 상품 미구독) — 어댑터 인터페이스만 남기고 미구현(구독 승인 시 전환).
+model EtfDailyPrice {
+  id           String   @id @default(cuid())
+  etfCode      String // ETF 종목코드 6자리 (KRX 단축코드, 예: 069500 KODEX 200)
+  tradeDate    String // 거래일 (YYYYMMDD)
+  openPrice    Int // 시가
+  highPrice    Int // 고가
+  lowPrice     Int // 저가
+  closePrice   Int // 종가
+  volume       BigInt // 거래량
+  tradingValue BigInt? // 거래대금 (원)
+  source       String   @default("KIS") // 시세 소스 어댑터 ("KIS" | "KRX_ETP")
+  createdAt    DateTime @default(now())
+
+  @@unique([etfCode, tradeDate])
+  @@index([tradeDate])
+  @@map("etf_daily_prices")
+}
+
+// ====================================
 // 분봉 시세 (DAR-381 통합 = DAR-377 수집 + DAR-378 TimescaleDB) — 장중 공시반응 분석·대규모 시계열
 // ====================================
 //

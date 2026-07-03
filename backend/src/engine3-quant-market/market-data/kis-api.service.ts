@@ -99,6 +99,20 @@ export interface KisMinuteCandle {
   volume: number; // 분 거래량 cntg_vol
 }
 
+/**
+ * 일봉 1행 (기간별시세, DAR-484). 주식·ETF 공용 — 종목/ETF 단축코드로 동일 엔드포인트 조회.
+ * price 는 원 단위 정수, tradingValue 는 거래대금(원).
+ */
+export interface KisDailyBar {
+  tradeDate: string; // 거래일 YYYYMMDD (stck_bsop_date)
+  open: number; // 시가 stck_oprc
+  high: number; // 고가 stck_hgpr
+  low: number; // 저가 stck_lwpr
+  close: number; // 종가 stck_clpr
+  volume: number; // 누적 거래량 acml_vol
+  tradingValue: number; // 누적 거래대금(원) acml_tr_pbmn
+}
+
 interface CachedToken {
   token: string;
   /** epoch ms 만료시각(주입된 now 기준 안전 마진 적용). */
@@ -362,6 +376,69 @@ export class KisApiService {
       if (e instanceof KisApiUnavailableError) throw e;
       this.logger.error(`[KIS] inquire-index-price 지수 소실 ${indexCode}: ${this.failureReason(e)}`);
       return null;
+    }
+  }
+
+  /**
+   * 국내주식/ETF 기간별시세(일봉) — inquire-daily-itemchartprice, tr_id FHKST03010100 (DAR-484).
+   *
+   * 주식·ETF·ETN 모두 FID_COND_MRKT_DIV_CODE='J' 로 동일 엔드포인트를 쓴다. ETF 단축코드(예:
+   * 069500 KODEX 200)를 그대로 넘기면 일봉 OHLCV + 거래대금이 온다. 기존 재시도·백오프(EGW00201
+   * 유량초과 200 본문 검사 포함)는 공유 client 를 경유하므로 자동 재사용된다(P08 하드닝 계승).
+   *
+   * KIS 는 한 호출당 최대 ~100영업일을 최신→과거 순으로 준다. 여기선 [startYmd, endYmd] 구간을
+   * 한 번에 요청하고 오름차순(거래일순)으로 뒤집어 반환한다. 유니버스가 4~5종이라 유량 부담 극소.
+   *
+   * @param code    ETF/종목 6자리 단축코드
+   * @param startYmd 조회 시작일 YYYYMMDD (FID_INPUT_DATE_1)
+   * @param endYmd   조회 종료일 YYYYMMDD (FID_INPUT_DATE_2)
+   * @param nowMs    현재 epoch ms(테스트 주입 가능)
+   *
+   * ★graceful: 키 미설정 예외(KisApiUnavailableError)는 throw, 그 외 실패는 [](빈배열) 로 —
+   *   소비측(수집기)이 커버리지 정직 로그로 표면화한다. 유량초과 소진도 [] + failureReason 로깅.
+   */
+  async fetchDailyPrices(
+    code: string,
+    startYmd: string,
+    endYmd: string,
+    nowMs?: number,
+  ): Promise<KisDailyBar[]> {
+    try {
+      const headers = await this.authHeaders('FHKST03010100', nowMs);
+      const { data } = await this.client.get(
+        `${this.baseUrl}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice`,
+        {
+          headers,
+          params: {
+            FID_COND_MRKT_DIV_CODE: 'J',
+            FID_INPUT_ISCD: code,
+            FID_INPUT_DATE_1: startYmd,
+            FID_INPUT_DATE_2: endYmd,
+            FID_PERIOD_DIV_CODE: 'D', // 일봉
+            FID_ORG_ADJ_PRC: '0', // 0=수정주가 반영
+          },
+        },
+      );
+      const rows: Array<Record<string, string>> = data?.output2 ?? [];
+      const bars = rows
+        .filter((r) => r && r['stck_bsop_date'] && r['stck_clpr'] != null)
+        .map((r) => ({
+          tradeDate: String(r['stck_bsop_date']).trim(),
+          open: this.parseNum(r['stck_oprc']),
+          high: this.parseNum(r['stck_hgpr']),
+          low: this.parseNum(r['stck_lwpr']),
+          close: this.parseNum(r['stck_clpr']),
+          volume: this.parseNum(r['acml_vol']),
+          tradingValue: this.parseNum(r['acml_tr_pbmn']),
+        }));
+      // KIS 는 최신→과거 순으로 준다 → 거래일 오름차순으로 정렬(일관성).
+      return bars.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+    } catch (e) {
+      if (e instanceof KisApiUnavailableError) throw e;
+      this.logger.error(
+        `[KIS] inquire-daily-itemchartprice 일봉 소실 ${code}: ${this.failureReason(e)}`,
+      );
+      return [];
     }
   }
 

@@ -73,6 +73,43 @@ describe('NotificationProducerService (DAR-85)', () => {
     expect(queue.add.mock.calls[1][2].jobId).toBe('trade-exit-trade-1');
   });
 
+  it('DAR-473: enqueueOpsAlert → OPS_ALERT 잡·type=OPS_ALERT·dedupeKey·자연키 jobId', async () => {
+    const queue = makeQueue();
+    const svc = new NotificationProducerService(queue as any);
+    await svc.enqueueOpsAlert('CRITICAL', 'kill-switch', '킬스위치가 발동했습니다.', {
+      dedupeKey: 'kill-switch:2026-07-03',
+      deepLink: '/portfolio',
+      data: { reason: 'CONSEC_LOSS' },
+    });
+
+    expect(queue.add).toHaveBeenCalledTimes(1);
+    const [jobName, data, options] = queue.add.mock.calls[0];
+    expect(jobName).toBe(NOTIFY_JOB.OPS_ALERT);
+    expect(data).toMatchObject({
+      type: 'OPS_ALERT',
+      severity: 'CRITICAL',
+      source: 'kill-switch',
+      message: '킬스위치가 발동했습니다.',
+      dedupeKey: 'kill-switch:2026-07-03',
+      deepLink: '/portfolio',
+      meta: { reason: 'CONSEC_LOSS' },
+    });
+    // BullMQ custom jobId 는 ':' 불가 → '-' 치환. type=OPS_ALERT → 'ops-' 접두.
+    expect(options.jobId).toBe('ops-kill-switch-2026-07-03');
+  });
+
+  it('DAR-473: dedupeKey 미지정이면 source+message 로 도출(멱등 자연키)', async () => {
+    const queue = makeQueue();
+    const svc = new NotificationProducerService(queue as any);
+    await svc.enqueueOpsAlert('WARNING', 'cron-freshness', '수집 지연');
+
+    const [, data] = queue.add.mock.calls[0];
+    expect(data.dedupeKey).toBe('cron-freshness:수집 지연');
+    // deepLink·meta 미지정 → undefined.
+    expect(data.deepLink).toBeUndefined();
+    expect(data.meta).toBeUndefined();
+  });
+
   it('큐 미설정(null)이어도 enqueue 는 throw 하지 않는다(graceful no-op)', async () => {
     const svc = new NotificationProducerService(null as any);
     await expect(svc.enqueueSignal({ signalId: 's1', corpCode: 'c1' })).resolves.toBeUndefined();

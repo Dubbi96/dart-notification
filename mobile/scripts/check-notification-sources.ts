@@ -31,6 +31,9 @@ const EXPECTED: Record<string, { emoji: string; label: string }> = {
   'short-momentum': { emoji: '🚀', label: '단기모멘텀' },
   'conservative-value': { emoji: '🛡️', label: '보수가치' },
   'aggressive-diversified': { emoji: '💥', label: '공격분산' },
+  // DAR-473(P01): 리스크·운영 출처.
+  risk: { emoji: '🛑', label: '리스크' },
+  ops: { emoji: '⚙️', label: '운영' },
 };
 
 let failures = 0;
@@ -77,6 +80,10 @@ check(
 // 공시 인앱 행 프리픽스(조인 데이터 렌더) — '📢 {기업명} · {공시유형}'
 const disclosurePrefix = `${sourceByType('DISCLOSURE').emoji} 삼성전자 · 단일판매ㆍ공급계약체결`;
 check('공시 행 = "📢 삼성전자 · …"', disclosurePrefix.startsWith('📢 삼성전자 · '));
+
+// (5) DAR-473(P01): 리스크·운영 타입 → 출처 매핑(백엔드 sourceByType 미러).
+check('RISK_ALERT → 🛑 리스크', sourceByType('RISK_ALERT').emoji === '🛑' && sourceByType('RISK_ALERT').label === '리스크');
+check('OPS_ALERT → ⚙️ 운영', sourceByType('OPS_ALERT').emoji === '⚙️' && sourceByType('OPS_ALERT').label === '운영');
 
 // (4) sourceByType + 폴백
 check('sourceByType DISCLOSURE → 📢', sourceByType('DISCLOSURE').emoji === '📢');

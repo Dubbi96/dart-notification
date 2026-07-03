@@ -56,6 +56,8 @@ const ZERO_UNREAD_BY_CATEGORY: Record<NotificationCategory, number> = {
   disclosure: 0,
   signal: 0,
   trade: 0,
+  // DAR-473(P01): 운영 버킷.
+  system: 0,
 };
 
 /** meta 의 미읽음 계열 카운트를 1 감소(카테고리 지정 시 해당 버킷도 함께). */

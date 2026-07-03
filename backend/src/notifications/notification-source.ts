@@ -41,6 +41,9 @@ export const NOTIFICATION_SOURCES: Record<string, NotificationSource> = {
   'short-momentum': { key: 'short-momentum', emoji: '🚀', label: '단기모멘텀' },
   'conservative-value': { key: 'conservative-value', emoji: '🛡️', label: '보수가치' },
   'aggressive-diversified': { key: 'aggressive-diversified', emoji: '💥', label: '공격분산' },
+  // ── 리스크·운영(DAR-473 P01·NotificationType 파생) ──────────────────────────
+  risk: { key: 'risk', emoji: '🛑', label: '리스크' },
+  ops: { key: 'ops', emoji: '⚙️', label: '운영' },
 };
 
 /** 미상 출처 폴백(미등록 strategyKey 등). */
@@ -56,6 +59,9 @@ const TYPE_SOURCE_KEY: Partial<Record<NotificationType, string>> = {
   [NotificationType.SIGNAL]: 'signal',
   [NotificationType.EXIT]: 'exit',
   [NotificationType.THESIS_VIOLATED]: 'thesis',
+  // DAR-473(P01): 리스크·운영 알림 출처.
+  [NotificationType.RISK_ALERT]: 'risk',
+  [NotificationType.OPS_ALERT]: 'ops',
 };
 
 /** 출처 키로 출처 조회(미상은 폴백). */

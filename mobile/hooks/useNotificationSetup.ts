@@ -24,6 +24,8 @@ const ANDROID_CHANNELS: ReadonlyArray<{
   { id: 'disclosure', name: '공시', importanceKey: 'DEFAULT' },
   { id: 'signal', name: '신호', importanceKey: 'HIGH' },
   { id: 'trade', name: '체결', importanceKey: 'HIGH' },
+  // DAR-473(P01): 리스크·운영 알림 채널(킬스위치·크론 지연 등) — 높은 중요도.
+  { id: 'system', name: '운영·리스크', importanceKey: 'HIGH' },
 ];
 
 // Expo Go(안드로이드)는 SDK 53부터 expo-notifications 가 **import(모듈 평가) 시점에 throw**한다.

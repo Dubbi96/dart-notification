@@ -383,6 +383,37 @@ describe('IntradayScalpService — 1사이클', () => {
     expect(mock.trades[0].status).toBe('OPEN');
   });
 
+  it('DAR-476(P02·A13): 전일 잔존 OPEN catch-up 강제청산 발동 시 RISK_ALERT 에스컬레이션(scalp-catchup)', async () => {
+    // 전일(월요일 이전) OPEN 이 오버나잇 잔존 = 15:20 정규 청산 '실패'의 표면화.
+    const mock = buildPrismaMock({ universe: [], candlesByStock: {}, dailyClose: 90 });
+    seedOpenScalp(mock, { tradeDate: '20260619' }); // today('20260622') 이전 → catch-up 대상
+    const producer = {
+      enqueueRiskAlert: jest.fn().mockResolvedValue(undefined),
+      enqueueTradeExit: jest.fn().mockResolvedValue(undefined),
+      enqueueTradeEntry: jest.fn().mockResolvedValue(undefined),
+    };
+    // 생성자 시그니처: (prisma, realtimeCache?, tradeDateResolver?, notifyProducer?, killSwitch?)
+    //   → producer 는 4번째 인자. 앞 2개(realtimeCache·tradeDateResolver)는 미주입(undefined) 폴백.
+    const svc = new IntradayScalpService(
+      mock.prisma,
+      undefined,
+      undefined,
+      producer as unknown as import('../../../notifications/notification-producer.service').NotificationProducerService,
+    );
+
+    await svc.runExitCycle(kstMonday('1000'));
+
+    // 잔존분이 catch-up sweep 되어 청산됨(오버나잇 절대 금지 불변식 복원).
+    expect(mock.trades[0].status).toBe('CLOSED');
+    expect(mock.trades[0].exitReason).toBe('FORCE_CLOSE_EOD');
+    // 그리고 RISK_ALERT 1회 에스컬레이션(관측·알림만 — 청산 동작·판정 무변경).
+    expect(producer.enqueueRiskAlert).toHaveBeenCalledTimes(1);
+    const [severity, source, message] = producer.enqueueRiskAlert.mock.calls[0];
+    expect(severity).toBe('ERROR'); // 일봉 폴백 성공(가격결측 아님) → ERROR
+    expect(source).toBe('scalp-catchup');
+    expect(message).toContain('catch-up 강제청산');
+  });
+
   it('DAR-435 청산 timebase 통일: exitTs 가 entryTs 와 동일 naive-KST·exitTs>entryTs·holdMinutes 정확', async () => {
     const mock = buildPrismaMock({
       universe: [{ stockCode: '000001', corpCode: 'C1' }],

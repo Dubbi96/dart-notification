@@ -845,6 +845,7 @@ export class IntradayScalpService {
       `[Scalp][오버나잇방지] 전일 이전 OPEN ${stale.length}건 catch-up 강제청산(15:20 잡 누락 추정)`,
     );
     let closed = 0;
+    let priceMissingCount = 0;
     for (const t of stale) {
       // 그 거래일 15:25 기준 시각(정규장 내) — closePosition 의 DAR-444 clamp 가 exitTs 를 해당일로 고정.
       const staleNow = minuteTimestamp(t.tradeDate, '1525') ?? new Date();
@@ -852,12 +853,34 @@ export class IntradayScalpService {
       // staleNow.getTime() 전달 → 오늘 실시간 캐시는 신선도 미충족(null)로 떨어지고 그 거래일 데이터만 사용.
       const { price, priceMissing } = await this.resolveExitPrice(t, candles, staleNow.getTime());
       if (priceMissing) {
+        priceMissingCount += 1;
         this.logger.error(
           `[Scalp][데이터정합] catch-up 강제청산 가격결측 — 진입가 폴백 ${t.stockCode} tradeDate=${t.tradeDate}`,
         );
       }
       await this.closePosition(t, price, 'FORCE_CLOSE_EOD', staleNow);
       closed += 1;
+    }
+    // DAR-476(P02·A13): 오버나잇 포지션이 잔존해 catch-up 이 발동했다는 것 자체가 정상 15:20 청산
+    //   '실패'의 표면화 → RISK_ALERT 에스컬레이션(관측·알림만, 청산 동작·판정은 위에서 이미 수행).
+    //   가격결측 폴백이 섞였으면 데이터 정합 리스크가 겹치므로 심각도를 CRITICAL 로 올린다.
+    if (closed > 0 && this.notifyProducer) {
+      const severity = priceMissingCount > 0 ? 'CRITICAL' : 'ERROR';
+      const missingNote =
+        priceMissingCount > 0
+          ? ` (가격결측 진입가 폴백 ${priceMissingCount}건 — 손익 왜곡 가능)`
+          : '';
+      void this.notifyProducer.enqueueRiskAlert(
+        severity,
+        'scalp-catchup',
+        `단타 오버나잇 포지션 ${closed}건 catch-up 강제청산 — 15:20 정규 청산 누락 추정${missingNote}`,
+        {
+          // 거래일 기준 자연키 → 동일 sweep 중복 억제, 다른 날 잔존은 구분.
+          dedupeKey: `scalp-catchup:${today}:${closed}:${priceMissingCount}`,
+          deepLink: '/portfolio',
+          data: { tradeDate: today, closed, priceMissingCount },
+        },
+      );
     }
     return closed;
   }

@@ -23,9 +23,11 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaperTradingController } from './paper-trading/paper-trading.controller';
 import { PaperTradingService } from './paper-trading/paper-trading.service';
+import { NotificationProducerModule } from '../notifications/notification-producer.module';
+import { NotificationProducerService } from '../notifications/notification-producer.service';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, NotificationProducerModule],
   controllers: [
     PaperTradingController,
     AuditLogQueryController,
@@ -47,11 +49,31 @@ import { PaperTradingService } from './paper-trading/paper-trading.service';
     PrismaKillSwitchStateRepository,
     // KillSwitchManager는 영속 레포를 주입해 부팅 시 DB 상태를 복원(DAR-350).
     // NestJS가 onModuleInit을 호출 → 재시작 후에도 발동 상태 유지(거짓 안전 교정).
+    // DAR-476(P02): 발동 통지 포트를 producer.enqueueRiskAlert 로 어댑트해 주입 —
+    //   발동(수동/자동) 즉시 RISK_ALERT. 룰/차단 로직 무변경(통지는 fire-and-forget·graceful).
     {
       provide: KillSwitchManager,
-      useFactory: (killSwitchRepo: PrismaKillSwitchStateRepository) =>
-        new KillSwitchManager(killSwitchRepo),
-      inject: [PrismaKillSwitchStateRepository],
+      useFactory: (
+        killSwitchRepo: PrismaKillSwitchStateRepository,
+        producer: NotificationProducerService,
+      ) =>
+        new KillSwitchManager(killSwitchRepo, {
+          onActivated: ({ reason, triggeredBy, activatedAt }) => {
+            const trigger = triggeredBy === 'USER' ? '수동' : '자동';
+            void producer.enqueueRiskAlert(
+              'CRITICAL',
+              'kill-switch',
+              `킬스위치 발동(${trigger}) — 신규 주문이 전면 차단됩니다. 사유: ${reason}`,
+              {
+                // 자연키에 활성화 시각(분 단위)을 포함 → 동일 사유 재발동은 구분, 중복 폭주는 억제.
+                dedupeKey: `kill-switch:activate:${activatedAt.toISOString().slice(0, 16)}`,
+                deepLink: '/portfolio',
+                data: { reason, triggeredBy, activatedAt: activatedAt.toISOString() },
+              },
+            );
+          },
+        }),
+      inject: [PrismaKillSwitchStateRepository, NotificationProducerService],
     },
     {
       provide: 'IPaperTradeRepository',

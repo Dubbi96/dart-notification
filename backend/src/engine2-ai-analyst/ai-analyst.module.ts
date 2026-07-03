@@ -21,6 +21,7 @@ import { AiBackfillDrainService } from './backfill/ai-backfill-drain.service';
 import { AiBackfillScheduler } from './backfill/ai-backfill.scheduler';
 import { MarketDataModule } from '../engine3-quant-market/market-data/market-data.module';
 import { QUEUE } from '../common/queues/queue.constants';
+import { NotificationProducerModule } from '../notifications/notification-producer.module';
 
 /**
  * Engine 2 — AI Analyst Engine (M3).
@@ -36,6 +37,7 @@ import { QUEUE } from '../common/queues/queue.constants';
   imports: [
     BullModule.registerQueue({ name: QUEUE.AI_ANALYZE }),
     MarketDataModule, // DAR-69: DartStockStatusService (관리종목 실데이터 폴백)
+    NotificationProducerModule, // DAR-476(P02): AI 비용 위반 OPS_ALERT 발행
   ],
   controllers: [AiCostMetricsController],
   providers: [

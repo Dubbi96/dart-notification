@@ -110,6 +110,42 @@ describe('NotificationProducerService (DAR-85)', () => {
     expect(data.meta).toBeUndefined();
   });
 
+  it('DAR-476: enqueueRiskAlert → 같은 OPS_ALERT 잡·type=RISK_ALERT·자연키 risk- 접두', async () => {
+    const queue = makeQueue();
+    const svc = new NotificationProducerService(queue as any);
+    await svc.enqueueRiskAlert('CRITICAL', 'kill-switch', '킬스위치 발동(자동)', {
+      dedupeKey: 'kill-switch:activate:2026-07-03T09:00',
+      deepLink: '/portfolio',
+      data: { reason: 'CONSECUTIVE_LOSS' },
+    });
+
+    expect(queue.add).toHaveBeenCalledTimes(1);
+    const [jobName, data, options] = queue.add.mock.calls[0];
+    // RISK_ALERT 도 OPS_ALERT 와 동일 잡을 쓰되 payload.type 으로만 구분(consumer 동일 경로).
+    expect(jobName).toBe(NOTIFY_JOB.OPS_ALERT);
+    expect(data).toMatchObject({
+      type: 'RISK_ALERT',
+      severity: 'CRITICAL',
+      source: 'kill-switch',
+      message: '킬스위치 발동(자동)',
+      dedupeKey: 'kill-switch:activate:2026-07-03T09:00',
+      deepLink: '/portfolio',
+      meta: { reason: 'CONSECUTIVE_LOSS' },
+    });
+    // type=RISK_ALERT → 'risk-' 접두 + ':' → '-' 치환.
+    expect(options.jobId).toBe('risk-kill-switch-activate-2026-07-03T09-00');
+  });
+
+  it('DAR-476: enqueueRiskAlert dedupeKey 미지정이면 source+message 로 도출', async () => {
+    const queue = makeQueue();
+    const svc = new NotificationProducerService(queue as any);
+    await svc.enqueueRiskAlert('ERROR', 'scalp-catchup', '오버나잇 청산');
+
+    const [, data] = queue.add.mock.calls[0];
+    expect(data.type).toBe('RISK_ALERT');
+    expect(data.dedupeKey).toBe('scalp-catchup:오버나잇 청산');
+  });
+
   it('큐 미설정(null)이어도 enqueue 는 throw 하지 않는다(graceful no-op)', async () => {
     const svc = new NotificationProducerService(null as any);
     await expect(svc.enqueueSignal({ signalId: 's1', corpCode: 'c1' })).resolves.toBeUndefined();

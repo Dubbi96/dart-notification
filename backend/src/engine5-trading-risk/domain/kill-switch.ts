@@ -15,6 +15,21 @@ export interface KillSwitchState {
   activatedAt?: Date;
 }
 
+/**
+ * KillSwitchActivationNotifier — DAR-476(P02) 발동 관측 포트.
+ *
+ * 순수 Rule 도메인(kill-switch)이 NestJS/알림 계층에 직접 의존하지 않도록 하는 경계.
+ * 배선 모듈이 producer.enqueueRiskAlert 로 어댑트해 주입한다(미주입 시 no-op).
+ * 판정·차단 로직과 완전 분리 — 통지 실패는 발동을 절대 되돌리지 않는다(호출부 fire-and-forget).
+ */
+export interface KillSwitchActivationNotifier {
+  onActivated(event: {
+    reason: string;
+    triggeredBy: 'SYSTEM' | 'USER';
+    activatedAt: Date;
+  }): void;
+}
+
 export interface AutoKillCheckInput {
   consecutiveLossCount: number;  // 연속 손실 횟수
   marketDropPct: number;         // 시장 지수 변동율 (음수 = 하락)
@@ -88,7 +103,11 @@ export class KillSwitchManager implements OnModuleInit {
     triggeredBy: 'SYSTEM',
   };
 
-  constructor(private readonly repo?: IKillSwitchStateRepository) {}
+  constructor(
+    private readonly repo?: IKillSwitchStateRepository,
+    // DAR-476(P02): 발동 통지 포트(옵셔널). 미주입 시 통지 no-op — 룰/차단 동작 불변.
+    private readonly notifier?: KillSwitchActivationNotifier,
+  ) {}
 
   /** 부팅 시 DB 상태 복원. NestJS 라이프사이클 훅. */
   async onModuleInit(): Promise<void> {
@@ -127,6 +146,9 @@ export class KillSwitchManager implements OnModuleInit {
         deactivatedAt: null,
       });
     }
+    // DAR-476(P02): 발동 즉시 RISK_ALERT 통지(수동/자동 불문). 판정·차단은 이미 위에서 발효됐고,
+    // 통지는 순수 관측 — 어댑터가 fire-and-forget/graceful 이라 발동 경로를 절대 깨지 않는다.
+    this.notifier?.onActivated({ reason, triggeredBy, activatedAt });
   }
 
   async deactivate(): Promise<void> {

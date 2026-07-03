@@ -298,6 +298,7 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 - 시장 급락 **≤ −5%** (조건에 `marketDropPct` 설정 시 활성)
 - API 오류 누적 **≥ 3회**
 - **모드**: 기본 `REDUCE_ONLY`(발동 중 BUY 차단·SELL 허용). 전면 중단은 `FULL_HALT`로 상수 교체. 코드: `risk-check.types.ts DEFAULT_KILL_SWITCH_MODE`.
+- **배선 상태**: 위 순수 판정(`checkAutoKill`)의 프로덕션 호출은 **§7.7 SHADOW 계측(DAR-502 P20)** 에서 선행 배선한다(측정 기간 중 `activate()` 미호출·발동 0). ENFORCE 전환은 P23.
 
 ### 7.3 체결 시뮬레이터 (`DEFAULT_FILL_PARAMS`)
 
@@ -327,7 +328,7 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
   | 듀얼모멘텀 코어 forward | **ENFORCE** | 측정 대상 아님(§9.3.2 위험조정 게이트 통과 신규 트랙) |
 
 - **★수용 기준(§8.5 준수)**: 측정 트랙 기본값 **SHADOW** 는 M10 클록 보호의 절대 조건이다. ENFORCE 플립은 환경변수 `RISK_GUARD_MODE_<TRACK>=ENFORCE` 로 **코드 변경 없이** 가능하나, 측정 트랙 플립은 **M10 졸업 측정 완료 + §8.1 3게이트(문서→재검증→사람 승인) 통과 전까지 금지**(Wave 2 P23). 순수 게이트의 불변식상 SHADOW 는 절대 BLOCK 을 반환하지 않아 배선 전후 진입 후보·수량·예약이 동일하다.
-- **영속·알림**: 판정을 `RiskDecisionLog`(FK 없는 additive 모델)에 기록. 위반은 P02 OPS_ALERT — SHADOW 는 트랙+거래일 dedupe(일 1회 요약), ENFORCE BLOCK 은 즉시. 드로다운 컷=§7.5, 월간 손실 한도=§7.6.
+- **영속·알림**: 판정을 `RiskDecisionLog`(FK 없는 additive 모델)에 기록. 위반은 P02 OPS_ALERT — SHADOW 는 트랙+거래일 dedupe(일 1회 요약), ENFORCE BLOCK 은 즉시. 드로다운 컷=§7.5, 월간 손실 한도=§7.6, 자동 킬 SHADOW 배선=§7.7(DAR-502 P20).
 
 ### 7.5 드로다운 컷 (고점 추적 + −15% REDUCE_ONLY 자동 발동, DAR-497 [견고화 W2·P19])
 
@@ -374,6 +375,21 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 
 - **side-gate(GAP-11) 준수**: 매수(BUY) 진입만 게이트 — 청산·위험 축소(SELL)는 미차단(§7.1 원칙 동일).
 - **★SHADOW 중립성 봉인(§8.5)**: 순수 게이트 불변식상 SHADOW 트랙은 MONTHLY_LOSS 극단 위반에도 절대 BLOCK 을 반환하지 않는다(`risk-guard-shadow-neutrality.spec.ts` 세 규칙 동시 극단 위반 전수 증명). 측정 트랙 ENFORCE 플립은 M10 졸업 + §8.1 3게이트 통과 전까지 금지(P23).
+
+### 7.7 자동 킬스위치 발동 배선 — SHADOW 계측 (DAR-502 [견고화 W2·P20])
+
+코드: `backend/src/engine5-trading-risk/domain/kill-switch.ts`(`checkAutoKill` 순수 판정·§7.2) + `domain/auto-kill-inputs.ts`(입력 산출 순수 함수) + `services/risk-guard.service.ts`(`evaluateAutoKillShadow` 오케스트레이션). 모델 `RiskDecisionLog`(FK 없는 additive·`meta.kind='AUTO_KILL_ADVICE'`).
+
+- **역할(갭 A6 — 자동 발동 순수 함수 완성·호출자 0)**: §7.2 `checkAutoKill`(연속손실·시장급락·API오류 3조건)이 완성돼 있으나 프로덕션 호출자가 0 이었다. M11 백로그였던 자동 발동을 **SHADOW 로 선행 배선**해 발동 빈도·오탐률을 무해하게 계측한다.
+- **입력 산출**(순수 함수 `auto-kill-inputs.ts` + 서비스 조회):
+  - **연속손실**: 트랙별 최근 청산 시계열(측정 트랙=PaperTrade SELL·FILLED / 분봉 단타=IntradayScalpTrade `exitTs` 존재)의 `netPnl` 을 최신순으로 카운트(`countConsecutiveLosses`).
+  - **시장급락**: `MarketIndex` 대표 지수(KOSPI `0001`) 최근 2행으로 일간 수익률 산정(`computeMarketDropPct`, 1행이면 당일 시가 대비 폴백).
+  - **API 오류율**: **CronRunLog FAILED 최근 24h 집계**. ★소스 택1 근거 — P08 하드닝 KIS 클라이언트에 노출된 실패 카운터가 없어(kis-api.service.ts 확인) CronRunLog FAILED 로 대체한다: (a) 영속(재시작 생존) (b) 크로스엔진 결합 회피 (c) 수집 잡 실패 = 조용한 데이터 소실 운영 신호(§KNOWN_FAILURES).
+- **훅**: 일일 사이클(측정 트랙)·장중 모니터(분봉 단타 매 10분)에서 **스냅샷 직후·graceful catch**(P19 관측 삽입 패턴 준용) 1줄 호출. 매매 행동 무변경.
+- **기록·알림**: `RiskDecisionLog`(`meta.kind='AUTO_KILL_ADVICE'`, **track+거래일 1행 멱등**·당일 에스컬레이션만 갱신 → 장중 재호출 노이즈 0) + 발동 권고 시 OPS_ALERT(`auto-kill:shadow:<track>:<거래일>` dedupe·일 1회). raw 입력(연속손실·`marketDropPct`·apiErrorCount)을 `meta` 에 전량 보존.
+- **★발동 금지(요건2)**: 측정 기간 중 **`activate()` 를 절대 호출하지 않는다.** `RiskGuardService` 는 `KillSwitchManager` 참조 자체가 없어 구조적으로 발동 불가능하다(`risk-guard-auto-kill.service.spec.ts` 증명). **코어 forward 도 이 이슈에서는 SHADOW 기록만** — P19 드로다운 컷이 이미 ENFORCE 이므로 자동킬 조건의 **오탐률 검증 전까지 자동킬 발동은 보류**한다(근거 명기).
+- **임계 무변경(§8.5)**: SHADOW 계측 조건 = frozen `DEFAULT_AUTO_KILL_CONDITIONS`(magic 임계 미도입). 시장급락 레그는 DEFAULT 에서 `marketDropPct=0`(비활성) → 판정 미기여, raw 값만 관측용 기록. **30일 계측 후 임계 확정·ENFORCE 전환은 P23**(졸업 측정 완료 + §8.1 3게이트 사람 승인) 소관.
+- **★SHADOW 중립성 봉인(§8.5)**: `checkAutoKill` 은 순수 권고(`shouldKill` 플래그)만 반환 — 상태 전이·발동 없음. 입력 산출 함수는 read-only(인자 미변형). 자동킬 권고가 사이클 산출에 영향 0(`risk-guard-shadow-neutrality.spec.ts` 확장 증명).
 
 ---
 
@@ -584,6 +600,7 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 | **RiskGuard 공용 진입 게이트** (§7.4) | `engine5-trading-risk/domain/risk-guard-gate.ts` | `evaluateRiskGuardEntry`·`resolveRiskGuardMode`·`DEFAULT_RISK_GUARD_MODES`(측정 SHADOW·코어 ENFORCE)·`RISK_GUARD_DAILY_LOSS_MAX_PCT`. 모델 `RiskDecisionLog`(FK 없음) |
 | **드로다운 컷 + HWM 추적** (§7.5) | `engine5-trading-risk/domain/risk-guard-gate.ts` + `services/risk-guard.service.ts` | `evaluateDrawdownCut`·`RISK_GUARD_DRAWDOWN_CUT_MAX_PCT`(−0.15, G6 정합·frozen)·`RiskGuardService.evaluateDrawdownCut`(HWM forward-only 갱신·측정 SHADOW/코어 ENFORCE→킬스위치 REDUCE_ONLY). 모델 `AccountHighWaterMark`(FK 없음). MDD=engine4 `computeMaxDrawdownPct` 재사용 |
 | **월간 손실 한도** (§7.6) | `engine5-trading-risk/domain/risk-guard-gate.ts`(`evaluateRiskGuardEntry` 3번째 룰) | `RISK_GUARD_MONTHLY_LOSS_MAX_PCT`(−0.10, 명세 3-3·frozen)·`MONTHLY_LOSS` 위반코드. 당월 실현손실/원금 < −10% → 측정 SHADOW(기록)·코어 ENFORCE(진입 게이트 BLOCK=당월 신규 진입 중단·익월 자동 재개, 킬스위치 아님) |
+| **자동 킬스위치 SHADOW 배선** (§7.7) | `engine5-trading-risk/domain/kill-switch.ts` + `domain/auto-kill-inputs.ts` + `services/risk-guard.service.ts` | `checkAutoKill`(순수 판정)·`countConsecutiveLosses`·`computeMarketDropPct`·`SHADOW_AUTO_KILL_CONDITIONS`(=frozen DEFAULT)·`RiskGuardService.evaluateAutoKillShadow`(입력 산출·`meta.kind='AUTO_KILL_ADVICE'` 멱등 기록·OPS_ALERT·**activate() 미호출**). API 오류=CronRunLog FAILED 24h 집계 |
 | 체결 파라미터 | `engine5-trading-risk/domain/fill-simulator.ts` | `DEFAULT_FILL_PARAMS`·`roundTripCostPct` |
 | **변동성 돌파 위성 신호·사이징** (§9.1) | `engine3-quant-market/volatility-breakout/volatility-breakout-signal.ts` | `computeBreakoutTarget`·`computeVolAdjustedSizing`·`evaluateBreakoutEntry`·`BREAKOUT_ENTRY_TAG` |
 | **변동성 돌파 위성 상수** (§9.1) | `engine3-quant-market/volatility-breakout/volatility-breakout.constants.ts` | `VOL_BREAKOUT_K`·`TARGET_DAILY_VOL_PCT`·`VOLATILITY_BREAKOUT_PRESET`·`SATELLITE_TARGET_ETF_CODE` |
@@ -597,5 +614,5 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 
 ---
 
-*정본 버전: 1.9 (2026-07-04). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24) → 1.3 DAR-491 §9.1 변동성 돌파 위성 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P14) → 1.4 DAR-492 §9.2 듀얼모멘텀 코어 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P12) → 1.5 DAR-493 §9.3 2단 자본 프레임·ETF 비용 프로파일·백테스트 엣지 게이트 절차 신설·§10 SSOT 포인터 추가(견고화 W1·P16) → 1.6 DAR-494 §9.3.1 게이트 실행 결과 기록·§9.3.2 코어 한정 위험조정 게이트 기준(§8 사람 승인 2026-07-03)·§9.1 위성 기각 기록(견고화 W1·P13) → 1.7 DAR-496 §7.4 RiskGuard 공용 진입 게이트(일일손실·현금 2종·측정 SHADOW·코어 forward ENFORCE·§8.5 준수)·§10 SSOT 포인터 추가(견고화 W2·P18) → 1.8 DAR-497 §7.5 드로다운 컷(고점 추적 HWM + 고점 대비 −15% REDUCE_ONLY 자동 발동·G6 정합 frozen·측정 SHADOW/코어 ENFORCE→킬스위치·자동 재개 금지)·§10 SSOT 포인터 추가(견고화 W2·P19) → 1.9 DAR-501 §7.6 월간 손실 한도(당월 실현손실 −10% 도달 시 당월 신규 진입 중단·명세 3-3 frozen·측정 SHADOW/코어 ENFORCE→진입 게이트 BLOCK·월 바뀌면 자동 재개·킬스위치 아님·§7.4 골격 룰 1종 추가)·§10 SSOT 포인터 추가(견고화 W2·P21). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24·P14·Wave1·Wave2`.*
+*정본 버전: 2.0 (2026-07-04). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24) → 1.3 DAR-491 §9.1 변동성 돌파 위성 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P14) → 1.4 DAR-492 §9.2 듀얼모멘텀 코어 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P12) → 1.5 DAR-493 §9.3 2단 자본 프레임·ETF 비용 프로파일·백테스트 엣지 게이트 절차 신설·§10 SSOT 포인터 추가(견고화 W1·P16) → 1.6 DAR-494 §9.3.1 게이트 실행 결과 기록·§9.3.2 코어 한정 위험조정 게이트 기준(§8 사람 승인 2026-07-03)·§9.1 위성 기각 기록(견고화 W1·P13) → 1.7 DAR-496 §7.4 RiskGuard 공용 진입 게이트(일일손실·현금 2종·측정 SHADOW·코어 forward ENFORCE·§8.5 준수)·§10 SSOT 포인터 추가(견고화 W2·P18) → 1.8 DAR-497 §7.5 드로다운 컷(고점 추적 HWM + 고점 대비 −15% REDUCE_ONLY 자동 발동·G6 정합 frozen·측정 SHADOW/코어 ENFORCE→킬스위치·자동 재개 금지)·§10 SSOT 포인터 추가(견고화 W2·P19) → 1.9 DAR-501 §7.6 월간 손실 한도(당월 실현손실 −10% 도달 시 당월 신규 진입 중단·명세 3-3 frozen·측정 SHADOW/코어 ENFORCE→진입 게이트 BLOCK·월 바뀌면 자동 재개·킬스위치 아님·§7.4 골격 룰 1종 추가)·§10 SSOT 포인터 추가(견고화 W2·P21) → 2.0 DAR-502 §7.7 자동 킬스위치 발동 배선(checkAutoKill SHADOW 계측·입력 산출[연속손실·시장급락·API오류]·`meta.kind='AUTO_KILL_ADVICE'` 멱등 기록·activate() 미호출·30일 계측 후 ENFORCE=P23)·§7.2 배선 상태·§10 SSOT 포인터 추가(견고화 W2·P20). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24·P14·Wave1·Wave2`.*
 *설립 시점 전값은 코드 상수를 무보정 전사했다(code=truth). 이후 변경은 §8 변경 절차(문서 개정→재검증→사람 승인)를 따른다.*

@@ -399,6 +399,21 @@ export class PaperSimulationService {
           this.logger.error(`[PaperSim] 드로다운 SHADOW 평가 실패(무시): ${(e as Error).message}`),
         );
 
+      // DAR-502(P20): 자동 킬스위치 발동 조건 SHADOW 계측 — 연속손실·시장급락·API오류 권고를
+      //   RiskDecisionLog(AUTO_KILL_ADVICE)+OPS_ALERT(일 1회)로 기록만. ★activate() 미호출(발동 0·
+      //   서비스가 KillSwitchManager 참조 없음). graceful(관측 부수효과)·매매 행동 무변경(M10 클록 보호).
+      //   30일 계측 후 ENFORCE 전환은 P23(졸업 후 사용자 승인) 소관.
+      await this.riskGuard
+        ?.evaluateAutoKillShadow({
+          track: 'paper-simulation',
+          tradeDate,
+          lossSource: 'paper-trade',
+          styleTag: null, // 단일 시뮬(측정 트랙) 청산 시계열
+        })
+        ?.catch((e) =>
+          this.logger.error(`[PaperSim] 자동킬 SHADOW 평가 실패(무시): ${(e as Error).message}`),
+        );
+
       this.logger.log(
         `[PaperSim] 사이클 완료 체결매수=${bought} 예약=${reserved} 스냅샷=${snapshotted} ` +
           `체결매도=${exited} 청산이연=${exitDeferred} 재기준=${rebased} 보유=${openPositions} 평가자산=${equity}`,

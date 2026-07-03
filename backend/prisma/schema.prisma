@@ -2168,3 +2168,31 @@ model RiskDecisionLog {
   @@index([createdAt])
   @@map("risk_decision_logs")
 }
+
+// 계좌 고점(High-Water Mark) 추적 — 드로다운 컷(룰북 §7.5) 발동 근거 (DAR-497 [견고화 W2·P19]).
+//
+// 배경(갭 A2): 계좌 고점 추적·드로다운 임계 트리거가 전무해 룰북 8-6(-15~20% 컷·자동 재개 금지)이
+//    발화 자체가 불가능했다. 기간 리셋(일간/주간 캡)은 자동 재개라 요건과 상충 → 리셋 없는 영속 고점 필요.
+//
+// ★설계: 트랙 하위 **포트폴리오 단위**(철학·전략 forward 는 4종 각각 별 포트폴리오) 고점을 영속한다.
+//    - 초기값 = 최초 관측 시점의 총자산(과거 소급 산정 금지 — 룩어헤드·리셋 정합). 이후 forward-only 로
+//      max 갱신만 한다(하락해도 고점은 내려가지 않음 = 진짜 HWM).
+//    - 드로다운 = (현재총자산 − 고점) / 고점. −15%(G6 임계·frozen) 도달 시 DRAWDOWN_CUT.
+//    - 자연키 = portfolioId(유니크). 관계 FK 없음(RiskDecisionLog·DualMomentumForwardTrade 전례 —
+//      Portfolio 는 삭제/재생성될 수 있고 측정 트랙 오염 방지 위해 additive 분리).
+model AccountHighWaterMark {
+  id            String @id @default(cuid())
+  portfolioId   String @unique // 트랙 하위 포트폴리오 단위 고점(철학/전략 forward 는 4종 각각)
+  track         String // RiskGuardTrack — 모드 해석·감사(paper-simulation|philosophy-style|strategy-forward|dual-momentum-forward)
+
+  highWaterMark Decimal @db.Decimal(16, 2) // 계좌 고점(총자산, forward-only max)
+  peakDate      String // 고점 도달 거래일 YYYYMMDD
+  lastEquity    Decimal @db.Decimal(16, 2) // 최근 관측 총자산
+  lastDate      String // 최근 관측 거래일 YYYYMMDD
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([track])
+  @@map("account_high_water_marks")
+}

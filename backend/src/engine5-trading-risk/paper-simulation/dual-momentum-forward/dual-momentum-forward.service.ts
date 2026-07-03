@@ -26,7 +26,10 @@ import { KillSwitchManager } from '../../domain/kill-switch';
 import { RiskGuardService } from '../../services/risk-guard.service';
 import { simulateFill, DEFAULT_FILL_PARAMS, roundToTick } from '../../domain/fill-simulator';
 import { FillParams } from '../../domain/paper-trade.types';
-import { MomentumBar, decideMonthlyRebalance } from '../../../engine3-quant-market/dual-momentum/dual-momentum-signal';
+import {
+  MomentumBar,
+  decideMonthlyRebalance,
+} from '../../../engine3-quant-market/dual-momentum/dual-momentum-signal';
 import {
   MOMENTUM_LOOKBACK_DAYS,
   CORE_STYLE_TAG,
@@ -297,6 +300,11 @@ export class DualMomentumForwardService {
       const equity = await this.computeEquity(tradeDate);
       await this.snapshotEquity(pf.id, tradeDate, equity);
 
+      // 3) DAR-497(P19): 계좌 고점 추적 + 드로다운 컷(−15%·ENFORCE). 총자산 산출 직후 1회.
+      //   BLOCK(고점 대비 −15% 이하) 시 킬스위치 REDUCE_ONLY 발동 → 다음 사이클 신규 매수 차단(체결기가
+      //   killActive 를 이미 존중). 자동 재개 금지(영속·수동 해제만) 요건을 킬스위치 구조가 충족한다.
+      await this.evaluateDrawdownCut(pf.id, tradeDate, equity);
+
       const holding = await this.currentOpenHolding();
       const pending = await this.currentPending();
       this.logger.log(
@@ -342,7 +350,9 @@ export class DualMomentumForwardService {
     for (const p of pendings) {
       if (p.entryTradeDate > tradeDate) continue; // 아직 체결 예정일 전
       // 이월 상한 초과 → 예약 취소(무한 이월 방지).
-      if (this.tradingDaysBetween(p.entryTradeDate, tradeDate) > PENDING_FILL_MAX_CARRY_TRADING_DAYS) {
+      if (
+        this.tradingDaysBetween(p.entryTradeDate, tradeDate) > PENDING_FILL_MAX_CARRY_TRADING_DAYS
+      ) {
         await this.cancelTrade(p.id, '이월 상한 초과');
         continue;
       }
@@ -363,7 +373,12 @@ export class DualMomentumForwardService {
         const holdBar = await this.etfBarOn(holding.etfCode, tradeDate);
         if (!holdBar) continue; // 보유 시세 없음 → 블라인드 매도 금지(이월).
         const sell = simulateFill(
-          { direction: 'SELL', orderedShares: holding.shares, entryPrice: holdBar.open, liquidityRatio: 1 },
+          {
+            direction: 'SELL',
+            orderedShares: holding.shares,
+            entryPrice: holdBar.open,
+            liquidityRatio: 1,
+          },
           ETF_FILL_PARAMS,
         );
         const entryPrice = Number(holding.entryPrice ?? 0);
@@ -453,14 +468,23 @@ export class DualMomentumForwardService {
   }
 
   // ─── 월말 판정 → 익일 매수 예약 ───────────────────────────────────────────
-  private async decideAndReserve(portfolioId: string, tradeDate: string): Promise<RebalanceOutcome> {
+  private async decideAndReserve(
+    portfolioId: string,
+    tradeDate: string,
+  ): Promise<RebalanceOutcome> {
     const [barsA, barsB, barsT] = await Promise.all([
       this.momentumBarsAsOf(CORE_OFFENSE_INTL_CODE, tradeDate),
       this.momentumBarsAsOf(CORE_OFFENSE_DOMESTIC_CODE, tradeDate),
       this.momentumBarsAsOf(CORE_ABS_MOMENTUM_FILTER_CODE, tradeDate),
     ]);
     const holding = await this.currentOpenHolding();
-    const decision = decideMonthlyRebalance(barsA, barsB, barsT, holding?.etfCode ?? null, MOMENTUM_LOOKBACK_DAYS);
+    const decision = decideMonthlyRebalance(
+      barsA,
+      barsB,
+      barsT,
+      holding?.etfCode ?? null,
+      MOMENTUM_LOOKBACK_DAYS,
+    );
 
     if (decision.suspended || decision.target === null) {
       // fail-safe: 판정 불가(결측) → 무행동 + 전월 유지 + OPS_ALERT(월 1회 멱등).
@@ -537,7 +561,11 @@ export class DualMomentumForwardService {
     return closed.reduce((s, r) => s + Number(r.netPnl ?? 0), 0);
   }
 
-  private async snapshotEquity(portfolioId: string, tradeDate: string, equity: number): Promise<void> {
+  private async snapshotEquity(
+    portfolioId: string,
+    tradeDate: string,
+    equity: number,
+  ): Promise<void> {
     const unrealizedPnl = equity - DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL;
     const cumulativeReturnPct = (unrealizedPnl / DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL) * 100;
     await this.prisma.portfolioRiskSnapshot.upsert({
@@ -558,6 +586,46 @@ export class DualMomentumForwardService {
         unrealizedPnlPct: cumulativeReturnPct,
       },
     });
+  }
+
+  /**
+   * evaluateDrawdownCut — 계좌 고점(HWM) 추적 + 드로다운 컷(−15%·ENFORCE) (DAR-497 [견고화 W2·P19]).
+   *
+   * RiskGuardService 가 고점 갱신·판정·영속·측정알림을 담당(순수 게이트 소비). 코어 트랙은 ENFORCE 라
+   * 위반 시 BLOCK 이 반환되며, **킬스위치 REDUCE_ONLY 발동은 킬스위치를 소유한 이 트랙**이 수행한다:
+   *   - 이미 발동 중이면 재발동 금지 → 자동 재개 금지(수동 해제 전까지 유지)·RISK_ALERT 스팸 방지.
+   *   - 발동 시 P02 알림 배선(TradingRiskModule notifier)이 RISK_ALERT 를 단독 발행(중복 발송 방지).
+   *   - 발동 후 다음 사이클부터 체결기의 killActive 분기가 신규 매수를 차단(매도/현금 보유만).
+   *
+   * 전체를 graceful 래핑 — 드로다운 평가/발동 실패는 사이클 결과를 절대 깨지 않는다(관측 부수효과).
+   */
+  private async evaluateDrawdownCut(
+    portfolioId: string,
+    tradeDate: string,
+    equity: number,
+  ): Promise<void> {
+    if (!this.riskGuard) return;
+    try {
+      const decision = await this.riskGuard.evaluateDrawdownCut({
+        track: 'dual-momentum-forward',
+        portfolioId,
+        tradeDate,
+        currentEquity: equity,
+        killSwitchActive: this.killSwitch?.isActive() ?? false,
+      });
+      if (decision.action === 'BLOCK' && this.killSwitch && !this.killSwitch.isActive()) {
+        await this.killSwitch.activate(
+          `드로다운 컷 발동 — 계좌 고점 대비 ${decision.drawdownPct.toFixed(2)}% (한도 −15%, 룰북 §7.5). ` +
+            `자동 재개 금지: 수동 해제 전까지 신규 매수 차단(REDUCE_ONLY).`,
+          'SYSTEM',
+        );
+        this.logger.warn(
+          `[DualMomFwd] 드로다운 컷 → 킬스위치 REDUCE_ONLY 발동(${tradeDate}) dd=${decision.drawdownPct.toFixed(2)}% 고점=${Math.round(decision.highWaterMark)}`,
+        );
+      }
+    } catch (e) {
+      this.logger.error(`[DualMomFwd] 드로다운 컷 평가 실패(무시): ${(e as Error).message}`);
+    }
   }
 
   // ─── 상태 조회(read-only) ─────────────────────────────────────────────────
@@ -588,11 +656,15 @@ export class DualMomentumForwardService {
       equity,
       realizedNetPnl: realized,
       cumulativeReturnPct:
-        ((equity - DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL) / DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL) * 100,
+        ((equity - DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL) / DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL) *
+        100,
       closedTrades: closedCount,
       lowSample: closedCount < DUAL_MOMENTUM_FORWARD_LOW_SAMPLE_THRESHOLD,
       lowSampleThreshold: DUAL_MOMENTUM_FORWARD_LOW_SAMPLE_THRESHOLD,
-      equityCurve: snapshots.map((s) => ({ snapshotDate: s.snapshotDate, totalValue: s.totalValue })),
+      equityCurve: snapshots.map((s) => ({
+        snapshotDate: s.snapshotDate,
+        totalValue: s.totalValue,
+      })),
       rebalanceHistory: closedRows.map((r) => ({
         decisionDate: r.decisionDate,
         etfCode: r.etfCode,
@@ -678,8 +750,7 @@ export class DualMomentumForwardService {
       pendingTargetName: pending ? (etfByCode(pending.etfCode)?.name ?? null) : null,
       equity,
       cumulativeReturnPct:
-        ((equity - DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL) /
-          DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL) *
+        ((equity - DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL) / DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL) *
         100,
       scorecard,
       equityCurve,
@@ -758,7 +829,10 @@ export class DualMomentumForwardService {
   }
 
   private async cancelTrade(id: string, reason: string): Promise<void> {
-    await this.prisma.dualMomentumForwardTrade.update({ where: { id }, data: { status: 'CANCELLED' } });
+    await this.prisma.dualMomentumForwardTrade.update({
+      where: { id },
+      data: { status: 'CANCELLED' },
+    });
     this.logger.warn(`[DualMomFwd] 예약 취소(${reason}) trade=${id}`);
   }
 

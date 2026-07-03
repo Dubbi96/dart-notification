@@ -6,9 +6,11 @@
 //   구조적으로 보장된다. 아래는 그 불변식을 최악 입력으로 전수 확인한다.
 import {
   evaluateRiskGuardEntry,
+  evaluateDrawdownCut,
   resolveRiskGuardMode,
   RiskGuardTrack,
   RiskGuardEntryInput,
+  RiskGuardDrawdownInput,
 } from './risk-guard-gate';
 
 const MEASUREMENT_TRACKS: RiskGuardTrack[] = [
@@ -19,9 +21,7 @@ const MEASUREMENT_TRACKS: RiskGuardTrack[] = [
 ];
 
 // 두 규칙(일일손실·현금)을 모두 극단 위반시키는 최악 입력.
-const catastrophic = (
-  track: RiskGuardTrack,
-): RiskGuardEntryInput => ({
+const catastrophic = (track: RiskGuardTrack): RiskGuardEntryInput => ({
   track,
   mode: resolveRiskGuardMode(track, {}), // 환경 오버라이드 없이 기본 모드
   totalCapital: 10_000_000,
@@ -67,5 +67,33 @@ describe('SHADOW 무변경 증명 (DoD 항목5)', () => {
       expect(d.action).toBe('ALLOW');
       expect(d.allowed).toBe(true);
     }
+  });
+});
+
+// DAR-497(P19): 드로다운 컷도 동일 불변식 — 측정 트랙은 극단 드로다운에도 절대 BLOCK 되지 않는다.
+//   (SHADOW 중립성 스펙 확장 — DoD 항목5 / 이슈 요건4.)
+const catastrophicDrawdown = (track: RiskGuardTrack): RiskGuardDrawdownInput => ({
+  track,
+  mode: resolveRiskGuardMode(track, {}),
+  highWaterMark: 10_000_000,
+  currentEquity: 100_000, // −99% 드로다운(극단 위반)
+});
+
+describe('SHADOW 무변경 증명 — 드로다운 컷 (DoD 항목5 / 요건4)', () => {
+  it('측정 트랙은 −99% 드로다운에도 BLOCK 되지 않는다 → 매매 행동 무변경', () => {
+    for (const track of MEASUREMENT_TRACKS) {
+      const d = evaluateDrawdownCut(catastrophicDrawdown(track));
+      expect(d.action).not.toBe('BLOCK');
+      expect(d.action).toBe('SHADOW_VIOLATION');
+      expect(d.violations.map((v) => v.code)).toContain('DRAWDOWN_CUT');
+    }
+  });
+
+  it('대조군: 동일 극단 드로다운이 ENFORCE(코어)였다면 BLOCK — 게이트 정상 동작', () => {
+    const d = evaluateDrawdownCut({
+      ...catastrophicDrawdown('dual-momentum-forward'),
+      mode: 'ENFORCE',
+    });
+    expect(d.action).toBe('BLOCK');
   });
 });

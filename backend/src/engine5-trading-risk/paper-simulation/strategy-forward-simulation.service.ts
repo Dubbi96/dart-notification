@@ -52,11 +52,7 @@ import { resolvePositionBudget } from '../../engine3-quant-market/backtest/backt
 import { StrategyParams } from '../../engine3-quant-market/backtest/ports/backtest.types';
 import { dedupeCandidatesByCorpCode } from './simulation-entry';
 import { buildEquityCurve, EquityCurvePoint } from './equity-curve';
-import {
-  buildTradeRationale,
-  calculateTradeScorecard,
-  TradeScorecard,
-} from './trade-scorecard';
+import { buildTradeRationale, calculateTradeScorecard, TradeScorecard } from './trade-scorecard';
 
 // ─── 전략 forward 네임스페이스 순수 Rule ────────────────────────────────────
 
@@ -253,6 +249,21 @@ export class StrategyForwardSimulationService {
       const exited = await this.evaluateExits(pf.id, tradeDate, preset.key);
       const { equity, openPositions } = await this.computeEquity(pf.id);
       await this.saveStrategySnapshot(pf.id, tradeDate, equity, openPositions);
+
+      // DAR-497(P19): 계좌 고점(HWM) 추적 + 드로다운 컷 — 측정 트랙은 **SHADOW**(기록만·차단 0·매매 무변경).
+      await this.riskGuard
+        ?.evaluateDrawdownCut({
+          track: 'strategy-forward',
+          portfolioId: pf.id,
+          tradeDate,
+          currentEquity: equity,
+        })
+        ?.catch((e) =>
+          this.logger.error(
+            `[StrategyFwd] 드로다운 SHADOW 평가 실패(무시): ${(e as Error).message}`,
+          ),
+        );
+
       this.logger.log(
         `[StrategyFwd][${preset.key}] 매수=${bought} 스냅샷=${snapshotted} 매도=${exited} 보유=${openPositions} 평가=${equity}`,
       );
@@ -267,9 +278,7 @@ export class StrategyForwardSimulationService {
         ...(allowlistEmpty ? { allowlistEmpty: true } : {}),
       };
     } catch (e) {
-      this.logger.error(
-        `[StrategyFwd][${preset.key}] 사이클 오류: ${(e as Error).message}`,
-      );
+      this.logger.error(`[StrategyFwd][${preset.key}] 사이클 오류: ${(e as Error).message}`);
       return {
         strategyKey: preset.key,
         portfolioId: '',
@@ -291,9 +300,7 @@ export class StrategyForwardSimulationService {
     gatedEventTypes: string[] | null,
   ): Promise<{ bought: number; allowlistEmpty: boolean }> {
     // allowlist: robustEventGate 전략은 당일 해석분, 아니면 프리셋 정적 eventTypes(현행 3전략은 미지정=전 이벤트).
-    const allowlist = preset.robustEventGate
-      ? (gatedEventTypes ?? [])
-      : preset.params.eventTypes;
+    const allowlist = preset.robustEventGate ? (gatedEventTypes ?? []) : preset.params.eventTypes;
     if (preset.robustEventGate && (!allowlist || allowlist.length === 0)) {
       // do-no-harm: 양-edge 이벤트가 없으면 진입 0 유지 — 정직하게 로그로 남긴다.
       this.logger.log(
@@ -320,9 +327,7 @@ export class StrategyForwardSimulationService {
     const rawCandidates = await this.prisma.tradingSignal.findMany({
       where: {
         buyScore: { gte: preset.params.minBuyScore },
-        ...(allowlist && allowlist.length > 0
-          ? { eventType: { in: allowlist } }
-          : {}),
+        ...(allowlist && allowlist.length > 0 ? { eventType: { in: allowlist } } : {}),
         corpCode: { notIn: openCorpCodes.length ? openCorpCodes : ['__none__'] },
         disclosure: { isBackfill: false },
       },
@@ -347,14 +352,8 @@ export class StrategyForwardSimulationService {
         select: { unrealizedPnl: true, closedAt: true },
       }),
     ]);
-    const realizedNetPnl = closedForCash.reduce(
-      (s, p) => s + (p.unrealizedPnl ?? 0),
-      0,
-    );
-    const investedPrincipal = openForCash.reduce(
-      (s, p) => s + (p.entryAmount ?? 0),
-      0,
-    );
+    const realizedNetPnl = closedForCash.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
+    const investedPrincipal = openForCash.reduce((s, p) => s + (p.entryAmount ?? 0), 0);
     const dailyRealizedPnl = closedForCash.reduce(
       (s, p) =>
         p.closedAt && formatKstDateCompact(p.closedAt) === tradeDate
@@ -362,8 +361,7 @@ export class StrategyForwardSimulationService {
           : s,
       0,
     );
-    let availableCash =
-      STRATEGY_INITIAL_CAPITAL + realizedNetPnl - investedPrincipal;
+    let availableCash = STRATEGY_INITIAL_CAPITAL + realizedNetPnl - investedPrincipal;
 
     let opened = 0;
     for (const sig of candidates) {
@@ -374,11 +372,7 @@ export class StrategyForwardSimulationService {
       if (price === null || price <= 0) continue;
 
       // 프리셋 사이징(EQUAL/SCORE_WEIGHT) — Risk envelope 상한 절단(순수 함수).
-      const budget = strategyEntryBudget(
-        preset.params,
-        sig.buyScore,
-        pf.maxSinglePositionPct,
-      );
+      const budget = strategyEntryBudget(preset.params, sig.buyScore, pf.maxSinglePositionPct);
       const shares = Math.floor(budget / price);
       if (shares <= 0) continue;
 
@@ -444,10 +438,7 @@ export class StrategyForwardSimulationService {
         });
       } catch (err) {
         // 부분 유니크 인덱스 충돌(동시/재실행 동일 종목 OPEN) → 멱등 스킵(DAR-122 계승).
-        if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2002'
-        ) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
           openedCorpCodes.add(sig.corpCode);
           continue;
         }
@@ -476,8 +467,7 @@ export class StrategyForwardSimulationService {
       const close = day.closePrice;
       const positionValue = close * p.quantity;
       const unrealizedPnl = (close - p.entryPrice) * p.quantity;
-      const unrealizedPnlPct =
-        p.entryPrice > 0 ? ((close - p.entryPrice) / p.entryPrice) * 100 : 0;
+      const unrealizedPnlPct = p.entryPrice > 0 ? ((close - p.entryPrice) / p.entryPrice) * 100 : 0;
       const highest = Math.max(p.highestPrice ?? p.entryPrice, close);
 
       await this.prisma.positionDailySnapshot.upsert({
@@ -608,11 +598,9 @@ export class StrategyForwardSimulationService {
         const sellPrice = sell.filledPrice ?? close;
         const grossPnl = (sellPrice - p.entryPrice) * sell.filledShares;
         // F7 계승: 매수 수수료 차감(회계 누락 방지). 전량 매도 → 진입가×수량×commissionRate.
-        const buyCommission =
-          p.entryPrice * sell.filledShares * DEFAULT_FILL_PARAMS.commissionRate;
+        const buyCommission = p.entryPrice * sell.filledShares * DEFAULT_FILL_PARAMS.commissionRate;
         const netPnl = grossPnl - buyCommission - sell.commission - sell.tax;
-        const returnPct =
-          p.entryPrice > 0 ? ((sellPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
+        const returnPct = p.entryPrice > 0 ? ((sellPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
 
         await this.prisma.paperTrade.update({
           where: { id: sell.id },
@@ -698,14 +686,12 @@ export class StrategyForwardSimulationService {
     const sampled = strategies.filter((s) => s.scorecard.sampleSize > 0);
     const best = sampled.reduce<StrategyForwardPerformance | null>(
       (top, s) =>
-        top === null ||
-        s.scorecard.cumulativeReturnPct > top.scorecard.cumulativeReturnPct
+        top === null || s.scorecard.cumulativeReturnPct > top.scorecard.cumulativeReturnPct
           ? s
           : top,
       null,
     );
-    const allLowSample =
-      sampled.length === 0 ? true : sampled.every((s) => s.lowSample);
+    const allLowSample = sampled.length === 0 ? true : sampled.every((s) => s.lowSample);
     const ranking = [...strategies]
       .sort(
         (a, b) =>
@@ -747,9 +733,7 @@ export class StrategyForwardSimulationService {
       initialCapital: STRATEGY_INITIAL_CAPITAL,
       equityCurve,
       latestSnapshotDate:
-        equityCurve.length > 0
-          ? equityCurve[equityCurve.length - 1].snapshotDate
-          : null,
+        equityCurve.length > 0 ? equityCurve[equityCurve.length - 1].snapshotDate : null,
       scorecard,
       openPositions,
       rules: {
@@ -828,10 +812,7 @@ export class StrategyForwardSimulationService {
     });
   }
 
-  private async latestClose(
-    corpCode: string,
-    tradeDate: string,
-  ): Promise<number | null> {
+  private async latestClose(corpCode: string, tradeDate: string): Promise<number | null> {
     const row = await this.latestPriceRow(corpCode, tradeDate);
     return row ? row.closePrice : null;
   }

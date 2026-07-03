@@ -43,11 +43,7 @@ import {
 } from './simulation-entry';
 import { Prisma } from '@prisma/client';
 import { buildEquityCurve, EquityCurvePoint } from './equity-curve';
-import {
-  buildTradeRationale,
-  calculateTradeScorecard,
-  TradeScorecard,
-} from './trade-scorecard';
+import { buildTradeRationale, calculateTradeScorecard, TradeScorecard } from './trade-scorecard';
 import {
   PHILOSOPHY_STYLES,
   PhilosophyStyle,
@@ -184,10 +180,7 @@ export class PhilosophyStyleSimulationService {
   }
 
   /** 스타일 1종 1사이클: 적합도 진입 → 시가평가 → Exit → 스타일 포트폴리오 스냅샷. */
-  async runStyleCycle(
-    style: PhilosophyStyle,
-    tradeDate: string,
-  ): Promise<StyleCycleResult> {
+  async runStyleCycle(style: PhilosophyStyle, tradeDate: string): Promise<StyleCycleResult> {
     try {
       const pf = await this.getOrCreateStylePortfolio(style);
       const bought = await this.openStylePositions(style, pf, tradeDate);
@@ -195,6 +188,19 @@ export class PhilosophyStyleSimulationService {
       const exited = await this.evaluateExits(pf.id, tradeDate, style);
       const { equity, openPositions } = await this.computeEquity(pf.id);
       await this.saveStyleSnapshot(pf.id, tradeDate, equity, openPositions);
+
+      // DAR-497(P19): 계좌 고점(HWM) 추적 + 드로다운 컷 — 측정 트랙은 **SHADOW**(기록만·차단 0·매매 무변경).
+      await this.riskGuard
+        ?.evaluateDrawdownCut({
+          track: 'philosophy-style',
+          portfolioId: pf.id,
+          tradeDate,
+          currentEquity: equity,
+        })
+        ?.catch((e) =>
+          this.logger.error(`[StyleSim] 드로다운 SHADOW 평가 실패(무시): ${(e as Error).message}`),
+        );
+
       this.logger.log(
         `[StyleSim][${style}] 매수=${bought} 스냅샷=${snapshotted} 매도=${exited} 보유=${openPositions} 평가=${equity}`,
       );
@@ -271,14 +277,8 @@ export class PhilosophyStyleSimulationService {
         select: { unrealizedPnl: true, closedAt: true },
       }),
     ]);
-    const realizedNetPnl = closedForCash.reduce(
-      (s, p) => s + (p.unrealizedPnl ?? 0),
-      0,
-    );
-    const investedPrincipal = openForCash.reduce(
-      (s, p) => s + (p.entryAmount ?? 0),
-      0,
-    );
+    const realizedNetPnl = closedForCash.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
+    const investedPrincipal = openForCash.reduce((s, p) => s + (p.entryAmount ?? 0), 0);
     const dailyRealizedPnl = closedForCash.reduce(
       (s, p) =>
         p.closedAt && formatKstDateCompact(p.closedAt) === tradeDate
@@ -286,11 +286,9 @@ export class PhilosophyStyleSimulationService {
           : s,
       0,
     );
-    let availableCash =
-      PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl - investedPrincipal;
+    let availableCash = PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl - investedPrincipal;
 
-    const baseBudget =
-      PaperSimulationService.INITIAL_CAPITAL * (pf.maxSinglePositionPct / 100);
+    const baseBudget = PaperSimulationService.INITIAL_CAPITAL * (pf.maxSinglePositionPct / 100);
 
     let opened = 0;
     for (const sig of candidates) {
@@ -370,10 +368,7 @@ export class PhilosophyStyleSimulationService {
         });
       } catch (err) {
         // DAR-122: 부분 유니크 인덱스 충돌(동시/재실행 동일 종목 OPEN) → 멱등 스킵.
-        if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2002'
-        ) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
           openedCorpCodes.add(sig.corpCode);
           continue;
         }
@@ -401,8 +396,7 @@ export class PhilosophyStyleSimulationService {
       const close = day.closePrice;
       const positionValue = close * p.quantity;
       const unrealizedPnl = (close - p.entryPrice) * p.quantity;
-      const unrealizedPnlPct =
-        p.entryPrice > 0 ? ((close - p.entryPrice) / p.entryPrice) * 100 : 0;
+      const unrealizedPnlPct = p.entryPrice > 0 ? ((close - p.entryPrice) / p.entryPrice) * 100 : 0;
       const highest = Math.max(p.highestPrice ?? p.entryPrice, close);
 
       await this.prisma.positionDailySnapshot.upsert({
@@ -505,7 +499,11 @@ export class PhilosophyStyleSimulationService {
         exitAction: exit.exitAction,
         triggerTypes: exit.triggerTypes,
         primaryTrigger: exit.primaryTrigger,
-        scoreDetail: { source: `DAR-76 style-sim [${style}]`, tradeDate, triggers: exit.triggerTypes },
+        scoreDetail: {
+          source: `DAR-76 style-sim [${style}]`,
+          tradeDate,
+          triggers: exit.triggerTypes,
+        },
       });
 
       await this.prisma.positionDailySnapshot.updateMany({
@@ -527,11 +525,9 @@ export class PhilosophyStyleSimulationService {
         const sellPrice = sell.filledPrice ?? close;
         const grossPnl = (sellPrice - p.entryPrice) * sell.filledShares;
         // F7(2026-06-27): 매수 수수료 차감(회계 누락 교정). 전량 매도 → 진입가×수량×commissionRate.
-        const buyCommission =
-          p.entryPrice * sell.filledShares * DEFAULT_FILL_PARAMS.commissionRate;
+        const buyCommission = p.entryPrice * sell.filledShares * DEFAULT_FILL_PARAMS.commissionRate;
         const netPnl = grossPnl - buyCommission - sell.commission - sell.tax;
-        const returnPct =
-          p.entryPrice > 0 ? ((sellPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
+        const returnPct = p.entryPrice > 0 ? ((sellPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
 
         await this.prisma.paperTrade.update({
           where: { id: sell.id },
@@ -568,8 +564,7 @@ export class PhilosophyStyleSimulationService {
     });
     const unrealizedPnl = open.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
     const realizedNetPnl = closed.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
-    const equity =
-      PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl + unrealizedPnl;
+    const equity = PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl + unrealizedPnl;
     return { equity, openPositions: open.length };
   }
 
@@ -580,8 +575,7 @@ export class PhilosophyStyleSimulationService {
     openPositions: number,
   ): Promise<void> {
     const unrealizedPnl = equity - PaperSimulationService.INITIAL_CAPITAL;
-    const cumulativeReturnPct =
-      (unrealizedPnl / PaperSimulationService.INITIAL_CAPITAL) * 100;
+    const cumulativeReturnPct = (unrealizedPnl / PaperSimulationService.INITIAL_CAPITAL) * 100;
     await this.prisma.portfolioRiskSnapshot.upsert({
       where: { portfolioId_snapshotDate: { portfolioId, snapshotDate: tradeDate } },
       create: {
@@ -627,9 +621,7 @@ export class PhilosophyStyleSimulationService {
     };
   }
 
-  private async buildStylePerformance(
-    style: PhilosophyStyle,
-  ): Promise<StylePerformance> {
+  private async buildStylePerformance(style: PhilosophyStyle): Promise<StylePerformance> {
     const pf = await this.getOrCreateStylePortfolio(style);
 
     const snapshots = await this.prisma.portfolioRiskSnapshot.findMany({
@@ -637,10 +629,7 @@ export class PhilosophyStyleSimulationService {
       orderBy: { snapshotDate: 'asc' },
       select: { snapshotDate: true, totalValue: true },
     });
-    const equityCurve = buildEquityCurve(
-      snapshots,
-      PaperSimulationService.INITIAL_CAPITAL,
-    );
+    const equityCurve = buildEquityCurve(snapshots, PaperSimulationService.INITIAL_CAPITAL);
 
     const scorecard = await this.buildStyleScorecard(pf.id);
     const openPositions = await this.prisma.position.count({
@@ -662,9 +651,7 @@ export class PhilosophyStyleSimulationService {
       initialCapital: PaperSimulationService.INITIAL_CAPITAL,
       equityCurve,
       latestSnapshotDate:
-        equityCurve.length > 0
-          ? equityCurve[equityCurve.length - 1].snapshotDate
-          : null,
+        equityCurve.length > 0 ? equityCurve[equityCurve.length - 1].snapshotDate : null,
       scorecard,
       graduation,
       openPositions,
@@ -748,9 +735,7 @@ export class PhilosophyStyleSimulationService {
     return { stopLossPct, maxHoldDays };
   }
 
-  private async loadThesisSnapshot(
-    positionThesisId: string | null,
-  ): Promise<ThesisSnapshot> {
+  private async loadThesisSnapshot(positionThesisId: string | null): Promise<ThesisSnapshot> {
     if (!positionThesisId) return { invalidConditions: [], maxHoldDays: null };
     const thesis = await this.prisma.positionThesis.findUnique({
       where: { id: positionThesisId },
@@ -777,10 +762,7 @@ export class PhilosophyStyleSimulationService {
     });
   }
 
-  private async latestClose(
-    corpCode: string,
-    tradeDate: string,
-  ): Promise<number | null> {
+  private async latestClose(corpCode: string, tradeDate: string): Promise<number | null> {
     const row = await this.latestPriceRow(corpCode, tradeDate);
     return row ? row.closePrice : null;
   }

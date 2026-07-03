@@ -4,9 +4,12 @@ import { BullModule } from '@nestjs/bullmq';
 import { QUEUE } from '../common/queues/queue.constants';
 import { GraduationModule } from '../engine5-trading-risk/simulation/graduation.module';
 import { PipelineModule } from '../engine1-disclosure/pipeline/pipeline.module';
+import { NotificationProducerModule } from '../notifications/notification-producer.module';
 import { OpsHealthController } from './ops-health.controller';
 import { OpsMetricsController } from './ops-metrics.controller';
 import { OpsMetricsService } from './ops-metrics.service';
+import { OpsDailyReportService } from './ops-daily-report.service';
+import { OpsDailyReportScheduler } from './ops-daily-report.scheduler';
 import { PrismaHealthIndicator } from './indicators/prisma-health.indicator';
 import { RedisHealthIndicator } from './indicators/redis-health.indicator';
 import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.indicator';
@@ -21,10 +24,12 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
  *  - TerminusModule: HealthCheckService 제공.
  *  - BullModule.registerQueue(AI_ANALYZE): RedisHealthIndicator 가 큐의 Redis 클라이언트로 PING.
  *  - GraduationModule: GraduationMetricsService(G1/G2/G3/G5) 재사용.
- *  - PrismaModule(@Global)·CronHealthModule(@Global, DataFreshnessService)는 import 불요.
+ *  - NotificationProducerModule: enqueueOpsAlert(OPS_ALERT 채널, DAR-473) — 일일 리포트 발송.
+ *  - PrismaModule(@Global)·CronHealthModule(@Global, DataFreshness·CronRunRecorder)는 import 불요.
  *
  * ★ read-only 관측 — 신규 수집·외부 실호출·체결·AI 개입 0. 마이그레이션 0.
  *   ★실주문/Kill Switch 무직결. 외부키 readiness 는 키 존재/형식 확인 수준(쿼터 소모 0).
+ *   DAR-477(P05): 일일 운영 리포트 잡(20:30 KST)도 관측·알림 계층 전용(매매 무접점).
  */
 @Module({
   imports: [
@@ -33,10 +38,15 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
     GraduationModule,
     // DAR-126: PipelineIntegrityService(단계 카운트) 재사용 — /ops/metrics.pipeline 노출.
     PipelineModule,
+    // DAR-477: 일일 운영 리포트 발송(enqueueOpsAlert) — producer 전용 경량 모듈.
+    NotificationProducerModule,
   ],
   controllers: [OpsHealthController, OpsMetricsController],
   providers: [
     OpsMetricsService,
+    // DAR-477(견고화 W0·P05): 일일 운영 리포트 생성 서비스 + 20:30 KST 발송 스케줄러.
+    OpsDailyReportService,
+    OpsDailyReportScheduler,
     PrismaHealthIndicator,
     RedisHealthIndicator,
     ExternalKeysHealthIndicator,

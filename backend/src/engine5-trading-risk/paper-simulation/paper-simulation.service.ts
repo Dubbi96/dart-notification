@@ -130,8 +130,7 @@ const EXIT_ACTIONS = new Set(['EXIT', 'BLOCK_REBUY']);
  * 명백한 정체(달력 14일 초과)는 루프 회피 위해 999 반환.
  */
 export function tradingDayDiff(earlierYmd: string, laterYmd: string): number {
-  const toUtc = (s: string) =>
-    Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+  const toUtc = (s: string) => Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
   const a = toUtc(earlierYmd);
   const b = toUtc(laterYmd);
   const calDays = Math.round((b - a) / 86_400_000);
@@ -273,9 +272,7 @@ export class PaperSimulationService {
         select: { id: true, positionThesisId: true },
       });
       const positionIds = positions.map((p) => p.id);
-      const thesisIds = positions
-        .map((p) => p.positionThesisId)
-        .filter((x): x is string => !!x);
+      const thesisIds = positions.map((p) => p.positionThesisId).filter((x): x is string => !!x);
 
       // 캐스케이드로 사라질 자식 건수를 삭제 직전에 카운트(증거·반환용).
       const deletedDailySnapshots = positionIds.length
@@ -353,9 +350,7 @@ export class PaperSimulationService {
     this.isRunning = true;
     try {
       const feedLabel = this.priceSource?.modeLabel ?? '실데이터(미주입 폴백)';
-      this.logger.log(
-        `[PaperSim] 일일 사이클 시작 tradeDate=${tradeDate} 시세=${feedLabel}`,
-      );
+      this.logger.log(`[PaperSim] 일일 사이클 시작 tradeDate=${tradeDate} 시세=${feedLabel}`);
       const pf = await this.getOrCreateSimPortfolio();
 
       // DAR-124: 합성 모드면 사이클 직전 유니버스 시세를 멱등 적재(실데이터 모드는 no-op).
@@ -380,6 +375,19 @@ export class PaperSimulationService {
       const exitDeferred = await this.evaluateExits(pf.id, tradeDate);
       const { metrics, equity, openPositions } = await this.computeMetrics(pf.id);
       await this.savePortfolioSnapshot(pf.id, tradeDate, equity, metrics, openPositions);
+
+      // DAR-497(P19): 계좌 고점(HWM) 추적 + 드로다운 컷 — 측정 트랙은 **SHADOW**(기록만·차단 0).
+      //   순수 게이트 불변식상 BLOCK 이 나오지 않아 매매 행동 무변경(M10 클록 보호). graceful(관측 부수효과).
+      await this.riskGuard
+        ?.evaluateDrawdownCut({
+          track: 'paper-simulation',
+          portfolioId: pf.id,
+          tradeDate,
+          currentEquity: equity,
+        })
+        ?.catch((e) =>
+          this.logger.error(`[PaperSim] 드로다운 SHADOW 평가 실패(무시): ${(e as Error).message}`),
+        );
 
       this.logger.log(
         `[PaperSim] 사이클 완료 체결매수=${bought} 예약=${reserved} 스냅샷=${snapshotted} ` +
@@ -418,9 +426,7 @@ export class PaperSimulationService {
    *   → ④ evaluateExits(실가 1순위 즉시 손절 — 변경 없음).
    *   장외/휴장/키 미설정이면 평가 없이 스킵(거짓 손절 방지·로그/호출 0). throw 없이 결과로만 보고.
    */
-  async runIntradayExitMonitor(
-    now: Date = new Date(),
-  ): Promise<{
+  async runIntradayExitMonitor(now: Date = new Date()): Promise<{
     ran: boolean;
     skipped: boolean;
     reason?: string;
@@ -436,7 +442,15 @@ export class PaperSimulationService {
     tradeDate: string;
   }> {
     const tradeDate = formatKstDateCompact(now);
-    const empty = { fetched: 0, cached: 0, exited: 0, entryFilled: 0, exitFilled: 0, portfolios: 0, tradeDate };
+    const empty = {
+      fetched: 0,
+      cached: 0,
+      exited: 0,
+      entryFilled: 0,
+      exitFilled: 0,
+      portfolios: 0,
+      tradeDate,
+    };
     // ① 장시간 게이트 — 평일 09:00~15:30 KST 만. 장외/주말은 실시간 부재 → 평가 스킵(정직).
     if (!isKstRegularMarketHours(now)) {
       return { ran: false, skipped: true, reason: '장외(정규장 09:00~15:30 KST 아님)', ...empty };
@@ -571,7 +585,8 @@ export class PaperSimulationService {
     const byCorp = new Map<string, { corpCode: string; stockCode: string }>();
     for (const r of targets) {
       if (!r.corpCode || !r.stockCode) continue;
-      if (!byCorp.has(r.corpCode)) byCorp.set(r.corpCode, { corpCode: r.corpCode, stockCode: r.stockCode });
+      if (!byCorp.has(r.corpCode))
+        byCorp.set(r.corpCode, { corpCode: r.corpCode, stockCode: r.stockCode });
       if (byCorp.size >= PaperSimulationService.MAX_HOLDINGS) break;
     }
     let fetched = 0;
@@ -683,10 +698,7 @@ export class PaperSimulationService {
     // DAR-393: 헤더와 동일한 live 평가를 곡선에도 정합. 과거 스냅샷(kind='snapshot')은 그대로 두되,
     //   곡선 끝에 '현재(실시간)' 점(kind='live')을 정합 병합해 곡선 최신점 totalValue === 헤더 equity (±0)로
     //   맞춘다. metrics 도 헤더와 같은 live 계산을 재사용 → 등락률·부호 일치.
-    const snapshotPoints = buildEquityCurve(
-      snapshots,
-      PaperSimulationService.INITIAL_CAPITAL,
-    );
+    const snapshotPoints = buildEquityCurve(snapshots, PaperSimulationService.INITIAL_CAPITAL);
     const live = await this.computeLiveEquity(pf.id);
     const points = withLivePoint(
       snapshotPoints,
@@ -700,9 +712,7 @@ export class PaperSimulationService {
       points,
       // 저장 스냅샷(과거) 최신일 — 신선도 라벨용. live 점 날짜와 구분(stale 표기 근거).
       latestSnapshotDate:
-        snapshotPoints.length > 0
-          ? snapshotPoints[snapshotPoints.length - 1].snapshotDate
-          : null,
+        snapshotPoints.length > 0 ? snapshotPoints[snapshotPoints.length - 1].snapshotDate : null,
       metrics: live.metrics,
     };
   }
@@ -882,7 +892,13 @@ export class PaperSimulationService {
     return Promise.all(
       deduped.map(async (r) => {
         const base = toSimPositionDetail(r, corpNameByCode);
-        const live = await this.revalueLive(r.corpCode, r.entryPrice, r.quantity, asOf, r.entryPriceSource);
+        const live = await this.revalueLive(
+          r.corpCode,
+          r.entryPrice,
+          r.quantity,
+          asOf,
+          r.entryPriceSource,
+        );
         if (!live) return base;
         return {
           ...base,
@@ -927,8 +943,7 @@ export class PaperSimulationService {
       currentPrice,
       currentValue: currentPrice * quantity,
       unrealizedPnl: (currentPrice - entryPrice) * quantity,
-      unrealizedPnlPct:
-        entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0,
+      unrealizedPnlPct: entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0,
       source: row.source,
       sourceDate: row.sourceDate,
     };
@@ -981,24 +996,15 @@ export class PaperSimulationService {
       where: { portfolioId: pf.id, status: 'CLOSED' },
       select: { unrealizedPnl: true, closedAt: true },
     });
-    const realizedNetPnl = closedForCash.reduce(
-      (s, p) => s + (p.unrealizedPnl ?? 0),
-      0,
-    );
+    const realizedNetPnl = closedForCash.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
     // DAR-496(P18): 당일 실현손익 — 오늘(KST) 청산분만 합산(일일손실 게이트 입력).
     //   사이클 순서(평가→Exit→신규진입)상 오늘 청산은 이미 완료돼 이 시점에 확정돼 있다.
     const todayKstMidnight = this.kstMidnight(tradeDate);
     const dailyRealizedPnl = closedForCash.reduce(
-      (s, p) =>
-        p.closedAt && p.closedAt >= todayKstMidnight
-          ? s + (p.unrealizedPnl ?? 0)
-          : s,
+      (s, p) => (p.closedAt && p.closedAt >= todayKstMidnight ? s + (p.unrealizedPnl ?? 0) : s),
       0,
     );
-    const investedPrincipal = openPositions.reduce(
-      (s, p) => s + (p.entryAmount ?? 0),
-      0,
-    );
+    const investedPrincipal = openPositions.reduce((s, p) => s + (p.entryAmount ?? 0), 0);
     // 미체결 예약이 잡아둔 금액(기준가×주문수량)도 차감 — 체결 전이라 SSOT 현금엔 없지만
     //   여기서 빼지 않으면 예약이 이틀 연속 같은 현금을 이중 배분한다(체결 시 재클램프가 최종 방어).
     const reservedCash = pendingEntries.reduce(
@@ -1006,10 +1012,7 @@ export class PaperSimulationService {
       0,
     );
     let availableCash =
-      PaperSimulationService.INITIAL_CAPITAL +
-      realizedNetPnl -
-      investedPrincipal -
-      reservedCash;
+      PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl - investedPrincipal - reservedCash;
 
     // DAR-362: 후보 pool 확대 — entryReady=true 만으로는 BUY 희소 시 pool이 인위적으로 협소.
     //   ① entryReady WATCH+ 후보를 우선 채우고(진입품질 우선),
@@ -1041,10 +1044,7 @@ export class PaperSimulationService {
     // ② 부족분만 비-entryReady 상위 buyScore로 보강(품질 하한 적용·기보유/선정 종목 제외).
     if (candidates.length < available) {
       const need = available - candidates.length;
-      const already = new Set<string>([
-        ...openCorpCodes,
-        ...candidates.map((c) => c.corpCode),
-      ]);
+      const already = new Set<string>([...openCorpCodes, ...candidates.map((c) => c.corpCode)]);
       const fallbackRaw = await this.prisma.tradingSignal.findMany({
         where: {
           signal: { in: eligibleGrades },
@@ -1090,8 +1090,7 @@ export class PaperSimulationService {
     const portfolioTotalValue = PaperSimulationService.INITIAL_CAPITAL;
 
     // 종목별 기본 배분 예산(가상원금 × 단일종목 최대비중). 등급+buyScore 차등은 entryBudgetScored 적용.
-    const baseBudget =
-      PaperSimulationService.INITIAL_CAPITAL * (pf.maxSinglePositionPct / 100);
+    const baseBudget = PaperSimulationService.INITIAL_CAPITAL * (pf.maxSinglePositionPct / 100);
 
     // DAR-433: 진입 직전 후보 종목 실시간가 능동 warm — 장중 진입이 청산과 같은 REALTIME 소스로
     //   기록되게 정렬(cross-source 비대칭 제거). 장외/키 미설정이면 no-op → 진입·청산 모두 일봉(REAL).
@@ -1110,11 +1109,7 @@ export class PaperSimulationService {
       const price = priceRow?.closePrice ?? null;
       if (price === null || price <= 0) continue;
       // DAR-362: 등급 + buyScore 차등 사이징(고확신 더, 저확신 덜 — 균일 탈피).
-      let budget = entryBudgetScored(
-        baseBudget,
-        sig.signal as string,
-        sig.buyScore,
-      );
+      let budget = entryBudgetScored(baseBudget, sig.signal as string, sig.buyScore);
       // DAR-362: 섹터 분산 가드 — 동일 섹터 비중 상한(maxSectorPct) enforce.
       //   섹터 식별 가능 시 잔여 허용 예산으로 예산을 절감(상한 초과 진입 차단). 미상은 면제.
       const sector = sectorByCorp.get(sig.corpCode) ?? null;
@@ -1137,10 +1132,7 @@ export class PaperSimulationService {
       //   참여율을 base 사이징 주수로 상한 추정 → effPrice 상향 → shares 하향(보수). 실제 체결가는
       //   최종 주수(≤baseShares)의 더 작은 참여율로 산정되므로 항상 effPrice 이하 → 진입원가 ≤ budget.
       const dayVol = Number(priceRow?.volume ?? 0);
-      const baseEffPrice = roundToTick(
-        price * (1 + DEFAULT_FILL_PARAMS.slippagePct),
-        'BUY',
-      );
+      const baseEffPrice = roundToTick(price * (1 + DEFAULT_FILL_PARAMS.slippagePct), 'BUY');
       const baseShares = Math.floor(budget / baseEffPrice);
       const estParticipation = dayVol > 0 ? baseShares / dayVol : 0;
       const effSlippage =
@@ -1286,8 +1278,7 @@ export class PaperSimulationService {
     });
     const realizedNetPnl = closedForCash.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
     const investedPrincipal = openPositions.reduce((s, p) => s + (p.entryAmount ?? 0), 0);
-    let availableCash =
-      PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl - investedPrincipal;
+    let availableCash = PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl - investedPrincipal;
     const heldCorpCodes = new Set(openPositions.map((p) => p.corpCode));
 
     let filled = 0;
@@ -1512,10 +1503,7 @@ export class PaperSimulationService {
    * 실시간 open 1순위, 당일 REAL/SYNTHETIC 일봉 폴백)에 위임하고, 미주입(레거시 테스트)은
    * StockDailyPrice 당일 행 직접 조회. 당일 데이터 없으면 null(호출측 이월).
    */
-  private async openPriceRowFor(
-    corpCode: string,
-    tradeDate: string,
-  ): Promise<SimPriceRow | null> {
+  private async openPriceRowFor(corpCode: string, tradeDate: string): Promise<SimPriceRow | null> {
     if (this.priceSource) return this.priceSource.openRowForDate(corpCode, tradeDate);
     const row = await this.prisma.stockDailyPrice.findFirst({
       where: { corpCode, tradeDate },
@@ -1532,9 +1520,7 @@ export class PaperSimulationService {
 
   /** YYYYMMDD → 그 KST 날짜 자정의 절대 시각(Date). 예약 체결 예정 거래일 영속용. */
   private kstMidnight(ymd: string): Date {
-    return new Date(
-      `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}T00:00:00+09:00`,
-    );
+    return new Date(`${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}T00:00:00+09:00`);
   }
 
   // ─── 2) 일일 시가평가 ─────────────────────────────────────────────────
@@ -1550,8 +1536,7 @@ export class PaperSimulationService {
       const close = day.closePrice;
       const positionValue = close * p.quantity;
       const unrealizedPnl = (close - p.entryPrice) * p.quantity;
-      const unrealizedPnlPct =
-        p.entryPrice > 0 ? ((close - p.entryPrice) / p.entryPrice) * 100 : 0;
+      const unrealizedPnlPct = p.entryPrice > 0 ? ((close - p.entryPrice) / p.entryPrice) * 100 : 0;
       const highest = Math.max(p.highestPrice ?? p.entryPrice, close);
 
       await this.prisma.positionDailySnapshot.upsert({
@@ -1765,12 +1750,10 @@ export class PaperSimulationService {
     //   매도분(부분/전량 공통) 비례 매수 수수료 = 진입원가×(매도주수/총주수)×commissionRate.
     const buyCommission =
       p.quantity > 0
-        ? ((p.entryAmount * sell.filledShares) / p.quantity) *
-          DEFAULT_FILL_PARAMS.commissionRate
+        ? ((p.entryAmount * sell.filledShares) / p.quantity) * DEFAULT_FILL_PARAMS.commissionRate
         : 0;
     const netPnl = grossPnl - buyCommission - sell.commission - sell.tax;
-    const returnPct =
-      p.entryPrice > 0 ? ((sellPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
+    const returnPct = p.entryPrice > 0 ? ((sellPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
 
     // 모의 매도 체결에 실현손익 기록
     await this.prisma.paperTrade.update({
@@ -1813,9 +1796,7 @@ export class PaperSimulationService {
           currentValue: sellBasePrice * remainingQty,
           unrealizedPnl: (sellBasePrice - p.entryPrice) * remainingQty,
           unrealizedPnlPct:
-            p.entryPrice > 0
-              ? ((sellBasePrice - p.entryPrice) / p.entryPrice) * 100
-              : 0,
+            p.entryPrice > 0 ? ((sellBasePrice - p.entryPrice) / p.entryPrice) * 100 : 0,
         },
       });
     } else {
@@ -1871,12 +1852,8 @@ export class PaperSimulationService {
     ]);
     const realizedNetPnl = closed.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
     const unrealizedPnl = open.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
-    const totalValue =
-      PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl + unrealizedPnl;
-    const openValue = open.reduce(
-      (s, p) => s + (p.currentValue ?? p.entryAmount ?? 0),
-      0,
-    );
+    const totalValue = PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl + unrealizedPnl;
+    const openValue = open.reduce((s, p) => s + (p.currentValue ?? p.entryAmount ?? 0), 0);
     return { cash: totalValue - openValue, totalValue };
   }
 
@@ -1923,9 +1900,7 @@ export class PaperSimulationService {
         deepLink: PaperSimulationService.TRADE_DEEP_LINK,
       });
     } catch (e) {
-      this.logger.warn(
-        `[PaperSim] 매수 체결 알림 발행 실패(graceful): ${(e as Error).message}`,
-      );
+      this.logger.warn(`[PaperSim] 매수 체결 알림 발행 실패(graceful): ${(e as Error).message}`);
     }
   }
 
@@ -1963,9 +1938,7 @@ export class PaperSimulationService {
         deepLink: PaperSimulationService.TRADE_DEEP_LINK,
       });
     } catch (e) {
-      this.logger.warn(
-        `[PaperSim] 매도 체결 알림 발행 실패(graceful): ${(e as Error).message}`,
-      );
+      this.logger.warn(`[PaperSim] 매도 체결 알림 발행 실패(graceful): ${(e as Error).message}`);
     }
   }
 
@@ -2050,8 +2023,7 @@ export class PaperSimulationService {
 
     // AI 비용 — AIUsageLog 전체 합(USD→KRW)
     const aiAgg = await this.prisma.aIUsageLog.aggregate({ _sum: { costUsd: true } });
-    const totalAiCostKrw =
-      (aiAgg._sum.costUsd ?? 0) * PaperSimulationService.USD_TO_KRW;
+    const totalAiCostKrw = (aiAgg._sum.costUsd ?? 0) * PaperSimulationService.USD_TO_KRW;
 
     const metrics = calculateSimulationMetrics({
       signalOutcomes,
@@ -2109,8 +2081,10 @@ export class PaperSimulationService {
       for (const r of exitRules) {
         if (r && typeof r === 'object' && 'type' in r && 'value' in r) {
           const rule = r as { type: string; value: number };
-          if (rule.type === 'STOP_LOSS_PCT' && typeof rule.value === 'number') stopLossPct = rule.value;
-          if (rule.type === 'MAX_HOLD_DAYS' && typeof rule.value === 'number') maxHoldDays = rule.value;
+          if (rule.type === 'STOP_LOSS_PCT' && typeof rule.value === 'number')
+            stopLossPct = rule.value;
+          if (rule.type === 'MAX_HOLD_DAYS' && typeof rule.value === 'number')
+            maxHoldDays = rule.value;
         }
       }
     }

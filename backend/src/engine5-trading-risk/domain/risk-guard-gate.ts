@@ -16,6 +16,7 @@
 //     따라서 SHADOW 트랙에서는 절대 BLOCK 이 나오지 않아 진입 흐름이 바뀌지 않는다(구조적 무변경 보증).
 
 import { DEFAULT_RISK_LIMITS } from './risk-check.types';
+import { computeMaxDrawdownPct } from '../../engine4-portfolio-exit/portfolio/mdd.util';
 
 /** 게이트가 배선되는 트랙 식별자. */
 export type RiskGuardTrack =
@@ -28,8 +29,13 @@ export type RiskGuardTrack =
 /** 트랙별 운영 모드. SHADOW=기록만(차단 0) · ENFORCE=위반 시 차단. */
 export type RiskGuardMode = 'SHADOW' | 'ENFORCE';
 
-/** 게이트 위반 코드 — 본 이슈(P18)는 일일손실·현금 2종만. 드로다운·월간·자동킬은 후속(P19~P21). */
-export type RiskGuardViolationCode = 'DAILY_LOSS' | 'CASH_GUARD';
+/**
+ * 게이트 위반 코드.
+ *   - P18(DAR-496): DAILY_LOSS(일일손실)·CASH_GUARD(현금 불변식) — 진입 게이트.
+ *   - P19(DAR-497): DRAWDOWN_CUT(고점 대비 −15% 드로다운 컷) — 계좌 레벨 게이트.
+ * (월간 한도·자동 킬은 후속 P20~P21.)
+ */
+export type RiskGuardViolationCode = 'DAILY_LOSS' | 'CASH_GUARD' | 'DRAWDOWN_CUT';
 
 /** 게이트 판정 액션. ALLOW=통과 · SHADOW_VIOLATION=위반이나 기록만 · BLOCK=위반으로 차단. */
 export type RiskGuardAction = 'ALLOW' | 'SHADOW_VIOLATION' | 'BLOCK';
@@ -108,9 +114,7 @@ export const RISK_GUARD_DAILY_LOSS_MAX_PCT = DEFAULT_RISK_LIMITS.dailyLossMaxPct
  * ★불변식: BLOCK 은 mode==='ENFORCE' 일 때만 반환된다 → SHADOW 트랙은 절대 차단되지 않는다.
  * ★side-effect 0 (영속·알림은 RiskGuardService 소관). AI 개입 0.
  */
-export function evaluateRiskGuardEntry(
-  input: RiskGuardEntryInput,
-): RiskGuardDecision {
+export function evaluateRiskGuardEntry(input: RiskGuardEntryInput): RiskGuardDecision {
   const violations: RiskGuardViolation[] = [];
 
   // 1) 일일손실 한도 — totalCapital>0 일 때만 판정(0/음수 자본은 판정 불가 → 스킵).
@@ -144,21 +148,87 @@ export function evaluateRiskGuardEntry(
     });
   }
 
+  return decideRiskGuardAction(input.track, input.mode, violations);
+}
+
+// ─── P19(DAR-497): 드로다운 컷 — 고점(HWM) 대비 −15% 계좌 레벨 게이트 ──────────────
+
+/**
+ * 드로다운 컷 임계(음수, 기본 −0.15 = −15%). **frozen 상수** — graduation-gates G6(MDD 한도 −15%,
+ * cc-mvp-definition §9 백테스트 게이트) 및 룰북 8-6(-15~20% 컷)과 정합. 값 변경은 §8.1 3게이트 필수.
+ * ★정합 보증: `risk-guard-gate.spec.ts` 가 `GRADUATION_THRESHOLDS.mddLimitPct` 와 동치(×100)를 회귀로 봉인.
+ */
+export const RISK_GUARD_DRAWDOWN_CUT_MAX_PCT = -0.15;
+
+/** 드로다운 컷 순수 입력 — 계좌 고점(HWM)과 현재 총자산 스냅샷. */
+export interface RiskGuardDrawdownInput {
+  track: RiskGuardTrack;
+  mode: RiskGuardMode;
+  /** 계좌 고점(총자산, forward-only max). ≤0 이면 판정 불가(스킵). */
+  highWaterMark: number;
+  /** 현재 총자산(현금 + 평가). */
+  currentEquity: number;
+  killSwitchActive?: boolean; // 로그 컨텍스트(차단 자체는 코어 트랙이 킬스위치로 처리)
+}
+
+/**
+ * evaluateDrawdownCut — 순수 함수. 계좌 고점 대비 드로다운이 −15%(G6·frozen) 이하면 DRAWDOWN_CUT.
+ *
+ * 규칙: drawdownPct = computeMaxDrawdownPct([highWaterMark, currentEquity])  (engine4 mdd.util 재사용)
+ *        → highWaterMark ≥ currentEquity 면 (HWM−현재)/HWM 를 음수%로, 현재>HWM(신고점)이면 0.
+ *        drawdownPct ≤ RISK_GUARD_DRAWDOWN_CUT_MAX_PCT×100(−15) → 위반.
+ *
+ * 액션(진입 게이트와 동일 불변식):
+ *   - 위반 0                      → ALLOW
+ *   - 위반 && mode==='SHADOW'      → SHADOW_VIOLATION (기록만, 차단 0)
+ *   - 위반 && mode==='ENFORCE'     → BLOCK (코어 트랙 → 호출측이 킬스위치 REDUCE_ONLY 발동)
+ *
+ * ★불변식: BLOCK 은 mode==='ENFORCE' 일 때만 반환된다 → SHADOW 측정 트랙은 극단 드로다운에도 절대
+ *   차단되지 않는다(매매 행동 무변경·M10 클록 보호). side-effect 0 · AI 개입 0.
+ */
+export function evaluateDrawdownCut(input: RiskGuardDrawdownInput): RiskGuardDecision {
+  const violations: RiskGuardViolation[] = [];
+
+  // 고점이 유효(>0)할 때만 판정 — 미관측/0 자본은 드로다운 정의 불가(안전 스킵).
+  if (input.highWaterMark > 0) {
+    // computeMaxDrawdownPct 는 시계열 peak-to-trough 를 음수%로 반환. [고점, 현재] 2점이면
+    // '고점 대비 현재 드로다운'과 동치다(현재가 신고점이면 peak 갱신 → 0).
+    const drawdownPct = computeMaxDrawdownPct([input.highWaterMark, input.currentEquity]);
+    const limitPct = RISK_GUARD_DRAWDOWN_CUT_MAX_PCT * 100;
+    if (drawdownPct <= limitPct) {
+      violations.push({
+        code: 'DRAWDOWN_CUT',
+        message: `드로다운 컷: 고점 대비 ${drawdownPct.toFixed(2)}% ≤ 한도 ${limitPct.toFixed(0)}% (고점 ${input.highWaterMark.toFixed(0)} → 현재 ${input.currentEquity.toFixed(0)})`,
+        details: {
+          highWaterMark: input.highWaterMark,
+          currentEquity: input.currentEquity,
+          drawdownPct,
+          limitPct,
+        },
+      });
+    }
+  }
+
+  return decideRiskGuardAction(input.track, input.mode, violations);
+}
+
+/**
+ * decideRiskGuardAction — 위반 목록 → 액션(공통). BLOCK 은 mode==='ENFORCE' 일 때만.
+ * 진입 게이트·드로다운 컷이 공유하는 SHADOW 무차단 불변식의 단일 판정 지점.
+ */
+function decideRiskGuardAction(
+  track: RiskGuardTrack,
+  mode: RiskGuardMode,
+  violations: RiskGuardViolation[],
+): RiskGuardDecision {
   const allowed = violations.length === 0;
   let action: RiskGuardAction;
   if (allowed) {
     action = 'ALLOW';
-  } else if (input.mode === 'ENFORCE') {
+  } else if (mode === 'ENFORCE') {
     action = 'BLOCK';
   } else {
     action = 'SHADOW_VIOLATION';
   }
-
-  return {
-    action,
-    track: input.track,
-    mode: input.mode,
-    violations,
-    allowed,
-  };
+  return { action, track, mode, violations, allowed };
 }

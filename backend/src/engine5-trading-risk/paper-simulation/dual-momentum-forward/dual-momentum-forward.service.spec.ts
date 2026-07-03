@@ -55,7 +55,14 @@ function buildUniverseBars(decisionDate: string): Bar[] {
   const fillDate = nextTradingDay(decisionDate);
   const bars: Bar[] = [];
   const push = (code: string, date: string, close: number, open = close) =>
-    bars.push({ etfCode: code, tradeDate: date, openPrice: open, highPrice: close, lowPrice: open, closePrice: close });
+    bars.push({
+      etfCode: code,
+      tradeDate: date,
+      openPrice: open,
+      highPrice: close,
+      lowPrice: open,
+      closePrice: close,
+    });
 
   dates.forEach((date, i) => {
     push(CORE_OFFENSE_INTL_CODE, date, 10_000 + i * 20); // A: 강한 상승 → 큰 모멘텀
@@ -100,14 +107,31 @@ function makePrisma(bars: Bar[], seedTrades: any[] = []) {
 
   const tradeDelegate = {
     findFirst: jest.fn(({ where, orderBy }: any) => {
-      const found = sortRows(trades.filter((r) => matchWhere(r, where)), orderBy);
+      const found = sortRows(
+        trades.filter((r) => matchWhere(r, where)),
+        orderBy,
+      );
       return Promise.resolve(found[0] ?? null);
     }),
     findMany: jest.fn(({ where, orderBy }: any) =>
-      Promise.resolve(sortRows(trades.filter((r) => matchWhere(r, where)), orderBy)),
+      Promise.resolve(
+        sortRows(
+          trades.filter((r) => matchWhere(r, where)),
+          orderBy,
+        ),
+      ),
     ),
     create: jest.fn(({ data }: any) => {
-      const row = { id: `t${seq}`, createdAt: seq, status: 'PENDING', commission: 0, tax: 0, slippage: 0, shares: 0, ...data };
+      const row = {
+        id: `t${seq}`,
+        createdAt: seq,
+        status: 'PENDING',
+        commission: 0,
+        tax: 0,
+        slippage: 0,
+        shares: 0,
+        ...data,
+      };
       seq++;
       trades.push(row);
       return Promise.resolve(row);
@@ -119,7 +143,11 @@ function makePrisma(bars: Bar[], seedTrades: any[] = []) {
     }),
     updateMany: jest.fn(({ where, data }: any) => {
       let n = 0;
-      for (const r of trades) if (matchWhere(r, where)) { Object.assign(r, data); n++; }
+      for (const r of trades)
+        if (matchWhere(r, where)) {
+          Object.assign(r, data);
+          n++;
+        }
       return Promise.resolve({ count: n });
     }),
   };
@@ -127,7 +155,10 @@ function makePrisma(bars: Bar[], seedTrades: any[] = []) {
   const prisma: any = {
     __trades: trades,
     __snapshots: snapshots,
-    user: { findFirst: jest.fn(() => Promise.resolve({ id: 'u1' })), create: jest.fn(() => Promise.resolve({ id: 'u1' })) },
+    user: {
+      findFirst: jest.fn(() => Promise.resolve({ id: 'u1' })),
+      create: jest.fn(() => Promise.resolve({ id: 'u1' })),
+    },
     portfolio: {
       findFirst: jest.fn(() => Promise.resolve({ id: 'pf1' })),
       create: jest.fn(() => Promise.resolve({ id: 'pf1' })),
@@ -135,11 +166,19 @@ function makePrisma(bars: Bar[], seedTrades: any[] = []) {
     dualMomentumForwardTrade: tradeDelegate,
     etfDailyPrice: {
       findFirst: jest.fn(({ where, orderBy }: any) => {
-        const found = sortRows(bars.filter((r) => matchWhere(r, where)), orderBy);
+        const found = sortRows(
+          bars.filter((r) => matchWhere(r, where)),
+          orderBy,
+        );
         return Promise.resolve(found[0] ?? null);
       }),
       findMany: jest.fn(({ where, orderBy }: any) =>
-        Promise.resolve(sortRows(bars.filter((r) => matchWhere(r, where)), orderBy)),
+        Promise.resolve(
+          sortRows(
+            bars.filter((r) => matchWhere(r, where)),
+            orderBy,
+          ),
+        ),
       ),
     },
     portfolioRiskSnapshot: {
@@ -149,12 +188,20 @@ function makePrisma(bars: Bar[], seedTrades: any[] = []) {
             s.portfolioId === where.portfolioId_snapshotDate.portfolioId &&
             s.snapshotDate === where.portfolioId_snapshotDate.snapshotDate,
         );
-        if (existing) { Object.assign(existing, update); return Promise.resolve(existing); }
+        if (existing) {
+          Object.assign(existing, update);
+          return Promise.resolve(existing);
+        }
         snapshots.push(create);
         return Promise.resolve(create);
       }),
       findMany: jest.fn(({ where, orderBy }: any) =>
-        Promise.resolve(sortRows(snapshots.filter((r) => matchWhere(r, where)), orderBy)),
+        Promise.resolve(
+          sortRows(
+            snapshots.filter((r) => matchWhere(r, where)),
+            orderBy,
+          ),
+        ),
       ),
     },
   };
@@ -211,19 +258,41 @@ describe('DualMomentumForwardService (DAR-494)', () => {
     const fillDate = FILL;
     const bars: Bar[] = [];
     const push = (code: string, date: string, close: number, open = close) =>
-      bars.push({ etfCode: code, tradeDate: date, openPrice: open, highPrice: close, lowPrice: open, closePrice: close });
+      bars.push({
+        etfCode: code,
+        tradeDate: date,
+        openPrice: open,
+        highPrice: close,
+        lowPrice: open,
+        closePrice: close,
+      });
     dates.forEach((date, i) => {
       push(CORE_OFFENSE_INTL_CODE, date, 20_000 - i * 20); // 하락 → 음수 모멘텀
       push(CORE_OFFENSE_DOMESTIC_CODE, date, 20_000 - i * 20);
       push(CORE_ABS_MOMENTUM_FILTER_CODE, date, 10_000); // 단기채 0
       push(CORE_DEFENSE_BOND_CODE, date, 10_000);
     });
-    [CORE_OFFENSE_INTL_CODE, CORE_OFFENSE_DOMESTIC_CODE].forEach((c) => push(c, fillDate, 15_100, 15_000));
-    [CORE_ABS_MOMENTUM_FILTER_CODE, CORE_DEFENSE_BOND_CODE].forEach((c) => push(c, fillDate, 10_000, 10_000));
+    [CORE_OFFENSE_INTL_CODE, CORE_OFFENSE_DOMESTIC_CODE].forEach((c) =>
+      push(c, fillDate, 15_100, 15_000),
+    );
+    [CORE_ABS_MOMENTUM_FILTER_CODE, CORE_DEFENSE_BOND_CODE].forEach((c) =>
+      push(c, fillDate, 10_000, 10_000),
+    );
 
     // 이미 오프A 100주 보유(진입가 14,900) 상태 seed.
     const prisma = makePrisma(bars, [
-      { etfCode: CORE_OFFENSE_INTL_CODE, styleTag: 'alloc:dual-momentum', status: 'OPEN', decisionDate: '20251230', entryTradeDate: '20251231', reservedShares: 100, reservedPrice: 14900, entryPrice: 14900, shares: 100, commission: 223 },
+      {
+        etfCode: CORE_OFFENSE_INTL_CODE,
+        styleTag: 'alloc:dual-momentum',
+        status: 'OPEN',
+        decisionDate: '20251230',
+        entryTradeDate: '20251231',
+        reservedShares: 100,
+        reservedPrice: 14900,
+        entryPrice: 14900,
+        shares: 100,
+        commission: 223,
+      },
     ]);
     const svc = new DualMomentumForwardService(prisma);
     await svc.runDailyCycle(DECISION); // 방어 예약(SWITCH)
@@ -242,8 +311,20 @@ describe('DualMomentumForwardService (DAR-494)', () => {
     const dates = seqDatesEndingAt(100, DECISION); // 253 미만 → computeMomentum=null
     const bars: Bar[] = [];
     dates.forEach((date) => {
-      for (const c of [CORE_OFFENSE_INTL_CODE, CORE_OFFENSE_DOMESTIC_CODE, CORE_ABS_MOMENTUM_FILTER_CODE, CORE_DEFENSE_BOND_CODE]) {
-        bars.push({ etfCode: c, tradeDate: date, openPrice: 10_000, highPrice: 10_000, lowPrice: 10_000, closePrice: 10_000 });
+      for (const c of [
+        CORE_OFFENSE_INTL_CODE,
+        CORE_OFFENSE_DOMESTIC_CODE,
+        CORE_ABS_MOMENTUM_FILTER_CODE,
+        CORE_DEFENSE_BOND_CODE,
+      ]) {
+        bars.push({
+          etfCode: c,
+          tradeDate: date,
+          openPrice: 10_000,
+          highPrice: 10_000,
+          lowPrice: 10_000,
+          closePrice: 10_000,
+        });
       }
     });
     const enqueueOpsAlert = jest.fn(() => Promise.resolve());
@@ -260,7 +341,18 @@ describe('DualMomentumForwardService (DAR-494)', () => {
 
   it('HOLD: 목표 == 현재 보유면 예약 없음(회전 최소화)', async () => {
     const prisma = makePrisma(buildUniverseBars(DECISION), [
-      { etfCode: CORE_OFFENSE_INTL_CODE, styleTag: 'alloc:dual-momentum', status: 'OPEN', decisionDate: '20251230', entryTradeDate: '20251231', reservedShares: 100, reservedPrice: 12000, entryPrice: 12000, shares: 100, commission: 180 },
+      {
+        etfCode: CORE_OFFENSE_INTL_CODE,
+        styleTag: 'alloc:dual-momentum',
+        status: 'OPEN',
+        decisionDate: '20251230',
+        entryTradeDate: '20251231',
+        reservedShares: 100,
+        reservedPrice: 12000,
+        entryPrice: 12000,
+        shares: 100,
+        commission: 180,
+      },
     ]);
     const svc = new DualMomentumForwardService(prisma);
     const res = await svc.runDailyCycle(DECISION);
@@ -275,18 +367,40 @@ describe('DualMomentumForwardService (DAR-494)', () => {
     const dates = seqDatesEndingAt(260, DECISION);
     const bars: Bar[] = [];
     const push = (code: string, date: string, close: number, open = close) =>
-      bars.push({ etfCode: code, tradeDate: date, openPrice: open, highPrice: close, lowPrice: open, closePrice: close });
+      bars.push({
+        etfCode: code,
+        tradeDate: date,
+        openPrice: open,
+        highPrice: close,
+        lowPrice: open,
+        closePrice: close,
+      });
     dates.forEach((date, i) => {
       push(CORE_OFFENSE_INTL_CODE, date, 20_000 - i * 20);
       push(CORE_OFFENSE_DOMESTIC_CODE, date, 20_000 - i * 20);
       push(CORE_ABS_MOMENTUM_FILTER_CODE, date, 10_000);
       push(CORE_DEFENSE_BOND_CODE, date, 10_000);
     });
-    [CORE_OFFENSE_INTL_CODE, CORE_OFFENSE_DOMESTIC_CODE].forEach((c) => push(c, FILL, 15_100, 15_000));
-    [CORE_ABS_MOMENTUM_FILTER_CODE, CORE_DEFENSE_BOND_CODE].forEach((c) => push(c, FILL, 10_000, 10_000));
+    [CORE_OFFENSE_INTL_CODE, CORE_OFFENSE_DOMESTIC_CODE].forEach((c) =>
+      push(c, FILL, 15_100, 15_000),
+    );
+    [CORE_ABS_MOMENTUM_FILTER_CODE, CORE_DEFENSE_BOND_CODE].forEach((c) =>
+      push(c, FILL, 10_000, 10_000),
+    );
 
     const prisma = makePrisma(bars, [
-      { etfCode: CORE_OFFENSE_INTL_CODE, styleTag: 'alloc:dual-momentum', status: 'OPEN', decisionDate: '20251230', entryTradeDate: '20251231', reservedShares: 100, reservedPrice: 14900, entryPrice: 14900, shares: 100, commission: 223 },
+      {
+        etfCode: CORE_OFFENSE_INTL_CODE,
+        styleTag: 'alloc:dual-momentum',
+        status: 'OPEN',
+        decisionDate: '20251230',
+        entryTradeDate: '20251231',
+        reservedShares: 100,
+        reservedPrice: 14900,
+        entryPrice: 14900,
+        shares: 100,
+        commission: 223,
+      },
     ]);
     const killSwitch = { isActive: () => true } as any;
     const svc = new DualMomentumForwardService(prisma, undefined, killSwitch);
@@ -306,6 +420,74 @@ describe('DualMomentumForwardService (DAR-494)', () => {
 
     expect(res.rebalance).toBe('NOT_MONTH_END');
     expect(prisma.__snapshots.length).toBeGreaterThan(0);
+  });
+
+  // ── DAR-497 [견고화 W2·P19]: 드로다운 컷 → 킬스위치 REDUCE_ONLY 발동(ENFORCE) ──
+  const drawdownDecision = (over: any = {}) => ({
+    action: 'ALLOW',
+    track: 'dual-momentum-forward',
+    mode: 'ENFORCE',
+    violations: [],
+    allowed: true,
+    highWaterMark: 10_000_000,
+    drawdownPct: 0,
+    ...over,
+  });
+
+  it('드로다운 컷 BLOCK → 킬스위치 REDUCE_ONLY 발동(1회·자동 재개 금지)', async () => {
+    const prisma = makePrisma([]); // 비월말·현금 → ETF 바 불필요
+    let active = false;
+    const killSwitch = {
+      isActive: () => active,
+      activate: jest.fn(async () => {
+        active = true;
+      }),
+    } as any;
+    const riskGuard = {
+      evaluateDrawdownCut: jest.fn(async () =>
+        drawdownDecision({
+          action: 'BLOCK',
+          allowed: false,
+          drawdownPct: -18,
+          violations: [{ code: 'DRAWDOWN_CUT', message: 'x', details: {} }],
+        }),
+      ),
+    } as any;
+    const svc = new DualMomentumForwardService(prisma, undefined, killSwitch, riskGuard);
+
+    await svc.runDailyCycle('20260115'); // 비월말 사이클
+    expect(riskGuard.evaluateDrawdownCut).toHaveBeenCalledTimes(1);
+    expect(killSwitch.activate).toHaveBeenCalledTimes(1);
+    const [reason, by] = killSwitch.activate.mock.calls[0];
+    expect(reason).toContain('드로다운 컷');
+    expect(reason).toContain('REDUCE_ONLY');
+    expect(by).toBe('SYSTEM');
+
+    // 이미 활성 → 재발동 금지(자동 재개 금지 + RISK_ALERT 스팸 방지).
+    await svc.runDailyCycle('20260116');
+    expect(killSwitch.activate).toHaveBeenCalledTimes(1);
+  });
+
+  it('드로다운 정상(ALLOW) → 킬스위치 미발동', async () => {
+    const prisma = makePrisma([]);
+    const killSwitch = { isActive: () => false, activate: jest.fn() } as any;
+    const riskGuard = {
+      evaluateDrawdownCut: jest.fn(async () => drawdownDecision({ drawdownPct: -5 })),
+    } as any;
+    const svc = new DualMomentumForwardService(prisma, undefined, killSwitch, riskGuard);
+
+    await svc.runDailyCycle('20260115');
+    expect(riskGuard.evaluateDrawdownCut).toHaveBeenCalledTimes(1);
+    expect(killSwitch.activate).not.toHaveBeenCalled();
+  });
+
+  it('riskGuard 미주입(단위 폴백)이면 드로다운 평가 자체 스킵(무영향)', async () => {
+    const prisma = makePrisma([]);
+    const killSwitch = { isActive: () => false, activate: jest.fn() } as any;
+    const svc = new DualMomentumForwardService(prisma, undefined, killSwitch);
+    const res = await svc.runDailyCycle('20260115');
+    expect(res.rebalance).toBe('NOT_MONTH_END');
+    expect(killSwitch.activate).not.toHaveBeenCalled();
   });
 });
 
@@ -371,15 +553,26 @@ describe('DualMomentumForwardService.getScorecard (DAR-495)', () => {
     const dates = seqDatesEndingAt(260, DECISION);
     const bars: Bar[] = [];
     const push = (code: string, date: string, close: number, open = close) =>
-      bars.push({ etfCode: code, tradeDate: date, openPrice: open, highPrice: close, lowPrice: open, closePrice: close });
+      bars.push({
+        etfCode: code,
+        tradeDate: date,
+        openPrice: open,
+        highPrice: close,
+        lowPrice: open,
+        closePrice: close,
+      });
     dates.forEach((date, i) => {
       push(CORE_OFFENSE_INTL_CODE, date, 20_000 - i * 20);
       push(CORE_OFFENSE_DOMESTIC_CODE, date, 20_000 - i * 20);
       push(CORE_ABS_MOMENTUM_FILTER_CODE, date, 10_000);
       push(CORE_DEFENSE_BOND_CODE, date, 10_000);
     });
-    [CORE_OFFENSE_INTL_CODE, CORE_OFFENSE_DOMESTIC_CODE].forEach((c) => push(c, FILL, 15_100, 15_000));
-    [CORE_ABS_MOMENTUM_FILTER_CODE, CORE_DEFENSE_BOND_CODE].forEach((c) => push(c, FILL, 10_000, 10_000));
+    [CORE_OFFENSE_INTL_CODE, CORE_OFFENSE_DOMESTIC_CODE].forEach((c) =>
+      push(c, FILL, 15_100, 15_000),
+    );
+    [CORE_ABS_MOMENTUM_FILTER_CODE, CORE_DEFENSE_BOND_CODE].forEach((c) =>
+      push(c, FILL, 10_000, 10_000),
+    );
 
     const prisma = makePrisma(bars, [
       {

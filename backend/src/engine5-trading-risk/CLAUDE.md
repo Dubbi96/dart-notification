@@ -29,6 +29,7 @@
 | **Kill Switch** | `domain/kill-switch.ts` | 자동 중단 조건(연속손실·시장급락·API오류) + 수동 Kill Switch — **DB 영속**(`repositories/prisma-kill-switch-state.repository.ts`, 재시작 후 발동 상태 복원, DAR-350) |
 | **이벤트 게이트** | `domain/event-list.ts` | 화이트리스트(6종)/블랙리스트(9종) M12 자동매매 게이트용 |
 | **RiskGuard 공용 진입 게이트** | `domain/risk-guard-gate.ts` + `services/risk-guard.service.ts` | 일일손실 한도 + 현금 불변식(cash≥0, DAR-426) 2종을 트랙 컨텍스트만 받는 **순수 게이트**로 추출(ALLOW / SHADOW_VIOLATION / BLOCK). 전 진입 트랙이 진입 확정 직전 1줄로 소비. 측정 트랙(시스템 모의·철학·전략 forward)은 **SHADOW**(기록만·차단 0), 듀얼모멘텀 코어 forward 는 **ENFORCE**(위반 시 매수 차단). 분봉 단타는 기존 `checkRisk` 하드룰 유지(중복 배선 금지). 판정 영속=`RiskDecisionLog`(FK 없는 전용 additive 모델), 위반=P02 OPS_ALERT(SHADOW 일 1회 dedupe·ENFORCE 즉시). ★불변식: SHADOW 는 절대 BLOCK 없음 → 매매 행동 무변경(M10 클록 보호). 순수 Rule·AI 0. DAR-496 |
+| **드로다운 컷 + HWM 추적** | `domain/risk-guard-gate.ts`(`evaluateDrawdownCut`) + `services/risk-guard.service.ts`(`evaluateDrawdownCut`) | 계좌 고점(High-Water Mark) forward-only 영속 추적(`AccountHighWaterMark`·FK 없음·포트폴리오 단위·초기값=최초 관측 총자산·과거 소급 금지) + 고점 대비 **−15%**(frozen·G6 정합) 드로다운 컷. 일일 사이클 총자산 산출 직후 소비. 측정 트랙 **SHADOW**(기록+OPS_ALERT·차단 0), 코어 forward **ENFORCE**→`KillSwitchManager.activate(REDUCE_ONLY)`(DB 영속·수동 해제만=자동 재개 금지·이미 발동 중이면 재발동 금지). MDD=engine4 `computeMaxDrawdownPct` 재사용. ★SHADOW 는 −99% 에도 절대 BLOCK 없음. 순수 Rule·AI 0. DAR-497 |
 | **시스템 모의운용** | `paper-simulation/` | 일일 사이클(평일 19:30 KST: 매수 예약→시가평가→Exit 판정, 체결은 익일 시가 — 장외 체결 의미론)·장중 5분 모니터(개장 체결기 + forward 트랙 전 포트폴리오 실시간 청산)·실가 가격소스(`simulation-price-source`)·자산곡선·트레이드 스코어카드·졸업지표 적재. `paper-simulation.service.ts`가 오케스트레이터 |
 | — 철학 스타일 분기 | `paper-simulation/philosophy-style*` | BUFFETT/LYNCH/GREENBLATT/DRUCKENMILLER 4개 거장 스타일별 분기 모의운용(philosophy-fit ≥50 적격 진입, 누적수익 랭킹, LOW_SAMPLE 정직 표기) |
 | — 페르소나 | `paper-simulation/persona/` | 시장국면(market-regime) 판정 + 페르소나 추천·트레이딩 API |
@@ -87,10 +88,27 @@
   ENFORCE 플립은 환경변수 `RISK_GUARD_MODE_<TRACK>=ENFORCE` 로 **코드 변경 없이** 가능하나,
   측정 트랙 플립은 **M10 졸업 측정 완료 + 사용자 승인 전까지 금지**(룰북 §8.5).
 - **판정 2종(P18 골격)**: ① 일일손실 한도(dailyRealizedPnl/totalCapital < -2%, `DEFAULT_RISK_LIMITS`
-  재사용) ② 현금 불변식(availableCash − entryBudget ≥ 0, DAR-426). 드로다운 컷·월간 한도·자동 킬은
-  후속(P19~P21).
+  재사용) ② 현금 불변식(availableCash − entryBudget ≥ 0, DAR-426). 월간 한도·자동 킬은 후속(P20~P21).
 - **불변식**: `evaluateRiskGuardEntry` 는 mode==='ENFORCE' 일 때만 BLOCK 을 반환한다 → SHADOW 트랙은
   절대 차단되지 않아 배선 전후 진입 후보·수량·예약이 동일하다(neutrality 스펙으로 증명).
+
+## 드로다운 컷 + 계좌 고점(HWM) 추적 (DAR-497 [견고화 W2·P19])
+
+- **갭 A2(감사의 유일한 absent-high)**: 계좌 고점 추적·드로다운 임계 트리거가 전무해 룰북 8-6(-15~20% 컷·
+  자동 재개 금지)이 발화 자체가 불가능했다. 기간 리셋(일간/주간 캡)은 자동 재개라 요건 상충 → **리셋 없는
+  영속 고점**(`AccountHighWaterMark`·FK 없음·포트폴리오 단위)을 도입한다.
+- **HWM 추적**: 일일 사이클 총자산(현금+평가) 산출 직후 `RiskGuardService.evaluateDrawdownCut` 가
+  `max(고점, 현재)` forward-only 갱신. **초기값 = 최초 관측 시점 총자산**(과거 소급 산정 금지 — 룩어헤드·
+  리셋 정합). MDD 계산은 engine4 `portfolio/mdd.util.ts computeMaxDrawdownPct` 재사용.
+- **DRAWDOWN_CUT 룰**(§7.4 게이트 골격 재사용·새 게이트 아님): 고점 대비 **−15%**
+  (`RISK_GUARD_DRAWDOWN_CUT_MAX_PCT`, frozen·졸업 G6 MDD 한도와 정합) 도달 시 —
+  - 측정 트랙(**SHADOW**): `RiskDecisionLog` 기록 + OPS_ALERT(포트폴리오+거래일 dedupe)**만** — 차단 0.
+  - 코어 forward(**ENFORCE**): `KillSwitchManager.activate(REDUCE_ONLY)`. DB 영속·수동 해제만 구조가
+    "자동 재개 금지"(8-6) 를 이미 충족. 이미 발동 중이면 재발동 금지(자동 재개 금지·알림 스팸 방지).
+- **알림 중복 방지**: ENFORCE 발동 시 킬스위치 activate 가 P02 RISK_ALERT 를 단독 발행(DAR-476 배선)하므로
+  드로다운 컷 경로는 ENFORCE 에서 별도 OPS_ALERT 를 내지 않는다(SHADOW 만 OPS_ALERT).
+- **★SHADOW 중립성 봉인**: `evaluateDrawdownCut` 도 mode==='ENFORCE' 일 때만 BLOCK →
+  측정 트랙은 −99% 드로다운에도 절대 차단 없음(`risk-guard-shadow-neutrality.spec.ts` 전수 증명).
 
 ## 체결 시뮬레이터 파라미터
 

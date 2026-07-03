@@ -327,7 +327,30 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
   | 듀얼모멘텀 코어 forward | **ENFORCE** | 측정 대상 아님(§9.3.2 위험조정 게이트 통과 신규 트랙) |
 
 - **★수용 기준(§8.5 준수)**: 측정 트랙 기본값 **SHADOW** 는 M10 클록 보호의 절대 조건이다. ENFORCE 플립은 환경변수 `RISK_GUARD_MODE_<TRACK>=ENFORCE` 로 **코드 변경 없이** 가능하나, 측정 트랙 플립은 **M10 졸업 측정 완료 + §8.1 3게이트(문서→재검증→사람 승인) 통과 전까지 금지**(Wave 2 P23). 순수 게이트의 불변식상 SHADOW 는 절대 BLOCK 을 반환하지 않아 배선 전후 진입 후보·수량·예약이 동일하다.
-- **영속·알림**: 판정을 `RiskDecisionLog`(FK 없는 additive 모델)에 기록. 위반은 P02 OPS_ALERT — SHADOW 는 트랙+거래일 dedupe(일 1회 요약), ENFORCE BLOCK 은 즉시. 드로다운 컷·월간 한도·자동 킬은 후속(P19~P21).
+- **영속·알림**: 판정을 `RiskDecisionLog`(FK 없는 additive 모델)에 기록. 위반은 P02 OPS_ALERT — SHADOW 는 트랙+거래일 dedupe(일 1회 요약), ENFORCE BLOCK 은 즉시. 월간 한도·자동 킬은 후속(P20~P21).
+
+### 7.5 드로다운 컷 (고점 추적 + −15% REDUCE_ONLY 자동 발동, DAR-497 [견고화 W2·P19])
+
+코드: `backend/src/engine5-trading-risk/domain/risk-guard-gate.ts`(`evaluateDrawdownCut`·`RISK_GUARD_DRAWDOWN_CUT_MAX_PCT`) + `services/risk-guard.service.ts`(HWM 갱신·영속·알림). 모델 `AccountHighWaterMark`(FK 없음).
+
+- **역할(갭 A2 — 감사의 유일한 absent-high)**: 계좌 고점(High-Water Mark) 추적과 드로다운 임계 트리거가 전무해 아래 표의 드로다운 컷이 발화 자체가 불가능했다. 기간 리셋(일간/주간 캡)은 자동 재개라 "자동 재개 금지" 요건과 상충 → **리셋 없는 영속 고점**을 도입한다.
+- **HWM 추적**: 트랙 하위 **포트폴리오 단위**로 계좌 고점을 영속(`AccountHighWaterMark`). 일일 사이클에서 총자산(현금+평가) 산출 직후 `max(고점, 현재)` 로만 갱신(forward-only). **초기값 = 최초 관측 시점의 총자산**(과거 소급 산정 금지 — 룩어헤드·리셋 정합). MDD 계산은 engine4 `portfolio/mdd.util.ts`(`computeMaxDrawdownPct`) 재사용.
+
+  | 규칙 | 임계값 | 발동 |
+  |---|---|---|
+  | **DRAWDOWN_CUT** | **고점 대비 −15%**(`RISK_GUARD_DRAWDOWN_CUT_MAX_PCT`, frozen) | 도달 시 트리거 |
+
+  > frozen 정합: −15% 는 졸업 게이트 **G6 MDD 한도**(`GRADUATION_THRESHOLDS.mddLimitPct`, cc-mvp-definition §9 백테스트 게이트) 및 룰북 8-6(-15~20% 컷)과 동치다. 회귀(`risk-guard-gate.spec.ts`)가 두 상수의 동치(×100)를 봉인 — §8.1 3게이트 없이 변경 금지.
+
+- **트리거 시 모드별 동작**(§7.4 모드 플래그·게이트 골격 재사용 — 새 게이트 아님):
+
+  | 모드 | 동작 |
+  |---|---|
+  | **측정 트랙(SHADOW)** | `RiskDecisionLog` 기록 + OPS_ALERT(포트폴리오+거래일 dedupe·일 1회) **만** — 차단 0(매매 행동 무변경·M10 클록 보호) |
+  | **코어 forward(ENFORCE)** | `KillSwitchManager.activate(REDUCE_ONLY)` 발동 — 킬스위치의 **DB 영속·수동 해제만** 구조가 "자동 재개 금지"(8-6) 요건을 이미 충족. 이미 발동 중이면 재발동 금지(자동 재개 금지·알림 스팸 방지) |
+
+- **알림 중복 방지**: ENFORCE 발동 시 킬스위치 activate 가 **P02 RISK_ALERT 를 단독 발행**(§7.4 배선)하므로, 드로다운 컷 경로는 ENFORCE 에서 별도 OPS_ALERT 를 내지 않는다(SHADOW 만 OPS_ALERT).
+- **★SHADOW 중립성 봉인(§8.5)**: 순수 게이트 불변식상 SHADOW 트랙은 DRAWDOWN_CUT 극단 위반(−99%)에도 절대 BLOCK 을 반환하지 않는다(`risk-guard-shadow-neutrality.spec.ts` 전수 증명). 측정 트랙 ENFORCE 플립은 M10 졸업 + §8.1 3게이트 통과 전까지 금지(P23).
 
 ---
 
@@ -536,6 +559,7 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 | 분봉 단타 청산·상수 | `engine5-trading-risk/paper-simulation/intraday-scalp/intraday-scalp-exit.ts` | `TAKE_PROFIT_PCT`·`STOP_LOSS_PCT`·`MAX_OPEN_POSITIONS`·`PER_POSITION_BUDGET_PCT`·`ENTRY_CUTOFF_HHMM`·`FORCE_EXIT_HHMM` |
 | Risk 하드룰 | `engine5-trading-risk/domain/risk-check.types.ts` | `DEFAULT_RISK_LIMITS`·`DEFAULT_AUTO_KILL_CONDITIONS`·`DEFAULT_KILL_SWITCH_MODE` |
 | **RiskGuard 공용 진입 게이트** (§7.4) | `engine5-trading-risk/domain/risk-guard-gate.ts` | `evaluateRiskGuardEntry`·`resolveRiskGuardMode`·`DEFAULT_RISK_GUARD_MODES`(측정 SHADOW·코어 ENFORCE)·`RISK_GUARD_DAILY_LOSS_MAX_PCT`. 모델 `RiskDecisionLog`(FK 없음) |
+| **드로다운 컷 + HWM 추적** (§7.5) | `engine5-trading-risk/domain/risk-guard-gate.ts` + `services/risk-guard.service.ts` | `evaluateDrawdownCut`·`RISK_GUARD_DRAWDOWN_CUT_MAX_PCT`(−0.15, G6 정합·frozen)·`RiskGuardService.evaluateDrawdownCut`(HWM forward-only 갱신·측정 SHADOW/코어 ENFORCE→킬스위치 REDUCE_ONLY). 모델 `AccountHighWaterMark`(FK 없음). MDD=engine4 `computeMaxDrawdownPct` 재사용 |
 | 체결 파라미터 | `engine5-trading-risk/domain/fill-simulator.ts` | `DEFAULT_FILL_PARAMS`·`roundTripCostPct` |
 | **변동성 돌파 위성 신호·사이징** (§9.1) | `engine3-quant-market/volatility-breakout/volatility-breakout-signal.ts` | `computeBreakoutTarget`·`computeVolAdjustedSizing`·`evaluateBreakoutEntry`·`BREAKOUT_ENTRY_TAG` |
 | **변동성 돌파 위성 상수** (§9.1) | `engine3-quant-market/volatility-breakout/volatility-breakout.constants.ts` | `VOL_BREAKOUT_K`·`TARGET_DAILY_VOL_PCT`·`VOLATILITY_BREAKOUT_PRESET`·`SATELLITE_TARGET_ETF_CODE` |
@@ -549,5 +573,5 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 
 ---
 
-*정본 버전: 1.7 (2026-07-04). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24) → 1.3 DAR-491 §9.1 변동성 돌파 위성 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P14) → 1.4 DAR-492 §9.2 듀얼모멘텀 코어 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P12) → 1.5 DAR-493 §9.3 2단 자본 프레임·ETF 비용 프로파일·백테스트 엣지 게이트 절차 신설·§10 SSOT 포인터 추가(견고화 W1·P16) → 1.6 DAR-494 §9.3.1 게이트 실행 결과 기록·§9.3.2 코어 한정 위험조정 게이트 기준(§8 사람 승인 2026-07-03)·§9.1 위성 기각 기록(견고화 W1·P13) → 1.7 DAR-496 §7.4 RiskGuard 공용 진입 게이트(일일손실·현금 2종·측정 SHADOW·코어 forward ENFORCE·§8.5 준수)·§10 SSOT 포인터 추가(견고화 W2·P18). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24·P14·Wave1·Wave2`.*
+*정본 버전: 1.8 (2026-07-04). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24) → 1.3 DAR-491 §9.1 변동성 돌파 위성 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P14) → 1.4 DAR-492 §9.2 듀얼모멘텀 코어 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P12) → 1.5 DAR-493 §9.3 2단 자본 프레임·ETF 비용 프로파일·백테스트 엣지 게이트 절차 신설·§10 SSOT 포인터 추가(견고화 W1·P16) → 1.6 DAR-494 §9.3.1 게이트 실행 결과 기록·§9.3.2 코어 한정 위험조정 게이트 기준(§8 사람 승인 2026-07-03)·§9.1 위성 기각 기록(견고화 W1·P13) → 1.7 DAR-496 §7.4 RiskGuard 공용 진입 게이트(일일손실·현금 2종·측정 SHADOW·코어 forward ENFORCE·§8.5 준수)·§10 SSOT 포인터 추가(견고화 W2·P18) → 1.8 DAR-497 §7.5 드로다운 컷(고점 추적 HWM + 고점 대비 −15% REDUCE_ONLY 자동 발동·G6 정합 frozen·측정 SHADOW/코어 ENFORCE→킬스위치·자동 재개 금지)·§10 SSOT 포인터 추가(견고화 W2·P19). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24·P14·Wave1·Wave2`.*
 *설립 시점 전값은 코드 상수를 무보정 전사했다(code=truth). 이후 변경은 §8 변경 절차(문서 개정→재검증→사람 승인)를 따른다.*

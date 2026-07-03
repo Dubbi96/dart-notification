@@ -489,6 +489,89 @@ describe('DualMomentumForwardService (DAR-494)', () => {
     expect(res.rebalance).toBe('NOT_MONTH_END');
     expect(killSwitch.activate).not.toHaveBeenCalled();
   });
+
+  // ── DAR-501 [견고화 W2·P21]: 월간 손실 한도(−10%) → 게이트 BLOCK(당월 신규 진입 차단·킬스위치 아님) ──
+  it('월간 손실 한도 BLOCK → 매도만 집행·매수 예약 취소(당월 신규 진입 중단·킬스위치 미발동)', async () => {
+    // SWITCH 시나리오(보유 오프A → 방어) 재사용 + 게이트가 MONTHLY_LOSS BLOCK 반환.
+    const dates = seqDatesEndingAt(260, DECISION);
+    const bars: Bar[] = [];
+    const push = (code: string, date: string, close: number, open = close) =>
+      bars.push({
+        etfCode: code,
+        tradeDate: date,
+        openPrice: open,
+        highPrice: close,
+        lowPrice: open,
+        closePrice: close,
+      });
+    dates.forEach((date, i) => {
+      push(CORE_OFFENSE_INTL_CODE, date, 20_000 - i * 20); // 하락 → 방어 전환
+      push(CORE_OFFENSE_DOMESTIC_CODE, date, 20_000 - i * 20);
+      push(CORE_ABS_MOMENTUM_FILTER_CODE, date, 10_000);
+      push(CORE_DEFENSE_BOND_CODE, date, 10_000);
+    });
+    [CORE_OFFENSE_INTL_CODE, CORE_OFFENSE_DOMESTIC_CODE].forEach((c) =>
+      push(c, FILL, 15_100, 15_000),
+    );
+    [CORE_ABS_MOMENTUM_FILTER_CODE, CORE_DEFENSE_BOND_CODE].forEach((c) =>
+      push(c, FILL, 10_000, 10_000),
+    );
+
+    const prisma = makePrisma(bars, [
+      {
+        etfCode: CORE_OFFENSE_INTL_CODE,
+        styleTag: 'alloc:dual-momentum',
+        status: 'OPEN',
+        decisionDate: '20251230',
+        entryTradeDate: '20251231',
+        reservedShares: 100,
+        reservedPrice: 14900,
+        entryPrice: 14900,
+        shares: 100,
+        commission: 223,
+      },
+    ]);
+    const killSwitch = { isActive: () => false, activate: jest.fn() } as any;
+    const riskGuard = {
+      // 스냅샷 드로다운 평가는 정상(ALLOW) — 킬스위치 발동 없음.
+      evaluateDrawdownCut: jest.fn(async () => ({
+        action: 'ALLOW',
+        allowed: true,
+        track: 'dual-momentum-forward',
+        mode: 'ENFORCE',
+        violations: [],
+        highWaterMark: 10_000_000,
+        drawdownPct: 0,
+      })),
+      // 진입 게이트는 당월 손실 −10% 초과 → MONTHLY_LOSS BLOCK.
+      evaluateEntry: jest.fn(async () => ({
+        action: 'BLOCK',
+        allowed: false,
+        track: 'dual-momentum-forward',
+        mode: 'ENFORCE',
+        violations: [{ code: 'MONTHLY_LOSS', message: 'x', details: {} }],
+      })),
+    } as any;
+
+    const svc = new DualMomentumForwardService(prisma, undefined, killSwitch, riskGuard);
+    await svc.runDailyCycle(DECISION); // 방어 예약(SWITCH)
+    const res = await svc.runDailyCycle(FILL); // 매도(오프A) → 매수 BLOCK
+
+    // 게이트에 당월 실현손익이 전달됐는지(월간 룰 배선 확인).
+    expect(riskGuard.evaluateEntry).toHaveBeenCalledTimes(1);
+    const gateArg = riskGuard.evaluateEntry.mock.calls[0][0];
+    expect(gateArg.track).toBe('dual-momentum-forward');
+    expect(typeof gateArg.monthlyRealizedPnl).toBe('number');
+
+    // 매도는 됐지만(현금 확보) 매수는 차단 → 예약 취소·현금 보유.
+    expect(prisma.__trades.filter((t: any) => t.status === 'CLOSED')).toHaveLength(1);
+    expect(prisma.__trades.filter((t: any) => t.status === 'OPEN')).toHaveLength(0);
+    expect(prisma.__trades.filter((t: any) => t.status === 'CANCELLED')).toHaveLength(1);
+    expect(res.holding).toBeNull();
+    expect(res.filled).toBe(1); // 매도만
+    // ★킬스위치가 아니라 게이트 BLOCK — 월 바뀌면 자동 재개(명세 3-3).
+    expect(killSwitch.activate).not.toHaveBeenCalled();
+  });
 });
 
 // 다음 판정 예정일(순수 캘린더) — 월 1회 리밸런싱 스케줄 안내값 (DAR-495 [견고화 W1·P17]).

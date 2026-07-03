@@ -26,7 +26,11 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { EventType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KillSwitchManager } from '../domain/kill-switch';
-import { formatKstDateCompact, isKstRegularMarketHours } from '../../common/time/kst';
+import {
+  formatKstDateCompact,
+  isKstRegularMarketHours,
+  kstMonthStart,
+} from '../../common/time/kst';
 import { KisApiService } from '../../engine3-quant-market/market-data/kis-api.service';
 import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realtime-quote.cache';
 import { PaperTradeService } from '../services/paper-trade.service';
@@ -1004,6 +1008,13 @@ export class PaperSimulationService {
       (s, p) => (p.closedAt && p.closedAt >= todayKstMidnight ? s + (p.unrealizedPnl ?? 0) : s),
       0,
     );
+    // DAR-501(P21): 당월(KST) 실현손익 — 이번 달 1일 이후 청산분 합산(월간 손실 한도 게이트 입력).
+    //   월 경계는 KST SSOT(kstMonthStart) — 월이 바뀌면 합이 리셋돼 익월 자동 재개(명세 3-3).
+    const monthStartKst = kstMonthStart(todayKstMidnight);
+    const monthlyRealizedPnl = closedForCash.reduce(
+      (s, p) => (p.closedAt && p.closedAt >= monthStartKst ? s + (p.unrealizedPnl ?? 0) : s),
+      0,
+    );
     const investedPrincipal = openPositions.reduce((s, p) => s + (p.entryAmount ?? 0), 0);
     // 미체결 예약이 잡아둔 금액(기준가×주문수량)도 차감 — 체결 전이라 SSOT 현금엔 없지만
     //   여기서 빼지 않으면 예약이 이틀 연속 같은 현금을 이중 배분한다(체결 시 재클램프가 최종 방어).
@@ -1155,6 +1166,7 @@ export class PaperSimulationService {
         tradeDate,
         totalCapital: PaperSimulationService.INITIAL_CAPITAL,
         dailyRealizedPnl,
+        monthlyRealizedPnl,
         availableCash,
         entryBudget: shares * effPrice,
         killSwitchActive: this.killSwitch?.isActive() ?? false,

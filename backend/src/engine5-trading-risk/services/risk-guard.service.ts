@@ -30,6 +30,8 @@ export interface RiskGuardEvaluateInput {
   tradeDate: string; // 판정 거래일 YYYYMMDD (dedupe 버킷)
   totalCapital: number;
   dailyRealizedPnl: number;
+  /** 당월(KST 캘린더 월) 실현손익 합계 — 월간 손실 한도(MONTHLY_LOSS) 판정용(P21·DAR-501). 미제공 시 룰 스킵. */
+  monthlyRealizedPnl?: number;
   availableCash: number;
   entryBudget: number;
   killSwitchActive?: boolean;
@@ -78,6 +80,7 @@ export class RiskGuardService {
       mode,
       totalCapital: input.totalCapital,
       dailyRealizedPnl: input.dailyRealizedPnl,
+      monthlyRealizedPnl: input.monthlyRealizedPnl,
       availableCash: input.availableCash,
       entryBudget: input.entryBudget,
       killSwitchActive: input.killSwitchActive,
@@ -276,6 +279,7 @@ export class RiskGuardService {
           stockCode: input.stockCode ?? null,
           meta: {
             killSwitchActive: input.killSwitchActive ?? false,
+            monthlyRealizedPnl: input.monthlyRealizedPnl ?? null,
             violations: decision.violations,
           } as unknown as Prisma.InputJsonValue,
         },

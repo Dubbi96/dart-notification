@@ -12,6 +12,12 @@ import {
   RiskGuardEntryInput,
   RiskGuardDrawdownInput,
 } from './risk-guard-gate';
+import { checkAutoKill, AutoKillCheckInput } from './kill-switch';
+import {
+  SHADOW_AUTO_KILL_CONDITIONS,
+  countConsecutiveLosses,
+} from './auto-kill-inputs';
+import { DEFAULT_AUTO_KILL_CONDITIONS } from './risk-check.types';
 
 const MEASUREMENT_TRACKS: RiskGuardTrack[] = [
   'paper-simulation',
@@ -99,5 +105,36 @@ describe('SHADOW 무변경 증명 — 드로다운 컷 (DoD 항목5 / 요건4)',
       mode: 'ENFORCE',
     });
     expect(d.action).toBe('BLOCK');
+  });
+});
+
+// DAR-502(P20): 자동 킬스위치 SHADOW 계측 중립성 — 권고가 사이클 산출/매매에 영향 0.
+//   (SHADOW 중립성 스펙 확장 — DoD 항목5 / 이슈 요건2·5.)
+describe('SHADOW 중립성 증명 — 자동 킬스위치 계측 (DoD 항목5 / 요건2·5)', () => {
+  it('임계 무변경: SHADOW 계측 조건 = frozen DEFAULT (magic 임계 미도입)', () => {
+    expect(SHADOW_AUTO_KILL_CONDITIONS).toEqual(DEFAULT_AUTO_KILL_CONDITIONS);
+    // 시장급락 레그는 DEFAULT 에서 0(비활성) — 판정 무변경, raw 값만 관측용 기록.
+    expect(SHADOW_AUTO_KILL_CONDITIONS.marketDropPct).toBe(0);
+  });
+
+  it('checkAutoKill 은 순수 권고만 반환(activate 부작용 없음) — 동일 입력 결정론적', () => {
+    const worst: AutoKillCheckInput = {
+      consecutiveLossCount: 99, // 극단 발동 입력
+      marketDropPct: -0.9,
+      apiErrorCount: 99,
+    };
+    const a = checkAutoKill(worst, SHADOW_AUTO_KILL_CONDITIONS);
+    const b = checkAutoKill(worst, SHADOW_AUTO_KILL_CONDITIONS);
+    // 권고는 하되(shouldKill=true) 반환값은 순수 데이터 — 상태 전이·발동 없음.
+    expect(a.shouldKill).toBe(true);
+    expect(a).toEqual(b); // 결정론적(멱등) — 부작용 없음의 방증
+    expect(Object.keys(a).sort()).toEqual(['reason', 'shouldKill', 'triggerCode']);
+  });
+
+  it('입력 산출은 read-only 순수 함수 — 인자 배열 불변(부작용 없음)', () => {
+    const pnls = [-1, -2, -3, 4, -5];
+    const snapshot = [...pnls];
+    countConsecutiveLosses(pnls);
+    expect(pnls).toEqual(snapshot); // 입력 미변형
   });
 });

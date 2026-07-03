@@ -13,6 +13,7 @@ import { IntradayScalpService } from './intraday-scalp.service';
 import { CronRunRecorderService } from '../../../cron-health/cron-run-recorder.service';
 import { CRON_JOB_KEYS } from '../../../cron-health/cron-health.jobs';
 import { KST_TIMEZONE } from '../../../common/time/kst';
+import { RiskGuardService } from '../../services/risk-guard.service';
 
 @Injectable()
 export class IntradayScalpScheduler {
@@ -21,6 +22,9 @@ export class IntradayScalpScheduler {
   constructor(
     private readonly scalp: IntradayScalpService,
     @Optional() private readonly recorder?: CronRunRecorderService,
+    // DAR-502(P20): 장중 모니터 자동킬 SHADOW 계측. @Optional — 미주입(단위 테스트)이면 no-op.
+    //   ★SHADOW 이라 activate() 미호출 → 매매 행동 무변경.
+    @Optional() private readonly riskGuard?: RiskGuardService,
   ) {}
 
   /**
@@ -34,11 +38,24 @@ export class IntradayScalpScheduler {
       const exit = await this.scalp.runExitCycle();
       return { entry, exit };
     };
-    if (!this.recorder) {
-      await run();
-      return;
-    }
     const result = await run();
+
+    // DAR-502(P20): 장중 모니터 자동킬 SHADOW 계측 — 실제 평가가 돈 틱만(장외 스킵 제외).
+    //   멱등 기록으로 당일 1행 유지(매 10분 재호출해도 노이즈 0)·에스컬레이션만 갱신. graceful.
+    //   ★activate() 미호출 → 매매 행동 무변경(M10 클록 보호). 30일 계측 후 ENFORCE=P23.
+    if (result.entry.ran || result.exit.ran) {
+      await this.riskGuard
+        ?.evaluateAutoKillShadow({
+          track: 'intraday-scalp',
+          tradeDate: result.entry.tradeDate,
+          lossSource: 'intraday-scalp',
+        })
+        ?.catch((e) =>
+          this.logger.error(`[Scalp] 자동킬 SHADOW 평가 실패(무시): ${(e as Error).message}`),
+        );
+    }
+
+    if (!this.recorder) return;
     // 스킵(장외) 틱은 CronRunLog 를 더럽히지 않도록 기록 생략 — 실제 평가가 돈 틱만 기록.
     if (!result.entry.ran && !result.exit.ran) return;
     await this.recorder.record(CRON_JOB_KEYS.INTRADAY_SCALP, async () => result, {

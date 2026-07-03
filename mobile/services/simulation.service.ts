@@ -8,6 +8,7 @@ import type {
   StrategyTradeHistory,
 } from '@app-types/strategy-comparison.types';
 import type { ScalpStatus, ScalpTradeHistory } from '@app-types/intraday-scalp.types';
+import type { CoreTrackScorecard } from '@app-types/core-track.types';
 
 import { api } from './api';
 
@@ -61,5 +62,13 @@ export const simulationService = {
   getIntradayScalpTrades: () =>
     api
       .get<ApiResponse<ScalpTradeHistory>>('/paper-trading/simulation/intraday-scalp/trade-history')
+      .then((r) => r.data.data),
+
+  // 듀얼모멘텀 코어 트랙(자산배분·월단위) 스코어카드 — OptionalJwt(게스트 데모 가능). DAR-495(BE: DAR-494/495).
+  getCoreTrackScorecard: () =>
+    api
+      .get<ApiResponse<CoreTrackScorecard>>(
+        '/paper-trading/simulation/dual-momentum-forward/scorecard',
+      )
       .then((r) => r.data.data),
 };

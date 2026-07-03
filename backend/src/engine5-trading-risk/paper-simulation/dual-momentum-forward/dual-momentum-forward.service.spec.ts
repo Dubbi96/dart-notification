@@ -2,10 +2,17 @@
 // 결정론 검증: 월말 판정→예약→익일 시가 체결(매도→매수)·fail-safe·킬스위치·현금/평가 산식.
 // Prisma 는 인메모리 목으로 대체(read/write 결정론). 실 DB·AI 미사용.
 
-import { isLastTradingDayOfMonth, nextTradingDay } from '../../../common/time/market-calendar';
+import {
+  isLastTradingDayOfMonth,
+  nextTradingDay,
+  lastTradingDayOfMonth,
+} from '../../../common/time/market-calendar';
 import {
   DualMomentumForwardService,
   DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL,
+  DUAL_MOMENTUM_FORWARD_LOW_SAMPLE_THRESHOLD,
+  CORE_TRACK_TYPE_LABEL,
+  nextMonthEndDecisionDate,
 } from './dual-momentum-forward.service';
 import {
   CORE_OFFENSE_INTL_CODE,
@@ -136,7 +143,19 @@ function makePrisma(bars: Bar[], seedTrades: any[] = []) {
       ),
     },
     portfolioRiskSnapshot: {
-      upsert: jest.fn(({ create }: any) => { snapshots.push(create); return Promise.resolve(create); }),
+      upsert: jest.fn(({ where, create, update }: any) => {
+        const existing = snapshots.find(
+          (s) =>
+            s.portfolioId === where.portfolioId_snapshotDate.portfolioId &&
+            s.snapshotDate === where.portfolioId_snapshotDate.snapshotDate,
+        );
+        if (existing) { Object.assign(existing, update); return Promise.resolve(existing); }
+        snapshots.push(create);
+        return Promise.resolve(create);
+      }),
+      findMany: jest.fn(({ where, orderBy }: any) =>
+        Promise.resolve(sortRows(snapshots.filter((r) => matchWhere(r, where)), orderBy)),
+      ),
     },
   };
   return prisma;
@@ -287,5 +306,112 @@ describe('DualMomentumForwardService (DAR-494)', () => {
 
     expect(res.rebalance).toBe('NOT_MONTH_END');
     expect(prisma.__snapshots.length).toBeGreaterThan(0);
+  });
+});
+
+// 다음 판정 예정일(순수 캘린더) — 월 1회 리밸런싱 스케줄 안내값 (DAR-495 [견고화 W1·P17]).
+describe('nextMonthEndDecisionDate (DAR-495)', () => {
+  it('월중이면 이번 달 마지막 거래일을 반환한다', () => {
+    const jan = nextMonthEndDecisionDate('20260115');
+    expect(jan).toBe(lastTradingDayOfMonth(2026, 1)); // 20260130
+    expect(isLastTradingDayOfMonth(jan)).toBe(true);
+  });
+
+  it('이번 달 마지막 거래일 당일이면 그대로(오늘 판정)', () => {
+    const janEnd = lastTradingDayOfMonth(2026, 1);
+    expect(nextMonthEndDecisionDate(janEnd)).toBe(janEnd);
+  });
+
+  it('이번 달 마지막 거래일이 지났으면 다음 달 마지막 거래일로 롤오버', () => {
+    // 20260131(토)은 1월 마지막 거래일(20260130) 이후 → 2월로 롤오버.
+    const feb = nextMonthEndDecisionDate('20260131');
+    expect(feb).toBe(lastTradingDayOfMonth(2026, 2));
+    expect(feb > '20260131').toBe(true);
+  });
+
+  it('연말 롤오버: 12월 마지막 거래일 이후는 다음 해 1월로 넘어간다', () => {
+    const decEnd = lastTradingDayOfMonth(2026, 12);
+    // 12월 마지막 거래일이 12/31 미만(연말 휴장 통상)일 때 그 이후일로 연도 롤오버 검증.
+    if (decEnd < '20261231') {
+      const res = nextMonthEndDecisionDate('20261231');
+      expect(res).toBe(lastTradingDayOfMonth(2027, 1));
+      expect(res.slice(0, 4)).toBe('2027');
+    } else {
+      expect(nextMonthEndDecisionDate(decEnd)).toBe(decEnd);
+    }
+  });
+});
+
+// 코어 트랙 스코어카드(read-only) — 통일 성적표·유형 라벨·다음 판정일 (DAR-495 [견고화 W1·P17]).
+describe('DualMomentumForwardService.getScorecard (DAR-495)', () => {
+  const DECISION = '20260130';
+  const FILL = nextTradingDay(DECISION);
+
+  it('빈 트랙: 표본 0·LOW_SAMPLE·평가=초기자본·유형 라벨/다음 판정일 정직 표기', async () => {
+    const prisma = makePrisma(buildUniverseBars(DECISION));
+    const svc = new DualMomentumForwardService(prisma);
+    const card = await svc.getScorecard();
+
+    expect(card.trackTypeLabel).toBe(CORE_TRACK_TYPE_LABEL);
+    expect(card.rebalanceFrequency).toBe('MONTHLY');
+    expect(card.styleTag).toBe('alloc:dual-momentum');
+    expect(card.scorecard.sampleSize).toBe(0);
+    expect(card.lowSample).toBe(true);
+    expect(card.lowSampleThreshold).toBe(DUAL_MOMENTUM_FORWARD_LOW_SAMPLE_THRESHOLD);
+    expect(card.holding).toBeNull();
+    expect(card.holdingName).toBeNull();
+    expect(card.equity).toBeCloseTo(DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL, 0);
+    expect(card.cumulativeReturnPct).toBeCloseTo(0, 5);
+    // 다음 판정 예정일은 실제 월말 거래일이어야 한다(스케줄 안내·과신 방지 없음).
+    expect(isLastTradingDayOfMonth(card.nextDecisionDate)).toBe(true);
+  });
+
+  it('회전 1건 후: 통일 성적표 표본 반영 + etfName 병기 + 자산곡선 누적', async () => {
+    // SWITCH(보유 오프A→방어) → 오프A 청산 CLOSED 1건 생성(기존 시나리오 재사용).
+    const dates = seqDatesEndingAt(260, DECISION);
+    const bars: Bar[] = [];
+    const push = (code: string, date: string, close: number, open = close) =>
+      bars.push({ etfCode: code, tradeDate: date, openPrice: open, highPrice: close, lowPrice: open, closePrice: close });
+    dates.forEach((date, i) => {
+      push(CORE_OFFENSE_INTL_CODE, date, 20_000 - i * 20);
+      push(CORE_OFFENSE_DOMESTIC_CODE, date, 20_000 - i * 20);
+      push(CORE_ABS_MOMENTUM_FILTER_CODE, date, 10_000);
+      push(CORE_DEFENSE_BOND_CODE, date, 10_000);
+    });
+    [CORE_OFFENSE_INTL_CODE, CORE_OFFENSE_DOMESTIC_CODE].forEach((c) => push(c, FILL, 15_100, 15_000));
+    [CORE_ABS_MOMENTUM_FILTER_CODE, CORE_DEFENSE_BOND_CODE].forEach((c) => push(c, FILL, 10_000, 10_000));
+
+    const prisma = makePrisma(bars, [
+      {
+        etfCode: CORE_OFFENSE_INTL_CODE,
+        styleTag: 'alloc:dual-momentum',
+        status: 'OPEN',
+        decisionDate: '20251230',
+        entryTradeDate: '20251231',
+        reservedShares: 100,
+        reservedPrice: 14900,
+        entryPrice: 14900,
+        shares: 100,
+        commission: 223,
+        entryTs: new Date('2025-12-31T00:00:00Z'),
+      },
+    ]);
+    const svc = new DualMomentumForwardService(prisma);
+    await svc.runDailyCycle(DECISION); // 방어 예약(SWITCH)
+    await svc.runDailyCycle(FILL); // 매도(오프A)→매수(방어)
+
+    const card = await svc.getScorecard();
+    // 통일 성적표(trade-scorecard SSOT): 오프A 청산 1건 반영.
+    expect(card.scorecard.sampleSize).toBe(1);
+    expect(card.scorecard.closedCount).toBe(1);
+    // 현재 보유 = 방어채권(+ 사람 읽는 이름).
+    expect(card.holding).toBe(CORE_DEFENSE_BOND_CODE);
+    expect(card.holdingName).toBe('KODEX 종합채권(AA-이상)액티브');
+    // 자산곡선: 두 사이클 스냅샷 누적(≥2점).
+    expect(card.equityCurve.length).toBeGreaterThanOrEqual(2);
+    // 리밸런싱 이력: CLOSED(오프A)에 etfName 병기.
+    const closedRow = card.rebalanceHistory.find((r) => r.status === 'CLOSED');
+    expect(closedRow?.etfCode).toBe(CORE_OFFENSE_INTL_CODE);
+    expect(closedRow?.etfName).toBe('TIGER 미국S&P500');
   });
 });

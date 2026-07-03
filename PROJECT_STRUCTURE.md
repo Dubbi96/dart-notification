@@ -101,6 +101,9 @@ dart-notification/
 │   │   │   │   ├── ports/
 │   │   │   │   ├── replay/          # 1년 point-in-time 리플레이 (DAR-385)
 │   │   │   │   └── strategies/      # 전략 프리셋 4종 + 파라미터 민감도 스윕 하니스 (DAR-485, read-only)
+│   │   │   ├── dual-momentum/        # 코어 듀얼모멘텀 판정 순수 함수 + 상수 (DAR-492, P12 — 월말 리밸런싱)
+│   │   │   ├── volatility-breakout/  # 위성 변동성 돌파 신호·사이징 순수 함수 + 상수 (DAR-491, P14)
+│   │   │   ├── two-tier-backtest/    # 2단 프레임 상수 + ETF 비용 프로파일 + 코어·위성 백테스트 + 엣지 게이트 리포트 (DAR-493, P16, read-only)
 │   │   │   ├── signals/             # REST API — /api/signals [DAR-25: signals/ 이동]
 │   │   │   │   ├── signals.controller.ts
 │   │   │   │   ├── signals.service.ts

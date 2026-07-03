@@ -14,6 +14,8 @@ import { StrategyTrackScheduler } from './strategies/strategy-track.scheduler';
 import { EventEdgeSelectorService } from './strategies/event-edge-selector.service';
 import { ParameterSweepService } from './strategies/parameter-sweep.service';
 import { ParameterSweepController } from './strategies/parameter-sweep.controller';
+import { TwoTierBacktestService } from '../two-tier-backtest/two-tier-backtest.service';
+import { TwoTierBacktestController } from '../two-tier-backtest/two-tier-backtest.controller';
 import { EventStudyModule } from '../event-study/event-study.module';
 
 // BacktestRunnerService는 PriceDataPort 구현체 주입이 필요하므로 이 모듈에서 제공/내보내지 않는다.
@@ -28,6 +30,7 @@ import { EventStudyModule } from '../event-study/event-study.module';
     BacktestReplayController,
     StrategyTrackController,
     ParameterSweepController,
+    TwoTierBacktestController,
   ],
   providers: [
     MarketCalendarService,
@@ -41,6 +44,7 @@ import { EventStudyModule } from '../event-study/event-study.module';
     StrategyTrackScheduler,
     EventEdgeSelectorService,
     ParameterSweepService,
+    TwoTierBacktestService,
   ],
   exports: [
     MarketCalendarService,

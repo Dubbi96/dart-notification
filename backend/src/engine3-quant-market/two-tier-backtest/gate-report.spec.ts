@@ -1,0 +1,123 @@
+// DAR-493 — 게이트 판정 리포트 순수 함수 결정론 검증.
+
+import {
+  computeMaxDrawdownPct,
+  computeBuyHoldReturnPct,
+  buildTrackGateMetrics,
+  assembleGateReport,
+} from './gate-report';
+import { TrackBacktestResult, BacktestTrade, DatedBar } from './two-tier-backtest.types';
+
+function trade(net: number, holdDays = 1): BacktestTrade {
+  return {
+    assetCode: 'X',
+    entryDate: '20230102',
+    entryPrice: 1000,
+    shares: 10,
+    exitDate: '20230103',
+    exitPrice: 1000 + net / 10,
+    costs: 5,
+    grossPnl: net + 5,
+    netPnl: net,
+    returnPct: net / 100,
+    holdDays,
+    reason: 'T',
+  };
+}
+
+function result(trades: BacktestTrade[], finalEquity: number, sampleCount = trades.length): TrackBacktestResult {
+  return {
+    styleTag: 'test',
+    trades,
+    equityCurve: [
+      { date: '20230101', equity: 10_000_000 },
+      { date: '20230201', equity: finalEquity },
+    ],
+    sampleCount,
+    initialCapital: 10_000_000,
+    finalEquity,
+  };
+}
+
+describe('computeMaxDrawdownPct', () => {
+  it('peak-to-trough 낙폭(%)', () => {
+    // 100 → 120(peak) → 90 → 110 : MDD = (90-120)/120 = -25%
+    const curve = [100, 120, 90, 110].map((e, i) => ({ date: `2023010${i + 1}`, equity: e }));
+    expect(computeMaxDrawdownPct(curve)).toBeCloseTo(-25, 6);
+  });
+
+  it('단조 증가 → 0', () => {
+    const curve = [100, 110, 120].map((e, i) => ({ date: `2023010${i + 1}`, equity: e }));
+    expect(computeMaxDrawdownPct(curve)).toBe(0);
+  });
+});
+
+describe('computeBuyHoldReturnPct', () => {
+  it('첫 시가 진입(비용 반영)·마지막 종가 마크', () => {
+    const bars: DatedBar[] = [
+      { date: '20230102', open: 1000, high: 1000, low: 1000, close: 1000 },
+      { date: '20230103', open: 1100, high: 1100, low: 1100, close: 1200 },
+    ];
+    // 진입 = 1000*(1.003)*(1.00015) ≈ 1003.15 / 마크 1200 → ~19.6%
+    const r = computeBuyHoldReturnPct(bars);
+    expect(r).toBeGreaterThan(19);
+    expect(r).toBeLessThan(20);
+  });
+
+  it('바 부족 → 0', () => {
+    expect(computeBuyHoldReturnPct([])).toBe(0);
+  });
+});
+
+describe('buildTrackGateMetrics', () => {
+  it('승률·PF·엣지 양수 판정', () => {
+    // 3승(+100 each) 1패(-50) / totalReturn 계산은 finalEquity 로.
+    const r = result([trade(100), trade(100), trade(100), trade(-50)], 10_500_000);
+    const m = buildTrackGateMetrics(r, 2.0, { minTrades: 4 });
+    expect(m.totalTrades).toBe(4);
+    expect(m.winRatePct).toBeCloseTo(75, 6);
+    expect(m.profitFactor).toBeCloseTo(300 / 50, 6);
+    expect(m.totalReturnPct).toBeCloseTo(5, 6); // 10.5M/10M-1
+    expect(m.edgePositive).toBe(true); // 5% > 벤치 2%
+    expect(m.verdict).toBe('EDGE_POSITIVE');
+  });
+
+  it('벤치마크 미달 → NO_EDGE(엣지 아님)', () => {
+    const r = result([trade(100), trade(100), trade(100), trade(100)], 10_100_000);
+    const m = buildTrackGateMetrics(r, 5.0, { minTrades: 4 }); // totalReturn 1% < 벤치 5%
+    expect(m.edgePositive).toBe(false);
+    expect(m.verdict).toBe('NO_EDGE');
+  });
+
+  it('표본 부족 → LOW_SAMPLE(엣지 양수라도)', () => {
+    const r = result([trade(100), trade(100)], 10_500_000);
+    const m = buildTrackGateMetrics(r, 0, { minTrades: 8 });
+    expect(m.verdict).toBe('LOW_SAMPLE');
+  });
+
+  it('손실 0 & 이익>0 → PF Infinity', () => {
+    const r = result([trade(100), trade(50)], 10_150_000);
+    const m = buildTrackGateMetrics(r, 0, { minTrades: 2 });
+    expect(m.profitFactor).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it('lowPowerNote 가 note 에 포함된다(코어 정직 라벨)', () => {
+    const r = result([trade(100)], 10_100_000);
+    const m = buildTrackGateMetrics(r, 0, { minTrades: 1, lowPowerNote: '월단위 검증력 낮음' });
+    expect(m.note).toContain('월단위 검증력 낮음');
+  });
+});
+
+describe('assembleGateReport', () => {
+  it('두 트랙 모두 엣지 양수여야 overall 양수', () => {
+    const pos = buildTrackGateMetrics(result([trade(100), trade(100)], 10_500_000), 0, { minTrades: 2 });
+    const neg = buildTrackGateMetrics(result([trade(-100), trade(-100)], 9_500_000), 0, { minTrades: 2 });
+    expect(assembleGateReport(pos, pos).overallEdgePositive).toBe(true);
+    expect(assembleGateReport(pos, neg).overallEdgePositive).toBe(false);
+  });
+
+  it('activationNote 는 사람 결정임을 명시', () => {
+    const m = buildTrackGateMetrics(result([trade(100)], 10_100_000), 0, { minTrades: 1 });
+    expect(assembleGateReport(m, m).activationNote).toContain('통합자');
+  });
+});

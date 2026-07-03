@@ -3,6 +3,7 @@
 import {
   computeMaxDrawdownPct,
   computeBuyHoldReturnPct,
+  computeBuyHoldMddPct,
   buildTrackGateMetrics,
   assembleGateReport,
 } from './gate-report';
@@ -105,6 +106,59 @@ describe('buildTrackGateMetrics', () => {
     const r = result([trade(100)], 10_100_000);
     const m = buildTrackGateMetrics(r, 0, { minTrades: 1, lowPowerNote: '월단위 검증력 낮음' });
     expect(m.note).toContain('월단위 검증력 낮음');
+  });
+});
+
+describe('computeBuyHoldMddPct', () => {
+  it('종가 시계열 peak-to-trough MDD', () => {
+    const bars: DatedBar[] = [100, 120, 90, 110].map((c, i) => ({
+      date: `2023010${i + 1}`,
+      open: c,
+      high: c,
+      low: c,
+      close: c,
+    }));
+    // 120 → 90 : (90-120)/120 = -25%
+    expect(computeBuyHoldMddPct(bars)).toBeCloseTo(-25, 6);
+  });
+});
+
+describe('buildTrackGateMetrics — 코어 위험조정 게이트(DAR-494·§8 승인)', () => {
+  it('수익률<벤치라도 벤치×0.9 이상 && MDD 개선이면 엣지 양수(엄격 기준이면 탈락)', () => {
+    // 전략 +9%(MDD 0, 단조증가) · 벤치 +10%(MDD -30%). 엄격: 9%>10% = false. 위험조정: 9%≥9% && 0>-30 = true.
+    const r = result([trade(100), trade(100), trade(100), trade(-50)], 10_900_000);
+    const strict = buildTrackGateMetrics(r, 10, { minTrades: 4 });
+    expect(strict.edgePositive).toBe(false);
+    const adj = buildTrackGateMetrics(r, 10, { minTrades: 4, riskAdjusted: { benchmarkMddPct: -30 } });
+    expect(adj.totalReturnPct).toBeCloseTo(9, 6);
+    expect(adj.edgePositive).toBe(true);
+    expect(adj.verdict).toBe('EDGE_POSITIVE');
+    expect(adj.note).toContain('위험조정');
+  });
+
+  it('MDD 미개선(전략 MDD ≤ 벤치 MDD)이면 위험조정이라도 탈락', () => {
+    // 전략 최종 +10%지만 중간 -40% 낙폭(벤치 -30%보다 깊음) → MDD 미개선 → false.
+    const deep: TrackBacktestResult = {
+      styleTag: 'core',
+      trades: [trade(100), trade(100)],
+      equityCurve: [
+        { date: '20230101', equity: 10_000_000 },
+        { date: '20230115', equity: 6_000_000 }, // -40% 낙폭
+        { date: '20230201', equity: 11_000_000 },
+      ],
+      sampleCount: 24,
+      initialCapital: 10_000_000,
+      finalEquity: 11_000_000,
+    };
+    const adj = buildTrackGateMetrics(deep, 10, { minTrades: 2, riskAdjusted: { benchmarkMddPct: -30 } });
+    expect(adj.mddPct).toBeCloseTo(-40, 6);
+    expect(adj.edgePositive).toBe(false); // 수익률·floor 충족해도 MDD 미개선으로 탈락
+  });
+
+  it('수익률이 벤치×0.9 미달이면 위험조정이라도 탈락', () => {
+    const r = result([trade(100)], 10_500_000); // +5%
+    const adj = buildTrackGateMetrics(r, 10, { minTrades: 1, riskAdjusted: { benchmarkMddPct: -30 } }); // floor 9% > 5%
+    expect(adj.edgePositive).toBe(false);
   });
 });
 

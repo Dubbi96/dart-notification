@@ -97,4 +97,45 @@ describe('ForwardTracksScheduler (live-readiness W1)', () => {
     expect(styleSim.runDailyCycleAllStyles).toHaveBeenCalledTimes(1);
     expect(strategySim.runDailyCycleAllStrategies).toHaveBeenCalledTimes(1);
   });
+
+  // ─── DAR-479: forward 사이클 직후 괴리 스냅샷 적재 배선 ───
+  it('divergence 주입 시 forward 사이클 직후 같은 tradeDate 로 괴리 스냅샷을 적재한다', async () => {
+    const { styleSim, strategySim, recorder } = buildMocks();
+    const divergence = {
+      snapshotDailyDivergence: jest
+        .fn()
+        .mockResolvedValue({ snapshotDate: '20260702', snapshotted: 4 }),
+    };
+    const scheduler = new ForwardTracksScheduler(
+      styleSim as never,
+      strategySim as never,
+      recorder as never,
+      divergence as never,
+    );
+
+    const result = await scheduler.runStrategyDaily();
+
+    // forward 사이클 결과는 그대로 반환(측정은 부수효과)
+    expect(result).toBe(STRATEGY_RESULT);
+    expect(divergence.snapshotDailyDivergence).toHaveBeenCalledTimes(1);
+    // forward 사이클과 동일한 KST tradeDate 로 적재
+    const tradeDate = strategySim.runDailyCycleAllStrategies.mock.calls[0][0];
+    expect(divergence.snapshotDailyDivergence.mock.calls[0][0]).toBe(tradeDate);
+  });
+
+  it('괴리 스냅샷 실패해도 forward 결과를 반환한다(do-no-harm)', async () => {
+    const { styleSim, strategySim, recorder } = buildMocks();
+    const divergence = {
+      snapshotDailyDivergence: jest.fn().mockRejectedValue(new Error('boom')),
+    };
+    const scheduler = new ForwardTracksScheduler(
+      styleSim as never,
+      strategySim as never,
+      recorder as never,
+      divergence as never,
+    );
+
+    await expect(scheduler.runStrategyDaily()).resolves.toBe(STRATEGY_RESULT);
+    expect(divergence.snapshotDailyDivergence).toHaveBeenCalledTimes(1);
+  });
 });

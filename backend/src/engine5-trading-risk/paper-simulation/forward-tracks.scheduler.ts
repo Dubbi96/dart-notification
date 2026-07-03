@@ -7,6 +7,8 @@
  *
  * - 19:40 KST: 철학 스타일 4트랙(시스템 모의 19:30 직후 — 동일 시세 기준·부하 분산).
  * - 19:45 KST: 전략 변형 4종 forward(스타일 사이클 직후 직렬화 — PaperTrade 경합 최소화).
+ *   ★DAR-479: forward 사이클(스냅샷 확정) 직후 백테스트 대비 괴리 스냅샷을 추세 추적용으로 적재한다
+ *   (read-only 측정 — 실패해도 forward 결과에 영향 없음. 트레이딩 행동 무접촉).
  *
  * AI 금지영역: 스케줄러는 트리거만 — 점수·체결 결정 없음(PaperSimulationScheduler 패턴 계승).
  */
@@ -21,6 +23,7 @@ import {
   StrategyForwardSimulationService,
   AllStrategiesCycleResult,
 } from './strategy-forward-simulation.service';
+import { BacktestForwardDivergenceService } from './backtest-forward-divergence.service';
 import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
 import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
 import { KST_TIMEZONE, formatKstDateCompact } from '../../common/time/kst';
@@ -34,6 +37,8 @@ export class ForwardTracksScheduler {
     private readonly strategySim: StrategyForwardSimulationService,
     // @Optional: CronHealthModule 미등록 환경(일부 테스트)에서도 동작. 미주입 시 기록만 생략.
     @Optional() private readonly recorder?: CronRunRecorderService,
+    // @Optional: 괴리 스냅샷 서비스 미주입 환경(일부 테스트)에서도 동작. 미주입 시 적재만 생략.
+    @Optional() private readonly divergence?: BacktestForwardDivergenceService,
   ) {}
 
   /** 평일 19:40(KST) — 시스템 모의(19:30) 직후 철학 스타일 4트랙 1사이클. */
@@ -49,16 +54,29 @@ export class ForwardTracksScheduler {
     });
   }
 
-  /** 평일 19:45(KST) — 스타일 사이클 직후 전략 변형 4종 forward 1사이클. */
+  /** 평일 19:45(KST) — 스타일 사이클 직후 전략 변형 4종 forward 1사이클 + 괴리 스냅샷 적재. */
   @Cron('45 19 * * 1-5', { timeZone: KST_TIMEZONE })
   async runStrategyDaily(): Promise<AllStrategiesCycleResult> {
     const tradeDate = this.todayBasDd();
     this.logger.log(`[ForwardTracks][Cron] 전략 forward 4트랙 실행 tradeDate=${tradeDate}`);
     const run = () => this.strategySim.runDailyCycleAllStrategies(tradeDate);
-    if (!this.recorder) return run();
-    return this.recorder.record(CRON_JOB_KEYS.STRATEGY_FORWARD, run, {
-      countOf: (r) => r.strategies.reduce((s, x) => s + x.snapshotted, 0),
-    });
+    const result = this.recorder
+      ? await this.recorder.record(CRON_JOB_KEYS.STRATEGY_FORWARD, run, {
+          countOf: (r) => r.strategies.reduce((s, x) => s + x.snapshotted, 0),
+        })
+      : await run();
+
+    // DAR-479: forward 사이클(스냅샷 확정) 직후 백테스트 대비 괴리 스냅샷 적재(추세 추적용).
+    //   ★read-only 측정 — 실패해도 forward 결과는 이미 확정. 격리 try/catch 로 do-no-harm.
+    if (this.divergence) {
+      try {
+        const snap = await this.divergence.snapshotDailyDivergence(tradeDate);
+        this.logger.log(`[ForwardTracks][Cron] 괴리 스냅샷 적재 ${snap.snapshotted}건`);
+      } catch (e) {
+        this.logger.error(`[ForwardTracks][Cron] 괴리 스냅샷 실패(무시): ${(e as Error).message}`);
+      }
+    }
+    return result;
   }
 
   /** 오늘 거래일 YYYYMMDD(KST). 시스템 TZ 무관 — UTC 새벽 전일 반환 방지(DAR-199 계승). */

@@ -312,6 +312,23 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 
 왕복 거래비용율 = `2·commissionRate + sellTaxRate + 2·slippagePct` = **0.31%**(분봉 단타 net 판정 SSOT).
 
+### 7.4 RiskGuard 공용 진입 게이트 (DAR-496 [견고화 W2·P18])
+
+코드: `backend/src/engine5-trading-risk/domain/risk-guard-gate.ts`(순수 게이트) + `services/risk-guard.service.ts`(영속·알림).
+
+- **역할**: §7.1 하드룰 중 **일일손실 한도**(dailyLossMaxPct −2%, `DEFAULT_RISK_LIMITS` 재사용)와 **현금 불변식**(가용현금 − 진입예산 ≥ 0, DAR-426 패턴) 2종을 트랙 컨텍스트만 받는 순수 게이트로 추출해 **전 진입 트랙**이 진입 확정 직전 1줄로 호출한다. 배경: 일일손실 순수 룰이 그동안 분봉 단타(및 미연동 실주문 루프)에만 강제되고 시스템 모의·철학·전략 forward 에는 미배선(갭 A1), 전략 forward 진입 루프엔 현금 가드 자체가 없었다(갭 A5).
+- **판정**: `ALLOW`(위반 0) / `SHADOW_VIOLATION`(위반이나 기록만) / `BLOCK`(위반으로 차단).
+- **트랙별 모드**(`DEFAULT_RISK_GUARD_MODES`):
+
+  | 트랙 | 모드 | 근거 |
+  |---|---|---|
+  | 시스템 모의 · 철학 4종 · 전략 forward 4종 | **SHADOW** | M10 측정 중 — 매매 행동 무변경(§8.5) |
+  | 분봉 단타 | SHADOW(로그만) | 기존 `checkRisk` 하드룰 유지 — 중복 강제 금지 |
+  | 듀얼모멘텀 코어 forward | **ENFORCE** | 측정 대상 아님(§9.3.2 위험조정 게이트 통과 신규 트랙) |
+
+- **★수용 기준(§8.5 준수)**: 측정 트랙 기본값 **SHADOW** 는 M10 클록 보호의 절대 조건이다. ENFORCE 플립은 환경변수 `RISK_GUARD_MODE_<TRACK>=ENFORCE` 로 **코드 변경 없이** 가능하나, 측정 트랙 플립은 **M10 졸업 측정 완료 + §8.1 3게이트(문서→재검증→사람 승인) 통과 전까지 금지**(Wave 2 P23). 순수 게이트의 불변식상 SHADOW 는 절대 BLOCK 을 반환하지 않아 배선 전후 진입 후보·수량·예약이 동일하다.
+- **영속·알림**: 판정을 `RiskDecisionLog`(FK 없는 additive 모델)에 기록. 위반은 P02 OPS_ALERT — SHADOW 는 트랙+거래일 dedupe(일 1회 요약), ENFORCE BLOCK 은 즉시. 드로다운 컷·월간 한도·자동 킬은 후속(P19~P21).
+
 ---
 
 ## 8. 변경 절차 (Change Control — 규칙·파라미터 변경 공식 절차)
@@ -518,6 +535,7 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 | 분봉 단타 신호 | `engine3-quant-market/intraday-scalp/intraday-scalp-signal.ts` | `DEFAULT_SCALP_ENTRY_PARAMS`·`SCALP_ENTRY_TAG` |
 | 분봉 단타 청산·상수 | `engine5-trading-risk/paper-simulation/intraday-scalp/intraday-scalp-exit.ts` | `TAKE_PROFIT_PCT`·`STOP_LOSS_PCT`·`MAX_OPEN_POSITIONS`·`PER_POSITION_BUDGET_PCT`·`ENTRY_CUTOFF_HHMM`·`FORCE_EXIT_HHMM` |
 | Risk 하드룰 | `engine5-trading-risk/domain/risk-check.types.ts` | `DEFAULT_RISK_LIMITS`·`DEFAULT_AUTO_KILL_CONDITIONS`·`DEFAULT_KILL_SWITCH_MODE` |
+| **RiskGuard 공용 진입 게이트** (§7.4) | `engine5-trading-risk/domain/risk-guard-gate.ts` | `evaluateRiskGuardEntry`·`resolveRiskGuardMode`·`DEFAULT_RISK_GUARD_MODES`(측정 SHADOW·코어 ENFORCE)·`RISK_GUARD_DAILY_LOSS_MAX_PCT`. 모델 `RiskDecisionLog`(FK 없음) |
 | 체결 파라미터 | `engine5-trading-risk/domain/fill-simulator.ts` | `DEFAULT_FILL_PARAMS`·`roundTripCostPct` |
 | **변동성 돌파 위성 신호·사이징** (§9.1) | `engine3-quant-market/volatility-breakout/volatility-breakout-signal.ts` | `computeBreakoutTarget`·`computeVolAdjustedSizing`·`evaluateBreakoutEntry`·`BREAKOUT_ENTRY_TAG` |
 | **변동성 돌파 위성 상수** (§9.1) | `engine3-quant-market/volatility-breakout/volatility-breakout.constants.ts` | `VOL_BREAKOUT_K`·`TARGET_DAILY_VOL_PCT`·`VOLATILITY_BREAKOUT_PRESET`·`SATELLITE_TARGET_ETF_CODE` |
@@ -531,5 +549,5 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 
 ---
 
-*정본 버전: 1.6 (2026-07-03). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24) → 1.3 DAR-491 §9.1 변동성 돌파 위성 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P14) → 1.4 DAR-492 §9.2 듀얼모멘텀 코어 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P12) → 1.5 DAR-493 §9.3 2단 자본 프레임·ETF 비용 프로파일·백테스트 엣지 게이트 절차 신설·§10 SSOT 포인터 추가(견고화 W1·P16) → 1.6 DAR-494 §9.3.1 게이트 실행 결과 기록·§9.3.2 코어 한정 위험조정 게이트 기준(§8 사람 승인 2026-07-03)·§9.1 위성 기각 기록(견고화 W1·P13). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24·P14·Wave1`.*
+*정본 버전: 1.7 (2026-07-04). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24) → 1.3 DAR-491 §9.1 변동성 돌파 위성 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P14) → 1.4 DAR-492 §9.2 듀얼모멘텀 코어 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P12) → 1.5 DAR-493 §9.3 2단 자본 프레임·ETF 비용 프로파일·백테스트 엣지 게이트 절차 신설·§10 SSOT 포인터 추가(견고화 W1·P16) → 1.6 DAR-494 §9.3.1 게이트 실행 결과 기록·§9.3.2 코어 한정 위험조정 게이트 기준(§8 사람 승인 2026-07-03)·§9.1 위성 기각 기록(견고화 W1·P13) → 1.7 DAR-496 §7.4 RiskGuard 공용 진입 게이트(일일손실·현금 2종·측정 SHADOW·코어 forward ENFORCE·§8.5 준수)·§10 SSOT 포인터 추가(견고화 W2·P18). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24·P14·Wave1·Wave2`.*
 *설립 시점 전값은 코드 상수를 무보정 전사했다(code=truth). 이후 변경은 §8 변경 절차(문서 개정→재검증→사람 승인)를 따른다.*

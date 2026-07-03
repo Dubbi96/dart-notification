@@ -28,6 +28,7 @@
 | **Risk veto 타입** | `domain/risk-check.types.ts` | RiskCheckInput/Result/Violation, RiskLimits, 이벤트 타입 |
 | **Kill Switch** | `domain/kill-switch.ts` | 자동 중단 조건(연속손실·시장급락·API오류) + 수동 Kill Switch — **DB 영속**(`repositories/prisma-kill-switch-state.repository.ts`, 재시작 후 발동 상태 복원, DAR-350) |
 | **이벤트 게이트** | `domain/event-list.ts` | 화이트리스트(6종)/블랙리스트(9종) M12 자동매매 게이트용 |
+| **RiskGuard 공용 진입 게이트** | `domain/risk-guard-gate.ts` + `services/risk-guard.service.ts` | 일일손실 한도 + 현금 불변식(cash≥0, DAR-426) 2종을 트랙 컨텍스트만 받는 **순수 게이트**로 추출(ALLOW / SHADOW_VIOLATION / BLOCK). 전 진입 트랙이 진입 확정 직전 1줄로 소비. 측정 트랙(시스템 모의·철학·전략 forward)은 **SHADOW**(기록만·차단 0), 듀얼모멘텀 코어 forward 는 **ENFORCE**(위반 시 매수 차단). 분봉 단타는 기존 `checkRisk` 하드룰 유지(중복 배선 금지). 판정 영속=`RiskDecisionLog`(FK 없는 전용 additive 모델), 위반=P02 OPS_ALERT(SHADOW 일 1회 dedupe·ENFORCE 즉시). ★불변식: SHADOW 는 절대 BLOCK 없음 → 매매 행동 무변경(M10 클록 보호). 순수 Rule·AI 0. DAR-496 |
 | **시스템 모의운용** | `paper-simulation/` | 일일 사이클(평일 19:30 KST: 매수 예약→시가평가→Exit 판정, 체결은 익일 시가 — 장외 체결 의미론)·장중 5분 모니터(개장 체결기 + forward 트랙 전 포트폴리오 실시간 청산)·실가 가격소스(`simulation-price-source`)·자산곡선·트레이드 스코어카드·졸업지표 적재. `paper-simulation.service.ts`가 오케스트레이터 |
 | — 철학 스타일 분기 | `paper-simulation/philosophy-style*` | BUFFETT/LYNCH/GREENBLATT/DRUCKENMILLER 4개 거장 스타일별 분기 모의운용(philosophy-fit ≥50 적격 진입, 누적수익 랭킹, LOW_SAMPLE 정직 표기) |
 | — 페르소나 | `paper-simulation/persona/` | 시장국면(market-regime) 판정 + 페르소나 추천·트레이딩 API |
@@ -76,6 +77,20 @@
   스키마 동결로 DB 컬럼 대신 코드 상수 정책(`domain/risk-check.types.ts` `DEFAULT_KILL_SWITCH_MODE`).
   전면 중단이 필요하면 `FULL_HALT` 로 상수 교체. REDUCE_ONLY 통과 SELL 은 audit meta 에
   `killSwitchSellAllowed` 증적을 남긴다.
+
+## RiskGuard 공용 진입 게이트 모드 (DAR-496 [견고화 W2·P18])
+
+- **트랙별 기본 모드** (`domain/risk-guard-gate.ts` `DEFAULT_RISK_GUARD_MODES`):
+  - 측정 트랙(`paper-simulation`·`philosophy-style`·`strategy-forward`·`intraday-scalp`) = **SHADOW**
+  - 듀얼모멘텀 코어 forward(`dual-momentum-forward`) = **ENFORCE**
+- **★수용 기준**: 측정 트랙 기본값 SHADOW 는 M10 클록 보호(매매 행동 무변경)의 절대 조건이다.
+  ENFORCE 플립은 환경변수 `RISK_GUARD_MODE_<TRACK>=ENFORCE` 로 **코드 변경 없이** 가능하나,
+  측정 트랙 플립은 **M10 졸업 측정 완료 + 사용자 승인 전까지 금지**(룰북 §8.5).
+- **판정 2종(P18 골격)**: ① 일일손실 한도(dailyRealizedPnl/totalCapital < -2%, `DEFAULT_RISK_LIMITS`
+  재사용) ② 현금 불변식(availableCash − entryBudget ≥ 0, DAR-426). 드로다운 컷·월간 한도·자동 킬은
+  후속(P19~P21).
+- **불변식**: `evaluateRiskGuardEntry` 는 mode==='ENFORCE' 일 때만 BLOCK 을 반환한다 → SHADOW 트랙은
+  절대 차단되지 않아 배선 전후 진입 후보·수량·예약이 동일하다(neutrality 스펙으로 증명).
 
 ## 체결 시뮬레이터 파라미터
 
@@ -127,4 +142,4 @@
 - **전략 룰·파라미터 변경 절차**: Risk 하드룰·킬스위치·손절·익절·한도 등 모든 값 변경은 룰북 정본 `docs/trading/strategy-rulebook.md §8 변경 절차`(문서 개정→재검증→사람 승인)를 따른다. M10 측정 트랙의 ENFORCE 플립은 졸업 측정 완료 전 금지(§8.5).
 
 ---
-*최종 수정: 2026-07-03*
+*최종 수정: 2026-07-04*

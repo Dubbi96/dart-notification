@@ -2131,3 +2131,40 @@ model DualMomentumForwardTrade {
   @@index([decisionDate])
   @@map("dual_momentum_forward_trades")
 }
+
+// DAR-496 [견고화 W2·P18]: RiskGuard 공용 진입 게이트 판정 이력.
+//   일일손실·현금 가드 게이트(risk-guard-gate.ts)가 전 트랙 진입 확정 직전에 남기는 판정 로그.
+//   - 측정 트랙(시스템 모의·철학·전략 forward·분봉)은 SHADOW → 위반을 기록만(차단 0).
+//   - 듀얼모멘텀 코어 forward 는 ENFORCE → 위반 시 BLOCK 기록.
+//   기존 TradingAuditLog 는 OrderRequest/OrderExecution(M11 실주문 루프) 전용 스키마이고
+//   AuditAction enum 이 닫힌 집합이라, 페이퍼 진입 게이트(주문 FK 없음·고빈도 SHADOW 텔레메트리)
+//   에는 부적합하다 → DAR-494 전례처럼 FK 없는 전용 additive 모델로 분리한다(택1 근거).
+//   비파괴 순수 가산 — 기존 스키마 무변경(M10 클록 안전).
+model RiskDecisionLog {
+  id    String @id @default(cuid())
+  track String // paper-simulation | philosophy-style | strategy-forward | intraday-scalp | dual-momentum-forward
+  mode  String // SHADOW | ENFORCE
+  action String // ALLOW | SHADOW_VIOLATION | BLOCK
+
+  tradeDate String // 판정 거래일 YYYYMMDD (일 1회 dedupe 버킷)
+
+  // 판정 컨텍스트(진입 확정 직전 스냅샷)
+  totalCapital     Decimal @db.Decimal(16, 2) // 트랙 가상원금
+  dailyRealizedPnl Decimal @db.Decimal(16, 2) // 당일 실현손익(음수=손실)
+  availableCash    Decimal @db.Decimal(16, 2) // 진입 직전 가용현금
+  entryBudget      Decimal @db.Decimal(16, 2) // 이번 진입 예산
+
+  // 위반 코드(콤마 구분, 없으면 빈 문자열) + 상세 메타
+  violationCodes String @default("") // 예: "DAILY_LOSS,CASH_GUARD"
+  corpCode       String? // 진입 대상(있으면)
+  stockCode      String?
+  meta           Json? // 위반 상세·killSwitch 등 관측용 부가 컨텍스트
+
+  createdAt DateTime @default(now())
+
+  @@index([track])
+  @@index([tradeDate])
+  @@index([action])
+  @@index([createdAt])
+  @@map("risk_decision_logs")
+}

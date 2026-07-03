@@ -25,10 +25,12 @@
  *   사이징·청산 전부 순수 Rule(engine2/AI import 0 — engine3 은 Rule/통계 엔진).
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaperTradeService } from '../services/paper-trade.service';
+import { RiskGuardService } from '../services/risk-guard.service';
+import { formatKstDateCompact } from '../../common/time/kst';
 import { DEFAULT_FILL_PARAMS } from '../domain/fill-simulator';
 import { PaperSimulationService } from './paper-simulation.service';
 import { PrismaExitSignalRepository } from '../../engine4-portfolio-exit/repositories/prisma-exit-signal.repository';
@@ -176,6 +178,8 @@ export class StrategyForwardSimulationService {
     private readonly prisma: PrismaService,
     private readonly paperTrade: PaperTradeService,
     private readonly eventEdgeSelector: EventEdgeSelectorService,
+    // DAR-496(P18): 공용 진입 게이트(SHADOW) — @Optional(미주입 단위 테스트 no-op). 측정 트랙이라 무변경.
+    @Optional() private readonly riskGuard?: RiskGuardService,
   ) {}
 
   // ─── 전략 포트폴리오 find-or-create (스타일 시뮬과 동일 시스템 유저) ─────
@@ -330,6 +334,37 @@ export class StrategyForwardSimulationService {
     const openedCorpCodes = new Set<string>(openCorpCodes);
     const exitParams = presetExitParams(preset);
 
+    // DAR-496(P18): 공용 진입 게이트(SHADOW) 입력 — 가용현금·당일 실현손익 산정.
+    //   ★전략 forward 진입 루프엔 현금 가드가 없다(갭 A5) — SHADOW 게이트가 현금 초과를 관측만 한다(차단 0).
+    //   현금 정의(SSOT): cash = 초기자본 + 실현손익(CLOSED net) − 보유 진입원가(OPEN entryAmount).
+    const [openForCash, closedForCash] = await Promise.all([
+      this.prisma.position.findMany({
+        where: { portfolioId: pf.id, status: 'OPEN' },
+        select: { entryAmount: true },
+      }),
+      this.prisma.position.findMany({
+        where: { portfolioId: pf.id, status: 'CLOSED' },
+        select: { unrealizedPnl: true, closedAt: true },
+      }),
+    ]);
+    const realizedNetPnl = closedForCash.reduce(
+      (s, p) => s + (p.unrealizedPnl ?? 0),
+      0,
+    );
+    const investedPrincipal = openForCash.reduce(
+      (s, p) => s + (p.entryAmount ?? 0),
+      0,
+    );
+    const dailyRealizedPnl = closedForCash.reduce(
+      (s, p) =>
+        p.closedAt && formatKstDateCompact(p.closedAt) === tradeDate
+          ? s + (p.unrealizedPnl ?? 0)
+          : s,
+      0,
+    );
+    let availableCash =
+      STRATEGY_INITIAL_CAPITAL + realizedNetPnl - investedPrincipal;
+
     let opened = 0;
     for (const sig of candidates) {
       if (opened >= available) break;
@@ -353,6 +388,20 @@ export class StrategyForwardSimulationService {
         select: { id: true },
       });
 
+      // DAR-496(P18): 공용 진입 게이트(일일손실·현금) — SHADOW. 진입 확정(placeOrder) 직전 1줄.
+      //   ★측정 트랙(mode=SHADOW) → 절대 BLOCK 없음 → 진입 후보·수량 무변경(M10 클록 보호).
+      const gate = await this.riskGuard?.evaluateEntry({
+        track: 'strategy-forward',
+        tradeDate,
+        totalCapital: STRATEGY_INITIAL_CAPITAL,
+        dailyRealizedPnl,
+        availableCash,
+        entryBudget: shares * price,
+        corpCode: sig.corpCode,
+        stockCode: sig.stockCode,
+      });
+      if (gate?.action === 'BLOCK') continue;
+
       const trade = await this.paperTrade.placeOrder({
         corpCode: sig.corpCode,
         stockCode: sig.stockCode,
@@ -366,6 +415,8 @@ export class StrategyForwardSimulationService {
       });
       if (trade.filledShares <= 0) continue;
       await this.tagPaperTrade(trade.id, preset.key);
+      // SHADOW 게이트의 다음 후보 현금 판정을 위해 진입원가만큼 차감(매매 행동엔 무영향 — 관측용).
+      availableCash -= (trade.filledPrice ?? price) * trade.filledShares;
 
       const fillPrice = trade.filledPrice ?? price;
       try {

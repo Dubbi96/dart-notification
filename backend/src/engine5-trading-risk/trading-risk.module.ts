@@ -25,6 +25,9 @@ import { PaperTradingController } from './paper-trading/paper-trading.controller
 import { PaperTradingService } from './paper-trading/paper-trading.service';
 import { NotificationProducerModule } from '../notifications/notification-producer.module';
 import { NotificationProducerService } from '../notifications/notification-producer.service';
+// DAR-496(견고화 W2·P18): RiskGuard 공용 진입 게이트(일일손실·현금). 측정 트랙은 @Optional 로
+//   주입받아 SHADOW 판정(기록만·차단 0), 듀얼모멘텀 코어 forward 만 ENFORCE. AI 개입 0.
+import { RiskGuardService } from './services/risk-guard.service';
 
 @Module({
   imports: [PrismaModule, NotificationProducerModule],
@@ -97,6 +100,9 @@ import { NotificationProducerService } from '../notifications/notification-produ
       ) => new OrderRiskService(auditRepo, killSwitch),
       inject: [PrismaAuditLogRepository, KillSwitchManager],
     },
+    // DAR-496(P18): 공용 진입 게이트 서비스 — PrismaService(RiskDecisionLog 영속) +
+    //   @Optional NotificationProducerService(위반 OPS_ALERT). 순수 게이트 소비·AI 개입 0.
+    RiskGuardService,
   ],
   exports: [
     PaperTradeService,
@@ -106,6 +112,9 @@ import { NotificationProducerService } from '../notifications/notification-produ
     // DAR-487(견고화 W3·P26): 장 시작 전 프리플라이트가 킬스위치·리스크 게이트 상태를 read-only 로
     //   재사용(OpsModule 주입). 실행 액션 없는 조회 서비스(executionEnabled 항상 false).
     AutoTradingStatusService,
+    // DAR-496(P18): 공용 진입 게이트를 각 모의 트랙 모듈(paper-sim·philosophy·strategy-fwd·
+    //   dual-momentum)이 @Optional 로 주입받도록 export.
+    RiskGuardService,
   ],
 })
 export class TradingRiskModule {}

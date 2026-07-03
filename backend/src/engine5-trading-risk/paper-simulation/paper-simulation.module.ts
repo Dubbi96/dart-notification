@@ -11,6 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TradingRiskModule } from '../trading-risk.module';
 import { PaperTradeService } from '../services/paper-trade.service';
 import { KillSwitchManager } from '../domain/kill-switch';
+import { RiskGuardService } from '../services/risk-guard.service';
 import { PaperSimulationService } from './paper-simulation.service';
 import { PaperSimulationController } from './paper-simulation.controller';
 import { PaperSimulationScheduler } from './paper-simulation.scheduler';
@@ -45,6 +46,7 @@ import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realt
         kis?: KisApiService,
         realtimeCache?: RealtimeQuoteCache,
         killSwitch?: KillSwitchManager,
+        riskGuard?: RiskGuardService,
       ) =>
         new PaperSimulationService(
           prisma,
@@ -54,6 +56,7 @@ import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realt
           kis,
           realtimeCache,
           killSwitch,
+          riskGuard,
         ),
       inject: [
         PrismaService,
@@ -64,6 +67,8 @@ import { RealtimeQuoteCache } from '../../engine3-quant-market/market-data/realt
         { token: RealtimeQuoteCache, optional: true },
         // F6: 공유 KillSwitchManager(TradingRiskModule export) — 시스템 모의 진입 차단.
         { token: KillSwitchManager, optional: true },
+        // DAR-496(P18): 공용 진입 게이트(SHADOW) — TradingRiskModule export. 미주입 시 no-op.
+        { token: RiskGuardService, optional: true },
       ],
     },
   ],

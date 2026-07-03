@@ -23,6 +23,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { NotificationProducerService } from '../../../notifications/notification-producer.service';
 import { KillSwitchManager } from '../../domain/kill-switch';
+import { RiskGuardService } from '../../services/risk-guard.service';
 import { simulateFill, DEFAULT_FILL_PARAMS, roundToTick } from '../../domain/fill-simulator';
 import { FillParams } from '../../domain/paper-trade.types';
 import { MomentumBar, decideMonthlyRebalance } from '../../../engine3-quant-market/dual-momentum/dual-momentum-signal';
@@ -125,6 +126,9 @@ export class DualMomentumForwardService {
     @Optional() private readonly notifyProducer?: NotificationProducerService,
     // @Optional — 미주입(단위 테스트)이면 비활성 폴백. 발동 시 REDUCE_ONLY(신규 매수 차단·매도 허용).
     @Optional() private readonly killSwitch?: KillSwitchManager,
+    // DAR-496(견고화 W2·P18): 공용 진입 게이트 — 코어 트랙은 **ENFORCE**(측정 대상 아님).
+    //   현금 불변식(cash≥0) 위반 시 매수 차단. @Optional — 미주입(단위 테스트)이면 no-op.
+    @Optional() private readonly riskGuard?: RiskGuardService,
   ) {}
 
   // ─── 포트폴리오 find-or-create (시스템 유저 — 타 forward 트랙과 동일) ─────
@@ -305,6 +309,27 @@ export class DualMomentumForwardService {
         await this.cancelTrade(p.id, '가용현금 부족 — 매수 불가');
         continue;
       }
+
+      // DAR-496(P18): 공용 진입 게이트 — 코어 트랙은 **ENFORCE**. 매수 체결 직전 1줄.
+      //   현금 불변식(cash≥0)이 활성 룰: shares=floor(cash/perShareCost) 라 진입원가 ≤ cash → 통상 ALLOW
+      //   (게이트가 불변식을 재확증). 일일손실은 월말 리밸런싱 트랙 특성상 '당일 매매 손실' 개념이 없어
+      //   dailyRealizedPnl=0(월말 실현손익을 일일손실로 오인해 리밸런싱을 차단하지 않는다). BLOCK 이면 매수 취소.
+      const gate = await this.riskGuard?.evaluateEntry({
+        track: 'dual-momentum-forward',
+        tradeDate,
+        totalCapital: DUAL_MOMENTUM_FORWARD_INITIAL_CAPITAL,
+        dailyRealizedPnl: 0,
+        availableCash: cash,
+        entryBudget: shares * perShareCost,
+        killSwitchActive: this.killSwitch?.isActive() ?? false,
+        corpCode: p.etfCode,
+        stockCode: p.etfCode,
+      });
+      if (gate?.action === 'BLOCK') {
+        await this.cancelTrade(p.id, 'RiskGuard ENFORCE 차단(현금 불변식)');
+        continue;
+      }
+
       const buy = simulateFill(
         { direction: 'BUY', orderedShares: shares, entryPrice: open, liquidityRatio: 1 },
         ETF_FILL_PARAMS,

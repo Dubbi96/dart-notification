@@ -34,6 +34,7 @@ import { DEFAULT_FILL_PARAMS, roundToTick, simulateFill } from '../domain/fill-s
 // 시장 캘린더 순수 함수(주말·KRX 공휴일) — 익일 시가 체결 예약일 산정에 재사용(서비스 호출 아님).
 import { nextTradingDay } from '../../engine3-quant-market/event-study/utils/d0-calculator';
 import { NotificationProducerService } from '../../notifications/notification-producer.service';
+import { RiskGuardService } from '../services/risk-guard.service';
 import { PrismaExitSignalRepository } from '../../engine4-portfolio-exit/repositories/prisma-exit-signal.repository';
 import {
   calculateExitScore,
@@ -202,6 +203,10 @@ export class PaperSimulationService {
     //   @Optional — 미주입(단위 테스트)이면 비활성 폴백(회귀 0). 청산은 계속 허용(오버나잇 회피).
     @Optional()
     private readonly killSwitch?: KillSwitchManager,
+    // DAR-496(견고화 W2·P18): 공용 진입 게이트(일일손실·현금) — SHADOW 배선(기록만·차단 0).
+    //   @Optional — 미주입(단위 테스트)이면 no-op. ★측정 트랙이라 SHADOW 는 절대 BLOCK 없음 → 매매 무변경.
+    @Optional()
+    private readonly riskGuard?: RiskGuardService,
   ) {}
 
   /** 모의운용 전용 포트폴리오 find-or-create (고정 시스템 유저) */
@@ -974,10 +979,20 @@ export class PaperSimulationService {
     //   진입 직후 currentValue=entryAmount·미실현 0 이므로, 신규 진입원가 차감분이 곧 현금 감소분.
     const closedForCash = await this.prisma.position.findMany({
       where: { portfolioId: pf.id, status: 'CLOSED' },
-      select: { unrealizedPnl: true },
+      select: { unrealizedPnl: true, closedAt: true },
     });
     const realizedNetPnl = closedForCash.reduce(
       (s, p) => s + (p.unrealizedPnl ?? 0),
+      0,
+    );
+    // DAR-496(P18): 당일 실현손익 — 오늘(KST) 청산분만 합산(일일손실 게이트 입력).
+    //   사이클 순서(평가→Exit→신규진입)상 오늘 청산은 이미 완료돼 이 시점에 확정돼 있다.
+    const todayKstMidnight = this.kstMidnight(tradeDate);
+    const dailyRealizedPnl = closedForCash.reduce(
+      (s, p) =>
+        p.closedAt && p.closedAt >= todayKstMidnight
+          ? s + (p.unrealizedPnl ?? 0)
+          : s,
       0,
     );
     const investedPrincipal = openPositions.reduce(
@@ -1139,6 +1154,22 @@ export class PaperSimulationService {
         where: { tradingSignalId: sig.id },
         select: { id: true },
       });
+
+      // DAR-496(P18): 공용 진입 게이트(일일손실·현금) — SHADOW 배선. 진입 확정(예약 create) 직전 1줄.
+      //   ★측정 트랙이라 mode=SHADOW → 절대 BLOCK 없음 → 후보·수량·예약 무변경(M10 클록 보호).
+      //   BLOCK 은 ENFORCE 트랙에서만 나오므로 이 가드는 SHADOW 에서 사실상 dead-branch(구조적 무변경).
+      const gate = await this.riskGuard?.evaluateEntry({
+        track: 'paper-simulation',
+        tradeDate,
+        totalCapital: PaperSimulationService.INITIAL_CAPITAL,
+        dailyRealizedPnl,
+        availableCash,
+        entryBudget: shares * effPrice,
+        killSwitchActive: this.killSwitch?.isActive() ?? false,
+        corpCode: sig.corpCode,
+        stockCode: sig.stockCode,
+      });
+      if (gate?.action === 'BLOCK') continue;
 
       // ★즉시 체결 금지 — PENDING 예약만 기록. entryDate=다음 거래일(주말·KRX 공휴일 스킵,
       //   nextTradingDay 순수 함수 재사용). entryPrice=예약 기준가(당일 평가가 — 사이징 근거,

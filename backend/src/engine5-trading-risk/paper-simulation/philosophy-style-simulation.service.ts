@@ -16,9 +16,11 @@
  *   (getStyleComparison)는 포트폴리오 단위 집계라 styleTag 컬럼과 무관하게 적용 전에도 안전하다.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaperTradeService } from '../services/paper-trade.service';
+import { RiskGuardService } from '../services/risk-guard.service';
+import { formatKstDateCompact } from '../../common/time/kst';
 import { DEFAULT_FILL_PARAMS } from '../domain/fill-simulator';
 import { PaperSimulationService } from './paper-simulation.service';
 import { PhilosophyFitService } from '../../engine2-ai-analyst/philosophy/philosophy-fit.service';
@@ -131,6 +133,8 @@ export class PhilosophyStyleSimulationService {
     private readonly paperTrade: PaperTradeService,
     private readonly philosophyFit: PhilosophyFitService,
     private readonly graduation: GraduationMetricsService,
+    // DAR-496(P18): 공용 진입 게이트(SHADOW) — @Optional(미주입 단위 테스트 no-op). 측정 트랙이라 무변경.
+    @Optional() private readonly riskGuard?: RiskGuardService,
   ) {}
 
   // ─── 스타일 포트폴리오 find-or-create (단일 시뮬과 동일 시스템 유저) ─────
@@ -254,6 +258,37 @@ export class PhilosophyStyleSimulationService {
     // 동일 사이클 내 같은 종목 재진입 방지(디듑 후라도 방어선 유지).
     const openedCorpCodes = new Set<string>(openCorpCodes);
 
+    // DAR-496(P18): 공용 진입 게이트(SHADOW) 입력 — 가용현금·당일 실현손익 산정.
+    //   철학 스타일 트랙엔 현금 가드가 없어(갭 A5) SHADOW 게이트가 초과 여부를 관측만 한다(차단 0).
+    //   현금 정의(SSOT): cash = 초기자본 + 실현손익(CLOSED net) − 보유 진입원가(OPEN entryAmount).
+    const [openForCash, closedForCash] = await Promise.all([
+      this.prisma.position.findMany({
+        where: { portfolioId: pf.id, status: 'OPEN' },
+        select: { entryAmount: true },
+      }),
+      this.prisma.position.findMany({
+        where: { portfolioId: pf.id, status: 'CLOSED' },
+        select: { unrealizedPnl: true, closedAt: true },
+      }),
+    ]);
+    const realizedNetPnl = closedForCash.reduce(
+      (s, p) => s + (p.unrealizedPnl ?? 0),
+      0,
+    );
+    const investedPrincipal = openForCash.reduce(
+      (s, p) => s + (p.entryAmount ?? 0),
+      0,
+    );
+    const dailyRealizedPnl = closedForCash.reduce(
+      (s, p) =>
+        p.closedAt && formatKstDateCompact(p.closedAt) === tradeDate
+          ? s + (p.unrealizedPnl ?? 0)
+          : s,
+      0,
+    );
+    let availableCash =
+      PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl - investedPrincipal;
+
     const baseBudget =
       PaperSimulationService.INITIAL_CAPITAL * (pf.maxSinglePositionPct / 100);
 
@@ -279,6 +314,20 @@ export class PhilosophyStyleSimulationService {
       });
       const { stopLossPct, maxHoldDays } = this.deriveExitParams(thesis?.exitRules);
 
+      // DAR-496(P18): 공용 진입 게이트(일일손실·현금) — SHADOW. 진입 확정(placeOrder) 직전 1줄.
+      //   ★측정 트랙(mode=SHADOW) → 절대 BLOCK 없음 → 진입 후보·수량 무변경(M10 클록 보호).
+      const gate = await this.riskGuard?.evaluateEntry({
+        track: 'philosophy-style',
+        tradeDate,
+        totalCapital: PaperSimulationService.INITIAL_CAPITAL,
+        dailyRealizedPnl,
+        availableCash,
+        entryBudget: shares * price,
+        corpCode: sig.corpCode,
+        stockCode: sig.stockCode,
+      });
+      if (gate?.action === 'BLOCK') continue;
+
       const trade = await this.paperTrade.placeOrder({
         corpCode: sig.corpCode,
         stockCode: sig.stockCode,
@@ -291,6 +340,8 @@ export class PhilosophyStyleSimulationService {
         positionThesisId: thesis?.id,
       });
       if (trade.filledShares <= 0) continue;
+      // SHADOW 게이트의 다음 후보 현금 판정을 위해 진입원가만큼 차감(매매 행동엔 무영향 — 관측용).
+      availableCash -= (trade.filledPrice ?? price) * trade.filledShares;
       await this.tagPaperTrade(trade.id, style);
 
       const fillPrice = trade.filledPrice ?? price;

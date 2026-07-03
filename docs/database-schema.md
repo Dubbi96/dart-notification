@@ -1862,7 +1862,31 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 
 ---
 
+## 40. Engine5 — RiskDecisionLog (risk_decision_logs) — DAR-496 [견고화 W2·P18]
+
+**목적**: RiskGuard 공용 진입 게이트(일일손실 한도 + 현금 불변식)가 전 트랙 진입 확정 직전에 남기는 판정 이력. 측정 트랙(시스템 모의·철학·전략 forward·분봉)은 SHADOW(위반 기록만·차단 0), 듀얼모멘텀 코어 forward 는 ENFORCE(위반 시 BLOCK). 기존 TradingAuditLog 는 OrderRequest/OrderExecution(M11 실주문 루프) 전용 스키마 + 닫힌 AuditAction enum 이라, 주문 FK 없는 페이퍼 진입 게이트의 고빈도 SHADOW 텔레메트리에 부적합 → DAR-494 전례처럼 **FK 없는 전용 additive 모델**로 분리(택1 근거). ★가산·관측층 전용 — 기존 측정 트랙 무접촉(M10 클록 안전). AI 미개입(판정=순수 게이트).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | String PK | cuid |
+| track | String | paper-simulation / philosophy-style / strategy-forward / intraday-scalp / dual-momentum-forward (인덱스) |
+| mode | String | SHADOW / ENFORCE |
+| action | String | ALLOW / SHADOW_VIOLATION / BLOCK (인덱스) |
+| tradeDate | String | 판정 거래일 YYYYMMDD (일 1회 dedupe 버킷, 인덱스) |
+| totalCapital | Decimal(16,2) | 트랙 가상원금 |
+| dailyRealizedPnl | Decimal(16,2) | 당일 실현손익(음수=손실) |
+| availableCash | Decimal(16,2) | 진입 직전 가용현금 |
+| entryBudget | Decimal(16,2) | 이번 진입 예산(체결 예상 진입원가) |
+| violationCodes | String | 위반 코드 콤마 구분 (예 "DAILY_LOSS,CASH_GUARD", 없으면 "") |
+| corpCode / stockCode | String? | 진입 대상 식별 |
+| meta | Json? | 위반 상세·killSwitchActive 등 관측용 부가 컨텍스트 |
+| createdAt | DateTime | 생성 시각 (인덱스) |
+
+**인덱스**: `track` · `tradeDate` · `action` · `createdAt`. (마이그레이션 `20260704090000_dar496_risk_decision_log` — create-only)
+
+---
+
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-04 (DAR-494 P13: §39 DualMomentumForwardTrade 신규 — 듀얼모멘텀 코어 forward 트랙 ETF 월말 리밸런싱 이력(FK 없음·PENDING→OPEN→CLOSED), 마이그레이션 20260703160000_dar494_dual_momentum_forward_trade, 모의·데이터층 전용) · 2026-07-03 (DAR-486 P25: §7.4.1 StockStatusDaily 신규 — 종목상태 일별 이력(forward-only, 백테스트 생존편향) + ExitReason 에 DELISTED 가산) · 2026-07-03 (DAR-479 P04: §38 BacktestForwardDivergenceSnapshot 추가 — 백테스트 vs forward 괴리 일일 스냅샷, read-only 측정) · 2026-07-03 (DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산 + notification_settings.opsPushEnabled 추가 — 리스크·운영 알림 채널 신설)
+**최종 수정일**: 2026-07-04 (DAR-496 P18: §40 RiskDecisionLog 신규 — RiskGuard 공용 진입 게이트(일일손실·현금) 판정 이력(FK 없음·측정 트랙 SHADOW·코어 forward ENFORCE), 마이그레이션 20260704090000_dar496_risk_decision_log, 관측층 전용) · 2026-07-04 (DAR-494 P13: §39 DualMomentumForwardTrade 신규 — 듀얼모멘텀 코어 forward 트랙 ETF 월말 리밸런싱 이력(FK 없음·PENDING→OPEN→CLOSED), 마이그레이션 20260703160000_dar494_dual_momentum_forward_trade, 모의·데이터층 전용) · 2026-07-03 (DAR-486 P25: §7.4.1 StockStatusDaily 신규 — 종목상태 일별 이력(forward-only, 백테스트 생존편향) + ExitReason 에 DELISTED 가산) · 2026-07-03 (DAR-479 P04: §38 BacktestForwardDivergenceSnapshot 추가 — 백테스트 vs forward 괴리 일일 스냅샷, read-only 측정) · 2026-07-03 (DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산 + notification_settings.opsPushEnabled 추가 — 리스크·운영 알림 채널 신설)
 **이전 수정일**: 2026-07-02 (전수 현행화 — 미문서 모델 15종 전용 섹션 추가(§23~§37: CompanyOverview·SavedDisclosure·CronRunLog·DisclosureCollectionLog·DisclosureEvent·DartFiledFact·CompanyFinancial·FinancialCollectionLog·DisclosureAnalysis·PersonaAnalysis·InvestorPhilosophy·PhilosophyMetric·PhilosophySource·SignalEntryFunnelDaily·IntradayScalpTrade), User 카카오 OAuth(password nullable·provider/providerId·(provider,providerId) unique) 반영, NotificationHistory 통합 인박스(type/refId 멱등키) 반영, §17 절 번호 충돌 정리, SSOT 관계(schema.prisma=SSOT·본 문서=해설·총 50개 모델) 헤더 명시)
 **버전**: 3.2 (2026-07-03 DAR-486 P25: StockStatusDaily 신규 테이블 + ExitReason.DELISTED 가산(마이그레이션 20260703150000_dar486_stock_status_daily_survivorship) — 종목상태 일별 이력 forward-only 축적 + 상폐 감액 청산 옵션, 백테스트 생존편향 처리(측정·데이터층 전용·운용 매매 무접촉); 3.1 DAR-479 P04: BacktestForwardDivergenceSnapshot 신규 테이블(마이그레이션 20260703130000_dar479_backtest_forward_divergence_snapshot) — 백테스트 vs forward 괴리 일일 스냅샷, 조회·적재 전용 측정; 3.0 DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산(additive 마이그레이션 20260703010000_dar473_risk_ops_notifications) + notification_settings.opsPushEnabled(기본 ON) 추가 — 능동 리스크/운영 알림 채널 신설(카테고리 4 버킷: 공시·신호·체결·운영); 2.9 2026-07-02 전수 현행화; 2.8 DAR-424: NotificationType 에 TRADE_ENTRY/TRADE_EXIT 가산 + notification_settings.tradePushEnabled 추가 — 라이브 페이퍼 체결 알림; 2.7 DAR-404: BacktestRun.strategyKey 비파괴 추가 + @@index — 트레이딩 로직 축 다중 트랙; DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)

@@ -419,6 +419,50 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 | styleTag | `satellite:vol-breakout` |
 | 활성 게이트 | P16 백테스트 엣지 양수 통과 후 — **현재 비활성** |
 
+### 9.2 듀얼모멘텀 코어 — 확정 룰 (DAR-492 P12, `alloc:dual-momentum`)
+
+> 이 섹션은 선기재 절차 ①을 완료한 **확정 룰**이다. 하기 값은 코드 상수와 1:1 대응한다(§10 SSOT 포인터 참조).
+> ★ 어떤 값도 §8.1 3게이트(문서 개정→재검증→사람 승인) 없이 코드·이 문서 모두 변경 금지.
+> 이 이슈는 **판정 순수 함수 계층만** 소유한다 — forward 트랙·월말 크론·매도→매수 실행·DB 쓰기는 P13, 백테스트 엣지 게이트는 P16.
+
+**전략**: 한국형 듀얼모멘텀(Antonacci GEM 변형). 국내 상장 ETF, 월말 1회 리밸런싱, 거래세 면제(ETF).
+
+#### 대상 유니버스 (무레버리지, `etf-universe.ts` 역할 1:1)
+
+| 축 | ETF | 코드 | 역할 |
+|---|---|---|---|
+| 공격A (MomA) | TIGER 미국S&P500 | `360750` | 해외주식 모멘텀 |
+| 공격B (MomB) | KODEX 200 | `069500` | 국내주식 모멘텀 |
+| 절대 모멘텀 임계 (MomT) | KODEX 단기채권 | `153130` | 무위험 대용(T-bill) |
+| 방어 | KODEX 종합채권(AA-이상) | `273130` | 절대 모멘텀 미충족 시 회피처 |
+
+#### 판정 규칙 (매월 마지막 거래일 1회)
+
+| 항목 | 값 | 비고 |
+|---|---|---|
+| 판정 시점 | 매월 **마지막 거래일** 1회 | 월말 거래일 판정은 P09 `market-calendar`(`lastTradingDayOfMonth`)로 P13 수행 — 이 이슈 재구현 금지 |
+| 모멘텀 정의 | `현재 수정종가 / 룩백일 전 수정종가 − 1` | 12개월 수익률(소수). 수정종가 기준 |
+| 룩백 | **252 거래일 (a-priori frozen)** | "252영업일 vs 캘린더 12개월" 중 **252 거래일** 채택. 근거: 순수 함수 결정론(캘린더 의존 제거·거래일 판정은 P09/P13 소관), 1년 ≈ 252 KRX 거래일, EtfDailyPrice는 거래일만 존재 |
+| 상대 모멘텀 | `argmax(MomA, MomB)` | 동점 시 공격A(해외) 우선 — frozen tiebreak(결정론) |
+| 절대 모멘텀 필터 | `max(MomA, MomB) > MomT` 이면 공격, 아니면 방어 | 경계(`==`)는 방어(초과가 아니면 진입 안 함) |
+| 목표 보유 | 공격 승자 100% **또는** 종합채권(`273130`) 100% | 단일 자산 100%(2단 프레임 내 코어 배분은 P16) |
+
+#### 리밸런싱 규칙
+
+| 항목 | 값 | 비고 |
+|---|---|---|
+| 무행동 | 현재 보유 == 목표 → **리밸런싱 생략(HOLD)** | 회전 최소화 |
+| 교체(SWITCH) | 현재 보유 != 목표 → 전량 매도 → 목표 매수 | **매도 후 매수 순서**(현금 확보 후 진입). 실행·부분체결 방어는 P13 |
+| 결측 fail-safe | 이력 < **253봉**(룩백+현재) 또는 window 결측일 → `null` | **매매 보류 + 전월 포지션 유지**(무주문). 계획의 "13개월 미만 이력"을 거래일 기준 253봉으로 정밀화 |
+
+#### 자본 프레임 상수
+
+| 항목 | 값 |
+|---|---|
+| 트랙 자본 비율 | 65% (코어) |
+| styleTag | `alloc:dual-momentum` |
+| 활성 게이트 | P16 백테스트 엣지 양수 통과 후 — **현재 비활성** |
+
 ---
 
 ## 10. 코드 SSOT 포인터 (문서↔코드 대조표)
@@ -436,11 +480,13 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 | 체결 파라미터 | `engine5-trading-risk/domain/fill-simulator.ts` | `DEFAULT_FILL_PARAMS`·`roundTripCostPct` |
 | **변동성 돌파 위성 신호·사이징** (§9.1) | `engine3-quant-market/volatility-breakout/volatility-breakout-signal.ts` | `computeBreakoutTarget`·`computeVolAdjustedSizing`·`evaluateBreakoutEntry`·`BREAKOUT_ENTRY_TAG` |
 | **변동성 돌파 위성 상수** (§9.1) | `engine3-quant-market/volatility-breakout/volatility-breakout.constants.ts` | `VOL_BREAKOUT_K`·`TARGET_DAILY_VOL_PCT`·`VOLATILITY_BREAKOUT_PRESET`·`SATELLITE_TARGET_ETF_CODE` |
+| **듀얼모멘텀 코어 판정** (§9.2) | `engine3-quant-market/dual-momentum/dual-momentum-signal.ts` | `computeMomentum`·`decideDualMomentumTarget`·`resolveRebalanceAction`·`decideMonthlyRebalance` |
+| **듀얼모멘텀 코어 상수** (§9.2) | `engine3-quant-market/dual-momentum/dual-momentum.constants.ts` | `MOMENTUM_LOOKBACK_DAYS`·`DUAL_MOMENTUM_PRESET`·`CORE_OFFENSE_INTL_CODE`·`CORE_DEFENSE_BOND_CODE`·`CORE_CAPITAL_ALLOCATION_PCT` |
 
 관련 API 문서: `docs/api-specification.md` §18(전략 변형 트랙)·§19(분봉 단타)·§21(시스템 모의·철학 스타일·전략 forward).
 스케줄 상세: `docs/workflow.md` §6.7(분봉 단타). 백테스트 리플레이 설계: `docs/roadmap/phase-10-backtest.md`.
 
 ---
 
-*정본 버전: 1.3 (2026-07-03). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24) → 1.3 DAR-491 §9.1 변동성 돌파 위성 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P14). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24`.*
+*정본 버전: 1.4 (2026-07-03). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24) → 1.3 DAR-491 §9.1 변동성 돌파 위성 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P14) → 1.4 DAR-492 §9.2 듀얼모멘텀 코어 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P12). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24·Wave1`.*
 *설립 시점 전값은 코드 상수를 무보정 전사했다(code=truth). 이후 변경은 §8 변경 절차(문서 개정→재검증→사람 승인)를 따른다.*

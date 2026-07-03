@@ -376,6 +376,49 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 - **활성 게이트(P16)**: 2단 자본 프레임(코어 65% / 위성 25% / 버퍼 10%) + **백테스트 엣지 양수 게이트** — 게이트 통과 전 forward 활성 금지.
 - **선기재 절차**: P12/P14 구현 이슈는 (1) 진입/청산/사이징/한도 전값을 이 §9에 확정 기재 → (2) 사람 승인 → (3) 순수 함수·프리셋 구현. (일반 절차는 §8.)
 
+### 9.1 변동성 돌파 위성 — 확정 룰 (DAR-491 P14, `satellite:vol-breakout`)
+
+> 이 섹션은 선기재 절차 ①을 완료한 **확정 룰**이다. 하기 값은 코드 상수와 1:1 대응한다(§10 SSOT 포인터 참조).
+> ★ 어떤 값도 §8.1 3게이트(문서 개정→재검증→사람 승인) 없이 코드·이 문서 모두 변경 금지.
+
+**대상**: KODEX 200(`069500`) 단일. 거래세 면제 ETF, 유동성 최상. 다종목 확장은 P16 이후 검토.
+
+#### 진입 규칙
+
+| 항목 | 값 | 비고 |
+|---|---|---|
+| 목표가 공식 | `시가 O + 전일 Range(H−L) × K` | 호가단위 반올림(nearest) 정렬 후 사용 |
+| 돌파 계수 K | **0.5 (a-priori frozen)** | P16 백테스트 + §8 절차로만 변경 가능. AI 자동조정 금지(§8.4) |
+| 진입 조건 | 장중 현재가 ≥ 목표가 | 1일 1회, 재진입 없음. 스캔·dedup은 P15 소관 |
+| 호가 정렬 방식 | KRX 호가단위 **반올림(nearest)** | engine5 `krxTickSize` SSOT 재사용. 비호가 가격 방지 목적 |
+| 추세 필터(옵션) | 전일 종가 > SMA(종가, 5일) | 기본 **OFF** — ON/OFF 최종 판정은 P16 백테스트 |
+| 전일 데이터 결측 | `null` 반환 → 진입 스킵 | fail-safe 기본값 |
+| Range ≤ 0 (거래정지 등) | `null` 반환 → 진입 스킵 | degenerate 방어 |
+
+#### 청산 규칙
+
+| 항목 | 값 | 비고 |
+|---|---|---|
+| 청산 시점 | 익일 시가 전량 | forward 배선·체결은 P15 소관 |
+
+#### 변동성 조절 사이징 (룰북 8-4 첫 실적용 — 갭 A11)
+
+| 항목 | 공식 / 값 | 비고 |
+|---|---|---|
+| 전일 Range% | `(H−L) / 전일 종가 × 100` | 변동성 측정 분모 |
+| 사이징계수 | `min(1, 목표변동성% / 전일 Range%)` | 레버리지 상한 1 (목표보다 낮은 변동성이면 캡) |
+| 목표 일간 변동성 | **1.0% (a-priori frozen)** | P16 백테스트 + §8 절차로만 변경 가능 |
+| 위성 배분금액 | 총자본 × 25% | 2단 프레임 배선은 P16 소관. 이 이슈에선 상수로만 선기재 |
+| 매수 수량 | `floor(배분금액 × 사이징계수 / 참조가)` | 정수(floor). 참조가 = 목표가(P15) 또는 전일 종가(폴백) |
+
+#### 자본 프레임 상수
+
+| 항목 | 값 |
+|---|---|
+| 트랙 자본 비율 | 25% (위성) |
+| styleTag | `satellite:vol-breakout` |
+| 활성 게이트 | P16 백테스트 엣지 양수 통과 후 — **현재 비활성** |
+
 ---
 
 ## 10. 코드 SSOT 포인터 (문서↔코드 대조표)
@@ -391,11 +434,13 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 | 분봉 단타 청산·상수 | `engine5-trading-risk/paper-simulation/intraday-scalp/intraday-scalp-exit.ts` | `TAKE_PROFIT_PCT`·`STOP_LOSS_PCT`·`MAX_OPEN_POSITIONS`·`PER_POSITION_BUDGET_PCT`·`ENTRY_CUTOFF_HHMM`·`FORCE_EXIT_HHMM` |
 | Risk 하드룰 | `engine5-trading-risk/domain/risk-check.types.ts` | `DEFAULT_RISK_LIMITS`·`DEFAULT_AUTO_KILL_CONDITIONS`·`DEFAULT_KILL_SWITCH_MODE` |
 | 체결 파라미터 | `engine5-trading-risk/domain/fill-simulator.ts` | `DEFAULT_FILL_PARAMS`·`roundTripCostPct` |
+| **변동성 돌파 위성 신호·사이징** (§9.1) | `engine3-quant-market/volatility-breakout/volatility-breakout-signal.ts` | `computeBreakoutTarget`·`computeVolAdjustedSizing`·`evaluateBreakoutEntry`·`BREAKOUT_ENTRY_TAG` |
+| **변동성 돌파 위성 상수** (§9.1) | `engine3-quant-market/volatility-breakout/volatility-breakout.constants.ts` | `VOL_BREAKOUT_K`·`TARGET_DAILY_VOL_PCT`·`VOLATILITY_BREAKOUT_PRESET`·`SATELLITE_TARGET_ETF_CODE` |
 
 관련 API 문서: `docs/api-specification.md` §18(전략 변형 트랙)·§19(분봉 단타)·§21(시스템 모의·철학 스타일·전략 forward).
 스케줄 상세: `docs/workflow.md` §6.7(분봉 단타). 백테스트 리플레이 설계: `docs/roadmap/phase-10-backtest.md`.
 
 ---
 
-*정본 버전: 1.2 (2026-07-03). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24`.*
+*정본 버전: 1.3 (2026-07-03). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24) → 1.3 DAR-491 §9.1 변동성 돌파 위성 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P14). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24`.*
 *설립 시점 전값은 코드 상수를 무보정 전사했다(code=truth). 이후 변경은 §8 변경 절차(문서 개정→재검증→사람 승인)를 따른다.*

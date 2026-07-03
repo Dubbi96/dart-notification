@@ -180,8 +180,11 @@ dart-notification/
 │   │   │   │   └── http-exception.filter.ts
 │   │   │   ├── interceptors/
 │   │   │   │   └── logging.interceptor.ts
-│   │   │   └── pipes/
-│   │   │       └── validation.pipe.ts
+│   │   │   ├── pipes/
+│   │   │   │   └── validation.pipe.ts
+│   │   │   └── time/          # KST 시간·거래캘린더 SSOT
+│   │   │       ├── kst.ts                # KST 날짜/세션 유틸(시스템 TZ 무관, DAR-199)
+│   │   │       └── market-calendar.ts    # KRX 거래일·휴장일·반일장·월말거래일 단일 판정(DAR-481)
 │   │   ├── app.module.ts
 │   │   └── main.ts
 │   ├── .env
@@ -341,6 +344,7 @@ dart-notification/
 │   ├── api-specification.md   # API 명세서
 │   ├── workflow.md            # 업무 흐름도
 │   ├── deployment.md          # 배포 가이드
+│   ├── trading/               # 매매 전략 룰 정본 (strategy-rulebook.md — 전 트랙 진입/청산/사이징/한도 SSOT)
 │   ├── roadmap/               # 로드맵 정본 (비전·실행 로드맵·phase 명세·재개 계획)
 │   ├── work/                  # 진행 중 작업 문서 (완료분은 archive/로 이동)
 │   ├── mobile/                # 모바일 기획 (screen-plan 등)

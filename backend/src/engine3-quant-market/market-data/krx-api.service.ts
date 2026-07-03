@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import axiosRetry from 'axios-retry';
 import { formatKstDateCompact } from '../../common/time/kst';
+import { isWeekendDate } from '../../common/time/market-calendar';
 
 /**
  * KRX_API_KEY 미설정 또는 오프라인 시 throw.
@@ -78,7 +79,9 @@ export class KrxApiService {
     });
     axiosRetry(this.client, {
       retries: 3,
-      retryDelay: (retryCount) => retryCount * 2_000,
+      // 지수 백오프(2^n·100ms + 지터, Retry-After 존중) — 주석과 실구현 일치(DAR-480).
+      // 이전엔 주석은 exponential 이나 실제는 선형(retryCount×2000)이었다. engine1·KIS 와 동일 패턴.
+      retryDelay: axiosRetry.exponentialDelay,
       retryCondition: (error) => {
         const status = error.response?.status;
         return axiosRetry.isNetworkError(error) || status === 429 || status === 503;
@@ -350,10 +353,13 @@ export class KrxApiService {
     }
   }
 
-  /** 거래일 여부 확인 — 토·일 + 단순 규칙(공휴일은 수집 실패로 자동 스킵) */
+  /**
+   * 거래일 여부 확인 — 토·일 + 단순 규칙(공휴일은 수집 실패로 자동 스킵).
+   * ★DAR-481: 주말 판정을 SSOT(market-calendar.isWeekendDate)로 위임 — 의미(getDay 기반)
+   *   그대로 유지(무행동 변경). 휴장일 미반영은 의도적(휴장일엔 KRX 데이터 부재로 자동 스킵).
+   */
   isWeekend(date: Date): boolean {
-    const day = date.getDay(); // 0=일, 6=토
-    return day === 0 || day === 6;
+    return isWeekendDate(date);
   }
 
   /**

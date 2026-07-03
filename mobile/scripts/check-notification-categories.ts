@@ -1,10 +1,12 @@
 /**
- * DAR-430 결정론적 검증: 알림 카테고리화(3 버킷) SSOT 와 제목 [ ]프리픽스 제거.
+ * DAR-430 결정론적 검증: 알림 카테고리화 SSOT 와 제목 [ ]프리픽스 제거.
+ * DAR-473(P01): 운영(system) 버킷 추가 — 4 버킷·4 채널.
  *
  * 검증 항목:
- *  (1) 모든 NotificationType 이 정확히 한 카테고리(disclosure/signal/trade)로 매핑된다.
- *  (2) 버킷 구성: 공시=DISCLOSURE / 신호=SIGNAL·EXIT·THESIS_VIOLATED / 체결=TRADE_ENTRY·TRADE_EXIT.
- *  (3) Android 채널 ID(=백엔드 Expo push channelId)가 3개·고유·예상값('disclosure'/'signal'/'trade').
+ *  (1) 모든 NotificationType 이 정확히 한 카테고리(disclosure/signal/trade/system)로 매핑된다.
+ *  (2) 버킷 구성: 공시=DISCLOSURE / 신호=SIGNAL·EXIT·THESIS_VIOLATED / 체결=TRADE_ENTRY·TRADE_EXIT /
+ *      운영=RISK_ALERT·OPS_ALERT.
+ *  (3) Android 채널 ID(=백엔드 Expo push channelId)가 4개·고유·예상값('disclosure'/'signal'/'trade'/'system').
  *  (4) 체결 알림 제목에 [ ]대괄호가 없다(출처는 이모지+출처명으로 전달 — DAR-432 정합).
  *
  * 실행: npx tsx scripts/check-notification-categories.ts  (실패 시 exit 1)
@@ -23,6 +25,9 @@ const ALL_TYPES: NotificationType[] = [
   'THESIS_VIOLATED',
   'TRADE_ENTRY',
   'TRADE_EXIT',
+  // DAR-473(P01): 리스크·운영 알림 타입.
+  'RISK_ALERT',
+  'OPS_ALERT',
 ];
 
 // 백엔드 notify.consumer.handleTrade 의 제목 산출(DAR-432 이모지+출처명판)을 순수 재현.
@@ -55,6 +60,9 @@ const expectedCategory: Record<NotificationType, NotificationCategory> = {
   THESIS_VIOLATED: 'signal',
   TRADE_ENTRY: 'trade',
   TRADE_EXIT: 'trade',
+  // DAR-473(P01): 리스크·운영 → 'system' 버킷.
+  RISK_ALERT: 'system',
+  OPS_ALERT: 'system',
 };
 for (const t of ALL_TYPES) {
   check(
@@ -63,15 +71,16 @@ for (const t of ALL_TYPES) {
   );
 }
 
-// (3) 채널 ID 고유·예상값
+// (3) 채널 ID 고유·예상값 (DAR-473 P01: 'system' 채널 추가 → 4개)
 const channelIds = Object.values(CATEGORY_CHANNEL_ID);
-check('채널 ID 3개', channelIds.length === 3);
-check('채널 ID 고유', new Set(channelIds).size === 3);
+check('채널 ID 4개', channelIds.length === 4);
+check('채널 ID 고유', new Set(channelIds).size === 4);
 check(
-  "채널 ID = disclosure/signal/trade",
+  "채널 ID = disclosure/signal/trade/system",
   CATEGORY_CHANNEL_ID.disclosure === 'disclosure' &&
     CATEGORY_CHANNEL_ID.signal === 'signal' &&
-    CATEGORY_CHANNEL_ID.trade === 'trade',
+    CATEGORY_CHANNEL_ID.trade === 'trade' &&
+    CATEGORY_CHANNEL_ID.system === 'system',
 );
 
 // (4) 제목 [ ]대괄호 부재(출처는 이모지+출처명 프리픽스로 — DAR-432)

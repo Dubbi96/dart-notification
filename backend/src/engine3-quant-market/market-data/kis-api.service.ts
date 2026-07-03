@@ -1,7 +1,50 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosError, AxiosInstance, AxiosResponse } from 'axios';
 import axiosRetry from 'axios-retry';
+
+/**
+ * KIS 유량초과(초당 거래건수 초과) 응답코드. KIS 는 초당 호출 제한 초과를 HTTP 429 가 아니라
+ * **HTTP 200 본문 msg_cd=EGW00201** 로 반환하는 경우가 많다(DAR-480). 상태코드만 보는 재시도
+ * 조건으로는 잡히지 않아 유량초과 시 재시도 없이 데이터가 조용히 소실됐다.
+ */
+const KIS_RATE_LIMIT_MSG_CD = 'EGW00201';
+
+/**
+ * KIS 응답(본문)이 유량초과(EGW00201)인지 판정. 본문(any)에서 msg_cd 를 안전 추출한다.
+ * HTTP 200/4xx/5xx 어느 상태로 오든 본문 코드로 유량초과를 식별한다.
+ */
+export function isKisRateLimitedBody(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const msgCd = (data as { msg_cd?: unknown }).msg_cd;
+  return typeof msgCd === 'string' && msgCd.trim().toUpperCase() === KIS_RATE_LIMIT_MSG_CD;
+}
+
+/**
+ * axios-retry `validateResponse` — 성공으로 처리 가능한 응답인지 판정(axios-retry v4).
+ * 이 옵션을 켜면 모든 HTTP 응답(200 포함)이 에러 인터셉터를 먼저 거치므로, HTTP 200 본문으로
+ * 오는 유량초과(EGW00201)를 실패로 되돌려 retryCondition 으로 넘길 수 있다.
+ *  - 2xx 이면서 유량초과 본문이 아니면 성공(true).
+ *  - 2xx 밖이거나 유량초과 본문이면 실패(false) → retryCondition 판정 대상.
+ */
+export function validateKisResponse(response: AxiosResponse): boolean {
+  const status = response.status;
+  if (status < 200 || status >= 300) return false;
+  if (isKisRateLimitedBody(response.data)) return false;
+  return true;
+}
+
+/**
+ * 재시도 대상 판정. 네트워크 오류·HTTP 429/503, 그리고 **유량초과(EGW00201)** 를 포함한다.
+ * 유량초과가 HTTP 200 본문으로 오는 경우는 validateResponse 가 실패로 변환해 여기로 넘어온다.
+ */
+export function shouldRetryKisError(error: AxiosError): boolean {
+  if (axiosRetry.isNetworkError(error)) return true;
+  const status = error.response?.status;
+  if (status === 429 || status === 503) return true;
+  if (isKisRateLimitedBody(error.response?.data)) return true;
+  return false;
+}
 
 /**
  * KIS(한국투자증권) OpenAPI 어댑터 — 실시간 현재가·분봉 (DAR-140).
@@ -77,13 +120,17 @@ export class KisApiService {
     this.client = axios.create({ timeout: 15_000, maxRedirects: 0 });
     axiosRetry(this.client, {
       retries: 3,
-      retryDelay: (retryCount) => retryCount * 1_000,
-      retryCondition: (error) => {
-        const status = error.response?.status;
-        return axiosRetry.isNetworkError(error) || status === 429 || status === 503;
-      },
+      // engine1(dart-api.service.ts)의 검증된 패턴 준용: 지수 백오프(2^n·100ms + 지터, Retry-After 존중).
+      // 이전 선형(retryCount×1000)에서 교체 — 유량초과 폭주 시 서버 부하를 지수적으로 완화(DAR-480).
+      retryDelay: axiosRetry.exponentialDelay,
+      // 유량초과가 HTTP 200 본문(EGW00201)으로 오는 경우까지 재시도하기 위해 200 응답도 검사한다.
+      validateResponse: validateKisResponse,
+      retryCondition: shouldRetryKisError,
       onRetry: (retryCount, error) => {
-        this.logger.warn(`[KIS] 재시도 ${retryCount}/3: ${error.message}`);
+        const reason = isKisRateLimitedBody((error as AxiosError).response?.data)
+          ? '유량초과(EGW00201)'
+          : error.message;
+        this.logger.warn(`[KIS] 재시도 ${retryCount}/3: ${reason}`);
       },
     });
   }
@@ -168,7 +215,7 @@ export class KisApiService {
       };
     } catch (e) {
       if (e instanceof KisApiUnavailableError) throw e;
-      this.logger.error(`[KIS] inquire-price 실패 ${stockCode}: ${(e as Error).message}`);
+      this.logger.error(`[KIS] inquire-price 현재가 소실 ${stockCode}: ${this.failureReason(e)}`);
       return null;
     }
   }
@@ -207,7 +254,9 @@ export class KisApiService {
       return candles.reverse();
     } catch (e) {
       if (e instanceof KisApiUnavailableError) throw e;
-      this.logger.error(`[KIS] inquire-time-itemchartprice 실패 ${stockCode}: ${(e as Error).message}`);
+      this.logger.error(
+        `[KIS] inquire-time-itemchartprice 분봉 소실 ${stockCode}: ${this.failureReason(e)}`,
+      );
       return [];
     }
   }
@@ -311,9 +360,26 @@ export class KisApiService {
       };
     } catch (e) {
       if (e instanceof KisApiUnavailableError) throw e;
-      this.logger.error(`[KIS] inquire-index-price 실패 ${indexCode}: ${(e as Error).message}`);
+      this.logger.error(`[KIS] inquire-index-price 지수 소실 ${indexCode}: ${this.failureReason(e)}`);
       return null;
     }
+  }
+
+  /**
+   * fetch 실패 사유를 사람이 읽을 수 있게 분류(로깅용, DAR-480). 유량초과 소진은 명시 플래그로
+   * 표기해 '조용한 데이터 소실'을 관측 가능하게 한다. 반환 계약(null/빈배열)은 호출부에서 유지.
+   */
+  private failureReason(e: unknown): string {
+    const err = e as AxiosError;
+    if (isKisRateLimitedBody(err?.response?.data)) {
+      return '유량초과(EGW00201) 재시도 소진';
+    }
+    const status = err?.response?.status;
+    if (status === 429 || status === 503) {
+      return `레이트리밋(HTTP ${status}) 재시도 소진`;
+    }
+    if (status) return `HTTP ${status}`;
+    return (e as Error)?.message ?? 'unknown';
   }
 
   private parseNum(v: string | number | null | undefined): number {

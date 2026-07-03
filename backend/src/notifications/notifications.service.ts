@@ -166,6 +166,9 @@ export class NotificationsService {
       // DAR-424: 라이브 페이퍼 체결 알림 타입.
       [NotificationType.TRADE_ENTRY]: 0,
       [NotificationType.TRADE_EXIT]: 0,
+      // DAR-473(P01): 리스크·운영 알림 타입.
+      [NotificationType.RISK_ALERT]: 0,
+      [NotificationType.OPS_ALERT]: 0,
     };
     for (const row of unreadByTypeRows) {
       unreadByType[row.type] = row._count._all;
@@ -176,6 +179,8 @@ export class NotificationsService {
       disclosure: 0,
       signal: 0,
       trade: 0,
+      // DAR-473(P01): 운영 버킷.
+      system: 0,
     };
     for (const t of Object.keys(unreadByType) as NotificationType[]) {
       unreadByCategory[NOTIFICATION_CATEGORY[t]] += unreadByType[t];

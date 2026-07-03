@@ -97,6 +97,8 @@ export const NOTIFY_JOB = {
   TRADE_ENTRY: 'notify.trade-entry',
   /** DAR-424 engine5 라이브 페이퍼 매도 체결(손익% 포함) */
   TRADE_EXIT: 'notify.trade-exit',
+  /** DAR-473(P01) 리스크·운영 알림(RISK_ALERT/OPS_ALERT) — 감지점/운영 리포트가 발행 */
+  OPS_ALERT: 'notify.ops-alert',
 } as const;
 
 /** QUEUE.AI_ANALYZE 잡 페이로드 */
@@ -187,11 +189,49 @@ export interface NotifyTradeJobData {
   deepLink: string;
 }
 
+/**
+ * DAR-473(P01): 리스크·운영 알림 심각도. 푸시 제목의 심각도 라벨·(향후) 채널 중요도 라우팅용.
+ * 순서(오름차순): INFO < WARNING < ERROR < CRITICAL.
+ */
+export type OpsAlertSeverity = 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL';
+
+/**
+ * DAR-473(P01): NOTIFY_JOB.OPS_ALERT 페이로드 — 리스크·운영 알림(RISK_ALERT/OPS_ALERT).
+ *
+ * ★관측·알림 계층 전용 — 주문 결정/실주문과 무관(AI 금지영역·M10 클록 불침범).
+ * 수신자는 실제 앱 사용자 전원(브로드캐스트)이며 consumer 가 opsPushEnabled(기본 ON) 토글로
+ * 인박스·푸시를 게이트한다(체결 알림과 동일 브로드캐스트 배선 재사용).
+ *
+ * type 으로 RISK_ALERT/OPS_ALERT 를 구분한다(카테고리는 둘 다 'system'):
+ *  - OPS_ALERT  : enqueueOpsAlert 가 발행(P05 일일 리포트·수집/청산 실패 등).
+ *  - RISK_ALERT : P02 감지점 배선(킬스위치 발동·드로다운 컷)이 발행 — 채널은 본 이슈가 신설.
+ */
+export interface NotifyOpsAlertJobData {
+  /** 알림 타입 — 운영(OPS_ALERT) 또는 리스크(RISK_ALERT). */
+  type: 'OPS_ALERT' | 'RISK_ALERT';
+  /** 심각도(제목 라벨·중요도). */
+  severity: OpsAlertSeverity;
+  /** 발행 출처(감지점 식별 키). 예: 'kill-switch' | 'cron-freshness' | 'daily-report'. */
+  source: string;
+  /** 사용자 표시 본문(한국어). */
+  message: string;
+  /**
+   * 멱등 자연키 — 동일 사건 중복 억제(NotificationHistory unique + BullMQ jobId).
+   * 반복 발화 이벤트(예: 매일 크론 stale)는 시간 버킷을 포함해야 한다(예: 'cron-stale:2026-07-03').
+   */
+  dedupeKey: string;
+  /** 인앱 딥링크(선택). 없으면 알림 탭 기본 진입. */
+  deepLink?: string;
+  /** 부가 메타(수치·컨텍스트 등, 선택) — 인박스/푸시 표시엔 미사용(관측용). */
+  meta?: Record<string, unknown>;
+}
+
 export type NotifyJobData =
   | NotifySignalJobData
   | NotifyExitJobData
   | NotifyThesisViolatedJobData
-  | NotifyTradeJobData;
+  | NotifyTradeJobData
+  | NotifyOpsAlertJobData;
 
 // ─── DAR-230: 자연키 기반 dedup jobId ───────────────────────────────────────
 //
@@ -237,6 +277,14 @@ export function notifyJobId(
       return `trade-entry-${(data as NotifyTradeJobData).refId}`;
     case NOTIFY_JOB.TRADE_EXIT:
       return `trade-exit-${(data as NotifyTradeJobData).refId}`;
+    // DAR-473(P01): 리스크/운영 알림 — dedupeKey 자연키. type 을 접두사에 실어
+    //   같은 dedupeKey 라도 RISK/OPS 는 별개 잡. ★BullMQ custom jobId 는 ':' 불가 →
+    //   dedupeKey 의 ':'(시간버킷 구분자 등)를 '-' 로 치환한다(dedup 결정성 보존).
+    case NOTIFY_JOB.OPS_ALERT: {
+      const d = data as NotifyOpsAlertJobData;
+      const prefix = d.type === 'RISK_ALERT' ? 'risk' : 'ops';
+      return `${prefix}-${d.dedupeKey.replace(/:/g, '-')}`;
+    }
     default:
       return undefined;
   }

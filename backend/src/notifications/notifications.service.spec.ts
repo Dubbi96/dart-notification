@@ -283,6 +283,9 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
         // DAR-424: 라이브 페이퍼 체결 알림 타입 키.
         TRADE_ENTRY: 0,
         TRADE_EXIT: 0,
+        // DAR-473(P01): 리스크·운영 알림 타입 키.
+        RISK_ALERT: 0,
+        OPS_ALERT: 0,
       });
     });
   });
@@ -343,11 +346,12 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
 
       const result = await service.findAll('u1', {});
 
-      // 공시=3 / 신호=SIGNAL1+EXIT2=3 / 체결=ENTRY4+EXIT1=5
+      // 공시=3 / 신호=SIGNAL1+EXIT2=3 / 체결=ENTRY4+EXIT1=5 / 운영=0(DAR-473 P01 신규 버킷)
       expect(result.meta.unreadByCategory).toEqual({
         disclosure: 3,
         signal: 3,
         trade: 5,
+        system: 0,
       });
     });
   });

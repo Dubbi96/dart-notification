@@ -12,7 +12,7 @@
 | 리포지토리 | `repositories/` | IPositionThesisRepository·IExitSignalRepository 인터페이스 + **Prisma 어댑터(운영 배선, DAR-34)** + 인메모리 어댑터(테스트·폴백 유지) |
 | Thesis 서비스 | `services/position-thesis.service.ts` | BUY 신호 → Thesis 자동 생성, 생명주기 전이 |
 | Exit 엔진 서비스 | `services/exit-engine.service.ts` | IPositionProvider 계약으로 포지션별 Exit Score 계산 → ExitSignal 저장(내부자 흐름 결합 DAR-94) |
-| Exit 스케줄러 | `services/exit-check-scheduler.interface.ts` | 하루 3회 점검(09:00/13:00/16:30) 인터페이스 + 인메모리 구현 — 실 트리거는 engine5 `paper-simulation` 사이클(19:30 일일 + 장중 5분 모니터)이 담당 |
+| Exit 점검 트리거 | (engine5·ops 소관) | 실 트리거는 engine5 `paper-simulation` 사이클(19:30 일일 + 장중 5분 모니터) + ops 프리플라이트(08:30)가 담당 — 구 `services/exit-check-scheduler.interface.ts`·인메모리 어댑터는 크론 미배선 데드코드로 삭제됨(DAR-487/PR #451) |
 | 포트폴리오 조회 API | `portfolio/` | `PortfolioController`(포트폴리오·포지션·리스크 스냅샷 읽기, MDD 계산) + `PositionThesisController`(논지 조회, thesis-status 매핑) — 모바일 화면 진입점 |
 
 배선: `portfolio-exit.module.ts`가 Prisma 리포지토리를 DI 토큰(POSITION_THESIS_REPOSITORY/EXIT_SIGNAL_REPOSITORY)에 바인딩하고 컨트롤러 2종을 노출한다.

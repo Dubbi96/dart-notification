@@ -6,7 +6,7 @@
  * B. 러너 재사용 실증(real BacktestRunnerService + InMemory 어댑터): 이웃 파라미터(minBuyScore)가
  *    실제 러너 출력(거래수)을 바꾼다 → 측정 표면이 결정론적으로 동작함.
  */
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { ParameterSweepService } from './parameter-sweep.service';
 import { BacktestSignalAssemblyService } from '../replay/backtest-signal-assembly.service';
 import { BacktestReplayService } from '../replay/backtest-replay.service';
@@ -205,6 +205,60 @@ function sig(rcpNo: string, code: string, buyScore: number): DisclosureSignal {
     disclosureAt: new Date('2025-03-03T10:00:00+09:00'),
   };
 }
+
+describe('ParameterSweepService — in-flight 가드(DAR-489)', () => {
+  const WINDOW = { startDate: '2025-06-19', endDate: '2026-06-19' };
+
+  function blockedReplay() {
+    let release!: () => void;
+    const blocked = new Promise<void>((r) => (release = r));
+    const executeReplay = jest.fn().mockImplementation(async () => {
+      await blocked;
+      return { trades: [], metrics: fakeMetrics({ totalTrades: 30 }), equityCurve: [] };
+    });
+    return { executeReplay, release: () => release() };
+  }
+
+  it('동일 프리셋 동시 실행 → 두 번째는 ConflictException(409) 즉시 거절', async () => {
+    const { executeReplay, release } = blockedReplay();
+    const { service } = buildService({ executeReplay });
+
+    const first = service.run({ presetKey: 'aggressive-diversified', ...WINDOW });
+    await expect(
+      service.run({ presetKey: 'aggressive-diversified', ...WINDOW }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    release();
+    await expect(first).resolves.toBeDefined();
+  });
+
+  it('다른 프리셋은 병렬 허용(프리셋 키 단위 가드)', async () => {
+    const { executeReplay, release } = blockedReplay();
+    const { service } = buildService({ executeReplay });
+
+    const a = service.run({ presetKey: 'aggressive-diversified', ...WINDOW });
+    const b = service.run({ presetKey: 'short-momentum', ...WINDOW });
+
+    release();
+    await expect(a).resolves.toBeDefined();
+    await expect(b).resolves.toBeDefined();
+  });
+
+  it('완료·실패 모두 가드 해제 — 실패 직후 재실행 허용', async () => {
+    const executeReplay = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('replay boom'))
+      .mockResolvedValue({ trades: [], metrics: fakeMetrics({ totalTrades: 30 }), equityCurve: [] });
+    const { service } = buildService({ executeReplay });
+
+    await expect(service.run({ presetKey: 'aggressive-diversified', ...WINDOW })).rejects.toThrow(
+      'replay boom',
+    );
+    await expect(
+      service.run({ presetKey: 'aggressive-diversified', ...WINDOW }),
+    ).resolves.toBeDefined();
+  });
+});
 
 describe('ParameterSweepService — 러너 재사용 실증(결정론)', () => {
   it('minBuyScore 이웃(35)이 실제 러너에서 저점수 신호를 걸러 거래수를 줄인다', async () => {

@@ -1,4 +1,10 @@
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BacktestSignalAssemblyService } from '../replay/backtest-signal-assembly.service';
 import {
@@ -56,6 +62,12 @@ export interface ParameterSweepInput {
 export class ParameterSweepService {
   private readonly logger = new Logger(ParameterSweepService.name);
 
+  /**
+   * DAR-489: 프리셋 키 단위 in-flight 가드 — 동일 프리셋 스윕(9회 리플레이)의 병렬 폭주 방지.
+   * 실행 제어만 담당(결과·파라미터 무변경, read-only 성격 유지). 완료·실패 모두 finally 에서 해제.
+   */
+  private readonly inFlightPresets = new Set<string>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly assembly: BacktestSignalAssemblyService,
@@ -76,6 +88,25 @@ export class ParameterSweepService {
       throw new NotFoundException(`알 수 없는 전략 키: ${input.presetKey}`);
     }
 
+    // DAR-489: 동일 프리셋 스윕이 이미 실행 중이면 409 — 병렬 재실행 대신 즉시 거절(결정론).
+    if (this.inFlightPresets.has(preset.key)) {
+      throw new ConflictException(
+        `전략 '${preset.key}' 민감도 스윕이 이미 실행 중입니다 — 완료 후 다시 시도하세요.`,
+      );
+    }
+    this.inFlightPresets.add(preset.key);
+    try {
+      return await this.runSweep(preset, input);
+    } finally {
+      this.inFlightPresets.delete(preset.key);
+    }
+  }
+
+  /** 실제 스윕 본체 — in-flight 가드(run) 내부에서만 호출된다. */
+  private async runSweep(
+    preset: StrategyPreset,
+    input: ParameterSweepInput,
+  ): Promise<ParameterSweepReport> {
     // 프리셋 실제 트레이딩과 동일하게 base 파라미터를 해석(robustEventGate → eventTypes 주입).
     // 이벤트 allowlist 는 4축 흔들기와 무관하므로 base 에 1회 baked 한 뒤 그리드를 얹는다.
     const base = await this.resolveBaseParams(preset);

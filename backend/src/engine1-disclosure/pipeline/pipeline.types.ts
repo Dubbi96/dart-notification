@@ -3,6 +3,16 @@
 // 단계 전이를 read-only 집계로 가시화하고, 누락분 backfill 결과를 보고한다.
 // AI 미개입(집계는 순수 DB 카운트), 신규 외부호출 0, 스키마 변경 0.
 
+/**
+ * DAR-503: 폐루프 드레인 조회 범위.
+ * 미지정(또는 sinceCreatedAt 없음) = 전체 범위(주말 헤비 창·기존 거동). sinceCreatedAt 지정 시
+ * 해당 시각 이후(공시 createdAt) 신규 공시로만 각 단계 선택을 좁힌다(주중 경량 세이프티넷).
+ */
+export interface PipelineDrainScope {
+  /** 이 시각 이후 createdAt 공시만 드레인(포함). 미지정이면 전체. */
+  sinceCreatedAt?: Date;
+}
+
 /** 단계별 실패/지연 행 1건(가시화용, 비밀값 없음). */
 export interface PipelineFailureRow {
   /** 'PARSE' | 'EVENT' */

@@ -532,7 +532,12 @@ fetch 해도 신호 0 → 쿼터 낭비. (라이브 dev DB 실측: PENDING 195,6
 
 ---
 
-### 2.7 공시 원문(rawText) S3 오프로드 드레인 (매 10분, DAR-395)
+### 2.7 공시 원문(rawText) S3 오프로드 드레인 (주말 매 10분, DAR-395·DAR-503)
+
+> **DAR-503(주말 스케줄링)**: 이 드레인은 대형 스캔이라 주중 DB 커넥션 풀·DART 쿼터와 경쟁했다.
+> 이제 매 10분 발화하되 실제 드레인은 **주말 창**(`isHeavyCollectionWindow`)에서만 수행하고, 주중
+> 사이클은 즉시 `WINDOW_SKIPPED`(드레인 미수행) + CronRunLog `SKIPPED` 기록으로 크론 생존만 남긴다.
+> cron-health `rawtext.offload-drain` stale 임계는 주말 주기에 맞춰 8일로 상향(§2.12).
 
 **진단(용량)**: DB TOP `disclosure_documents` 약 1.7GB — `rawText` 원문이 본질이며 증가 중. 1년치만으로
 1.7GB → 멀티이어 백필 시 수십~수백 GB 폭증. rawText 는 추출 시점에만 필요한 콜드 데이터.
@@ -548,10 +553,11 @@ fetch 해도 신호 0 → 쿼터 낭비. (라이브 dev DB 실측: PENDING 195,6
   `parseStatus=DONE` + rawText 보유 문서를 rcpNo 오름차순 배치(기본 200)로 오프로드 후 컬럼 비움. 점진·재개가능·멱등.
 
 ```typescript
-@Cron('*/10 * * * *', { timeZone: KST })  // 매 10분
-async drainOffload() {
-  // DONE + rawText 보유 문서를 배치만큼 gzip 업로드(disclosure-rawtext/{rcpNo}.txt.gz) 후 rawText=null.
-  // 한 건 실패는 배치를 깨지 않고 rawText 보존(다음 회차 재시도). 잔여 0이어도 cron 은 계속 RAN.
+@Cron('*/10 * * * *', { timeZone: KST })  // 매 10분 발화(주말만 실제 드레인·DAR-503)
+async drainOffload(now = new Date()) {
+  // DAR-503: 헤비 수집 창(기본 주말) 밖이면 WINDOW_SKIPPED + recorder.recordSkip(주중 정지).
+  // 주말: DONE + rawText 보유 문서를 배치만큼 gzip 업로드(disclosure-rawtext/{rcpNo}.txt.gz) 후 rawText=null.
+  // 한 건 실패는 배치를 깨지 않고 rawText 보존(다음 회차 재시도). 잔여 0이어도 주말엔 계속 RAN.
 }
 ```
 
@@ -561,7 +567,11 @@ async drainOffload() {
 
 **AI/Risk 무관**: 순수 인프라/용량 작업. 신규 AI 호출 0, Engine5 하드룰과 무관.
 
-### 2.8 공시 파싱 표(tables) S3 오프로드 드레인 (매 10분, DAR-399)
+### 2.8 공시 파싱 표(tables) S3 오프로드 드레인 (주말 매 10분, DAR-399·DAR-503)
+
+> **DAR-503(주말 스케줄링)**: `tables` LEFT JOIN 대형 스캔(건당 50~75초)이 7/4~5 프로드 풀 고갈
+> (health 503 플래핑)의 주범이었다. §2.7 과 동일하게 매 10분 발화·**주말 창에서만 드레인**(주중
+> `WINDOW_SKIPPED`). cron-health `tables.offload-drain` stale 임계 8일로 상향(§2.12).
 
 **진단(용량)**: rawText 전량 오프로드(§2.7) 후에도 `disclosure_documents` 가 1.7GB 잔존. TOAST 분해
 실측 — **진짜 bulk 는 rawText 가 아니라 `tables` JSONB(약 1,619MB·58k 문서)**. `parsedJson` 은 5MB뿐
@@ -575,8 +585,9 @@ async drainOffload() {
   `Prisma.DbNull` 로 비움(멱등) → 신규 문서 로컬 누적 0. 실패 시 graceful(tables 보존).
 - **읽기**: `disclosure-events.service` SHARE_BUYBACK 폴백 스캔이 `tablesS3Key` 로 lazy fetch. 추출 입력
   `parsedJson` 은 그대로 DB 에서 읽으므로 추출 동작 무변경.
-- **기존분 마이그레이션**: `TablesOffloadScheduler`(`@Cron('*/10 * * * *')`) → `TablesOffloadDrainService.drainOnce()`.
-  `parseStatus=DONE` + `tables` 보유 문서를 rcpNo 오름차순 배치(기본 200)로 오프로드 후 컬럼 비움. 점진·재개가능·멱등.
+- **기존분 마이그레이션**: `TablesOffloadScheduler`(`@Cron('*/10 * * * *')`, **주말만 드레인**·DAR-503) →
+  `TablesOffloadDrainService.drainOnce()`. `parseStatus=DONE` + `tables` 보유 문서를 rcpNo 오름차순 배치
+  (기본 200)로 오프로드 후 컬럼 비움. 점진·재개가능·멱등.
 
 **가시화/수동**: `GET /pipeline/tables-offload-progress`, `POST /pipeline/tables-offload?limit=200`(멱등, 인증
 필수). 디스크 회수(VACUUM)는 운영 단계(docs/deployment.md). 실측: live 200문서 byte-identical 라운드트립
@@ -584,15 +595,21 @@ async drainOffload() {
 
 **AI/Risk 무관**: 순수 인프라/용량 작업. 신규 AI 호출 0, Engine5 하드룰과 무관.
 
-### 2.9 과거 메타데이터 연속 확장 백필 (매시간, DAR-396)
+### 2.9 과거 메타데이터 연속 확장 백필 (주말 매시간, DAR-396·DAR-503)
+
+> **DAR-503(주말 스케줄링)**: 연속 백필은 DART 일일쿼터 대량 소비원이라 주중 라이브 수집과
+> 경쟁했다. 이제 매시간 발화하되 실제 백필은 **주말 창에서만** 수행하고 주중 사이클은 즉시
+> `WINDOW_SKIPPED`(백필 미수행) + CronRunLog `SKIPPED` 기록한다. 기존 `quotaExceeded`·라이브
+> 예약분 2000 가드(§2.11)는 주말에도 그대로 적용된다. stale 임계 8일로 상향(§2.12).
 
 **진단**: 공시 `rcpDt` 범위가 최근 1년(`20250619~20260619`)에 머물러 있다(실측: 총 247,766건, 그중
 백필 241,700건, 최소 rcpDt 20250619). DART 는 과거 수년치(대략 1999~)를 제공하나, 기존 백필(DAR-129
 manual / DAR-391 event)은 '1년 윈도'를 채우는 데 그쳤고 **더 과거로 연속 내려가는 자동화가 없었다**.
 list/document 공유 일일 쿼터(20,000건)가 자주 소진되어 일회성 스크립트로는 멈추기 쉬웠다.
 
-**해법**: `ContinuousBackfillScheduler`(`@Cron('0 * * * *')`, 매시간) → `ContinuousBackfillDrainService.drainOnce()`.
-현재 프런티어(가장 과거 완주 스캔 지점) 직전부터 **월(30일) 단위 청크로 과거로 내려가며** 수집한다.
+**해법**: `ContinuousBackfillScheduler`(`@Cron('0 * * * *')`, 매시간 발화·**주말만 백필**·DAR-503) →
+`ContinuousBackfillDrainService.drainOnce()`. 현재 프런티어(가장 과거 완주 스캔 지점) 직전부터
+**월(30일) 단위 청크로 과거로 내려가며** 수집한다.
 
 ```
 프런티어 = min( status='SUCCESS' 인 BACKFILL_EXTEND 수집로그의 최소 bgnDe,
@@ -656,6 +673,44 @@ const DART_BULK_CEILING = DART_DAILY_BUDGET - DART_LIVE_RESERVE;  // 벌크(문�
   비소모 → 멀쩡한 문서가 영구 SKIPPED 되지 않음).
 - **리셋**: 콜 카운터는 KST 자정 리셋. 실제 `020` 관측 시 `quotaExhaustedDay` 하드스톱 백스톱.
 - 기존 적응형 백오프(DAR-392)·PARTIAL 재시도(§2.9)와 결합 — 자정 리셋 후 벌크 드레인 자동 재개.
+
+### 2.12 헤비 수집·스캔 잡 주말 스케줄링 (DAR-503)
+
+**배경(사용자 지시 2026-07-05 + 프로드 풀 고갈 실측)**: 사용자 지시 = "수집(헤비 작업)은 주말에 진행 —
+실시간 정보에 API 를 쓰지 않아도 되는 날". 7/4~5 프로드에서 engine1 대형 스캔(§2.7·2.8 오프로드 LEFT
+JOIN, 건당 50~75초)이 DB 커넥션 풀을 독점해 health 503 플래핑이 발생했고(connection_limit=6 상향으로
+1차 완화), DART 일일쿼터도 주중 라이브 수집과 백필(§2.9)이 경쟁 중이었다.
+
+**공용 게이트**: `engine1-disclosure/common/heavy-collection-window.ts` 의 순수 함수
+`isHeavyCollectionWindow(now, mode?)`. 기본 정책 = **주말(토·일 KST) 전일 true, 주중 false**.
+env `HEAVY_COLLECTION_WINDOW` 로 오버라이드: `weekend`(기본) | `always`(개발·수동 드레인) |
+`weekend+night`(주말 + 주중 심야 00:00~06:30 KST, 향후 옵트인). M10 클록 무접점 — 수집층 스케줄링만
+게이트하며 매매·신호 생성 로직은 무변경(신호는 기수집 데이터 기반으로 주중 정상 동작).
+
+| 잡 | 크론(발화) | DAR-503 적용 | 주중 거동 | stale 임계 |
+|---|---|---|---|---|
+| 연속 백필(§2.9) | `0 * * * *` | 주말 전용 | `WINDOW_SKIPPED`+`recordSkip` | 8일(상향) |
+| tables 오프로드(§2.8) | `*/10 * * * *` | 주말 전용 | `WINDOW_SKIPPED`+`recordSkip` | 8일(상향) |
+| rawText 오프로드(§2.7) | `*/10 * * * *` | 주말 전용 | `WINDOW_SKIPPED`+`recordSkip` | 8일(상향) |
+| 파이프라인 드레인 | `* * * * *` | **이원화**(정지 아님) | 최근 2일 경량 세이프티넷 | 45분(무변경) |
+| 이벤트 백필(§2.5) | `0 3 * * *` | 무변경(이미 야간) | 정상 | 48h |
+| 내부자·재무 | 야간 | 무변경(이미 야간) | 정상 | — |
+
+- **파이프라인 드레인 이원화**(`PipelineDrainScheduler`): 정지시키지 않는다 — 라이브 신규 공시의 BullMQ
+  체이닝 실패(DQ-1) 복구 세이프티넷이기 때문. 주중엔 `drainOnce` 에 조회 범위 `{ sinceCreatedAt: now−2일 }`
+  를 넘겨 **최근 2일 공시만** 드레인(과거 백필 24만+ 건의 무차별 fetch·대형 스캔 배제 → 풀·쿼터 경쟁 회피).
+  주말엔 범위 무제한(전체 드레인)으로 백필 적체를 소진한다. 두 경로 모두 매 사이클 RAN(SUCCESS 기록)이라
+  freshness 신선도가 유지되어 임계 무변경.
+- **cron-health 정합**: 주말 전용 잡은 주중 내내 `SKIPPED`(freshness `lastSuccessAt` 미갱신)라 주말→다음
+  주말 공백(일요일 성공 → 다음 토요일 ≈ 6일)을 흡수하도록 stale 임계를 8일(11,520분)로 상향(오탐 방지).
+  주중 무발화가 stale 오탐이 되지 않고, 주말 가동 자체가 멈춰야만 `DataFreshnessMonitorScheduler`(P02)가
+  OPS_ALERT 로 표면화한다. `recordSkip` 은 크론이 '살아 있으나 정책상 스킵함'을 CronRunLog 에 남긴다.
+- **무변경(라이브 수집)**: 라이브 목록수집(`*/10 8-17 * * 1-5`·`0 6-7,18-22 * * 1-5`)·시세 수집(engine3)·
+  트레이딩 사이클 전부 주중 실시간 유지. 이벤트 백필(§2.5 03:00)·내부자(03:30)·재무(새벽)는 이미 야간이라 무변경.
+- **경량 잡 유지(판단 근거)**: `ParseRetryScheduler`(30분, `runRetryQueue(20)` — FETCH/PARSE_FAILED 재처리
+  ≤20건·인덱스 조회)와 `FailedEventRecoveryScheduler`(매시간, `reprocessForNewExtractors(200)` — **DART 호출
+  0**·보유 parsedJson 재사용·상태 인덱스 조회)는 저장 문서 기반의 경량·바운드 라이브 세이프티넷이라 가드
+  미적용(주중 정상 유지). 대형 스캔·대량 쿼터 소비가 아니므로 풀 고갈과 무관.
 
 ---
 
@@ -1269,4 +1324,4 @@ PaperTrade 의 기존 `PENDING` status + `entryDate`(체결 예정 거래일) + 
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-03 (live-readiness W1 — §6.10 장외 체결 의미론 신설: 시스템 모의 "19:30=주문 결정, 익일 개장=체결"(매수 예약→당일 시가 체결·청산 이연·이월 상한 3거래일·REALTIME 오염 게이트·장중 모니터 다중 포트폴리오 확장) + §6.6 표 갱신; §6.9 forward 트랙 일일 사이클 신설: 철학 스타일 4트랙 크론 배선(19:40, 미가동 결함 교정) + 전략 변형 4종 forward 모의운용(19:45) + cron-health 키 `paper.style-simulation`/`paper.strategy-forward`; 이전: 2026-07-02 현행화 — §1.1 카카오 OAuth·expo-secure-store·온보딩 3단계 정합, §2 절 번호 재정렬, 분봉 단타(§6.7)·체결 푸시(§6.8)·DART 라이브 쿼터 예약분 가드(§2.11) 반영)
+**최종 수정일**: 2026-07-05 (DAR-503 헤비 수집·스캔 잡 주말 스케줄링 — §2.7·2.8·2.9 주말 전용 전환 + §2.12 신설: 공용 게이트 `isHeavyCollectionWindow`(env `HEAVY_COLLECTION_WINDOW`), 파이프라인 드레인 주중 최근 2일 경량 세이프티넷 이원화, cron-health stale 임계 8일 상향, 경량 잡(파싱 재처리·FAILED 이벤트 복구) 유지 근거) / 이전: 2026-07-03 (live-readiness W1 — §6.10 장외 체결 의미론 신설: 시스템 모의 "19:30=주문 결정, 익일 개장=체결"(매수 예약→당일 시가 체결·청산 이연·이월 상한 3거래일·REALTIME 오염 게이트·장중 모니터 다중 포트폴리오 확장) + §6.6 표 갱신; §6.9 forward 트랙 일일 사이클 신설: 철학 스타일 4트랙 크론 배선(19:40, 미가동 결함 교정) + 전략 변형 4종 forward 모의운용(19:45) + cron-health 키 `paper.style-simulation`/`paper.strategy-forward`; 이전: 2026-07-02 현행화 — §1.1 카카오 OAuth·expo-secure-store·온보딩 3단계 정합, §2 절 번호 재정렬, 분봉 단타(§6.7)·체결 푸시(§6.8)·DART 라이브 쿼터 예약분 가드(§2.11) 반영)

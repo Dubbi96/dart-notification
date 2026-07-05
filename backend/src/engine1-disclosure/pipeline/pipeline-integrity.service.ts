@@ -20,6 +20,7 @@ import {
   AiReprocessResult,
   DrainProgress,
   PipelineDrainResult,
+  PipelineDrainScope,
   PipelineFailureRow,
   PipelineHealth,
 } from './pipeline.types';
@@ -290,25 +291,32 @@ export class PipelineIntegrityService {
    *
    * 각 단계는 throw하지 않는 하위 서비스 계약을 따르며(상태로 실패 기록),
    * 단계 자체 예외는 흡수해 다음 단계로 진행한다(부분 진행 보장).
+   *
+   * DAR-503: scope.sinceCreatedAt 지정 시 세 단계 모두 해당 시각 이후 신규 공시로만 좁힌다
+   *   (주중 경량 세이프티넷). 미지정이면 전체 범위(주말 헤비 창·기존 거동 그대로).
    */
-  async drainOnce(limit = DEFAULT_DRAIN_LIMIT): Promise<PipelineDrainResult> {
+  async drainOnce(
+    limit = DEFAULT_DRAIN_LIMIT,
+    scope: PipelineDrainScope = {},
+  ): Promise<PipelineDrainResult> {
     const startedAt = Date.now();
+    const sinceCreatedAt = scope.sinceCreatedAt;
 
     const enqueuedMissingDocuments = await this.safe(
-      () => this.backfillMissingDocuments(limit),
+      () => this.backfillMissingDocuments(limit, sinceCreatedAt),
       0,
       'missingDocument backfill',
     );
 
     const parse = await this.safe(
       // DAR-394: 거래대상(신호 생산) 공시 우선 fetch — 한정 DART 쿼터를 신호에 집중.
-      () => this.documentsService.processPendingBatch(limit),
+      () => this.documentsService.processPendingBatch(limit, { sinceCreatedAt }),
       { success: 0, failed: 0, durationMs: 0, tradeRelevant: 0 },
       'processPendingBatch',
     );
 
     const events = await this.safe(
-      () => this.eventsService.processPendingDisclosures(limit),
+      () => this.eventsService.processPendingDisclosures(limit, { sinceCreatedAt }),
       { success: 0, failed: 0, needsReview: 0, durationMs: 0 },
       'processPendingDisclosures',
     );
@@ -341,10 +349,19 @@ export class PipelineIntegrityService {
   /**
    * 수집됐으나 파싱 문서 레코드가 없는 공시를 파싱 큐에 등록(PENDING).
    * enqueueParsing 은 upsert 기반이라 멱등. 백필 공시(isBackfill)도 분석 baseline 대상이므로 포함.
+   *
+   * DAR-503: sinceCreatedAt 지정 시 해당 시각 이후 신규 공시만(주중 경량). 미지정이면 전체
+   *   (createdAt asc = 과거 백필 우선, 기존 거동). 주중엔 최근 공시만 큐 등록해 백필 폭주를 막는다.
    */
-  async backfillMissingDocuments(limit = DEFAULT_DRAIN_LIMIT): Promise<number> {
+  async backfillMissingDocuments(
+    limit = DEFAULT_DRAIN_LIMIT,
+    sinceCreatedAt?: Date,
+  ): Promise<number> {
     const missing = await this.prisma.disclosure.findMany({
-      where: { document: { is: null } },
+      where: {
+        document: { is: null },
+        ...(sinceCreatedAt ? { createdAt: { gte: sinceCreatedAt } } : {}),
+      },
       take: limit,
       orderBy: { createdAt: 'asc' },
       select: { rcpNo: true },

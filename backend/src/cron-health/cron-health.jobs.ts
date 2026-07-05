@@ -84,6 +84,12 @@ export const DOMAIN_JOB_KEYS = {
 // 흡수하도록 넉넉히. 그 이상 비면 '여러 날 조용히 멈춤'으로 보고 stale.
 const WEEKDAY_DAILY_STALE_MIN = 4_320; // 72시간
 
+// DAR-503: 헤비 수집 잡(연속 백필·tables/rawtext 오프로드)은 주말 창에만 실제 성공을 남긴다
+//   (주중은 WINDOW_SKIPPED — freshness lastSuccessAt 미갱신). 주말→다음 주말 사이의 정상 공백
+//   (일요일 성공 → 다음 토요일 ≈ 6일)을 흡수하도록 넉넉히(8일). 그 이상 비면 '주말 가동조차 멈춤'
+//   으로 보고 stale — DataFreshnessMonitorScheduler(P02)가 OPS_ALERT 로 표면화한다.
+const WEEKEND_HEAVY_STALE_MIN = 11_520; // 8일
+
 /**
  * 신선도 판정 사양 — 도메인 로그 기반 3건 + CronRunLog 기반 4건.
  * staleAfterMinutes 는 카덴스 + 주말/공휴일 공백을 고려한 운영 임계치.
@@ -262,36 +268,41 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
   },
   {
     // DAR-395: rawText 오프로드 드레인. 가동이 멈추면 과거 원문 이전이 정체되어 DB 경량화가
-    //   진행되지 않는다(멀티이어 백필 시 폭증 위험). 매 10분 가동 — 1시간 무가동이면 stale.
-    //   잔여가 0이 되면 더 옮길 게 없어도 cron 은 계속 RAN(드레인 0건)이므로 신선도는 유지된다.
+    //   진행되지 않는다(멀티이어 백필 시 폭증 위험).
+    // DAR-503: 매 10분 발화하나 실제 드레인은 주말 창에만(주중 WINDOW_SKIPPED — 대형 스캔이
+    //   커넥션 풀을 독점하던 것을 해소). 주말→다음 주말 공백을 흡수하도록 임계 8일로 상향.
+    //   잔여가 0이 되면 더 옮길 게 없어도 주말엔 계속 RAN(드레인 0건)이라 신선도는 유지된다.
     jobKey: CRON_JOB_KEYS.RAWTEXT_OFFLOAD_DRAIN,
     label: 'rawText 오프로드 드레인',
     source: 'CRON_RUN_LOG',
     window: 'ALWAYS',
-    staleAfterMinutes: 60, // 10분 간격 — 1시간 무가동이면 정체
-    cadence: '매 10분',
+    staleAfterMinutes: WEEKEND_HEAVY_STALE_MIN, // 8일 — 주말 전용(DAR-503), 주말간 공백 흡수
+    cadence: '주말 매 10분(주중 정지·DAR-503)',
   },
   {
     // DAR-399: tables 오프로드 드레인. tables JSONB 가 disclosure_documents TOAST 의 진짜 bulk(~1.6GB).
-    //   가동이 멈추면 과거 tables 이전이 정체되어 DB 경량화가 진행되지 않는다. 매 10분 가동.
-    //   잔여가 0이 되면 더 옮길 게 없어도 cron 은 계속 RAN(드레인 0건)이므로 신선도는 유지된다.
+    //   가동이 멈추면 과거 tables 이전이 정체되어 DB 경량화가 진행되지 않는다.
+    // DAR-503: 매 10분 발화하나 실제 드레인은 주말 창에만(주중 WINDOW_SKIPPED). tables LEFT JOIN
+    //   대형 스캔이 주중 풀 고갈(health 503)의 주범이라 주말로 이전. 임계 8일로 상향(주말간 공백).
+    //   잔여가 0이 되면 더 옮길 게 없어도 주말엔 계속 RAN(드레인 0건)이라 신선도는 유지된다.
     jobKey: CRON_JOB_KEYS.TABLES_OFFLOAD_DRAIN,
     label: 'tables 오프로드 드레인',
     source: 'CRON_RUN_LOG',
     window: 'ALWAYS',
-    staleAfterMinutes: 60, // 10분 간격 — 1시간 무가동이면 정체
-    cadence: '매 10분',
+    staleAfterMinutes: WEEKEND_HEAVY_STALE_MIN, // 8일 — 주말 전용(DAR-503), 주말간 공백 흡수
+    cadence: '주말 매 10분(주중 정지·DAR-503)',
   },
   {
-    // DAR-396: 연속 과거 확장 백필. 매시간 가동하나 일일 쿼터 소진 시 PARTIAL 로 멈췄다 다음
-    //   리셋(자정) 후 정각 사이클에 재개된다. 쿼터 소진 구간(최대 ~하루)을 정상으로 흡수하도록
-    //   임계를 넉넉히(26시간). 하한 도달 후엔 no-op 이라 기록이 멈출 수 있으나 그건 '완료'다.
+    // DAR-396: 연속 과거 확장 백필. 일일 쿼터 소진 시 PARTIAL 로 멈췄다 다음 리셋(자정) 후 재개된다.
+    // DAR-503: 매시간 발화하나 실제 백필은 주말 창에만(주중 WINDOW_SKIPPED — DART 일일쿼터를
+    //   라이브 수집과 경쟁시키던 대량 소비원을 주말로 이전). 주말→다음 주말 공백 + 쿼터 소진 구간을
+    //   흡수하도록 임계 8일로 상향. 하한 도달 후엔 no-op 이라 기록이 멈출 수 있으나 그건 '완료'다.
     jobKey: CRON_JOB_KEYS.DISCLOSURE_BACKFILL_EXTEND,
     label: '연속 과거 확장 백필',
     source: 'CRON_RUN_LOG',
     window: 'ALWAYS',
-    staleAfterMinutes: 1_560, // 26시간 — 매시간 가동, 일일 쿼터 소진 구간 흡수
-    cadence: '매시간(쿼터 소진 시 다음 리셋 후 재개)',
+    staleAfterMinutes: WEEKEND_HEAVY_STALE_MIN, // 8일 — 주말 전용(DAR-503), 주말간 공백+쿼터 흡수
+    cadence: '주말 매시간(주중 정지·DAR-503, 쿼터 소진 시 리셋 후 재개)',
   },
   {
     // DAR-404: 전략 변형 4종 다중 트랙 갱신. 가동이 멈추면 데이터가 늘어도 트랙이 오래된 채 고정된다.

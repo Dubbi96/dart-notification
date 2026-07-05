@@ -266,13 +266,19 @@ export class DisclosureEventsService {
    */
   async processPendingDisclosures(
     limit = DEFAULT_BATCH_LIMIT,
+    options: { sinceCreatedAt?: Date } = {},
   ): Promise<{ success: number; failed: number; needsReview: number; durationMs: number }> {
     const safeLimit = Math.min(limit, MAX_BATCH_LIMIT);
     const startTime = Date.now();
+    // DAR-503: 주중 경량 세이프티넷 — 최근 건만 추출(과거 백필 대형 스캔 배제). 미지정이면 전체.
+    const { sinceCreatedAt } = options;
 
-    // PENDING 상태 이벤트 레코드 대상
+    // PENDING 상태 이벤트 레코드 대상(주중이면 최근 추출분만).
     const pendingEvents = await this.prisma.disclosureEvent.findMany({
-      where: { extractionStatus: ExtractionStatus.PENDING },
+      where: {
+        extractionStatus: ExtractionStatus.PENDING,
+        ...(sinceCreatedAt ? { extractedAt: { gte: sinceCreatedAt } } : {}),
+      },
       take: safeLimit,
       orderBy: { extractedAt: 'asc' },
       select: { rcpNo: true },
@@ -288,6 +294,8 @@ export class DisclosureEventsService {
       where: {
         parseStatus: 'DONE',
         disclosure: { disclosureEvent: { is: null } },
+        // DAR-503: 주중이면 최근 파싱완료 문서만(과거 백필 DONE-무이벤트 대형 스캔 배제).
+        ...(sinceCreatedAt ? { createdAt: { gte: sinceCreatedAt } } : {}),
       },
       take: safeLimit - pendingEvents.length,
       orderBy: { parsedAt: 'asc' },

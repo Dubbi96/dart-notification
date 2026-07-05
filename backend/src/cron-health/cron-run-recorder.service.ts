@@ -68,6 +68,27 @@ export class CronRunRecorderService {
     }
   }
 
+  /**
+   * DAR-503: 가드로 이번 사이클을 건너뛴 크론의 SKIPPED 를 CronRunLog 에 남긴다.
+   * (예: 헤비 수집 잡의 주중 정지 — isHeavyCollectionWindow=false).
+   *
+   * 목적: 크론이 '살아 있으나 정책상 스킵함'을 운영 로그에 표면화한다(휴장 스킵 패턴 준용).
+   *   SKIPPED 는 성공이 아니므로 freshness 의 lastSuccessAt 을 갱신하지 않는다 — 신선도 임계는
+   *   별도로 주말 주기에 맞게 상향한다(cron-health.jobs). 기록 실패는 삼킨다(best-effort).
+   */
+  async recordSkip(
+    jobKey: CronJobKey,
+    triggeredBy: 'CRON' | 'MANUAL' = 'CRON',
+  ): Promise<void> {
+    const startedAt = new Date();
+    const logId = await this.safeCreateRunning(jobKey, triggeredBy);
+    await this.safeFinalize(logId, {
+      status: 'SKIPPED',
+      itemCount: 0,
+      startedAt,
+    });
+  }
+
   /** RUNNING 행 생성 — 실패해도 본업 진행(로그 id 없이 계속). */
   private async safeCreateRunning(
     jobKey: string,

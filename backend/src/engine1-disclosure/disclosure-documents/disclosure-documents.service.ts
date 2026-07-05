@@ -60,6 +60,11 @@ export interface ProcessPendingOptions {
    * 가 true 일 때만 의미가 있다.
    */
   skipNonTrade?: boolean;
+  /**
+   * DAR-503: 지정 시 문서 createdAt 이 이 시각 이후인 PENDING 만 선택(주중 경량 세이프티넷).
+   * 미지정이면 전체 범위(주말 헤비 창·기존 거동). 과거 백필 문서의 무차별 fetch 를 주중에 배제한다.
+   */
+  sinceCreatedAt?: Date;
 }
 
 /** 배치 파싱 결과 — DAR-394: 이번 배치의 거래대상 선택 수(tradeRelevant) 포함. */
@@ -485,13 +490,20 @@ export class DisclosureDocumentsService {
     limit = DEFAULT_BATCH_LIMIT,
     options: ProcessPendingOptions = {},
   ): Promise<ProcessPendingResult> {
-    const { prioritizeTradeRelevant = true, skipNonTrade = false } = options;
+    const {
+      prioritizeTradeRelevant = true,
+      skipNonTrade = false,
+      sinceCreatedAt,
+    } = options;
     const safeLimit = Math.min(limit, MAX_BATCH_LIMIT);
     const startTime = Date.now();
 
     const selection = prioritizeTradeRelevant
-      ? await this.selectPrioritizedPending(safeLimit, skipNonTrade)
-      : { rcpNos: await this.selectPendingFifo(safeLimit), tradeRelevant: 0 };
+      ? await this.selectPrioritizedPending(safeLimit, skipNonTrade, sinceCreatedAt)
+      : {
+          rcpNos: await this.selectPendingFifo(safeLimit, sinceCreatedAt),
+          tradeRelevant: 0,
+        };
 
     const rcpNos = selection.rcpNos;
     if (rcpNos.length === 0) {
@@ -543,9 +555,16 @@ export class DisclosureDocumentsService {
   }
 
   /** PENDING 문서를 enqueue 순(createdAt asc)으로 선택 — 우선순위 미적용 경로. */
-  private async selectPendingFifo(limit: number): Promise<string[]> {
+  private async selectPendingFifo(
+    limit: number,
+    sinceCreatedAt?: Date,
+  ): Promise<string[]> {
     const docs = await this.prisma.disclosureDocument.findMany({
-      where: { parseStatus: ParseStatus.PENDING },
+      where: {
+        parseStatus: ParseStatus.PENDING,
+        // DAR-503: 주중 경량 세이프티넷 — 최근 문서만(과거 백필 무차별 fetch 배제).
+        ...(sinceCreatedAt ? { createdAt: { gte: sinceCreatedAt } } : {}),
+      },
       take: limit,
       orderBy: { createdAt: 'asc' },
       select: { rcpNo: true },
@@ -568,7 +587,12 @@ export class DisclosureDocumentsService {
   private async selectPrioritizedPending(
     limit: number,
     skipNonTrade: boolean,
+    sinceCreatedAt?: Date,
   ): Promise<{ rcpNos: string[]; tradeRelevant: number }> {
+    // DAR-503: 주중 경량 세이프티넷 — 최근 문서만(과거 백필 무차별 fetch 배제). 미지정이면 전체.
+    const recencyFilter = sinceCreatedAt
+      ? { createdAt: { gte: sinceCreatedAt } }
+      : {};
     // 1) 거래대상 후보 prefilter — 키워드 매칭 PENDING 을 최신 접수일 우선으로.
     //    take 를 약간 넉넉히(×1.5) 잡아 정밀 정규식이 일부 거짓양성을 떨궈도
     //    limit 을 채울 거래대상 풀을 확보한다(MAX_BATCH_LIMIT×2 상한).
@@ -577,6 +601,7 @@ export class DisclosureDocumentsService {
       where: {
         parseStatus: ParseStatus.PENDING,
         disclosure: tradeRelevantReportNameFilter(),
+        ...recencyFilter,
       },
       take: prefilterTake,
       // 최신 접수일 우선(백테스트 최근 구간 우선 충전). rcpNo 동률 정렬로 결정론 보장.
@@ -601,6 +626,7 @@ export class DisclosureDocumentsService {
       where: {
         parseStatus: ParseStatus.PENDING,
         rcpNo: { notIn: tradeRelevant },
+        ...recencyFilter,
       },
       take: remaining,
       orderBy: { createdAt: 'asc' },

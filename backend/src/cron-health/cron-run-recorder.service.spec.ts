@@ -61,6 +61,40 @@ describe('CronRunRecorderService (DAR-110)', () => {
     expect(countOf).not.toHaveBeenCalled();
   });
 
+  it('recordSkip(DAR-503): RUNNING 생성 후 SKIPPED 로 마감(itemCount=0·에러 없음)', async () => {
+    const { prisma, create, update } = makePrisma();
+    const recorder = new CronRunRecorderService(prisma);
+
+    await recorder.recordSkip(CRON_JOB_KEYS.TABLES_OFFLOAD_DRAIN);
+
+    expect(create).toHaveBeenCalledWith({
+      data: {
+        jobKey: 'tables.offload-drain',
+        triggeredBy: 'CRON',
+        status: 'RUNNING',
+      },
+      select: { id: true },
+    });
+    const updateArg = update.mock.calls[0][0];
+    expect(updateArg.where).toEqual({ id: 'log-1' });
+    expect(updateArg.data.status).toBe('SKIPPED');
+    expect(updateArg.data.itemCount).toBe(0);
+    expect(updateArg.data.errorMessage).toBeNull();
+    expect(updateArg.data.finishedAt).toBeInstanceOf(Date);
+  });
+
+  it('recordSkip: RUNNING 기록 실패해도 조용히 넘어간다(best-effort)', async () => {
+    const create = jest.fn().mockRejectedValue(new Error('db down'));
+    const update = jest.fn().mockResolvedValue({});
+    const prisma = { cronRunLog: { create, update } } as any;
+    const recorder = new CronRunRecorderService(prisma);
+
+    await expect(
+      recorder.recordSkip(CRON_JOB_KEYS.RAWTEXT_OFFLOAD_DRAIN),
+    ).resolves.toBeUndefined();
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it('본업이 throw 하면 FAILED + errorMessage 기록 후 동일 예외 재던짐', async () => {
     const { prisma, update } = makePrisma();
     const recorder = new CronRunRecorderService(prisma);

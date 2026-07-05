@@ -5,6 +5,7 @@ import { PipelineDrainResult } from './pipeline.types';
 import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
 import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
 import { KST_TIMEZONE } from '../../common/time/kst';
+import { isHeavyCollectionWindow } from '../common/heavy-collection-window';
 
 /**
  * 1회 드레인 단계별 처리 상한.
@@ -13,6 +14,17 @@ import { KST_TIMEZONE } from '../../common/time/kst';
  *   상향이 안전하다. 실제 DART fetch throughput 은 BATCH_CONCURRENCY(5)가 상한.
  */
 const DRAIN_BATCH = 300;
+
+/**
+ * DAR-503 주중(헤비 창 밖) 경량 드레인의 조회 범위(최근 N일).
+ *
+ * ★근거: 라이브 신규 공시는 수집 직후 BullMQ 체이닝(파싱→이벤트→AI)으로 즉시 처리되고,
+ *   이 드레인은 그 체이닝이 실패(DQ-1)한 최근 건만 회수하는 세이프티넷이다. 주중엔 범위를
+ *   최근 2일로 좁혀 과거 백필(24만+ 건)의 무차별 fetch·대형 스캔을 배제한다 — 커넥션 풀
+ *   독점·DART 쿼터 경쟁을 피하면서 당일 체이닝 실패 복구는 그대로 유지한다. 주말(헤비 창)엔
+ *   범위 무제한(전체)으로 백필 적체를 소진한다.
+ */
+const WEEKDAY_DRAIN_LOOKBACK_MS = 2 * 24 * 60 * 60_000; // 2일
 
 /**
  * DAR-392 적응형 백오프 — 파싱 실패율이 이 임계 이상이면 DART 레이트리밋/쿼터 소진으로
@@ -48,6 +60,12 @@ export type DrainCycleStatus = 'RAN' | 'SKIPPED' | 'COOLDOWN';
  *   상시 연속 드레인에 가깝게 하고, 큐가 비면 저비용 no-op 으로 idle 한다. NestJS cron 이라
  *   프로세스 재시작(재부팅) 후 자동 재개된다 — 수동 /tmp 루프(휘발성)를 시스템 자동화로 대체.
  *
+ * ★DAR-503(주중/주말 이원화): 매 1분 발화는 유지하되 조회 범위를 헤비 수집 창으로 가른다.
+ *   - 주중(헤비 창 밖) = 최근 2일 공시로 범위를 좁힌 **경량 세이프티넷**(DQ-1 체이닝 실패 회수).
+ *     과거 백필 무차별 fetch·대형 스캔을 배제해 커넥션 풀·DART 쿼터 경쟁을 피한다.
+ *   - 주말(헤비 창) = 범위 무제한 **전체 드레인**으로 백필 적체를 소진한다.
+ *   두 경로 모두 매 사이클 RAN(SUCCESS 기록)이라 freshness 신선도가 유지된다(임계 무변경).
+ *
  *   ★적응형 백오프(레이트리밋/쿼터 인지): 한 사이클의 파싱 실패율이 HIGH_FAILURE_RATE 이상이면
  *     (충분한 표본일 때) DART 레이트리밋/쿼터 소진으로 보고 쿨다운을 건다. 연속 고실패마다
  *     쿨다운을 지수 증가(2→4→8…분, 최대 30분)시키고, 실패율이 회복되면 즉시 0 으로 리셋한다.
@@ -79,9 +97,10 @@ export class PipelineDrainScheduler {
   /**
    * 매 1분 폐루프 연속 드레인(DAR-392). (간격형이라 TZ 무관이나 KST 명시로 의도 고정)
    * 큐가 비면 저비용 no-op. 레이트리밋 쿨다운 중이면 COOLDOWN 으로 빠진다.
+   * DAR-503: 주중은 최근 2일 범위(경량 세이프티넷), 주말은 전체 범위로 드레인한다.
    */
   @Cron('* * * * *', { timeZone: KST_TIMEZONE })
-  async drainPipeline(): Promise<DrainCycleStatus> {
+  async drainPipeline(now: Date = new Date()): Promise<DrainCycleStatus> {
     // 이전 사이클이 아직 진행 중이면 겹치지 않도록 즉시 스킵(중복 AI 잡·DART fetch 방지).
     if (this.isDraining) {
       this.logger.warn('이전 드레인이 진행 중 — 이번 사이클 SKIPPED(겹침 방지)');
@@ -101,9 +120,16 @@ export class PipelineDrainScheduler {
     // ★주의: 첫 await 이전에 동기적으로 락을 잡아야 겹친 cron 이 가드를 통과하지 못한다.
     this.isDraining = true;
 
-    this.logger.log('파이프라인 폐루프 드레인 스케줄러 실행');
+    // DAR-503: 헤비 수집 창(기본 주말)이면 전체 범위, 주중이면 최근 2일 경량 세이프티넷.
+    const heavy = isHeavyCollectionWindow(now);
+    const scope = heavy
+      ? undefined
+      : { sinceCreatedAt: new Date(now.getTime() - WEEKDAY_DRAIN_LOOKBACK_MS) };
+    this.logger.log(
+      `파이프라인 폐루프 드레인 스케줄러 실행(${heavy ? '전체 범위' : '주중 경량·최근 2일'})`,
+    );
 
-    const run = () => this.pipeline.drainOnce(DRAIN_BATCH);
+    const run = () => this.pipeline.drainOnce(DRAIN_BATCH, scope);
 
     try {
       let result: PipelineDrainResult;

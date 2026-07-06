@@ -54,13 +54,15 @@
 | 3 | 단기모멘텀 | `short-momentum` | 매수점수 **≥40**(상위 ~3%) | **+10%** | **−5%** | **5거래일** | 균등 | **20** |
 | 4 | 보수가치 | `conservative-value` | 매수점수 **≥50**(상위 ~0.6%) | **+20%** | **−10%** | **20거래일** | 점수가중 | **10** |
 | 5 | 공격분산 | `aggressive-diversified` | 매수점수 **≥30**(상위 ~6.6%, 하한) | **+20%** | **−8%** | **20거래일** | 균등 | **50** |
-| 6 | 철학 버핏 | `BUFFETT` | 등급 ≥ WATCH **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급 계수만 | **50** |
-| 7 | 철학 린치 | `LYNCH` | 등급 ≥ WATCH **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급 계수만 | **50** |
-| 8 | 철학 그린블라트 | `GREENBLATT` | 등급 ≥ WATCH **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급 계수만 | **50** |
-| 9 | 철학 드러켄밀러 | `DRUCKENMILLER` | 등급 ≥ WATCH **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급 계수만 | **50** |
+| 6 | 철학 버핏 | `BUFFETT` | 등급 ≥ WATCH **AND** entryReady=true (슬롯 여유 시 buyScore ≥ 50 폴백) **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급 계수만 | **50** |
+| 7 | 철학 린치 | `LYNCH` | 등급 ≥ WATCH **AND** entryReady=true (슬롯 여유 시 buyScore ≥ 50 폴백) **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급 계수만 | **50** |
+| 8 | 철학 그린블라트 | `GREENBLATT` | 등급 ≥ WATCH **AND** entryReady=true (슬롯 여유 시 buyScore ≥ 50 폴백) **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급 계수만 | **50** |
+| 9 | 철학 드러켄밀러 | `DRUCKENMILLER` | 등급 ≥ WATCH **AND** entryReady=true (슬롯 여유 시 buyScore ≥ 50 폴백) **AND** philosophy-fit **≥50** | **+20%** | **−8%** | **20거래일** | 등급 계수만 | **50** |
 
 > 철학 스타일 4종(6~9)은 시스템 모의 축 위의 오버레이다 — **청산(§3.2)·한도**는 시스템 모의(1)와 동일 상수를 재사용하되
 > **사이징은 등급 계수만**(buyScore 가중·섹터 가드 미적용, §6.1)이고 **진입에 스타일별 philosophy-fit ≥50 게이트를 추가**한다(§6).
+> entryReady 폴백(2026-07-06, §8.6-1)은 시스템 모의와 동일 규칙(`ENTRY_FALLBACK_MIN_BUY_SCORE=50` 재사용)이다.
+> ★진입 체결 의미론(2026-07-06, §8.6-1): 일봉 트랙 1~9 전부 **"저녁 = 주문 결정(PENDING 예약) → 익일 개장 = 당일 시가 체결"**로 통일.
 
 ### 2.2 분봉 트랙 (당일 진입·당일 청산 · 단위가 다름)
 
@@ -149,10 +151,14 @@ M10 30일 모의운용의 정본 트랙. 전역 단일 시스템 모의(합성 �
    청산은 `BacktestRunnerService`가 아래 `exitRules`를 **리터럴 트리거**로 판정(익절/손절/최대보유 도달 = 청산).
 2. **라이브 forward 모의**(§21.3, live-readiness W1) — 라이브 신호에 동일 `preset.params` 적용,
    전용 포트폴리오 `styleTag='strategy:<key>'`, 평일 **19:45 KST** 크론(`paper.strategy-forward`).
-   **진입 체결 = 결정 당일 최근 종가 즉시체결**(예약 없음, `strategy-forward-simulation.service.ts:338 latestClose` — ★후속 α "익일 시가" 규약 통일 예정).
+   **진입 체결 = 저녁 주문 결정(PENDING 예약, `orderedShares`=결정 시점 사이징·`entryDate`=다음 거래일) →
+   익일 개장 당일 시가 체결**(2026-07-06 개장 체결 정렬, §8.6-1 — 시스템 모의·리플레이 `NEXT_OPEN` 규약과 일치.
+   체결 = 장중 모니터의 일반화된 개장 체결기 `fillPendingEntries` 또는 19:45 사이클 폴백(당일 REAL 시가),
+   이월 3거래일 초과 시 취소·현금 재클램프 cash≥0 — `docs/workflow.md §6.10`).
    청산은 시스템 모의와 같은 engine4 **합성 Exit Score(6-트리거, §3.2)** 경유
-   (`strategy-forward-simulation.service.ts:524 calculateExitScore(..., [])`, 공시 이벤트 빈 배열) — 아래 `exitRules`는
-   그 합성 안의 하드 오버라이드 보장선(`stopLossPct`·`takeProfitPct`·`maxHoldDays` 포지션 주입값)이 된다.
+   (`strategy-forward-simulation.service.ts calculateExitScore(..., [])`, 공시 이벤트 빈 배열) — 아래 `exitRules`는
+   그 합성 안의 하드 오버라이드 보장선(`stopLossPct`·`takeProfitPct`·`maxHoldDays`)이며, **대입 시점은 체결기의
+   Position 생성 시점**(`exitParamsForStyleTag` — 전략 트랙만 프리셋 정본)이다.
 
 공통: `initialCapital=10,000,000`. 아래 표의 **`sizeRule`(EQUAL/SCORE_WEIGHT) 산식은 양 표면 동일**하되, **forward는 추가로 Risk envelope(원금 × `maxSinglePositionPct` 10%) 절단**(`min(budget, envelope)`, `strategyEntryBudget`)을 적용한다 — SCORE_WEIGHT 최대 1.5배 배분이 리플레이에선 envelope 미절단(예: 보수가치 고buyScore 최대 1.5M)이나 forward에선 1M 상한으로 바인딩된다.
 
@@ -241,14 +247,21 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 ### 6.1 진입 (스타일 게이트 추가)
 
 - 후보: `signal ≥ SIM_MIN_ENTRY_GRADE`(WATCH) — 시스템 모의와 동일.
-- **진입 체결: 결정 당일 최근 종가 즉시체결**(예약 없음 — 시스템 모의의 예약→익일 시가와 다름).
-  `philosophy-style-simulation.service.ts:269 latestClose` + `entryDate=new Date()`. ★후속 α "익일 시가" 규약 통일 예정(코드 주석).
+- **entryReady 폴백(2026-07-06, §8.6-1)**: ① `entryReady=true` 후보 우선 → ② 슬롯이 남으면
+  `entryReady=false & buyScore ≥ ENTRY_FALLBACK_MIN_BUY_SCORE(50)` 상위 후보로 보강 — 시스템 모의(§3.1)와
+  동일 상수·규칙 재사용(무차별 확대 아님·품질 하한 유지). dedupe(DAR-122)·백필 배제(DAR-389) 유지.
+- **진입 체결(2026-07-06 개장 체결 정렬, §8.6-1): 저녁 주문 결정(PENDING 예약, `styleTag`=스타일·
+  `orderedShares`=결정 시점 사이징·`entryPrice`=기준가·`entryDate`=다음 거래일) → 익일 개장 당일 시가 체결** —
+  시스템 모의(§3.1)와 동일 의미론. 체결·Position 생성은 일반화된 개장 체결기
+  (`paper-simulation.service.ts fillPendingEntries`, 장중 모니터 또는 19:40 사이클 폴백)가 수행하며
+  현금 재클램프(cash≥0)·예산 envelope·이월 상한(3거래일)도 동일 규칙이다(`docs/workflow.md §6.10`).
 - **스타일 적격 게이트**: 종목의 해당 스타일 **philosophy-fit score ≥ STYLE_ENTRY_MIN_FIT(50)** 이고 `computable`인 스타일에만 후보 진입.
   - 코드: `philosophy-style.ts STYLE_ENTRY_MIN_FIT = 50` · `eligibleStylesForCompany`.
 - **사이징: 등급 계수만** (시스템 모의와 다름 — buyScore 가중 미적용). `budget = entryBudget(baseBudget, grade)` =
   `baseBudget × gradeSizingFactor`(STRONG 1.0 / BUY 0.75 / WATCH 0.4), `baseBudget = 가상원금 × maxSinglePositionPct 10%`.
-  buyScore 가중(`entryBudgetScored`)은 시스템 모의(§3.1) 전용이다.
-  - 코드: `philosophy-style-simulation.service.ts:272 entryBudget(baseBudget, sig.signal)` → `simulation-entry.ts:64 entryBudget`.
+  buyScore 가중(`entryBudgetScored`)은 시스템 모의(§3.1) 전용이다. 예약 단계에서 가용현금으로 절단
+  (`min(budget, availableCash)` — 체결기 재클램프와 정합, 2026-07-06).
+  - 코드: `philosophy-style-simulation.service.ts entryBudget(baseBudget, sig.signal)` → `simulation-entry.ts:64 entryBudget`.
 - **섹터 분산 가드: 미적용**(시스템 모의 전용). 철학 진입 경로에는 `sectorHeadroomBudget` 호출이 없다 —
   섹터 상한(`maxSectorPct 30%`)은 시스템 모의 `openNewPositions`(`paper-simulation.service.ts:1103`)에서만 enforce된다.
 
@@ -439,6 +452,14 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 - 근거: 측정 트랙의 매매 행동을 측정 기간 중 바꾸면 M10 졸업 지표의 시계열이 오염된다(측정 오염 = 판정 무효; `cc-live-readiness-diagnosis §2` TB-1/TB-2 교훈과 동형). 이 기간에는 관측·알림·문서·데이터층 변경만 허용한다(견고화 W0 공통 DoD⑤).
 - ENFORCE 플립은 M10 졸업 측정 완료 **후**, §8.1 3게이트(문서 개정→재검증→사람 승인)를 별도로 통과해야 한다. 이 조항은 Wave 2 **P23**(리스크 룰 ENFORCE 전환)의 선행 근거 조항이다.
 
+### 8.6 변경 기록 (Change Log — §8.1 3게이트 통과분만 기재)
+
+| # | 일자 | 변경 내용 | 근거(②재검증/판단) | 승인(③) |
+|---|---|---|---|---|
+| 1 | 2026-07-06 | **개장 체결 정렬** — 철학 스타일 4종(§6.1)·전략 forward 4종(§4 표면 2)의 매수 진입을 "결정 당일 최근 종가 즉시체결"에서 시스템 모의(§3.1)와 동일한 **"저녁 = 주문 결정(PENDING 예약) → 익일 개장 = 당일 시가 체결"**로 통일(§2.1 일봉 트랙 1~9 전부 동일 의미론). 부속: ①철학 진입 후보 **entryReady 폴백**(`buyScore≥50` — 시스템 모의 §3.1 상수 재사용) ②전략 exit 파라미터 대입 시점을 체결기 Position 생성 시점으로 이동(프리셋 정본 유지) ③철학/전략 예약 단계 가용현금 절단(체결기 재클램프와 정합) ④전 트랙 매수 체결 알림(strategyKey=styleTag·출처 SSOT 16종). | 진단·설계 문서상 "장외 종가 즉시체결 = 정보시점>가격시점 상향 편향"(§3.1 시스템 모의 정정과 동일 근거 — live-readiness W1 진단: 매수 78.8% 장외 즉시체결·개장 손절 평균 −14.99%). 손절·익절·한도·사이징 산식 등 **파라미터 값 변경 0**(체결 시점 규약 통일) → §8.2 백테스트 재검증 비대상, 회귀는 jest 전체 그린 + 시스템 모의 경로 중립성 스펙으로 증명. 목적: 모든 트랙이 실제 장중 가격으로 거래되어 "지금 장에 맞는 트랙" 데이터 축적. | **사용자 승인 2026-07-06** |
+
+> 이후 모든 룰·파라미터·체결 규약 변경은 이 표에 1행씩 누적한다(§8.1 ①정본 문서 개정의 증적).
+
 ---
 
 ## 9. Wave 1 예정 트랙 — 선기재 대기 (구현 착수 전 여기 확정)
@@ -614,5 +635,5 @@ Main Thesis B(모의수익 검증). BUFFETT(버핏)/LYNCH(린치)/GREENBLATT(그
 
 ---
 
-*정본 버전: 2.0 (2026-07-04). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24) → 1.3 DAR-491 §9.1 변동성 돌파 위성 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P14) → 1.4 DAR-492 §9.2 듀얼모멘텀 코어 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P12) → 1.5 DAR-493 §9.3 2단 자본 프레임·ETF 비용 프로파일·백테스트 엣지 게이트 절차 신설·§10 SSOT 포인터 추가(견고화 W1·P16) → 1.6 DAR-494 §9.3.1 게이트 실행 결과 기록·§9.3.2 코어 한정 위험조정 게이트 기준(§8 사람 승인 2026-07-03)·§9.1 위성 기각 기록(견고화 W1·P13) → 1.7 DAR-496 §7.4 RiskGuard 공용 진입 게이트(일일손실·현금 2종·측정 SHADOW·코어 forward ENFORCE·§8.5 준수)·§10 SSOT 포인터 추가(견고화 W2·P18) → 1.8 DAR-497 §7.5 드로다운 컷(고점 추적 HWM + 고점 대비 −15% REDUCE_ONLY 자동 발동·G6 정합 frozen·측정 SHADOW/코어 ENFORCE→킬스위치·자동 재개 금지)·§10 SSOT 포인터 추가(견고화 W2·P19) → 1.9 DAR-501 §7.6 월간 손실 한도(당월 실현손실 −10% 도달 시 당월 신규 진입 중단·명세 3-3 frozen·측정 SHADOW/코어 ENFORCE→진입 게이트 BLOCK·월 바뀌면 자동 재개·킬스위치 아님·§7.4 골격 룰 1종 추가)·§10 SSOT 포인터 추가(견고화 W2·P21) → 2.0 DAR-502 §7.7 자동 킬스위치 발동 배선(checkAutoKill SHADOW 계측·입력 산출[연속손실·시장급락·API오류]·`meta.kind='AUTO_KILL_ADVICE'` 멱등 기록·activate() 미호출·30일 계측 후 ENFORCE=P23)·§7.2 배선 상태·§10 SSOT 포인터 추가(견고화 W2·P20). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24·P14·Wave1·Wave2`.*
+*정본 버전: 2.1 (2026-07-06). 1.0 DAR-475 신설 → 1.1 DAR-478 §8 변경 절차 장 신설(P07) → 1.2 DAR-485 §8.4 파라미터 민감도 스윕 하니스(read-only 측정·자동조정 없음) 명기(견고화 W3·P24) → 1.3 DAR-491 §9.1 변동성 돌파 위성 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P14) → 1.4 DAR-492 §9.2 듀얼모멘텀 코어 확정 룰 선기재·§10 SSOT 포인터 추가(견고화 W1·P12) → 1.5 DAR-493 §9.3 2단 자본 프레임·ETF 비용 프로파일·백테스트 엣지 게이트 절차 신설·§10 SSOT 포인터 추가(견고화 W1·P16) → 1.6 DAR-494 §9.3.1 게이트 실행 결과 기록·§9.3.2 코어 한정 위험조정 게이트 기준(§8 사람 승인 2026-07-03)·§9.1 위성 기각 기록(견고화 W1·P13) → 1.7 DAR-496 §7.4 RiskGuard 공용 진입 게이트(일일손실·현금 2종·측정 SHADOW·코어 forward ENFORCE·§8.5 준수)·§10 SSOT 포인터 추가(견고화 W2·P18) → 1.8 DAR-497 §7.5 드로다운 컷(고점 추적 HWM + 고점 대비 −15% REDUCE_ONLY 자동 발동·G6 정합 frozen·측정 SHADOW/코어 ENFORCE→킬스위치·자동 재개 금지)·§10 SSOT 포인터 추가(견고화 W2·P19) → 1.9 DAR-501 §7.6 월간 손실 한도(당월 실현손실 −10% 도달 시 당월 신규 진입 중단·명세 3-3 frozen·측정 SHADOW/코어 ENFORCE→진입 게이트 BLOCK·월 바뀌면 자동 재개·킬스위치 아님·§7.4 골격 룰 1종 추가)·§10 SSOT 포인터 추가(견고화 W2·P21) → 2.0 DAR-502 §7.7 자동 킬스위치 발동 배선(checkAutoKill SHADOW 계측·입력 산출[연속손실·시장급락·API오류]·`meta.kind='AUTO_KILL_ADVICE'` 멱등 기록·activate() 미호출·30일 계측 후 ENFORCE=P23)·§7.2 배선 상태·§10 SSOT 포인터 추가(견고화 W2·P20) → 2.1 개장 체결 정렬(§8.6-1 — §2.1·§4·§6.1 일봉 트랙 전부 "저녁 예약(PENDING)→익일 개장 당일 시가 체결" 통일 + 철학 entryReady 폴백 + §8.6 변경 기록 표 신설, 사용자 승인 2026-07-06). 출처: 견고화 계획 `docs/roadmap/cc-trading-robustness-plan-2026-07-03.md §4 P06·P07·P24·P14·Wave1·Wave2`.*
 *설립 시점 전값은 코드 상수를 무보정 전사했다(code=truth). 이후 변경은 §8 변경 절차(문서 개정→재검증→사람 승인)를 따른다.*

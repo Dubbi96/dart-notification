@@ -19,9 +19,18 @@ describe('notification-source SSOT (DAR-432 · 2026-07-06 이모지 제거 개�
     expect(NOTIFICATION_SOURCES['conservative-value']).toMatchObject({ label: '보수가치' });
     expect(NOTIFICATION_SOURCES['short-momentum']).toMatchObject({ label: '단기모멘텀' });
     expect(NOTIFICATION_SOURCES['aggressive-diversified']).toMatchObject({ label: '공격분산' });
+    // 개장 체결 정렬(2026-07-06): 철학 스타일 4종 체결 알림 출처.
+    expect(NOTIFICATION_SOURCES.BUFFETT).toMatchObject({ label: '버핏' });
+    expect(NOTIFICATION_SOURCES.LYNCH).toMatchObject({ label: '린치' });
+    expect(NOTIFICATION_SOURCES.GREENBLATT).toMatchObject({ label: '그린블라트' });
+    expect(NOTIFICATION_SOURCES.DRUCKENMILLER).toMatchObject({ label: '드러켄밀러' });
     // DAR-473(P01): 리스크·운영 출처.
     expect(NOTIFICATION_SOURCES.risk).toMatchObject({ label: '리스크' });
     expect(NOTIFICATION_SOURCES.ops).toMatchObject({ label: '운영' });
+  });
+
+  it('출처 키 개수 = 16 — mobile/scripts/check-notification-sources.ts EXPECTED 와 동수(be↔fe SSOT)', () => {
+    expect(Object.keys(NOTIFICATION_SOURCES)).toHaveLength(16);
   });
 
   it('라벨은 출처마다 고유(중복 0) — 이모지 없이 텍스트만으로 식별 성립', () => {
@@ -43,6 +52,15 @@ describe('notification-source SSOT (DAR-432 · 2026-07-06 이모지 제거 개�
     expect(sourceByKey('nope')).toBe(FALLBACK_SOURCE);
     expect(sourceByKey(null)).toBe(FALLBACK_SOURCE);
     expect(sourceByKey(undefined)).toBe(FALLBACK_SOURCE);
+  });
+
+  it('sourceByKey — 전략 styleTag(strategy:<key>) 접두사 정규화(개장 체결 정렬 2026-07-06)', () => {
+    expect(sourceByKey('strategy:event-edge').label).toBe('이벤트엣지');
+    expect(sourceByKey('strategy:short-momentum').label).toBe('단기모멘텀');
+    expect(sourceByKey('BUFFETT').label).toBe('버핏');
+    expect(sourceByKey('DRUCKENMILLER').label).toBe('드러켄밀러');
+    // 미등록 전략 키는 접두사를 벗겨도 미상 → 폴백(위장 라벨 금지).
+    expect(sourceByKey('strategy:nope')).toBe(FALLBACK_SOURCE);
   });
 
   it('sourceByType — 체결 외 타입 매핑', () => {

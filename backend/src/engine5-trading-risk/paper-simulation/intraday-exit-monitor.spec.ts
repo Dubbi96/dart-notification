@@ -835,3 +835,255 @@ describe('장외 warm 게이트 — 정규장 밖 KIS fetch 차단(REALTIME 오�
     expect(kis.fetchCurrentPrice).toHaveBeenCalledWith(POS.stockCode);
   });
 });
+
+// ── 개장 체결기 — 트랙 네임스페이스 일반화(개장 체결 정렬, 2026-07-06) ──
+// 장중 모니터가 포트폴리오 이름 규약에서 styleTag 를 도출해 철학/전략 forward 예약도 당일 시가로
+// 체결한다. 도출 불가한 이름([alloc:*] 등)은 스킵. 시스템 모의(paper-simulation) 경로는 무변경.
+describe('개장 체결기 — 트랙 네임스페이스 일반화(철학/전략 예약 체결·미상 스킵)', () => {
+  function makeTrackFillPrisma(reservations: Array<Record<string, unknown>>) {
+    const created: Array<Record<string, unknown>> = [];
+    const styleTagQueries: string[] = [];
+    return {
+      _created: created,
+      _reservations: reservations,
+      _styleTagQueries: styleTagQueries,
+      user: { findFirst: jest.fn().mockResolvedValue({ id: 'u1' }), create: jest.fn() },
+      portfolio: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'pf1', maxSinglePositionPct: 10 }),
+        // 이름 규약: 시스템 + 철학 + 전략 + 미상(alloc — 자체 체결기 보유 트랙) 혼재.
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'pf1', name: '모의운용 포트폴리오' },
+          { id: 'pf2', name: '모의운용 포트폴리오 [BUFFETT]' },
+          { id: 'pf3', name: '모의운용 포트폴리오 [strategy:short-momentum]' },
+          { id: 'pf4', name: '모의운용 포트폴리오 [alloc:dual-momentum]' },
+        ]),
+        create: jest.fn(),
+      },
+      position: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          created.push(data);
+          return { id: `pos${created.length}` };
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      positionThesis: { findUnique: jest.fn().mockResolvedValue(null) },
+      positionDailySnapshot: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      exitSignal: {
+        create: jest.fn().mockResolvedValue({ id: 'ex1' }),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      paperTrade: {
+        // 네임스페이스(styleTag) 쿼리 분기 — 어떤 트랙이 조회됐는지 기록.
+        findMany: jest.fn(async ({ where }: { where: { styleTag: string } }) => {
+          styleTagQueries.push(where.styleTag);
+          return reservations.filter(
+            (r) => r.status === 'PENDING' && r.styleTag === where.styleTag,
+          );
+        }),
+        update: jest.fn(
+          async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+            const rec = reservations.find((r) => r.id === where.id);
+            if (rec) Object.assign(rec, data);
+            return {};
+          },
+        ),
+      },
+      company: { findUnique: jest.fn().mockResolvedValue({ corpName: '삼성전자' }) },
+      stockDailyPrice: { findFirst: jest.fn().mockResolvedValue(null) },
+      simulatedDailyPrice: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+  }
+
+  const openQuoteKis = {
+    isConfigured: true,
+    fetchCurrentPrice: jest.fn(async () => ({
+      price: 9500,
+      open: 9400,
+      high: 9550,
+      low: 9350,
+      volume: 1000,
+    })),
+  };
+
+  it('철학([BUFFETT]) 예약을 당일 시가로 체결하고 체결 알림 strategyKey=styleTag 로 발행한다', async () => {
+    const prisma = makeTrackFillPrisma([
+      {
+        id: 'ptB',
+        corpCode: POS.corpCode,
+        stockCode: POS.stockCode,
+        direction: 'BUY',
+        orderedShares: 10,
+        entryPrice: 10000,
+        entryDate: kstMidnight('20260619'),
+        positionThesisId: null,
+        tradingSignalId: 'sigB',
+        status: 'PENDING',
+        styleTag: 'BUFFETT',
+        createdAt: new Date('2026-06-18T10:40:00Z'),
+      },
+    ]);
+    const cache = new RealtimeQuoteCache();
+    const priceSource = new SimulationPriceSourceService(prisma as never, cache);
+    const notifyProducer = {
+      enqueueTradeEntry: jest.fn().mockResolvedValue(undefined),
+      enqueueTradeExit: jest.fn().mockResolvedValue(undefined),
+      enqueueExit: jest.fn().mockResolvedValue(undefined),
+    };
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTradeStub() as never,
+      notifyProducer as never,
+      priceSource,
+      openQuoteKis as never,
+      cache,
+    );
+
+    const r = await svc.runIntradayExitMonitor(MARKET_HOURS);
+
+    expect(r.ran).toBe(true);
+    expect(r.portfolios).toBe(4);
+    expect(r.entryFilled).toBe(1);
+    // 예약 원장 FILLED + Position 생성(pf2·thesis null → 기본 exit 파라미터).
+    expect((prisma._reservations[0] as { status: string }).status).toBe('FILLED');
+    expect(prisma._created).toHaveLength(1);
+    expect(prisma._created[0]).toEqual(
+      expect.objectContaining({
+        portfolioId: 'pf2',
+        entryPriceSource: 'REALTIME',
+        stopLossPct: 8,
+        takeProfitPct: 20,
+        maxHoldDays: 20,
+      }),
+    );
+    // 네임스페이스 조회: 시스템+철학+전략은 조회, 미상(alloc:*)은 스킵(안전).
+    expect(prisma._styleTagQueries).toEqual(
+      expect.arrayContaining(['paper-simulation', 'BUFFETT', 'strategy:short-momentum']),
+    );
+    expect(prisma._styleTagQueries).not.toContain('alloc:dual-momentum');
+    // 체결 알림 — strategyKey=styleTag 그대로 + 트랙 라벨/딥링크(SSOT 라벨 '버핏').
+    expect(notifyProducer.enqueueTradeEntry).toHaveBeenCalledTimes(1);
+    expect(notifyProducer.enqueueTradeEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'ENTRY',
+        phase: 'FILLED',
+        strategyKey: 'BUFFETT',
+        strategyLabel: '버핏',
+        deepLink: '/portfolio?tab=style',
+      }),
+    );
+  });
+
+  it('전략([strategy:short-momentum]) 예약 체결은 프리셋 exitRules 를 대입한다(정체성 보존)', async () => {
+    const prisma = makeTrackFillPrisma([
+      {
+        id: 'ptS',
+        corpCode: POS.corpCode,
+        stockCode: POS.stockCode,
+        direction: 'BUY',
+        orderedShares: 10,
+        entryPrice: 10000,
+        entryDate: kstMidnight('20260619'),
+        positionThesisId: null,
+        tradingSignalId: 'sigS',
+        status: 'PENDING',
+        styleTag: 'strategy:short-momentum',
+        createdAt: new Date('2026-06-18T10:45:00Z'),
+      },
+    ]);
+    const cache = new RealtimeQuoteCache();
+    const priceSource = new SimulationPriceSourceService(prisma as never, cache);
+    const notifyProducer = {
+      enqueueTradeEntry: jest.fn().mockResolvedValue(undefined),
+      enqueueTradeExit: jest.fn().mockResolvedValue(undefined),
+      enqueueExit: jest.fn().mockResolvedValue(undefined),
+    };
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTradeStub() as never,
+      notifyProducer as never,
+      priceSource,
+      openQuoteKis as never,
+      cache,
+    );
+
+    const r = await svc.runIntradayExitMonitor(MARKET_HOURS);
+
+    expect(r.entryFilled).toBe(1);
+    // 프리셋 exitRules 대입(short-momentum: 손절 5·익절 10·보유 5) — thesis 파생·기본값 아님.
+    expect(prisma._created[0]).toEqual(
+      expect.objectContaining({
+        portfolioId: 'pf3',
+        stopLossPct: 5,
+        takeProfitPct: 10,
+        maxHoldDays: 5,
+      }),
+    );
+    // 체결 알림 strategyKey 는 styleTag 그대로('strategy:short-momentum') — 라벨은 프리셋.
+    expect(notifyProducer.enqueueTradeEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        strategyKey: 'strategy:short-momentum',
+        strategyLabel: '단기모멘텀',
+        deepLink: '/portfolio?tab=strategy',
+      }),
+    );
+  });
+
+  it('시스템 모의 예약 경로 중립성 — 일반화 후에도 기본 네임스페이스 체결이 종전과 동일', async () => {
+    const prisma = makeTrackFillPrisma([
+      {
+        id: 'ptSys',
+        corpCode: POS.corpCode,
+        stockCode: POS.stockCode,
+        direction: 'BUY',
+        orderedShares: 10,
+        entryPrice: 10000,
+        entryDate: kstMidnight('20260619'),
+        positionThesisId: null,
+        tradingSignalId: null,
+        status: 'PENDING',
+        styleTag: 'paper-simulation',
+        createdAt: new Date('2026-06-18T10:30:00Z'),
+      },
+    ]);
+    const cache = new RealtimeQuoteCache();
+    const priceSource = new SimulationPriceSourceService(prisma as never, cache);
+    const notifyProducer = {
+      enqueueTradeEntry: jest.fn().mockResolvedValue(undefined),
+      enqueueTradeExit: jest.fn().mockResolvedValue(undefined),
+      enqueueExit: jest.fn().mockResolvedValue(undefined),
+    };
+    const svc = new PaperSimulationService(
+      prisma as never,
+      paperTradeStub() as never,
+      notifyProducer as never,
+      priceSource,
+      openQuoteKis as never,
+      cache,
+    );
+
+    const r = await svc.runIntradayExitMonitor(MARKET_HOURS);
+
+    expect(r.entryFilled).toBe(1);
+    // 종전 시스템 모의 계약 그대로: pf1·REALTIME 시가(9400) 슬리피지 후 9420·기본 exit 파라미터.
+    expect(prisma._created[0]).toEqual(
+      expect.objectContaining({
+        portfolioId: 'pf1',
+        entryPrice: 9420,
+        entryPriceSource: 'REALTIME',
+        stopLossPct: 8,
+        takeProfitPct: 20,
+        maxHoldDays: 20,
+      }),
+    );
+    // 알림 메타도 종전 상수 그대로(시스템 모의 라벨·딥링크 — M10 무변경 봉인).
+    expect(notifyProducer.enqueueTradeEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        strategyKey: 'paper-simulation',
+        strategyLabel: '시스템 모의',
+        deepLink: '/portfolio?tab=sim',
+      }),
+    );
+  });
+});

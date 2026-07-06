@@ -14,6 +14,8 @@
  * - StrategyForwardSimulationService/Controller: 전략 변형 4종 forward 운용·비교.
  * - EventStudyModule(engine3): EventEdgeSelectorService(robust 통계 allowlist, 순수 Rule) 의존 —
  *   BacktestModule 이 미export 라 이 모듈에서 클래스 provider 로 직접 제공(무상태 선별기).
+ * - 개장 체결 정렬(2026-07-06): PaperSimulationModule 을 import — 스타일/전략 사이클이 일반화된
+ *   개장 체결기(PaperSimulationService.fillPendingEntries)를 폴백으로 소비(단방향 의존·순환 없음).
  *
  * ★ 모의 전용 — 실주문 없음. 적합도·체결·Exit·지표는 순수 Rule(AI 미개입).
  */
@@ -25,6 +27,8 @@ import { PhilosophyModule } from '../../engine2-ai-analyst/philosophy/philosophy
 import { GraduationModule } from '../simulation/graduation.module';
 import { EventStudyModule } from '../../engine3-quant-market/event-study/event-study.module';
 import { EventEdgeSelectorService } from '../../engine3-quant-market/backtest/strategies/event-edge-selector.service';
+// 개장 체결 정렬(2026-07-06): 일반화된 개장 체결기(fillPendingEntries) 주입원 — 단방향 의존(순환 없음).
+import { PaperSimulationModule } from './paper-simulation.module';
 import { PhilosophyStyleSimulationService } from './philosophy-style-simulation.service';
 import { PhilosophyStyleSimulationController } from './philosophy-style-simulation.controller';
 import { StrategyForwardSimulationService } from './strategy-forward-simulation.service';
@@ -34,7 +38,15 @@ import { BacktestForwardDivergenceController } from './backtest-forward-divergen
 import { ForwardTracksScheduler } from './forward-tracks.scheduler';
 
 @Module({
-  imports: [PrismaModule, TradingRiskModule, PhilosophyModule, GraduationModule, EventStudyModule],
+  imports: [
+    PrismaModule,
+    TradingRiskModule,
+    PhilosophyModule,
+    GraduationModule,
+    EventStudyModule,
+    // 개장 체결 정렬(2026-07-06): 일반화된 개장 체결기(PaperSimulationService) 주입원.
+    PaperSimulationModule,
+  ],
   controllers: [
     PhilosophyStyleSimulationController,
     StrategyForwardSimulationController,

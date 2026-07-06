@@ -32,6 +32,11 @@ const EXPECTED: Record<string, { label: string }> = {
   'short-momentum': { label: '단기모멘텀' },
   'conservative-value': { label: '보수가치' },
   'aggressive-diversified': { label: '공격분산' },
+  // 개장 체결 정렬(2026-07-06): 철학 스타일 4종 체결 알림 출처.
+  BUFFETT: { label: '버핏' },
+  LYNCH: { label: '린치' },
+  GREENBLATT: { label: '그린블라트' },
+  DRUCKENMILLER: { label: '드러켄밀러' },
   // DAR-473(P01): 리스크·운영 출처.
   risk: { label: '리스크' },
   ops: { label: '운영' },
@@ -79,12 +84,21 @@ function tradeTitle(strategyKey: string, kind: 'ENTRY' | 'EXIT', label: string, 
 const simEntry = tradeTitle('paper-simulation', 'ENTRY', '삼성전자', '');
 const scalpExit = tradeTitle('intraday-scalp', 'EXIT', '삼성전자', '+2.10%');
 const edgeEntry = tradeTitle('event-edge', 'ENTRY', '삼성전자', '');
+// 개장 체결 정렬(2026-07-06): 철학 체결(strategyKey=styleTag='BUFFETT')·전략 forward 체결
+// (strategyKey=styleTag='strategy:<key>' — sourceByKey 접두사 정규화)의 제목 형식.
+const buffettEntry = tradeTitle('BUFFETT', 'ENTRY', '삼성전자', '');
+const strategyTagEntry = tradeTitle('strategy:event-edge', 'ENTRY', '삼성전자', '');
 check('시스템 모의 매수 제목 = "모의 · 삼성전자 매수"', simEntry === '모의 · 삼성전자 매수');
 check('단타 매도 제목 = "단타 · 삼성전자 매도 +2.10%"', scalpExit === '단타 · 삼성전자 매도 +2.10%');
 check('이벤트엣지 매수 제목 = "이벤트엣지 · 삼성전자 매수"', edgeEntry === '이벤트엣지 · 삼성전자 매수');
+check('철학 버핏 매수 제목 = "버핏 · 삼성전자 매수"', buffettEntry === '버핏 · 삼성전자 매수');
+check(
+  '전략 styleTag(strategy:event-edge) 정규화 = "이벤트엣지 · 삼성전자 매수"',
+  strategyTagEntry === '이벤트엣지 · 삼성전자 매수',
+);
 check(
   '체결 제목에 [ ]대괄호·이모지 없음',
-  ![simEntry, scalpExit, edgeEntry].some(
+  ![simEntry, scalpExit, edgeEntry, buffettEntry, strategyTagEntry].some(
     (t) => t.includes('[') || t.includes(']') || hasEmoji(t),
   ),
 );

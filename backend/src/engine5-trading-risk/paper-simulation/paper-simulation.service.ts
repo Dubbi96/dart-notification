@@ -72,6 +72,15 @@ import {
   ENTRY_FALLBACK_MIN_BUY_SCORE,
 } from './simulation-entry';
 import { Prisma } from '@prisma/client';
+// 개장 체결 정렬(2026-07-06): 트랙 네임스페이스(이름 규약↔styleTag)·초기원금·exit 파라미터·알림
+//   메타 순수 Rule — 철학/전략 forward 예약도 같은 개장 체결기(fillPendingEntries)로 체결한다.
+import {
+  PAPER_SIM_STYLE_TAG,
+  styleTagForForwardPortfolioName,
+  initialCapitalForStyleTag,
+  exitParamsForStyleTag,
+  trackNotificationMeta,
+} from './forward-track-namespace';
 import { SimulationPriceSourceService, SimPriceRow } from './simulation-price-source.service';
 import { buildEquityCurve, withLivePoint, EquityCurvePoint } from './equity-curve';
 import {
@@ -176,7 +185,7 @@ export class PaperSimulationService {
   // DAR-431: 딥링크를 포트폴리오 루트(`/portfolio`)에서 ★시스템 모의 서브탭(`?tab=sim`)으로
   //   고정해 체결 알림 탭이 해당 트랙 보유·성과로 직행한다(루트 폴백 제거). 화이트리스트는
   //   `/portfolio` prefix 로 쿼리(`?`)까지 허용(@utils/deeplink.isAllowedDeepLink).
-  static readonly TRADE_STRATEGY_KEY = 'paper-simulation';
+  static readonly TRADE_STRATEGY_KEY = PAPER_SIM_STYLE_TAG;
   static readonly TRADE_STRATEGY_LABEL = '시스템 모의';
   static readonly TRADE_DEEP_LINK = '/portfolio?tab=sim';
   // 장외 체결 의미론(2026-07): 매수 예약(PENDING)이 당일 시가 데이터 부재로 체결되지 못하면
@@ -493,11 +502,23 @@ export class PaperSimulationService {
       let cached = 0;
       let exited = 0;
       let exitFilled = 0;
-      // 매수 예약 체결은 시스템 모의 네임스페이스(styleTag='paper-simulation')만 — 타 트랙 예약은
-      //   각 트랙 러너 소관(PaperTrade 에 portfolioId 가 없어 styleTag 규약으로만 안전 식별 가능).
-      const entryFilled = await this.fillPendingEntries(systemPf.id, tradeDate, { now });
+      let entryFilled = 0;
       for (const pf of portfolios) {
         const isSystem = pf.id === systemPf.id;
+        // ①-b 개장 체결기(개장 체결 정렬, 2026-07-06): 포트폴리오 이름 규약에서 트랙 네임스페이스
+        //   (styleTag)를 도출해 각 트랙의 만기 매수 예약을 '당일 시가'로 체결한다 — 시스템 모의뿐
+        //   아니라 철학 4종·전략 forward 4종도 실제 장중 가격으로 진입한다. 도출 불가한 이름
+        //   (코어 [alloc:*] 등 자체 체결기 보유 트랙)은 스킵(안전).
+        const styleTag = isSystem
+          ? PaperSimulationService.TRADE_STRATEGY_KEY
+          : styleTagForForwardPortfolioName(pf.name);
+        if (styleTag) {
+          entryFilled += await this.fillPendingEntries(pf.id, tradeDate, {
+            now,
+            styleTag,
+            initialCapital: initialCapitalForStyleTag(styleTag),
+          });
+        }
         // ② 보유 종목 실시간 현재가 능동 fetch → 캐시 적재(실가 1순위 평가의 전제).
         const w = await this.refreshHoldingsRealtime(pf.id, now);
         fetched += w.fetched;
@@ -1286,17 +1307,30 @@ export class PaperSimulationService {
    *   - 현금 재클램프: 체결 시점 SSOT 현금(초기+실현−보유원가) 이내로 수량 절삭 — cash≥0 불변식.
    *   - 예산 envelope: 주문수량×예약 기준가 이내(갭업 시 수량 축소 — maxSinglePositionPct 보존).
    *   ★순수 Rule 체결(simulateFill) — AI 개입 0. 실주문 경로 0.
+   *
+   * ★네임스페이스 일반화(개장 체결 정렬, 2026-07-06): opts.styleTag 로 철학 4종·전략 forward 4종
+   *   트랙 예약도 같은 의미론("저녁 결정 → 익일 개장 체결")으로 체결한다. 기본값(styleTag=
+   *   'paper-simulation'·initialCapital=INITIAL_CAPITAL·emitTrades=true)은 종전 시스템 모의 동작과
+   *   완전 동일 — **시스템 모의 경로 행동 무변경(M10 클록 보호)**.
+   *   - exit 파라미터: 전략 트랙은 프리셋 exitRules 정본(exitParamsForStyleTag — THESIS 룰 미혼입),
+   *     그 외(시스템·철학)는 thesis 파생 + 기본 익절(기존 동작).
+   *   - 섀도 원장(DAR-498)은 시스템 네임스페이스 한정 — 멱등키(`paper-sim-shadow:*`)·일일 원장
+   *     대조(order-ledger-reconcile)가 시스템 모의 전용 계약이라 타 트랙 기록은 대조를 오염시킨다.
+   *   - 체결 알림 strategyKey 는 styleTag 그대로(라벨·딥링크는 trackNotificationMeta 순수 함수).
    */
-  private async fillPendingEntries(
+  async fillPendingEntries(
     portfolioId: string,
     tradeDate: string,
-    opts: { now?: Date } = {},
+    opts: { now?: Date; styleTag?: string; initialCapital?: number; emitTrades?: boolean } = {},
   ): Promise<number> {
+    const styleTag = opts.styleTag ?? PaperSimulationService.TRADE_STRATEGY_KEY;
+    const initialCapital = opts.initialCapital ?? PaperSimulationService.INITIAL_CAPITAL;
+    const isSystemNamespace = styleTag === PaperSimulationService.TRADE_STRATEGY_KEY;
     const pending = await this.prisma.paperTrade.findMany({
       where: {
         status: 'PENDING',
         direction: 'BUY',
-        styleTag: PaperSimulationService.TRADE_STRATEGY_KEY,
+        styleTag,
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -1316,9 +1350,9 @@ export class PaperSimulationService {
           data: { status: 'CANCELLED' },
         });
         this.logger.warn(
-          `[PaperSim][체결기] 예약 취소(이월 상한 초과) trade=${t.id} corp=${t.corpCode} 예정일=${entryYmd}`,
+          `[PaperSim][체결기][${styleTag}] 예약 취소(이월 상한 초과) trade=${t.id} corp=${t.corpCode} 예정일=${entryYmd}`,
         );
-        await this.shadowCancel(t, '이월 상한 초과(미체결 예약)');
+        if (isSystemNamespace) await this.shadowCancel(t, '이월 상한 초과(미체결 예약)');
         continue;
       }
       due.push(t);
@@ -1344,8 +1378,10 @@ export class PaperSimulationService {
     });
     const realizedNetPnl = closedForCash.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
     const investedPrincipal = openPositions.reduce((s, p) => s + (p.entryAmount ?? 0), 0);
-    let availableCash = PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl - investedPrincipal;
+    let availableCash = initialCapital + realizedNetPnl - investedPrincipal;
     const heldCorpCodes = new Set(openPositions.map((p) => p.corpCode));
+    // 전략 forward 네임스페이스는 프리셋 exitRules 가 정본(트랙 정체성 보존) — 그 외는 null(thesis 파생).
+    const presetExit = exitParamsForStyleTag(styleTag);
 
     let filled = 0;
     for (const t of due) {
@@ -1355,7 +1391,7 @@ export class PaperSimulationService {
           where: { id: t.id },
           data: { status: 'CANCELLED' },
         });
-        await this.shadowCancel(t, '이미 보유(중복 진입 방지)');
+        if (isSystemNamespace) await this.shadowCancel(t, '이미 보유(중복 진입 방지)');
         continue;
       }
       if (availableCash <= 0) continue; // 현금 없음 — 이월(청산으로 회복 가능, 상한이 정리)
@@ -1389,14 +1425,23 @@ export class PaperSimulationService {
       if (fill.filledShares <= 0) continue;
       const fillPrice = fill.filledPrice;
 
-      // 청산 파라미터는 체결 시점에 thesis 에서 도출(예약엔 미저장 — 스키마 변경 0).
-      const thesis = t.positionThesisId
-        ? await this.prisma.positionThesis.findUnique({
-            where: { id: t.positionThesisId },
-            select: { exitRules: true },
-          })
-        : null;
-      const { stopLossPct, maxHoldDays } = this.deriveExitParams(thesis?.exitRules);
+      // 청산 파라미터: 전략 트랙 = 프리셋 exitRules 정본, 그 외 = 체결 시점에 thesis 에서 도출
+      //   (예약엔 미저장 — 스키마 변경 0). 시스템·철학은 기본 익절(DEFAULT_TAKE_PROFIT_PCT) 유지.
+      let stopLossPct: number;
+      let takeProfitPct: number;
+      let maxHoldDays: number;
+      if (presetExit) {
+        ({ stopLossPct, takeProfitPct, maxHoldDays } = presetExit);
+      } else {
+        const thesis = t.positionThesisId
+          ? await this.prisma.positionThesis.findUnique({
+              where: { id: t.positionThesisId },
+              select: { exitRules: true },
+            })
+          : null;
+        ({ stopLossPct, maxHoldDays } = this.deriveExitParams(thesis?.exitRules));
+        takeProfitPct = PaperSimulationService.DEFAULT_TAKE_PROFIT_PCT;
+      }
 
       let createdPositionId: string | null = null;
       try {
@@ -1419,7 +1464,7 @@ export class PaperSimulationService {
             highestPrice: fillPrice,
             highestAt: new Date(),
             stopLossPct,
-            takeProfitPct: PaperSimulationService.DEFAULT_TAKE_PROFIT_PCT,
+            takeProfitPct,
             maxHoldDays,
             status: 'OPEN',
           },
@@ -1434,7 +1479,7 @@ export class PaperSimulationService {
             where: { id: t.id },
             data: { status: 'CANCELLED' },
           });
-          await this.shadowCancel(t, '부분 유니크 충돌(이미 보유)');
+          if (isSystemNamespace) await this.shadowCancel(t, '부분 유니크 충돌(이미 보유)');
           heldCorpCodes.add(t.corpCode);
           continue;
         }
@@ -1464,7 +1509,8 @@ export class PaperSimulationService {
       // DAR-498(P22): 섀도 원장 — 체결(FILLED) 확정 직후 병행 기록. ExecutionPort(전송·체결확인)가
       //   동일 입력(수량·시가·거래량)으로 결정론적 체결을 확인해 OrderExecution 생성 + OrderRequest
       //   EXECUTED 연결. ★섀도 라이트: 실패해도 체결·현금·매매 무영향(서비스 내부 try/catch).
-      if (t.tradingSignalId) {
+      //   ★시스템 네임스페이스 한정(일반화 후에도) — 원장 대조 계약 보호.
+      if (isSystemNamespace && t.tradingSignalId) {
         await this.shadowLedger?.recordFill({
           tradingSignalId: t.tradingSignalId,
           paperTradeId: t.id,
@@ -1479,8 +1525,8 @@ export class PaperSimulationService {
       // F7: 매수 수수료 포함 실지출 차감 — cash≥0 불변식.
       availableCash -= fillPrice * fill.filledShares + fill.commission;
       filled++;
-      // 체결 알림(phase=FILLED) — 예약 알림과 별개 refId(포지션)로 발행.
-      if (createdPositionId) {
+      // 체결 알림(phase=FILLED) — 예약 알림과 별개 refId(포지션)로 발행. strategyKey=styleTag.
+      if (opts.emitTrades !== false && createdPositionId) {
         await this.emitTradeEntry({
           portfolioId,
           refId: createdPositionId,
@@ -1489,11 +1535,15 @@ export class PaperSimulationService {
           price: fillPrice,
           shares: fill.filledShares,
           phase: 'FILLED',
+          styleTag,
+          initialCapital,
         });
       }
     }
     if (filled > 0) {
-      this.logger.log(`[PaperSim][체결기] 예약 ${filled}건 당일 시가 체결 tradeDate=${tradeDate}`);
+      this.logger.log(
+        `[PaperSim][체결기][${styleTag}] 예약 ${filled}건 당일 시가 체결 tradeDate=${tradeDate}`,
+      );
     }
     return filled;
   }
@@ -1922,6 +1972,7 @@ export class PaperSimulationService {
    */
   private async computeSimSnapshot(
     portfolioId: string,
+    initialCapital: number = PaperSimulationService.INITIAL_CAPITAL,
   ): Promise<{ cash: number; totalValue: number }> {
     const [open, closed] = await Promise.all([
       this.prisma.position.findMany({
@@ -1935,7 +1986,7 @@ export class PaperSimulationService {
     ]);
     const realizedNetPnl = closed.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
     const unrealizedPnl = open.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
-    const totalValue = PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl + unrealizedPnl;
+    const totalValue = initialCapital + realizedNetPnl + unrealizedPnl;
     const openValue = open.reduce((s, p) => s + (p.currentValue ?? p.entryAmount ?? 0), 0);
     return { cash: totalValue - openValue, totalValue };
   }
@@ -1951,7 +2002,9 @@ export class PaperSimulationService {
 
   /** DAR-424: 매수 알림 발행(graceful — 체결을 깨지 않는다).
    *  장외 체결 의미론: phase='RESERVED'(주문 예약 — 익일 시가 체결 예정) vs 'FILLED'(시가 체결).
-   *  phase 는 additive optional 필드 — 기존 소비자는 무시해도 동작(호환 유지). */
+   *  phase 는 additive optional 필드 — 기존 소비자는 무시해도 동작(호환 유지).
+   *  개장 체결 정렬(2026-07-06): styleTag 트랙 체결도 발행 — strategyKey=styleTag 그대로,
+   *  라벨·딥링크는 trackNotificationMeta(순수 함수). 기본값은 시스템 모의(종전 동작 동일). */
   private async emitTradeEntry(args: {
     portfolioId: string;
     refId: string;
@@ -1960,19 +2013,25 @@ export class PaperSimulationService {
     price: number;
     shares: number;
     phase: 'RESERVED' | 'FILLED';
+    styleTag?: string;
+    initialCapital?: number;
   }): Promise<void> {
     if (!this.notifyProducer) return;
+    const meta = trackNotificationMeta(args.styleTag ?? PaperSimulationService.TRADE_STRATEGY_KEY);
     try {
       const [snapshot, corpName] = await Promise.all([
-        this.computeSimSnapshot(args.portfolioId),
+        this.computeSimSnapshot(
+          args.portfolioId,
+          args.initialCapital ?? PaperSimulationService.INITIAL_CAPITAL,
+        ),
         this.corpNameOf(args.corpCode, args.stockCode),
       ]);
       await this.notifyProducer.enqueueTradeEntry({
         kind: 'ENTRY',
         phase: args.phase,
         refId: args.refId,
-        strategyKey: PaperSimulationService.TRADE_STRATEGY_KEY,
-        strategyLabel: PaperSimulationService.TRADE_STRATEGY_LABEL,
+        strategyKey: meta.strategyKey,
+        strategyLabel: meta.strategyLabel,
         corpCode: args.corpCode,
         stockCode: args.stockCode,
         corpName,
@@ -1980,7 +2039,7 @@ export class PaperSimulationService {
         shares: args.shares,
         cash: snapshot.cash,
         totalValue: snapshot.totalValue,
-        deepLink: PaperSimulationService.TRADE_DEEP_LINK,
+        deepLink: meta.deepLink,
       });
     } catch (e) {
       this.logger.warn(`[PaperSim] 매수 체결 알림 발행 실패(graceful): ${(e as Error).message}`);

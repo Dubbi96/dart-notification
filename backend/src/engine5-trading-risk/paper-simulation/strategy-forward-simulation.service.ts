@@ -18,21 +18,24 @@
  *   주입하지 않는다(전략 정체성 = 프리셋 룰만, THESIS_BREAK 미혼입).
  * - Risk: 기존 예산 envelope(가상원금 × maxSinglePositionPct) 상한 + PaperTradeService
  *   공용 체결 경로(simulateFill) 그대로 — 하드룰 대체/우회 없음.
- * - 체결 의미론: PhilosophyStyleSimulationService 와 동일하게 당일 최근 종가 즉시체결.
- *   ★후속: "결정→익일 시가 체결" 규약(α)으로 통일 예정 — 충돌 회피를 위해 현행 패턴 유지.
+ * - ★체결 의미론(개장 체결 정렬, 2026-07-06 사용자 승인): "당일 최근 종가 즉시체결"에서 시스템
+ *   모의와 동일한 **"저녁 = 주문 결정(PENDING 예약, styleTag='strategy:<key>') → 익일 개장 =
+ *   당일 시가 체결"**로 통일. 체결은 장중 모니터(일반화된 fillPendingEntries) 또는 사이클 서두
+ *   폴백(당일 REAL 시가)이 수행 — exit 파라미터는 체결기가 프리셋 exitRules 로 대입(정체성 보존).
  *
  * ★ 모의 전용 — 실주문 절대 금지(OrderRequest/OrderExecution 미사용). AI 금지영역: 진입 필터·
  *   사이징·청산 전부 순수 Rule(engine2/AI import 0 — engine3 은 Rule/통계 엔진).
  */
 
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaperTradeService } from '../services/paper-trade.service';
 import { RiskGuardService } from '../services/risk-guard.service';
 import { formatKstDateCompact } from '../../common/time/kst';
 import { DEFAULT_FILL_PARAMS } from '../domain/fill-simulator';
 import { PaperSimulationService } from './paper-simulation.service';
+// 시장 캘린더 순수 함수 — 익일 시가 체결 예약일 산정(시스템 모의와 동일 유틸 재사용).
+import { nextTradingDay } from '../../engine3-quant-market/event-study/utils/d0-calculator';
 import { PrismaExitSignalRepository } from '../../engine4-portfolio-exit/repositories/prisma-exit-signal.repository';
 import { calculateExitScore } from '../../engine4-portfolio-exit/domain/exit-score.calculator';
 import {
@@ -51,42 +54,22 @@ import { EventEdgeSelectorService } from '../../engine3-quant-market/backtest/st
 import { resolvePositionBudget } from '../../engine3-quant-market/backtest/backtest-runner.service';
 import { StrategyParams } from '../../engine3-quant-market/backtest/ports/backtest.types';
 import { dedupeCandidatesByCorpCode } from './simulation-entry';
+// 네임스페이스 순수 Rule 은 forward-track-namespace.ts 로 승격(개장 체결기와 공유·순환 import 차단).
+//   기존 소비처 호환을 위해 재export 유지.
+import {
+  STRATEGY_TAG_PREFIX,
+  strategyStyleTag,
+  strategyForwardPortfolioName,
+  presetExitParams,
+  kstMidnightOf,
+} from './forward-track-namespace';
 import { buildEquityCurve, EquityCurvePoint } from './equity-curve';
 import { buildTradeRationale, calculateTradeScorecard, TradeScorecard } from './trade-scorecard';
 
-// ─── 전략 forward 네임스페이스 순수 Rule ────────────────────────────────────
-
-/** 전략 forward styleTag 접두사 — 철학 스타일(BUFFETT 등)·단타(intraday-scalp)와 충돌 없는 네임스페이스. */
-export const STRATEGY_TAG_PREFIX = 'strategy:';
-
-/** 전략 forward 트레이드/스냅샷 태그 — 예: 'strategy:event-edge'. */
-export function strategyStyleTag(key: string): string {
-  return `${STRATEGY_TAG_PREFIX}${key}`;
-}
-
-/** 전략 forward 포트폴리오 이름 — 예: '모의운용 포트폴리오 [strategy:event-edge]'. */
-export function strategyForwardPortfolioName(key: string): string {
-  return `${PaperSimulationService.SIM_PORTFOLIO_NAME} [${strategyStyleTag(key)}]`;
-}
+export { STRATEGY_TAG_PREFIX, strategyStyleTag, strategyForwardPortfolioName, presetExitParams };
 
 /** 과신 방지 — 청산 표본이 이 값 미만이면 LOW_SAMPLE(철학 스타일 비교와 동일 임계). */
 export const STRATEGY_FORWARD_LOW_SAMPLE_THRESHOLD = 5;
-
-/**
- * 프리셋 exitRules → Position exit 파라미터 대입값(순수 함수).
- * Position.stopLossPct/takeProfitPct 는 양수 컨벤션(exit 엔진이 abs 판정) → 부호 정규화.
- */
-export function presetExitParams(preset: StrategyPreset): {
-  stopLossPct: number;
-  takeProfitPct: number;
-  maxHoldDays: number;
-} {
-  return {
-    stopLossPct: Math.abs(preset.params.exitRules.stopLossPct),
-    takeProfitPct: Math.abs(preset.params.exitRules.takeProfitPct),
-    maxHoldDays: preset.params.exitRules.maxHoldDays,
-  };
-}
 
 /**
  * 전략 진입예산(순수 함수) = 프리셋 사이징(resolvePositionBudget — 리플레이와 동일 산식)을
@@ -115,7 +98,10 @@ export function strategyEntryBudget(
 export interface StrategyCycleResult {
   strategyKey: string;
   portfolioId: string;
+  /** 이번 사이클에 '당일 시가'로 체결된 매수 수(이전 예약분 폴백 체결 — 장중 모니터 미체결분). */
   bought: number;
+  /** 이번 사이클에 새로 예약된 매수 주문 수(PENDING, 익일 시가 체결 예정). */
+  reserved: number;
   snapshotted: number;
   exited: number;
   openPositions: number;
@@ -176,6 +162,10 @@ export class StrategyForwardSimulationService {
     private readonly eventEdgeSelector: EventEdgeSelectorService,
     // DAR-496(P18): 공용 진입 게이트(SHADOW) — @Optional(미주입 단위 테스트 no-op). 측정 트랙이라 무변경.
     @Optional() private readonly riskGuard?: RiskGuardService,
+    // 개장 체결 정렬(2026-07-06): 일반화된 개장 체결기(fillPendingEntries) 소유자 — 사이클 서두
+    //   폴백 체결(당일 REAL 시가)에 사용. @Optional — 미주입(단위 테스트)이면 폴백 생략(예약은
+    //   장중 모니터가 체결·이월 상한이 정리).
+    @Optional() private readonly paperSim?: PaperSimulationService,
   ) {}
 
   // ─── 전략 포트폴리오 find-or-create (스타일 시뮬과 동일 시스템 유저) ─────
@@ -231,7 +221,7 @@ export class StrategyForwardSimulationService {
     }
   }
 
-  /** 전략 1종 1사이클: 프리셋 필터 진입 → 시가평가 → Exit → 전략 포트폴리오 스냅샷. */
+  /** 전략 1종 1사이클: 예약 폴백 체결 → 프리셋 필터 예약 → 시가평가 → Exit → 스냅샷. */
   async runStrategyCycle(
     preset: StrategyPreset,
     tradeDate: string,
@@ -239,7 +229,16 @@ export class StrategyForwardSimulationService {
   ): Promise<StrategyCycleResult> {
     try {
       const pf = await this.getOrCreateStrategyPortfolio(preset.key);
-      const { bought, allowlistEmpty } = await this.openStrategyPositions(
+      // 0) 만기 도래 매수 예약 폴백 체결 — '당일 시가'로(시스템 모의 runDailyCycle 0단계와 동일
+      //    패턴). 정상 운영은 장중 모니터(09:00~)가 먼저 체결. exit 파라미터는 체결기가 프리셋
+      //    exitRules 로 대입(exitParamsForStyleTag). 미주입(단위 테스트)이면 0.
+      const bought = this.paperSim
+        ? await this.paperSim.fillPendingEntries(pf.id, tradeDate, {
+            styleTag: strategyStyleTag(preset.key),
+            initialCapital: STRATEGY_INITIAL_CAPITAL,
+          })
+        : 0;
+      const { reserved, allowlistEmpty } = await this.openStrategyPositions(
         preset,
         pf,
         tradeDate,
@@ -265,12 +264,13 @@ export class StrategyForwardSimulationService {
         );
 
       this.logger.log(
-        `[StrategyFwd][${preset.key}] 매수=${bought} 스냅샷=${snapshotted} 매도=${exited} 보유=${openPositions} 평가=${equity}`,
+        `[StrategyFwd][${preset.key}] 체결매수=${bought} 예약=${reserved} 스냅샷=${snapshotted} 매도=${exited} 보유=${openPositions} 평가=${equity}`,
       );
       return {
         strategyKey: preset.key,
         portfolioId: pf.id,
         bought,
+        reserved,
         snapshotted,
         exited,
         openPositions,
@@ -283,6 +283,7 @@ export class StrategyForwardSimulationService {
         strategyKey: preset.key,
         portfolioId: '',
         bought: 0,
+        reserved: 0,
         snapshotted: 0,
         exited: 0,
         openPositions: 0,
@@ -292,13 +293,16 @@ export class StrategyForwardSimulationService {
     }
   }
 
-  // ─── 1) 프리셋 필터 신규 매수 ─────────────────────────────────────────────
+  // ─── 1) 프리셋 필터 신규 매수 예약 ────────────────────────────────────────
+  // 개장 체결 정렬(2026-07-06): 즉시 placeOrder+Position 생성 대신 **PENDING PaperTrade 예약**만
+  //   만든다(styleTag='strategy:<key>'·entryDate=다음 거래일·orderedShares=결정 시점 사이징).
+  //   체결·Position 생성·exit 파라미터(프리셋) 대입은 일반화된 개장 체결기가 '당일 시가'로 수행.
   private async openStrategyPositions(
     preset: StrategyPreset,
     pf: { id: string; maxSinglePositionPct: number },
     tradeDate: string,
     gatedEventTypes: string[] | null,
-  ): Promise<{ bought: number; allowlistEmpty: boolean }> {
+  ): Promise<{ reserved: number; allowlistEmpty: boolean }> {
     // allowlist: robustEventGate 전략은 당일 해석분, 아니면 프리셋 정적 eventTypes(현행 3전략은 미지정=전 이벤트).
     const allowlist = preset.robustEventGate ? (gatedEventTypes ?? []) : preset.params.eventTypes;
     if (preset.robustEventGate && (!allowlist || allowlist.length === 0)) {
@@ -306,21 +310,26 @@ export class StrategyForwardSimulationService {
       this.logger.log(
         `[StrategyFwd][${preset.key}] robust 양-edge allowlist 0종 → 진입 0(do-no-harm)`,
       );
-      return { bought: 0, allowlistEmpty: true };
+      return { reserved: 0, allowlistEmpty: true };
     }
 
-    const holdings = await this.prisma.position.count({
+    const tag = strategyStyleTag(preset.key);
+    const openPositions = await this.prisma.position.findMany({
       where: { portfolioId: pf.id, status: 'OPEN' },
+      select: { corpCode: true, entryAmount: true },
     });
-    const available = preset.params.maxPositions - holdings;
-    if (available <= 0) return { bought: 0, allowlistEmpty: false };
+    // 미체결 매수 예약(PENDING, 전략 네임스페이스) — 슬롯·현금·종목 디듑에 포함(이중 예약 방지).
+    const pendingEntries = await this.prisma.paperTrade.findMany({
+      where: { status: 'PENDING', direction: 'BUY', styleTag: tag },
+      select: { corpCode: true, orderedShares: true, entryPrice: true },
+    });
+    const available = preset.params.maxPositions - openPositions.length - pendingEntries.length;
+    if (available <= 0) return { reserved: 0, allowlistEmpty: false };
 
-    const openCorpCodes = (
-      await this.prisma.position.findMany({
-        where: { portfolioId: pf.id, status: 'OPEN' },
-        select: { corpCode: true },
-      })
-    ).map((p) => p.corpCode);
+    const openCorpCodes = [
+      ...openPositions.map((p) => p.corpCode),
+      ...pendingEntries.map((t) => t.corpCode),
+    ];
 
     // 라이브 신호만(★DAR-389/DAR-129 불가침: 과거 공시 백필 신호는 forward 진입 후보에서 배제).
     // 진입 필터 = 프리셋 정체성(minBuyScore + eventTypes allowlist) — 리플레이 러너와 동일 축.
@@ -334,26 +343,19 @@ export class StrategyForwardSimulationService {
       orderBy: { buyScore: 'desc' },
       take: StrategyForwardSimulationService.CANDIDATE_POOL_CAP,
     });
-    // DAR-122 계승: 종목당 1건 디듑 — 동일 corpCode 다중 신호로 인한 Position 중복 차단.
+    // DAR-122 계승: 종목당 1건 디듑 — 동일 corpCode 다중 신호로 인한 중복 예약 차단.
     const candidates = dedupeCandidatesByCorpCode(rawCandidates);
     const openedCorpCodes = new Set<string>(openCorpCodes);
-    const exitParams = presetExitParams(preset);
 
     // DAR-496(P18): 공용 진입 게이트(SHADOW) 입력 — 가용현금·당일 실현손익 산정.
-    //   ★전략 forward 진입 루프엔 현금 가드가 없다(갭 A5) — SHADOW 게이트가 현금 초과를 관측만 한다(차단 0).
     //   현금 정의(SSOT): cash = 초기자본 + 실현손익(CLOSED net) − 보유 진입원가(OPEN entryAmount).
-    const [openForCash, closedForCash] = await Promise.all([
-      this.prisma.position.findMany({
-        where: { portfolioId: pf.id, status: 'OPEN' },
-        select: { entryAmount: true },
-      }),
-      this.prisma.position.findMany({
-        where: { portfolioId: pf.id, status: 'CLOSED' },
-        select: { unrealizedPnl: true, closedAt: true },
-      }),
-    ]);
+    //   예약이 잡아둔 금액(기준가×주문수량)도 차감 — 이중 배분 방지(체결기 재클램프가 최종 방어).
+    const closedForCash = await this.prisma.position.findMany({
+      where: { portfolioId: pf.id, status: 'CLOSED' },
+      select: { unrealizedPnl: true, closedAt: true },
+    });
     const realizedNetPnl = closedForCash.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
-    const investedPrincipal = openForCash.reduce((s, p) => s + (p.entryAmount ?? 0), 0);
+    const investedPrincipal = openPositions.reduce((s, p) => s + (p.entryAmount ?? 0), 0);
     const dailyRealizedPnl = closedForCash.reduce(
       (s, p) =>
         p.closedAt && formatKstDateCompact(p.closedAt) === tradeDate
@@ -371,28 +373,38 @@ export class StrategyForwardSimulationService {
           : s,
       0,
     );
-    let availableCash = STRATEGY_INITIAL_CAPITAL + realizedNetPnl - investedPrincipal;
+    const reservedCash = pendingEntries.reduce(
+      (s, t) => s + t.orderedShares * Number(t.entryPrice),
+      0,
+    );
+    let availableCash =
+      STRATEGY_INITIAL_CAPITAL + realizedNetPnl - investedPrincipal - reservedCash;
 
-    let opened = 0;
+    let reserved = 0;
     for (const sig of candidates) {
-      if (opened >= available) break;
+      if (reserved >= available) break;
+      // 현금 소진 시 추가 예약 중단(cash≥0 — 체결기 재클램프와 정합).
+      if (availableCash <= 0) break;
       if (openedCorpCodes.has(sig.corpCode)) continue;
 
       const price = await this.latestClose(sig.corpCode, tradeDate);
       if (price === null || price <= 0) continue;
 
-      // 프리셋 사이징(EQUAL/SCORE_WEIGHT) — Risk envelope 상한 절단(순수 함수).
-      const budget = strategyEntryBudget(preset.params, sig.buyScore, pf.maxSinglePositionPct);
+      // 프리셋 사이징(EQUAL/SCORE_WEIGHT) — Risk envelope 상한 절단(순수 함수) ∧ 가용현금.
+      const budget = Math.min(
+        strategyEntryBudget(preset.params, sig.buyScore, pf.maxSinglePositionPct),
+        availableCash,
+      );
       const shares = Math.floor(budget / price);
       if (shares <= 0) continue;
 
-      // 기록 연계용 thesis 링크만 — exit 파라미터는 프리셋이 정본(THESIS 룰 미혼입).
+      // 기록 연계용 thesis 링크만 — exit 파라미터는 프리셋이 정본(THESIS 룰 미혼입, 체결기 대입).
       const thesis = await this.prisma.positionThesis.findUnique({
         where: { tradingSignalId: sig.id },
         select: { id: true },
       });
 
-      // DAR-496(P18): 공용 진입 게이트(일일손실·현금) — SHADOW. 진입 확정(placeOrder) 직전 1줄.
+      // DAR-496(P18): 공용 진입 게이트(일일손실·현금) — SHADOW. 진입 확정(예약 create) 직전 1줄.
       //   ★측정 트랙(mode=SHADOW) → 절대 BLOCK 없음 → 진입 후보·수량 무변경(M10 클록 보호).
       const gate = await this.riskGuard?.evaluateEntry({
         track: 'strategy-forward',
@@ -407,58 +419,33 @@ export class StrategyForwardSimulationService {
       });
       if (gate?.action === 'BLOCK') continue;
 
-      const trade = await this.paperTrade.placeOrder({
-        corpCode: sig.corpCode,
-        stockCode: sig.stockCode,
-        direction: 'BUY',
-        orderedShares: shares,
-        entryPrice: price,
-        entryDate: new Date(),
-        liquidityRatio: 1.0,
-        tradingSignalId: sig.id,
-        positionThesisId: thesis?.id,
+      // ★즉시 체결 금지 — PENDING 예약만 기록. entryDate=다음 거래일(주말·KRX 공휴일 스킵),
+      //   entryPrice=예약 기준가(당일 평가가 — 사이징 근거, 체결가 아님). expectedPrice 는
+      //   신호시점 기대가 보존(DAR-474 — 체결기가 entryPrice 를 덮어써도 유지).
+      await this.prisma.paperTrade.create({
+        data: {
+          corpCode: sig.corpCode,
+          stockCode: sig.stockCode,
+          direction: 'BUY',
+          orderedShares: shares,
+          filledShares: 0,
+          fillRate: 0,
+          entryPrice: price,
+          expectedPrice: price,
+          status: 'PENDING',
+          entryDate: kstMidnightOf(nextTradingDay(tradeDate)),
+          tradingSignalId: sig.id,
+          positionThesisId: thesis?.id ?? null,
+          // 전략 네임스페이스 — 시스템 모의(paper-simulation)·철학(BUFFETT 등) 예약과 안전 분리.
+          styleTag: tag,
+        },
       });
-      if (trade.filledShares <= 0) continue;
-      await this.tagPaperTrade(trade.id, preset.key);
-      // SHADOW 게이트의 다음 후보 현금 판정을 위해 진입원가만큼 차감(매매 행동엔 무영향 — 관측용).
-      availableCash -= (trade.filledPrice ?? price) * trade.filledShares;
-
-      const fillPrice = trade.filledPrice ?? price;
-      try {
-        await this.prisma.position.create({
-          data: {
-            portfolioId: pf.id,
-            corpCode: sig.corpCode,
-            stockCode: sig.stockCode,
-            positionThesisId: thesis?.id ?? null,
-            entryDate: new Date(),
-            entryPrice: fillPrice,
-            quantity: trade.filledShares,
-            entryAmount: fillPrice * trade.filledShares,
-            currentPrice: fillPrice,
-            currentValue: fillPrice * trade.filledShares,
-            unrealizedPnl: 0,
-            unrealizedPnlPct: 0,
-            highestPrice: fillPrice,
-            highestAt: new Date(),
-            stopLossPct: exitParams.stopLossPct,
-            takeProfitPct: exitParams.takeProfitPct,
-            maxHoldDays: exitParams.maxHoldDays,
-            status: 'OPEN',
-          },
-        });
-      } catch (err) {
-        // 부분 유니크 인덱스 충돌(동시/재실행 동일 종목 OPEN) → 멱등 스킵(DAR-122 계승).
-        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-          openedCorpCodes.add(sig.corpCode);
-          continue;
-        }
-        throw err;
-      }
       openedCorpCodes.add(sig.corpCode);
-      opened++;
+      // 예약 몫(기준가×주문수량)만큼 선차감 — 같은 사이클 내 후보 간 이중 배분 방지.
+      availableCash -= shares * price;
+      reserved++;
     }
-    return { bought: opened, allowlistEmpty: false };
+    return { reserved, allowlistEmpty: false };
   }
 
   // ─── 2) 일일 시가평가(strategy:<key> 태깅) ────────────────────────────────

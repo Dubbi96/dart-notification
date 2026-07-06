@@ -144,7 +144,7 @@ export class PreMarketPreflightScheduler {
     dateKst: string,
     findings: PreflightFinding[],
   ): string {
-    const lines = [`⚠️ 장 시작 전 프리플라이트 — ${title} (${dateKst} KST)`];
+    const lines = [`장 시작 전 프리플라이트 — ${title} (${dateKst} KST)`];
     for (const f of findings) {
       lines.push(` · ${f.message}`);
     }

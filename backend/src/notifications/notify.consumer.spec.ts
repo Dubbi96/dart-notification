@@ -353,8 +353,8 @@ describe('NotifyConsumer (DAR-85)', () => {
         refId: 'trade-1',
         deepLink: '/portfolio/strategy/intraday-scalp',
       });
-      // DAR-432: 출처 이모지(⚡ 단타)+기업명 제목 · 본문은 핵심 수치 한 줄(대괄호 0).
-      expect(first.title).toBe('⚡ 단타 · 삼성전자 매수');
+      // DAR-432: 출처 이모지(단타)+기업명 제목 · 본문은 핵심 수치 한 줄(대괄호 0).
+      expect(first.title).toBe('단타 · 삼성전자 매수');
       expect(first.body).toBe('₩105,000 × 10주 · 잔액 ₩9,500,000');
       expect(first.title).not.toContain('[');
     });
@@ -367,8 +367,8 @@ describe('NotifyConsumer (DAR-85)', () => {
 
       const call = notifications.createNotificationIfAbsent.mock.calls[0][0];
       expect(call.type).toBe(NotificationType.TRADE_EXIT);
-      // DAR-432: 출처 이모지(⚡ 단타)+기업명+손익% 제목 · 본문은 손익(사유)·평가금 한 줄.
-      expect(call.title).toBe('⚡ 단타 · 삼성전자 매도 +2.10%');
+      // DAR-432: 출처 이모지(단타)+기업명+손익% 제목 · 본문은 손익(사유)·평가금 한 줄.
+      expect(call.title).toBe('단타 · 삼성전자 매도 +2.10%');
       expect(call.body).toBe('손익 +2.10%(TAKE_PROFIT) · 평가금 ₩10,200,000');
     });
 
@@ -493,34 +493,34 @@ describe('NotifyConsumer (DAR-85)', () => {
       return notifications.createNotificationIfAbsent.mock.calls[0][0].title as string;
     }
 
-    it('시스템 모의 → 🤖 모의 출처 제목', async () => {
+    it('시스템 모의 → 모의 출처 제목', async () => {
       const title = await titleFor({
         ...baseEntry,
         strategyKey: 'paper-simulation',
         strategyLabel: '시스템 모의',
       });
-      expect(title).toBe('🤖 모의 · 삼성전자 매수');
+      expect(title).toBe('모의 · 삼성전자 매수');
     });
 
-    it('4전략(이벤트엣지) → 🎯 이벤트엣지 출처 제목', async () => {
+    it('4전략(이벤트엣지) → 이벤트엣지 출처 제목', async () => {
       const title = await titleFor({
         ...baseEntry,
         strategyKey: 'event-edge',
         strategyLabel: '이벤트엣지',
       });
-      expect(title).toBe('🎯 이벤트엣지 · 삼성전자 매수');
+      expect(title).toBe('이벤트엣지 · 삼성전자 매수');
     });
 
-    it('미등록 strategyKey → 🔔 알림 폴백(do-no-harm)', async () => {
+    it('미등록 strategyKey → 알림 폴백(do-no-harm)', async () => {
       const title = await titleFor({
         ...baseEntry,
         strategyKey: 'mystery-track',
         strategyLabel: '미상',
       });
-      expect(title).toBe('🔔 알림 · 삼성전자 매수');
+      expect(title).toBe('알림 · 삼성전자 매수');
     });
 
-    it('SIGNAL → 📈 매수신호 제목(등급 한국어)+본문 점수·근거', async () => {
+    it('SIGNAL → 매수신호 제목(등급 한국어)+본문 점수·근거', async () => {
       const { consumer, prisma, notifications } = makeDeps();
       prisma.tradingSignal.findUnique.mockResolvedValue({ id: 's1', isNotified: false });
       prisma.watchList.findMany.mockResolvedValue([{ userId: 'u1' }]);
@@ -537,12 +537,12 @@ describe('NotifyConsumer (DAR-85)', () => {
       );
 
       const call = notifications.createNotificationIfAbsent.mock.calls[0][0];
-      expect(call.title).toBe('📈 삼성전자 매수신호 적극매수');
+      expect(call.title).toBe('삼성전자 매수신호 적극매수');
       expect(call.body).toBe('82점 · SUPPLY_CONTRACT');
       expect(call.title).not.toContain('[');
     });
 
-    it('EXIT → 🔻 청산 권고 제목', async () => {
+    it('EXIT → 청산 권고 제목', async () => {
       const { consumer, prisma, notifications } = makeDeps();
       prisma.position.findUnique.mockResolvedValue({
         corpCode: 'c1',
@@ -560,10 +560,10 @@ describe('NotifyConsumer (DAR-85)', () => {
         }),
       );
       const call = notifications.createNotificationIfAbsent.mock.calls[0][0];
-      expect(call.title).toBe('🔻 삼성전자 청산 권고');
+      expect(call.title).toBe('삼성전자 청산 권고');
     });
 
-    it('THESIS_VIOLATED → ⚠️ 투자논리 훼손 제목', async () => {
+    it('THESIS_VIOLATED → 투자논리 훼손 제목', async () => {
       const { consumer, prisma, notifications } = makeDeps();
       prisma.positionThesis.findUnique.mockResolvedValue({
         corpCode: 'c1',
@@ -583,7 +583,7 @@ describe('NotifyConsumer (DAR-85)', () => {
         }),
       );
       const call = notifications.createNotificationIfAbsent.mock.calls[0][0];
-      expect(call.title).toBe('⚠️ 삼성전자 투자논리 훼손');
+      expect(call.title).toBe('삼성전자 투자논리 훼손');
     });
   });
 
@@ -622,7 +622,7 @@ describe('NotifyConsumer (DAR-85)', () => {
         userId: 'u1',
         type: NotificationType.OPS_ALERT,
         refId: 'cron-stale:2026-07-03', // dedupeKey = 멱등 자연키
-        title: '⚙️ 운영 · 주의',
+        title: '운영 · 주의',
         body: '공시 수집 크론이 30분째 지연되고 있습니다.',
       });
       // 채널: 카테고리 'system' → Android 채널 'system'.
@@ -630,7 +630,7 @@ describe('NotifyConsumer (DAR-85)', () => {
       expect(expoPush.sendPushNotifications.mock.calls[0][0][0].channelId).toBe('system');
     });
 
-    it('RISK_ALERT → 🛑 리스크 제목·OPS_ALERT 타입 구분·system 채널', async () => {
+    it('RISK_ALERT → 리스크 제목·OPS_ALERT 타입 구분·system 채널', async () => {
       const { consumer, prisma, notifications, expoPush } = makeDeps();
       prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
       prisma.notificationSettings.findMany.mockResolvedValue([]);
@@ -640,7 +640,7 @@ describe('NotifyConsumer (DAR-85)', () => {
 
       const call = notifications.createNotificationIfAbsent.mock.calls[0][0];
       expect(call.type).toBe(NotificationType.RISK_ALERT);
-      expect(call.title).toBe('🛑 리스크 · 긴급');
+      expect(call.title).toBe('리스크 · 긴급');
       const msg = expoPush.sendPushNotifications.mock.calls[0][0][0];
       expect(msg.channelId).toBe('system');
       expect(msg.data).toMatchObject({ type: NotificationType.RISK_ALERT, refId: 'kill-switch:2026-07-03' });
@@ -699,8 +699,8 @@ describe('NotifyConsumer (DAR-85)', () => {
     });
 
     it('opsAlertTitle 순수 함수 — 출처 이모지+라벨·심각도', () => {
-      expect(opsAlertTitle(NotificationType.OPS_ALERT, 'INFO')).toBe('⚙️ 운영 · 정보');
-      expect(opsAlertTitle(NotificationType.RISK_ALERT, 'CRITICAL')).toBe('🛑 리스크 · 긴급');
+      expect(opsAlertTitle(NotificationType.OPS_ALERT, 'INFO')).toBe('운영 · 정보');
+      expect(opsAlertTitle(NotificationType.RISK_ALERT, 'CRITICAL')).toBe('리스크 · 긴급');
       expect(OPS_SEVERITY_LABEL).toMatchObject({
         INFO: '정보',
         WARNING: '주의',

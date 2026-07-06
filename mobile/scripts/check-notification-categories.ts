@@ -30,8 +30,8 @@ const ALL_TYPES: NotificationType[] = [
   'OPS_ALERT',
 ];
 
-// 백엔드 notify.consumer.handleTrade 의 제목 산출(DAR-432 이모지+출처명판)을 순수 재현.
-// 출처명(srcPrefix 예: '⚡ 단타')는 NOTIFICATION_SOURCES(SSOT)에서 오며, 여기서는 대괄호 부재만 본다.
+// 백엔드 notify.consumer.handleTrade 의 제목 산출(DAR-432 2026-07-06 개정: 출처명 텍스트판)을 순수 재현.
+// 출처명(srcPrefix 예: '단타')는 NOTIFICATION_SOURCES(SSOT)에서 오며, 여기서는 대괄호 부재만 본다.
 function tradeTitle(srcPrefix: string, kind: 'ENTRY' | 'EXIT', label: string, pctText: string): string {
   if (kind === 'ENTRY') return `${srcPrefix} · ${label} 매수`;
   return `${srcPrefix} · ${label} 매도${pctText ? ` ${pctText}` : ''}`;
@@ -83,11 +83,11 @@ check(
     CATEGORY_CHANNEL_ID.system === 'system',
 );
 
-// (4) 제목 [ ]대괄호 부재(출처는 이모지+출처명 프리픽스로 — DAR-432)
-const entryTitle = tradeTitle('⚡ 단타', 'ENTRY', '삼성전자', '');
-const exitTitle = tradeTitle('⚡ 단타', 'EXIT', '삼성전자', '+2.10%');
-check('매수 제목 = "⚡ 단타 · 삼성전자 매수"', entryTitle === '⚡ 단타 · 삼성전자 매수');
-check('매도 제목 = "⚡ 단타 · 삼성전자 매도 +2.10%"', exitTitle === '⚡ 단타 · 삼성전자 매도 +2.10%');
+// (4) 제목 [ ]대괄호 부재(출처는 출처명 텍스트 프리픽스로 — DAR-432 개정)
+const entryTitle = tradeTitle('단타', 'ENTRY', '삼성전자', '');
+const exitTitle = tradeTitle('단타', 'EXIT', '삼성전자', '+2.10%');
+check('매수 제목 = "단타 · 삼성전자 매수"', entryTitle === '단타 · 삼성전자 매수');
+check('매도 제목 = "단타 · 삼성전자 매도 +2.10%"', exitTitle === '단타 · 삼성전자 매도 +2.10%');
 check(
   '제목에 [ ]대괄호 없음',
   !entryTitle.includes('[') &&

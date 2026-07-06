@@ -9,47 +9,56 @@ import {
   truncateForTitle,
 } from './notification-source';
 
-describe('notification-source SSOT (DAR-432)', () => {
-  it('출처별 고유 이모지·라벨 매핑(기획 명세 1:1)', () => {
-    expect(NOTIFICATION_SOURCES.disclosure).toMatchObject({ emoji: '📢', label: '공시' });
-    expect(NOTIFICATION_SOURCES.signal).toMatchObject({ emoji: '📈', label: '매수신호' });
-    expect(NOTIFICATION_SOURCES['paper-simulation']).toMatchObject({ emoji: '🤖', label: '모의' });
-    expect(NOTIFICATION_SOURCES['intraday-scalp']).toMatchObject({ emoji: '⚡', label: '단타' });
-    expect(NOTIFICATION_SOURCES['event-edge']).toMatchObject({ emoji: '🎯', label: '이벤트엣지' });
-    expect(NOTIFICATION_SOURCES['conservative-value']).toMatchObject({ emoji: '🛡️', label: '보수가치' });
-    expect(NOTIFICATION_SOURCES['short-momentum']).toMatchObject({ emoji: '🚀', label: '단기모멘텀' });
-    expect(NOTIFICATION_SOURCES['aggressive-diversified']).toMatchObject({ emoji: '💥', label: '공격분산' });
+describe('notification-source SSOT (DAR-432 · 2026-07-06 이모지 제거 개정)', () => {
+  it('출처별 라벨 매핑(기획 명세 1:1)', () => {
+    expect(NOTIFICATION_SOURCES.disclosure).toMatchObject({ label: '공시' });
+    expect(NOTIFICATION_SOURCES.signal).toMatchObject({ label: '매수신호' });
+    expect(NOTIFICATION_SOURCES['paper-simulation']).toMatchObject({ label: '모의' });
+    expect(NOTIFICATION_SOURCES['intraday-scalp']).toMatchObject({ label: '단타' });
+    expect(NOTIFICATION_SOURCES['event-edge']).toMatchObject({ label: '이벤트엣지' });
+    expect(NOTIFICATION_SOURCES['conservative-value']).toMatchObject({ label: '보수가치' });
+    expect(NOTIFICATION_SOURCES['short-momentum']).toMatchObject({ label: '단기모멘텀' });
+    expect(NOTIFICATION_SOURCES['aggressive-diversified']).toMatchObject({ label: '공격분산' });
     // DAR-473(P01): 리스크·운영 출처.
-    expect(NOTIFICATION_SOURCES.risk).toMatchObject({ emoji: '🛑', label: '리스크' });
-    expect(NOTIFICATION_SOURCES.ops).toMatchObject({ emoji: '⚙️', label: '운영' });
+    expect(NOTIFICATION_SOURCES.risk).toMatchObject({ label: '리스크' });
+    expect(NOTIFICATION_SOURCES.ops).toMatchObject({ label: '운영' });
   });
 
-  it('이모지는 출처마다 고유(중복 0)', () => {
-    const emojis = Object.values(NOTIFICATION_SOURCES).map((s) => s.emoji);
-    expect(new Set(emojis).size).toBe(emojis.length);
+  it('라벨은 출처마다 고유(중복 0) — 이모지 없이 텍스트만으로 식별 성립', () => {
+    const labels = Object.values(NOTIFICATION_SOURCES).map((s) => s.label);
+    expect(new Set(labels).size).toBe(labels.length);
   });
 
-  it('sourceByKey — 미상 키는 폴백(🔔)', () => {
-    expect(sourceByKey('intraday-scalp').emoji).toBe('⚡');
+  it('출처 라벨에 이모지 미포함(2026-07-06 사용자 결정)', () => {
+    const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/u;
+    for (const src of [...Object.values(NOTIFICATION_SOURCES), FALLBACK_SOURCE]) {
+      expect(src.label).not.toMatch(EMOJI_RE);
+      expect(src.label).not.toContain('\uFE0F');
+      expect(sourcePrefix(src)).not.toMatch(EMOJI_RE);
+    }
+  });
+
+  it('sourceByKey — 미상 키는 폴백(알림)', () => {
+    expect(sourceByKey('intraday-scalp').label).toBe('단타');
     expect(sourceByKey('nope')).toBe(FALLBACK_SOURCE);
     expect(sourceByKey(null)).toBe(FALLBACK_SOURCE);
     expect(sourceByKey(undefined)).toBe(FALLBACK_SOURCE);
   });
 
   it('sourceByType — 체결 외 타입 매핑', () => {
-    expect(sourceByType(NotificationType.DISCLOSURE).emoji).toBe('📢');
-    expect(sourceByType(NotificationType.SIGNAL).emoji).toBe('📈');
-    expect(sourceByType(NotificationType.EXIT).emoji).toBe('🔻');
-    expect(sourceByType(NotificationType.THESIS_VIOLATED).emoji).toBe('⚠️');
+    expect(sourceByType(NotificationType.DISCLOSURE).label).toBe('공시');
+    expect(sourceByType(NotificationType.SIGNAL).label).toBe('매수신호');
+    expect(sourceByType(NotificationType.EXIT).label).toBe('청산');
+    expect(sourceByType(NotificationType.THESIS_VIOLATED).label).toBe('논리훼손');
     // 체결 타입은 strategyKey 가 필요 → 폴백.
     expect(sourceByType(NotificationType.TRADE_ENTRY)).toBe(FALLBACK_SOURCE);
     // DAR-473(P01): 리스크·운영 타입 매핑.
-    expect(sourceByType(NotificationType.RISK_ALERT).emoji).toBe('🛑');
-    expect(sourceByType(NotificationType.OPS_ALERT).emoji).toBe('⚙️');
+    expect(sourceByType(NotificationType.RISK_ALERT).label).toBe('리스크');
+    expect(sourceByType(NotificationType.OPS_ALERT).label).toBe('운영');
   });
 
-  it('sourcePrefix — "이모지 라벨"', () => {
-    expect(sourcePrefix(NOTIFICATION_SOURCES['paper-simulation'])).toBe('🤖 모의');
+  it('sourcePrefix — 라벨 텍스트만(이모지 없음)', () => {
+    expect(sourcePrefix(NOTIFICATION_SOURCES['paper-simulation'])).toBe('모의');
   });
 
   it('gradeLabel — 한국어 등급, 미상은 원본', () => {

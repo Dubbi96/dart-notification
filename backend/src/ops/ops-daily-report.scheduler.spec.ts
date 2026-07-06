@@ -30,7 +30,7 @@ describe('OpsDailyReportScheduler (DAR-477)', () => {
       slippage: null,
       signals24h: 7,
       aiCostUsdTotal: 1.2345,
-      body: '📊 일일 운영 리포트 (2026-07-02 KST)\n...',
+      body: '일일 운영 리포트 (2026-07-02 KST)\n...',
       ...over,
     };
   }

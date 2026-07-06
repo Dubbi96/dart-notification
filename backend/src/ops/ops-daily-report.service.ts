@@ -294,8 +294,8 @@ export class OpsDailyReportService {
   /** 구조화 필드 → 한국어 평문 다이제스트(발송 본문). */
   private renderBody(r: OpsDailyReport): string {
     const lines: string[] = [];
-    const flag = r.severity === 'WARNING' ? '⚠️' : '📊';
-    lines.push(`${flag} 일일 운영 리포트 (${r.reportDateKst} KST)`);
+    // 이모지 미사용(2026-07-06 개정) — 심각도는 알림 제목('운영 · 주의/정보')이 이미 담는다.
+    lines.push(`일일 운영 리포트 (${r.reportDateKst} KST)`);
 
     lines.push('');
     lines.push('■ 트랙별 손익 (누적 실현 / 현재 평가)');

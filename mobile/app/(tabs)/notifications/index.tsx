@@ -162,9 +162,9 @@ function NotificationRowBase({ item, onPress }: NotificationRowProps) {
   const meta = getTypeMeta(item.type);
   const accent = colors[meta.colorKey];
   // DAR-84 다형 표시: 공시는 조인 데이터 우선, 그 외 타입은 title/body 사용.
-  // UXR-16(C-1): 인앱 행은 Feather 아이콘으로 일원화 — 이모지 SSOT(DAR-432)는 푸시 페이로드 전용.
-  //   공시 행은 조인 데이터를 이모지 없이 렌더하고, 백엔드 title(이모지 프리픽스 포함)은
-  //   stripSourceEmoji 로 선두 출처 이모지만 결정론 제거해 이중 표기를 없앤다.
+  // UXR-16(C-1)+2026-07-06 개정: 인앱 행은 Feather 아이콘으로 일원화, 알림 제목은 이모지 미사용.
+  //   stripSourceEmoji 는 레거시(개정 전 발행·인박스 영속) 제목의 선두 이모지만 제거하는
+  //   하위호환 경로다 — 신규 제목은 무변경 통과.
   const primaryText = item.disclosure
     ? `${item.disclosure.corpName} · ${getTypeLabel(item.disclosure.disclosureType)}`
     : item.title

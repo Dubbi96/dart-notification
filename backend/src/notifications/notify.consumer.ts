@@ -45,15 +45,15 @@ export const OPS_SEVERITY_LABEL: Record<OpsAlertSeverity, string> = {
 
 /**
  * DAR-473(P01): 리스크·운영 알림 제목 산출(순수 함수).
- *   '{출처 이모지} {출처명} · {심각도}' 예: '🛑 리스크 · 긴급' / '⚙️ 운영 · 주의'.
- *   출처(이모지+라벨)는 notification-source SSOT 에서 온다(risk→🛑리스크·ops→⚙️운영).
+ *   '{출처명} · {심각도}' 예: '리스크 · 긴급' / '운영 · 주의'.
+ *   출처 라벨은 notification-source SSOT 에서 온다(이모지 미사용 — 2026-07-06 개정).
  */
 export function opsAlertTitle(
   type: NotificationType,
   severity: OpsAlertSeverity,
 ): string {
   const src = sourceByType(type);
-  return `${src.emoji} ${src.label} · ${OPS_SEVERITY_LABEL[severity]}`;
+  return `${src.label} · ${OPS_SEVERITY_LABEL[severity]}`;
 }
 
 /**
@@ -124,11 +124,11 @@ export class NotifyConsumer extends WorkerHost {
     });
 
     const label = data.corpName ?? data.stockCode ?? corpCode;
-    // DAR-432: 출처 이모지(📈)+출처명(매수신호) 한눈 식별 · 등급 한국어 · 본문은 점수+근거 한 줄.
-    //   제목: '📈 {기업명} 매수신호 {등급}' / 본문: '{점수}점 · {근거}'
+    // DAR-432(2026-07-06 개정): 출처명(매수신호) 텍스트 식별 · 등급 한국어 · 본문은 점수+근거 한 줄.
+    //   제목: '{기업명} 매수신호 {등급}' / 본문: '{점수}점 · {근거}' (이모지 미사용)
     const src = sourceByType(NotificationType.SIGNAL);
     const grade = gradeLabel(data.grade);
-    const title = `${src.emoji} ${label} ${src.label}${grade ? ` ${grade}` : ''}`;
+    const title = `${label} ${src.label}${grade ? ` ${grade}` : ''}`;
     const parts = [
       data.buyScore != null ? `${data.buyScore}점` : null,
       data.eventType,
@@ -168,8 +168,8 @@ export class NotifyConsumer extends WorkerHost {
     }
 
     const label = data.corpName ?? data.stockCode ?? position.stockCode ?? data.corpCode;
-    // DAR-432: 출처 이모지(🔻)+기업명+동작 — '🔻 {기업명} 청산 권고'.
-    const title = `${sourceByType(NotificationType.EXIT).emoji} ${label} 청산 권고`;
+    // DAR-432(2026-07-06 개정): 기업명+동작 — '{기업명} 청산 권고' (동작 문구가 자체 식별·이모지 미사용).
+    const title = `${label} 청산 권고`;
     const triggers = (data.triggerTypes ?? []).join(', ');
     const body = [data.exitAction, triggers].filter(Boolean).join(' · ')
       || '청산 조건이 충족되었습니다. (권고 — 자동 주문 아님)';
@@ -206,8 +206,8 @@ export class NotifyConsumer extends WorkerHost {
     }
 
     const label = data.corpName ?? data.stockCode ?? pos?.stockCode ?? data.corpCode;
-    // DAR-432: 출처 이모지(⚠️)+기업명+동작 — '⚠️ {기업명} 투자논리 훼손'.
-    const title = `${sourceByType(NotificationType.THESIS_VIOLATED).emoji} ${label} 투자논리 훼손`;
+    // DAR-432(2026-07-06 개정): 기업명+동작 — '{기업명} 투자논리 훼손' (동작 문구가 자체 식별·이모지 미사용).
+    const title = `${label} 투자논리 훼손`;
     const body = data.reason || '매수 논리의 무효 조건이 충족되었습니다.';
     // 청산 권고와 동일하게 포지션 상세로 딥링크(논리훼손→포지션 점검 동선).
     const deepLink = `/portfolio/${pos!.portfolio!.id}/position/${pos!.id}`;
@@ -244,9 +244,9 @@ export class NotifyConsumer extends WorkerHost {
     const cashStr = formatKrw(data.cash);
     const totalStr = formatKrw(data.totalValue);
 
-    // DAR-432: 출처별 고유 이모지+출처명을 제목 앞에 둬 "어디서 발행했는지" 한눈에 보이게 한다.
-    //   출처(strategyKey) → 🤖 모의 / ⚡ 단타 / 🎯 이벤트엣지 등(SSOT notification-source).
-    //   제목: '{이모지} {출처명} · {기업명} 매수/매도 {±%}' / 본문은 핵심 수치 한 줄(대괄호 0).
+    // DAR-432(2026-07-06 개정): 출처명 텍스트를 제목 앞에 둬 "어디서 발행했는지" 한눈에 보이게 한다.
+    //   출처(strategyKey) → 모의 / 단타 / 이벤트엣지 등(SSOT notification-source, 이모지 미사용).
+    //   제목: '{출처명} · {기업명} 매수/매도 {±%}' / 본문은 핵심 수치 한 줄(대괄호 0).
     //     매수 본문: '₩{가}×{수량} · 잔액 ₩{현금}'
     //     매도 본문: '손익 {±%}({사유}) · 평가금 ₩{총}'
     const src = sourceByKey(data.strategyKey);

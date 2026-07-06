@@ -10,6 +10,10 @@ import { OpsMetricsController } from './ops-metrics.controller';
 import { OpsMetricsService } from './ops-metrics.service';
 import { OpsDailyReportService } from './ops-daily-report.service';
 import { OpsDailyReportScheduler } from './ops-daily-report.scheduler';
+import { BiweeklyTrackReviewService } from './biweekly-track-review.service';
+import { BiweeklyTrackReviewScheduler } from './biweekly-track-review.scheduler';
+import { BiweeklyTrackReviewController } from './biweekly-track-review.controller';
+import { PersonaTradingModule } from '../engine5-trading-risk/paper-simulation/persona/persona-trading.module';
 import { PreMarketPreflightService } from './pre-market-preflight.service';
 import { PreMarketPreflightScheduler } from './pre-market-preflight.scheduler';
 import { MarketDataModule } from '../engine3-quant-market/market-data/market-data.module';
@@ -48,13 +52,18 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
     //   (AutoTradingStatusService)를 read-only 재사용. 두 모듈의 export 만 취한다(싱글턴 재사용).
     MarketDataModule,
     TradingRiskModule,
+    // 격주 트랙 성과 순위 리포트 — MarketRegimeService(시장국면 태깅) read-only 재사용.
+    PersonaTradingModule,
   ],
-  controllers: [OpsHealthController, OpsMetricsController],
+  controllers: [OpsHealthController, OpsMetricsController, BiweeklyTrackReviewController],
   providers: [
     OpsMetricsService,
     // DAR-477(견고화 W0·P05): 일일 운영 리포트 생성 서비스 + 20:30 KST 발송 스케줄러.
     OpsDailyReportService,
     OpsDailyReportScheduler,
+    // 격주 트랙 성과 순위 리포트(트레일링 14일·시장국면 태깅) + 격주 일요일 10:00 KST 스케줄러.
+    BiweeklyTrackReviewService,
+    BiweeklyTrackReviewScheduler,
     // DAR-487(견고화 W3·P26): 장 시작 전 종합 프리플라이트 점검 서비스 + 08:30 KST 스케줄러.
     PreMarketPreflightService,
     PreMarketPreflightScheduler,

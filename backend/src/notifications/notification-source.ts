@@ -28,6 +28,8 @@ export interface NotificationSource {
  *
  * 트랙 키(체결): 'paper-simulation'·'intraday-scalp' + 4전략 preset key.
  * 타입 키(체결 외): 'disclosure'·'signal'·'exit'·'thesis'.
+ * 철학 스타일 키(체결): BUFFETT·LYNCH·GREENBLATT·DRUCKENMILLER(개장 체결 정렬 2026-07-06).
+ * 전략 forward 체결은 strategyKey='strategy:<key>' — sourceByKey 가 접두사를 벗겨 정규화한다.
  */
 export const NOTIFICATION_SOURCES: Record<string, NotificationSource> = {
   // ── 체결 외(NotificationType 파생) ──────────────────────────────────────────
@@ -42,6 +44,11 @@ export const NOTIFICATION_SOURCES: Record<string, NotificationSource> = {
   'short-momentum': { key: 'short-momentum', label: '단기모멘텀' },
   'conservative-value': { key: 'conservative-value', label: '보수가치' },
   'aggressive-diversified': { key: 'aggressive-diversified', label: '공격분산' },
+  // ── 체결(철학 스타일 4종 — 개장 체결 정렬 2026-07-06로 철학 트랙도 체결 알림 발행) ──
+  BUFFETT: { key: 'BUFFETT', label: '버핏' },
+  LYNCH: { key: 'LYNCH', label: '린치' },
+  GREENBLATT: { key: 'GREENBLATT', label: '그린블라트' },
+  DRUCKENMILLER: { key: 'DRUCKENMILLER', label: '드러켄밀러' },
   // ── 리스크·운영(DAR-473 P01·NotificationType 파생) ──────────────────────────
   risk: { key: 'risk', label: '리스크' },
   ops: { key: 'ops', label: '운영' },
@@ -64,10 +71,13 @@ const TYPE_SOURCE_KEY: Partial<Record<NotificationType, string>> = {
   [NotificationType.OPS_ALERT]: 'ops',
 };
 
-/** 출처 키로 출처 조회(미상은 폴백). */
+/** 출처 키로 출처 조회(미상은 폴백).
+ *  전략 forward 체결(개장 체결 정렬 2026-07-06)은 styleTag('strategy:<key>')를 strategyKey 로
+ *  그대로 싣는다 — 접두사를 벗겨 프리셋 키로 정규화해 동일 라벨 SSOT 를 재사용한다. */
 export function sourceByKey(key?: string | null): NotificationSource {
-  if (key && NOTIFICATION_SOURCES[key]) return NOTIFICATION_SOURCES[key];
-  return FALLBACK_SOURCE;
+  if (!key) return FALLBACK_SOURCE;
+  const normalized = key.startsWith('strategy:') ? key.slice('strategy:'.length) : key;
+  return NOTIFICATION_SOURCES[normalized] ?? FALLBACK_SOURCE;
 }
 
 /** NotificationType(체결 외) → 출처. 체결 타입은 strategyKey 가 필요하므로 폴백. */

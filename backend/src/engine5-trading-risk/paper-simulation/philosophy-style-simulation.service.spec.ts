@@ -178,24 +178,48 @@ describe('PhilosophyStyleSimulationService (DAR-76)', () => {
     });
   });
 
-  describe('진입 분기(적합도 필터 + styleTag)', () => {
-    function buildEntryService(eligibleCorp: string) {
-      const created: unknown[] = [];
-      const tagged: { id: string; data: unknown }[] = [];
+  describe('진입 분기(적합도 필터 + styleTag) — 개장 체결 정렬: PENDING 예약 생성', () => {
+    /** 예약 entryDate 규약(서비스 kstMidnightOf 와 동일) — 20260606(토) 다음 거래일 = 20260608(월). */
+    const NEXT_OPEN_KST = new Date('2026-06-08T00:00:00+09:00');
+
+    function buildEntryService(
+      eligibleCorp: string,
+      opts: {
+        readyCandidates?: Array<Record<string, unknown>>;
+        fallbackCandidates?: Array<Record<string, unknown>>;
+      } = {},
+    ) {
+      const createdPositions: unknown[] = [];
+      const reservations: Record<string, unknown>[] = [];
+      const ready =
+        opts.readyCandidates ??
+        ([
+          { id: 'sigA', corpCode: 'A', stockCode: '000A', signal: 'WATCH', buyScore: 90 },
+          { id: 'sigB', corpCode: 'B', stockCode: '000B', signal: 'WATCH', buyScore: 80 },
+        ] as Array<Record<string, unknown>>);
+      const fallback = opts.fallbackCandidates ?? [];
       const prisma = {
         position: {
-          count: jest.fn().mockResolvedValue(0),
-          findMany: jest.fn().mockResolvedValue([]), // openCorpCodes
+          // OPEN(corpCode+entryAmount)·CLOSED(현금 산정) 분기 — 둘 다 빈 포트폴리오.
+          findMany: jest.fn().mockResolvedValue([]),
           create: jest.fn((args: { data: unknown }) => {
-            created.push(args.data);
+            createdPositions.push(args.data);
             return Promise.resolve({});
           }),
         },
         tradingSignal: {
-          findMany: jest.fn().mockResolvedValue([
-            { id: 'sigA', corpCode: 'A', stockCode: '000A', signal: 'WATCH', buyScore: 90 },
-            { id: 'sigB', corpCode: 'B', stockCode: '000B', signal: 'WATCH', buyScore: 80 },
-          ]),
+          // ① entryReady=true / ② 폴백(entryReady=false) 2단계 쿼리 분기.
+          findMany: jest.fn(
+            ({
+              where,
+            }: {
+              where: {
+                entryReady: boolean;
+                buyScore?: { gte: number };
+                disclosure?: { isBackfill: boolean };
+              };
+            }) => Promise.resolve(where.entryReady ? ready : fallback),
+          ),
         },
         positionThesis: { findUnique: jest.fn().mockResolvedValue(null) },
         stockDailyPrice: {
@@ -208,9 +232,11 @@ describe('PhilosophyStyleSimulationService (DAR-76)', () => {
           }),
         },
         paperTrade: {
-          update: jest.fn((args: { where: { id: string }; data: unknown }) => {
-            tagged.push({ id: args.where.id, data: args.data });
-            return Promise.resolve({});
+          // 미체결 예약(PENDING) 조회 — 없음.
+          findMany: jest.fn().mockResolvedValue([]),
+          create: jest.fn((args: { data: Record<string, unknown> }) => {
+            reservations.push(args.data);
+            return Promise.resolve({ id: `pt${reservations.length}` });
           }),
         },
       };
@@ -237,40 +263,145 @@ describe('PhilosophyStyleSimulationService (DAR-76)', () => {
         philosophyFit as never,
         {} as never,
       );
-      return { service, prisma, paperTrade, philosophyFit, created, tagged };
+      const open = (tradeDate = '20260606') =>
+        (
+          service as never as {
+            openStylePositions: (
+              style: string,
+              pf: { id: string; maxSinglePositionPct: number },
+              tradeDate: string,
+            ) => Promise<number>;
+          }
+        ).openStylePositions(
+          'BUFFETT',
+          { id: 'pf-BUFFETT', maxSinglePositionPct: 10 },
+          tradeDate,
+        );
+      return { service, prisma, paperTrade, philosophyFit, createdPositions, reservations, open };
     }
 
-    it('적합도 적격 종목만 진입하고 styleTag 로 태깅한다', async () => {
-      const { service, paperTrade, created, tagged } = buildEntryService('A');
-      const opened = await (service as never as {
-        openStylePositions: (
-          style: string,
-          pf: { id: string; maxSinglePositionPct: number },
-          tradeDate: string,
-        ) => Promise<number>;
-      }).openStylePositions('BUFFETT', { id: 'pf-BUFFETT', maxSinglePositionPct: 10 }, '20260606');
+    it('적합도 적격 종목만 PENDING 예약을 만든다(즉시 체결·Position 생성 0)', async () => {
+      const { paperTrade, createdPositions, reservations, open } = buildEntryService('A');
+      const reserved = await open();
 
-      expect(opened).toBe(1); // A 적격, B 부적격(score 30 < 50)
-      expect(paperTrade.placeOrder).toHaveBeenCalledTimes(1);
-      expect(created).toHaveLength(1);
-      expect((created[0] as { corpCode: string; portfolioId: string }).corpCode).toBe('A');
-      expect((created[0] as { portfolioId: string }).portfolioId).toBe('pf-BUFFETT');
-      // styleTag 태깅
-      expect(tagged).toEqual([{ id: 't1', data: { styleTag: 'BUFFETT' } }]);
+      expect(reserved).toBe(1); // A 적격, B 부적격(score 30 < 50)
+      // ★개장 체결 정렬: 즉시 체결(placeOrder)·Position 생성 없음 — 예약만.
+      expect(paperTrade.placeOrder).not.toHaveBeenCalled();
+      expect(createdPositions).toHaveLength(0);
+      expect(reservations).toHaveLength(1);
+      expect(reservations[0]).toEqual(
+        expect.objectContaining({
+          corpCode: 'A',
+          stockCode: '000A',
+          direction: 'BUY',
+          status: 'PENDING',
+          styleTag: 'BUFFETT',
+          // 결정 시점 사이징: budget = 1M(base) × 0.4(WATCH) = 400k → 1000원 → 400주.
+          orderedShares: 400,
+          filledShares: 0,
+          // 예약 기준가 + 신호시점 기대가(DAR-474) 보존.
+          entryPrice: 1000,
+          expectedPrice: 1000,
+        }),
+      );
+      // entryDate = 다음 거래일(20260606 토 → 20260608 월) KST 자정.
+      expect((reservations[0].entryDate as Date).getTime()).toBe(NEXT_OPEN_KST.getTime());
     });
 
-    it('적격 종목이 없으면 0건 진입(분기 격리)', async () => {
-      const { service, paperTrade, created } = buildEntryService('NONE');
-      const opened = await (service as never as {
-        openStylePositions: (
-          style: string,
-          pf: { id: string; maxSinglePositionPct: number },
-          tradeDate: string,
-        ) => Promise<number>;
-      }).openStylePositions('BUFFETT', { id: 'pf-BUFFETT', maxSinglePositionPct: 10 }, '20260606');
-      expect(opened).toBe(0);
+    it('적격 종목이 없으면 예약 0건(분기 격리)', async () => {
+      const { paperTrade, reservations, open } = buildEntryService('NONE');
+      const reserved = await open();
+      expect(reserved).toBe(0);
       expect(paperTrade.placeOrder).not.toHaveBeenCalled();
-      expect(created).toHaveLength(0);
+      expect(reservations).toHaveLength(0);
+    });
+
+    it('entryReady 폴백 — ①이 비면 entryReady=false & buyScore≥50 상위 후보로 보강한다', async () => {
+      const { prisma, reservations, open } = buildEntryService('C', {
+        readyCandidates: [],
+        fallbackCandidates: [
+          { id: 'sigC', corpCode: 'C', stockCode: '000C', signal: 'WATCH', buyScore: 60 },
+        ],
+      });
+      const reserved = await open();
+
+      expect(reserved).toBe(1);
+      expect(reservations[0]).toEqual(
+        expect.objectContaining({ corpCode: 'C', status: 'PENDING', styleTag: 'BUFFETT' }),
+      );
+      // ② 폴백 쿼리 형태: entryReady=false + buyScore 하한(50) + 백필 배제.
+      const fallbackWhere = prisma.tradingSignal.findMany.mock.calls[1][0].where;
+      expect(fallbackWhere.entryReady).toBe(false);
+      expect(fallbackWhere.buyScore).toEqual({ gte: 50 });
+      expect(fallbackWhere.disclosure).toEqual({ isBackfill: false });
+    });
+  });
+
+  describe('runStyleCycle — 사이클 서두 개장 체결 폴백(일반화된 fillPendingEntries 소비)', () => {
+    type PrivateCycleApi = {
+      openStylePositions: (...a: never[]) => Promise<number>;
+      snapshotOpenPositions: (...a: never[]) => Promise<number>;
+      evaluateExits: (...a: never[]) => Promise<number>;
+      computeEquity: (...a: never[]) => Promise<{ equity: number; openPositions: number }>;
+      saveStyleSnapshot: (...a: never[]) => Promise<void>;
+    };
+
+    it('fillPendingEntries 를 스타일 네임스페이스로 예약(openStylePositions)보다 먼저 1회 호출한다', async () => {
+      const paperSim = { fillPendingEntries: jest.fn().mockResolvedValue(3) };
+      const service = new PhilosophyStyleSimulationService(
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        undefined,
+        paperSim as never,
+      );
+      jest
+        .spyOn(service, 'getOrCreateStylePortfolio')
+        .mockResolvedValue({ id: 'pf-BUFFETT', maxSinglePositionPct: 10 });
+      const priv = service as unknown as PrivateCycleApi;
+      const openSpy = jest.spyOn(priv, 'openStylePositions').mockResolvedValue(2);
+      jest.spyOn(priv, 'snapshotOpenPositions').mockResolvedValue(1);
+      jest.spyOn(priv, 'evaluateExits').mockResolvedValue(0);
+      jest.spyOn(priv, 'computeEquity').mockResolvedValue({ equity: 10_000_000, openPositions: 1 });
+      jest.spyOn(priv, 'saveStyleSnapshot').mockResolvedValue(undefined);
+
+      const result = await service.runStyleCycle('BUFFETT', '20260706');
+
+      expect(paperSim.fillPendingEntries).toHaveBeenCalledTimes(1);
+      expect(paperSim.fillPendingEntries).toHaveBeenCalledWith('pf-BUFFETT', '20260706', {
+        styleTag: 'BUFFETT',
+        initialCapital: 10_000_000,
+      });
+      // 폴백 체결이 신규 예약보다 먼저(전일 예약 소진 후 슬롯 산정).
+      expect(paperSim.fillPendingEntries.mock.invocationCallOrder[0]).toBeLessThan(
+        openSpy.mock.invocationCallOrder[0],
+      );
+      expect(result.bought).toBe(3);
+      expect(result.reserved).toBe(2);
+    });
+
+    it('paperSim 미주입(단위 테스트 환경)이면 폴백 생략 — bought=0(graceful)', async () => {
+      const service = new PhilosophyStyleSimulationService(
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+      );
+      jest
+        .spyOn(service, 'getOrCreateStylePortfolio')
+        .mockResolvedValue({ id: 'pf-BUFFETT', maxSinglePositionPct: 10 });
+      const priv = service as unknown as PrivateCycleApi;
+      jest.spyOn(priv, 'openStylePositions').mockResolvedValue(0);
+      jest.spyOn(priv, 'snapshotOpenPositions').mockResolvedValue(0);
+      jest.spyOn(priv, 'evaluateExits').mockResolvedValue(0);
+      jest.spyOn(priv, 'computeEquity').mockResolvedValue({ equity: 10_000_000, openPositions: 0 });
+      jest.spyOn(priv, 'saveStyleSnapshot').mockResolvedValue(undefined);
+
+      const result = await service.runStyleCycle('BUFFETT', '20260706');
+      expect(result.bought).toBe(0);
+      expect(result.reserved).toBe(0);
+      expect(result.message).toBeUndefined();
     });
   });
 });

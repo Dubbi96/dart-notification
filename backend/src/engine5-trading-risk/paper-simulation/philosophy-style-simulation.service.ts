@@ -12,6 +12,12 @@
  * 회귀 0: 기존 단일 시뮬(PaperSimulationService) 경로/포트폴리오를 일절 변경하지 않고, 스타일 전용
  *   포트폴리오('모의운용 포트폴리오 [STYLE]')에만 별도로 적재한다. styleTag 는 가산형(nullable).
  *
+ * ★개장 체결 정렬(2026-07-06, 사용자 승인): 진입을 "결정 당일 종가 즉시체결"에서 시스템 모의와 동일한
+ *   **"저녁 = 주문 결정(PENDING 예약, styleTag=스타일) → 익일 개장 = 당일 시가 체결"**로 통일했다.
+ *   체결은 장중 모니터(개장 체결기, 일반화된 fillPendingEntries) 또는 본 사이클 서두 폴백(당일 REAL
+ *   시가)이 수행 — 모든 트랙이 실제 장중 가격으로 거래돼 "지금 장에 맞는 트랙" 데이터가 축적된다.
+ *   진입 후보에는 entryReady 폴백(②단계, buyScore≥50)을 도입(시스템 모의 DAR-362 계승).
+ *
  * 비고(스키마): styleTag 영속화는 DAR-76 마이그레이션(휴먼 수동 적용) 이후에만 동작한다. 비교 조회
  *   (getStyleComparison)는 포트폴리오 단위 집계라 styleTag 컬럼과 무관하게 적용 전에도 안전하다.
  */
@@ -40,8 +46,11 @@ import {
   entryEligibleGrades,
   entryBudget,
   dedupeCandidatesByCorpCode,
+  ENTRY_FALLBACK_MIN_BUY_SCORE,
 } from './simulation-entry';
-import { Prisma } from '@prisma/client';
+// 시장 캘린더 순수 함수(주말·KRX 공휴일) — 익일 시가 체결 예약일 산정(시스템 모의와 동일 유틸 재사용).
+import { nextTradingDay } from '../../engine3-quant-market/event-study/utils/d0-calculator';
+import { kstMidnightOf } from './forward-track-namespace';
 import { buildEquityCurve, EquityCurvePoint } from './equity-curve';
 import { buildTradeRationale, calculateTradeScorecard, TradeScorecard } from './trade-scorecard';
 import {
@@ -61,7 +70,10 @@ import {
 export interface StyleCycleResult {
   style: PhilosophyStyle;
   portfolioId: string;
+  /** 이번 사이클에 '당일 시가'로 체결된 매수 수(이전 예약분 폴백 체결 — 장중 모니터 미체결분). */
   bought: number;
+  /** 이번 사이클에 새로 예약된 매수 주문 수(PENDING, 익일 시가 체결 예정). */
+  reserved: number;
   snapshotted: number;
   exited: number;
   openPositions: number;
@@ -131,6 +143,10 @@ export class PhilosophyStyleSimulationService {
     private readonly graduation: GraduationMetricsService,
     // DAR-496(P18): 공용 진입 게이트(SHADOW) — @Optional(미주입 단위 테스트 no-op). 측정 트랙이라 무변경.
     @Optional() private readonly riskGuard?: RiskGuardService,
+    // 개장 체결 정렬(2026-07-06): 일반화된 개장 체결기(fillPendingEntries) 소유자 — 사이클 서두
+    //   폴백 체결(당일 REAL 시가)에 사용. @Optional — 미주입(단위 테스트)이면 폴백 생략(예약은
+    //   장중 모니터가 체결·이월 상한이 정리).
+    @Optional() private readonly paperSim?: PaperSimulationService,
   ) {}
 
   // ─── 스타일 포트폴리오 find-or-create (단일 시뮬과 동일 시스템 유저) ─────
@@ -179,11 +195,21 @@ export class PhilosophyStyleSimulationService {
     }
   }
 
-  /** 스타일 1종 1사이클: 적합도 진입 → 시가평가 → Exit → 스타일 포트폴리오 스냅샷. */
+  /** 스타일 1종 1사이클: 예약 폴백 체결 → 적합도 예약 → 시가평가 → Exit → 스냅샷. */
   async runStyleCycle(style: PhilosophyStyle, tradeDate: string): Promise<StyleCycleResult> {
     try {
       const pf = await this.getOrCreateStylePortfolio(style);
-      const bought = await this.openStylePositions(style, pf, tradeDate);
+      // 0) 만기 도래 매수 예약 폴백 체결 — '당일 시가'로(시스템 모의 runDailyCycle 0단계와 동일
+      //    패턴). 정상 운영은 장중 모니터(09:00~)가 먼저 체결하므로 여기는 KIS 미가동/휴장 익일
+      //    등에서의 폴백(당일 REAL 일봉 open). 미주입(단위 테스트)이면 0.
+      const bought = this.paperSim
+        ? await this.paperSim.fillPendingEntries(pf.id, tradeDate, {
+            styleTag: style,
+            initialCapital: PaperSimulationService.INITIAL_CAPITAL,
+          })
+        : 0;
+      // 1) 신규 후보 → 매수 예약(익일 시가 체결 예정, 즉시 체결 금지 — lookahead 편향 차단).
+      const reserved = await this.openStylePositions(style, pf, tradeDate);
       const snapshotted = await this.snapshotOpenPositions(pf.id, tradeDate, style);
       const exited = await this.evaluateExits(pf.id, tradeDate, style);
       const { equity, openPositions } = await this.computeEquity(pf.id);
@@ -202,12 +228,13 @@ export class PhilosophyStyleSimulationService {
         );
 
       this.logger.log(
-        `[StyleSim][${style}] 매수=${bought} 스냅샷=${snapshotted} 매도=${exited} 보유=${openPositions} 평가=${equity}`,
+        `[StyleSim][${style}] 체결매수=${bought} 예약=${reserved} 스냅샷=${snapshotted} 매도=${exited} 보유=${openPositions} 평가=${equity}`,
       );
       return {
         style,
         portfolioId: pf.id,
         bought,
+        reserved,
         snapshotted,
         exited,
         openPositions,
@@ -219,6 +246,7 @@ export class PhilosophyStyleSimulationService {
         style,
         portfolioId: '',
         bought: 0,
+        reserved: 0,
         snapshotted: 0,
         exited: 0,
         openPositions: 0,
@@ -228,57 +256,45 @@ export class PhilosophyStyleSimulationService {
     }
   }
 
-  // ─── 1) 적합도 필터 신규 매수 ─────────────────────────────────────────
+  // ─── 1) 적합도 필터 신규 매수 예약 ────────────────────────────────────
+  // 개장 체결 정렬(2026-07-06): 즉시 placeOrder+Position 생성 대신 **PENDING PaperTrade 예약**만
+  //   만든다(styleTag=스타일·entryDate=다음 거래일·orderedShares=결정 시점 사이징·entryPrice=기준가).
+  //   체결·Position 생성은 일반화된 개장 체결기(fillPendingEntries)가 '당일 시가'로 수행.
   private async openStylePositions(
     style: PhilosophyStyle,
     pf: { id: string; maxSinglePositionPct: number },
     tradeDate: string,
   ): Promise<number> {
-    const holdings = await this.prisma.position.count({
+    const openPositions = await this.prisma.position.findMany({
       where: { portfolioId: pf.id, status: 'OPEN' },
+      select: { corpCode: true, entryAmount: true },
     });
-    const available = PaperSimulationService.MAX_HOLDINGS - holdings;
+    // 미체결 매수 예약(PENDING, 스타일 네임스페이스) — 슬롯·현금·종목 디듑에 포함해야
+    //   예약↔체결 사이(하루)의 이중 예약·현금 초과 배분을 막는다(시스템 모의 패턴 계승).
+    const pendingEntries = await this.prisma.paperTrade.findMany({
+      where: { status: 'PENDING', direction: 'BUY', styleTag: style },
+      select: { corpCode: true, orderedShares: true, entryPrice: true },
+    });
+    const available =
+      PaperSimulationService.MAX_HOLDINGS - openPositions.length - pendingEntries.length;
     if (available <= 0) return 0;
 
-    const openCorpCodes = (
-      await this.prisma.position.findMany({
-        where: { portfolioId: pf.id, status: 'OPEN' },
-        select: { corpCode: true },
-      })
-    ).map((p) => p.corpCode);
-
-    // 적합도 필터로 다수 탈락하므로 후보 풀을 넉넉히 조회한 뒤 스타일 적격만 진입.
-    const rawCandidates = await this.prisma.tradingSignal.findMany({
-      where: {
-        signal: { in: entryEligibleGrades(SIM_MIN_ENTRY_GRADE) as never },
-        entryReady: true,
-        corpCode: { notIn: openCorpCodes.length ? openCorpCodes : ['__none__'] },
-        // ★DAR-389/DAR-129(불가침): 과거 공시 백필 신호는 라이브 스타일 진입 후보에서 배제.
-        disclosure: { isBackfill: false },
-      },
-      orderBy: { buyScore: 'desc' },
-      take: PhilosophyStyleSimulationService.CANDIDATE_POOL_CAP,
-    });
-    // DAR-122: 종목당 1건으로 디듑 — 동일 corpCode 다중 Persona 신호로 인한 Position 중복 차단.
-    const candidates = dedupeCandidatesByCorpCode(rawCandidates);
-    // 동일 사이클 내 같은 종목 재진입 방지(디듑 후라도 방어선 유지).
+    const openCorpCodes = [
+      ...openPositions.map((p) => p.corpCode),
+      ...pendingEntries.map((t) => t.corpCode),
+    ];
+    // 동일 사이클 내 같은 종목 재예약 방지(디듑 후라도 방어선 유지).
     const openedCorpCodes = new Set<string>(openCorpCodes);
 
     // DAR-496(P18): 공용 진입 게이트(SHADOW) 입력 — 가용현금·당일 실현손익 산정.
-    //   철학 스타일 트랙엔 현금 가드가 없어(갭 A5) SHADOW 게이트가 초과 여부를 관측만 한다(차단 0).
     //   현금 정의(SSOT): cash = 초기자본 + 실현손익(CLOSED net) − 보유 진입원가(OPEN entryAmount).
-    const [openForCash, closedForCash] = await Promise.all([
-      this.prisma.position.findMany({
-        where: { portfolioId: pf.id, status: 'OPEN' },
-        select: { entryAmount: true },
-      }),
-      this.prisma.position.findMany({
-        where: { portfolioId: pf.id, status: 'CLOSED' },
-        select: { unrealizedPnl: true, closedAt: true },
-      }),
-    ]);
+    //   예약이 잡아둔 금액(기준가×주문수량)도 차감 — 이중 배분 방지(체결기 재클램프가 최종 방어).
+    const closedForCash = await this.prisma.position.findMany({
+      where: { portfolioId: pf.id, status: 'CLOSED' },
+      select: { unrealizedPnl: true, closedAt: true },
+    });
     const realizedNetPnl = closedForCash.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
-    const investedPrincipal = openForCash.reduce((s, p) => s + (p.entryAmount ?? 0), 0);
+    const investedPrincipal = openPositions.reduce((s, p) => s + (p.entryAmount ?? 0), 0);
     const dailyRealizedPnl = closedForCash.reduce(
       (s, p) =>
         p.closedAt && formatKstDateCompact(p.closedAt) === tradeDate
@@ -296,99 +312,130 @@ export class PhilosophyStyleSimulationService {
           : s,
       0,
     );
-    let availableCash = PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl - investedPrincipal;
+    const reservedCash = pendingEntries.reduce(
+      (s, t) => s + t.orderedShares * Number(t.entryPrice),
+      0,
+    );
+    let availableCash =
+      PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl - investedPrincipal - reservedCash;
 
     const baseBudget = PaperSimulationService.INITIAL_CAPITAL * (pf.maxSinglePositionPct / 100);
+    const excludeCorp = openCorpCodes.length ? openCorpCodes : ['__none__'];
+    const eligibleGrades = entryEligibleGrades(SIM_MIN_ENTRY_GRADE) as never;
 
-    let opened = 0;
-    for (const sig of candidates) {
-      if (opened >= available) break;
-      if (openedCorpCodes.has(sig.corpCode)) continue;
+    let reserved = 0;
+    /** 후보 목록에서 스타일 적격만 골라 예약 생성(공용 루프 — ①entryReady ②폴백 공유). */
+    const reserveFrom = async (
+      candidates: Array<{
+        id: string;
+        corpCode: string;
+        stockCode: string;
+        signal: string;
+        buyScore: number;
+      }>,
+    ): Promise<void> => {
+      for (const sig of candidates) {
+        if (reserved >= available) break;
+        // 현금 소진 시 추가 예약 중단(cash≥0 — 체결기 재클램프와 정합). buyScore desc 정렬이라
+        //   남은 현금으로 가장 확신 높은 종목부터 채운다.
+        if (availableCash <= 0) break;
+        if (openedCorpCodes.has(sig.corpCode)) continue;
 
-      // 엔진 경계: DB 저장 재무 기반 philosophy-fit(Rule). 스타일 적격 아니면 진입 제외.
-      const fit = await this.philosophyFit.getCompanyFit(sig.corpCode);
-      if (!isStyleEligible(style, fit.fits, STYLE_ENTRY_MIN_FIT)) continue;
+        // 엔진 경계: DB 저장 재무 기반 philosophy-fit(Rule). 스타일 적격 아니면 진입 제외.
+        const fit = await this.philosophyFit.getCompanyFit(sig.corpCode);
+        if (!isStyleEligible(style, fit.fits, STYLE_ENTRY_MIN_FIT)) continue;
 
-      const price = await this.latestClose(sig.corpCode, tradeDate);
-      if (price === null || price <= 0) continue;
+        const price = await this.latestClose(sig.corpCode, tradeDate);
+        if (price === null || price <= 0) continue;
 
-      const budget = entryBudget(baseBudget, sig.signal as string);
-      const shares = Math.floor(budget / price);
-      if (shares <= 0) continue;
+        // 결정 시점 사이징(등급 계수만 — 철학 트랙 기존 규칙) ∧ 가용현금.
+        const budget = Math.min(entryBudget(baseBudget, sig.signal), availableCash);
+        const shares = Math.floor(budget / price);
+        if (shares <= 0) continue;
 
-      const thesis = await this.prisma.positionThesis.findUnique({
-        where: { tradingSignalId: sig.id },
-        select: { id: true, exitRules: true },
-      });
-      const { stopLossPct, maxHoldDays } = this.deriveExitParams(thesis?.exitRules);
+        const thesis = await this.prisma.positionThesis.findUnique({
+          where: { tradingSignalId: sig.id },
+          select: { id: true },
+        });
 
-      // DAR-496(P18): 공용 진입 게이트(일일손실·현금) — SHADOW. 진입 확정(placeOrder) 직전 1줄.
-      //   ★측정 트랙(mode=SHADOW) → 절대 BLOCK 없음 → 진입 후보·수량 무변경(M10 클록 보호).
-      const gate = await this.riskGuard?.evaluateEntry({
-        track: 'philosophy-style',
-        tradeDate,
-        totalCapital: PaperSimulationService.INITIAL_CAPITAL,
-        dailyRealizedPnl,
-        monthlyRealizedPnl,
-        availableCash,
-        entryBudget: shares * price,
-        corpCode: sig.corpCode,
-        stockCode: sig.stockCode,
-      });
-      if (gate?.action === 'BLOCK') continue;
+        // DAR-496(P18): 공용 진입 게이트(일일손실·현금) — SHADOW. 진입 확정(예약 create) 직전 1줄.
+        //   ★측정 트랙(mode=SHADOW) → 절대 BLOCK 없음 → 진입 후보·수량 무변경(M10 클록 보호).
+        const gate = await this.riskGuard?.evaluateEntry({
+          track: 'philosophy-style',
+          tradeDate,
+          totalCapital: PaperSimulationService.INITIAL_CAPITAL,
+          dailyRealizedPnl,
+          monthlyRealizedPnl,
+          availableCash,
+          entryBudget: shares * price,
+          corpCode: sig.corpCode,
+          stockCode: sig.stockCode,
+        });
+        if (gate?.action === 'BLOCK') continue;
 
-      const trade = await this.paperTrade.placeOrder({
-        corpCode: sig.corpCode,
-        stockCode: sig.stockCode,
-        direction: 'BUY',
-        orderedShares: shares,
-        entryPrice: price,
-        entryDate: new Date(),
-        liquidityRatio: 1.0,
-        tradingSignalId: sig.id,
-        positionThesisId: thesis?.id,
-      });
-      if (trade.filledShares <= 0) continue;
-      // SHADOW 게이트의 다음 후보 현금 판정을 위해 진입원가만큼 차감(매매 행동엔 무영향 — 관측용).
-      availableCash -= (trade.filledPrice ?? price) * trade.filledShares;
-      await this.tagPaperTrade(trade.id, style);
-
-      const fillPrice = trade.filledPrice ?? price;
-      try {
-        await this.prisma.position.create({
+        // ★즉시 체결 금지 — PENDING 예약만 기록. entryDate=다음 거래일(주말·KRX 공휴일 스킵),
+        //   entryPrice=예약 기준가(당일 평가가 — 사이징 근거, 체결가 아님). expectedPrice 는
+        //   신호시점 기대가 보존(DAR-474 — 체결기가 entryPrice 를 덮어써도 유지).
+        await this.prisma.paperTrade.create({
           data: {
-            portfolioId: pf.id,
             corpCode: sig.corpCode,
             stockCode: sig.stockCode,
+            direction: 'BUY',
+            orderedShares: shares,
+            filledShares: 0,
+            fillRate: 0,
+            entryPrice: price,
+            expectedPrice: price,
+            status: 'PENDING',
+            entryDate: kstMidnightOf(nextTradingDay(tradeDate)),
+            tradingSignalId: sig.id,
             positionThesisId: thesis?.id ?? null,
-            entryDate: new Date(),
-            entryPrice: fillPrice,
-            quantity: trade.filledShares,
-            entryAmount: fillPrice * trade.filledShares,
-            currentPrice: fillPrice,
-            currentValue: fillPrice * trade.filledShares,
-            unrealizedPnl: 0,
-            unrealizedPnlPct: 0,
-            highestPrice: fillPrice,
-            highestAt: new Date(),
-            stopLossPct,
-            takeProfitPct: PaperSimulationService.DEFAULT_TAKE_PROFIT_PCT,
-            maxHoldDays,
-            status: 'OPEN',
+            // 스타일 네임스페이스 — 시스템 모의(paper-simulation)·전략(strategy:*) 예약과 안전 분리.
+            styleTag: style,
           },
         });
-      } catch (err) {
-        // DAR-122: 부분 유니크 인덱스 충돌(동시/재실행 동일 종목 OPEN) → 멱등 스킵.
-        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-          openedCorpCodes.add(sig.corpCode);
-          continue;
-        }
-        throw err;
+        openedCorpCodes.add(sig.corpCode);
+        // 예약 몫(기준가×주문수량)만큼 선차감 — 같은 사이클 내 후보 간 이중 배분 방지.
+        availableCash -= shares * price;
+        reserved++;
       }
-      openedCorpCodes.add(sig.corpCode);
-      opened++;
+    };
+
+    // ① entryReady=true 우선(품질 우선 — 시스템 모의 DAR-362 계승). 적합도 필터로 다수
+    //    탈락하므로 후보 풀을 넉넉히 조회한 뒤 스타일 적격만 예약.
+    const readyRaw = await this.prisma.tradingSignal.findMany({
+      where: {
+        signal: { in: eligibleGrades },
+        entryReady: true,
+        corpCode: { notIn: excludeCorp },
+        // ★DAR-389/DAR-129(불가침): 과거 공시 백필 신호는 라이브 스타일 진입 후보에서 배제.
+        disclosure: { isBackfill: false },
+      },
+      orderBy: { buyScore: 'desc' },
+      take: PhilosophyStyleSimulationService.CANDIDATE_POOL_CAP,
+    });
+    // DAR-122: 종목당 1건으로 디듑 — 동일 corpCode 다중 Persona 신호로 인한 중복 예약 차단.
+    await reserveFrom(dedupeCandidatesByCorpCode(readyRaw));
+
+    // ② 슬롯이 남으면 entryReady=false 라도 buyScore≥ENTRY_FALLBACK_MIN_BUY_SCORE(50) 인 상위
+    //    후보로 보강(entryReady 폴백 — 무차별 확대 아님·품질 하한 유지. fit≥50 게이트는 그대로).
+    if (reserved < available && availableCash > 0) {
+      const already = Array.from(openedCorpCodes);
+      const fallbackRaw = await this.prisma.tradingSignal.findMany({
+        where: {
+          signal: { in: eligibleGrades },
+          entryReady: false,
+          buyScore: { gte: ENTRY_FALLBACK_MIN_BUY_SCORE },
+          corpCode: { notIn: already.length ? already : ['__none__'] },
+          // ★DAR-389/DAR-129(불가침): 백필 신호는 폴백 후보에서도 배제(① 동일 근거).
+          disclosure: { isBackfill: false },
+        },
+        orderBy: { buyScore: 'desc' },
+        take: PhilosophyStyleSimulationService.CANDIDATE_POOL_CAP,
+      });
+      await reserveFrom(dedupeCandidatesByCorpCode(fallbackRaw));
     }
-    return opened;
+    return reserved;
   }
 
   // ─── 2) 일일 시가평가(styleTag 태깅) ──────────────────────────────────
@@ -724,27 +771,8 @@ export class PhilosophyStyleSimulationService {
     });
   }
 
-  private deriveExitParams(exitRules: unknown): {
-    stopLossPct: number;
-    maxHoldDays: number;
-  } {
-    let stopLossPct = PaperSimulationService.DEFAULT_STOP_LOSS_PCT;
-    let maxHoldDays = PaperSimulationService.DEFAULT_MAX_HOLD_DAYS;
-    if (Array.isArray(exitRules)) {
-      for (const r of exitRules) {
-        if (r && typeof r === 'object' && 'type' in r && 'value' in r) {
-          const rule = r as { type: string; value: number };
-          if (rule.type === 'STOP_LOSS_PCT' && typeof rule.value === 'number') {
-            stopLossPct = rule.value;
-          }
-          if (rule.type === 'MAX_HOLD_DAYS' && typeof rule.value === 'number') {
-            maxHoldDays = rule.value;
-          }
-        }
-      }
-    }
-    return { stopLossPct, maxHoldDays };
-  }
+  // (개장 체결 정렬) exit 파라미터 파생은 일반화된 체결기(fillPendingEntries)가 체결 시점에
+  //   thesis exitRules 로 수행한다 — 본 서비스의 중복 파생 헬퍼는 제거.
 
   private async loadThesisSnapshot(positionThesisId: string | null): Promise<ThesisSnapshot> {
     if (!positionThesisId) return { invalidConditions: [], maxHoldDays: null };

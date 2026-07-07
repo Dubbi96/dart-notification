@@ -67,16 +67,21 @@ describe('StrategyForwardSimulationService (live-readiness W1)', () => {
     });
   });
 
-  describe('진입(프리셋 필터·사이징·exit 파라미터 대입)', () => {
-    function buildEntryService() {
-      const created: Record<string, unknown>[] = [];
-      const tagged: { id: string; data: unknown }[] = [];
+  describe('진입(프리셋 필터·사이징) — 개장 체결 정렬: PENDING 예약 생성', () => {
+    /** 예약 entryDate 규약 — 20260702(목) 다음 거래일 = 20260703(금) KST 자정. */
+    const NEXT_OPEN_KST = new Date('2026-07-03T00:00:00+09:00');
+
+    function buildEntryService(openRows: Array<Record<string, unknown>> = []) {
+      const createdPositions: Record<string, unknown>[] = [];
+      const reservations: Record<string, unknown>[] = [];
       const prisma = {
         position: {
-          count: jest.fn().mockResolvedValue(0),
-          findMany: jest.fn().mockResolvedValue([]), // openCorpCodes
+          // OPEN(corpCode+entryAmount)·CLOSED(현금 산정) 분기.
+          findMany: jest.fn(({ where }: { where: { status: string } }) =>
+            Promise.resolve(where.status === 'OPEN' ? openRows : []),
+          ),
           create: jest.fn((args: { data: Record<string, unknown> }) => {
-            created.push(args.data);
+            createdPositions.push(args.data);
             return Promise.resolve({});
           }),
         },
@@ -96,9 +101,11 @@ describe('StrategyForwardSimulationService (live-readiness W1)', () => {
           }),
         },
         paperTrade: {
-          update: jest.fn((args: { where: { id: string }; data: unknown }) => {
-            tagged.push({ id: args.where.id, data: args.data });
-            return Promise.resolve({});
+          // 미체결 예약(PENDING) 조회 — 없음.
+          findMany: jest.fn().mockResolvedValue([]),
+          create: jest.fn((args: { data: Record<string, unknown> }) => {
+            reservations.push(args.data);
+            return Promise.resolve({ id: `pt${reservations.length}` });
           }),
         },
       };
@@ -121,7 +128,7 @@ describe('StrategyForwardSimulationService (live-readiness W1)', () => {
               pf: { id: string; maxSinglePositionPct: number },
               tradeDate: string,
               gated: string[] | null,
-            ) => Promise<{ bought: number; allowlistEmpty: boolean }>;
+            ) => Promise<{ reserved: number; allowlistEmpty: boolean }>;
           }
         ).openStrategyPositions(
           preset,
@@ -129,37 +136,41 @@ describe('StrategyForwardSimulationService (live-readiness W1)', () => {
           '20260702',
           allowlist,
         );
-      return { service, prisma, paperTrade, created, tagged, open };
+      return { service, prisma, paperTrade, createdPositions, reservations, open };
     }
 
-    it('minBuyScore·라이브(isBackfill=false) 필터가 쿼리에 반영되고 preset exit 파라미터로 진입한다', async () => {
-      const { prisma, paperTrade, created, tagged, open } = buildEntryService();
+    it('minBuyScore·라이브(isBackfill=false) 필터가 쿼리에 반영되고 PENDING 예약을 만든다', async () => {
+      const { prisma, paperTrade, createdPositions, reservations, open } = buildEntryService();
       const result = await open(SHORT_MOMENTUM, null);
 
-      expect(result).toEqual({ bought: 1, allowlistEmpty: false });
+      expect(result).toEqual({ reserved: 1, allowlistEmpty: false });
       const where = prisma.tradingSignal.findMany.mock.calls[0][0].where;
       expect(where.buyScore).toEqual({ gte: 40 }); // short-momentum minBuyScore
       expect(where.disclosure).toEqual({ isBackfill: false });
       expect(where.eventType).toBeUndefined(); // 정적 allowlist 미지정 → 전 이벤트
 
-      // EQUAL_WEIGHT: 10M/20 = 500,000 → price 1000 → 500주 주문
-      expect(paperTrade.placeOrder).toHaveBeenCalledWith(
-        expect.objectContaining({ direction: 'BUY', orderedShares: 500, entryPrice: 1000 }),
-      );
-      // preset.exitRules 대입(손절 -5 → 5, 익절 10, 보유 5일)
-      expect(created).toHaveLength(1);
-      expect(created[0]).toEqual(
+      // ★개장 체결 정렬: 즉시 체결(placeOrder)·Position 생성 없음 — 예약만. exit 파라미터는
+      //   체결기가 프리셋 exitRules 로 대입(exitParamsForStyleTag — 예약엔 미저장).
+      expect(paperTrade.placeOrder).not.toHaveBeenCalled();
+      expect(createdPositions).toHaveLength(0);
+      expect(reservations).toHaveLength(1);
+      expect(reservations[0]).toEqual(
         expect.objectContaining({
-          portfolioId: pfId('short-momentum'),
           corpCode: 'A',
-          stopLossPct: 5,
-          takeProfitPct: 10,
-          maxHoldDays: 5,
-          status: 'OPEN',
+          stockCode: '000A',
+          direction: 'BUY',
+          status: 'PENDING',
+          // strategy:<key> 네임스페이스 — 예약 시점부터 태깅(체결기 식별 축).
+          styleTag: 'strategy:short-momentum',
+          // EQUAL_WEIGHT 결정 시점 사이징: 10M/20 = 500,000 → price 1000 → 500주.
+          orderedShares: 500,
+          filledShares: 0,
+          entryPrice: 1000,
+          expectedPrice: 1000,
         }),
       );
-      // strategy:<key> 네임스페이스 태깅
-      expect(tagged).toEqual([{ id: 't1', data: { styleTag: 'strategy:short-momentum' } }]);
+      // entryDate = 다음 거래일(20260702 목 → 20260703 금) KST 자정.
+      expect((reservations[0].entryDate as Date).getTime()).toBe(NEXT_OPEN_KST.getTime());
     });
 
     it('event-edge allowlist 는 eventType IN 필터로 주입된다(당일 해석분)', async () => {
@@ -170,22 +181,74 @@ describe('StrategyForwardSimulationService (live-readiness W1)', () => {
       expect(where.eventType).toEqual({ in: ['SUPPLY_CONTRACT', 'BUYBACK'] });
     });
 
-    it('event-edge allowlist 가 비면 진입 0 유지(do-no-harm) — 신호 조회·주문 0', async () => {
-      const { prisma, paperTrade, created, open } = buildEntryService();
+    it('event-edge allowlist 가 비면 진입 0 유지(do-no-harm) — 신호 조회·예약 0', async () => {
+      const { prisma, paperTrade, reservations, open } = buildEntryService();
       const result = await open(EVENT_EDGE, []);
-      expect(result).toEqual({ bought: 0, allowlistEmpty: true });
+      expect(result).toEqual({ reserved: 0, allowlistEmpty: true });
       expect(prisma.tradingSignal.findMany).not.toHaveBeenCalled();
       expect(paperTrade.placeOrder).not.toHaveBeenCalled();
-      expect(created).toHaveLength(0);
+      expect(reservations).toHaveLength(0);
     });
 
-    it('보유가 maxPositions 에 달하면 신규 진입 0(신호 조회 생략)', async () => {
-      const { prisma, paperTrade, open } = buildEntryService();
-      prisma.position.count.mockResolvedValue(SHORT_MOMENTUM.params.maxPositions);
+    it('보유+예약이 maxPositions 에 달하면 신규 예약 0(신호 조회 생략)', async () => {
+      const openRows = Array.from({ length: SHORT_MOMENTUM.params.maxPositions }, (_, i) => ({
+        corpCode: `c${i}`,
+        entryAmount: 500_000,
+      }));
+      const { prisma, paperTrade, open } = buildEntryService(openRows);
       const result = await open(SHORT_MOMENTUM, null);
-      expect(result).toEqual({ bought: 0, allowlistEmpty: false });
+      expect(result).toEqual({ reserved: 0, allowlistEmpty: false });
       expect(prisma.tradingSignal.findMany).not.toHaveBeenCalled();
       expect(paperTrade.placeOrder).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('runStrategyCycle — 사이클 서두 개장 체결 폴백(일반화된 fillPendingEntries 소비)', () => {
+    type PrivateCycleApi = {
+      openStrategyPositions: (
+        ...a: never[]
+      ) => Promise<{ reserved: number; allowlistEmpty: boolean }>;
+      snapshotOpenPositions: (...a: never[]) => Promise<number>;
+      evaluateExits: (...a: never[]) => Promise<number>;
+      computeEquity: (...a: never[]) => Promise<{ equity: number; openPositions: number }>;
+      saveStrategySnapshot: (...a: never[]) => Promise<void>;
+    };
+
+    it('fillPendingEntries 를 strategy:<key> 네임스페이스로 예약보다 먼저 1회 호출한다', async () => {
+      const paperSim = { fillPendingEntries: jest.fn().mockResolvedValue(2) };
+      const service = new StrategyForwardSimulationService(
+        {} as never,
+        {} as never,
+        {} as never,
+        undefined,
+        paperSim as never,
+      );
+      jest
+        .spyOn(service, 'getOrCreateStrategyPortfolio')
+        .mockResolvedValue({ id: pfId('short-momentum'), maxSinglePositionPct: 10 });
+      const priv = service as unknown as PrivateCycleApi;
+      const openSpy = jest
+        .spyOn(priv, 'openStrategyPositions')
+        .mockResolvedValue({ reserved: 1, allowlistEmpty: false });
+      jest.spyOn(priv, 'snapshotOpenPositions').mockResolvedValue(1);
+      jest.spyOn(priv, 'evaluateExits').mockResolvedValue(0);
+      jest.spyOn(priv, 'computeEquity').mockResolvedValue({ equity: 10_000_000, openPositions: 1 });
+      jest.spyOn(priv, 'saveStrategySnapshot').mockResolvedValue(undefined);
+
+      const result = await service.runStrategyCycle(SHORT_MOMENTUM, '20260706', null);
+
+      expect(paperSim.fillPendingEntries).toHaveBeenCalledTimes(1);
+      expect(paperSim.fillPendingEntries).toHaveBeenCalledWith(
+        pfId('short-momentum'),
+        '20260706',
+        { styleTag: 'strategy:short-momentum', initialCapital: 10_000_000 },
+      );
+      // 폴백 체결이 신규 예약보다 먼저(전일 예약 소진 후 슬롯 산정).
+      expect(paperSim.fillPendingEntries.mock.invocationCallOrder[0]).toBeLessThan(
+        openSpy.mock.invocationCallOrder[0],
+      );
+      expect(result.bought).toBe(2);
+      expect(result.reserved).toBe(1);
     });
   });
 
@@ -207,6 +270,7 @@ describe('StrategyForwardSimulationService (live-readiness W1)', () => {
           strategyKey: preset.key,
           portfolioId: pfId(preset.key),
           bought: 0,
+          reserved: 0,
           snapshotted: 1,
           exited: 0,
           openPositions: 1,

@@ -712,6 +712,38 @@ env `HEAVY_COLLECTION_WINDOW` 로 오버라이드: `weekend`(기본) | `always`(
   0**·보유 parsedJson 재사용·상태 인덱스 조회)는 저장 문서 기반의 경량·바운드 라이브 세이프티넷이라 가드
   미적용(주중 정상 유지). 대형 스캔·대량 쿼터 소비가 아니므로 풀 고갈과 무관.
 
+### 2.13 격주 트랙 성과 순위 리포트 (격주 일요일 10:00 KST)
+
+모의투자 **전 트랙의 트레일링 14일(캘린더, KST) 실현 성과**를 집계·순위화하고 시장국면
+(market-regime Rule 재사용)을 태깅해 "지금 장에 맞는 트랙" 판단 데이터를 OPS_ALERT 로 발송한다.
+일일 운영 리포트(§31.4 API 명세)가 '어제 하루' 운영 관점이라면 이 리포트는 '최근 2주' 트랙 간
+상대 성과 관점. ★read-only 관측·알림 전용 — 매매/주문/Kill Switch 무접점(M10 클록 보호)·AI 개입 0.
+
+```
+BiweeklyTrackReviewScheduler.runWeekly()   @Cron('0 10 * * 0', KST)  ← 매주 일요일 발화
+  └─ 격주 게이트 isReviewSunday(ymd) — 순수 함수·결정론: 고정 앵커('20260712' 일요일)로부터
+     일수 차/7 이 짝수인 일요일만 실행. 오프 주는 recordSkip(SKIPPED) 기록 후 무발송.
+     └─ BiweeklyTrackReviewService.buildReview(now) — 트레일링 14일(생성일 KST 포함) 윈도
+        · Position 기반 트랙: 시스템 모의 + 철학 4종 + 전략 forward N종 — 모의운용 포트폴리오
+          이름 규약으로 동적 수집, CLOSED Position(closedAt∈윈도)의 고정 실현손익 합산
+        · 분봉 단타: IntradayScalpTrade(CLOSED·exitTs∈윈도) / 듀얼모멘텀 코어:
+          DualMomentumForwardTrade(CLOSED·exitDate∈윈도)
+        · 트랙별 지표: 청산 건수·승률·실현손익 합·수익률(각 트랙 원금 상수 분모)·평균 보유·
+          lowSample(청산<5 정직 표기 — 순위에는 포함)
+        · 시장국면: MarketRegimeService(DAR-130) 현재 레짐 태깅(실패 시 null graceful)
+  → NotificationProducer.enqueueOpsAlert('INFO', 'biweekly-track-review', body)
+     멱등키 biweekly-track-review:<앵커기준 회차> (회차당 1건) · deepLink=/portfolio · 이모지 미사용
+  → CronRunRecorder(jobKey=ops.biweekly-track-review) 기록 + FRESHNESS_JOB_SPECS 등록
+     (격주 카덴스 — stale 임계 17일: 14일 + 3일 지연 흡수. 오프 주 SKIPPED 는 성공 미갱신이 정상)
+```
+
+- **온디맨드 조회**: `GET /ops/track-review`(JWT) — 발송 주기와 무관하게 현재 시점 기준 즉시 계산
+  (영속 모델 없음·스키마 변경 0). API 명세 §31.5.
+- **PaperTrade.styleTag 대신 Position→포트폴리오 귀속인 이유**: 시스템 모의 청산(SELL)은
+  styleTag=null 로 기록되고, 장중 모니터의 공용 executeSell 이 철학/전략 포트폴리오 청산에도
+  태그를 남기지 않아 태그 기반 귀속이 체계적으로 오귀속된다. CLOSED Position 의 unrealizedPnl 은
+  청산 시점 고정 실현 순손익(일일 리포트·RiskGuard 월간손실 산정과 동일 SSOT 관점).
+
 ---
 
 ## 3. 에러 처리 및 재시도 전략
@@ -1348,4 +1380,6 @@ PaperTrade 의 기존 `PENDING` status + `entryDate`(체결 예정 거래일) + 
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-06 (개장 체결 정렬 — §6.9·§6.10 철학 4종·전략 forward 4종 매수 진입을 시스템 모의와 동일한 "저녁 예약(PENDING)→익일 개장 당일 시가 체결" 의미론으로 통일: 일반화된 개장 체결기 `fillPendingEntries(styleTag/initialCapital/emitTrades)` + 장중 모니터 이름 규약 파서(`forward-track-namespace.ts`) + 철학 entryReady 폴백(buyScore≥50) + 전 트랙 체결 알림(strategyKey=styleTag·SSOT 라벨 16종) + §6.6 표 갱신, 시스템 모의 경로 무변경) / 이전: 2026-07-06 (알림 이모지 제거 — §20류 체결·운영 알림 표기를 출처명 텍스트로 개정) / 이전: 2026-07-05 (DAR-503 헤비 수집·스캔 잡 주말 스케줄링 — §2.7·2.8·2.9 주말 전용 전환 + §2.12 신설: 공용 게이트 `isHeavyCollectionWindow`(env `HEAVY_COLLECTION_WINDOW`), 파이프라인 드레인 주중 최근 2일 경량 세이프티넷 이원화, cron-health stale 임계 8일 상향, 경량 잡(파싱 재처리·FAILED 이벤트 복구) 유지 근거) / 이전: 2026-07-03 (live-readiness W1 — §6.10 장외 체결 의미론 신설: 시스템 모의 "19:30=주문 결정, 익일 개장=체결"(매수 예약→당일 시가 체결·청산 이연·이월 상한 3거래일·REALTIME 오염 게이트·장중 모니터 다중 포트폴리오 확장) + §6.6 표 갱신; §6.9 forward 트랙 일일 사이클 신설: 철학 스타일 4트랙 크론 배선(19:40, 미가동 결함 교정) + 전략 변형 4종 forward 모의운용(19:45) + cron-health 키 `paper.style-simulation`/`paper.strategy-forward`; 이전: 2026-07-02 현행화 — §1.1 카카오 OAuth·expo-secure-store·온보딩 3단계 정합, §2 절 번호 재정렬, 분봉 단타(§6.7)·체결 푸시(§6.8)·DART 라이브 쿼터 예약분 가드(§2.11) 반영)
+**최종 수정일**: 2026-07-06 (개장 체결 정렬 — §6.9·§6.10 철학 4종·전략 forward 4종 매수 진입을 시스템 모의와 동일한 "저녁 예약(PENDING)→익일 개장 당일 시가 체결" 의미론으로 통일: 일반화된 개장 체결기 `fillPendingEntries(styleTag/initialCapital/emitTrades)` + 장중 모니터 이름 규약 파서(`forward-track-namespace.ts`) + 철학 entryReady 폴백(buyScore≥50) + 전 트랙 체결 알림(strategyKey=styleTag·SSOT 라벨 16종) + §6.6 표 갱신, 시스템 모의 경로 무변경; 같은 날 §2.13 신설 — 격주 트랙 성과 순위 리포트: 매주 일요일 10:00 KST 발화 + 격주 게이트(앵커 `20260712` 짝수 주차)·트레일링 14일 실현 성과 순위·시장국면 태깅·OPS_ALERT 발송·cron-health 키 `ops.biweekly-track-review`(stale 17일); 같은 날 알림 이모지 제거 — §20류 체결·운영 알림 표기를 출처명 텍스트로 개정) / 이전: 2026-07-05 (DAR-503 헤비 수집·스캔 잡 주말 스케줄링 — §2.7·2.8·2.9 주말 전용 전환 + §2.12 신설: 공용 게이트 `isHeavyCollectionWindow`(env `HEAVY_COLLECTION_WINDOW`), 파이프라인 드레인 주중 최근 2일 경량 세이프티넷 이원화, cron-health stale 임계 8일 상향, 경량 잡(파싱 재처리·FAILED 이벤트 복구) 유지 근거) / 이전: 2026-07-03 (live-readiness W1 — §6.10 장외 체결 의미론 신설: 시스템 모의 "19:30=주문 결정, 익일 개장=체결"(매수 예약→당일 시가 체결·청산 이연·이월 상한 3거래일·REALTIME 오염 게이트·장중 모니터 다중 포트폴리오 확장) + §6.6 표 갱신; §6.9 forward 트랙 일일 사이클 신설: 철학 스타일 4트랙 크론 배선(19:40, 미가동 결함 교정) + 전략 변형 4종 forward 모의운용(19:45) + cron-health 키 `paper.style-simulation`/`paper.strategy-forward`; 이전: 2026-07-02 현행화 — §1.1 카카오 OAuth·expo-secure-store·온보딩 3단계 정합, §2 절 번호 재정렬, 분봉 단타(§6.7)·체결 푸시(§6.8)·DART 라이브 쿼터 예약분 가드(§2.11) 반영)
+=======
+**최종 수정일**: 2026-07-06 (§2.13 신설 — 격주 트랙 성과 순위 리포트: 매주 일요일 10:00 KST 발화 + 격주 게이트(앵커 `20260712` 짝수 주차)·트레일링 14일 실현 성과 순위·시장국면 태깅·OPS_ALERT 발송·cron-health 키 `ops.biweekly-track-review`(stale 17일); 같은 날 알림 이모지 제거 — §20류 체결·운영 알림 표기를 출처명 텍스트로 개정) / 이전: 2026-07-05 (DAR-503 헤비 수집·스캔 잡 주말 스케줄링 — §2.7·2.8·2.9 주말 전용 전환 + §2.12 신설: 공용 게이트 `isHeavyCollectionWindow`(env `HEAVY_COLLECTION_WINDOW`), 파이프라인 드레인 주중 최근 2일 경량 세이프티넷 이원화, cron-health stale 임계 8일 상향, 경량 잡(파싱 재처리·FAILED 이벤트 복구) 유지 근거) / 이전: 2026-07-03 (live-readiness W1 — §6.10 장외 체결 의미론 신설: 시스템 모의 "19:30=주문 결정, 익일 개장=체결"(매수 예약→당일 시가 체결·청산 이연·이월 상한 3거래일·REALTIME 오염 게이트·장중 모니터 다중 포트폴리오 확장) + §6.6 표 갱신; §6.9 forward 트랙 일일 사이클 신설: 철학 스타일 4트랙 크론 배선(19:40, 미가동 결함 교정) + 전략 변형 4종 forward 모의운용(19:45) + cron-health 키 `paper.style-simulation`/`paper.strategy-forward`; 이전: 2026-07-02 현행화 — §1.1 카카오 OAuth·expo-secure-store·온보딩 3단계 정합, §2 절 번호 재정렬, 분봉 단타(§6.7)·체결 푸시(§6.8)·DART 라이브 쿼터 예약분 가드(§2.11) 반영)

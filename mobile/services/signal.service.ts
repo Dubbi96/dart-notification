@@ -23,6 +23,8 @@ export const signalService = {
           }),
           ...(filters?.sort && { sort: filters.sort }),
           ...(filters?.entryReady && { entryReady: true }),
+          // 최신성 윈도우(일) — 0(해제)도 유효값이므로 falsy 체크 대신 undefined 체크로 전달.
+          ...(filters?.sinceDays !== undefined && { sinceDays: filters.sinceDays }),
         },
       })
       .then((r) => r.data.data),

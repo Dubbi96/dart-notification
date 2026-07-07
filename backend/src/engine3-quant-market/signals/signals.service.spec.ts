@@ -559,6 +559,82 @@ describe('SignalsService — scoreBreakdown sampleN (DAR-34)', () => {
       );
     });
   });
+
+  /**
+   * 매수 신호 큐레이션 최신성 윈도우(sinceDays) — 점수순 정렬이 전체 이력 고득점(6월 신호)에
+   * 영원히 고정돼 홈 '오늘의 투자판단'이 미갱신되던 정체의 해소 계약.
+   */
+  describe('findAll — 최신성 윈도우 sinceDays', () => {
+    beforeEach(() => {
+      prisma.tradingSignal.findMany.mockResolvedValue([]);
+      prisma.tradingSignal.count.mockResolvedValue(0);
+      prisma.eventStudyResult.findMany.mockResolvedValue([]);
+    });
+
+    /** findMany where 의 createdAt.gte 가 now−expectedDays일(±허용오차)인지 검증. */
+    function expectWindowDays(expectedDays: number) {
+      const call = prisma.tradingSignal.findMany.mock.calls[0][0];
+      const gte = call.where.createdAt?.gte as Date;
+      expect(gte).toBeInstanceOf(Date);
+      const actualDays = (Date.now() - gte.getTime()) / 86_400_000;
+      expect(actualDays).toBeGreaterThan(expectedDays - 0.01);
+      expect(actualDays).toBeLessThan(expectedDays + 0.01);
+    }
+
+    it('sort=score + sinceDays 미지정 → 기본 14일 윈도우를 적용한다(구 APK 즉시 최신성)', async () => {
+      await service.findAll({ sort: 'score' });
+
+      expectWindowDays(14);
+    });
+
+    it('sinceDays=0 명시 → 윈도우 해제(sort=score 여도 createdAt 조건 미생성·전체 이력)', async () => {
+      await service.findAll({ sort: 'score', sinceDays: 0 });
+
+      const call = prisma.tradingSignal.findMany.mock.calls[0][0];
+      expect(call.where).not.toHaveProperty('createdAt');
+    });
+
+    it('sort=latest + sinceDays 미지정 → 무윈도우(기존 동작 유지)', async () => {
+      await service.findAll({ sort: 'latest' });
+
+      const call = prisma.tradingSignal.findMany.mock.calls[0][0];
+      expect(call.where).not.toHaveProperty('createdAt');
+    });
+
+    it('sort 미지정(기본 latest) → 무윈도우(기존 동작 유지)', async () => {
+      await service.findAll({});
+
+      const call = prisma.tradingSignal.findMany.mock.calls[0][0];
+      expect(call.where).not.toHaveProperty('createdAt');
+    });
+
+    it('sinceDays=7 명시 → sort=latest 에도 7일 윈도우를 적용한다(명시 지정 우선)', async () => {
+      await service.findAll({ sort: 'latest', sinceDays: 7 });
+
+      expectWindowDays(7);
+    });
+
+    it('count 쿼리에도 동일 윈도우 where 를 적용한다(meta.total/totalPages 정합)', async () => {
+      await service.findAll({ sort: 'score' });
+
+      const findCall = prisma.tradingSignal.findMany.mock.calls[0][0];
+      const countCall = prisma.tradingSignal.count.mock.calls[0][0];
+      expect(countCall.where.createdAt).toEqual(findCall.where.createdAt);
+    });
+
+    it('윈도우는 기존 필터(백필 제외·등급)와 AND 로 결합된다', async () => {
+      await service.findAll({ sort: 'score', grade: 'STRONG_BUY,BUY', sinceDays: 14 });
+
+      const call = prisma.tradingSignal.findMany.mock.calls[0][0];
+      expect(call.where).toMatchObject({
+        disclosure: { isBackfill: false },
+        signal: {
+          in: [SignalGrade.STRONG_BUY_CANDIDATE, SignalGrade.BUY_CANDIDATE],
+        },
+      });
+      expect(call.where.createdAt?.gte).toBeInstanceOf(Date);
+    });
+  });
 });
 
 // ─── DAR-289: 페이지네이션 tie-break ───────────────────────────────────────────

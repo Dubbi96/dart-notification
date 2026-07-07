@@ -23,6 +23,7 @@ export class SignalsController {
   @ApiQuery({ name: 'eventType', required: false, description: '공시 이벤트 유형 (SUPPLY_CONTRACT 등)' })
   @ApiQuery({ name: 'entryReady', required: false, description: '진입 준비 여부 (true/false)' })
   @ApiQuery({ name: 'sort', required: false, description: '정렬 (score: 점수 내림차순 | latest: 최신순, 기본 latest)' })
+  @ApiQuery({ name: 'sinceDays', required: false, description: '최신성 윈도우(일) — createdAt ≥ now−N일 신호만. 1~90 클램프, 0 명시 시 윈도우 해제(전체 이력). 미지정 시 sort=score 는 기본 14일(점수순 큐레이션 최신성 계약), latest 는 무윈도우' })
   @ApiQuery({ name: 'page', required: false, description: '페이지 번호 (기본: 1)' })
   @ApiQuery({ name: 'limit', required: false, description: '페이지당 항목 수 (기본: 20)' })
   async findAll(
@@ -31,6 +32,7 @@ export class SignalsController {
     @Query('eventType') eventType?: string,
     @Query('entryReady') entryReadyStr?: string,
     @Query('sort') sortStr?: string,
+    @Query('sinceDays') sinceDaysStr?: string,
     @Query('page') pageStr?: string,
     @Query('limit') limitStr?: string,
   ) {
@@ -40,6 +42,9 @@ export class SignalsController {
     // DAR-273: 쿼리 정수 안전 파싱 — 비숫자/음수 → 기본값/하한, 거대값 → 상한.
     const page = parsePaginationInt(pageStr, { default: 1, min: 1 });
     const limit = parsePaginationInt(limitStr, { default: 20, min: 1, max: 100 });
+    // 최신성 윈도우(일): 0=해제 특수값이므로 하한 0(음수도 0=해제로 클램프), 상한 90.
+    // 미지정/비숫자(undefined)는 서비스의 기본값 규칙(sort=score → 14일)에 위임한다.
+    const sinceDays = parsePaginationInt(sinceDaysStr, { min: 0, max: 90 });
 
     const result = await this.signalsService.findAll({
       grade,
@@ -47,6 +52,7 @@ export class SignalsController {
       eventType,
       entryReady,
       sort,
+      sinceDays,
       page,
       limit,
     });

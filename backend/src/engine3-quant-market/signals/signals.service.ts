@@ -26,6 +26,17 @@ const MOBILE_GRADE_TO_ENUM: Record<MobileGrade, SignalGrade> = {
 /** 신호 정렬 옵션(DAR-46): 점수 내림차순 / 최신순 */
 export type SignalSort = 'score' | 'latest';
 
+/**
+ * 점수순 큐레이션 최신성 윈도우 기본값(일).
+ * 점수 정렬은 전체 이력에서 buyScore 내림차순이라, 과거 고득점 신호(6월 지표공백기 이전)가
+ * 영원히 상단에 고정돼 홈 '오늘의 투자판단'이 수 주째 미갱신되는 정체를 만들었다.
+ * sort=score 이고 sinceDays 미지정이면 이 기본값을 적용한다 — 파라미터를 모르는 구 APK 도
+ * 재빌드 없이 즉시 최신성을 획득한다("오늘의 투자판단"의 계약). sinceDays=0 명시 시 해제.
+ */
+const DEFAULT_SCORE_SINCE_DAYS = 14;
+
+const DAY_MS = 86_400_000;
+
 const SCORE_BREAKDOWN_MAX: Record<string, number> = {
   disclosureEvent: 25,
   keyMetric: 20,
@@ -245,6 +256,8 @@ export class SignalsService {
     eventType?: string;
     entryReady?: boolean;
     sort?: SignalSort;
+    /** 최신성 윈도우(일). createdAt ≥ now−N일. 0=해제(전체 이력). 미지정 시 sort=score 만 기본 14일. */
+    sinceDays?: number;
     page?: number;
     limit?: number;
   }) {
@@ -254,11 +267,18 @@ export class SignalsService {
       eventType,
       entryReady,
       sort = 'latest',
+      sinceDays,
       page = 1,
       limit = 20,
     } = filters;
 
     const gradeFilter = resolveGradeFilter(grade);
+
+    // 최신성 윈도우 기본값 규칙: sort=score(점수순 큐레이션)이고 sinceDays 미지정이면 기본 14일 —
+    // 전체 이력 고득점 고정(홈 '오늘의 투자판단' 정체)을 차단한다. sinceDays=0 명시 시 윈도우
+    // 해제(전체 이력·이전 동작). sort=latest 는 기본 무윈도우(기존 동작 유지, 명시 지정만 적용).
+    const effectiveSinceDays =
+      sinceDays ?? (sort === 'score' ? DEFAULT_SCORE_SINCE_DAYS : 0);
 
     const where: Prisma.TradingSignalWhereInput = {
       // ★DAR-129: 신호 피드는 백필(과거 분석 baseline) 공시 기반 신호를 절대 노출하지 않는다.
@@ -268,6 +288,9 @@ export class SignalsService {
       ...(personaType && { persona: personaType }),
       ...(eventType && { eventType }),
       ...(entryReady !== undefined && { entryReady }),
+      ...(effectiveSinceDays > 0 && {
+        createdAt: { gte: new Date(Date.now() - effectiveSinceDays * DAY_MS) },
+      }),
     };
 
     // 정렬(DAR-46): 점수순은 동점 시 최신순으로 안정화. 기본은 최신순.

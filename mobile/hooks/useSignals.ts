@@ -15,10 +15,13 @@ import type {
  * 매수등급(STRONG_BUY/BUY)만 점수 내림차순으로 받아 "최근성에 가려진 빈상태"를 해소한다.
  * (기존: grade 필터 없이 latest-20 → 대부분 NEUTRAL이라 매수등급 0건 위장 빈상태)
  * 빈상태는 시스템에 매수등급 신호가 진짜 0건일 때만 발생.
+ * sinceDays=14: 최신성 윈도우 — 점수순이 전체 이력 고득점(과거 신호)에 영원히 고정되지 않게
+ * 최근 14일 신호만 받는다(백엔드 sort=score 기본값과 동일 계약을 명시). 빈 결과면 기존 빈상태 UI.
  */
 const CURATION_FILTERS: SignalFilters = {
   grade: [...CURATION_BUY_GRADES],
   sort: 'score',
+  sinceDays: 14,
 };
 
 /**
@@ -33,6 +36,7 @@ function buySignalsFeedKey(filters: SignalFilters) {
     filters.grade,
     filters.entryReady,
     filters.sort,
+    filters.sinceDays,
   ];
 }
 

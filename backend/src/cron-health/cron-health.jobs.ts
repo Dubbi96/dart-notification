@@ -28,6 +28,11 @@ export const CRON_JOB_KEYS = {
   //   이 키는 '크론이 살아 돌았나'를 본다 — 이 둘이 분리돼 있어야 EOD 크론이 조용히 멈춘
   //   (일봉 6/18 정체) 사건이 신선도 안전망에 표면화된다.
   DAILY_PRICE_COLLECT: 'market.daily-collect',
+  // 일일 기술지표 계산 — 평일 18:50(18:30 일봉 캐치업 후·19:00 신호 생성 전) + 21:10(21:00 일봉
+  //   재시도 후) 동일 경로 재발화. StockDailyPrice → TechnicalIndicator(mode=latest) 멱등 upsert.
+  //   지표 적재가 조용히 멈추면 신호 생성의 지표 컨텍스트가 전부 null 이 되어 chart 버킷 전멸 →
+  //   매수등급 신호 소멸(홈 '오늘의 투자판단' 정체)로 번지므로 신선도 안전망에 노출한다.
+  INDICATOR_DAILY: 'market.indicator-daily',
   // DAR-486(견고화 W3·P25): 종목상태 일별 이력 적재 — 평일 08:50 KRX/DART 종목상태 수집이
   //   forward-only 로 stock_status_daily 에 스냅샷을 축적한다(백테스트 생존편향 처리 입력).
   //   적재가 조용히 멈추면 백테스트 현실성 개선이 정체되므로 신선도 안전망에 노출한다.
@@ -235,6 +240,18 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 18:30, 주말 공백 흡수
     cadence: '평일 18:30 EOD',
+  },
+  {
+    // 일일 기술지표 계산 크론. 평일 18:50 + 21:10 재시도 — 주말 공백(금→월 ≈72h) 흡수.
+    //   prod TechnicalIndicator 0행 + 크론 부재로 신호 chart 버킷이 전멸했던 결함(홈 투자판단
+    //   6월 중순 정체)의 재발 방지 안전망. 일봉이 없어 적재 0 이어도 SUCCESS(적재 0)를 남겨
+    //   '크론은 살아 있음'이 유지된다 — 가동 자체가 멈춰야만 stale 로 표면화한다.
+    jobKey: CRON_JOB_KEYS.INDICATOR_DAILY,
+    label: '기술지표 일일 계산(EOD)',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 18:50/21:10, 주말 공백 흡수
+    cadence: '평일 18:50 + 21:10 재시도',
   },
   {
     // DAR-486: 종목상태 일별 이력 적재(08:50). forward-only 로 stock_status_daily 에 이상상태

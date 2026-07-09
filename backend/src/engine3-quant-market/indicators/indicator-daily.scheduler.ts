@@ -19,11 +19,13 @@ export const INDICATOR_DAILY_SKIP_MESSAGE = '이전 작업 진행 중';
  * 지표 컨텍스트가 전부 null → chart 버킷(과거 평균 +19.5, 66% 종목) 전멸 → 6/19 이후
  * 매수등급(BUY/STRONG_BUY_CANDIDATE) 신호 0건으로 홈 '오늘의 투자판단'이 정체됐다.
  *
- * 처방: KRX 일봉 캐치업 체인과 정합하는 2슬롯 크론으로 매 평일 지표를 적재한다.
+ * 처방: KRX 일봉 캐치업 체인과 정합하는 3슬롯 크론으로 매 평일 지표를 적재한다.
  *   - 18:50 — 18:30 일봉 캐치업 후·19:00 신호 생성 전(같은 날 지표가 신호에 반영).
  *   - 21:10 — 21:00 일봉 EOD 재시도(DAR-438) 후 동일 경로 재발화. 18:50 에 KRX 미게시로
  *     일봉이 비어 있었어도 21:10 에 같은 멱등 경로가 당일분 지표를 자가복구한다.
- * 두 슬롯은 동일 경로(SSOT `runDailyIndicatorsWithHealth`)를 공유한다.
+ *   - 08:15 — 아침 슬롯. KRX 는 전일(T-1) 일봉을 밤사이~새벽에 게시하므로, 08:00 일봉 백스톱
+ *     수집 직후 발화해 전일 지표를 08:30 프리플라이트·09:00 개장 전에 준비한다(지각 해소).
+ * 세 슬롯은 동일 경로(SSOT `runDailyIndicatorsWithHealth`)를 공유한다.
  *
  * 계산 본체는 IndicatorBackfillService.backfill({ mode: 'latest' }) 재사용(계산 로직 중복 0) —
  * StockDailyPrice 에서 종목별 최신 거래일 1건을 계산해 (stockCode, tradeDate) 멱등 upsert.
@@ -38,7 +40,7 @@ export const INDICATOR_DAILY_SKIP_MESSAGE = '이전 작업 진행 중';
 export class IndicatorDailyScheduler {
   private readonly logger = new Logger(IndicatorDailyScheduler.name);
 
-  /** 단일 실행 락 — 18:50/21:10 슬롯·수동 트리거 겹침 방지. */
+  /** 단일 실행 락 — 08:15/18:50/21:10 슬롯·수동 트리거 겹침 방지. */
   private isCalculating = false;
 
   constructor(
@@ -56,6 +58,19 @@ export class IndicatorDailyScheduler {
   /** 평일 21:10(KST) — 일봉 EOD 재시도(21:00, DAR-438) 후 동일 멱등 경로 재발화. */
   @Cron('10 21 * * 1-5', { timeZone: KST_TIMEZONE })
   async retryCalculateDailyIndicators(): Promise<IndicatorBackfillResult> {
+    return this.runDailyIndicatorsWithHealth();
+  }
+
+  /**
+   * 평일 08:15(KST) — 아침 지표 계산 슬롯 (개장 전 전일 지표 준비).
+   *
+   * KRX 일봉 아침 백스톱(08:00)이 밤사이 게시된 전일(T-1) 일봉을 적재한 직후 발화한다. 저녁 슬롯
+   * (18:50/21:10)만 있으면 전일 일봉이 T+1 저녁에야 적재되는 특성상 지표도 그만큼 지각했으나, 이
+   * 슬롯으로 전일 지표가 08:30 프리플라이트·09:00 개장 전에 준비된다. 저녁 슬롯과 동일 경로
+   * (runDailyIndicatorsWithHealth·SSOT, backfill mode=latest) 재발화 — 멱등 upsert 라 순수 상방.
+   */
+  @Cron('15 8 * * 1-5', { timeZone: KST_TIMEZONE })
+  async morningCalculateDailyIndicators(): Promise<IndicatorBackfillResult> {
     return this.runDailyIndicatorsWithHealth();
   }
 

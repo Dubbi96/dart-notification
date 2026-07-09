@@ -74,7 +74,7 @@ export class SimulationOrchestratorService {
         pos.entryPrice;
       priceByStock.set(pos.stockCode, close);
 
-      const exitResult = this.evaluateExit(pos, close, sizingBase, config);
+      const exitResult = this.evaluateExit(pos, close, sizingBase, config, tradeDateObj);
       const positionValue = close * pos.quantity;
       const cost = pos.entryPrice * pos.quantity;
       const unrealizedPnl = positionValue - cost;
@@ -193,12 +193,16 @@ export class SimulationOrchestratorService {
     return result;
   }
 
-  /** Exit Score 계산 (engine4 순수 계산기 재사용, 보수적 기본 스냅샷). */
+  /**
+   * Exit Score 계산 (engine4 순수 계산기 재사용, 보수적 기본 스냅샷).
+   * asOf = 평가 거래일(tradeDateObj). 라이브=오늘이라 무변경, 리플레이=과거 평가일 정확(룩어헤드 차단).
+   */
   private evaluateExit(
     pos: OpenPositionView,
     close: number,
     portfolioTotalValue: number,
     _config: SimulationConfig,
+    asOf: Date = new Date(),
   ) {
     const positionSnapshot: PositionSnapshot = {
       id: pos.positionId,
@@ -231,7 +235,7 @@ export class SimulationOrchestratorService {
       excessReturn5d: null,
       avgVolumeRatio5d: null,
     };
-    return calculateExitScore(positionSnapshot, technicalSnapshot, null, []);
+    return calculateExitScore(positionSnapshot, technicalSnapshot, null, [], null, asOf);
   }
 
   private summarizeHoldings(

@@ -530,9 +530,11 @@ export class PaperSimulationService {
           emitTrades: isSystem,
         });
         // ④ 실가 기준 Exit 평가 — F1: intraday=true 로 실시간 1순위 + REAL 신선도 가드 적용.
+        //   now 주입: 보유일(시간초과) 계산 asOf 를 주입된 평가 시각으로 고정(테스트 결정성·라이브 무변경).
         exited += await this.evaluateExits(pf.id, tradeDate, {
           intraday: true,
           emitTrades: isSystem,
+          now,
         });
       }
       if (exited > 0 || cached > 0 || entryFilled > 0 || exitFilled > 0) {
@@ -1723,13 +1725,17 @@ export class PaperSimulationService {
   private async evaluateExits(
     portfolioId: string,
     tradeDate: string,
-    opts: { intraday?: boolean; emitTrades?: boolean } = {},
+    opts: { intraday?: boolean; emitTrades?: boolean; now?: Date } = {},
   ): Promise<number> {
     const positions = await this.prisma.position.findMany({
       where: { portfolioId, status: 'OPEN' },
     });
     const exitRepo = new PrismaExitSignalRepository(this.prisma);
     let exited = 0;
+    // 보유일(시간초과 트리거) 계산 기준 시점(asOf). 장중 모니터는 주입된 now, 일일 사이클은
+    //   tradeDate 자정. 라이브는 둘 다 '오늘'이라 new Date() 와 동일 거래일수(무변경)이고,
+    //   백테스트/리플레이는 과거 평가일이 반영돼 룩어헤드가 차단된다(결정성 확보).
+    const asOf = opts.now ?? this.kstMidnight(tradeDate);
 
     for (const p of positions) {
       // DAR-433 + F1: 일일 경로는 진입소스 정렬(가짜손절 차단). 장중 경로는 실시간 1순위로 평가하되
@@ -1773,7 +1779,7 @@ export class PaperSimulationService {
       );
       const thesisSnap = await this.loadThesisSnapshot(p.positionThesisId);
 
-      const exit = calculateExitScore(posSnap, tech, thesisSnap, events);
+      const exit = calculateExitScore(posSnap, tech, thesisSnap, events, null, asOf);
       const isExitAction = EXIT_ACTIONS.has(exit.exitAction);
 
       await exitRepo.save({

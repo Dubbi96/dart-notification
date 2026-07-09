@@ -16,6 +16,7 @@ import { PhilosophyRepository } from './ports/philosophy.repository';
 import { PrismaPhilosophyRepository } from './adapters/prisma-philosophy.repository';
 import { PhilosophyFitService } from './philosophy-fit.service';
 import { PhilosophyController } from './philosophy.controller';
+import { PhilosophySeederService } from './philosophy-seeder.service';
 
 @Module({
   imports: [FinancialsModule],
@@ -24,6 +25,8 @@ import { PhilosophyController } from './philosophy.controller';
     PrismaPhilosophyRepository,
     { provide: PhilosophyRepository, useClass: PrismaPhilosophyRepository },
     PhilosophyFitService,
+    // 부팅 시 InvestorPhilosophy 비었으면 자동 시드(비어있을 때만). export 불필요 — 훅 전용.
+    PhilosophySeederService,
   ],
   exports: [PhilosophyRepository, PhilosophyFitService],
 })

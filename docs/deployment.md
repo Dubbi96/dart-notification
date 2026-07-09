@@ -302,6 +302,13 @@ XML 파싱 후 **전체 기업 마스터**를 upsert 한다(샘플 데이터가 
 `.env` 의 `DART_API_KEY` 필수). 보조 시드로 `npm run seed:notifications`(알림 샘플),
 `npm run seed:philosophy`(투자철학) 도 있다.
 
+> **투자철학 자동 시드(무인)**: `InvestorPhilosophy`(버핏·린치·그린블라트·드러켄밀러 4종)은
+> 앱 부팅 시 테이블이 **비어 있을 때만** `PhilosophySeederService`(엔진2)가 멱등 자동 시드한다
+> (`OnModuleInit` 훅). 공개 자료 기반 참조 데이터·AI 미개입·유저 데이터 아님 → 부재 시 자가 복구가
+> 올바른 동작이며, 재배포·DB 리셋에도 자동 재수복된다. count>0 이면 no-op(기존 데이터 무변경),
+> 시드 실패는 graceful(부팅 무중단). 수동 `npm run seed:philosophy` 는 무조건 재적재하는 운영 경로로
+> 병행 유지(동일 로직 SSOT = `philosophy-seeder.core.ts`).
+
 ---
 
 ### 1.6 백엔드 실행
@@ -1120,6 +1127,6 @@ psql "$DATABASE_URL" -c "SELECT timescaledb_post_restore();"
 
 ---
 
-**작성일**: 2026-03-07 · **최종 수정일**: 2026-07-03
+**작성일**: 2026-03-07 · **최종 수정일**: 2026-07-09
 **버전**: 2.1 — OPS-1 백업 자동화(`scripts/backup-prod-db.sh`+cron)·OPS-3 리소스 하드닝
 (mem_limit/NODE_OPTIONS/redis maxmemory)·원격 실경로 `/home/ubuntu/dano` 정정

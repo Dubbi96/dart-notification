@@ -1,0 +1,12 @@
+# [W15 ② 스모크 1] 콜드스타트 → 게스트 피드 렌더
+# Android FlatList 전체 백지 회귀(2026-06-07 refreshControl 사고)를 직격하는 최소 앵커:
+# 홈 피드 리스트가 실제로 그려지는지 확인한다.
+appId: com.gongsion.app
+tags:
+  - smoke
+---
+- runFlow: subflows/guest-entry.yaml
+# 홈 탭 도달 + 피드 리스트 렌더(guest-entry 가 이미 대기) 재확인.
+- assertVisible:
+    id: "home-feed-list"
+- assertVisible: "홈"

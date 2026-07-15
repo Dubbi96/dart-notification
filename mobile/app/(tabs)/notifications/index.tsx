@@ -306,7 +306,11 @@ export default function NotificationsScreen() {
 
   if (!isAuthenticated) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      // W15 ②: testID 는 Maestro 스모크 앵커 — 인박스 화면 도달 검증용(전 분기 공통).
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        testID="notifications-screen"
+      >
         {/* DAR-468: 인증 상태 분기 간 헤더 구분선 농도 통일 — 게스트도 colors.border 사용. */}
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <Text style={[typo.h2, { color: colors.text }]}>알림</Text>
@@ -319,7 +323,11 @@ export default function NotificationsScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        edges={['top']}
+        testID="notifications-screen"
+      >
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <Text style={[typo.h2, { color: colors.text }]}>알림</Text>
           <View />
@@ -333,7 +341,11 @@ export default function NotificationsScreen() {
   // 장애를 '알림 없음' 빈 상태로 위장하지 않도록 에러는 명시 분기 + 재시도 동선 제공.
   if (isError) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        edges={['top']}
+        testID="notifications-screen"
+      >
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <Text style={[typo.h2, { color: colors.text }]}>알림</Text>
           <View />
@@ -349,7 +361,11 @@ export default function NotificationsScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+      testID="notifications-screen"
+    >
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <Text style={[typo.h2, { color: colors.text }]}>알림</Text>
         <TouchableOpacity

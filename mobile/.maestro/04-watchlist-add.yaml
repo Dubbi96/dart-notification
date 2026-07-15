@@ -1,0 +1,25 @@
+# [W15 ② 스모크 4] 관심종목 추가
+# dev-login 후 기업 허브(삼성전자 00126380) 딥링크 진입 → '관심기업 추가' 탭 → 등록 상태 확인.
+# 테스트계정에 이미 등록돼 있으면 추가 탭을 건너뛰고 등록 상태('관심기업')만 확인한다.
+appId: com.gongsion.app
+tags:
+  - smoke
+env:
+  DEV_ACCESS: ""
+  DEV_REFRESH: ""
+  DEV_USER_ID: ""
+---
+- runFlow: subflows/dev-login.yaml
+- openLink: "gongsion://company/00126380"
+- extendedWaitUntil:
+    visible: "관심기업( 추가)?"
+    timeout: 15000
+- runFlow:
+    when:
+      visible: "관심기업 추가"
+    commands:
+      - tapOn: "관심기업 추가"
+# 등록 완료 상태 라벨(토글 후 '관심기업') 확인.
+- extendedWaitUntil:
+    visible: "관심기업"
+    timeout: 15000

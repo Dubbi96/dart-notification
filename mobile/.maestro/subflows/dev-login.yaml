@@ -1,0 +1,19 @@
+# [서브플로우] dev-login 딥링크 테스트계정 로그인 (W15 ②)
+# 외부 발급(백엔드 서명) JWT 를 딥링크 파라미터로 주입한다 — app/dev-login.tsx.
+# 게이트: dev 빌드(__DEV__) 또는 EXPO_PUBLIC_ALLOW_DEV_LOGIN=true 빌드에서만 동작.
+# 실행 예:
+#   maestro test -e DEV_ACCESS=<jwt> -e DEV_REFRESH=<jwt> -e DEV_USER_ID=<uid> .maestro/
+appId: com.gongsion.app
+env:
+  DEV_ACCESS: ""
+  DEV_REFRESH: ""
+  DEV_USER_ID: ""
+---
+- launchApp:
+    clearState: true
+- openLink: "gongsion://dev-login?access=${DEV_ACCESS}&refresh=${DEV_REFRESH}&id=${DEV_USER_ID}"
+# 로그인 성공 시 온보딩 완료 처리 후 홈으로 진입한다.
+- extendedWaitUntil:
+    visible:
+      id: "home-feed-list"
+    timeout: 15000

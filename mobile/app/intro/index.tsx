@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import { spacing, radius } from '@theme/spacing';
 import { Button } from '@components/common/Button';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { useAuthStore } from '@stores/authStore';
+import { recordFunnelStep } from '@services/funnel.service';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -297,6 +298,11 @@ export default function GuestIntroScreen() {
   const enterGuest = useAuthStore((s) => s.enterGuest);
   const [currentIndex, setCurrentIndex] = useState(0);
   const listRef = useRef<FlatList>(null);
+
+  // 갭분석 W15 ③: 온보딩 퍼널 2단계(intro) 계측 — 설치당 1회, fire-and-forget(실패 무시).
+  useEffect(() => {
+    void recordFunnelStep('intro', undefined, { once: true });
+  }, []);
 
   const slides = [
     { key: 'slide1', component: Slide1 },

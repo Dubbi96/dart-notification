@@ -51,6 +51,7 @@ function DisclosureFeedCardComponent({ item }: DisclosureFeedCardProps) {
       onPress={handlePress}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
+      testID="disclosure-feed-card"
     >
       <Card style={styles.disclosureCard} variant="elevated">
         <View style={styles.disclosureBody} importantForAccessibility="no-hide-descendants">

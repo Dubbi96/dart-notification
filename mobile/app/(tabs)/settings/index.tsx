@@ -184,7 +184,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background }]} testID="settings-screen">
       {/* Profile Header - 고정 영역 */}
       <LinearGradient
         colors={[colors.cardGradientStart, colors.cardGradientEnd]}

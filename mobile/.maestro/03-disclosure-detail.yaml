@@ -1,0 +1,18 @@
+# [W15 ② 스모크 3] 공시 상세 진입
+# 게스트 피드에서 첫 공시 카드를 탭해 상세 화면 도달을 확인한다.
+appId: com.gongsion.app
+tags:
+  - smoke
+---
+- runFlow: subflows/guest-entry.yaml
+- extendedWaitUntil:
+    visible:
+      id: "disclosure-feed-card"
+    timeout: 15000
+- tapOn:
+    id: "disclosure-feed-card"
+    index: 0
+- extendedWaitUntil:
+    visible:
+      id: "disclosure-detail-screen"
+    timeout: 15000

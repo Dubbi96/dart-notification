@@ -319,6 +319,12 @@ export class SchedulerService {
     items: DartDisclosureItem[],
     isBackfill = false,
   ): Promise<number> {
+    // FK 가드(2026-07-15 prod 실증): Company 에 없는 corpCode 가 배치에 1건이라도 끼면
+    // createMany 전체가 P2003(disclosures_corpCode_fkey)으로 죽어 그날 수집이 통째로
+    // FAILED 반복된다(신규 상장·미동기 기업이 공시하는 날마다 재발). 누락 기업을 DART
+    // 목록 메타(corp_name/stock_code/corp_cls)로 먼저 자동 생성해 배치를 살린다.
+    await this.ensureCompaniesExist(items);
+
     const data = items.map((item) => ({
       rcpNo: item.rcept_no,
       corpCode: item.corp_code,
@@ -340,6 +346,47 @@ export class SchedulerService {
     });
 
     return result.count;
+  }
+
+  /**
+   * 공시 목록의 corpCode 중 Company 미존재분을 DART 목록 메타로 자동 생성한다.
+   * - 공시를 낸 기업은 우리 마스터에 존재해야 한다 — 별도 기업 마스터 동기화가 없는
+   *   현 구조에서 이 경로가 사실상의 신규 기업 유입점이다.
+   * - createMany + skipDuplicates 라 동시 실행에도 멱등.
+   */
+  private async ensureCompaniesExist(items: DartDisclosureItem[]): Promise<void> {
+    const corpCodes = [...new Set(items.map((i) => i.corp_code))];
+    if (corpCodes.length === 0) {
+      return;
+    }
+    const known = await this.prisma.company.findMany({
+      where: { corpCode: { in: corpCodes } },
+      select: { corpCode: true },
+    });
+    const knownSet = new Set(known.map((c) => c.corpCode));
+    const missingByCorp = new Map<string, DartDisclosureItem>();
+    for (const item of items) {
+      if (!knownSet.has(item.corp_code) && !missingByCorp.has(item.corp_code)) {
+        missingByCorp.set(item.corp_code, item);
+      }
+    }
+    if (missingByCorp.size === 0) {
+      return;
+    }
+    await this.prisma.company.createMany({
+      data: [...missingByCorp.values()].map((item) => ({
+        corpCode: item.corp_code,
+        corpName: item.corp_name,
+        stockCode: item.stock_code?.trim() || null,
+        market:
+          item.corp_cls === 'Y' ? 'KOSPI' : item.corp_cls === 'K' ? 'KOSDAQ' : null,
+      })),
+      skipDuplicates: true,
+    });
+    this.logger.warn(
+      `Company 자동 생성 ${missingByCorp.size}건 — 공시 목록에 미동기 기업 corpCode 발견: ` +
+        [...missingByCorp.keys()].slice(0, 5).join(', '),
+    );
   }
 
   /**

@@ -113,6 +113,33 @@ export interface KisDailyBar {
   tradingValue: number; // 누적 거래대금(원) acml_tr_pbmn
 }
 
+/**
+ * 종목별 투자자 매매동향 1행 (inquire-investor, 갭분석 W16).
+ * ★단위(2026-07-16 실검증 — scripts/live-investor-flow-smoke.ts): 수량(*_ntby_qty)은 주,
+ *   대금(*_ntby_tr_pbmn)은 **백만원** — 원 단위로 환산(×1,000,000)해 반환한다.
+ */
+export interface KisInvestorDailyRow {
+  tradeDate: string; // 거래일 YYYYMMDD (stck_bsop_date)
+  foreignNetBuyQty: number; // 외국인 순매수 수량(주, frgn_ntby_qty — 음수=순매도)
+  foreignNetBuyAmount: number; // 외국인 순매수 금액(원, frgn_ntby_tr_pbmn×1e6)
+  institutionNetBuyQty: number; // 기관 순매수 수량(주, orgn_ntby_qty)
+  institutionNetBuyAmount: number; // 기관 순매수 금액(원, orgn_ntby_tr_pbmn×1e6)
+  individualNetBuyQty: number; // 개인 순매수 수량(주, prsn_ntby_qty)
+  individualNetBuyAmount: number; // 개인 순매수 금액(원, prsn_ntby_tr_pbmn×1e6)
+}
+
+/**
+ * 공매도 일별추이 1행 (daily-short-sale, 갭분석 W16).
+ * ★실검증: ssts_tr_pbmn 은 원 단위(환산 불필요). acml_ssts_* 는 조회기간 누적(잔고 아님 — 미사용).
+ *   공매도 '잔고'는 이 엔드포인트에 없다(무료 소스 미가용 — 소비측이 null 저장).
+ */
+export interface KisShortSaleDailyRow {
+  tradeDate: string; // 거래일 YYYYMMDD (stck_bsop_date)
+  shortSellingVolume: number; // 공매도 체결수량(주, ssts_cntg_qty)
+  shortSellingAmount: number; // 공매도 거래대금(원, ssts_tr_pbmn)
+  totalVolume: number; // 당일 누적 거래량(acml_vol) — placeholder(0) 판별·비중 산출용
+}
+
 interface CachedToken {
   token: string;
   /** epoch ms 만료시각(주입된 now 기준 안전 마진 적용). */
@@ -460,6 +487,103 @@ export class KisApiService {
         `[KIS] inquire-daily-itemchartprice 일봉 소실 ${code}: ${this.failureReason(e)}`,
       );
       return { bars: [], raw: null };
+    }
+  }
+
+  /**
+   * 종목별 투자자 매매동향 — inquire-investor, tr_id FHKST01010900 (갭분석 W16).
+   *
+   * KIS 는 종목당 최근 ~30영업일을 최신→과거 순으로 준다(구간 파라미터 없음). 여기서는
+   * 오름차순으로 뒤집고, 당일(미마감) placeholder 행(순매수 필드 전부 빈 문자열 — 실검증)을
+   * 걸러 반환한다. 대금(*_ntby_tr_pbmn)은 백만원 단위 → 원 단위 환산(×1e6).
+   *
+   * ★graceful: 키 미설정 예외(KisApiUnavailableError)는 throw, 그 외 실패는 [](빈배열).
+   * ★SHADOW: 조회·표면 계층 전용 데이터 — 점수·체결·하드룰 경로에 입력하지 않는다.
+   */
+  async fetchInvestorDaily(stockCode: string, nowMs?: number): Promise<KisInvestorDailyRow[]> {
+    try {
+      const headers = await this.authHeaders('FHKST01010900', nowMs);
+      const { data } = await this.client.get(
+        `${this.baseUrl}/uapi/domestic-stock/v1/quotations/inquire-investor`,
+        {
+          headers,
+          params: { FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: stockCode },
+        },
+      );
+      const rows: Array<Record<string, string>> = data?.output ?? [];
+      const MILLION = 1_000_000;
+      return rows
+        .filter(
+          (r) =>
+            r &&
+            r['stck_bsop_date'] &&
+            // 당일(미마감) placeholder — 순매수 필드가 전부 빈 문자열(실검증 2026-07-16).
+            !(
+              String(r['frgn_ntby_qty'] ?? '') === '' &&
+              String(r['orgn_ntby_qty'] ?? '') === '' &&
+              String(r['prsn_ntby_qty'] ?? '') === ''
+            ),
+        )
+        .map((r) => ({
+          tradeDate: String(r['stck_bsop_date']).trim(),
+          foreignNetBuyQty: this.parseNum(r['frgn_ntby_qty']),
+          foreignNetBuyAmount: this.parseNum(r['frgn_ntby_tr_pbmn']) * MILLION,
+          institutionNetBuyQty: this.parseNum(r['orgn_ntby_qty']),
+          institutionNetBuyAmount: this.parseNum(r['orgn_ntby_tr_pbmn']) * MILLION,
+          individualNetBuyQty: this.parseNum(r['prsn_ntby_qty']),
+          individualNetBuyAmount: this.parseNum(r['prsn_ntby_tr_pbmn']) * MILLION,
+        }))
+        .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+    } catch (e) {
+      if (e instanceof KisApiUnavailableError) throw e;
+      this.logger.error(`[KIS] inquire-investor 수급 소실 ${stockCode}: ${this.failureReason(e)}`);
+      return [];
+    }
+  }
+
+  /**
+   * 공매도 일별추이 — daily-short-sale, tr_id FHPST04830000 (갭분석 W16).
+   *
+   * [startYmd, endYmd] 구간의 일별 공매도 체결수량·거래대금을 오름차순으로 반환한다.
+   * 당일(미마감) placeholder 행(acml_vol=0 — 실검증)은 걸러낸다. 공매도 '잔고'는 이 엔드포인트에
+   * 없다(소비측이 null 저장 — 합성 금지).
+   *
+   * ★graceful: 키 미설정 예외(KisApiUnavailableError)는 throw, 그 외 실패는 [](빈배열).
+   */
+  async fetchShortSaleDaily(
+    stockCode: string,
+    startYmd: string,
+    endYmd: string,
+    nowMs?: number,
+  ): Promise<KisShortSaleDailyRow[]> {
+    try {
+      const headers = await this.authHeaders('FHPST04830000', nowMs);
+      const { data } = await this.client.get(
+        `${this.baseUrl}/uapi/domestic-stock/v1/quotations/daily-short-sale`,
+        {
+          headers,
+          params: {
+            FID_COND_MRKT_DIV_CODE: 'J',
+            FID_INPUT_ISCD: stockCode,
+            FID_INPUT_DATE_1: startYmd,
+            FID_INPUT_DATE_2: endYmd,
+          },
+        },
+      );
+      const rows: Array<Record<string, string>> = data?.output ?? data?.output2 ?? [];
+      return rows
+        .filter((r) => r && r['stck_bsop_date'] && this.parseNum(r['acml_vol']) > 0)
+        .map((r) => ({
+          tradeDate: String(r['stck_bsop_date']).trim(),
+          shortSellingVolume: this.parseNum(r['ssts_cntg_qty']),
+          shortSellingAmount: this.parseNum(r['ssts_tr_pbmn']),
+          totalVolume: this.parseNum(r['acml_vol']),
+        }))
+        .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+    } catch (e) {
+      if (e instanceof KisApiUnavailableError) throw e;
+      this.logger.error(`[KIS] daily-short-sale 공매도 소실 ${stockCode}: ${this.failureReason(e)}`);
+      return [];
     }
   }
 

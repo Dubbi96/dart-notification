@@ -762,6 +762,100 @@ BiweeklyTrackReviewScheduler.runWeekly()   @Cron('0 10 * * 0', KST)  ← 매주 
   태그를 남기지 않아 태그 기반 귀속이 체계적으로 오귀속된다. CLOSED Position 의 unrealizedPnl 은
   청산 시점 고정 실현 순손익(일일 리포트·RiskGuard 월간손실 산정과 동일 SSOT 관점).
 
+### 2.14 장중 1분 공시 델타 폴링 (평일 09:00~15:59, 갭분석 W5)
+
+최악 알림 지연 ~10분(§2.1 풀스캔 간격) → **~60~90초**로 단축하는 저지연 레인. §2.1 풀스캔은
+정합성 백스톱(전 페이지 완주 + CollectionLog)으로 그대로 유지된다.
+
+```
+@Cron('1-9,11-19,21-29,31-39,41-49,51-59 9-15 * * 1-5', KST)   // DISCLOSURE_DELTA_CRON
+SchedulerService.collectDisclosuresDelta()
+  ├─ 매 10분 정각(0,10,…,50분)은 크론식에서 제외 — 그 분은 풀스캔(§2.1)이 같은 데이터를 수집
+  │  (틱 수 420→378/일, 일일 예산 400콜 안에 수렴)
+  ├─ 델타 전용 락(풀스캔 isCollecting 과 독립 — 풀스캔 진행 중에도 델타 실행) + 겹침 시 SKIPPED
+  ├─ 델타 일일 예산 가드(DISCLOSURE_DELTA_DAILY_CALL_BUDGET=400, KST 자정 리셋) — 소진 시 SKIPPED
+  │  ★이중 방어: 1차는 dart-api 3단 쿼터(§2.6·2.11 — 델타는 라이브 list 라 사전 차단 불가),
+  │    이 예산은 조기종료 버그·페이지네이션 폭주가 예약분을 태우는 재사고 경로(6/24·7/15 기아) 차단용
+  └─ DART list.json 최신 페이지(date/desc) fetch → 신규 rcpNo 만 저장·파이프라인(파싱 큐·알림
+     매칭) 투입 — 페이지에 기존 rcpNo 1건이라도 있으면 그 페이지까지만 처리 후 조기 종료
+     (신규 0건이면 정확히 1콜)
+  → CronRunRecorder.record(CRON_JOB_KEYS.DISCLOSURE_DELTA='disclosure.delta', countOf=saved)
+```
+
+- 예외는 흡수(1분 크론 유지) — recorder 가 FAILED 표면화, 놓친 공시는 다음 틱/풀스캔이 회수.
+- freshness 안전망 등록: `WEEKDAY_INTRADAY`·stale 임계 180분(폴링 종료 15:59~윈도 끝 18:30 공백 흡수).
+- 감지→푸시 지연의 측정 표면은 `GET /ops/notification-latency`(API 명세 §31.6 — 정직 정의:
+  DART 접수시각 부재로 '감지→푸시' 구간만 측정).
+- 델타 예산 카운터는 프로세스 메모리(재시작 리셋·인스턴스별 독립) — 백스톱은 dart-api 예약분 가드.
+
+### 2.15 제목 기반 이벤트 분류 백필 (매일 02:40 KST, 갭분석 W4)
+
+과거 연속 백필 공시(§2.9) 중 이벤트 미생성분을 **제목(reportName) 룰 분류만으로**
+`DisclosureEvent` 화(化)해 Event Study 관측치를 확장한다. **DART 문서 fetch 0(DB-only)·AI 0.**
+
+```
+@Cron('40 2 * * *', KST)   TitleEventBackfillScheduler.runNightly()
+  ├─ 겹침 가드(첫 await 이전 동기 락) + 10분 타임아웃 레이스(TITLE_BACKFILL_TIMEOUT_MS —
+  │  행(hang) 방지, DAR-391 선례. 타임아웃 중단돼도 생성분 영속 → 다음 날 이어서 진척)
+  ├─ 선정 술어: disclosureEvent is null 인 백필 공시 → confidence ≥0.85 제목 룰만 채택
+  │  (절차성·방향미상 룰 제외), createMany skipDuplicates 멱등
+  ├─ TITLE_ONLY 마커(failReason/extractedData)로 본문 추출 이벤트와 분리 집계·롤백 가능
+  └─ CronRunRecorder.record(CRON_JOB_KEYS.TITLE_EVENT_BACKFILL='event.title-backfill')
+```
+
+- DAR-503 주말 창 게이트 미적용 근거: DART fetch 를 전혀 하지 않아 라이브 파싱 쿼터를 굶길 수
+  없다 — 주중 매일 실행이 안전. 야간 슬롯 02:40 은 02:00 AI 백필(§2.4)·03:00 이벤트 추출
+  백필(§2.5)과 분산.
+- freshness 등록: `ALWAYS`·stale 48h(매일 02:40, 하루 누락까지 허용).
+- 수동 트리거/진행 리포트: `POST /pipeline/title-event-backfill`·`GET
+  /pipeline/title-event-backfill-progress`(API 명세 §27.2) + `npm run backfill:title-events`.
+  최초 대량 생성은 수동 트리거 권장(크론은 일일 증분 유지) 후 토요일 04:00 Event Study 재집계에서
+  INSUFFICIENT/PRELIMINARY→READY 승격 확인.
+- 제목 백필 이벤트는 수치(extractedData)가 비어 coarse 버킷(__ALL__ 등)에 집중 — 규모 조건부
+  버킷 READY 승격 효과는 제한적일 수 있음(정직 한계).
+
+### 2.16 관심종목 급변동 감시 5분 틱 (평일 09:00~15:55, 갭분석 W7·W6)
+
+관심종목의 장중 ±5% 급변동을 감시해 `PRICE_MOVE` 알림(인박스+푸시,
+`NotificationSettings.priceMovePushEnabled` 토글)을 발화한다. 무공시 변동이면 **'관련 공시
+없음(최근 48시간)' 정직 병기**(W6 무공시 변동 브리핑) + 업종 z-score(피어 대비 이례성, 임계
+1.5σ)·뉴스 링크아웃 본문.
+
+```
+@Cron('*/5 9-15 * * 1-5', KST)   PriceMoveAlertScheduler.runTick()
+  ├─ 서비스 게이트가 정본: 정규장 종료(15:30) 컷 — 15:35~15:55 틱 스킵. 장외/주말/KIS 키
+  │  미설정/킬스위치(PRICE_MOVE_ALERT_ENABLED=false)는 무가동 스킵(CronRunLog 미기록 — 스팸 0)
+  ├─ KIS 실시간가로 ±5% 판정(z-score 표본부족·분산0 은 판정불가 null — 합성 금지)
+  ├─ 인메모리 쿨다운·이월 큐(재시작 리셋) — 최종 중복 차단은 DB @@unique(userId,type,refId)
+  │  + BullMQ jobId(pmove-<refId>) 멱등(재발화해도 사용자 체감 중복 0)
+  └─ 실제 평가가 돈 틱만 CronRunRecorder.record(CRON_JOB_KEYS.PRICE_MOVE_ALERT=
+     'market.price-move-alert', countOf=fired)
+```
+
+- ★조회·알림 계층 전용 — 매매·체결 결정 없음·AI 0(M10 측정 무오염). freshness 안전망 미등록
+  (비임계 — 스킵 틱 미기록 특성상 등록 시 오탐).
+- KIS 유량: 발화 시에만 업종 피어 실시간 최대 8콜 추가(배치 상한·순차 호출·독립 킬스위치로 완화).
+- 48h 공시 판정은 rcpDt 문자열 사전식 비교의 달력일 근사 — 본문 표기('최근 48시간')는 정직 범위 내.
+
+### 2.17 크론 신선도 제로런(zero-run) 감지 증축 (갭분석 W11)
+
+크론이 '살아서 SUCCESS 를 남기지만 산출이 0행'인 정체는 기존 age 축(마지막 성공 경과시간)이
+**영원히 못 잡는다**(성공시각이 계속 갱신되므로) — 2026-07-15 라이브 파싱 기아 장애가 이 클래스.
+`FRESHNESS_JOB_SPECS`(cron-health)에 `zeroRunThreshold`(선택 필드)를 증축: 장중 시간대에 **당일
+연속 성공 실행 N회가 전부 0행 산출**이면 stale 로 표면화한다(`freshness.ts` — 전일 기록·
+itemCount null(미상) 을 만나면 스트릭 중단, 휴장 이월 오탐 방지).
+
+| 잡 | zeroRunThreshold | 근거 |
+|---|---|---|
+| 공시 수집(10분 폴링, §2.1) | 연속 9회(≈90분) | 영업일 장중 공시 흐름은 상시 존재 — 90분 전면 0건은 이례(6/19 정체·7/15 기아 패턴) |
+| KIS 실시간가(1분 폴러) | 연속 30회(≈30분) | 폴링 중 시세 전면 0건 = 토큰 만료/쿼터 소진류 '살아있는 기아' 의심 |
+| 분봉 수집(10분, §5.7) | 연속 6회(≈60분) | 정규장 중 분봉은 매 사이클 신규 봉 필수 — 0행 연속은 KIS 응답 이상/파라미터 회귀 의심 |
+
+- ★0행이 정상인 잡(재처리·드레인류)에는 부여 금지(상시 오탐이 된다). 키 미설정/장외엔 기록
+  자체가 없어 당일 기록 부족으로 미발화(안전).
+- 판정은 신선도 SSOT(`DataFreshnessService`)에 합류 — OPS_ALERT 에지 발송(API 명세 §32 #2·#3)과
+  공개 `/status` 페이지(API 명세 §34.3)가 같은 관측면을 소비한다.
+
 ---
 
 ## 3. 에러 처리 및 재시도 전략
@@ -1236,6 +1330,39 @@ npx ts-node -r dotenv/config \
 
 ---
 
+### 5.14 투자자별 수급·공매도 EOD 수집 (평일 07:40·20:00·21:30, 갭분석 W16)
+
+투자자별 매매동향(외국인/기관/개인 순매수 → `InvestorFlowDaily`)과 공매도 일별(거래량·거래대금 →
+`ShortSellingDaily`)을 EOD 로 전종목 축적한다 — '무공시 급등락' 설명·수급 요약 카드(API 명세
+§33.2·§33.3)의 데이터 축. **★SHADOW(가중치 0): Buy Score·트레이딩 경로 무접점.**
+
+```
+@Cron('0 20 * * 1-5', KST)   InvestorFlowCollector.eveningCollectCron()      // 정시 수집
+@Cron('30 21 * * 1-5', KST)  InvestorFlowCollector.retryCollectCron()        // 재시도(20:00 미게시분)
+@Cron('40 7 * * 1-5', KST)   InvestorFlowCollector.morningBackstopCollectCron() // 아침 백스톱(전일 확정분)
+  └─ 세 슬롯 동일 멱등 경로(SSOT runBothWithHealth) — 단일 실행 락(겹침·레이트리밋 방지)
+     ├─ 소스 우선순위 체인: KRX 1차 → KIS 폴백 (isAvailable/0행 시 다음 소스)
+     ├─ 수급 → 공매도 순차 수집, 축별 실패 흡수(한 축 실패가 다른 축을 막지 않음)
+     ├─ done-set 멱등 — 이미 적재된 종목 no-op (재시도 슬롯은 0행이던 종목만 재시도)
+     ├─ 공매도 publishedDate = T+2 영업일 분리 저장 — as-of 조회 강제(lookahead 불가침).
+     │  잔고(shortBalanceQty/Ratio)는 무료 소스 미가용 → null 저장(합성 금지 — 정직)
+     └─ KIS 경유 시 종목당 120ms 스로틀 + EGW00201 재시도 + cap(env INVESTOR_FLOW_COLLECT_CAP,
+        기본 3000) 유량 가드
+  → CronRunRecorder 잡 키 분리 기록(각 축 신선도 독립 감시):
+     CRON_JOB_KEYS.INVESTOR_FLOW_COLLECT='market.investor-flow-collect'
+     CRON_JOB_KEYS.SHORT_SELLING_COLLECT='market.short-selling-collect'
+```
+
+- **슬롯 시각 근거**: 20:00 은 19:00~19:50 신호/모의운용 대열과 시간대 분리, 21:30 은 일봉 21:00
+  재시도 슬롯 대칭(DAR-438), 07:40 은 밤사이 확정된 전일분을 개장 전 확보하되 08:00 일봉·지수·ETF
+  슬롯과 분리해 KIS 유량 경합 회피(§5.1·5.2·5.11 아침 슬롯 체계와 정합).
+- freshness 안전망 등록(krx.daily 거짓 stale 선례 — 신규 크론 job key 등록 필수 원칙 준수).
+- 수동 트리거/백필: `POST /market-data/collect/investor-flow?cap=`(API 명세 §28.1) — cron 과 동일
+  SSOT(collectOnce) 경로.
+- 데이터 축적 시계: 수집기 배포 시점부터 시작(백테스트 검증엔 최소 3개월치 필요 — 캘린더 클록).
+
+---
+
 ## 6. Portfolio & Exit 엔진 점검 스케줄 (M8-A DAR-12)
 
 ### 6.1 하루 3회 점검 (평일만)
@@ -1451,4 +1578,4 @@ PaperTrade 의 기존 `PENDING` status + `entryDate`(체결 예정 거래일) + 
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-15 (라이브 파싱 기아 해소 — §2.6 DART 쿼터 3단 분할(라이브 문서 fetch 예약분 3,000 신설·벌크 상한 14,000), §2.5 이벤트 백필 주말 전용 전환(주중 WINDOW_SKIPPED·stale 8일), §2.12 파이프라인 드레인 주중 창 2일→7일 상향) / 이전: 2026-07-10 (KRX 계열 이른 아침 수집 슬롯 신설 — KRX OpenAPI 는 거래일 T 의 EOD 일별 데이터를 T 일 밤~T+1 새벽에 게시하는데 기존 KRX 계열 크론이 전부 당일 저녁이라 항상 T-1 데이터만 받고 전일분이 T+1 18:30 에야 지각 적재·08:30 프리플라이트 오탐이 발생: §5.1 일봉 06:30·08:00 + §5.2 지수 08:00 + §5.11 ETF 08:00 + §5.13 지표 08:15 아침 슬롯을 각 저녁 슬롯과 동일 멱등 캐치업 경로(SSOT) 재호출로 추가(새 수집 로직 0·기존 저녁 슬롯 유지) → 08:00 수집 + 08:15 지표 → 08:30 프리플라이트가 최신 일봉=전일(T-1)=예상 직전거래일과 일치해 오탐 제거; 같은 날 §2.5 이벤트 추출 백필 드레인 행(hang) 방지 — `drainOnce()` 무타임아웃으로 DB 커넥션 무한 대기 시 `isDraining` 영구 고착(prod 7/9 RUNNING 고착)을 `DRAIN_TIMEOUT_MS`=10분 타임아웃 레이스로 자가복구·FAILED 기록) / 이전: 2026-07-07 (§5.13 신설 — 일일 기술지표 계산 크론: `IndicatorDailyScheduler` 평일 18:50(18:30 일봉 캐치업 후·19:00 신호 생성 전) + 21:10(21:00 일봉 재시도 후) 2슬롯 동일 경로(SSOT)·겹침 가드·throw 금지, `IndicatorBackfillService.backfill({mode:'latest'})` 재사용 멱등 upsert, cron-health 키 `market.indicator-daily`(72h 임계) — 지표 크론 부재(prod TechnicalIndicator 0행)로 신호 chart 버킷 전멸·홈 '오늘의 투자판단' 6월 중순 정체를 해소; §5.6 수동 백필 경로에 크론 크로스링크; 같은 날 footer 머지 잔재(중복 최종 수정일) 정리) / 이전: 2026-07-06 (개장 체결 정렬 — §6.9·§6.10 철학 4종·전략 forward 4종 매수 진입을 시스템 모의와 동일한 "저녁 예약(PENDING)→익일 개장 당일 시가 체결" 의미론으로 통일: 일반화된 개장 체결기 `fillPendingEntries(styleTag/initialCapital/emitTrades)` + 장중 모니터 이름 규약 파서(`forward-track-namespace.ts`) + 철학 entryReady 폴백(buyScore≥50) + 전 트랙 체결 알림(strategyKey=styleTag·SSOT 라벨 16종) + §6.6 표 갱신, 시스템 모의 경로 무변경; 같은 날 §2.13 신설 — 격주 트랙 성과 순위 리포트: 매주 일요일 10:00 KST 발화 + 격주 게이트(앵커 `20260712` 짝수 주차)·트레일링 14일 실현 성과 순위·시장국면 태깅·OPS_ALERT 발송·cron-health 키 `ops.biweekly-track-review`(stale 17일); 같은 날 알림 이모지 제거 — §20류 체결·운영 알림 표기를 출처명 텍스트로 개정) / 이전: 2026-07-05 (DAR-503 헤비 수집·스캔 잡 주말 스케줄링 — §2.7·2.8·2.9 주말 전용 전환 + §2.12 신설: 공용 게이트 `isHeavyCollectionWindow`(env `HEAVY_COLLECTION_WINDOW`), 파이프라인 드레인 주중 최근 2일 경량 세이프티넷 이원화, cron-health stale 임계 8일 상향, 경량 잡(파싱 재처리·FAILED 이벤트 복구) 유지 근거) / 이전: 2026-07-03 (live-readiness W1 — §6.10 장외 체결 의미론 신설: 시스템 모의 "19:30=주문 결정, 익일 개장=체결"(매수 예약→당일 시가 체결·청산 이연·이월 상한 3거래일·REALTIME 오염 게이트·장중 모니터 다중 포트폴리오 확장) + §6.6 표 갱신; §6.9 forward 트랙 일일 사이클 신설: 철학 스타일 4트랙 크론 배선(19:40, 미가동 결함 교정) + 전략 변형 4종 forward 모의운용(19:45) + cron-health 키 `paper.style-simulation`/`paper.strategy-forward`; 이전: 2026-07-02 현행화 — §1.1 카카오 OAuth·expo-secure-store·온보딩 3단계 정합, §2 절 번호 재정렬, 분봉 단타(§6.7)·체결 푸시(§6.8)·DART 라이브 쿼터 예약분 가드(§2.11) 반영)
+**최종 수정일**: 2026-07-16 (갭분석 퀵윈 웨이브 신규 배치 5종 + 안전망 증축 — §2.14 장중 1분 공시 델타 폴링(`1-9,…,51-59 9-15 * * 1-5` KST·풀스캔 분 제외·일일 예산 400콜 이중 방어·`disclosure.delta`·최악 알림 지연 ~10분→~90초, W5); §2.15 제목 기반 이벤트 분류 백필(`40 2 * * *` KST·DART fetch 0·AI 0·confidence ≥0.85·TITLE_ONLY 마커·`event.title-backfill` stale 48h, W4); §2.16 관심종목 급변동 감시 5분 틱(`*/5 9-15 * * 1-5` KST·15:30 서비스 게이트·±5% 판정→PRICE_MOVE 알림·무공시 시 '관련 공시 없음' 정직 병기·`market.price-move-alert`·M10 무오염, W7/W6); §2.17 크론 신선도 제로런 감지 증축(`zeroRunThreshold` — 공시수집 9회≈90분·KIS 실시간 30회≈30분·분봉 6회≈60분, '살아있는 기아' 클래스 표면화, W11); §5.14 투자자별 수급·공매도 EOD 수집(`0 20`·`30 21`·`40 7 * * 1-5` KST 3슬롯 SSOT·KRX→KIS 소스 체인·publishedDate=T+2 lookahead 불가침·잔고 null 정직·`market.investor-flow-collect`/`market.short-selling-collect`·SHADOW, W16)) / 이전: 2026-07-15 (라이브 파싱 기아 해소 — §2.6 DART 쿼터 3단 분할(라이브 문서 fetch 예약분 3,000 신설·벌크 상한 14,000), §2.5 이벤트 백필 주말 전용 전환(주중 WINDOW_SKIPPED·stale 8일), §2.12 파이프라인 드레인 주중 창 2일→7일 상향) / 이전: 2026-07-10 (KRX 계열 이른 아침 수집 슬롯 신설 — KRX OpenAPI 는 거래일 T 의 EOD 일별 데이터를 T 일 밤~T+1 새벽에 게시하는데 기존 KRX 계열 크론이 전부 당일 저녁이라 항상 T-1 데이터만 받고 전일분이 T+1 18:30 에야 지각 적재·08:30 프리플라이트 오탐이 발생: §5.1 일봉 06:30·08:00 + §5.2 지수 08:00 + §5.11 ETF 08:00 + §5.13 지표 08:15 아침 슬롯을 각 저녁 슬롯과 동일 멱등 캐치업 경로(SSOT) 재호출로 추가(새 수집 로직 0·기존 저녁 슬롯 유지) → 08:00 수집 + 08:15 지표 → 08:30 프리플라이트가 최신 일봉=전일(T-1)=예상 직전거래일과 일치해 오탐 제거; 같은 날 §2.5 이벤트 추출 백필 드레인 행(hang) 방지 — `drainOnce()` 무타임아웃으로 DB 커넥션 무한 대기 시 `isDraining` 영구 고착(prod 7/9 RUNNING 고착)을 `DRAIN_TIMEOUT_MS`=10분 타임아웃 레이스로 자가복구·FAILED 기록) / 이전: 2026-07-07 (§5.13 신설 — 일일 기술지표 계산 크론: `IndicatorDailyScheduler` 평일 18:50(18:30 일봉 캐치업 후·19:00 신호 생성 전) + 21:10(21:00 일봉 재시도 후) 2슬롯 동일 경로(SSOT)·겹침 가드·throw 금지, `IndicatorBackfillService.backfill({mode:'latest'})` 재사용 멱등 upsert, cron-health 키 `market.indicator-daily`(72h 임계) — 지표 크론 부재(prod TechnicalIndicator 0행)로 신호 chart 버킷 전멸·홈 '오늘의 투자판단' 6월 중순 정체를 해소; §5.6 수동 백필 경로에 크론 크로스링크; 같은 날 footer 머지 잔재(중복 최종 수정일) 정리) / 이전: 2026-07-06 (개장 체결 정렬 — §6.9·§6.10 철학 4종·전략 forward 4종 매수 진입을 시스템 모의와 동일한 "저녁 예약(PENDING)→익일 개장 당일 시가 체결" 의미론으로 통일: 일반화된 개장 체결기 `fillPendingEntries(styleTag/initialCapital/emitTrades)` + 장중 모니터 이름 규약 파서(`forward-track-namespace.ts`) + 철학 entryReady 폴백(buyScore≥50) + 전 트랙 체결 알림(strategyKey=styleTag·SSOT 라벨 16종) + §6.6 표 갱신, 시스템 모의 경로 무변경; 같은 날 §2.13 신설 — 격주 트랙 성과 순위 리포트: 매주 일요일 10:00 KST 발화 + 격주 게이트(앵커 `20260712` 짝수 주차)·트레일링 14일 실현 성과 순위·시장국면 태깅·OPS_ALERT 발송·cron-health 키 `ops.biweekly-track-review`(stale 17일); 같은 날 알림 이모지 제거 — §20류 체결·운영 알림 표기를 출처명 텍스트로 개정) / 이전: 2026-07-05 (DAR-503 헤비 수집·스캔 잡 주말 스케줄링 — §2.7·2.8·2.9 주말 전용 전환 + §2.12 신설: 공용 게이트 `isHeavyCollectionWindow`(env `HEAVY_COLLECTION_WINDOW`), 파이프라인 드레인 주중 최근 2일 경량 세이프티넷 이원화, cron-health stale 임계 8일 상향, 경량 잡(파싱 재처리·FAILED 이벤트 복구) 유지 근거) / 이전: 2026-07-03 (live-readiness W1 — §6.10 장외 체결 의미론 신설: 시스템 모의 "19:30=주문 결정, 익일 개장=체결"(매수 예약→당일 시가 체결·청산 이연·이월 상한 3거래일·REALTIME 오염 게이트·장중 모니터 다중 포트폴리오 확장) + §6.6 표 갱신; §6.9 forward 트랙 일일 사이클 신설: 철학 스타일 4트랙 크론 배선(19:40, 미가동 결함 교정) + 전략 변형 4종 forward 모의운용(19:45) + cron-health 키 `paper.style-simulation`/`paper.strategy-forward`; 이전: 2026-07-02 현행화 — §1.1 카카오 OAuth·expo-secure-store·온보딩 3단계 정합, §2 절 번호 재정렬, 분봉 단타(§6.7)·체결 푸시(§6.8)·DART 라이브 쿼터 예약분 가드(§2.11) 반영)

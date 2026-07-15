@@ -22,9 +22,12 @@ describe('DataFreshnessService (DAR-110)', () => {
     return {
       cronRunLog: {
         findFirst: successFindFirst({ finishedAt: recent, itemCount: 4 }),
+        // [W11] 제로런 축 최근 실행 조회 — 기본은 빈 이력(스트릭 0 → 미발화).
+        findMany: jest.fn().mockResolvedValue([]),
       },
       disclosureCollectionLog: {
         findFirst: successFindFirst({ endedAt: recent, startedAt: recent, newCount: 2 }),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       marketDataCollectionLog: {
         findFirst: successFindFirst({ endedAt: recent, startedAt: recent, savedCount: 900 }),
@@ -65,10 +68,12 @@ describe('DataFreshnessService (DAR-110)', () => {
       cronRunLog: {
         // 성공행 null(미가동), 최근상태 행도 null.
         findFirst: successFindFirst(null, null),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       // 도메인 로그는 신선 유지.
       disclosureCollectionLog: {
         findFirst: successFindFirst({ endedAt: recent, startedAt: recent, newCount: 1 }),
+        findMany: jest.fn().mockResolvedValue([]),
       },
     });
     const service = new DataFreshnessService(prisma);
@@ -82,7 +87,49 @@ describe('DataFreshnessService (DAR-110)', () => {
     }
   });
 
-  it('조회는 read-only — findFirst 만 쓰고 create/update 델리게이트는 없다', async () => {
+  // [W11] 제로런 배선 — 서비스가 최근 성공 실행 이력을 조회해 순수 판정에 넘기는지.
+  it('W11: 공시 장중 폴링이 당일 연속 0건이면 제로런 stale 로 표면화된다', async () => {
+    const recent = new Date(now.getTime() - 5 * 60_000);
+    // 임계 9회(사양)의 당일 연속 0건 성공 이력.
+    const zeroRuns = Array.from({ length: 9 }, (_, i) => ({
+      endedAt: new Date(now.getTime() - (5 + i * 10) * 60_000),
+      startedAt: new Date(now.getTime() - (6 + i * 10) * 60_000),
+      newCount: 0,
+    }));
+    const prisma = makePrisma({
+      disclosureCollectionLog: {
+        // 마지막 성공은 신선(5분 전) — age 축은 통과, 제로런 축만 발화해야 한다.
+        findFirst: successFindFirst({ endedAt: recent, startedAt: recent, newCount: 0 }),
+        findMany: jest.fn().mockResolvedValue(zeroRuns),
+      },
+    });
+    const report = await new DataFreshnessService(prisma).getFreshness(now);
+
+    const job = report.jobs.find((j) => j.jobKey === 'disclosure.intraday');
+    expect(job?.zeroRunStreak).toBe(9);
+    expect(job?.isZeroRun).toBe(true);
+    expect(job?.isStale).toBe(true);
+    expect(report.staleJobs).toContain('disclosure.intraday');
+  });
+
+  it('W11: 제로런 임계 잡만 최근 이력(findMany)을 조회한다(take=임계)', async () => {
+    const prisma = makePrisma();
+    await new DataFreshnessService(prisma).getFreshness(now);
+
+    // DISCLOSURE_LOG 제로런 잡(공시 장중 폴링) — 임계 9건 조회.
+    expect(prisma.disclosureCollectionLog.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.disclosureCollectionLog.findMany.mock.calls[0][0].take).toBe(9);
+    // CRON_RUN_LOG 제로런 잡 — KIS 실시간(30)·분봉(6) 2건만.
+    const cronCalls = prisma.cronRunLog.findMany.mock.calls;
+    expect(cronCalls).toHaveLength(2);
+    const byJob = Object.fromEntries(
+      cronCalls.map((c: any[]) => [c[0].where.jobKey, c[0].take]),
+    );
+    expect(byJob['kis.realtime-poll']).toBe(30);
+    expect(byJob['market.minute-collect']).toBe(6);
+  });
+
+  it('조회는 read-only — findFirst/findMany 만 쓰고 create/update 델리게이트는 없다', async () => {
     const prisma = makePrisma();
     const service = new DataFreshnessService(prisma);
     await service.getFreshness(now);

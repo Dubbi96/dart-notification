@@ -5,6 +5,7 @@ import {
   FreshnessJobInput,
   FreshnessJobSpec,
   FreshnessReport,
+  RecentSuccessRun,
 } from './freshness';
 import { FRESHNESS_JOB_SPECS } from './cron-health.jobs';
 
@@ -40,8 +41,51 @@ export class DataFreshnessService {
   private async buildInput(
     spec: FreshnessJobSpec,
   ): Promise<FreshnessJobInput> {
-    const run = await this.lastRunForSource(spec);
-    return { spec, ...run };
+    const [run, recentRuns] = await Promise.all([
+      this.lastRunForSource(spec),
+      this.recentRunsForZeroRun(spec),
+    ]);
+    return { spec, ...run, recentRuns };
+  }
+
+  /**
+   * [W11] 제로런 축 입력 — zeroRunThreshold 부여 잡만 최근 성공 실행 N건(최신순)을 조회.
+   * 판정(당일 경계·연속 카운트·장중 게이트)은 순수 함수(freshness.ts)가 담당한다.
+   * 인덱스 커버 소량 조회(take≤임계)라 read-only 부하 미미.
+   */
+  private async recentRunsForZeroRun(
+    spec: FreshnessJobSpec,
+  ): Promise<RecentSuccessRun[] | undefined> {
+    const take = spec.zeroRunThreshold;
+    if (take == null || take <= 0) return undefined;
+
+    if (spec.source === 'CRON_RUN_LOG') {
+      const rows = await this.prisma.cronRunLog.findMany({
+        where: { jobKey: spec.jobKey, status: 'SUCCESS' },
+        orderBy: { finishedAt: 'desc' },
+        take,
+        select: { finishedAt: true, itemCount: true },
+      });
+      return rows
+        .filter((r): r is { finishedAt: Date; itemCount: number } => r.finishedAt != null)
+        .map((r) => ({ finishedAt: r.finishedAt, itemCount: r.itemCount }));
+    }
+
+    if (spec.source === 'DISCLOSURE_LOG') {
+      const rows = await this.prisma.disclosureCollectionLog.findMany({
+        where: { status: { in: SUCCESS_STATES } },
+        orderBy: { startedAt: 'desc' },
+        take,
+        select: { endedAt: true, startedAt: true, newCount: true },
+      });
+      return rows.map((r) => ({
+        finishedAt: r.endedAt ?? r.startedAt,
+        itemCount: r.newCount ?? null,
+      }));
+    }
+
+    // MARKET/FINANCIAL 은 제로런 대상 잡이 없다(일 단위 EOD — 장중 산출 기대 없음).
+    return undefined;
   }
 
   private async lastRunForSource(spec: FreshnessJobSpec): Promise<LastRun> {

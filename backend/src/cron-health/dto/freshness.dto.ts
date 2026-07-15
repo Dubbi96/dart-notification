@@ -45,6 +45,18 @@ export class FreshnessJobResultDto {
   })
   ageMinutes!: number | null;
 
+  @ApiProperty({
+    description:
+      '[W11] 당일 연속 0행 성공 실행 횟수. 제로런 미대상 잡/판정 보류 시 null',
+    nullable: true,
+  })
+  zeroRunStreak!: number | null;
+
+  @ApiProperty({
+    description: '[W11] 제로런(장중 연속 0행 산출) 정체로 stale 판정됐는가',
+  })
+  isZeroRun!: boolean;
+
   @ApiProperty({ description: '사람이 읽는 판정 사유' })
   reason!: string;
 }

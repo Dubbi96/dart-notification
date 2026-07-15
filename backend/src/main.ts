@@ -28,10 +28,13 @@ async function bootstrap() {
   // Global prefix — 운영 헬스 프로브(/health·/health/live)는 prefix 제외(probe 는 /api 미사용, DAR-111).
   // W3b: 공개 웹 표면(랜딩 `/`·공유 페이지 `/share/:rcpNo`)도 prefix 제외 — 카톡 공유 링크가
   // https://<host>/share/:rcpNo 로 직접 접근한다(HTML 라우트, /api 미사용).
+  // W11/W12: /status·/status.json 도 제외(공개 시스템 무결성 페이지 — 브라우저 직접 접근 경로).
   app.setGlobalPrefix('api', {
     exclude: [
       'health',
       'health/live',
+      'status',
+      'status.json',
       { path: '/', method: RequestMethod.GET },
       { path: 'share/:rcpNo', method: RequestMethod.GET },
     ],

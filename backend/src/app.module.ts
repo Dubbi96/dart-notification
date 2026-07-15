@@ -38,6 +38,7 @@ import { DualMomentumForwardModule } from './engine5-trading-risk/paper-simulati
 import { IntradayScalpModule } from './engine5-trading-risk/paper-simulation/intraday-scalp/intraday-scalp.module';
 import { CollectionStatusModule } from './collection-status/collection-status.module';
 import { CronHealthModule } from './cron-health/cron-health.module';
+import { StatusModule } from './status/status.module';
 import { OpsModule } from './ops/ops.module';
 import { StorageOpsModule } from './storage-ops/storage-ops.module';
 import { WebSurfaceModule } from './web-surface/web-surface.module';
@@ -152,6 +153,8 @@ import {
 
     // 횡단 — 공개 웹 표면(랜딩 + 공시 공유 페이지, W3b) — DB read-only·외부 API 콜 0
     WebSurfaceModule,
+    // 횡단 — 공개 시스템 무결성 /status (비인증·운영 사실만, W11/W12)
+    StatusModule,
 
   ],
   providers: [

@@ -6,6 +6,11 @@
 //
 // 핵심 감사 동기: 수집이 '조용히' 멈추면 신호·수익검증 입력이 통째로 비어도 인지하지 못한다.
 // 따라서 마지막 성공이 허용 경과시간을 넘기면 stale=true 로 표면화한다.
+//
+// [W11] 제로런(zero-run) 축 증축: 크론이 '살아서 성공을 남기지만 산출이 0행'인 정체는
+// ageMinutes 축이 영원히 잡지 못한다(마지막 성공시각은 계속 갱신되므로). 2026-07-15
+// 라이브 파싱 기아 장애가 이 클래스 — 잡은 돌았지만 산출 0으로 신호가 굶었다.
+// 장중 시간대에 기대 크론이 연속 N회 0행을 산출하면 stale 로 표면화한다.
 
 /** 잡 평가 윈도 — 언제 stale 판정을 적용할지. */
 export type FreshnessWindow =
@@ -35,6 +40,21 @@ export interface FreshnessJobSpec {
   staleAfterMinutes: number;
   /** 운영자용 카덴스 설명(표시 전용). */
   cadence: string;
+  /**
+   * [W11] 제로런 감지 임계(선택) — 장중 시간대에 '당일' 연속 성공 실행 N회가 전부 0행
+   * 산출이면 stale. 미지정이면 제로런 축 미평가(기존 ageMinutes 축만).
+   * ★장중에만 산출이 기대되는 잡(공시 폴링·실시간가·분봉)에만 부여할 것 — 0행이 정상인
+   *   잡(재처리·드레인류)에 부여하면 상시 오탐이 된다.
+   */
+  zeroRunThreshold?: number;
+}
+
+/** [W11] 제로런 판정용 최근 성공 실행 1건(최신순 배열의 원소). */
+export interface RecentSuccessRun {
+  /** 성공 실행 종료시각. */
+  finishedAt: Date;
+  /** 해당 실행의 처리/신규 건수. 미기록이면 null(0 과 구분 — null 은 제로런으로 안 친다). */
+  itemCount: number | null;
 }
 
 /** 잡별 런타임 입력(로그에서 조회한 값). */
@@ -46,6 +66,11 @@ export interface FreshnessJobInput {
   lastStatus: string | null;
   /** 마지막 성공 실행의 처리/신규 건수. 없으면 null. */
   lastItemCount: number | null;
+  /**
+   * [W11] 최근 성공 실행 이력(최신순, zeroRunThreshold 건이면 충분).
+   * zeroRunThreshold 미지정 잡은 생략 가능(제로런 축 미평가).
+   */
+  recentRuns?: RecentSuccessRun[];
 }
 
 /** 잡별 판정 결과. */
@@ -62,6 +87,13 @@ export interface FreshnessJobResult {
   lastItemCount: number | null;
   /** 마지막 성공 이후 경과(분). 성공 기록 없으면 null. */
   ageMinutes: number | null;
+  /**
+   * [W11] 당일 연속 0행 성공 실행 횟수. 제로런 축 미대상(zeroRunThreshold 미지정) 또는
+   * 판정 보류(장외 등) 시 null. 비-0/미상(null) 산출 또는 전일 기록을 만나면 카운트가 끊긴다.
+   */
+  zeroRunStreak: number | null;
+  /** [W11] 제로런(연속 0행 산출) 정체로 stale 판정됐는가. */
+  isZeroRun: boolean;
   /** 사람이 읽는 사유. */
   reason: string;
 }
@@ -96,12 +128,36 @@ function isWithinIntradayWindow(now: Date): boolean {
   return minutes >= open && minutes <= close;
 }
 
+/** 같은 서버 로컬 날짜인가 — 제로런 스트릭의 '당일' 경계(이 모듈의 로컬시간 관례와 일치). */
+function isSameLocalDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+/**
+ * [W11] 당일 연속 0행 성공 실행 횟수 — 최신 실행부터 거슬러 세되,
+ *  - 전일 이전 기록을 만나면 중단(휴장/주말 이월 기록의 오탐 방지 — 당일 실적만 유효),
+ *  - 비-0 산출 또는 건수 미상(null)을 만나면 중단(연속 카운트 리셋).
+ */
+function countZeroRunStreak(recentRuns: RecentSuccessRun[], now: Date): number {
+  let streak = 0;
+  for (const run of recentRuns) {
+    if (!isSameLocalDay(run.finishedAt, now)) break;
+    if (run.itemCount !== 0) break;
+    streak += 1;
+  }
+  return streak;
+}
+
 /** 단일 잡 신선도 판정. */
 export function evaluateJobFreshness(
   input: FreshnessJobInput,
   now: Date,
 ): FreshnessJobResult {
-  const { spec, lastSuccessAt, lastStatus, lastItemCount } = input;
+  const { spec, lastSuccessAt, lastStatus, lastItemCount, recentRuns } = input;
 
   const base = {
     jobKey: spec.jobKey,
@@ -112,7 +168,7 @@ export function evaluateJobFreshness(
     lastItemCount,
   };
 
-  // 1) 평가 윈도 밖이면 판정 보류(장외시간 오탐 방지).
+  // 1) 평가 윈도 밖이면 판정 보류(장외시간 오탐 방지). 제로런 축도 함께 보류(장외 미발화).
   if (spec.window === 'WEEKDAY_INTRADAY' && !isWithinIntradayWindow(now)) {
     return {
       ...base,
@@ -121,6 +177,8 @@ export function evaluateJobFreshness(
       ageMinutes: lastSuccessAt
         ? Math.floor((now.getTime() - lastSuccessAt.getTime()) / MS_PER_MINUTE)
         : null,
+      zeroRunStreak: null,
+      isZeroRun: false,
       reason: '장외시간 — 신선도 판정 보류',
     };
   }
@@ -132,24 +190,45 @@ export function evaluateJobFreshness(
       applicable: true,
       isStale: true,
       ageMinutes: null,
+      zeroRunStreak: null,
+      isZeroRun: false,
       reason: '성공 기록 없음 — 수집 미가동 의심',
     };
   }
 
-  // 3) 마지막 성공 이후 경과시간 비교.
+  // 3) 마지막 성공 이후 경과시간 비교(기존 age 축).
   const ageMinutes = Math.floor(
     (now.getTime() - lastSuccessAt.getTime()) / MS_PER_MINUTE,
   );
-  const isStale = ageMinutes > spec.staleAfterMinutes;
+  const ageStale = ageMinutes > spec.staleAfterMinutes;
+
+  // 4) [W11] 제로런 축 — 임계가 부여된 잡만, 장중 시간대에만 평가(장외 미발화).
+  //    잡은 성공을 남기며 살아 있으나 산출이 계속 0행인 정체(2026-07-15 기아 클래스)를 잡는다.
+  const zeroRunApplicable =
+    spec.zeroRunThreshold != null &&
+    spec.zeroRunThreshold > 0 &&
+    isWithinIntradayWindow(now);
+  const zeroRunStreak = zeroRunApplicable
+    ? countZeroRunStreak(recentRuns ?? [], now)
+    : null;
+  const isZeroRun =
+    zeroRunApplicable && (zeroRunStreak as number) >= (spec.zeroRunThreshold as number);
+
+  const isStale = ageStale || isZeroRun;
+  const reason = ageStale
+    ? `마지막 성공 후 ${ageMinutes}분 경과(허용 ${spec.staleAfterMinutes}분 초과) — 수집 정체 의심`
+    : isZeroRun
+      ? `장중 연속 ${zeroRunStreak}회 0행 산출(임계 ${spec.zeroRunThreshold}회) — 제로런 정체 의심`
+      : `정상 — 마지막 성공 후 ${ageMinutes}분(허용 ${spec.staleAfterMinutes}분 이내)`;
 
   return {
     ...base,
     applicable: true,
     isStale,
     ageMinutes,
-    reason: isStale
-      ? `마지막 성공 후 ${ageMinutes}분 경과(허용 ${spec.staleAfterMinutes}분 초과) — 수집 정체 의심`
-      : `정상 — 마지막 성공 후 ${ageMinutes}분(허용 ${spec.staleAfterMinutes}분 이내)`,
+    zeroRunStreak,
+    isZeroRun,
+    reason,
   };
 }
 

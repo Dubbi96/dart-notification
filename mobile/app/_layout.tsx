@@ -70,6 +70,7 @@ function AppContent() {
             <Stack.Screen name="settings-detail/saved-disclosures" />
             <Stack.Screen name="settings-detail/collection-status" />
             <Stack.Screen name="settings-detail/ai-cost" />
+            <Stack.Screen name="settings-detail/support" />
             <Stack.Screen name="portfolio/trade-history" />
             <Stack.Screen name="portfolio/auto-trading" />
             <Stack.Screen name="portfolio/backtest-track-record" />

@@ -560,7 +560,15 @@ export class StrategyForwardSimulationService {
       // 전략 정체성 보존: exit 은 프리셋 exitRules(포지션 주입값)만 — thesis 룰 미혼입.
       const thesisSnap: ThesisSnapshot = { invalidConditions: [], maxHoldDays: null };
 
-      const exit = calculateExitScore(posSnap, tech, thesisSnap, []);
+      // asOf = 사이클 거래일 자정(라이브=오늘이라 무변경, 리플레이=평가일 정확 — 룩어헤드 차단).
+      const exit = calculateExitScore(
+        posSnap,
+        tech,
+        thesisSnap,
+        [],
+        null,
+        kstMidnightOf(tradeDate),
+      );
 
       await exitRepo.save({
         positionId: p.id,

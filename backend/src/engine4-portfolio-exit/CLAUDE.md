@@ -62,6 +62,7 @@
 - **생명주기 단방향**: ACTIVE → INVALIDATED → CLOSED (역방향 전이 금지).
 - **상대경로 import**: 런타임 `@/` alias 미등록 → 상대경로만.
 - **ExitSignal aiUsed=false**: 자동 저장 시 AI 개입 없음 필드로 보장.
+- **보유일 asOf 계약(fix/exit-score-asof-clock)**: 시간초과 트리거의 보유일은 `tradingDaysSince`·`calcTimeExceededScore`·`calculateExitScore` 의 마지막 인자 `asOf: Date = new Date()` 기준으로 센다. 미전달 시 기본값이 현재 벽시계라 라이브(장중 모니터·19:30 사이클) 동작 무변경, 백테스트/리플레이는 평가일을 주입해 룩어헤드(실제 오늘까지 보유 오판)·테스트 비결정성을 차단한다.
 
 ## invalidConditions 허용 타입
 
@@ -85,4 +86,4 @@
 - AI 금지영역 미침범
 
 ---
-*최종 수정: 2026-07-02*
+*최종 수정: 2026-07-09*

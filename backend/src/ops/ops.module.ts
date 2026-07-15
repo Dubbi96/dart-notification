@@ -8,6 +8,9 @@ import { NotificationProducerModule } from '../notifications/notification-produc
 import { OpsHealthController } from './ops-health.controller';
 import { OpsMetricsController } from './ops-metrics.controller';
 import { OpsMetricsService } from './ops-metrics.service';
+// W5 ③: 공시 알림 감지→푸시 지연 p50/p95 일별 집계(read-only, 기존 테이블만).
+import { NotificationLatencyController } from './notification-latency.controller';
+import { NotificationLatencyService } from './notification-latency.service';
 import { OpsDailyReportService } from './ops-daily-report.service';
 import { OpsDailyReportScheduler } from './ops-daily-report.scheduler';
 import { BiweeklyTrackReviewService } from './biweekly-track-review.service';
@@ -55,9 +58,17 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
     // 격주 트랙 성과 순위 리포트 — MarketRegimeService(시장국면 태깅) read-only 재사용.
     PersonaTradingModule,
   ],
-  controllers: [OpsHealthController, OpsMetricsController, BiweeklyTrackReviewController],
+  controllers: [
+    OpsHealthController,
+    OpsMetricsController,
+    BiweeklyTrackReviewController,
+    // W5 ③: GET /ops/notification-latency — 감지→푸시 지연 p50/p95(정직한 지표 정의 동봉).
+    NotificationLatencyController,
+  ],
   providers: [
     OpsMetricsService,
+    // W5 ③: 공시 알림 지연 집계 서비스(기존 테이블 read-only).
+    NotificationLatencyService,
     // DAR-477(견고화 W0·P05): 일일 운영 리포트 생성 서비스 + 20:30 KST 발송 스케줄러.
     OpsDailyReportService,
     OpsDailyReportScheduler,

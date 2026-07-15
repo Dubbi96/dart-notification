@@ -163,6 +163,8 @@ export class NotificationsService {
       [NotificationType.SIGNAL]: 0,
       [NotificationType.EXIT]: 0,
       [NotificationType.THESIS_VIOLATED]: 0,
+      // [W-베이스] 가격 급등락 알림 타입(스키마 토대 enum 정합).
+      [NotificationType.PRICE_MOVE]: 0,
       // DAR-424: 라이브 페이퍼 체결 알림 타입.
       [NotificationType.TRADE_ENTRY]: 0,
       [NotificationType.TRADE_EXIT]: 0,

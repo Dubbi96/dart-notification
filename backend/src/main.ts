@@ -26,7 +26,10 @@ async function bootstrap() {
   expressInstance.set('etag', false);
 
   // Global prefix — 운영 헬스 프로브(/health·/health/live)는 prefix 제외(probe 는 /api 미사용, DAR-111).
-  app.setGlobalPrefix('api', { exclude: ['health', 'health/live'] });
+  // /status·/status.json 도 제외(공개 시스템 무결성 페이지 — 브라우저 직접 접근 경로, W11/W12).
+  app.setGlobalPrefix('api', {
+    exclude: ['health', 'health/live', 'status', 'status.json'],
+  });
 
   // Security
   // 개발 환경(http)에서는 Helmet의 https 강제 헤더를 끈다.

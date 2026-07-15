@@ -351,6 +351,14 @@ export default function SettingsScreen() {
                 onPress={() => router.push('/legal/privacy')}
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
+              {/* W11: 앱 내 문의 표면 — 이메일 문의·시스템 상태 페이지·버전 정보. */}
+              <MenuItem
+                icon="help-circle"
+                title="문의·지원"
+                subtitle="이메일 문의 · 시스템 상태"
+                onPress={() => router.push('/settings-detail/support')}
+              />
+              <Divider style={{ backgroundColor: colors.borderLight }} />
               {/* D9: dead tap 제거 — 버전 표시는 정보 행이므로 비터치(View)로 렌더. */}
               <MenuItem
                 icon="info"

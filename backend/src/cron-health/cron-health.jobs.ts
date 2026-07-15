@@ -110,6 +110,10 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'WEEKDAY_INTRADAY',
     staleAfterMinutes: 30, // 10분 간격 폴링 — 30분 무수집이면 정체
     cadence: '평일 08:00~18:00 / 10분 간격',
+    // [W11] 제로런 감지: 폴링은 성공하는데 신규 공시 0건이 장중 연속 9회(≈90분)면 정체 의심.
+    //   DART 는 영업일 장중 공시 흐름이 상시 존재하므로 90분 전면 0건은 이례(6/19 수집 정체·
+    //   7/15 기아 클래스의 '살아있는데 산출 0' 패턴). age 축(30분 무성공)은 이 패턴을 못 잡는다.
+    zeroRunThreshold: 9,
   },
   {
     jobKey: DOMAIN_JOB_KEYS.KRX_DAILY,
@@ -198,6 +202,10 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'WEEKDAY_INTRADAY',
     staleAfterMinutes: 180, // 3시간 — 폴링 종료(15:59)~윈도 끝(18:30) 공백 흡수
     cadence: '평일 09:00~15:59 / 1분 간격',
+    // [W11] 제로런 감지: 폴러가 SUCCESS 를 남기며 도는데 시세 0건이 연속 30회(≈30분)면
+    //   토큰 만료/쿼터 소진류의 '살아있는 기아' 의심. 키 미설정/장외엔 기록 자체가 없어
+    //   당일 기록 부족으로 미발화(안전) — 실제 폴링 중 전면 0건만 표면화된다.
+    zeroRunThreshold: 30,
   },
   {
     // DAR-347: FAILED 이벤트 자동복구 크론. 가동이 멈추면 FAILED 가 무한 적체되어
@@ -229,6 +237,10 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'WEEKDAY_INTRADAY',
     staleAfterMinutes: 180, // 3시간 — 장 마감(15:30)~윈도 끝 공백 흡수
     cadence: '평일 09:00~15:30 / 10분 간격',
+    // [W11] 제로런 감지: 정규장 중 분봉은 매 사이클 신규 봉이 반드시 생기므로, SUCCESS 인데
+    //   적재 0행이 연속 6회(≈60분)면 KIS 응답 이상/파라미터 회귀 의심. 휴장/장외엔 스킵이라
+    //   기록이 없어 당일 기록 부족으로 미발화(안전).
+    zeroRunThreshold: 6,
   },
   {
     // DAR-428: 일봉 전진수집 EOD 크론. 평일 18:30 가동(KRX 일봉 캐치업). 장 마감 후 발행~익일

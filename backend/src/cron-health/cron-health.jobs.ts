@@ -77,6 +77,10 @@ export const CRON_JOB_KEYS = {
   //   원장(OrderRequest/OrderExecution)의 건수·수량·금액 정합을 대조(불일치→OPS_ALERT). 이 잡이
   //   조용히 멈추면 M11 실주문 계층의 원장 드리프트가 무감지로 쌓이므로 안전망에 노출.
   ORDER_LEDGER_RECONCILE: 'paper.order-ledger-reconcile',
+  // W5 리얼타임성: 장중 1분 공시 델타 폴링 — DART list 최신 페이지 1콜로 신규 rcpNo 만 저장·
+  //   파이프라인 투입(풀스캔 10분 크론은 정합성 백스톱으로 유지). 최악 알림 지연 ~10분→~90초.
+  //   ★krx.daily 거짓 stale 선례 방지: 신규 크론은 반드시 CronRunLog job key 를 함께 등록한다.
+  DISCLOSURE_DELTA: 'disclosure.delta',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -127,6 +131,18 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: 14_400, // 10일 — 주간/분기 카덴스 + 공백 흡수
     cadence: '주간(월) + 분기 백필',
+  },
+  {
+    // W5 리얼타임성: 장중 1분 공시 델타 폴링. 풀스캔 분(매 10분 정각)은 크론식에서 제외되어
+    //   풀스캔이 커버하고, 예산 소진 시 SKIPPED(성공 아님) 기록이라 lastSuccessAt 이 멈춘다.
+    //   KIS_REALTIME 선례를 따라 임계 3h — 폴링 종료(15:59)~윈도 끝(18:30) 공백을 흡수하고
+    //   장중 무가동(진짜 정체)만 stale 로 표면화한다.
+    jobKey: CRON_JOB_KEYS.DISCLOSURE_DELTA,
+    label: '공시 델타 폴링(1분)',
+    source: 'CRON_RUN_LOG',
+    window: 'WEEKDAY_INTRADAY',
+    staleAfterMinutes: 180, // 3시간 — 폴링 종료(15:59)~윈도 끝(18:30) 공백 흡수
+    cadence: '평일 09:00~15:59 / 1분(풀스캔 분 제외)',
   },
   {
     jobKey: CRON_JOB_KEYS.SIGNAL_GENERATE,

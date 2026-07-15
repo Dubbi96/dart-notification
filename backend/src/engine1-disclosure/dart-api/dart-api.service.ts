@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import axiosRetry from 'axios-retry';
 import * as AdmZip from 'adm-zip';
 import { DISCLOSURE_TYPE_IDS } from '../disclosures/constants/disclosure-types.constant';
 import { formatKstDateCompact } from '../../common/time/kst';
+import { NotificationProducerService } from '../../notifications/notification-producer.service';
 
 /**
  * DART API 키 미설정 또는 오프라인 환경에서 downloadDocument 호출 시 throw되는 에러
@@ -55,6 +56,18 @@ const DART_LIVE_RESERVE = 2_000;
 const DART_LIVE_PARSE_RESERVE = 3_000;
 const DART_LIVE_PARSE_CEILING = DART_DAILY_BUDGET - DART_LIVE_RESERVE;
 const DART_BULK_CEILING = DART_LIVE_PARSE_CEILING - DART_LIVE_PARSE_RESERVE;
+
+/**
+ * W5 리얼타임성 ④: 라이브 목록수집 예약분(LIVE_RESERVE) 소진 임계 알람.
+ * 예약분 잔여(= DAILY_BUDGET - callsToday, 17,000 초과분부터 예약분 잠식)가 임계(20%)
+ * 이하로 떨어지면 OPS_ALERT 를 1회/일 발행한다 — 과거 2회 기아 장애(6/24·7/15)의 증상이
+ * '조용한 알림 침묵'이라, 예약분이 실제로 잠식되기 시작하는 시점을 능동 표면화한다.
+ * 임계 콜수: LIVE_RESERVE × 20% = 400콜 잔여 시점(callsToday ≥ 18,600).
+ */
+const DART_LIVE_RESERVE_ALERT_RATIO = 0.2;
+const DART_LIVE_RESERVE_ALERT_REMAINING = Math.floor(
+  DART_LIVE_RESERVE * DART_LIVE_RESERVE_ALERT_RATIO,
+); // 400
 
 export interface DartDisclosureItem {
   corp_code: string;
@@ -213,8 +226,18 @@ export class DartApiService {
   private callsToday = 0;
   /** 실제 DART 020/021(쿼터 소진) 을 관측한 KST 일자. 그 날은 벌크 호출을 하드스톱. */
   private quotaExhaustedDay = '';
+  /** W5 ④: 라이브 예약분 소진 임계 OPS_ALERT 를 발행한 KST 일자(1회/일 dedupe). */
+  private reserveAlertDay = '';
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    /**
+     * @Optional: W5 ④ 라이브 예약분 소진 임계 알람용 producer.
+     * 미주입 환경(단위 테스트·큐 비활성)에서도 쿼터 가드 본업은 그대로 동작한다.
+     */
+    @Optional()
+    private readonly notificationProducer?: NotificationProducerService,
+  ) {
     this.apiKey = this.configService.get<string>('DART_API_KEY', '');
 
     this.httpClient = axios.create({
@@ -251,6 +274,42 @@ export class DartApiService {
   private recordCall(): void {
     this.rollDayIfNeeded();
     this.callsToday += 1;
+    this.maybeAlertLiveReserveLow();
+  }
+
+  /**
+   * W5 ④: 라이브 목록수집 예약분 잔여가 임계(20% = 400콜) 이하로 떨어지면 OPS_ALERT
+   * 를 1회/일 발행한다(기존 enqueueOpsAlert 재사용 — 실패해도 throw 없음, fire-and-forget).
+   * 과거 기아 장애(6/24·7/15)는 증상이 '조용한 알림 침묵'이라 소진을 늦게 발견했다 —
+   * 예약분이 실제 잠식되는 시점(callsToday ≥ 18,600)을 능동 표면화하는 이중 방어다.
+   */
+  private maybeAlertLiveReserveLow(): void {
+    const remaining = DART_DAILY_BUDGET - this.callsToday;
+    if (remaining > DART_LIVE_RESERVE_ALERT_REMAINING) return;
+    if (this.reserveAlertDay === this.callDayKey) return; // 1회/일
+    this.reserveAlertDay = this.callDayKey;
+    this.logger.warn(
+      `DART 라이브 목록수집 예약분 임계 도달: 잔여 ${remaining}콜(임계 ${DART_LIVE_RESERVE_ALERT_REMAINING}) — ` +
+        `델타/풀스캔 라이브 수집이 곧 굶을 수 있음(당일 ${this.callDayKey})`,
+    );
+    // enqueueOpsAlert 는 내부에서 절대 throw 하지 않는다(비임계 경로) — fire-and-forget.
+    void this.notificationProducer?.enqueueOpsAlert(
+      'WARNING',
+      'dart-quota-live-reserve',
+      `DART 라이브 목록수집 예약분 잔여 ${remaining}콜(임계 ${DART_LIVE_RESERVE_ALERT_REMAINING}콜 이하) — ` +
+        `일일 예산 ${DART_DAILY_BUDGET}콜 중 ${this.callsToday}콜 소비. 라이브 공시 수집이 곧 중단될 수 있습니다.`,
+      {
+        // 반복 발화 이벤트 — 일자 버킷 dedupeKey 로 하루 1건 멱등(재기동 재발행도 차단).
+        dedupeKey: `dart-quota-live-reserve:${this.callDayKey}`,
+        data: {
+          day: this.callDayKey,
+          callsToday: this.callsToday,
+          remaining,
+          dailyBudget: DART_DAILY_BUDGET,
+          liveReserve: DART_LIVE_RESERVE,
+        },
+      },
+    );
   }
 
   /** DART 020/021(일일 쿼터·조회회사수 초과) 관측 시 그 날 벌크 호출을 하드스톱. */

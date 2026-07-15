@@ -34,6 +34,8 @@ export const NOTIFICATION_CATEGORY: Record<NotificationType, NotificationCategor
   // DAR-473(P01): 리스크·운영 알림 → 'system' 버킷.
   [NotificationType.RISK_ALERT]: 'system',
   [NotificationType.OPS_ALERT]: 'system',
+  // 갭분석 스키마 토대: 가격 급변 알림 — 신호성 버킷(Record 전수 매핑 유지).
+  [NotificationType.PRICE_MOVE]: 'signal',
 };
 
 /** 카테고리 → 포함 NotificationType 목록(쿼리 필터용). */
@@ -43,6 +45,8 @@ export const CATEGORY_TYPES: Record<NotificationCategory, NotificationType[]> = 
     NotificationType.SIGNAL,
     NotificationType.EXIT,
     NotificationType.THESIS_VIOLATED,
+    // ★PRICE_MOVE(스키마 토대만 존재·미발행)는 조회 필터에 아직 편성하지 않는다 —
+    //   버킷 편성·필터 노출은 PRICE_MOVE 알림 구현 레인에서 확정(현재 발행 코드 0).
   ],
   trade: [NotificationType.TRADE_ENTRY, NotificationType.TRADE_EXIT],
   // DAR-473(P01): 운영 버킷 — 리스크·운영 알림.

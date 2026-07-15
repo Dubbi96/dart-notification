@@ -286,6 +286,8 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
         // DAR-473(P01): 리스크·운영 알림 타입 키.
         RISK_ALERT: 0,
         OPS_ALERT: 0,
+        // 갭분석 스키마 토대: 가격 급변 알림 타입 키(전수 키 0 초기화 계약 유지).
+        PRICE_MOVE: 0,
       });
     });
   });

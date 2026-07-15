@@ -473,7 +473,7 @@ async drainBackfill() {
 **AI 금지영역 불가침**: 생성되는 것은 참고 평가자료(`DisclosureAnalysis`/`PersonaAnalysis`)뿐이다.
 Buy/Exit Score·Risk 하드룰·주문 승인·손절에는 일절 개입하지 않는다.
 
-### 2.5 이벤트 추출 백필 드레인 (매일 03:00, DAR-391)
+### 2.5 이벤트 추출 백필 드레인 (주말 03:00, DAR-391 → DAR-503 주말 전용)
 
 **진단(상위 병목)**: 공시는 161K+ 연중 백필됐으나 `DisclosureEvent` 추출이 최근 월에만 집중되어
 (`202506`·`202507`·`202606`) **2025-08~2026-05 추출 0** → 신호·백테스트가 6월만 거래하는 진짜 게이트.
@@ -481,10 +481,15 @@ Buy/Exit Score·Risk 하드룰·주문 승인·손절에는 일절 개입하지 
 적체가 `rcpDt` 분포로 가시화되지 않아 사일런트로 비어 있었다. (실측: 백필 241,700건 중 문서 DONE
 648건뿐 → 174,772 PENDING + 65,903 문서레코드 부재가 **파싱 게이트**에 적체.)
 
-`EventBackfillScheduler`(`@Cron('0 3 * * *')`) → `EventBackfillDrainService.drainOnce()`. rcpDt 시간순 2단계:
+`EventBackfillScheduler`(`@Cron('0 3 * * *')` 발화, **주말 창에서만 드레인** — 주중은 `WINDOW_SKIPPED`+`recordSkip`)
+→ `EventBackfillDrainService.drainOnce()`. rcpDt 시간순 2단계:
+
+> **2026-07 라이브 파싱 기아 후속**: 본 드레인의 야간 파싱등록(1,000건/일)이 자정(KST) 쿼터 리셋 직후
+> 문서 fetch 벌크 소비로 이어져 낮의 라이브 공시 문서 fetch 를 굶겼다(성공 추출이 전부 KST 00~04시에
+> 몰린 prod 물증 → 라이브 이벤트 0 → 매수 신호 0). `isHeavyCollectionWindow` 게이트로 주말 전용 전환.
 
 ```typescript
-@Cron('0 3 * * *', { timeZone: KST })  // 매일 03:00
+@Cron('0 3 * * *', { timeZone: KST })  // 매일 03:00 발화 — 주중은 WINDOW_SKIPPED(DAR-503)
 async drainBackfill() {
   // Phase 1 — 추출(AI 무관 Rule 우선, DART 호출 0): isBackfill 공시 중 문서는 DONE 이나
   //   이벤트가 없는 건을 rcpDt 오름차순으로 processDisclosure(보유 parsedJson 재사용).
@@ -660,9 +665,11 @@ DART 호출에 적용되는 **횡단 일일 콜 예산 가드**로 수정했다.
 
 ```typescript
 // engine1-disclosure/dart-api/dart-api.service.ts
-const DART_DAILY_BUDGET = 19_000;  // 무료키 한도(20,000) 아래 보수 상한(시계 오차·키 공유 마진)
-const DART_LIVE_RESERVE = 2_000;   // ★라이브 목록수집 전용 예약분 — 벌크는 절대 침범 못 함
-const DART_BULK_CEILING = DART_DAILY_BUDGET - DART_LIVE_RESERVE;  // 벌크(문서/백필/재무) 누적 상한 = 17,000
+const DART_DAILY_BUDGET = 19_000;       // 무료키 한도(20,000) 아래 보수 상한(시계 오차·키 공유 마진)
+const DART_LIVE_RESERVE = 2_000;        // ★라이브 목록수집 전용 예약분 — 아무도 침범 못 함
+const DART_LIVE_PARSE_RESERVE = 3_000;  // ★라이브(비백필) 문서 fetch 전용 예약분(2026-07 신설)
+const DART_LIVE_PARSE_CEILING = DART_DAILY_BUDGET - DART_LIVE_RESERVE;             // = 17,000
+const DART_BULK_CEILING = DART_LIVE_PARSE_CEILING - DART_LIVE_PARSE_RESERVE;       // = 14,000
 ```
 
 - **라이브 통과**: 라이브 목록수집(`bulk=false`, 10분 카덴스 ≈ 1,200콜/일)은 누적이 예약분 구간에
@@ -671,7 +678,11 @@ const DART_BULK_CEILING = DART_DAILY_BUDGET - DART_LIVE_RESERVE;  // 벌크(문�
   벌크 list(`getAllDisclosuresWithMeta`)는 HTTP 없이 **합성 `020`**(quotaExceeded=true)으로 종료,
   문서 fetch(`downloadDocument`)는 `DartQuotaReservedError` throw(QUOTA 로 분류 — `retryCount`
   비소모 → 멀쩡한 문서가 영구 SKIPPED 되지 않음).
-- **리셋**: 콜 카운터는 KST 자정 리셋. 실제 `020` 관측 시 `quotaExhaustedDay` 하드스톱 백스톱.
+- **라이브 문서 fetch 예약분(2026-07 라이브 파싱 기아 후속)**: `downloadDocument(rcpNo, { priority })` —
+  비백필 공시는 `priority: 'live'` 로 `LIVE_PARSE_CEILING`(17,000)까지 허용, 백필은 `'bulk'`(14,000).
+  야간 벌크가 벌크 상한을 소진해도 당일 라이브 공시 파싱은 예약분 3,000으로 계속 진행된다.
+  (DAR-445 가 목록수집만 보호하고 문서 fetch 를 전부 벌크로 분류했던 구조적 공백의 해소.)
+- **리셋**: 콜 카운터는 KST 자정 리셋. 실제 `020` 관측 시 `quotaExhaustedDay` 하드스톱 백스톱(라이브 문서 fetch 포함 — 실쿼터 소진은 예약분으로도 못 살림; 라이브 목록수집만 계속 시도).
 - 기존 적응형 백오프(DAR-392)·PARTIAL 재시도(§2.9)와 결합 — 자정 리셋 후 벌크 드레인 자동 재개.
 
 ### 2.12 헤비 수집·스캔 잡 주말 스케줄링 (DAR-503)
@@ -692,13 +703,13 @@ env `HEAVY_COLLECTION_WINDOW` 로 오버라이드: `weekend`(기본) | `always`(
 | 연속 백필(§2.9) | `0 * * * *` | 주말 전용 | `WINDOW_SKIPPED`+`recordSkip` | 8일(상향) |
 | tables 오프로드(§2.8) | `*/10 * * * *` | 주말 전용 | `WINDOW_SKIPPED`+`recordSkip` | 8일(상향) |
 | rawText 오프로드(§2.7) | `*/10 * * * *` | 주말 전용 | `WINDOW_SKIPPED`+`recordSkip` | 8일(상향) |
-| 파이프라인 드레인 | `* * * * *` | **이원화**(정지 아님) | 최근 2일 경량 세이프티넷 | 45분(무변경) |
-| 이벤트 백필(§2.5) | `0 3 * * *` | 무변경(이미 야간) | 정상 | 48h |
+| 파이프라인 드레인 | `* * * * *` | **이원화**(정지 아님) | 최근 7일 경량 세이프티넷 | 45분(무변경) |
+| 이벤트 백필(§2.5) | `0 3 * * *` | **주말 전용**(2026-07 라이브 파싱 기아 후속) | `WINDOW_SKIPPED`+`recordSkip` | 8일(상향) |
 | 내부자·재무 | 야간 | 무변경(이미 야간) | 정상 | — |
 
 - **파이프라인 드레인 이원화**(`PipelineDrainScheduler`): 정지시키지 않는다 — 라이브 신규 공시의 BullMQ
-  체이닝 실패(DQ-1) 복구 세이프티넷이기 때문. 주중엔 `drainOnce` 에 조회 범위 `{ sinceCreatedAt: now−2일 }`
-  를 넘겨 **최근 2일 공시만** 드레인(과거 백필 24만+ 건의 무차별 fetch·대형 스캔 배제 → 풀·쿼터 경쟁 회피).
+  체이닝 실패(DQ-1) 복구 세이프티넷이기 때문. 주중엔 `drainOnce` 에 조회 범위 `{ sinceCreatedAt: now−7일 }`
+  를 넘겨 **최근 7일 공시만** 드레인(2026-07 상향: 쿼터 기아 등 수일 장애 시 미파싱 라이브가 주말까지 방치되지 않게)(과거 백필 24만+ 건의 무차별 fetch·대형 스캔 배제 → 풀·쿼터 경쟁 회피).
   주말엔 범위 무제한(전체 드레인)으로 백필 적체를 소진한다. 두 경로 모두 매 사이클 RAN(SUCCESS 기록)이라
   freshness 신선도가 유지되어 임계 무변경.
 - **cron-health 정합**: 주말 전용 잡은 주중 내내 `SKIPPED`(freshness `lastSuccessAt` 미갱신)라 주말→다음
@@ -706,7 +717,7 @@ env `HEAVY_COLLECTION_WINDOW` 로 오버라이드: `weekend`(기본) | `always`(
   주중 무발화가 stale 오탐이 되지 않고, 주말 가동 자체가 멈춰야만 `DataFreshnessMonitorScheduler`(P02)가
   OPS_ALERT 로 표면화한다. `recordSkip` 은 크론이 '살아 있으나 정책상 스킵함'을 CronRunLog 에 남긴다.
 - **무변경(라이브 수집)**: 라이브 목록수집(`*/10 8-17 * * 1-5`·`0 6-7,18-22 * * 1-5`)·시세 수집(engine3)·
-  트레이딩 사이클 전부 주중 실시간 유지. 이벤트 백필(§2.5 03:00)·내부자(03:30)·재무(새벽)는 이미 야간이라 무변경.
+  트레이딩 사이클 전부 주중 실시간 유지. 내부자(03:30)·재무(새벽)는 이미 야간이라 무변경(단 벌크 분류라 14,000 상한 적용). 이벤트 백필(§2.5)은 2026-07 라이브 파싱 기아 후속으로 **주말 전용** 전환.
 - **경량 잡 유지(판단 근거)**: `ParseRetryScheduler`(30분, `runRetryQueue(20)` — FETCH/PARSE_FAILED 재처리
   ≤20건·인덱스 조회)와 `FailedEventRecoveryScheduler`(매시간, `reprocessForNewExtractors(200)` — **DART 호출
   0**·보유 parsedJson 재사용·상태 인덱스 조회)는 저장 문서 기반의 경량·바운드 라이브 세이프티넷이라 가드
@@ -1406,4 +1417,4 @@ PaperTrade 의 기존 `PENDING` status + `entryDate`(체결 예정 거래일) + 
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-07 (§5.13 신설 — 일일 기술지표 계산 크론: `IndicatorDailyScheduler` 평일 18:50(18:30 일봉 캐치업 후·19:00 신호 생성 전) + 21:10(21:00 일봉 재시도 후) 2슬롯 동일 경로(SSOT)·겹침 가드·throw 금지, `IndicatorBackfillService.backfill({mode:'latest'})` 재사용 멱등 upsert, cron-health 키 `market.indicator-daily`(72h 임계) — 지표 크론 부재(prod TechnicalIndicator 0행)로 신호 chart 버킷 전멸·홈 '오늘의 투자판단' 6월 중순 정체를 해소; §5.6 수동 백필 경로에 크론 크로스링크; 같은 날 footer 머지 잔재(중복 최종 수정일) 정리) / 이전: 2026-07-06 (개장 체결 정렬 — §6.9·§6.10 철학 4종·전략 forward 4종 매수 진입을 시스템 모의와 동일한 "저녁 예약(PENDING)→익일 개장 당일 시가 체결" 의미론으로 통일: 일반화된 개장 체결기 `fillPendingEntries(styleTag/initialCapital/emitTrades)` + 장중 모니터 이름 규약 파서(`forward-track-namespace.ts`) + 철학 entryReady 폴백(buyScore≥50) + 전 트랙 체결 알림(strategyKey=styleTag·SSOT 라벨 16종) + §6.6 표 갱신, 시스템 모의 경로 무변경; 같은 날 §2.13 신설 — 격주 트랙 성과 순위 리포트: 매주 일요일 10:00 KST 발화 + 격주 게이트(앵커 `20260712` 짝수 주차)·트레일링 14일 실현 성과 순위·시장국면 태깅·OPS_ALERT 발송·cron-health 키 `ops.biweekly-track-review`(stale 17일); 같은 날 알림 이모지 제거 — §20류 체결·운영 알림 표기를 출처명 텍스트로 개정) / 이전: 2026-07-05 (DAR-503 헤비 수집·스캔 잡 주말 스케줄링 — §2.7·2.8·2.9 주말 전용 전환 + §2.12 신설: 공용 게이트 `isHeavyCollectionWindow`(env `HEAVY_COLLECTION_WINDOW`), 파이프라인 드레인 주중 최근 2일 경량 세이프티넷 이원화, cron-health stale 임계 8일 상향, 경량 잡(파싱 재처리·FAILED 이벤트 복구) 유지 근거) / 이전: 2026-07-03 (live-readiness W1 — §6.10 장외 체결 의미론 신설: 시스템 모의 "19:30=주문 결정, 익일 개장=체결"(매수 예약→당일 시가 체결·청산 이연·이월 상한 3거래일·REALTIME 오염 게이트·장중 모니터 다중 포트폴리오 확장) + §6.6 표 갱신; §6.9 forward 트랙 일일 사이클 신설: 철학 스타일 4트랙 크론 배선(19:40, 미가동 결함 교정) + 전략 변형 4종 forward 모의운용(19:45) + cron-health 키 `paper.style-simulation`/`paper.strategy-forward`; 이전: 2026-07-02 현행화 — §1.1 카카오 OAuth·expo-secure-store·온보딩 3단계 정합, §2 절 번호 재정렬, 분봉 단타(§6.7)·체결 푸시(§6.8)·DART 라이브 쿼터 예약분 가드(§2.11) 반영)
+**최종 수정일**: 2026-07-15 (라이브 파싱 기아 해소 — §2.6 DART 쿼터 3단 분할(라이브 문서 fetch 예약분 3,000 신설·벌크 상한 14,000), §2.5 이벤트 백필 주말 전용 전환(주중 WINDOW_SKIPPED·stale 8일), §2.12 파이프라인 드레인 주중 창 2일→7일 상향) / 이전: 2026-07-07 (§5.13 신설 — 일일 기술지표 계산 크론: `IndicatorDailyScheduler` 평일 18:50(18:30 일봉 캐치업 후·19:00 신호 생성 전) + 21:10(21:00 일봉 재시도 후) 2슬롯 동일 경로(SSOT)·겹침 가드·throw 금지, `IndicatorBackfillService.backfill({mode:'latest'})` 재사용 멱등 upsert, cron-health 키 `market.indicator-daily`(72h 임계) — 지표 크론 부재(prod TechnicalIndicator 0행)로 신호 chart 버킷 전멸·홈 '오늘의 투자판단' 6월 중순 정체를 해소; §5.6 수동 백필 경로에 크론 크로스링크; 같은 날 footer 머지 잔재(중복 최종 수정일) 정리) / 이전: 2026-07-06 (개장 체결 정렬 — §6.9·§6.10 철학 4종·전략 forward 4종 매수 진입을 시스템 모의와 동일한 "저녁 예약(PENDING)→익일 개장 당일 시가 체결" 의미론으로 통일: 일반화된 개장 체결기 `fillPendingEntries(styleTag/initialCapital/emitTrades)` + 장중 모니터 이름 규약 파서(`forward-track-namespace.ts`) + 철학 entryReady 폴백(buyScore≥50) + 전 트랙 체결 알림(strategyKey=styleTag·SSOT 라벨 16종) + §6.6 표 갱신, 시스템 모의 경로 무변경; 같은 날 §2.13 신설 — 격주 트랙 성과 순위 리포트: 매주 일요일 10:00 KST 발화 + 격주 게이트(앵커 `20260712` 짝수 주차)·트레일링 14일 실현 성과 순위·시장국면 태깅·OPS_ALERT 발송·cron-health 키 `ops.biweekly-track-review`(stale 17일); 같은 날 알림 이모지 제거 — §20류 체결·운영 알림 표기를 출처명 텍스트로 개정) / 이전: 2026-07-05 (DAR-503 헤비 수집·스캔 잡 주말 스케줄링 — §2.7·2.8·2.9 주말 전용 전환 + §2.12 신설: 공용 게이트 `isHeavyCollectionWindow`(env `HEAVY_COLLECTION_WINDOW`), 파이프라인 드레인 주중 최근 2일 경량 세이프티넷 이원화, cron-health stale 임계 8일 상향, 경량 잡(파싱 재처리·FAILED 이벤트 복구) 유지 근거) / 이전: 2026-07-03 (live-readiness W1 — §6.10 장외 체결 의미론 신설: 시스템 모의 "19:30=주문 결정, 익일 개장=체결"(매수 예약→당일 시가 체결·청산 이연·이월 상한 3거래일·REALTIME 오염 게이트·장중 모니터 다중 포트폴리오 확장) + §6.6 표 갱신; §6.9 forward 트랙 일일 사이클 신설: 철학 스타일 4트랙 크론 배선(19:40, 미가동 결함 교정) + 전략 변형 4종 forward 모의운용(19:45) + cron-health 키 `paper.style-simulation`/`paper.strategy-forward`; 이전: 2026-07-02 현행화 — §1.1 카카오 OAuth·expo-secure-store·온보딩 3단계 정합, §2 절 번호 재정렬, 분봉 단타(§6.7)·체결 푸시(§6.8)·DART 라이브 쿼터 예약분 가드(§2.11) 반영)

@@ -11,6 +11,16 @@ export interface WatchlistItem {
   createdAt: string;
 }
 
+/**
+ * Pro 출시 알림 사전신청 상태(갭분석 W1) — 서버 정본.
+ * 기존 로컬 보관(useSettingsStore.proWaitlistOptIn)을 대체한다.
+ */
+export interface ProWaitlistStatus {
+  optedIn: boolean;
+  /** 최초 신청 시각(ISO). 미신청이면 null. */
+  createdAt: string | null;
+}
+
 export interface NotificationSettings {
   userId: string;
   disclosureTypes: string[];

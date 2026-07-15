@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -8,14 +8,21 @@ import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { useSettingsStore } from '@stores/settingsStore';
+import { useAuthStore } from '@stores/authStore';
 import { useHaptics } from '@hooks/useHaptics';
+import { useNetworkStatus } from '@hooks/useNetworkStatus';
+import { useProWaitlistStatus, useToggleProWaitlist } from '@hooks/useProWaitlist';
 import { APP_BRAND_NAME } from '@utils/copy';
 import { toggleWaitlist } from '@utils/proWaitlist';
+import { shouldBlockMutation } from '@utils/offlineMutation';
 
-// Pro 혜택 안내 화면 — DAR-204.
+// Pro 혜택 안내 화면 — DAR-204 / 갭분석 W1.
 // 설정 'Pro로 업그레이드' 배너의 dead-end 스낵바를 대체하는 정적 가치 화면.
-// 결제는 미구현이므로 구매 CTA 대신 출시 알림 사전 신청(로컬 보관)으로 유도한다.
-// read-only + 로컬 상태만 사용. 테마 토큰만, 하드코딩 색상 0.
+// 결제는 미구현이므로 구매 CTA 대신 출시 알림 사전 신청으로 유도한다.
+// 갭분석 W1: 사전신청이 로컬 보관(useSettingsStore)에만 남아 수요 데이터가 증발하던 것을
+// 서버 영속화(POST/DELETE /users/pro-waitlist)로 전환 — 서버가 정본, React Query 캐시가
+// 낙관적 사본. 기존 토글 UX(즉시 반영 + 스낵바 + 햅틱)는 그대로 유지한다.
+// 테마 토큰만, 하드코딩 색상 0.
 
 interface Benefit {
   icon: keyof typeof Feather.glyphMap;
@@ -72,14 +79,53 @@ export default function ProScreen() {
   const { colors, typography: typo } = useTheme();
   const { showSnackbar } = useSnackbar();
   const haptics = useHaptics();
-  const { proWaitlistOptIn, setProWaitlistOptIn } = useSettingsStore();
+  const { isAuthenticated } = useAuthStore();
+  const { isOffline } = useNetworkStatus();
+  // 레거시 로컬 플래그 — 서버 전환(갭분석 W1) 후에는 1회 마이그레이션 소스로만 쓴다.
+  const { proWaitlistOptIn: legacyLocalOptIn, setProWaitlistOptIn } = useSettingsStore();
 
-  const handleWaitlistToggle = () => {
-    const { next, message, haptic } = toggleWaitlist(proWaitlistOptIn);
-    setProWaitlistOptIn(next);
+  const waitlistQuery = useProWaitlistStatus({ enabled: isAuthenticated });
+  const toggleMutation = useToggleProWaitlist();
+  const optedIn = waitlistQuery.data?.optedIn ?? false;
+
+  // 기존 로컬 보관 신청자 1회 마이그레이션: 서버 미신청 + 로컬 신청이면 서버에 등록하고
+  // 레거시 플래그를 소거한다(이후 서버가 유일한 정본 — 철회 후 재주입 방지).
+  const migratedRef = useRef(false);
+  useEffect(() => {
+    if (migratedRef.current) return;
+    if (!isAuthenticated || !legacyLocalOptIn || !waitlistQuery.isSuccess) return;
+    migratedRef.current = true;
+    if (!waitlistQuery.data.optedIn) {
+      toggleMutation.mutate(true);
+    }
+    setProWaitlistOptIn(false);
+  }, [
+    isAuthenticated,
+    legacyLocalOptIn,
+    waitlistQuery.isSuccess,
+    waitlistQuery.data,
+    toggleMutation,
+    setProWaitlistOptIn,
+  ]);
+
+  const handleWaitlistToggle = useCallback(() => {
+    if (!isAuthenticated) {
+      showSnackbar('로그인 후 신청할 수 있어요');
+      return;
+    }
+    const { next, message, haptic } = toggleWaitlist(optedIn);
+    if (shouldBlockMutation(isOffline)) {
+      // DAR-226 가드가 차단 안내 스낵바를 띄운다 — 성공 문구·햅틱은 생략.
+      toggleMutation.mutate(next);
+      return;
+    }
+    // 낙관적 UX: 즉시 피드백 후, 서버 실패 시(캐시는 훅이 롤백) 평문으로 알린다.
+    toggleMutation.mutate(next, {
+      onError: () => showSnackbar('요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요'),
+    });
     haptics[haptic]();
     showSnackbar(message);
-  };
+  }, [isAuthenticated, isOffline, optedIn, toggleMutation, haptics, showSnackbar]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
@@ -116,34 +162,34 @@ export default function ProScreen() {
           </Text>
         </View>
 
-        {/* Waitlist CTA — dead-end 대신 사전 신청(로컬 보관) */}
+        {/* Waitlist CTA — dead-end 대신 사전 신청(서버 영속화, 갭분석 W1) */}
         <TouchableOpacity
           style={[
             styles.ctaButton,
             {
-              backgroundColor: proWaitlistOptIn ? colors.surface : colors.primary,
-              borderColor: proWaitlistOptIn ? colors.success : colors.primary,
+              backgroundColor: optedIn ? colors.surface : colors.primary,
+              borderColor: optedIn ? colors.success : colors.primary,
             },
           ]}
           onPress={handleWaitlistToggle}
           activeOpacity={0.8}
           accessibilityRole="button"
-          accessibilityState={{ selected: proWaitlistOptIn }}
-          accessibilityLabel={proWaitlistOptIn ? '출시 알림 신청 완료, 다시 누르면 취소' : '출시 알림 신청하기'}
+          accessibilityState={{ selected: optedIn }}
+          accessibilityLabel={optedIn ? '출시 알림 신청 완료, 다시 누르면 취소' : '출시 알림 신청하기'}
         >
           <Feather
-            name={proWaitlistOptIn ? 'check-circle' : 'bell'}
+            name={optedIn ? 'check-circle' : 'bell'}
             size={18}
-            color={proWaitlistOptIn ? colors.success : colors.primaryForeground}
+            color={optedIn ? colors.success : colors.primaryForeground}
           />
           <Text
             style={[
               typo.bodyMedium,
               styles.ctaLabel,
-              { color: proWaitlistOptIn ? colors.success : colors.primaryForeground },
+              { color: optedIn ? colors.success : colors.primaryForeground },
             ]}
           >
-            {proWaitlistOptIn ? '출시 알림 신청 완료' : '출시되면 알림 받기'}
+            {optedIn ? '출시 알림 신청 완료' : '출시되면 알림 받기'}
           </Text>
         </TouchableOpacity>
 

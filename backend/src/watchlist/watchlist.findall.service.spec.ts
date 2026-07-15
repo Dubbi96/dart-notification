@@ -35,8 +35,16 @@ type WatchRow = {
   lastViewedRcpNo: string | null;
 };
 
-function makeMockPrisma(watch: WatchRow[], disclosures: DiscRow[]) {
+function makeMockPrisma(
+  watch: WatchRow[],
+  disclosures: DiscRow[],
+  // 갭분석 W1: findAll 이 한도 산정을 위해 조회하는 User.tier (기본 FREE)
+  tier: 'FREE' | 'PRO' = 'FREE',
+) {
   const prisma: any = {
+    user: {
+      findUnique: async () => ({ tier }),
+    },
     // DAR-214: findAll 의 grouped count 단일 raw 쿼리 재현.
     // Prisma.sql 은 보간값을 .values 에 [corp1, cursor1, corp2, cursor2, ...] 순으로 담는다.
     // 쌍으로 끊어 각 corpCode 의 (rcpNo > cursor) 신규 공시 수를 그룹별로 집계해 반환한다.
@@ -216,6 +224,14 @@ describe('WatchlistService.findAll — DAR-185 같은 날 unread 집계', () => 
     const res = await service.findAll(USER);
     expect(res.items).toHaveLength(0);
     expect(res.total).toBe(0);
+  });
+
+  it('갭분석 W1: limit 은 티어를 따른다 — FREE=30(현행 유지), PRO=200', async () => {
+    const free = await buildService(makeMockPrisma([], [], 'FREE'));
+    expect((await free.findAll(USER)).limit).toBe(30);
+
+    const pro = await buildService(makeMockPrisma([], [], 'PRO'));
+    expect((await pro.findAll(USER)).limit).toBe(200);
   });
 
   it('★ DAR-214: 여러 종목·서로 다른 커서를 단일 grouped 쿼리로 정확히 집계(0건 종목 포함)', async () => {

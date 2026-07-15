@@ -28,11 +28,23 @@ function makeMockPrisma(
     missingCompanies?: Set<string>;
     // 선검증 통과 후 insert 단계에서 FK 위반(P2003)이 나는 경쟁(TOCTOU) 시뮬레이션
     createThrowsP2003?: boolean;
+    // 갭분석 W1: userId → 티어. 미지정 사용자는 FREE(기존 테스트 호환).
+    tiers?: Record<string, 'FREE' | 'PRO'>;
+    // 사용자 행 자체가 없는 경쟁(삭제 등) 시뮬레이션 → FREE 폴백 검증용
+    missingUsers?: Set<string>;
   } = {},
 ) {
   const rows: Array<{ id: string; userId: string; corpCode: string }> = [];
   // userId → 현재 큐의 tail Promise (직전 보유자 해제까지 대기)
   const queues = new Map<string, Promise<void>>();
+
+  // 갭분석 W1: create() 가 트랜잭션 안에서 조회하는 User.tier 를 모델링한다.
+  const user = {
+    findUnique: async ({ where }: { where: { id: string } }) =>
+      opts.missingUsers?.has(where.id)
+        ? null
+        : { tier: opts.tiers?.[where.id] ?? 'FREE' },
+  };
 
   // companies(corpCode) 하드 FK 의 존재 검증을 모델링한다. missingCompanies 에 든
   // corpCode 만 null 을 돌려주고(미존재), 나머지는 존재로 간주한다.
@@ -80,8 +92,9 @@ function makeMockPrisma(
   const prisma: any = {
     company,
     watchList,
+    user,
     $transaction: async (fn: (tx: any) => Promise<any>) => {
-      const tx: any = { company, watchList, _release: null };
+      const tx: any = { company, watchList, user, _release: null };
       tx.$executeRaw = async (_strings: TemplateStringsArray, key: string) => {
         // 키별 mutex: 직전 보유자가 해제할 때까지 대기 후 점유
         const prev = queues.get(key) ?? Promise.resolve();
@@ -241,5 +254,87 @@ describe('WatchlistService.create (DAR-261 미존재 corpCode → 4xx)', () => {
     });
     expect(item.corpCode).toBe('00126380');
     expect(rows).toHaveLength(1);
+  });
+});
+
+// 갭분석 W1 — 엔티틀먼트 게이트: 고정 30 하드코딩을 User.tier 조회 기반으로 전환.
+// FREE=30(현행 유지), PRO=200. 한도 초과 에러 메시지에 티어 문맥이 실리는지,
+// 사용자 행 부재 시 FREE 로 보수 폴백하는지 결정론적으로 검증한다.
+describe('WatchlistService.create (갭분석 W1 tier별 한도 분기)', () => {
+  async function build(opts?: Parameters<typeof makeMockPrisma>[0]) {
+    const { prisma, rows } = makeMockPrisma(opts);
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      providers: [
+        WatchlistService,
+        { provide: PrismaService, useValue: prisma },
+      ],
+    }).compile();
+    return { service: moduleRef.get<WatchlistService>(WatchlistService), rows };
+  }
+
+  async function fill(
+    service: WatchlistService,
+    userId: string,
+    n: number,
+    offset = 0,
+  ) {
+    for (let i = 0; i < n; i++) {
+      await service.create(userId, {
+        corpCode: String(offset + i).padStart(8, '0'),
+        corpName: `회사${offset + i}`,
+      });
+    }
+  }
+
+  it('FREE 사용자는 30에서 막히고 에러 메시지에 FREE/30 문맥이 실린다', async () => {
+    const { service, rows } = await build({ tiers: { u1: 'FREE' } });
+    await fill(service, 'u1', 30);
+    const rejected = service
+      .create('u1', { corpCode: '99999999', corpName: '초과' })
+      .catch((e) => e);
+    const error = await rejected;
+    expect(error).toBeInstanceOf(UnprocessableEntityException);
+    expect(error.message).toContain('FREE tier max 30');
+    expect(rows).toHaveLength(30);
+  });
+
+  it('PRO 사용자는 30을 넘어 계속 추가할 수 있다(31번째 성공)', async () => {
+    const { service, rows } = await build({ tiers: { u1: 'PRO' } });
+    await fill(service, 'u1', 30);
+    const item = await service.create('u1', {
+      corpCode: '00000030',
+      corpName: '31번째',
+    });
+    expect(item.corpCode).toBe('00000030');
+    expect(rows).toHaveLength(31);
+  });
+
+  it('PRO 사용자도 200에서 막히고 에러 메시지에 PRO/200 문맥이 실린다', async () => {
+    const { service, rows } = await build({ tiers: { u1: 'PRO' } });
+    await fill(service, 'u1', 200);
+    const error = await service
+      .create('u1', { corpCode: '99999999', corpName: '초과' })
+      .catch((e) => e);
+    expect(error).toBeInstanceOf(UnprocessableEntityException);
+    expect(error.message).toContain('PRO tier max 200');
+    expect(rows).toHaveLength(200);
+  });
+
+  it('사용자 행이 없으면(경합 삭제 등) 보수적으로 FREE 한도 30을 적용한다', async () => {
+    const { service, rows } = await build({ missingUsers: new Set(['u1']) });
+    await fill(service, 'u1', 30);
+    await expect(
+      service.create('u1', { corpCode: '99999999', corpName: '초과' }),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    expect(rows).toHaveLength(30);
+  });
+
+  it('티어 미지정(기본값) 사용자는 기존과 동일하게 30 한도(회귀)', async () => {
+    const { service, rows } = await build();
+    await fill(service, 'u1', 30);
+    await expect(
+      service.create('u1', { corpCode: '99999999', corpName: '초과' }),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    expect(rows).toHaveLength(30);
   });
 });

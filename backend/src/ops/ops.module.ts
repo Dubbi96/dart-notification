@@ -66,16 +66,13 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
     BiweeklyTrackReviewController,
     // W5 ③: GET /ops/notification-latency — 감지→푸시 지연 p50/p95(정직한 지표 정의 동봉).
     NotificationLatencyController,
-  ],
-  providers: [
-    OpsMetricsService,
-    // W5 ③: 공시 알림 지연 집계 서비스(기존 테이블 read-only).
-    NotificationLatencyService,
     // 갭분석 W15 ③: 온보딩 퍼널 계측(비인증 POST /ops/funnel) — 측정 전용 표면.
     FunnelController,
   ],
   providers: [
     OpsMetricsService,
+    // W5 ③: 공시 알림 지연 집계 서비스(기존 테이블 read-only).
+    NotificationLatencyService,
     // 갭분석 W15 ③: FunnelEvent 적재(무소음 실패 흡수·meta 캡).
     FunnelService,
     // DAR-477(견고화 W0·P05): 일일 운영 리포트 생성 서비스 + 20:30 KST 발송 스케줄러.

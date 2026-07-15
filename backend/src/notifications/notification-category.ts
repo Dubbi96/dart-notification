@@ -34,6 +34,8 @@ export const NOTIFICATION_CATEGORY: Record<NotificationType, NotificationCategor
   // DAR-473(P01): 리스크·운영 알림 → 'system' 버킷.
   [NotificationType.RISK_ALERT]: 'system',
   [NotificationType.OPS_ALERT]: 'system',
+  // 갭분석 W7: 관심종목 급변동 알림 → 시세성 사용자 알림이므로 'signal' 버킷(기존 모바일 채널 재사용).
+  [NotificationType.PRICE_MOVE]: 'signal',
 };
 
 /** 카테고리 → 포함 NotificationType 목록(쿼리 필터용). */
@@ -43,6 +45,8 @@ export const CATEGORY_TYPES: Record<NotificationCategory, NotificationType[]> = 
     NotificationType.SIGNAL,
     NotificationType.EXIT,
     NotificationType.THESIS_VIOLATED,
+    // 갭분석 W7: 관심종목 급변동 알림.
+    NotificationType.PRICE_MOVE,
   ],
   trade: [NotificationType.TRADE_ENTRY, NotificationType.TRADE_EXIT],
   // DAR-473(P01): 운영 버킷 — 리스크·운영 알림.

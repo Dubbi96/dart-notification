@@ -169,6 +169,8 @@ export class NotificationsService {
       // DAR-473(P01): 리스크·운영 알림 타입.
       [NotificationType.RISK_ALERT]: 0,
       [NotificationType.OPS_ALERT]: 0,
+      // 갭분석 W7: 관심종목 급변동 알림 타입.
+      [NotificationType.PRICE_MOVE]: 0,
     };
     for (const row of unreadByTypeRows) {
       unreadByType[row.type] = row._count._all;

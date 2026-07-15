@@ -20,6 +20,7 @@ model User {
   name       String?
   provider   String   @default("local") // "local" | "kakao" | "google"
   providerId String? // kakao user id
+  tier       UserTier @default(FREE) // 갭분석 W1: 엔티틀먼트 소켓 — 결제 레일과 무관하게 서버 config로 수동 부여 가능
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -31,10 +32,30 @@ model User {
   notificationHistory  NotificationHistory[]
   portfolios           Portfolio[]
   refreshTokens        RefreshToken[]
+  proWaitlistEntry     ProWaitlistEntry?
 
   @@unique([provider, providerId])
   @@index([email])
   @@map("users")
+}
+
+// 갭분석 W1: 사용자 티어 — v1 유료 경계는 '도구 편의'(무제한 관심기업 등)로 한정,
+// 신호·판단 레이어 과금은 유사투자자문업 신고 완료 전 금지(docs/work/m0/policy-non-advisory.md).
+enum UserTier {
+  FREE
+  PRO
+}
+
+// 갭분석 W1: Pro 출시알림 사전신청 리드 서버 영속화 — 기존 모바일 로컬 보관(useSettingsStore)은
+// 수요 데이터가 서버에 남지 않아 계측 불가였다. 유일한 지불의사 계측기.
+model ProWaitlistEntry {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("pro_waitlist_entries")
 }
 
 // 발급된 refresh 토큰의 해시를 보관해 취소·회전(rotation)을 가능하게 한다.
@@ -86,22 +107,22 @@ model Company {
   updatedAt DateTime @updatedAt
 
   // Relations
-  watchLists          WatchList[]
-  disclosures         Disclosure[]
-  disclosureDocuments DisclosureDocument[]
-  dartFiledFacts      DartFiledFact[]
-  disclosureEvents    DisclosureEvent[]
+  watchLists            WatchList[]
+  disclosures           Disclosure[]
+  disclosureDocuments   DisclosureDocument[]
+  dartFiledFacts        DartFiledFact[]
+  disclosureEvents      DisclosureEvent[]
   insiderHoldingChanges InsiderHoldingChange[]
-  stockDailyPrices    StockDailyPrice[]
-  stockMinutePrices   StockMinutePrice[]
-  technicalIndicators TechnicalIndicator[]
-  tradingSignals      TradingSignal[]
-  positionTheses      PositionThesis[]
-  positions           Position[]
-  paperTrades         PaperTrade[]
-  orderRequests       OrderRequest[]
-  orderExecutions     OrderExecution[]
-  companyFinancials   CompanyFinancial[]
+  stockDailyPrices      StockDailyPrice[]
+  stockMinutePrices     StockMinutePrice[]
+  technicalIndicators   TechnicalIndicator[]
+  tradingSignals        TradingSignal[]
+  positionTheses        PositionThesis[]
+  positions             Position[]
+  paperTrades           PaperTrade[]
+  orderRequests         OrderRequest[]
+  orderExecutions       OrderExecution[]
+  companyFinancials     CompanyFinancial[]
 
   @@index([corpName]) // 자동완성 검색용
   @@index([stockCode])
@@ -130,12 +151,12 @@ model CompanyOverview {
 // ====================================
 
 model WatchList {
-  id           String    @id @default(cuid())
-  userId       String
-  corpCode     String // DART 고유번호
-  corpName     String // 기업명 (중복 저장, 조회 성능)
-  createdAt    DateTime  @default(now())
-  lastViewedAt DateTime? // 사용자가 해당 종목을 마지막으로 조회한 시각 (표시용, DAR-165)
+  id              String    @id @default(cuid())
+  userId          String
+  corpCode        String // DART 고유번호
+  corpName        String // 기업명 (중복 저장, 조회 성능)
+  createdAt       DateTime  @default(now())
+  lastViewedAt    DateTime? // 사용자가 해당 종목을 마지막으로 조회한 시각 (표시용, DAR-165)
   // DAR-185: 마지막으로 본 공시의 rcpNo 커서. rcpNo(=YYYYMMDD+일련번호, 사전식 단조)는
   // 일(day) 단위라 시각을 잃는 rcpDt 와 달리 같은 날 안의 순서까지 보존하므로,
   // 이 커서보다 큰 rcpNo 만 신규로 집계하면 당일 공시도 정확히 잡히고 조회 즉시 배지가 0이 된다.
@@ -176,7 +197,10 @@ model NotificationSettings {
   //   OFF면 인박스 기록·푸시 모두 생략. 설정행 미존재 시에도 기본 ON으로 간주한다.
   opsPushEnabled Boolean @default(true) // 리스크·운영 알림(RISK_ALERT/OPS_ALERT)
 
-  updatedAt       DateTime @updatedAt
+  // 갭분석 W7: 관심종목 급변동 알림(PRICE_MOVE) 토글. ★기본 OFF(알림 피로 방지 전제 — W6/W7 리스크 소견).
+  priceMovePushEnabled Boolean @default(false) // 관심종목 급변동(PRICE_MOVE) 알림
+
+  updatedAt DateTime @updatedAt
 
   // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -263,15 +287,16 @@ enum NotificationType {
   // DAR-473(P01): 능동 알림 채널 신설 — 관측·운영 계층(매매 행동 무접점).
   RISK_ALERT // 리스크 알림(킬스위치 발동·드로다운 컷 등) — P02 감지점 배선이 발행
   OPS_ALERT // 운영 알림(크론 stale·수집/청산 실패·일일 리포트 등) — enqueueOpsAlert 발행
+  PRICE_MOVE // 갭분석 W7: 관심종목 급변동 알림(전일 대비 ±5%, 당일 공시 유무 병기) — 준실시간(최대 5분 지연)
 }
 
 model NotificationHistory {
-  id     String           @id @default(cuid())
-  userId String
-  type   NotificationType @default(DISCLOSURE) // DAR-84 통합 인박스 타입
-  refId  String? // 다형 참조키 (rcpNo/signalId/positionId) — 앱레벨 무결성, DB FK 미강결합
-  title  String? // 통지 제목 (공시 외 타입용; 공시는 disclosure 조인 폴백 가능)
-  body   String? // 통지 본문
+  id       String           @id @default(cuid())
+  userId   String
+  type     NotificationType @default(DISCLOSURE) // DAR-84 통합 인박스 타입
+  refId    String? // 다형 참조키 (rcpNo/signalId/positionId) — 앱레벨 무결성, DB FK 미강결합
+  title    String? // 통지 제목 (공시 외 타입용; 공시는 disclosure 조인 폴백 가능)
+  body     String? // 통지 본문
   deepLink String? // 인앱 딥링크 (예: /disclosure/:rcpNo, /signal/:id)
 
   // 기존 공시 전용 필드 — disclosureRcpNo는 nullable로 완화(공시 외 타입 수용)
@@ -333,10 +358,10 @@ model DisclosureDocument {
   // DAR-399: tables JSONB 가 disclosure_documents TOAST 의 진짜 bulk(실측 ~1.6GB) → 객체
   //   스토리지(S3/로컬)로 오프로드. 오프로드되면 tables=null + tablesS3Key 포인터 보유(DB 경량화).
   //   재추출/폴백 스캔(SHARE_BUYBACK) 필요 시 tablesS3Key 로 lazy fetch. 미오프로드분은 tables 유지.
-  tables      Json? // 추출된 표 목록: Table[] (하단 JSON 스키마 참고). 오프로드 시 null.
-  tablesS3Key String? // 오프로드된 tables 객체 키(disclosure-tables/{rcpNo}.json.gz). 미오프로드면 null.
-  parsedJson Json? // 핵심 key-value 구조화 결과 (하단 parsedJson 스키마 참고)
-  wordCount  Int? // rawText 글자 수 (AI 입력 비용 예측, M3/M4 비용 게이트용)
+  tables       Json? // 추출된 표 목록: Table[] (하단 JSON 스키마 참고). 오프로드 시 null.
+  tablesS3Key  String? // 오프로드된 tables 객체 키(disclosure-tables/{rcpNo}.json.gz). 미오프로드면 null.
+  parsedJson   Json? // 핵심 key-value 구조화 결과 (하단 parsedJson 스키마 참고)
+  wordCount    Int? // rawText 글자 수 (AI 입력 비용 예측, M3/M4 비용 게이트용)
 
   // 정정공시 관계
   isAmendment   Boolean @default(false) // Disclosure.rmk 기반 정정 여부
@@ -379,22 +404,22 @@ model DartFiledFact {
   id String @id @default(cuid())
 
   // 자연키 — Disclosure.rcpNo (DisclosureDocument와 동일 rcpNo)
-  rcpNo String
+  rcpNo    String
   // 역정규화: 종목 단위 조회 성능
   corpCode String
 
   // 표준 키 (예: CONTRACT_AMOUNT, CB_CONVERSION_PRICE, DIVIDEND_PAYOUT_RATIO)
-  factKey String
+  factKey      String
   // 원시값의 정규화 문자열 표현 (숫자·날짜·텍스트 공통 보존)
-  value String
+  value        String
   // 숫자형 값 (금액·수량·비율 등) — 텍스트형 fact는 null
   numericValue Float?
   // 단위 (원, 주, %, ratio 등) — 결측 시 null
-  unit String?
+  unit         String?
   // 기간/일자 정보 (YYYY-MM-DD 또는 원문 기간 표현) — 결측 시 null
-  period String?
+  period       String?
   // 추출 출처 경로 (예: parsedJson.contractAmount, table_0/contractAmount)
-  sectionPath String?
+  sectionPath  String?
 
   // 정규화 소스 docType(이벤트 유형) — 추적·재처리용
   docType String?
@@ -433,6 +458,7 @@ enum EventType {
   THIRD_PARTY_ALLOTMENT // 제3자배정 유상증자
   EARNINGS_SURPRISE // 실적 서프라이즈
   EARNINGS_SHOCK // 실적 쇼크
+  EARNINGS_GUIDANCE // 갭분석 W9: 영업실적 전망·장래사업 경영계획(공정공시) — 자사 가이던스 대비 서프라이즈 축
   MAJOR_SHAREHOLDER_CHANGE // 최대주주 변경
   LAWSUIT // 소송·횡령·배임
   AUDIT_OPINION_RISK // 감사의견 거절·한정
@@ -554,8 +580,8 @@ model InsiderHoldingChange {
   relation String? // 관계/직위 (등기임원·주요주주·5%보유자 등)
 
   // 임원·주요주주 보고서 부가 플래그 (elestock 전용, majorstock은 null)
-  isExecutive       Boolean? // 임원 여부
-  isRegistered      Boolean? // 등기임원 여부
+  isExecutive        Boolean? // 임원 여부
+  isRegistered       Boolean? // 등기임원 여부
   isMajorShareholder Boolean? // 주요주주 여부
 
   // ── 보유수량/비율 (전·후·증감) ──────────────────────────────
@@ -938,6 +964,78 @@ model StockStatusDaily {
 }
 
 // ====================================
+// 수급 데이터 (갭분석 W16 — 외국인/기관/개인 순매수 EOD 축적)
+// ====================================
+//
+// 점수화는 SHADOW(가중치 0) 전용 — 활성화는 룰북 §8 재검증 통과 시에만.
+// StockStatusDaily 와 동일하게 Company FK 없이 stockCode 자연키(전종목 커버, ETF·비DART 종목 수용).
+// source 는 적재 소스 어댑터(KRX | KIS)를 기록해 소스 전환을 관측 가능하게 한다(EtfDailyPrice 패턴).
+
+model InvestorFlowDaily {
+  stockCode               String // 종목코드 6자리
+  tradeDate               String // 거래일 YYYYMMDD
+  foreignNetBuyQty        BigInt // 외국인 순매수 수량 (음수 = 순매도)
+  foreignNetBuyAmount     BigInt // 외국인 순매수 금액 (원)
+  institutionNetBuyQty    BigInt // 기관 순매수 수량
+  institutionNetBuyAmount BigInt // 기관 순매수 금액 (원)
+  individualNetBuyQty     BigInt // 개인 순매수 수량
+  individualNetBuyAmount  BigInt // 개인 순매수 금액 (원)
+  source                  String // "KRX" | "KIS" — 어느 어댑터가 적재했는지
+  createdAt               DateTime @default(now())
+
+  @@id([stockCode, tradeDate])
+  @@index([tradeDate])
+  @@map("investor_flow_daily")
+}
+
+// 갭분석 W8: 검색 제로결과 계측 — '검색 실패 중 미국종목 비율'을 상시 수집해
+// M13A-Lite(미국 알림) 착수 게이트의 수요 실증 데이터로 쓴다. tag: US_TICKER | US_NAME_KO | US_DEMAND_TAP | OTHER.
+model SearchMissLog {
+  id        String   @id @default(cuid())
+  query     String // 제로결과 검색어 원문
+  tag       String? // 분류 태그 (영문 티커 패턴 / 한글 미국종목명 / 수요 버튼 탭 / 기타)
+  userId    String? // 비로그인 검색 수용 (FK 미강결합)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([tag])
+  @@map("search_miss_logs")
+}
+
+// 갭분석 W15: 온보딩 퍼널 계측 — install→intro→kakao→관심기업→푸시권한 5단계 이벤트.
+// 온보딩 재설계는 금지(문서 판정), 실측 드롭오프 확인용 측정 장치만 먼저 심는다.
+model FunnelEvent {
+  id        String   @id @default(cuid())
+  anonId    String? // 디바이스 단위 익명 ID (로그인 전 단계 추적)
+  userId    String? // 로그인 후 단계 (FK 미강결합)
+  step      String // "install" | "intro" | "kakao" | "watchlist" | "push_permission"
+  meta      Json? // 부가 정보 (스텝별 파라미터)
+  createdAt DateTime @default(now())
+
+  @@index([step, createdAt])
+  @@map("funnel_events")
+}
+
+// 공매도 일별 통계 (갭분석 W16) — lookahead 불가침: 공매도 잔고는 T+2 공표이므로
+// publishedDate(공표일)를 분리 저장하고 백테스트·as-of 조회는 publishedDate 기준으로만 참조한다.
+model ShortSellingDaily {
+  stockCode          String // 종목코드 6자리
+  tradeDate          String // 거래 기준일 YYYYMMDD
+  shortSellingVolume BigInt // 공매도 거래량
+  shortSellingAmount BigInt? // 공매도 거래대금 (원)
+  shortBalanceQty    BigInt? // 공매도 잔고 수량 (T+2 공표)
+  shortBalanceRatio  Float? // 공매도 잔고 비율 (%, 상장주식수 대비)
+  publishedDate      String // 공표일 YYYYMMDD — as-of 조회 기준 (잔고는 tradeDate+2 영업일)
+  source             String // "KRX" | "KIS"
+  createdAt          DateTime @default(now())
+
+  @@id([stockCode, tradeDate])
+  @@index([tradeDate])
+  @@index([publishedDate])
+  @@map("short_selling_daily")
+}
+
+// ====================================
 // 시세 수집 로그 (M4-C KRX 수집, DAR-8)
 // ====================================
 
@@ -1254,7 +1352,7 @@ model Portfolio {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  user          User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   positions     Position[]
   riskSnapshots PortfolioRiskSnapshot[]
   funnelDaily   SignalEntryFunnelDaily[]
@@ -1939,11 +2037,11 @@ model CompanyFinancial {
   id String @id @default(cuid())
 
   // ── 자연키 ──────────────────────────────────────────────────
-  corpCode   String // DART 고유번호 (FK → Company.corpCode)
-  stockCode  String? // 종목코드 6자리 (조회 성능용 역정규화)
-  bsnsYear   String // 사업연도 (예: '2025')
-  reprtCode  String // 보고서코드 11011(연간)/11012(반기)/11013(1Q)/11014(3Q)
-  fsDiv      String  @default("CFS") // CFS(연결) | OFS(별도)
+  corpCode  String // DART 고유번호 (FK → Company.corpCode)
+  stockCode String? // 종목코드 6자리 (조회 성능용 역정규화)
+  bsnsYear  String // 사업연도 (예: '2025')
+  reprtCode String // 보고서코드 11011(연간)/11012(반기)/11013(1Q)/11014(3Q)
+  fsDiv     String  @default("CFS") // CFS(연결) | OFS(별도)
 
   // ── 핵심 지표 (원, BigInt — 조 단위 금액 안전 저장) ───────────
   revenue          BigInt? // 매출액
@@ -1976,7 +2074,7 @@ model CompanyFinancial {
 
   // ── 메타 ────────────────────────────────────────────────────
   rceptNo   String? // 원천 공시 접수번호 (추적용)
-  currency  String  @default("KRW")
+  currency  String   @default("KRW")
   fetchedAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2112,7 +2210,7 @@ model DualMomentumForwardTrade {
   // 청산 (다음 리밸런싱 SWITCH 시 매도)
   exitTs    DateTime? // 매도 체결 시각
   exitDate  String? // 매도 체결 거래일 YYYYMMDD
-  exitPrice Decimal? @db.Decimal(12, 2) // 매도 체결가(슬리피지 반영)
+  exitPrice Decimal?  @db.Decimal(12, 2) // 매도 체결가(슬리피지 반영)
 
   // 비용·손익 (KRW 절대값)
   commission Decimal  @default(0) @db.Decimal(14, 2) // 수수료(진입+청산 누적)
@@ -2141,9 +2239,9 @@ model DualMomentumForwardTrade {
 //   에는 부적합하다 → DAR-494 전례처럼 FK 없는 전용 additive 모델로 분리한다(택1 근거).
 //   비파괴 순수 가산 — 기존 스키마 무변경(M10 클록 안전).
 model RiskDecisionLog {
-  id    String @id @default(cuid())
-  track String // paper-simulation | philosophy-style | strategy-forward | intraday-scalp | dual-momentum-forward
-  mode  String // SHADOW | ENFORCE
+  id     String @id @default(cuid())
+  track  String // paper-simulation | philosophy-style | strategy-forward | intraday-scalp | dual-momentum-forward
+  mode   String // SHADOW | ENFORCE
   action String // ALLOW | SHADOW_VIOLATION | BLOCK
 
   tradeDate String // 판정 거래일 YYYYMMDD (일 1회 dedupe 버킷)
@@ -2155,7 +2253,7 @@ model RiskDecisionLog {
   entryBudget      Decimal @db.Decimal(16, 2) // 이번 진입 예산
 
   // 위반 코드(콤마 구분, 없으면 빈 문자열) + 상세 메타
-  violationCodes String @default("") // 예: "DAILY_LOSS,CASH_GUARD"
+  violationCodes String  @default("") // 예: "DAILY_LOSS,CASH_GUARD"
   corpCode       String? // 진입 대상(있으면)
   stockCode      String?
   meta           Json? // 위반 상세·killSwitch 등 관측용 부가 컨텍스트
@@ -2181,9 +2279,9 @@ model RiskDecisionLog {
 //    - 자연키 = portfolioId(유니크). 관계 FK 없음(RiskDecisionLog·DualMomentumForwardTrade 전례 —
 //      Portfolio 는 삭제/재생성될 수 있고 측정 트랙 오염 방지 위해 additive 분리).
 model AccountHighWaterMark {
-  id            String @id @default(cuid())
-  portfolioId   String @unique // 트랙 하위 포트폴리오 단위 고점(철학/전략 forward 는 4종 각각)
-  track         String // RiskGuardTrack — 모드 해석·감사(paper-simulation|philosophy-style|strategy-forward|dual-momentum-forward)
+  id          String @id @default(cuid())
+  portfolioId String @unique // 트랙 하위 포트폴리오 단위 고점(철학/전략 forward 는 4종 각각)
+  track       String // RiskGuardTrack — 모드 해석·감사(paper-simulation|philosophy-style|strategy-forward|dual-momentum-forward)
 
   highWaterMark Decimal @db.Decimal(16, 2) // 계좌 고점(총자산, forward-only max)
   peakDate      String // 고점 도달 거래일 YYYYMMDD

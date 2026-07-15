@@ -16,10 +16,17 @@ import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
  * DART SchedulerService와 동일 패턴 (isCollecting 락, 로그 기록).
  *
  * Cron 시간표:
- *   - 18:30 평일 — 일봉(StockDailyPrice) 수집
- *   - 18:45 평일 — 시장지수(MarketIndex) 수집
+ *   - 06:30·08:00 평일 — 일봉(StockDailyPrice) 이른 아침 조기/백스톱 수집 (KRX T+1 게시 대응)
+ *   - 08:00 평일 — 시장지수(MarketIndex) 아침 수집
+ *   - 18:30·21:00 평일 — 일봉 EOD 정시/재시도 수집
+ *   - 18:45·21:05 평일 — 시장지수 EOD 정시/재시도 수집
  *   - 08:50 평일 — 종목상태 갱신(장 시작 전)
  *   - 08:40 월요일 — 시장분류(company.market KOSPI/KOSDAQ) 동기화 (DAR-328)
+ *
+ * ★KRX T+1 게시 특성(실증): KRX OpenAPI 는 거래일 T 의 EOD 일별 데이터를 T 일 밤~T+1 새벽에
+ *   게시한다. 저녁 슬롯만으론 항상 T-1 데이터만 받아 전일분이 T+1 저녁에야 지각 적재됐다. 아침
+ *   슬롯(06:30 조기·08:00 백스톱)이 밤사이 게시된 전일(T-1)분을 08:30 프리플라이트·09:00 개장 전에
+ *   확보한다 — 기존 저녁 슬롯은 유지(추가만). 모든 아침 슬롯은 저녁 슬롯과 동일 멱등 캐치업 경로 재호출.
  */
 @Injectable()
 export class KrxMarketDataScheduler {
@@ -65,6 +72,51 @@ export class KrxMarketDataScheduler {
    */
   @Cron('0 21 * * 1-5', { timeZone: KST_TIMEZONE })
   async retryCollectDailyPrices(): Promise<{
+    target: string;
+    lastLoaded: string | null;
+    filledDates: string[];
+    emptyDates: string[];
+    totalSaved: number;
+    totalSkipped: number;
+    message?: string;
+  }> {
+    return this.runDailyCollectWithHealth();
+  }
+
+  /**
+   * 평일 06:30(KST) — 일봉 이른 아침 조기 수집 슬롯 (데이터 축적 T+1 지연 해소).
+   *
+   * KRX OpenAPI 는 거래일 T 의 EOD 일별 데이터를 T 일 밤~T+1 새벽에 게시한다(실증: T+1 22:00 조회
+   * 시에도 T 는 0행, T-1/T-2 만 존재). 그래서 저녁 슬롯(18:30/21:00)은 구조적으로 항상 T-1 데이터만
+   * 받아, 전일(T-1)분이 T+1 18:30 에야 처음 적재되는 ~10시간 지각이 발생했다(08:30 프리플라이트·개장
+   * 시점에 전일 일봉 부재 → 오탐). 밤사이 게시된 전일분을 개장·프리플라이트 전에 확보하는 조기 시도.
+   *
+   * 18:30 슬롯과 동일 경로(runDailyCollectWithHealth·SSOT)를 재호출한다 — 새 수집 로직 0. 겹침 가드
+   * (isDailyCollecting)·멱등 캐치업(skipDuplicates)·미게시 no-op 이 그대로 적용돼 순수 상방이다.
+   */
+  @Cron('30 6 * * 1-5', { timeZone: KST_TIMEZONE })
+  async earlyMorningCollectDailyPrices(): Promise<{
+    target: string;
+    lastLoaded: string | null;
+    filledDates: string[];
+    emptyDates: string[];
+    totalSaved: number;
+    totalSkipped: number;
+    message?: string;
+  }> {
+    return this.runDailyCollectWithHealth();
+  }
+
+  /**
+   * 평일 08:00(KST) — 일봉 아침 백스톱 수집 슬롯 (08:30 프리플라이트 정합 보장).
+   *
+   * 06:30 조기 시도 시점에 KRX 가 아직 게시 전이면 캐치업이 noop 된다. 08:00 백스톱은 게시 완료
+   * 가능성이 더 높은 시각에 동일 멱등 경로를 재발화해, 08:30 프리플라이트가 '최신 일봉=전일(T-1)=
+   * 예상 직전거래일'을 만족하게 한다(전일 일봉 미수집 오탐 제거). 09:00 개장 전 지표 계산(08:15)의
+   * 입력도 이 슬롯 직후 준비된다. 06:30 과 마찬가지로 18:30 슬롯 경로 재호출(추가만·기존 무변경).
+   */
+  @Cron('0 8 * * 1-5', { timeZone: KST_TIMEZONE })
+  async morningBackstopCollectDailyPrices(): Promise<{
     target: string;
     lastLoaded: string | null;
     filledDates: string[];
@@ -173,6 +225,26 @@ export class KrxMarketDataScheduler {
    */
   @Cron('5 21 * * 1-5', { timeZone: KST_TIMEZONE })
   async retryCollectMarketIndices(): Promise<{
+    target: string;
+    lastLoaded: string | null;
+    filledDates: string[];
+    totalSaved: number;
+    quarantined: number;
+    message?: string;
+  }> {
+    return this.catchUpMarketIndices('CRON');
+  }
+
+  /**
+   * 평일 08:00(KST) — 시장지수 아침 수집 슬롯 (일봉 08:00 백스톱과 동시·spine 정합).
+   *
+   * 일봉과 동일 근거(KRX T+1 새벽 게시) — 저녁 슬롯(18:45/21:05)은 항상 T-1 지수만 받아 전일분이
+   * 지각 적재됐다. 밤사이 게시된 전일 지수를 개장 전에 확보해 일봉↔지수 spine 을 같은 날 함께 전진
+   * 시킨다(홈 시장 배지·EventStudy 시장 기준선 최신성). 18:45 슬롯과 동일 경로(catchUpMarketIndices)
+   * 재호출 — 연속성 가드(±20%)·휴장 스킵·멱등 upsert 그대로 적용, 미게시면 no-op(순수 상방).
+   */
+  @Cron('0 8 * * 1-5', { timeZone: KST_TIMEZONE })
+  async morningCollectMarketIndices(): Promise<{
     target: string;
     lastLoaded: string | null;
     filledDates: string[];

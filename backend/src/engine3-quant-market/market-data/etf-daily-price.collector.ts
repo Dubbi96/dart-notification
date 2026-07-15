@@ -16,7 +16,8 @@ import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
  *   - 소스 = KIS 기간별시세(KisEtfDailySource). KRX etp 는 401(미구독)이라 미구현(어댑터 인터페이스만).
  *   - 유니버스 4~5종 × [최근 N일] 구간을 한 번에 받아 EtfDailyPrice 에 멱등 적재(createMany
  *     skipDuplicates). 유량 부담 극소(일 4~5콜). EOD 종가는 마감 후 불변이라 재실행해도 무해.
- *   - 기존 KRX 일봉 크론(18:30/21:00)과 시간대 분리(평일 19:10). 백필(3년+)은 P11 별도 이슈.
+ *   - 기존 KRX 일봉 크론(18:30/21:00)과 시간대 분리(평일 19:10 EOD). 백필(3년+)은 P11 별도 이슈.
+ *   - 평일 08:00 아침 슬롯 추가 — 밤사이 확정된 전일분을 개장 전에 확보(19:10 EOD 와 동일 경로 재호출).
  *
  * ★graceful: KIS 키 미설정(isAvailable=false)이면 즉시 no-op(실호출 0, 적재 0). ★throw 금지(cron 유지).
  * ★정직: 적재가는 실제 시장 EOD 일봉. OHLC 물리 정합성(daily-price-sanity)을 행 단위로 검사해
@@ -92,6 +93,22 @@ export class EtfDailyPriceCollector {
     } finally {
       this.isCollecting = false;
     }
+  }
+
+  /**
+   * 평일 08:00(KST) — ETF 일봉 이른 아침 수집 슬롯 (데이터 축적 T+1 지연 해소).
+   *
+   * KIS 기간별시세도 EOD 종가가 마감 후 확정되므로 저녁 슬롯(19:10)만으로는 전일분이 개장 전에
+   * 준비되지 않는 창이 생긴다. 밤사이 확정된 전일분을 08:00 에 확보해, Wave1 듀얼모멘텀/변동성돌파
+   * 트랙 입력(EtfDailyPrice)이 개장 전 최신 상태가 되게 한다. 19:10 슬롯과 동일 경로
+   * (collectEtfDailyPricesCron·SSOT)를 재호출한다 — 단일 실행 락·멱등 적재(skipDuplicates)·소스
+   * 비활성 graceful 이 그대로 적용돼 순수 상방(중복=0건 삽입, 미확정=빈 응답 no-op).
+   */
+  @Cron('0 8 * * 1-5', { timeZone: KST_TIMEZONE })
+  async collectEtfDailyPricesMorningCron(
+    now: Date = new Date(),
+  ): Promise<EtfDailyCollectResult | { skipped: true }> {
+    return this.collectEtfDailyPricesCron(now);
   }
 
   /**

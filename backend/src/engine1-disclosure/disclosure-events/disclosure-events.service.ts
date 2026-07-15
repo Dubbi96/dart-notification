@@ -42,17 +42,22 @@ const REQUIRED_FIELDS_MAP: Partial<Record<EventType, string[]>> = {
   [EventType.EARNINGS_SHOCK]:           ['operatingProfitYoY'],
   // DAR-337: 대량보유(5%룰)
   [EventType.MAJOR_HOLDER_5PCT]:        ['holdingRatio'],
+  // W9: 실적 가이던스(자사 전망) — 두 전망치 모두 확정 수치일 때만 SUCCESS(오추출 게이팅)
+  [EventType.EARNINGS_GUIDANCE]:        ['guidanceRevenue', 'guidanceOperatingProfit'],
 };
 
 // DAR-58: 구조화 수치가 보유 parsedJson에 자주 부재하는 "소프트" 이벤트 타입.
 // 분류는 확실하나 수치 추출 0.0인 경우 FAILED 대신 NEEDS_REVIEW(AI L1 보정 대기)로 라우팅한다.
 // DAR-337: 대량보유(5%룰) 추가 — 방향(증감 부호)의 정본은 정형 majorstock.json(InsiderHoldingChange)
 //          이며, 문서 기반 Rule 추출이 비면 FAILED가 아니라 AI L1/insider 보강 대기다.
+// W9: 실적 가이던스 추가 — 범위값('~조원대')·정성 서술 전망은 Rule 수치가 비는 것이
+//     정상(오추출 게이팅)이며, FAILED가 아니라 AI L1 보정 대기(NEEDS_REVIEW)다.
 const AI_RESOLVABLE_TYPES: ReadonlySet<EventType> = new Set([
   EventType.MAJOR_SHAREHOLDER_CHANGE,
   EventType.EARNINGS_SURPRISE,
   EventType.EARNINGS_SHOCK,
   EventType.MAJOR_HOLDER_5PCT,
+  EventType.EARNINGS_GUIDANCE,
 ]);
 
 @Injectable()

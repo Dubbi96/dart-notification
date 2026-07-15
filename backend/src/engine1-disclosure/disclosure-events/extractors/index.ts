@@ -14,6 +14,8 @@ import { extract as extractCapitalIncrease } from './capital-increase';
 import { extract as extractCbBw } from './cb-bw';
 import { extract as extractMajorShareholderChange } from './major-shareholder-change';
 import { extract as extractEarnings } from './earnings';
+// W9: 실적 가이던스(자사 전망 공정공시) — 범위값·정성 서술은 null 게이팅(오추출 차단)
+import { extract as extractGuidance } from './guidance';
 // DAR-71: 고위험 공시 5종
 import { extract as extractLawsuit } from './lawsuit';
 import { extract as extractAuditOpinionRisk } from './audit-opinion-risk';
@@ -40,6 +42,10 @@ const REQUIRED_FIELDS: Partial<Record<EventType, string[]>> = {
   [EventType.MAJOR_SHAREHOLDER_CHANGE]: ['ownershipRatio'],
   [EventType.EARNINGS_SURPRISE]:        ['operatingProfitYoY'],
   [EventType.EARNINGS_SHOCK]:           ['operatingProfitYoY'],
+  // W9: 가이던스 — 매출·영업이익 전망 둘 다 확정 수치일 때만 SUCCESS(0.90).
+  //     하나만 회수 시 0.75(NEEDS_REVIEW), 전부 결측 시 0.0 → 상위에서 AI L1 대기.
+  //     오추출 수치가 알림으로 나가는 것보다 UNKNOWN 폴백이 낫다(confidence 게이팅).
+  [EventType.EARNINGS_GUIDANCE]:        ['guidanceRevenue', 'guidanceOperatingProfit'],
   // DAR-71: 고위험 5종 — 핵심 구조화 필드 1종 충족 시 SUCCESS, 부재 시 0.0 → NEEDS_REVIEW(AI L1)
   [EventType.LAWSUIT]:                  ['lawsuitAmount'],
   [EventType.AUDIT_OPINION_RISK]:       ['auditOpinion'],
@@ -109,6 +115,10 @@ export function extractEventData(
       case EventType.EARNINGS_SURPRISE:
       case EventType.EARNINGS_SHOCK:
         data = extractEarnings(parsedJson, reportName) as unknown as Record<string, unknown>;
+        break;
+      // W9: 실적 가이던스(자사 전망) — tables 폴백 스캔 포함(DAR-339 패턴)
+      case EventType.EARNINGS_GUIDANCE:
+        data = extractGuidance(parsedJson, reportName, tables) as unknown as Record<string, unknown>;
         break;
       // DAR-71: 고위험 공시 5종
       case EventType.LAWSUIT:

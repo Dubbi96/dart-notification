@@ -1,7 +1,7 @@
 # Engine 2 — AI Analyst (AI 요약·해석·비용 거버넌스)
 
 > 상위: `backend/CLAUDE.md` · 설계: `docs/roadmap/cc-engine-architecture.md §4-4·§4-6·§6` · 역할: `docs/roadmap/roles/ai.md` · Phase: `phase-04`, `phase-11`
-> 이 폴더는 **AI Analyst 도메인**(M3)이다. 격리 컨텍스트로 작업한다. · 최종 수정: 2026-07-02
+> 이 폴더는 **AI Analyst 도메인**(M3)이다. 격리 컨텍스트로 작업한다. · 최종 수정: 2026-07-09
 
 ## 책임 (실제 모듈 트리 기준)
 
@@ -19,7 +19,7 @@
 | 입력 최소화 | `input/build-minimal-input.ts` | 파싱 산출물→최소 입력(≤2,000 토큰) 계약 구현 |
 | 출력 검증 | `validation/json-output.validator.ts` | JSON mode + 필드 화이트리스트 검증 |
 | 단가 추정 | `pricing/estimate-cost.ts` | 토큰×단가 비용 추정(`estimateCostUsd`) |
-| 투자철학 | `philosophy/` | 철학 적합도 스코어링 + 페르소나 융합(`fusion/`) + API 컨트롤러 |
+| 투자철학 | `philosophy/` | 철학 적합도 스코어링 + 페르소나 융합(`fusion/`) + API 컨트롤러 + **부팅 자동 시드**(`philosophy-seeder.service.ts`: `InvestorPhilosophy` 비었을 때만 4종 멱등 시드, count>0 no-op, 실패 graceful·부팅 무중단; SSOT=`philosophy-seeder.core.ts` — 수동 `npm run seed:philosophy` 와 공유). AI 미개입 |
 | 영속화 | `ports/` + `adapters/` | `AiAnalysisRepository` 포트 — Prisma 어댑터(운영) / 인메모리(테스트) |
 | 스모크 | `smoke/` | `ai-analyst.smoke.spec.ts` — `SMOKE_LLM=1` 시 실 LLM 호출 검증 |
 

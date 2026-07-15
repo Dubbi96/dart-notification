@@ -23,15 +23,15 @@ export const CRON_JOB_KEYS = {
   INTRADAY_EXIT_MONITOR: 'paper.intraday-exit',
   // DAR-377: 분봉 수집 — KIS 당일 분봉을 StockMinutePrice 에 forward 축적(장중 공시반응 분석 기반).
   MINUTE_PRICE_COLLECT: 'market.minute-collect',
-  // DAR-428: 일봉 전진수집 — 평일 EOD(18:30) KRX 일봉 캐치업의 cron 실행 헬스를 CronRunLog 에
-  //   first-class 로 남긴다(분봉과 대칭). 도메인 MarketDataCollectionLog 는 '무엇을 적재했나'를,
-  //   이 키는 '크론이 살아 돌았나'를 본다 — 이 둘이 분리돼 있어야 EOD 크론이 조용히 멈춘
-  //   (일봉 6/18 정체) 사건이 신선도 안전망에 표면화된다.
+  // DAR-428: 일봉 전진수집 — 평일 KRX 일봉 캐치업의 cron 실행 헬스를 CronRunLog 에 first-class 로
+  //   남긴다(분봉과 대칭). 도메인 MarketDataCollectionLog 는 '무엇을 적재했나'를, 이 키는 '크론이
+  //   살아 돌았나'를 본다 — 이 둘이 분리돼 있어야 EOD 크론이 조용히 멈춘(일봉 6/18 정체) 사건이
+  //   신선도 안전망에 표면화된다. 슬롯: 06:30·08:00(아침 조기/백스톱, KRX T+1 게시 대응)·18:30·21:00.
   DAILY_PRICE_COLLECT: 'market.daily-collect',
-  // 일일 기술지표 계산 — 평일 18:50(18:30 일봉 캐치업 후·19:00 신호 생성 전) + 21:10(21:00 일봉
-  //   재시도 후) 동일 경로 재발화. StockDailyPrice → TechnicalIndicator(mode=latest) 멱등 upsert.
-  //   지표 적재가 조용히 멈추면 신호 생성의 지표 컨텍스트가 전부 null 이 되어 chart 버킷 전멸 →
-  //   매수등급 신호 소멸(홈 '오늘의 투자판단' 정체)로 번지므로 신선도 안전망에 노출한다.
+  // 일일 기술지표 계산 — 평일 08:15(08:00 아침 일봉 백스톱 후·개장 전) + 18:50(18:30 일봉 캐치업
+  //   후·19:00 신호 생성 전) + 21:10(21:00 일봉 재시도 후) 동일 경로 재발화. StockDailyPrice →
+  //   TechnicalIndicator(mode=latest) 멱등 upsert. 지표 적재가 조용히 멈추면 신호 생성의 지표
+  //   컨텍스트가 전부 null 이 되어 chart 버킷 전멸 → 매수등급 신호 소멸(홈 정체)로 번지므로 노출.
   INDICATOR_DAILY: 'market.indicator-daily',
   // DAR-486(견고화 W3·P25): 종목상태 일별 이력 적재 — 평일 08:50 KRX/DART 종목상태 수집이
   //   forward-only 로 stock_status_daily 에 스냅샷을 축적한다(백테스트 생존편향 처리 입력).
@@ -117,7 +117,8 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     source: 'MARKET_DATA_LOG',
     window: 'ALWAYS',
     staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN,
-    cadence: '평일 18:30 EOD',
+    // 아침 슬롯(06:30·08:00)이 밤사이 게시된 전일분을 개장 전 적재 → 저녁 슬롯보다 신선도 조기 회복.
+    cadence: '평일 06:30·08:00·18:30·21:00',
   },
   {
     jobKey: DOMAIN_JOB_KEYS.FINANCIAL,
@@ -235,11 +236,12 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     //   미설정(KRX 미구성) 환경에선 본 작업이 graceful no-op 이라 CronRunLog 에 SUCCESS(적재 0)
     //   를 남겨 '크론은 살아 있음'이 유지된다 — 가동 자체가 멈춰야만 stale 로 표면화한다.
     jobKey: CRON_JOB_KEYS.DAILY_PRICE_COLLECT,
-    label: '일봉 전진수집(EOD)',
+    label: '일봉 전진수집',
     source: 'CRON_RUN_LOG',
     window: 'ALWAYS',
-    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 18:30, 주말 공백 흡수
-    cadence: '평일 18:30 EOD',
+    // 아침 슬롯(06:30·08:00) 추가로 공백이 줄지만, 주말(금 성공→월 평가 ≈72h) 흡수를 위해 임계는 유지.
+    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 주말 공백 흡수(현행 유지)
+    cadence: '평일 06:30·08:00·18:30·21:00',
   },
   {
     // 일일 기술지표 계산 크론. 평일 18:50 + 21:10 재시도 — 주말 공백(금→월 ≈72h) 흡수.
@@ -247,11 +249,11 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     //   6월 중순 정체)의 재발 방지 안전망. 일봉이 없어 적재 0 이어도 SUCCESS(적재 0)를 남겨
     //   '크론은 살아 있음'이 유지된다 — 가동 자체가 멈춰야만 stale 로 표면화한다.
     jobKey: CRON_JOB_KEYS.INDICATOR_DAILY,
-    label: '기술지표 일일 계산(EOD)',
+    label: '기술지표 일일 계산',
     source: 'CRON_RUN_LOG',
     window: 'ALWAYS',
-    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 18:50/21:10, 주말 공백 흡수
-    cadence: '평일 18:50 + 21:10 재시도',
+    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 08:15/18:50/21:10, 주말 공백 흡수
+    cadence: '평일 08:15·18:50·21:10',
   },
   {
     // DAR-486: 종목상태 일별 이력 적재(08:50). forward-only 로 stock_status_daily 에 이상상태
@@ -406,11 +408,11 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     //   SUCCESS(적재 0)를 남겨 '크론은 살아 있음'이 유지된다 — 가동 자체가 멈춰야만 stale 로 표면화한다.
     //   stale 전환 시 DataFreshnessMonitorScheduler(P02)가 OPS_ALERT 로 발송(결측 감지 경로 연동).
     jobKey: CRON_JOB_KEYS.ETF_DAILY_COLLECT,
-    label: 'ETF 일봉 증분 수집(EOD)',
+    label: 'ETF 일봉 증분 수집',
     source: 'CRON_RUN_LOG',
     window: 'ALWAYS',
-    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 19:10, 주말 공백 흡수
-    cadence: '평일 19:10 EOD',
+    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 08:00/19:10, 주말 공백 흡수
+    cadence: '평일 08:00·19:10',
   },
   {
     // DAR-494(견고화 W1·P13): 듀얼모멘텀 코어 forward 트랙 일일 사이클(평일 19:50). 판정은 월말

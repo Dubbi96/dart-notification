@@ -5,6 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
+import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { ApiErrorState } from '@components/common/StateView';
 import { SkeletonBar, useSkeletonPulse } from '@components/common/SkeletonCard';
@@ -183,16 +184,22 @@ export function DisclosureAiAnalysisSection({ rcpNo }: { rcpNo: string }) {
 
   const hasContent = !!summary || personaViews.length > 0 || !!thesis;
 
-  // 빈 상태 — 분석 미생성 공시는 정직하게 안내(과신 방지).
+  // 빈 상태 — W10 기대치 관리 UX: '대기'(pending)와 '비대상'(excluded)을 구분해 정직하게 안내.
+  //   서버 analysisStatus 기준 분기. 구버전 서버(필드 미제공)는 전수분석 모드 기준 '대기'로 폴백.
+  //   카피 정본은 emptyStateCopy(aiAnalysisPending/aiAnalysisExcluded) — 고정 분 단위 SLA 약속 금지.
   if (!hasContent) {
+    const emptyCopy =
+      data?.analysisStatus === 'excluded'
+        ? emptyStateCopy.aiAnalysisExcluded
+        : emptyStateCopy.aiAnalysisPending;
     return (
       <SectionFrame expanded={expanded} onToggle={toggle}>
         <View style={styles.emptyBox}>
-          <Feather name="cpu" size={36} color={colors.textTertiary} />
+          <Feather name={emptyCopy.icon} size={36} color={colors.textTertiary} />
           <Text
             style={[typo.bodyMedium, { color: colors.text, marginTop: spacing.sm, textAlign: 'center' }]}
           >
-            아직 AI 심층 분석이 없습니다
+            {emptyCopy.title}
           </Text>
           <Text
             style={[
@@ -200,7 +207,7 @@ export function DisclosureAiAnalysisSection({ rcpNo }: { rcpNo: string }) {
               { color: colors.textSecondary, marginTop: spacing.xs, textAlign: 'center' },
             ]}
           >
-            AI 심층 분석은 비용 정책상 일부 공시(매수 후보 등)에만 생성됩니다.
+            {emptyCopy.description}
           </Text>
         </View>
       </SectionFrame>

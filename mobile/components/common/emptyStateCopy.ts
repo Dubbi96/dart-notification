@@ -108,6 +108,19 @@ export const emptyStateCopy = {
     icon: 'cpu',
     title: 'AI 분석이 아직 실행되지 않았어요',
   },
+  // AI 심층 분석 카드 — 대기 (W10 기대치 관리 UX: 대상 이벤트는 추출됐고 분석이 아직 미생성).
+  // 고정 분 단위 SLA 약속 금지 — '순차 생성 + 예산 도달 시 익일 02:00 백필'까지만 정직하게 표기.
+  aiAnalysisPending: {
+    icon: 'clock',
+    title: 'AI 분석 대기 중이에요',
+    description: '공시 후 순차적으로 생성되며, 예산 도달 시 익일 02:00 백필로 채워져요',
+  },
+  // AI 심층 분석 카드 — 비대상 (이벤트 미추출 공시: '대기'와 구분해 헛기다림 방지).
+  aiAnalysisExcluded: {
+    icon: 'cpu',
+    title: '이 공시는 AI 심층 분석 대상이 아니에요',
+    description: 'AI 심층 분석은 투자 이벤트가 추출된 공시에 한해 생성돼요',
+  },
   // 모의투자 (시작 전)
   paperTradingEmpty: {
     icon: 'play-circle',

@@ -1,9 +1,15 @@
+import { ConfigService } from '@nestjs/config';
 import { AiCostLimitGuardService } from './ai-cost-limit-guard.service';
 import { AiCostLevel } from '../types/ai-analyst.types';
 import { PrismaService } from '../../prisma/prisma.service';
 
+/** ENV 스텁 — 지정 키만 반환하는 ConfigService 대역. */
+function makeConfig(env: Record<string, string> = {}) {
+  return { get: (key: string) => env[key] } as unknown as ConfigService;
+}
+
 describe('AiCostLimitGuardService', () => {
-  function makeService(dailyCost: number, monthlyCost: number) {
+  function makeService(dailyCost: number, monthlyCost: number, env?: Record<string, string>) {
     const mockPrisma = {
       aIUsageLog: {
         aggregate: jest.fn()
@@ -11,7 +17,7 @@ describe('AiCostLimitGuardService', () => {
           .mockResolvedValueOnce({ _sum: { costUsd: monthlyCost } }),
       },
     } as unknown as PrismaService;
-    return new AiCostLimitGuardService(mockPrisma);
+    return new AiCostLimitGuardService(mockPrisma, makeConfig(env));
   }
 
   it('한도 미달 시 forcedLevel=null', async () => {
@@ -30,10 +36,50 @@ describe('AiCostLimitGuardService', () => {
   });
 
   it('월 한도 초과 시 forcedLevel=L0, monthlyExceeded=true', async () => {
-    const svc = makeService(0.1, 20.0);
+    const svc = makeService(0.1, 31.0);
     const status = await svc.getLimitStatus();
     expect(status.monthlyExceeded).toBe(true);
     expect(status.forcedLevel).toBe(AiCostLevel.L0);
+  });
+
+  // ── W10: 하드캡 ENV 주입(AI_DAILY_LIMIT_USD/AI_MONTHLY_LIMIT_USD) ─────────────
+  describe('ENV 주입 한도 (W10)', () => {
+    it('ENV 미설정 시 기본값 폴백 — 일 $1 / 월 $31(일캡×31일 정합)', async () => {
+      const svc = makeService(0, 0);
+      expect(svc.dailyLimitUsd).toBe(1.0);
+      expect(svc.monthlyLimitUsd).toBe(31.0);
+      expect(AiCostLimitGuardService.DEFAULT_DAILY_LIMIT_USD).toBe(1.0);
+      expect(AiCostLimitGuardService.DEFAULT_MONTHLY_LIMIT_USD).toBe(31.0);
+    });
+
+    it('ENV 설정 시 해당 값으로 한도 판정 — 기존 기본값이면 초과였을 비용도 통과', async () => {
+      const svc = makeService(1.5, 25.0, {
+        AI_DAILY_LIMIT_USD: '2.0',
+        AI_MONTHLY_LIMIT_USD: '62',
+      });
+      expect(svc.dailyLimitUsd).toBe(2.0);
+      expect(svc.monthlyLimitUsd).toBe(62);
+      const status = await svc.getLimitStatus();
+      expect(status.dailyLimitUsd).toBe(2.0);
+      expect(status.monthlyLimitUsd).toBe(62);
+      expect(status.dailyExceeded).toBe(false);
+      expect(status.monthlyExceeded).toBe(false);
+      expect(status.forcedLevel).toBeNull();
+    });
+
+    it('ENV 설정 시 초과 판정도 ENV 한도 기준 — 기본값 미달 비용이라도 차단', async () => {
+      const svc = makeService(0.5, 5.0, { AI_DAILY_LIMIT_USD: '0.5' });
+      const status = await svc.getLimitStatus();
+      expect(status.dailyExceeded).toBe(true);
+      expect(status.forcedLevel).toBe(AiCostLevel.L0);
+    });
+
+    it('비정상 ENV(비수치·0·음수·빈 문자열)는 기본값 폴백 — 백스톱 무력화 방지', () => {
+      expect(makeService(0, 0, { AI_DAILY_LIMIT_USD: 'abc' }).dailyLimitUsd).toBe(1.0);
+      expect(makeService(0, 0, { AI_DAILY_LIMIT_USD: '0' }).dailyLimitUsd).toBe(1.0);
+      expect(makeService(0, 0, { AI_MONTHLY_LIMIT_USD: '-5' }).monthlyLimitUsd).toBe(31.0);
+      expect(makeService(0, 0, { AI_MONTHLY_LIMIT_USD: ' ' }).monthlyLimitUsd).toBe(31.0);
+    });
   });
 
   it('enforceLimit: 한도 초과 시 L2 → L0 강등', async () => {
@@ -59,7 +105,7 @@ describe('AiCostLimitGuardService', () => {
       const mockPrisma = {
         aIUsageLog: { aggregate },
       } as unknown as PrismaService;
-      return { svc: new AiCostLimitGuardService(mockPrisma), aggregate };
+      return { svc: new AiCostLimitGuardService(mockPrisma, makeConfig()), aggregate };
     }
 
     it('createdAt gte 경계는 KST 자정/월초의 UTC 절대 시각', async () => {
@@ -86,9 +132,10 @@ describe('AiCostLimitGuardService', () => {
 
   it('enforceLimit: 제안 L0이면 DB 조회 없이 즉시 L0(예약 미발생)', async () => {
     const aggregate = jest.fn();
-    const svc = new AiCostLimitGuardService({
-      aIUsageLog: { aggregate },
-    } as unknown as PrismaService);
+    const svc = new AiCostLimitGuardService(
+      { aIUsageLog: { aggregate } } as unknown as PrismaService,
+      makeConfig(),
+    );
     const { level, settle } = await svc.enforceLimit(AiCostLevel.L0);
     expect(level).toBe(AiCostLevel.L0);
     expect(aggregate).not.toHaveBeenCalled(); // 유료 경로 아님 → DB·예약 불필요
@@ -114,7 +161,7 @@ describe('AiCostLimitGuardService — 동시성 한도 보호(DAR-242)', () => {
         aggregate: jest.fn(async () => ({ _sum: { costUsd: state.committed } })),
       },
     } as unknown as PrismaService;
-    return { svc: new AiCostLimitGuardService(prisma), state };
+    return { svc: new AiCostLimitGuardService(prisma, makeConfig()), state };
   }
 
   it('한도 직전 동시 N잡: committed 누적이 일 한도를 넘지 않는다', async () => {
@@ -142,15 +189,11 @@ describe('AiCostLimitGuardService — 동시성 한도 보호(DAR-242)', () => {
     // 핵심 단언: 동시성에도 누적 비용이 일 한도를 초과하지 않는다.
     // (정확히 20×$0.05=$1.00에서 차단 — 부동소수 누적 오차 ~1e-9만 허용.)
     const FP_EPSILON = 1e-9;
-    expect(state.committed).toBeLessThanOrEqual(
-      AiCostLimitGuardService.DAILY_LIMIT_USD + FP_EPSILON,
-    );
+    expect(state.committed).toBeLessThanOrEqual(svc.dailyLimitUsd + FP_EPSILON);
     // 정상 처리량: 한도 내 가능한 만큼은 통과(전부 차단되지 않음).
     expect(proceeded).toBeGreaterThan(0);
     // 보호가 없었다면 50 × 0.05 = $2.5로 돌파했을 것 — 한도 $1 내로 묶였음을 확인.
-    expect(proceeded).toBeLessThanOrEqual(
-      AiCostLimitGuardService.DAILY_LIMIT_USD / COST_PER_CALL,
-    );
+    expect(proceeded).toBeLessThanOrEqual(svc.dailyLimitUsd / COST_PER_CALL);
   });
 
   it('통과 슬롯 settle 후 예약이 해제되어 후속 호출이 다시 통과한다', async () => {

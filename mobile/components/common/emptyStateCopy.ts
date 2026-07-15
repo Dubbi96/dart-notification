@@ -36,10 +36,13 @@ export const emptyStateCopy = {
     title: '로그인하고 알림을 받아보세요',
     actionLabel: '로그인',
   },
-  // 알림 피드 (알림 없음)
+  // 알림 피드 (알림 없음) — 갭분석 W7·W6 포지셔닝: 공시온은 DART 1차 원문 기반(뉴스는
+  // 시차·누락 있는 2차 채널). 이 키만 수정(W10 레인과 파일 공유 — 다른 키 불가침).
   notificationsEmpty: {
     icon: 'bell-off',
     title: '알림이 아직 없어요. 공시가 발생하면 바로 알려드릴게요',
+    description:
+      '공시온 알림은 DART 1차 원문 기반이에요. 뉴스는 시차·누락이 있는 2차 채널이라, 원문 공시를 기준으로 정확하게 알려드려요',
   },
   // 신호 피드 (관심기업 없음)
   signalsWatchlistEmpty: {
@@ -107,6 +110,19 @@ export const emptyStateCopy = {
   aiCostEmpty: {
     icon: 'cpu',
     title: 'AI 분석이 아직 실행되지 않았어요',
+  },
+  // AI 심층 분석 카드 — 대기 (W10 기대치 관리 UX: 대상 이벤트는 추출됐고 분석이 아직 미생성).
+  // 고정 분 단위 SLA 약속 금지 — '순차 생성 + 예산 도달 시 익일 02:00 백필'까지만 정직하게 표기.
+  aiAnalysisPending: {
+    icon: 'clock',
+    title: 'AI 분석 대기 중이에요',
+    description: '공시 후 순차적으로 생성되며, 예산 도달 시 익일 02:00 백필로 채워져요',
+  },
+  // AI 심층 분석 카드 — 비대상 (이벤트 미추출 공시: '대기'와 구분해 헛기다림 방지).
+  aiAnalysisExcluded: {
+    icon: 'cpu',
+    title: '이 공시는 AI 심층 분석 대상이 아니에요',
+    description: 'AI 심층 분석은 투자 이벤트가 추출된 공시에 한해 생성돼요',
   },
   // 모의투자 (시작 전)
   paperTradingEmpty: {

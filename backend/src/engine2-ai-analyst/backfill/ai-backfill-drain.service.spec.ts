@@ -4,6 +4,7 @@ import { AiCostLimitGuardService } from '../cost-gate/ai-cost-limit-guard.servic
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiCostLimitStatus } from '../types/ai-analyst.types';
 import { aiAnalyzeJobId, JOB } from '../../common/queues/queue.constants';
+import { TITLE_ONLY_BACKFILL_MARKER } from '../../engine1-disclosure/pipeline/title-event-backfill.constants';
 
 type Candidate = {
   rcpNo: string;
@@ -172,6 +173,26 @@ describe('AiBackfillDrainService (DAR-379)', () => {
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({ take: 5 }),
     );
+  });
+
+  it('제목 기반 백필(TITLE_ONLY) 관측치는 후보에서 제외한다 — AI 예산 잠식 방지(W4)', async () => {
+    const guard = makeGuard(makeStatus({ dailyCostUsd: 0 }));
+    const { prisma, findMany } = makePrisma([]);
+    const { queue } = makeQueue();
+    const svc = new AiBackfillDrainService(prisma, guard, queue);
+
+    await svc.drainOnce();
+
+    const where = findMany.mock.calls[0][0].where;
+    // null 분기 명시(기존 라이브 행 전부 보존) + 마커 동등 제외.
+    expect(where.AND).toEqual([
+      {
+        OR: [
+          { failReason: null },
+          { failReason: { not: TITLE_ONLY_BACKFILL_MARKER } },
+        ],
+      },
+    ]);
   });
 
   it('하드 캡(MAX_BATCH_PER_RUN=200) — 예산이 커도 200을 넘지 않는다', async () => {

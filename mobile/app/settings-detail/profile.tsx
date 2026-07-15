@@ -10,7 +10,7 @@ import { ScreenHeader } from '@components/common/ScreenHeader';
 import { Input } from '@components/common/Input';
 import { Button } from '@components/common/Button';
 import { useDialog } from '@components/common/DialogProvider';
-import { useMe, useUpdateMe } from '@hooks/useAuth';
+import { useMe, useUpdateMe, useDeleteAccount } from '@hooks/useAuth';
 
 interface ProfileForm {
   name: string;
@@ -30,6 +30,47 @@ export default function ProfileScreen() {
   const { control, handleSubmit, formState: { isDirty } } = useForm<ProfileForm>({
     values: { name: user?.name ?? '' },
   });
+
+  // 회원 탈퇴 (갭분석 W3 — Play 계정 삭제 요구사항): 성공 시 훅이 세션 초기화 + 로그인 화면 이동
+  const { mutate: deleteAccount, isPending: isDeleting } = useDeleteAccount();
+
+  const requestDelete = useCallback(() => {
+    deleteAccount(undefined, {
+      onError: () => {
+        showDialog({
+          title: '탈퇴 실패',
+          message: '탈퇴 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.',
+          icon: { name: 'alert-circle', color: colors.error },
+        });
+      },
+    });
+  }, [deleteAccount, showDialog, colors.error]);
+
+  // 2단 확인: ① 파괴적 액션 경고 → ② 최종 확인 후에만 삭제 실행
+  const confirmDelete = useCallback(() => {
+    showDialog({
+      title: '정말 탈퇴하시겠어요?',
+      message: '마지막 확인입니다. 지금 탈퇴하면 모든 데이터가 즉시 삭제되며 되돌릴 수 없습니다.',
+      icon: { name: 'alert-triangle', color: colors.error },
+      buttons: [
+        { text: '취소', style: 'cancel' },
+        { text: '탈퇴하기', style: 'destructive', onPress: requestDelete },
+      ],
+    });
+  }, [showDialog, colors.error, requestDelete]);
+
+  const onPressDeleteAccount = useCallback(() => {
+    showDialog({
+      title: '회원 탈퇴',
+      message:
+        '탈퇴 시 계정과 관심기업, 알림 설정, 저장한 공시, 포트폴리오 등 모든 데이터가 영구 삭제되며 복구할 수 없습니다. 계속하시겠어요?',
+      icon: { name: 'alert-triangle', color: colors.error },
+      buttons: [
+        { text: '취소', style: 'cancel' },
+        { text: '계속', style: 'destructive', onPress: confirmDelete },
+      ],
+    });
+  }, [showDialog, colors.error, confirmDelete]);
 
   const onSubmit = useCallback((data: ProfileForm) => {
     updateMe(
@@ -83,6 +124,18 @@ export default function ProfileScreen() {
           disabled={!isDirty}
           style={{ marginTop: spacing.lg }}
         />
+
+        {/* 계정 관리 — 회원 탈퇴 (갭분석 W3: Play 계정 삭제 하드 요구사항) */}
+        <View style={[styles.dangerZone, { borderTopColor: colors.border }]}>
+          <Button
+            title="회원 탈퇴"
+            onPress={onPressDeleteAccount}
+            variant="ghost"
+            fullWidth
+            loading={isDeleting}
+            textStyle={{ color: colors.error }}
+          />
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -109,5 +162,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 4,
+  },
+  dangerZone: {
+    marginTop: spacing['2xl'],
+    paddingTop: spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
 });

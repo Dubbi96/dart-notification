@@ -1,9 +1,11 @@
 import { SearchService, MIN_QUERY_LENGTH } from './search.service';
+import { SEARCH_MISS_TAG } from './search-miss.classifier';
 
 describe('SearchService.search', () => {
   let service: SearchService;
   let companySearchWithCount: jest.Mock;
   let disclosureSearch: jest.Mock;
+  let missLogCreate: jest.Mock;
 
   beforeEach(() => {
     companySearchWithCount = jest
@@ -12,9 +14,11 @@ describe('SearchService.search', () => {
     disclosureSearch = jest
       .fn()
       .mockResolvedValue({ items: [], meta: { total: 0 } });
+    missLogCreate = jest.fn().mockResolvedValue({});
     const companiesService = { searchWithCount: companySearchWithCount } as any;
     const disclosuresService = { search: disclosureSearch } as any;
-    service = new SearchService(companiesService, disclosuresService);
+    const prisma = { searchMissLog: { create: missLogCreate } } as any;
+    service = new SearchService(companiesService, disclosuresService, prisma);
   });
 
   it(`q가 ${MIN_QUERY_LENGTH}글자 미만이면 DB 조회 없이 빈 카테고리 묶음을 반환한다`, async () => {
@@ -140,6 +144,84 @@ describe('SearchService.search', () => {
 
     await expect(service.search({ q: '엘지' })).resolves.toMatchObject({
       companies: { items: [], total: 0 },
+    });
+  });
+
+  // --- 갭분석 W8: 제로결과 검색 계측 (SearchMissLog) ---
+
+  describe('제로결과 SearchMissLog 적재', () => {
+    it('양 카테고리 정상 조회 후 0건이면 tag 분류와 함께 적재한다', async () => {
+      await service.search({ q: '테슬라' }, 'user-1');
+
+      expect(missLogCreate).toHaveBeenCalledTimes(1);
+      expect(missLogCreate).toHaveBeenCalledWith({
+        data: { query: '테슬라', tag: SEARCH_MISS_TAG.US_NAME_KO, userId: 'user-1' },
+      });
+    });
+
+    it('영문 티커 패턴 제로결과는 US_TICKER 로 적재한다', async () => {
+      await service.search({ q: 'TSLA' });
+
+      expect(missLogCreate).toHaveBeenCalledWith({
+        data: { query: 'TSLA', tag: SEARCH_MISS_TAG.US_TICKER, userId: null },
+      });
+    });
+
+    it('미국종목 무관 제로결과는 OTHER 로 적재한다', async () => {
+      await service.search({ q: '없는회사' });
+
+      expect(missLogCreate).toHaveBeenCalledWith({
+        data: { query: '없는회사', tag: SEARCH_MISS_TAG.OTHER, userId: null },
+      });
+    });
+
+    it('결과가 1건이라도 있으면 적재하지 않는다', async () => {
+      companySearchWithCount.mockResolvedValue({
+        items: [{ corpCode: '00126380', corpName: '삼성전자' }],
+        total: 1,
+      });
+
+      await service.search({ q: '삼성' });
+      expect(missLogCreate).not.toHaveBeenCalled();
+    });
+
+    it('q<2 가드 경로는 적재하지 않는다', async () => {
+      await service.search({ q: '삼' });
+      expect(missLogCreate).not.toHaveBeenCalled();
+    });
+
+    it('부분실패 폴백(카테고리 reject)으로 총계 0이 된 경우는 계측 오염 방지를 위해 적재하지 않는다', async () => {
+      companySearchWithCount.mockRejectedValue(new Error('company down'));
+
+      await service.search({ q: '테슬라' });
+      expect(missLogCreate).not.toHaveBeenCalled();
+    });
+
+    it('적재가 reject 돼도 검색 응답은 정상 반환된다 (fire-and-forget 격리)', async () => {
+      missLogCreate.mockRejectedValue(new Error('insert fail'));
+
+      const result = await service.search({ q: '엔비디아' });
+      expect(result.query).toBe('엔비디아');
+      // fire-and-forget rejection 이 unhandled 로 새지 않는지 마이크로태스크 큐 소진까지 확인.
+      await new Promise((resolve) => setImmediate(resolve));
+    });
+  });
+
+  describe('recordUsDemandTap (원탭 수요 버튼)', () => {
+    it('tag=US_DEMAND_TAP 으로 검색어·userId 와 함께 적재한다', async () => {
+      await service.recordUsDemandTap('  테슬라  ', 'user-9');
+
+      expect(missLogCreate).toHaveBeenCalledWith({
+        data: { query: '테슬라', tag: SEARCH_MISS_TAG.US_DEMAND_TAP, userId: 'user-9' },
+      });
+    });
+
+    it('검색어·userId 가 없어도(게스트 빈 상태 탭) 적재된다', async () => {
+      await service.recordUsDemandTap(undefined);
+
+      expect(missLogCreate).toHaveBeenCalledWith({
+        data: { query: '', tag: SEARCH_MISS_TAG.US_DEMAND_TAP, userId: null },
+      });
     });
   });
 });

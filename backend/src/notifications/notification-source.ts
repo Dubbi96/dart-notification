@@ -52,6 +52,8 @@ export const NOTIFICATION_SOURCES: Record<string, NotificationSource> = {
   // ── 리스크·운영(DAR-473 P01·NotificationType 파생) ──────────────────────────
   risk: { key: 'risk', label: '리스크' },
   ops: { key: 'ops', label: '운영' },
+  // ── 급변동(갭분석 W7·NotificationType 파생) ─────────────────────────────────
+  'price-move': { key: 'price-move', label: '급변동' },
 };
 
 /** 미상 출처 폴백(미등록 strategyKey 등). */
@@ -69,6 +71,8 @@ const TYPE_SOURCE_KEY: Partial<Record<NotificationType, string>> = {
   // DAR-473(P01): 리스크·운영 알림 출처.
   [NotificationType.RISK_ALERT]: 'risk',
   [NotificationType.OPS_ALERT]: 'ops',
+  // 갭분석 W7: 관심종목 급변동 알림 출처.
+  [NotificationType.PRICE_MOVE]: 'price-move',
 };
 
 /** 출처 키로 출처 조회(미상은 폴백).

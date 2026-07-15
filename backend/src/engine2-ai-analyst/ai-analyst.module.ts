@@ -5,6 +5,7 @@ import { AiCostLimitGuardService } from './cost-gate/ai-cost-limit-guard.service
 import { AiUsageLogService } from './usage-log/ai-usage-log.service';
 import { AiCostAggregationService } from './cost-aggregation/ai-cost-aggregation.service';
 import { AiCostHealthService } from './cost-metrics/ai-cost-health.service';
+import { AiCoverageMetricsService } from './cost-metrics/ai-coverage-metrics.service';
 import { AiCostMonitorScheduler } from './cost-metrics/ai-cost-monitor.scheduler';
 import { AiCostMetricsController } from './cost-metrics/ai-cost-metrics.controller';
 import { AiAnalystService } from './ai-analyst.service';
@@ -47,6 +48,7 @@ import { NotificationProducerModule } from '../notifications/notification-produc
     AiUsageLogService,
     AiCostAggregationService,
     AiCostHealthService,
+    AiCoverageMetricsService, // W10: 커버리지 계기판(생성률·P50/P95 지연) — 순수 DB 집계
     AiCostMonitorScheduler,
     SummaryTask,
     EventClassificationTask,

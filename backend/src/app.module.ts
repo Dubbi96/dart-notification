@@ -8,6 +8,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { StorageModule } from './common/storage/storage.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { LegalModule } from './legal/legal.module';
 import { DevicesModule } from './devices/devices.module';
 import { CompaniesModule } from './companies/companies.module';
 import { WatchlistModule } from './watchlist/watchlist.module';
@@ -38,8 +39,10 @@ import { DualMomentumForwardModule } from './engine5-trading-risk/paper-simulati
 import { IntradayScalpModule } from './engine5-trading-risk/paper-simulation/intraday-scalp/intraday-scalp.module';
 import { CollectionStatusModule } from './collection-status/collection-status.module';
 import { CronHealthModule } from './cron-health/cron-health.module';
+import { StatusModule } from './status/status.module';
 import { OpsModule } from './ops/ops.module';
 import { StorageOpsModule } from './storage-ops/storage-ops.module';
+import { WebSurfaceModule } from './web-surface/web-surface.module';
 import {
   envValidationSchema,
   envValidationOptions,
@@ -88,6 +91,8 @@ import {
     // Feature modules
     AuthModule,
     UsersModule,
+    // 갭분석 W3 — Play 컴플라이언스 공개 법적 고지(개인정보 처리방침·계정 삭제 안내)
+    LegalModule,
     DevicesModule,
     CompaniesModule,
     WatchlistModule,
@@ -148,6 +153,11 @@ import {
     // 횡단 — 운영 헬스(/health)/메트릭(/ops/metrics) 엔드포인트 (DAR-111)
     OpsModule,
     StorageOpsModule,
+
+    // 횡단 — 공개 웹 표면(랜딩 + 공시 공유 페이지, W3b) — DB read-only·외부 API 콜 0
+    WebSurfaceModule,
+    // 횡단 — 공개 시스템 무결성 /status (비인증·운영 사실만, W11/W12)
+    StatusModule,
 
   ],
   providers: [

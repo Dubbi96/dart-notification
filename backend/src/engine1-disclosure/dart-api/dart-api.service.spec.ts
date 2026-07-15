@@ -299,3 +299,88 @@ describe('DartApiService 라이브 문서 fetch 예약분 (라이브 파싱 기�
     ).rejects.toThrow(/dartStatus=020/);
   });
 });
+
+describe('DartApiService 라이브 예약분 소진 임계 OPS_ALERT (W5 ④)', () => {
+  // 잔여 = DAILY_BUDGET(19,000) - callsToday. 임계 = LIVE_RESERVE(2,000) × 20% = 400콜.
+  const DAILY_BUDGET = 19_000;
+  const ALERT_REMAINING = 400;
+
+  let service: DartApiService;
+  let httpGet: jest.SpyInstance;
+  let producer: { enqueueOpsAlert: jest.Mock };
+
+  beforeEach(() => {
+    const config = { get: jest.fn().mockReturnValue('TEST_KEY') } as unknown as ConfigService;
+    producer = { enqueueOpsAlert: jest.fn().mockResolvedValue(undefined) };
+    service = new DartApiService(
+      config,
+      producer as unknown as import('../../notifications/notification-producer.service').NotificationProducerService,
+    );
+    httpGet = jest
+      .spyOn((service as unknown as { httpClient: { get: jest.Mock } }).httpClient, 'get')
+      .mockResolvedValue({ status: 200, data: listResponse({ status: '000' }) });
+  });
+
+  /** 누적 콜을 지정 수치로 고정(당일 키 정렬). */
+  function fillTo(calls: number): void {
+    const internal = service as unknown as {
+      callDayKey: string;
+      callsToday: number;
+      currentDayKey: () => string;
+    };
+    internal.callDayKey = internal.currentDayKey();
+    internal.callsToday = calls;
+  }
+
+  it('잔여가 임계(400콜) 이하로 떨어지는 콜에서 WARNING OPS_ALERT 를 발행한다', async () => {
+    fillTo(DAILY_BUDGET - ALERT_REMAINING - 1); // 다음 1콜에 잔여 400 도달
+
+    await service.getDisclosureList({ bgn_de: '20260716', end_de: '20260716' });
+
+    expect(httpGet).toHaveBeenCalledTimes(1); // 알람은 라이브 콜을 막지 않는다
+    expect(producer.enqueueOpsAlert).toHaveBeenCalledTimes(1);
+    const [severity, source, message, meta] = producer.enqueueOpsAlert.mock.calls[0];
+    expect(severity).toBe('WARNING');
+    expect(source).toBe('dart-quota-live-reserve');
+    expect(message).toContain('예약분 잔여');
+    // 일자 버킷 dedupeKey — 재기동·다경로 재발행에도 하루 1건 멱등.
+    expect(meta.dedupeKey).toMatch(/^dart-quota-live-reserve:\d{8}$/);
+    expect(meta.data).toMatchObject({ remaining: ALERT_REMAINING });
+  });
+
+  it('잔여가 임계보다 넉넉하면 발행하지 않는다', async () => {
+    fillTo(DAILY_BUDGET - ALERT_REMAINING - 1_000);
+
+    await service.getDisclosureList({ bgn_de: '20260716', end_de: '20260716' });
+
+    expect(producer.enqueueOpsAlert).not.toHaveBeenCalled();
+  });
+
+  it('★1회/일: 임계 이하에서 콜이 반복돼도 그 날은 한 번만 발행한다', async () => {
+    fillTo(DAILY_BUDGET - ALERT_REMAINING - 1);
+
+    await service.getDisclosureList({ bgn_de: '20260716', end_de: '20260716' });
+    await service.getDisclosureList({ bgn_de: '20260716', end_de: '20260716' });
+    await service.getDisclosureList({ bgn_de: '20260716', end_de: '20260716' });
+
+    expect(producer.enqueueOpsAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it('producer 미주입(@Optional) 환경에서도 콜 소비 본업은 깨지지 않는다', async () => {
+    const config = { get: jest.fn().mockReturnValue('TEST_KEY') } as unknown as ConfigService;
+    const bare = new DartApiService(config);
+    jest
+      .spyOn((bare as unknown as { httpClient: { get: jest.Mock } }).httpClient, 'get')
+      .mockResolvedValue({ status: 200, data: listResponse({ status: '000' }) });
+    const internal = bare as unknown as {
+      callDayKey: string;
+      callsToday: number;
+      currentDayKey: () => string;
+    };
+    internal.callDayKey = internal.currentDayKey();
+    internal.callsToday = DAILY_BUDGET - 1; // 임계 훨씬 아래 잔여
+
+    const res = await bare.getDisclosureList({ bgn_de: '20260716', end_de: '20260716' });
+    expect(res.status).toBe('000');
+  });
+});

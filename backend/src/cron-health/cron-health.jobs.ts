@@ -41,6 +41,8 @@ export const CRON_JOB_KEYS = {
   AI_BACKFILL_DRAIN: 'ai.backfill-drain',
   // DAR-391: 이벤트 추출 백필 드레인 — 과거 백필 공시를 rcpDt 시간순 추출/파싱등록(신호·백테스트 연중화 게이트).
   EVENT_BACKFILL_DRAIN: 'event.backfill-drain',
+  // W4 신호 검증: 제목 기반 이벤트 분류 백필 — reportName 룰만으로 과거 백필 공시 이벤트 생성(DART 쿼터 0).
+  TITLE_EVENT_BACKFILL: 'event.title-backfill',
   // DAR-395: rawText 객체 스토리지 오프로드 드레인 — 과거 원문을 S3/로컬로 이전 후 DB 컬럼 비움(경량화).
   RAWTEXT_OFFLOAD_DRAIN: 'rawtext.offload-drain',
   // DAR-399: tables(파싱 표 JSONB·TOAST 진짜 bulk) 객체 스토리지 오프로드 드레인 — S3/로컬 이전 후 컬럼 비움.
@@ -77,6 +79,21 @@ export const CRON_JOB_KEYS = {
   //   원장(OrderRequest/OrderExecution)의 건수·수량·금액 정합을 대조(불일치→OPS_ALERT). 이 잡이
   //   조용히 멈추면 M11 실주문 계층의 원장 드리프트가 무감지로 쌓이므로 안전망에 노출.
   ORDER_LEDGER_RECONCILE: 'paper.order-ledger-reconcile',
+  // W5 리얼타임성: 장중 1분 공시 델타 폴링 — DART list 최신 페이지 1콜로 신규 rcpNo 만 저장·
+  //   파이프라인 투입(풀스캔 10분 크론은 정합성 백스톱으로 유지). 최악 알림 지연 ~10분→~90초.
+  //   ★krx.daily 거짓 stale 선례 방지: 신규 크론은 반드시 CronRunLog job key 를 함께 등록한다.
+  DISCLOSURE_DELTA: 'disclosure.delta',
+  // 갭분석 W16: 투자자별 매매동향 EOD 수집 — 외국인/기관/개인 순매수를 InvestorFlowDaily 에 축적
+  //   (평일 07:40·20:00·21:30). 수집이 조용히 멈추면 '무공시 급등락' 설명·수급 표면의 데이터 축이
+  //   정체되므로 안전망에 노출(krx.daily 거짓 stale 선례 재발 방지 — job key 등록 필수).
+  INVESTOR_FLOW_COLLECT: 'market.investor-flow-collect',
+  // 갭분석 W16: 공매도 일별 EOD 수집 — 공매도 거래량·거래대금을 ShortSellingDaily 에 축적
+  //   (평일 07:40·20:00·21:30, publishedDate=T+2 영업일 lookahead 불가침). 위와 동일 근거로 노출.
+  SHORT_SELLING_COLLECT: 'market.short-selling-collect',
+  // 갭분석 W7: 관심종목 급변동 감시 — 장중 5분 틱(±5% 판정→PRICE_MOVE 알림). 스킵 틱(장외·
+  //   킬스위치 PRICE_MOVE_ALERT_ENABLED=false·겹침)은 미기록 — 실제 평가가 돈 틱만 남긴다.
+  //   조회·알림 계층 전용(매매 루프 무접점)이라 freshness 안전망 등록은 하지 않는다(비임계).
+  PRICE_MOVE_ALERT: 'market.price-move-alert',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -110,6 +127,10 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'WEEKDAY_INTRADAY',
     staleAfterMinutes: 30, // 10분 간격 폴링 — 30분 무수집이면 정체
     cadence: '평일 08:00~18:00 / 10분 간격',
+    // [W11] 제로런 감지: 폴링은 성공하는데 신규 공시 0건이 장중 연속 9회(≈90분)면 정체 의심.
+    //   DART 는 영업일 장중 공시 흐름이 상시 존재하므로 90분 전면 0건은 이례(6/19 수집 정체·
+    //   7/15 기아 클래스의 '살아있는데 산출 0' 패턴). age 축(30분 무성공)은 이 패턴을 못 잡는다.
+    zeroRunThreshold: 9,
   },
   {
     jobKey: DOMAIN_JOB_KEYS.KRX_DAILY,
@@ -127,6 +148,18 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: 14_400, // 10일 — 주간/분기 카덴스 + 공백 흡수
     cadence: '주간(월) + 분기 백필',
+  },
+  {
+    // W5 리얼타임성: 장중 1분 공시 델타 폴링. 풀스캔 분(매 10분 정각)은 크론식에서 제외되어
+    //   풀스캔이 커버하고, 예산 소진 시 SKIPPED(성공 아님) 기록이라 lastSuccessAt 이 멈춘다.
+    //   KIS_REALTIME 선례를 따라 임계 3h — 폴링 종료(15:59)~윈도 끝(18:30) 공백을 흡수하고
+    //   장중 무가동(진짜 정체)만 stale 로 표면화한다.
+    jobKey: CRON_JOB_KEYS.DISCLOSURE_DELTA,
+    label: '공시 델타 폴링(1분)',
+    source: 'CRON_RUN_LOG',
+    window: 'WEEKDAY_INTRADAY',
+    staleAfterMinutes: 180, // 3시간 — 폴링 종료(15:59)~윈도 끝(18:30) 공백 흡수
+    cadence: '평일 09:00~15:59 / 1분(풀스캔 분 제외)',
   },
   {
     jobKey: CRON_JOB_KEYS.SIGNAL_GENERATE,
@@ -198,6 +231,10 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'WEEKDAY_INTRADAY',
     staleAfterMinutes: 180, // 3시간 — 폴링 종료(15:59)~윈도 끝(18:30) 공백 흡수
     cadence: '평일 09:00~15:59 / 1분 간격',
+    // [W11] 제로런 감지: 폴러가 SUCCESS 를 남기며 도는데 시세 0건이 연속 30회(≈30분)면
+    //   토큰 만료/쿼터 소진류의 '살아있는 기아' 의심. 키 미설정/장외엔 기록 자체가 없어
+    //   당일 기록 부족으로 미발화(안전) — 실제 폴링 중 전면 0건만 표면화된다.
+    zeroRunThreshold: 30,
   },
   {
     // DAR-347: FAILED 이벤트 자동복구 크론. 가동이 멈추면 FAILED 가 무한 적체되어
@@ -229,6 +266,10 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'WEEKDAY_INTRADAY',
     staleAfterMinutes: 180, // 3시간 — 장 마감(15:30)~윈도 끝 공백 흡수
     cadence: '평일 09:00~15:30 / 10분 간격',
+    // [W11] 제로런 감지: 정규장 중 분봉은 매 사이클 신규 봉이 반드시 생기므로, SUCCESS 인데
+    //   적재 0행이 연속 6회(≈60분)면 KIS 응답 이상/파라미터 회귀 의심. 휴장/장외엔 스킵이라
+    //   기록이 없어 당일 기록 부족으로 미발화(안전).
+    zeroRunThreshold: 6,
   },
   {
     // DAR-428: 일봉 전진수집 EOD 크론. 평일 18:30 가동(KRX 일봉 캐치업). 장 마감 후 발행~익일
@@ -289,6 +330,17 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: WEEKEND_HEAVY_STALE_MIN, // 8일 — 주말 전용(DAR-503), 주말간 공백 흡수
     cadence: '주말 03:00(주중 정지·DAR-503)',
+  },
+  {
+    // W4 신호 검증: 제목 기반 이벤트 분류 백필. 가동이 멈추면 신규 연속 백필 공시의 제목 이벤트
+    //   편입이 정체되어 Event Study 관측치 확장이 멈춘다. DART 문서 fetch 0(DB-only)이라
+    //   DAR-503 주말 창 게이트 없이 매일 02:40 가동 — 하루 누락(48h)까지 허용.
+    jobKey: CRON_JOB_KEYS.TITLE_EVENT_BACKFILL,
+    label: '제목 이벤트 분류 백필',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: 2_880, // 48시간 — 매일 02:40, 하루 누락까지 허용
+    cadence: '매일 02:40',
   },
   {
     // DAR-395: rawText 오프로드 드레인. 가동이 멈추면 과거 원문 이전이 정체되어 DB 경량화가
@@ -436,5 +488,25 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: 2_880, // 48시간 — 매일 20:45, 하루 누락까지 허용
     cadence: '매일 20:45',
+  },
+  {
+    // 갭분석 W16: 투자자별 매매동향 EOD 수집. 평일 3슬롯(07:40 아침 백스톱·20:00 정시·21:30 재시도).
+    //   소스 미설정 환경에선 graceful no-op 이라 SUCCESS(적재 0)를 남겨 '크론은 살아 있음'이 유지된다 —
+    //   가동 자체가 멈춰야만 stale. 주말(금 성공→월 평가 ≈72h) 공백 흡수.
+    jobKey: CRON_JOB_KEYS.INVESTOR_FLOW_COLLECT,
+    label: '투자자별 매매동향 수집',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 07:40·20:00·21:30, 주말 공백 흡수
+    cadence: '평일 07:40·20:00·21:30',
+  },
+  {
+    // 갭분석 W16: 공매도 일별 EOD 수집(publishedDate=T+2 영업일 — lookahead 불가침). 위와 동일 근거.
+    jobKey: CRON_JOB_KEYS.SHORT_SELLING_COLLECT,
+    label: '공매도 일별 수집',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 07:40·20:00·21:30, 주말 공백 흡수
+    cadence: '평일 07:40·20:00·21:30',
   },
 ];

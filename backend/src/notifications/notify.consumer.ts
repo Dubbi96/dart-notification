@@ -12,6 +12,7 @@ import {
   sourcePrefix,
   gradeLabel,
 } from './notification-source';
+import { eventTypeNotificationCopy } from './event-type-copy';
 import {
   QUEUE,
   NOTIFY_JOB,
@@ -20,6 +21,7 @@ import {
   NotifyThesisViolatedJobData,
   NotifyTradeJobData,
   NotifyOpsAlertJobData,
+  NotifyPriceMoveJobData,
   OpsAlertSeverity,
 } from '../common/queues/queue.constants';
 
@@ -94,6 +96,8 @@ export class NotifyConsumer extends WorkerHost {
         return this.handleTrade(job.data as NotifyTradeJobData);
       case NOTIFY_JOB.OPS_ALERT:
         return this.handleOpsAlert(job.data as NotifyOpsAlertJobData);
+      case NOTIFY_JOB.PRICE_MOVE:
+        return this.handlePriceMove(job.data as NotifyPriceMoveJobData);
       default:
         this.logger.warn(`알 수 없는 NOTIFY 잡: ${job.name}`);
         return;
@@ -131,7 +135,8 @@ export class NotifyConsumer extends WorkerHost {
     const title = `${label} ${src.label}${grade ? ` ${grade}` : ''}`;
     const parts = [
       data.buyScore != null ? `${data.buyScore}점` : null,
-      data.eventType,
+      // W9 정직 라벨링: 실적 이벤트는 판정 기준(전년동기 대비/자사 전망)을 병기한다.
+      eventTypeNotificationCopy(data.eventType),
     ].filter(Boolean);
     const body = parts.join(' · ') || '신규 매수 신호가 도착했습니다.';
     const deepLink = `/signals/${signalId}`;
@@ -385,6 +390,66 @@ export class NotifyConsumer extends WorkerHost {
     }
     this.logger.log(
       `[NOTIFY:OPS:${data.type}] src=${data.source} sev=${data.severity} 수신자=${users.length} 신규인박스=${inboxed}`,
+    );
+  }
+
+  // ── PRICE_MOVE (갭분석 W7) ──────────────────────────────────────────────────
+  //
+  // 관심종목 급변동(전일 대비 ±5%) 알림 — 수신자 = 해당 종목(corpCode) watcher.
+  //   - ★priceMovePushEnabled(기본 OFF) 토글로 인박스·푸시를 함께 게이트한다.
+  //     설정행 미존재 = 기본 OFF → 인박스도 남기지 않는다(tradePushEnabled 와 같은
+  //     '인박스 동반 생략' 패턴이되 기본값이 반대 — 시세성 준실시간 알림의 스팸 방지).
+  //   - 푸시는 추가로 master isEnabled + 유효 디바이스 토큰 필요.
+  //   - 멱등: (userId, PRICE_MOVE, refId=`<stockCode>-<YYYYMMDD>`) unique — 종목당 1일 1회.
+  //   - 딥링크 = 종목 상세(/company/<corpCode>), newsUrl(네이버금융 링크아웃)은 push data 동봉.
+  // ★조회·알림 계층 전용 — 매매·체결·Buy Score 경로 무접점(M10 무오염·AI 0).
+  private async handlePriceMove(data: NotifyPriceMoveJobData): Promise<void> {
+    const watchers = await this.prisma.watchList.findMany({
+      where: { corpCode: data.corpCode },
+      select: { userId: true },
+    });
+    if (watchers.length === 0) {
+      this.logger.debug(`[NOTIFY:PRICE_MOVE] watcher 없음: ${data.stockCode} — 스킵`);
+      return;
+    }
+
+    // 토글 일괄 조회(설정행 미존재 = ★기본 OFF 로 간주 — 스키마 default(false) 정합).
+    const settingsRows = await this.prisma.notificationSettings.findMany({
+      where: { userId: { in: watchers.map((w) => w.userId) } },
+      select: { userId: true, isEnabled: true, priceMovePushEnabled: true },
+    });
+    const settingsByUser = new Map(settingsRows.map((s) => [s.userId, s]));
+
+    let inboxed = 0;
+    for (const w of watchers) {
+      const s = settingsByUser.get(w.userId);
+      // ★기본 OFF: 설정행 미존재 시 priceMovePushEnabled=false 로 간주.
+      const priceMoveOn = s ? s.priceMovePushEnabled : false;
+      if (!priceMoveOn) continue; // 인박스·푸시 모두 생략(스팸 방지).
+
+      const { created } = await this.notifications.createNotificationIfAbsent({
+        userId: w.userId,
+        type: NotificationType.PRICE_MOVE,
+        refId: data.refId,
+        title: data.title,
+        body: data.body,
+        deepLink: data.deepLink,
+      });
+      if (!created) continue; // 멱등 — 이미 통지(잡 재시도·재발화) → 푸시 재발송 스킵.
+      inboxed += 1;
+
+      // 푸시는 master isEnabled(기본 true) + 유효 토큰일 때만(급변동 토글은 위에서 통과).
+      const masterOn = s ? s.isEnabled : true;
+      if (!masterOn) continue;
+      // stockCode·newsUrl 을 push data 에 동봉 — 클라이언트 뉴스 링크아웃(W6 (d))용.
+      await this.sendPush(w.userId, data.title, data.body, data.deepLink,
+        NotificationType.PRICE_MOVE, data.refId, {
+          stockCode: data.stockCode,
+          newsUrl: data.newsUrl,
+        });
+    }
+    this.logger.log(
+      `[NOTIFY:PRICE_MOVE] ${data.refId} (${data.changePct.toFixed(2)}%) watchers=${watchers.length} 신규인박스=${inboxed}`,
     );
   }
 

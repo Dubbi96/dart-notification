@@ -459,6 +459,8 @@ export default function HomeScreen() {
         <FlatList
           ref={listRef}
           style={styles.feedList}
+          // W15 ②: Maestro 스모크 앵커 — 게스트 피드 렌더 검증용(런타임 동작 무영향).
+          testID="home-feed-list"
           // 로딩 중에는 data를 빈 배열로 둬 ListEmptyComponent(스켈레톤)가 뜨게 한다.
           data={isLoading ? [] : disclosures}
           renderItem={renderDisclosureItem}

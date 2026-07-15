@@ -112,6 +112,152 @@ describe('freshness (DAR-110)', () => {
     });
   });
 
+  // [W11] 제로런 축 — 살아있는데 산출 0행인 정체(2026-07-15 기아 클래스) 판정 에지.
+  describe('제로런(zero-run) 판정 (W11)', () => {
+    // 장중 스펙 + 제로런 임계 3회(테스트 편의).
+    const zeroRunSpec: FreshnessJobSpec = {
+      ...intradaySpec,
+      zeroRunThreshold: 3,
+    };
+
+    /** now 기준 minutesAgo 분 전의 당일 성공 실행. */
+    function run(minutesAgo: number, itemCount: number | null, base: Date = weekdayIntraday) {
+      return { finishedAt: new Date(base.getTime() - minutesAgo * 60_000), itemCount };
+    }
+
+    it('장중 당일 연속 0행이 임계 이상이면 stale(isZeroRun=true) — age 축 신선해도 발화', () => {
+      const r = evaluateJobFreshness(
+        input(zeroRunSpec, {
+          lastSuccessAt: new Date(weekdayIntraday.getTime() - 5 * 60_000), // age 축 신선
+          lastStatus: 'SUCCESS',
+          lastItemCount: 0,
+          recentRuns: [run(5, 0), run(15, 0), run(25, 0)],
+        }),
+        weekdayIntraday,
+      );
+      expect(r.applicable).toBe(true);
+      expect(r.zeroRunStreak).toBe(3);
+      expect(r.isZeroRun).toBe(true);
+      expect(r.isStale).toBe(true);
+      expect(r.reason).toContain('제로런');
+    });
+
+    it('비-0 산출을 만나면 연속 카운트가 리셋되어 미발화', () => {
+      const r = evaluateJobFreshness(
+        input(zeroRunSpec, {
+          lastSuccessAt: new Date(weekdayIntraday.getTime() - 5 * 60_000),
+          lastStatus: 'SUCCESS',
+          lastItemCount: 0,
+          // 최신 2회는 0행이나 그 직전이 7행 — 스트릭 2 < 임계 3.
+          recentRuns: [run(5, 0), run(15, 0), run(25, 7), run(35, 0)],
+        }),
+        weekdayIntraday,
+      );
+      expect(r.zeroRunStreak).toBe(2);
+      expect(r.isZeroRun).toBe(false);
+      expect(r.isStale).toBe(false);
+    });
+
+    it('건수 미상(null)은 0행으로 치지 않고 카운트를 끊는다', () => {
+      const r = evaluateJobFreshness(
+        input(zeroRunSpec, {
+          lastSuccessAt: new Date(weekdayIntraday.getTime() - 5 * 60_000),
+          lastStatus: 'SUCCESS',
+          lastItemCount: 0,
+          recentRuns: [run(5, 0), run(15, null), run(25, 0)],
+        }),
+        weekdayIntraday,
+      );
+      expect(r.zeroRunStreak).toBe(1);
+      expect(r.isZeroRun).toBe(false);
+    });
+
+    it('전일 0행 기록은 당일 스트릭에 이월되지 않는다(휴장·개장 직후 오탐 방지)', () => {
+      const yesterday = new Date(weekdayIntraday.getTime() - 24 * 60 * 60_000);
+      const r = evaluateJobFreshness(
+        input(zeroRunSpec, {
+          lastSuccessAt: new Date(weekdayIntraday.getTime() - 5 * 60_000),
+          lastStatus: 'SUCCESS',
+          lastItemCount: 0,
+          // 당일 1회 + 전일 0행 다수 — 당일 경계에서 단절되어 스트릭 1.
+          recentRuns: [run(5, 0), run(10, 0, yesterday), run(20, 0, yesterday)],
+        }),
+        weekdayIntraday,
+      );
+      expect(r.zeroRunStreak).toBe(1);
+      expect(r.isZeroRun).toBe(false);
+    });
+
+    it('장외 시간에는 제로런 축이 미발화한다(WEEKDAY_INTRADAY — 판정 자체 보류)', () => {
+      const r = evaluateJobFreshness(
+        input(zeroRunSpec, {
+          lastSuccessAt: new Date(weekdayEvening.getTime() - 5 * 60_000),
+          lastStatus: 'SUCCESS',
+          lastItemCount: 0,
+          recentRuns: [
+            run(5, 0, weekdayEvening),
+            run(15, 0, weekdayEvening),
+            run(25, 0, weekdayEvening),
+          ],
+        }),
+        weekdayEvening,
+      );
+      expect(r.applicable).toBe(false);
+      expect(r.isZeroRun).toBe(false);
+      expect(r.isStale).toBe(false);
+    });
+
+    it('ALWAYS 윈도 잡이라도 제로런 축은 장중에만 평가한다(장외 미발화)', () => {
+      const alwaysZeroRun: FreshnessJobSpec = { ...alwaysSpec, zeroRunThreshold: 3 };
+      const r = evaluateJobFreshness(
+        input(alwaysZeroRun, {
+          lastSuccessAt: new Date(weekdayEvening.getTime() - 5 * 60_000),
+          lastStatus: 'SUCCESS',
+          lastItemCount: 0,
+          recentRuns: [
+            run(5, 0, weekdayEvening),
+            run(15, 0, weekdayEvening),
+            run(25, 0, weekdayEvening),
+          ],
+        }),
+        weekdayEvening,
+      );
+      expect(r.applicable).toBe(true); // ALWAYS — age 축은 평가
+      expect(r.zeroRunStreak).toBeNull(); // 제로런 축은 장외 보류
+      expect(r.isZeroRun).toBe(false);
+      expect(r.isStale).toBe(false);
+    });
+
+    it('임계 미지정 잡은 제로런 축을 평가하지 않는다(zeroRunStreak=null)', () => {
+      const r = evaluateJobFreshness(
+        input(intradaySpec, {
+          lastSuccessAt: new Date(weekdayIntraday.getTime() - 5 * 60_000),
+          lastStatus: 'SUCCESS',
+          lastItemCount: 0,
+          recentRuns: [run(5, 0), run(15, 0), run(25, 0)],
+        }),
+        weekdayIntraday,
+      );
+      expect(r.zeroRunStreak).toBeNull();
+      expect(r.isZeroRun).toBe(false);
+      expect(r.isStale).toBe(false);
+    });
+
+    it('age 정체와 제로런이 동시면 stale 이고 사유는 age 정체를 우선한다', () => {
+      const r = evaluateJobFreshness(
+        input(zeroRunSpec, {
+          lastSuccessAt: new Date(weekdayIntraday.getTime() - 45 * 60_000), // 45분 > 30분
+          lastStatus: 'SUCCESS',
+          lastItemCount: 0,
+          recentRuns: [run(45, 0), run(55, 0), run(65, 0)],
+        }),
+        weekdayIntraday,
+      );
+      expect(r.isStale).toBe(true);
+      expect(r.reason).toContain('수집 정체');
+    });
+  });
+
   describe('buildFreshnessReport', () => {
     it('stale 잡 키 목록과 anyStale 플래그를 집계한다', () => {
       const fresh = new Date(weekdayIntraday.getTime() - 5 * 60_000);

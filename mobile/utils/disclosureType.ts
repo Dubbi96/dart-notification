@@ -72,8 +72,12 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   CONTRACT_CANCELLATION: '공급계약 해제·취소',
   DIVIDEND_CUT: '배당 축소·중단',
   THIRD_PARTY_ALLOTMENT: '제3자배정 유상증자',
-  EARNINGS_SURPRISE: '실적 서프라이즈',
-  EARNINGS_SHOCK: '실적 쇼크',
+  // W9 정직 라벨링: 서프라이즈·쇼크 판정은 전년동기(YoY) 대비 기준(백엔드 earnings.ts) —
+  // 시장 기대치 대비 판정으로 오인되지 않도록 기준을 라벨에 병기한다.
+  EARNINGS_SURPRISE: '실적 서프라이즈(전년동기 대비)',
+  EARNINGS_SHOCK: '실적 쇼크(전년동기 대비)',
+  // W9: 가이던스 = 회사가 스스로 공시한 전망(자사 전망) — 애널리스트 추정 집계 아님.
+  EARNINGS_GUIDANCE: '실적 가이던스(자사 전망)',
   MAJOR_SHAREHOLDER_CHANGE: '최대주주 변경',
   LAWSUIT: '소송·횡령·배임',
   AUDIT_OPINION_RISK: '감사의견 거절·한정',

@@ -281,3 +281,73 @@ describe('DisclosuresService.findOne 종목코드 평탄화 (DAR-188)', () => {
     expect(res.stockCode).toBeNull();
   });
 });
+
+/**
+ * W10 — AI 카드 기대치 관리 UX 서버 계약.
+ * findAnalysis 는 '없음(비대상)'과 '대기(생성 예정)'를 analysisStatus 로 구분해 내려준다:
+ *   ready   = 분석 캐시(DisclosureAnalysis 또는 PersonaAnalysis) 존재
+ *   pending = 캐시 미존재 + 대상 이벤트(DisclosureEvent) 존재 → 순차 생성·익일 02:00 백필 대상
+ *   excluded= 이벤트 미추출 공시(분석 비대상)
+ */
+describe('DisclosuresService.findAnalysis — analysisStatus (W10)', () => {
+  function makeService(over: {
+    analyses?: Array<Record<string, unknown>>;
+    persona?: Record<string, unknown> | null;
+    event?: Record<string, unknown> | null;
+  }) {
+    const prisma = {
+      disclosureAnalysis: {
+        findMany: jest.fn().mockResolvedValue(
+          (over.analyses ?? []).map((a) => ({
+            task: 'summary',
+            level: 2,
+            resultJson: {},
+            createdAt: new Date('2026-07-15T00:00:00Z'),
+            ...a,
+          })),
+        ),
+      },
+      personaAnalysis: {
+        findUnique: jest.fn().mockResolvedValue(
+          over.persona === undefined ? null : over.persona,
+        ),
+      },
+      disclosureEvent: {
+        findUnique: jest.fn().mockResolvedValue(
+          over.event === undefined ? null : over.event,
+        ),
+      },
+    } as unknown as PrismaService;
+    return new DisclosuresService(prisma);
+  }
+
+  it('분석 캐시가 있으면 ready', async () => {
+    const service = makeService({ analyses: [{}], event: { rcpNo: '1' } });
+    const res = await service.findAnalysis('1');
+    expect(res.analysisStatus).toBe('ready');
+    expect(res.analyses).toHaveLength(1);
+  });
+
+  it('PersonaAnalysis만 있어도 ready (분석 산출물 존재)', async () => {
+    const service = makeService({
+      persona: { resultJson: {}, createdAt: new Date('2026-07-15T00:00:00Z') },
+      event: { rcpNo: '1' },
+    });
+    const res = await service.findAnalysis('1');
+    expect(res.analysisStatus).toBe('ready');
+  });
+
+  it('캐시 미존재 + 대상 이벤트 존재면 pending (순차 생성·백필 대기)', async () => {
+    const service = makeService({ event: { rcpNo: '1' } });
+    const res = await service.findAnalysis('1');
+    expect(res.analysisStatus).toBe('pending');
+    expect(res.analyses).toHaveLength(0);
+    expect(res.personaAnalysis).toBeNull();
+  });
+
+  it('캐시·이벤트 모두 없으면 excluded (분석 비대상)', async () => {
+    const service = makeService({});
+    const res = await service.findAnalysis('1');
+    expect(res.analysisStatus).toBe('excluded');
+  });
+});

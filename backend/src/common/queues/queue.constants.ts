@@ -99,6 +99,8 @@ export const NOTIFY_JOB = {
   TRADE_EXIT: 'notify.trade-exit',
   /** DAR-473(P01) 리스크·운영 알림(RISK_ALERT/OPS_ALERT) — 감지점/운영 리포트가 발행 */
   OPS_ALERT: 'notify.ops-alert',
+  /** 갭분석 W7: 관심종목 급변동(전일 대비 ±5%) — engine3 price-move-alert 5분 틱이 발행 */
+  PRICE_MOVE: 'notify.price-move',
 } as const;
 
 /** QUEUE.AI_ANALYZE 잡 페이로드 */
@@ -226,12 +228,46 @@ export interface NotifyOpsAlertJobData {
   meta?: Record<string, unknown>;
 }
 
+/**
+ * 갭분석 W7: NOTIFY_JOB.PRICE_MOVE 페이로드 — 관심종목 급변동 알림.
+ *
+ * ★조회·계측·알림 계층 전용 — 매매·체결·Buy Score 경로와 무접점(M10 모의운용 무오염·AI 0).
+ * 발행자(engine3 PriceMoveAlertService)가 제목·본문·팩트체크(당일 공시 유무 병기, W6)를
+ * 완성해 싣고, consumer 는 수신자 해석(해당 종목 watcher)·설정 게이트(priceMovePushEnabled,
+ * ★기본 OFF — OFF 면 인박스도 생략)·멱등 인박스·푸시만 담당한다.
+ * 멱등: refId = `<stockCode>-<YYYYMMDD>`(종목당 1일 1회) — NotificationHistory unique + jobId 공유.
+ */
+export interface NotifyPriceMoveJobData {
+  /** 멱등 자연키 — `<stockCode>-<YYYYMMDD>` (종목당 1일 1회 dedupe). */
+  refId: string;
+  corpCode: string;
+  stockCode: string;
+  corpName: string;
+  /** 발화 거래일(KST YYYYMMDD). */
+  tradeDate: string;
+  /** 전일 종가 대비 등락률(%). */
+  changePct: number;
+  /** 현재가(KIS inquire-price, KRW). */
+  price: number;
+  /** 전일 종가(StockDailyPrice, KRW). */
+  prevClose: number;
+  /** 완성된 알림 제목(발행 측 산출 — point-in-time 보존). */
+  title: string;
+  /** 완성된 알림 본문(당일 공시 유무·무공시 팩트체크 근거 병기). */
+  body: string;
+  /** 인앱 딥링크 — 종목 상세(`/company/<corpCode>`). */
+  deepLink: string;
+  /** 네이버금융 종목 뉴스 링크아웃 URL(외부 브라우저 전용 — 수집·저장 0). */
+  newsUrl?: string;
+}
+
 export type NotifyJobData =
   | NotifySignalJobData
   | NotifyExitJobData
   | NotifyThesisViolatedJobData
   | NotifyTradeJobData
-  | NotifyOpsAlertJobData;
+  | NotifyOpsAlertJobData
+  | NotifyPriceMoveJobData;
 
 // ─── DAR-230: 자연키 기반 dedup jobId ───────────────────────────────────────
 //
@@ -285,6 +321,9 @@ export function notifyJobId(
       const prefix = d.type === 'RISK_ALERT' ? 'risk' : 'ops';
       return `${prefix}-${d.dedupeKey.replace(/:/g, '-')}`;
     }
+    // 갭분석 W7: 급변동 — refId(`<stockCode>-<YYYYMMDD>`) 자연키로 종목당 1일 1잡(':' 미포함).
+    case NOTIFY_JOB.PRICE_MOVE:
+      return `pmove-${(data as NotifyPriceMoveJobData).refId}`;
     default:
       return undefined;
   }

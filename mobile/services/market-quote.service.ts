@@ -1,6 +1,7 @@
 import type { ApiResponse } from '@app-types/api.types';
 import type {
   CandleSeriesResult,
+  IndicatorSeriesResult,
   MinuteCandlesResult,
   StockQuoteMap,
 } from '@app-types/market-quote.types';
@@ -12,6 +13,16 @@ export interface DailyCandlesOptions {
   /** 한 페이지 캔들 수(기본 서버 200, 최대 1000). 구간 프리셋이 최근 N 거래일로 환산. */
   limit?: number;
   /** 구간 시작(포함) — YYYYMMDD/ISO. 미지정 시 최근 limit 거래일. */
+  from?: string;
+  /** 구간 끝(포함). */
+  to?: string;
+}
+
+/** 기술지표 조회 옵션(W13) — 일봉과 동일 규약(limit=최근 N 거래일, 구간 미지정=newest-first). */
+export interface DailyIndicatorsOptions {
+  /** 한 페이지 지표 행 수(기본 서버 200, 최대 1000). 일봉 구간 프리셋과 동일 limit 사용(조인 정합). */
+  limit?: number;
+  /** 구간 시작(포함) — YYYYMMDD/ISO. */
   from?: string;
   /** 구간 끝(포함). */
   to?: string;
@@ -75,6 +86,39 @@ export const marketQuoteService = {
         params: {
           stockCode,
           resolution: '1d',
+          ...(options?.limit != null ? { limit: options.limit } : {}),
+          ...(options?.from != null ? { from: options.from } : {}),
+          ...(options?.to != null ? { to: options.to } : {}),
+        },
+      })
+      .then((r) => r.data.data);
+  },
+
+  /**
+   * 단일 종목 기술지표(EOD 파생) 구간 조회 (W13, read-only). 백엔드 GET /market-data/indicators
+   * 와 1:1 — 일봉 캔들과 동일 파라미터 규약(limit=최근 N 거래일)이라 tradeDate 조인이 정합한다.
+   * ★정직: latestTradeDate(지표 기준일)를 응답에 포함 — 화면이 T+1 stale 을 숨기지 않고 배지 고지.
+   * 6자리 코드가 아니면 네트워크 호출 없이 UNAVAILABLE 빈 결과. 미가용 시 points 빈 배열 graceful.
+   */
+  getDailyIndicators: (
+    stockCode: string,
+    options?: DailyIndicatorsOptions,
+  ): Promise<IndicatorSeriesResult> => {
+    if (!/^\d{6}$/.test(stockCode)) {
+      return Promise.resolve({
+        stockCode,
+        source: 'UNAVAILABLE',
+        asOf: '',
+        latestTradeDate: null,
+        count: 0,
+        nextCursor: null,
+        points: [],
+      });
+    }
+    return api
+      .get<ApiResponse<IndicatorSeriesResult>>('/market-data/indicators', {
+        params: {
+          stockCode,
           ...(options?.limit != null ? { limit: options.limit } : {}),
           ...(options?.from != null ? { from: options.from } : {}),
           ...(options?.to != null ? { to: options.to } : {}),

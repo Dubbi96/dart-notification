@@ -9,8 +9,9 @@
       "distribution": "internal"
     },
     "preview": {
+      "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://dart-notification-alb-1710103987.ap-northeast-2.elb.amazonaws.com/api"
+        "EXPO_PUBLIC_API_URL": "https://168.138.198.152.nip.io/api"
       },
       "distribution": "internal",
       "android": {
@@ -18,6 +19,7 @@
       }
     },
     "oci": {
+      "channel": "oci",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://168.138.198.152.nip.io/api"
       },
@@ -27,8 +29,9 @@
       }
     },
     "production": {
+      "channel": "production",
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://dart-notification-alb-1710103987.ap-northeast-2.elb.amazonaws.com/api"
+        "EXPO_PUBLIC_API_URL": "https://168.138.198.152.nip.io/api"
       },
       "android": {
         "buildType": "app-bundle"

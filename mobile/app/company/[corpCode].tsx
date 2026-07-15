@@ -50,6 +50,7 @@ import { useStockQuotes } from '@hooks/useStockQuotes';
 import { useMinuteCandles } from '@hooks/useMinuteCandles';
 import { MinuteCandleChart } from '@components/company/MinuteCandleChart';
 import { QuoteHeader } from '@components/common/QuoteHeader';
+import { SourceAttribution } from '@components/common/SourceAttribution';
 import { resolveQuotePollInterval } from '@utils/marketQuoteDisplay';
 import { useHaptics } from '@hooks/useHaptics';
 import { useSnackbar } from '@components/common/SnackbarProvider';
@@ -675,6 +676,8 @@ export default function CompanyDetailScreen() {
               </Text>
             )}
           </Card>
+          {/* W2 컴플라이언스(M0 정책 §4): 출처 귀속 — 화면당 1회(현재가·분봉=KIS, 종가 폴백=KRX). */}
+          <SourceAttribution sources={['KRX', 'KIS']} style={styles.sourceAttribution} />
         </View>
       ) : null}
 
@@ -1064,6 +1067,10 @@ const styles = StyleSheet.create({
   companyCardWrap: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
+  },
+  // W2: 차트 카드 아래 출처 귀속 한 줄(화면당 1회).
+  sourceAttribution: {
+    marginTop: spacing.xs,
   },
   scrollContent: {
     paddingTop: spacing.md,

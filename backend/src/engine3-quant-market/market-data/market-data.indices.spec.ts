@@ -178,6 +178,9 @@ describe('MarketDataController.latestIndices (DAR-160)', () => {
       {} as unknown as import('./candle-history.service').CandleHistoryService,
       {} as never, // DAR-381: StockMinutePriceCollector (이 테스트에서 미사용)
       {} as never, // DAR-490: EtfDailyBackfillService (이 테스트에서 미사용)
+      {} as never, // W16: InvestorFlowQueryService (이 테스트에서 미사용)
+      {} as never, // W16: InvestorFlowCollector (이 테스트에서 미사용)
+      {} as never, // W13: IndicatorHistoryService (이 테스트에서 미사용)
     );
 
     const res = await controller.latestIndices();

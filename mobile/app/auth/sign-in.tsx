@@ -23,6 +23,7 @@ import LogoCards from '@/assets/logo/logo-cards.svg';
 import kakaoLoginImage from '../../assets/kakao_login_large_wide.png';
 import { useAuthStore } from '@stores/authStore';
 import { api, API_BASE_URL } from '@services/api';
+import { recordFunnelStep } from '@services/funnel.service';
 import { createMountGuard, type TimerHandle } from '@utils/mountGuard';
 
 // 카카오 REST API 키 — mobile/.env 의 EXPO_PUBLIC_KAKAO_REST_API_KEY 로 주입 (백엔드 KAKAO_REST_API_KEY 와 동일 앱)
@@ -162,6 +163,8 @@ export default function SignInScreen() {
           const { tokens, isNewUser } = data.data;
           setAuth(tokens.accessToken, tokens.refreshToken);
           SecureStore.setItemAsync('hasLoggedIn', 'true');
+          // 갭분석 W15 ③: 퍼널 3단계(kakao) 계측 — 설치당 1회, fire-and-forget(실패 무시).
+          void recordFunnelStep('kakao', { isNewUser: Boolean(isNewUser) }, { once: true });
           setIsLoading(false);
 
           // Close the in-app browser before navigating
@@ -228,6 +231,8 @@ export default function SignInScreen() {
             const { tokens, isNewUser } = data.data;
             setAuth(tokens.accessToken, tokens.refreshToken);
             SecureStore.setItemAsync('hasLoggedIn', 'true');
+            // 갭분석 W15 ③: 퍼널 3단계(kakao) 계측 — once 플래그로 폴링 경로와 중복 방지.
+            void recordFunnelStep('kakao', { isNewUser: Boolean(isNewUser) }, { once: true });
             setIsLoading(false);
             router.replace(isNewUser ? '/onboarding' : '/(tabs)/home');
             return;
@@ -355,6 +360,7 @@ export default function SignInScreen() {
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="로그인 없이 둘러보기"
+            testID="guest-browse-button"
           >
             <Text style={[typo.caption, { color: colors.textSecondary }]}>
               로그인 없이 둘러보기

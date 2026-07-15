@@ -1,0 +1,12 @@
+# [W15 ② 스모크 6] 설정 화면 도달
+# 게스트로도 접근 가능한 설정 탭 이동 → 설정 화면 렌더 확인.
+appId: com.gongsion.app
+tags:
+  - smoke
+---
+- runFlow: subflows/guest-entry.yaml
+- tapOn: "설정"
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 15000

@@ -17,8 +17,12 @@ import { StockQuoteService } from './stock-quote.service';
 import { MarketDataService } from './market-data.service';
 import { CandleHistoryService } from './candle-history.service';
 import { CANDLE_RESOLUTIONS, CandleQueryError } from './candle-query';
+import { IndicatorHistoryService } from './indicator-history.service';
+import { IndicatorQueryError } from './indicator-query';
 import { StockMinutePriceCollector } from './stock-minute-price.collector';
 import { EtfDailyBackfillService } from './etf-daily-backfill.service';
+import { InvestorFlowQueryService } from './investor-flow.query.service';
+import { InvestorFlowCollector } from './investor-flow.collector';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../auth/guards/optional-jwt-auth.guard';
 
@@ -34,6 +38,9 @@ export class MarketDataController {
     private readonly candleHistory: CandleHistoryService,
     private readonly minuteCollector: StockMinutePriceCollector,
     private readonly etfBackfill: EtfDailyBackfillService,
+    private readonly investorFlowQuery: InvestorFlowQueryService,
+    private readonly investorFlowCollector: InvestorFlowCollector,
+    private readonly indicatorHistory: IndicatorHistoryService,
   ) {}
 
   // 가격 배지 종단연결(DAR-158): 읽기 전용 시세 조회는 게스트 열람 허용(DAR-99 패턴).
@@ -149,6 +156,59 @@ export class MarketDataController {
     }
   }
 
+  // 기술지표 구간 조회(W13 데이터 자산 표면 개방): TechnicalIndicator 는 전종목 EOD 적재·인덱스
+  // 완비인데 사용자 조회 API 가 0개였다(ops 백필 POST 만 존재). candles 와 동일한 파라미터·응답
+  // 규약(from~to+before 커서+limit 상한, newest-first 조회 후 오름차순 반환)으로 개방한다 —
+  // Buy Score 입력 근거 검증·차트 오버레이용. ★정직: latestTradeDate(지표 기준일)로 T+1 stale
+  // 을 숨기지 않는다. 읽기 전용 시장 파생 데이터라 quote/candles 와 동일 게스트 열람 패턴.
+  @Get('indicators')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      '기술지표 구간 조회 — TechnicalIndicator(MA5/20/60/120·RSI14·MACD·볼린저·ATR14·VWAP·거래량비율 등, EOD 일봉 파생). ' +
+      'from~to+페이지네이션, 응답 latestTradeDate=지표 기준일(적재 최신 거래일 — T+1 지연 정직 고지) (게스트 열람, W13)',
+  })
+  @ApiQuery({ name: 'stockCode', required: true, description: '종목코드 6자리 (예: 005930)' })
+  @ApiQuery({
+    name: 'from',
+    required: false,
+    description: '구간 시작(포함) — ISO 8601 또는 YYYYMMDD (candles 와 동일 형식)',
+  })
+  @ApiQuery({ name: 'to', required: false, description: '구간 끝(포함) — from 과 동일 형식' })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: '페이지네이션 커서 — 이 거래일 이전(미만) 지표만(과거 페이지). 응답 nextCursor 사용.',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: '한 페이지 지표 행 수 (기본 200, 최대 1000).',
+  })
+  async getIndicators(
+    @Query('stockCode') stockCode?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('before') before?: string,
+    @Query('limit') limit?: string,
+  ) {
+    try {
+      const data = await this.indicatorHistory.getIndicators({
+        stockCode,
+        from,
+        to,
+        before,
+        limit,
+      });
+      return { success: true, data };
+    } catch (err) {
+      if (err instanceof IndicatorQueryError) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
+  }
+
   // 분봉 수동 수집(DAR-377·DAR-381): cron(장중 10분 간격) 외에 단발 수집을 트리거한다. 우선순위 상위
   // 종목의 당일 분봉을 KIS 에서 받아 StockMinutePrice(TimescaleDB 하이퍼테이블)에 멱등 적재하고
   // 커버리지 리포트를 반환한다. ★KIS 일일 쿼터·레이트리밋 가드(cap·스로틀) 내에서 동작.
@@ -177,6 +237,73 @@ export class MarketDataController {
       tradeDate: tradeDate || undefined,
     });
     return { success: true, data: result };
+  }
+
+  /**
+   * 종목 투자자별 매매동향 조회 (갭분석 W16 ③, read-only).
+   * 외국인/기관/개인 순매수 시계열 + 5/20일 누적 요약 — 모바일 '수급 요약' 카드 소비.
+   * 비개인 공개 시장 데이터이므로 quote/candles 와 동일 게스트 열람 패턴(OptionalJwtAuthGuard).
+   * ★SHADOW: 표면 전용 — Buy Score·트레이딩 무접점.
+   */
+  @Get('investor-flow')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      '종목 투자자별 매매동향 — 외국인/기관/개인 순매수(수량·금액) 최근 N거래일 + 5/20일 누적 요약. ' +
+      '데이터 없으면 asOfDate=null 빈 결과 graceful (게스트 열람, W16)',
+  })
+  @ApiQuery({ name: 'stockCode', required: true, description: '종목코드 6자리 (예: 005930)' })
+  @ApiQuery({
+    name: 'days',
+    required: false,
+    description: '조회 거래일 수 (기본 20, 최대 120). 요약(5/20일)은 항상 최근 20일로 산출.',
+  })
+  async getInvestorFlow(@Query('stockCode') stockCode?: string, @Query('days') days?: string) {
+    const data = await this.investorFlowQuery.getInvestorFlow(stockCode ?? '', days);
+    return { success: true, data };
+  }
+
+  /**
+   * 종목 공매도 일별 조회 (갭분석 W16 ③, read-only).
+   * 공매도 거래량·거래대금·거래비중(일봉 volume 조인 산출) 시계열. 잔고 필드는 소스 미가용 시
+   * null(합성 금지 — 정직). publishedDate(T+2 영업일)를 행별 동반해 as-of 소비를 지원한다.
+   */
+  @Get('short-selling')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      '종목 공매도 일별 — 공매도 거래량·거래대금·거래비중(%) 최근 N거래일 + publishedDate(T+2). ' +
+      '잔고 필드는 무료 소스 미가용으로 null. 데이터 없으면 asOfDate=null graceful (게스트 열람, W16)',
+  })
+  @ApiQuery({ name: 'stockCode', required: true, description: '종목코드 6자리 (예: 005930)' })
+  @ApiQuery({ name: 'days', required: false, description: '조회 거래일 수 (기본 20, 최대 120)' })
+  async getShortSelling(@Query('stockCode') stockCode?: string, @Query('days') days?: string) {
+    const data = await this.investorFlowQuery.getShortSelling(stockCode ?? '', days);
+    return { success: true, data };
+  }
+
+  /**
+   * 수급·공매도 수동 수집 (갭분석 W16 — cron 3슬롯 외 단발 트리거/백필용).
+   * 소스 체인(KRX→KIS)·done-set 멱등·publishedDate=T+2 는 cron 경로와 동일(SSOT collectOnce).
+   */
+  @Post('collect/investor-flow')
+  @ApiOperation({
+    summary:
+      '수급·공매도 수동 수집 — 투자자별 매매동향(InvestorFlowDaily) + 공매도 일별(ShortSellingDaily) ' +
+      '멱등 적재. cap 으로 KIS 유량 가드 (W16)',
+  })
+  @ApiQuery({
+    name: 'cap',
+    required: false,
+    description: '수집 상한 종목 수(KIS 유량 가드). 미지정 시 env INVESTOR_FLOW_COLLECT_CAP→3000.',
+  })
+  async collectInvestorFlow(@Query('cap') cap?: string) {
+    const parsedCap = cap ? parseInt(cap, 10) : undefined;
+    const capOpt =
+      Number.isFinite(parsedCap) && (parsedCap as number) > 0 ? parsedCap : undefined;
+    const investorFlow = await this.investorFlowCollector.collectInvestorFlowOnce({ cap: capOpt });
+    const shortSelling = await this.investorFlowCollector.collectShortSellingOnce({ cap: capOpt });
+    return { success: true, data: { investorFlow, shortSelling } };
   }
 
   /**

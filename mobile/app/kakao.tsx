@@ -4,6 +4,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import * as SecureStore from 'expo-secure-store';
 import { api } from '@services/api';
+import { recordFunnelStep } from '@services/funnel.service';
 import { useAuthStore } from '@stores/authStore';
 import { useTheme } from '@theme';
 
@@ -64,6 +65,8 @@ export default function KakaoCallback() {
           const { tokens, isNewUser } = data.data;
           setAuth(tokens.accessToken, tokens.refreshToken);
           SecureStore.setItemAsync('hasLoggedIn', 'true').catch(() => {});
+          // 갭분석 W15 ③: 퍼널 3단계(kakao) 계측 — 설치당 1회, fire-and-forget(실패 무시).
+          void recordFunnelStep('kakao', { isNewUser: Boolean(isNewUser) }, { once: true });
           settleToHome(isNewUser);
           return;
         }

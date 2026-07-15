@@ -353,3 +353,60 @@ describe('classifyEventType — DAR-346 미모델 공시유형 확대', () => {
     }
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// W9: 실적 가이던스(자사 전망 공정공시) — EARNINGS_GUIDANCE 신설
+// 현재 OTHER로 버려지던 '영업실적 등에 대한 전망'·'장래사업·경영계획' 계열이
+// EARNINGS_GUIDANCE 로 분류되고, 확정 실적(잠정실적) 룰과 상호 오염이 없음을 고정.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('classifyEventType — W9 EARNINGS_GUIDANCE (자사 전망)', () => {
+  const noDocType = (): ParsedJson => makeParsedJson({ docType: '' });
+  const classify = (reportName: string) =>
+    classifyEventType(reportName, noDocType());
+
+  // 실제 DART 보고서명 샘플(공백 유무·기재정정·중점 문자 변형 포함)
+  const guidanceTitles: string[] = [
+    '연결재무제표기준영업실적등에대한전망(공정공시)',
+    '연결재무제표 기준 영업실적 등에 대한 전망(공정공시)',
+    '영업실적등에대한전망(공정공시)',
+    '[기재정정]연결재무제표기준영업실적등에대한전망(공정공시)',
+    '장래사업ㆍ경영계획(공정공시)', // U+318D 한글 중점
+    '장래사업·경영계획(공정공시)', // U+00B7 가운뎃점
+    '[기재정정]장래사업 · 경영계획(공정공시)',
+    '장래사업 및 경영계획(공정공시)',
+  ];
+
+  it.each(guidanceTitles)(
+    '%s → EARNINGS_GUIDANCE (MIXED, confidence ≥ 0.85)',
+    (reportName) => {
+      const result = classify(reportName);
+      expect(result.eventType).toBe(EventType.EARNINGS_GUIDANCE);
+      expect(result.polarity).toBe('MIXED');
+      expect(result.confidence).toBeGreaterThanOrEqual(0.85);
+    },
+  );
+
+  // ── 상호 오염 없음: 확정 실적(잠정실적)은 여전히 EARNINGS_SURPRISE 계열 ──────
+  it('회귀: 연결재무제표기준영업(잠정)실적(공정공시) → EARNINGS_SURPRISE (가이던스 아님)', () => {
+    const result = classify('연결재무제표기준영업(잠정)실적(공정공시)');
+    expect(result.eventType).toBe(EventType.EARNINGS_SURPRISE);
+    expect(result.eventType).not.toBe(EventType.EARNINGS_GUIDANCE);
+  });
+
+  it('회귀: 매출액또는손익구조30%(대규모법인은15%)이상변동 → EARNINGS_SURPRISE (가이던스 아님)', () => {
+    const result = classify('매출액또는손익구조30%(대규모법인은15%)이상변동');
+    expect(result.eventType).toBe(EventType.EARNINGS_SURPRISE);
+  });
+
+  it('회귀: 실적 악화(쇼크) 보고서명은 여전히 EARNINGS_SHOCK', () => {
+    const result = classify('영업실적 적자전환');
+    expect(result.eventType).toBe(EventType.EARNINGS_SHOCK);
+  });
+
+  // ── 음성 대조: 전망 토큰 없는 공정공시는 가이던스가 아니다 ────────────────────
+  it('음성 대조: 수시공시의무관련사항(공정공시) 은 EARNINGS_GUIDANCE 가 아님', () => {
+    const result = classify('수시공시의무관련사항(공정공시)');
+    expect(result.eventType).not.toBe(EventType.EARNINGS_GUIDANCE);
+  });
+});

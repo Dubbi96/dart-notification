@@ -27,6 +27,7 @@ import { usePopularCompanies } from '@hooks/useCompanySearch';
 import { useAuthStore } from '@stores/authStore';
 import { deviceService } from '@services/device.service';
 import { notificationSettingsService } from '@services/notification-settings.service';
+import { recordFunnelStep } from '@services/funnel.service';
 import { EAS_PROJECT_ID } from '@utils/easProjectId';
 import { isOfflineMutationBlockedError } from '@utils/offlineMutation';
 import { ONBOARDING_TOTAL_STEPS, onboardingExitRoute } from '@utils/onboardingFlow';
@@ -120,6 +121,9 @@ export default function OnboardingScreen() {
   // 마찰제거(DAR-65): 관심기업 선택은 선택 사항 — 0개여도 다음 단계로 진행한다.
   // (선택 안 하면 홈 첫 종목 코치마크가 이어서 등록을 유도)
   const handleStep1Continue = async () => {
+    // 갭분석 W15 ③: 퍼널 4단계(watchlist) 계측 — 설치당 1회, fire-and-forget(실패 무시).
+    // 0개 스킵도 단계 도달로 기록하고 선택 수는 meta 로 구분한다(측정만, 흐름 무개입).
+    void recordFunnelStep('watchlist', { selectedCount: selected.length }, { once: true });
     if (selected.length === 0) {
       setStep(2);
       return;
@@ -152,6 +156,8 @@ export default function OnboardingScreen() {
       const Notifications = getNotifications();
       if (!Notifications) {
         // Expo Go 안드로이드 등 미지원 환경: 권한 단계 건너뛰고 온보딩 계속
+        // 갭분석 W15 ③: 퍼널 5단계(push_permission) 계측 — 결과(outcome)별 기록(측정만).
+        void recordFunnelStep('push_permission', { outcome: 'unsupported' });
         setStep(3);
         return;
       }
@@ -159,10 +165,12 @@ export default function OnboardingScreen() {
       if (status !== 'granted') {
         // A-ONB-2: 무음 실패 방지 — 거부 사실을 인라인으로 알리고 단계 진행을 보류한다.
         // (사용자는 '설정 열기'로 켜거나 '나중에 하기'로 진행을 선택할 수 있다)
+        void recordFunnelStep('push_permission', { outcome: 'denied' });
         setPermissionDenied(true);
         return;
       }
       setPermissionDenied(false);
+      void recordFunnelStep('push_permission', { outcome: 'granted' });
       // UXR-1/A-1: projectId 는 빌드 설정 동적 해소 단일원천(EAS_PROJECT_ID)을 공유 —
       // 하드코딩된 구(舊) 프로젝트로 발급한 무효 토큰이 서버에 등록되는 것을 방지.
       const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: EAS_PROJECT_ID });
@@ -182,6 +190,8 @@ export default function OnboardingScreen() {
   };
 
   const handleSkipNotifications = async () => {
+    // 갭분석 W15 ③: 퍼널 5단계(push_permission) 계측 — '나중에 하기'도 도달로 기록(측정만).
+    void recordFunnelStep('push_permission', { outcome: 'skipped' });
     try {
       await notificationSettingsService.update({ isEnabled: false });
     } catch {

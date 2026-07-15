@@ -184,7 +184,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background }]} testID="settings-screen">
       {/* Profile Header - 고정 영역 */}
       <LinearGradient
         colors={[colors.cardGradientStart, colors.cardGradientEnd]}
@@ -349,6 +349,22 @@ export default function SettingsScreen() {
                 icon="shield"
                 title="개인정보 처리방침"
                 onPress={() => router.push('/legal/privacy')}
+              />
+              <Divider style={{ backgroundColor: colors.borderLight }} />
+              {/* W11: 앱 내 문의 표면 — 이메일 문의·시스템 상태 페이지·버전 정보. */}
+              <MenuItem
+                icon="help-circle"
+                title="문의·지원"
+                subtitle="이메일 문의 · 시스템 상태"
+                onPress={() => router.push('/settings-detail/support')}
+              />
+              <Divider style={{ backgroundColor: colors.borderLight }} />
+              {/* W2 컴플라이언스(M0 정책 §4): 시세·공시 데이터 출처·지연 고지·면책 화면 진입점. */}
+              <MenuItem
+                icon="database"
+                title="데이터 출처"
+                subtitle="시세·공시 데이터의 출처와 지연 고지"
+                onPress={() => router.push('/legal/data-sources')}
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
               {/* D9: dead tap 제거 — 버전 표시는 정보 행이므로 비터치(View)로 렌더. */}

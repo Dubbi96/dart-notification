@@ -55,4 +55,15 @@ export class UpdateNotificationSettingsDto {
   @IsBoolean()
   @IsOptional()
   opsPushEnabled?: boolean;
+
+  // 갭분석 W7: 관심종목 급변동 알림(PRICE_MOVE) 토글(★기본 OFF — 알림 피로 방지).
+  // OFF면 인박스·푸시 모두 생략. 준실시간(최대 5분 지연)·전일 종가 대비 ±5%.
+  @ApiProperty({
+    example: false,
+    required: false,
+    description: '관심종목 급변동 알림(전일 대비 ±5%, 준실시간 최대 5분 지연 — 기본 OFF)',
+  })
+  @IsBoolean()
+  @IsOptional()
+  priceMovePushEnabled?: boolean;
 }

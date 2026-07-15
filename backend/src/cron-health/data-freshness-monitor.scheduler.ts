@@ -42,9 +42,11 @@ export class DataFreshnessMonitorScheduler {
     const risingEdge = report.anyStale && !this.prevAnyStale;
 
     if (risingEdge) {
+      // [W11] 제로런(살아있는데 산출 0행) 정체는 라벨에 표기해 age 정체와 구분 —
+      //   복구 방향이 다르다(재기동이 아니라 쿼터/토큰/업스트림 점검).
       const staleLabels = report.jobs
         .filter((j) => j.isStale)
-        .map((j) => j.label);
+        .map((j) => (j.isZeroRun ? `${j.label}(제로런)` : j.label));
       const severity = report.staleJobs.length >= 3 ? 'ERROR' : 'WARNING';
       this.logger.warn(
         `[FreshnessMonitor] 정체 전환 — ${report.staleJobs.length}개 잡 stale: ${report.staleJobs.join(', ')}`,

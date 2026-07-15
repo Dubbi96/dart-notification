@@ -19,6 +19,7 @@ import { ScreenHeader } from '@components/common/ScreenHeader';
 import { ProvenanceBar, relativeTime, type ProvenanceItem } from '@components/common/ProvenanceBar';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { ScoreBreakdownSection } from '@components/signals/ScoreBreakdownSection';
+import { EvidenceIndicatorsSection } from '@components/signals/EvidenceIndicatorsSection';
 import { SignalFreshnessBadge } from '@components/signals/SignalFreshnessBadge';
 import { CompanyHubLink } from '@components/company/CompanyHubLink';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
@@ -306,6 +307,12 @@ export default function SignalDetailScreen() {
               sampleN: c.sampleN,
             }))}
           />
+        ) : null}
+
+        {/* W13 근거 지표 펼치기 — 스코어링이 소비한 원시 수치(rsi14·volumeRatio20 등) read-only.
+            미적재/구 서버(null/undefined)면 graceful 미표시. */}
+        {signal.evidenceIndicators ? (
+          <EvidenceIndicatorsSection indicators={signal.evidenceIndicators} />
         ) : null}
 
         {/* 진입 조건 */}

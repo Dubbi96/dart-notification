@@ -1,0 +1,16 @@
+# [W15 ② 스모크 5] 알림 인박스 도달
+# dev-login 후 알림 탭으로 이동해 인박스 화면(리스트/빈 상태/에러 전 분기 공통 앵커) 렌더 확인.
+appId: com.gongsion.app
+tags:
+  - smoke
+env:
+  DEV_ACCESS: ""
+  DEV_REFRESH: ""
+  DEV_USER_ID: ""
+---
+- runFlow: subflows/dev-login.yaml
+- tapOn: "알림"
+- extendedWaitUntil:
+    visible:
+      id: "notifications-screen"
+    timeout: 15000

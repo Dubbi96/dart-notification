@@ -5,6 +5,7 @@ import type {
   PortfolioRiskSnapshot,
   PositionThesis,
   PaperPortfolio,
+  TodayBriefing,
 } from '@app-types/portfolio.types';
 
 import { api } from './api';
@@ -31,4 +32,10 @@ export const portfolioService = {
 
   getPaperPortfolio: () =>
     api.get<ApiResponse<PaperPortfolio>>('/paper-trading/portfolio').then((r) => r.data.data),
+
+  // W14 오늘의 브리핑 — 전 섹션 0건이면 data 는 null(0건 억제 계약).
+  getTodayBriefing: () =>
+    api
+      .get<ApiResponse<TodayBriefing | null>>('/portfolio/briefing/today')
+      .then((r) => r.data.data),
 };

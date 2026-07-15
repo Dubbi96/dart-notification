@@ -24,6 +24,8 @@ import {
   PipelineFailureRow,
   PipelineHealth,
 } from './pipeline.types';
+// W4 신호 검증: 제목 기반 백필 관측치(TITLE_ONLY)는 AI 재발행 대상에서 제외한다.
+import { TITLE_ONLY_BACKFILL_MARKER } from './title-event-backfill.constants';
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 
@@ -446,6 +448,17 @@ export class PipelineIntegrityService {
         extractionStatus: {
           in: [ExtractionStatus.SUCCESS, ExtractionStatus.NEEDS_REVIEW],
         },
+        // W4 신호 검증: 제목 기반 백필(TITLE_ONLY) 관측치는 AI 재발행 대상에서 제외 —
+        //   수만 건 과거 백필이 AI 큐/예산을 잠식하지 않게 한다(Event Study 전용 관측치).
+        //   null 분기를 명시해 Prisma not-null 의미론과 무관하게 기존 행을 전부 보존한다.
+        AND: [
+          {
+            OR: [
+              { failReason: null },
+              { failReason: { not: TITLE_ONLY_BACKFILL_MARKER } },
+            ],
+          },
+        ],
         disclosure: {
           disclosureAnalyses: { none: { task: SUMMARY_TASK } },
         },

@@ -1,6 +1,6 @@
 # 실행 로드맵 — 전체 개발 순서 및 회귀 체크포인트
 
-> 상위 문서: [비전](./00-vision-and-principles.md) · 작성: 직접 판단(엔지니어링 관점) · 최종 수정: 2026-07-02
+> 상위 문서: [비전](./00-vision-and-principles.md) · 작성: 직접 판단(엔지니어링 관점) · 최종 수정: 2026-07-16 (갭분석 퀵윈 웨이브 — MZ 수익화 토대(M10.5) 신설·M13A 게이트 정합(M13A-Lite 병기)·병행 트랙 C-트랙(컴플라이언스) 추가) / 이전: 2026-07-02
 
 이 문서는 비전의 Phase 0~14를 **의존성 기준으로 재정렬한 실제 개발 순서(Milestone)** 와, 각 마일스톤이 끝날 때마다 **이전 단계를 함께 재확인하는 회귀 체크포인트**를 정의한다. 비전 8장의 "개발 우선순위"가 *무엇을* 만드는지라면, 이 문서는 *어떤 순서로, 무엇을 다시 검증하며* 만드는지를 다룬다.
 
@@ -26,9 +26,11 @@
 | **M8** | Portfolio & Exit Engine | P8 | Exit Score·`ExitSignal`·5액션 | M7 | ✅ 완료 |
 | **M9** | 백테스트 | P10 | 과거 구간 전략 검증(`BacktestRun`) | M5, M6, M8 | ✅ 완료 |
 | **M10** | 모의투자 + 비용 거버넌스 완성 | P12, P11(완성) | 실데이터 모의운용 + 실비용 측정 — **MVP 졸업 게이트** | M8, M9 | 🚧 진행 중(잔여: 라이브AI 상시 + 30일 캘린더 ≈7/21) |
+| **MZ** | 수익화 토대 (M10.5) | — | 티어(FREE/PRO)·가격 검증·과금 배관 — 정본: [cc-monetization-plan.md](./cc-monetization-plan.md) | M10 졸업 (+ 과금 활성화는 C-트랙 유사투자자문업 신고 게이트, §4) | 🚧 토대만(W0 스키마 User.tier·ProWaitlistEntry + W1 수요 계측 배선, 2026-07-15 갭분석 퀵윈) |
 | **M11** | 반자동매매 | P13 | 사용자 승인 주문 + 증권사 API·Risk 사전체크 | M10 졸업 | 🚧 토대만(실주문 루프 미연동) |
 | **M12** | 제한적 자동매매 | P14 | 검증 전략 한정 자동화 + Risk veto·Kill Switch | M11 | ⬜ 미착수 |
-| **M13A** | 미국주식 확장 | — | US_STOCK 어댑터·SEC EDGAR 파이프라인·미국 모의투자 | M10 졸업 + KR 3개월 안정 | ⬜ 미착수 |
+| **M13A-Lite** | 미국주식 알림 라이트 (상위 20 티커) | — | 상위 20 티커 공시(8-K 등) 알림만 — 풀 파이프라인 아님 | **M10 졸업 AND 수요 실증**(SearchMissLog·US_DEMAND_TAP 계측, 갭분석 W8) | ⬜ 미착수(수요 계측 가동 중) |
+| **M13A** | 미국주식 확장 (풀) | — | US_STOCK 어댑터·SEC EDGAR 파이프라인·미국 모의투자 | **M12 안정 운영 3개월** (§M13A 상세와 동일 — 2026-07-16 게이트 정합) | ⬜ 미착수 |
 | **M13B** | 코인 확장 | — | CRYPTO 24/7 수집·업비트/Binance 어댑터·코인 모의투자 | M13A 90일 검증 | ⬜ 미착수 |
 | **M14** | 통합 멀티에셋 포트폴리오 | — | 자산군 통합 대시보드·비중 리밸런싱 | M13A + M13B | ⬜ 미착수 |
 
@@ -159,6 +161,7 @@
 ### M13A — 미국 주식(US_STOCK) 확장 (예정, M12 안정 운영 3개월 후)
 
 > 상세 설계: [cc-multi-asset-expansion.md §7-1](./cc-multi-asset-expansion.md)
+> **게이트 정합(2026-07-16)**: §1 표의 구 게이트 'M10 졸업 + KR 3개월 안정'과 이 절의 'M12 안정 운영 3개월'이 불일치했다 — **풀 M13A는 'M12 안정 운영 3개월'로 확정**한다. 대신 **M13A-Lite**(상위 20 티커 공시 알림만, 수집·분석 풀 파이프라인 없음)를 분리해 'M10 졸업 AND 수요 실증(SearchMissLog `US_DEMAND_TAP` 계측, 갭분석 W8)' 게이트로 선행 가능하게 병기한다. EDGAR 접근성 PoC: `scripts/edgar-poc.ts`.
 
 - **산출물:** Polygon.io/SEC EDGAR 기반 미국 주식 분석 파이프라인, US_STOCK 자산 어댑터, 환율 변환 레이어
 - **핵심 작업:**
@@ -234,9 +237,10 @@
 | 트랙 | 내용 | 시작 시점 |
 |------|------|-----------|
 | **기술부채 해소** | 단위/통합 테스트 누적(현 백엔드 243스위트·3254테스트 그린), CI(`regression-ci.yml`) 하드 게이트 가동 중 — §3-1 | M0부터 점진(DAR-127 안전망 가동) |
-| **보안 강화** | HTTPS 완료 — OCI prod에 Caddy + Let's Encrypt + nip.io 적용(`https://168.138.198.152.nip.io/api`, v0.1.1 라이브). 잔여: 시크릿 매니저 정리 | 실서비스(M10 이후) 전 필수 |
-| **관측성** | 수집/AI/시세 배치 로그·메트릭·알림(실패 시 통지) | M0(CollectionLog)부터 확장 |
+| **보안 강화** | HTTPS 완료 — OCI prod에 Caddy + Let's Encrypt + nip.io 적용(`https://168.138.198.152.nip.io/api`, v0.1.1 라이브). CI 보안 잡 가동(npm audit allowlist 게이트 + gitleaks 시크릿 스캔 + dependabot — 갭분석 W17). 잔여: 시크릿 매니저 정리·JWT 로테이션(오너) | 실서비스(M10 이후) 전 필수 |
+| **관측성** | 수집/AI/시세 배치 로그·메트릭·알림(실패 시 통지) + 제로런 감지·공개 `/status`(갭분석 W11/W12) | M0(CollectionLog)부터 확장 |
 | **비용 모니터링** | KRX/DART/LLM 호출량·비용 대시보드 | M3(AIUsageLog)부터 |
+| **C-트랙 (컴플라이언스)** | 데이터 라이선스 원장([docs/compliance/data-license-ledger.md](../compliance/data-license-ledger.md)) 상시 유지 · KRX 서면질의(초안 [krx-inquiry-draft-2026-07.md](../compliance/krx-inquiry-draft-2026-07.md) — 발송·회신 시 원장 판정 갱신, M10 졸업 게이트에 'KRX 라이선스 판정 종결' 연동 검토) · **유사투자자문업 신고 게이트**([체크리스트](../compliance/investment-advisory-registration-checklist.md)) — **과금(MZ) 활성화 전 필수 선행**. 역할·마일스톤별 컴플라이언스 계획 정본은 [roles/plan-policy.md](./roles/plan-policy.md)(M10 모의투자 고지·M11 실매매 약관·M12 자동매매 정책과 연결) | 상시(2026-07-15 갭분석 C-트랙 기동) — 과금·M11 진입 전 게이트화 |
 
 ---
 

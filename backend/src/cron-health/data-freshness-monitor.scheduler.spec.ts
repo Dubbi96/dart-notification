@@ -23,6 +23,8 @@ describe('DataFreshnessMonitorScheduler', () => {
         applicable: true,
         isStale: true,
         ageMinutes: 999,
+        zeroRunStreak: null,
+        isZeroRun: false,
         reason: '정체',
       })),
       ...over,
@@ -96,5 +98,24 @@ describe('DataFreshnessMonitorScheduler', () => {
     await scheduler.runCheck();
     const [severity] = producer.enqueueOpsAlert.mock.calls[0];
     expect(severity).toBe('ERROR');
+  });
+
+  it('[W11] 제로런 정체 잡은 라벨에 (제로런) 을 표기해 age 정체와 구분한다', async () => {
+    const base = report({ staleJobs: ['disclosure.intraday'] });
+    const zeroRunReport = {
+      ...base,
+      jobs: base.jobs.map((j) => ({
+        ...j,
+        zeroRunStreak: 9,
+        isZeroRun: true,
+        reason: '장중 연속 9회 0행 산출(임계 9회) — 제로런 정체 의심',
+      })),
+    } as FreshnessReport;
+    const { scheduler, producer } = make([zeroRunReport]);
+
+    await scheduler.runCheck();
+
+    const [, , message] = producer.enqueueOpsAlert.mock.calls[0];
+    expect(message).toContain('라벨:disclosure.intraday(제로런)');
   });
 });

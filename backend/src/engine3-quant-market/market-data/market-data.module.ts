@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MarketDataService } from './market-data.service';
 import { StockQuoteService } from './stock-quote.service';
 import { CandleHistoryService } from './candle-history.service';
+import { IndicatorHistoryService } from './indicator-history.service';
 import { KrxApiService } from './krx-api.service';
 import { KrxMarketDataScheduler } from './krx-market-data.scheduler';
 import { DartStockStatusService } from './dart-stock-status.service';
@@ -14,6 +15,10 @@ import { StockMinutePriceCollector } from './stock-minute-price.collector';
 import { KisEtfDailySource } from './kis-etf-daily.source';
 import { EtfDailyPriceCollector } from './etf-daily-price.collector';
 import { EtfDailyBackfillService } from './etf-daily-backfill.service';
+import { KrxInvestorFlowSource } from './krx-investor-flow.source';
+import { KisInvestorFlowSource } from './kis-investor-flow.source';
+import { InvestorFlowCollector } from './investor-flow.collector';
+import { InvestorFlowQueryService } from './investor-flow.query.service';
 import { RealtimeQuoteModule } from './realtime-quote.module';
 
 @Module({
@@ -25,6 +30,8 @@ import { RealtimeQuoteModule } from './realtime-quote.module';
     StockQuoteService,
     // DAR-378: TimescaleDB 분봉/일봉 구간 조회(하이퍼테이블+연속집계, read-only).
     CandleHistoryService,
+    // W13: 기술지표 구간 조회(TechnicalIndicator, read-only) — 사용자 표면 개방.
+    IndicatorHistoryService,
     KrxApiService,
     KrxMarketDataScheduler,
     DartStockStatusService,
@@ -38,11 +45,18 @@ import { RealtimeQuoteModule } from './realtime-quote.module';
     EtfDailyPriceCollector,
     // DAR-490: ETF 과거 일봉 백필 서비스(수동 러너 전용 — 상시 크론 아님. S3 원본 보관 + 커버리지 리포트).
     EtfDailyBackfillService,
+    // 갭분석 W16: 수급·공매도 소스 어댑터(KRX 1차=인터페이스만·KIS 폴백) + EOD 수집기(평일
+    //   07:40/20:00/21:30 cron, 소스 미설정 시 graceful no-op) + 조회 서비스(SHADOW — 표면 전용).
+    KrxInvestorFlowSource,
+    KisInvestorFlowSource,
+    InvestorFlowCollector,
+    InvestorFlowQueryService,
   ],
   exports: [
     MarketDataService,
     StockQuoteService,
     CandleHistoryService,
+    IndicatorHistoryService,
     KrxApiService,
     KrxMarketDataScheduler,
     DartStockStatusService,

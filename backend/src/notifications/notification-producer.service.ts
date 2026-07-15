@@ -9,6 +9,7 @@ import {
   NotifyThesisViolatedJobData,
   NotifyTradeJobData,
   NotifyOpsAlertJobData,
+  NotifyPriceMoveJobData,
   OpsAlertSeverity,
   NotifyJobData,
   notifyJobId,
@@ -83,6 +84,17 @@ export class NotificationProducerService {
     meta?: { dedupeKey?: string; deepLink?: string; data?: Record<string, unknown> },
   ): Promise<void> {
     await this.enqueueSystemAlert('OPS_ALERT', severity, source, message, meta);
+  }
+
+  /**
+   * 갭분석 W7: 관심종목 급변동(PRICE_MOVE) 알림 발행 — engine3 price-move-alert 5분 틱 전용.
+   *
+   * ★조회·알림 계층 전용(매매 루프 무접점·AI 0). 발행 측이 제목·본문(당일 공시 유무 병기)을
+   * 완성해 싣고, consumer 가 watcher 해석 + priceMovePushEnabled(★기본 OFF — OFF 면 인박스도
+   * 생략) 게이트를 담당한다. 멱등: refId(`<stockCode>-<YYYYMMDD>`) — 종목당 1일 1회.
+   */
+  async enqueuePriceMove(data: NotifyPriceMoveJobData): Promise<void> {
+    await this.enqueue(NOTIFY_JOB.PRICE_MOVE, data);
   }
 
   /**

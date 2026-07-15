@@ -27,6 +27,7 @@ import {
   WATCHLIST_KEY,
 } from '@hooks/useWatchlist';
 import { useRecentSearches } from '@hooks/useRecentSearches';
+import { useRecordUsDemand } from '@hooks/useUsDemand';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
@@ -72,6 +73,9 @@ export function SearchOverlay({ visible, onClose }: Props) {
   const { recent, addRecent, removeRecent } = useRecentSearches();
   const addToWatchlist = useAddToWatchlist();
   const removeFromWatchlist = useRemoveFromWatchlist();
+  const recordUsDemand = useRecordUsDemand();
+  // 갭분석 W8: 원탭 수요 버튼 — 오버레이 세션당 1회만 노출(중복 탭 방지). 닫으면 초기화.
+  const [usDemandTapped, setUsDemandTapped] = useState(false);
 
   const watchlistItems = watchlist?.data ?? [];
   const total = watchlist?.meta?.total ?? watchlistItems.length;
@@ -85,8 +89,17 @@ export function SearchOverlay({ visible, onClose }: Props) {
 
   const handleClose = useCallback(() => {
     setQuery('');
+    setUsDemandTapped(false);
     onClose();
   }, [onClose]);
+
+  // 갭분석 W8: '미국 주식 알림, 필요하신가요?' — 응답만 기록(기능 약속 없음), 낙관적 토스트.
+  const handleUsDemandTap = useCallback(() => {
+    setUsDemandTapped(true);
+    recordUsDemand.mutate(term);
+    haptics.success();
+    showSnackbar('수요를 기록했어요', { duration: SNACKBAR_DURATION.success });
+  }, [recordUsDemand, term, haptics, showSnackbar]);
 
   const undoAdd = useCallback(
     (corpCode: string) => {
@@ -262,10 +275,13 @@ export function SearchOverlay({ visible, onClose }: Props) {
         }
         ListEmptyComponent={
           // DAR-457: 통합검색과 동일한 공통 빈상태(EmptyState) — 아이콘·카피 규약 일원화.
+          // 갭분석 W8: 빈 상태에 미국 주식 알림 원탭 수요 버튼(계측 전용) — 탭 후에는 숨긴다.
           <EmptyState
             icon="search"
             title="검색 결과가 없습니다"
             description={`"${term}"에 대한 기업을 찾지 못했어요. 종목코드 6자리로 다시 검색해 보세요.`}
+            actionLabel={usDemandTapped ? undefined : '미국 주식 알림, 필요하신가요?'}
+            onAction={usDemandTapped ? undefined : handleUsDemandTap}
           />
         }
       />

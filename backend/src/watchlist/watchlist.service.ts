@@ -4,27 +4,37 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, UserTier } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateWatchlistDto } from './dto/create-watchlist.dto';
-import { resolveCursor, newCountMapFromGrouped } from './watchlist.util';
-
-const MAX_WATCHLIST_COUNT = 30;
+import {
+  resolveCursor,
+  newCountMapFromGrouped,
+  watchlistLimitForTier,
+} from './watchlist.util';
 
 @Injectable()
 export class WatchlistService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(userId: string) {
-    const watchlist = await this.prisma.watchList.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        company: {
-          select: { stockCode: true, market: true },
+    // 갭분석 W1: 한도는 고정 30 이 아니라 User.tier 기반(FREE=30/PRO=200).
+    // 목록과 티어는 서로 독립 조회라 병렬로 가져온다.
+    const [watchlist, user] = await Promise.all([
+      this.prisma.watchList.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          company: {
+            select: { stockCode: true, market: true },
+          },
         },
-      },
-    });
+      }),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { tier: true },
+      }),
+    ]);
 
     const corpCodes = watchlist.map((w) => w.corpCode);
 
@@ -67,7 +77,7 @@ export class WatchlistService {
     return {
       items,
       total: items.length,
-      limit: MAX_WATCHLIST_COUNT,
+      limit: watchlistLimitForTier(user?.tier),
     };
   }
 
@@ -160,10 +170,20 @@ export class WatchlistService {
           throw new NotFoundException('Company not found');
         }
 
+        // 갭분석 W1: 한도는 User.tier 기반(FREE=30 현행 유지/PRO=200).
+        // 락 획득 후 같은 트랜잭션에서 조회하므로 count 와 함께 원자적으로 판정된다.
+        // 사용자 행 부재(경합 삭제 등)는 보수적으로 FREE 한도로 폴백한다.
+        const user = await tx.user.findUnique({
+          where: { id: userId },
+          select: { tier: true },
+        });
+        const tier = user?.tier ?? UserTier.FREE;
+        const limit = watchlistLimitForTier(tier);
+
         const count = await tx.watchList.count({ where: { userId } });
-        if (count >= MAX_WATCHLIST_COUNT) {
+        if (count >= limit) {
           throw new UnprocessableEntityException(
-            'Watchlist limit exceeded (max 30)',
+            `Watchlist limit exceeded (${tier} tier max ${limit})`,
           );
         }
 

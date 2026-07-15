@@ -3,6 +3,7 @@ import { Polarity, TaskRunResult, TaskParseFailureError } from '../types/ai-anal
 import { LlmClient } from '../llm/llm-client';
 import { OutputSchema, parseAndValidate } from '../validation/json-output.validator';
 import { buildExcerpt, formatKeyMetrics } from '../input/build-minimal-input';
+import { EARNINGS_BASIS_GUIDE } from './earnings-basis.constant';
 
 export interface SummaryTaskInput {
   rcpNo: string;
@@ -21,7 +22,9 @@ export interface DisclosureSummaryDraft {
 
 const SYSTEM_PROMPT =
   '너는 한국 주식 공시 분석가다. 주어진 공시 핵심 정보만으로 투자자가 알아야 할 요약과 긍정/부정 요인, 종합 방향성을 판단한다. ' +
-  '추측·과장 금지. 반드시 JSON만 출력한다.';
+  '추측·과장 금지. 반드시 JSON만 출력한다. ' +
+  // W9: 실적 판정 기준(전년동기 대비/자사 전망) 명시 — 시장 기대치 대비로 오인 금지
+  EARNINGS_BASIS_GUIDE;
 
 const OUTPUT_SCHEMA: OutputSchema = {
   summary: { type: 'string' },

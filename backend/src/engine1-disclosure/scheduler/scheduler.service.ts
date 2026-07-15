@@ -16,10 +16,49 @@ import { KST_TIMEZONE, formatKstDateCompact } from '../../common/time/kst';
 import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
 import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
 
+/**
+ * W5 리얼타임성 ①: 장중 1분 공시 델타 폴링 크론식(KST).
+ * - 09:00~15:59(장중 6.5h+α)의 매 분 — 단, 매 10분 정각(0,10,…,50분)은 제외한다.
+ *   그 분은 기존 풀스캔 크론('*\/10 8-17')이 같은 데이터를 수집하므로 델타 1콜이 중복이다
+ *   (틱 수 420→378, 일일 예산 400콜 안에 수렴).
+ * - 풀스캔(정합성 백스톱)은 그대로 유지 — 델타는 '최신 페이지 1콜' 저지연 레인만 담당한다.
+ */
+export const DISCLOSURE_DELTA_CRON =
+  '1-9,11-19,21-29,31-39,41-49,51-59 9-15 * * 1-5';
+
+/**
+ * W5 ①: 델타 레인 자체 일일 콜 예산(이중 방어).
+ * 1차 방어는 dart-api.service.ts 의 3단 쿼터 가드(라이브 목록 예약분 2,000 — 델타는 라이브
+ * list 라 절대 사전 차단되지 않음)이고, 이 상수는 델타 조기종료 버그·페이지네이션 폭주가
+ * 예약분을 태우는 재사고 경로(과거 기아 장애 6/24·7/15)를 막는 델타 전용 2차 상한이다.
+ * 378틱/일 × 1콜 + 페이지 초과분 여유 ≈ 400콜(장중 6.5h 1분 카덴스 여유분).
+ */
+export const DISCLOSURE_DELTA_DAILY_CALL_BUDGET = 400;
+
+/** 델타 폴링 1회 실행 결과(관측·테스트용). */
+export interface DeltaCollectResult {
+  /** 신규 저장 건수. */
+  saved: number;
+  /** 이번 틱에 소비한 DART list 콜 수. */
+  calls: number;
+  /** 스킵 사유 — LOCK(델타 중복 실행) | BUDGET(델타 일일 예산 소진). 실행됐으면 undefined. */
+  skipped?: 'LOCK' | 'BUDGET';
+}
+
 @Injectable()
 export class SchedulerService {
   private readonly logger = new Logger(SchedulerService.name);
   private isCollecting = false;
+  /**
+   * W5 ②: 델타 레인 전용 락 — 10분 풀스캔의 isCollecting 락과 분리한다.
+   * 풀스캔이 오래 걸려도 델타 1분 틱이 굶지 않는다(락 공유 시 풀스캔이 델타를 블로킹하는
+   * 설계 함정 회피). 동일 rcpNo 동시 저장은 filterNewDisclosures + createMany(skipDuplicates)
+   * + 알림 인박스 유니크 제약(userId,type,refId)이 원자적으로 차단한다.
+   */
+  private isDeltaCollecting = false;
+  /** 델타 일일 예산 카운터(KST 일자 키·프로세스 메모리 — dart-api 가드가 백스톱). */
+  private deltaDayKey = '';
+  private deltaCallsToday = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -42,11 +81,153 @@ export class SchedulerService {
 
   /**
    * 공시 수집 - 평일 08:00~18:00 10분 간격(KST)
+   * W5: 정합성 풀스캔(전 페이지 완주 + CollectionLog) — 델타 레인의 백스톱으로 유지.
    */
   @Cron('*/10 8-17 * * 1-5', { timeZone: KST_TIMEZONE })
   async collectDisclosures() {
     const today = this.formatDate(new Date());
     return this.collectByDate(today, today, 'CRON');
+  }
+
+  /**
+   * W5 리얼타임성 ①: 장중 1분 공시 델타 폴링 — 최악 알림 지연 ~10분 → ~60~90초.
+   *
+   * DART list.json 최신 페이지(정렬 date/desc) 1콜만 fetch 해 신규 rcpNo 만 저장하고
+   * 파이프라인(파싱 큐·알림 매칭)에 투입한다. 이미 저장된 rcpNo 를 만나면 조기 종료
+   * (신규 0건이면 정확히 1콜). 쿼터는 라이브 목록 예약분(사전 차단 없음) 안에서 소비하되,
+   * 델타 자체 일일 예산(DISCLOSURE_DELTA_DAILY_CALL_BUDGET)으로 이중 방어한다.
+   *
+   * 예외는 흡수한다(1분 크론 유지) — 실패는 CronRunRecorder 가 FAILED 로 표면화하고,
+   * 놓친 공시는 다음 틱 또는 10분 풀스캔(백스톱)이 회수한다.
+   */
+  @Cron(DISCLOSURE_DELTA_CRON, { timeZone: KST_TIMEZONE })
+  async collectDisclosuresDelta(): Promise<DeltaCollectResult> {
+    try {
+      return await this.runDeltaCollection();
+    } catch (error) {
+      // recorder 가 FAILED 기록 후 재던진 예외를 흡수 — 다음 1분 틱은 계속 발화한다.
+      this.logger.error('공시 델타 폴링 실패(다음 틱 재시도)', error);
+      return { saved: 0, calls: 0 };
+    }
+  }
+
+  /**
+   * 델타 폴링 본체(수동 트리거/테스트 진입점). 락·예산 가드 후 CronRunLog 에 기록한다.
+   * ★풀스캔 isCollecting 락과는 독립 — 풀스캔 진행 중에도 델타는 실행된다(W5 ②).
+   */
+  async runDeltaCollection(): Promise<DeltaCollectResult> {
+    // ① 델타 전용 락 — 이전 델타 틱이 아직 진행 중이면 스킵(SKIPPED 기록).
+    if (this.isDeltaCollecting) {
+      this.logger.warn('이전 델타 폴링이 아직 진행 중입니다. 건너뜁니다.');
+      await this.cronRunRecorder?.recordSkip(CRON_JOB_KEYS.DISCLOSURE_DELTA);
+      return { saved: 0, calls: 0, skipped: 'LOCK' };
+    }
+
+    // ② 델타 일일 예산(이중 방어) — 소진 시 이 틱은 콜 없이 스킵. KST 자정 리셋.
+    this.rollDeltaBudgetDayIfNeeded();
+    if (this.deltaCallsToday >= DISCLOSURE_DELTA_DAILY_CALL_BUDGET) {
+      this.logger.warn(
+        `델타 폴링 일일 예산 소진(${this.deltaCallsToday}/${DISCLOSURE_DELTA_DAILY_CALL_BUDGET}콜) — ` +
+          `이 틱은 스킵(풀스캔 백스톱은 계속 가동).`,
+      );
+      await this.cronRunRecorder?.recordSkip(CRON_JOB_KEYS.DISCLOSURE_DELTA);
+      return { saved: 0, calls: 0, skipped: 'BUDGET' };
+    }
+
+    this.isDeltaCollecting = true;
+    try {
+      const run = () => this.fetchAndIngestDelta();
+      if (!this.cronRunRecorder) return await run();
+      // ⑤ CronRunLog 등록 — krx.daily 거짓 stale 선례 방지(신선도 안전망 입력).
+      return await this.cronRunRecorder.record(CRON_JOB_KEYS.DISCLOSURE_DELTA, run, {
+        countOf: (r) => r.saved,
+      });
+    } finally {
+      this.isDeltaCollecting = false;
+    }
+  }
+
+  /**
+   * 델타 fetch·저장·파이프라인 투입.
+   *
+   * 페이지네이션 규칙: 최신순(date/desc) 페이지를 순회하되,
+   *  - 페이지에 이미 저장된 rcpNo 가 1건이라도 있으면 그 페이지까지만 처리하고 종료
+   *    (그 뒤 페이지는 전부 기존 데이터 — 신규 0건이면 정확히 1콜),
+   *  - 마지막 페이지 도달 또는 델타 예산 도달 시 종료(페이지네이션 폭주 차단).
+   */
+  private async fetchAndIngestDelta(): Promise<DeltaCollectResult> {
+    const today = this.formatDate(new Date());
+    const newItems: DartDisclosureItem[] = [];
+    let pageNo = 1;
+    let calls = 0;
+
+    while (this.deltaCallsToday < DISCLOSURE_DELTA_DAILY_CALL_BUDGET) {
+      this.deltaCallsToday += 1;
+      calls += 1;
+      // 라이브 list 콜(bulk 미지정) — 예약분으로 보호되어 사전 차단되지 않는다.
+      const response = await this.dartApiService.getDisclosureList({
+        bgn_de: today,
+        end_de: today,
+        page_no: pageNo,
+        page_count: 100,
+        sort: 'date',
+        sort_mth: 'desc',
+      });
+
+      if (response.status === '013') break; // 오늘 공시 없음 — 정상 종료
+      if (response.status !== '000') {
+        this.logger.warn(
+          `델타 폴링 DART 응답 오류: ${response.status} - ${response.message}`,
+        );
+        break;
+      }
+
+      const pageNew = await this.filterNewDisclosures(response.list);
+      newItems.push(...pageNew);
+
+      // 조기 종료: 기존 rcpNo 를 만났거나(페이지 일부만 신규) 마지막 페이지.
+      if (pageNew.length < response.list.length) break;
+      if (pageNo >= response.total_page) break;
+      pageNo += 1;
+    }
+
+    if (newItems.length === 0) {
+      return { saved: 0, calls };
+    }
+
+    // 저장 — 풀스캔과 동시 실행돼도 createMany(skipDuplicates)가 중복 저장을 원자적으로 차단.
+    const saved = await this.saveDisclosures(newItems, false);
+    this.logger.log(`[델타] ${saved}개 신규 공시 저장 (${calls}콜)`);
+
+    // 파이프라인 투입 ①: 파싱 큐 등록 — 실패해도 델타는 계속(pipeline 드레인이 회수).
+    if (this.disclosureDocumentsService) {
+      try {
+        await this.disclosureDocumentsService.enqueueParsing(
+          newItems.map((d) => d.rcept_no),
+        );
+      } catch (enqueueError) {
+        this.logger.error('[델타] 파싱 큐 등록 오류(드레인 회수 대상)', enqueueError);
+      }
+    }
+
+    // 파이프라인 투입 ②: 알림 매칭·발송 — 인박스 유니크 제약이 멱등 권위라
+    // 풀스캔과 경합해도 (user, 공시) 중복 푸시는 0 이다(created=false → 스킵).
+    try {
+      await this.matchAndNotify(newItems);
+    } catch (notifyError) {
+      this.logger.error('[델타] 알림 발송 오류(다음 폴링서 재시도)', notifyError);
+    }
+
+    return { saved, calls };
+  }
+
+  /** 델타 예산 카운터 KST 일자 리셋. */
+  private rollDeltaBudgetDayIfNeeded(): void {
+    const day = this.formatDate(new Date());
+    if (day !== this.deltaDayKey) {
+      this.deltaDayKey = day;
+      this.deltaCallsToday = 0;
+    }
   }
 
   /**

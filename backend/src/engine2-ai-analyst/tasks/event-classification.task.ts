@@ -3,6 +3,7 @@ import { TaskRunResult, TaskParseFailureError } from '../types/ai-analyst.types'
 import { LlmClient } from '../llm/llm-client';
 import { OutputSchema, parseAndValidate } from '../validation/json-output.validator';
 import { buildExcerpt } from '../input/build-minimal-input';
+import { EARNINGS_BASIS_GUIDE } from './earnings-basis.constant';
 
 export interface EventClassificationInput {
   rcpNo: string;
@@ -19,7 +20,9 @@ export interface EventClassificationDraft {
 
 const SYSTEM_PROMPT =
   '너는 한국 주식 공시 이벤트 분류 전문가다. Engine1 Rule이 1차 분류한 이벤트 타입을 공시 핵심 단락으로 검증·보정한다. ' +
-  '추측·과장 금지. 반드시 JSON만 출력한다.';
+  '추측·과장 금지. 반드시 JSON만 출력한다. ' +
+  // W9: 실적 판정 기준(전년동기 대비/자사 전망) 명시 — 시장 기대치 대비로 오인 금지
+  EARNINGS_BASIS_GUIDE;
 
 const EVENT_TYPES = [
   'SUPPLY_CONTRACT',

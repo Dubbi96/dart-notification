@@ -19,6 +19,9 @@ export const notificationSettingsService = {
         | 'exitPushEnabled'
         | 'thesisPushEnabled'
         | 'tradePushEnabled'
+        | 'opsPushEnabled'
+        // 갭분석 W7: 관심종목 급변동 알림 토글(기본 OFF).
+        | 'priceMovePushEnabled'
       >
     >,
   ) =>

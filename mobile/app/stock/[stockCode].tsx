@@ -8,12 +8,15 @@ import { spacing } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { ScreenHeader } from '@components/common/ScreenHeader';
 import { QuoteHeader } from '@components/common/QuoteHeader';
+import { SourceAttribution } from '@components/common/SourceAttribution';
 import { MinuteCandleChart } from '@components/company/MinuteCandleChart';
 import { DailyCandleChart } from '@components/company/DailyCandleChart';
+import { SupplyDemandCard } from '@components/company/SupplyDemandCard';
 import { useCompanyDetail } from '@hooks/useCompanyDetail';
 import { useStockQuotes } from '@hooks/useStockQuotes';
 import { useMinuteCandles } from '@hooks/useMinuteCandles';
 import { useDailyCandles, type DailyRangePreset } from '@hooks/useDailyCandles';
+import { useDailyIndicators } from '@hooks/useDailyIndicators';
 import { resolveQuotePollInterval } from '@utils/marketQuoteDisplay';
 
 // DAR-355/384: 일반 주식앱 스타일 전용 종목 차트 화면(풀스크린, 분봉+일봉).
@@ -117,6 +120,13 @@ export default function StockChartScreen() {
 
   const [timeframe, setTimeframe] = useState<Timeframe>('minute');
 
+  // 기술지표(W13) — 일봉과 동일 구간 프리셋(limit)으로 tradeDate 조인 정합. 일봉 탭에서만 fetch.
+  // 미가용 시 빈 배열 graceful(차트가 토글 비활성+안내 처리) — 조회 실패가 차트를 막지 않는다.
+  const { points: dailyIndicators, latestTradeDate: indicatorBaseDate } = useDailyIndicators(
+    code,
+    { range: dailyRange, enabled: timeframe === 'daily' },
+  );
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <ScreenHeader title={title} subtitle={subtitle} onBack={() => router.back()} />
@@ -167,6 +177,8 @@ export default function StockChartScreen() {
               candles={dailyCandles}
               source={dailySource}
               asOf={dailyCandlesAsOf}
+              indicators={dailyIndicators}
+              indicatorBaseDate={indicatorBaseDate}
               isLoading={isLoadingDailyCandles}
               isError={isDailyCandlesError}
               onRetry={() => {
@@ -175,6 +187,13 @@ export default function StockChartScreen() {
             />
           )}
         </Card>
+
+        {/* 수급 요약(W16) — 외국인·기관 5/20일 누적 순매수 + 공매도 지표 + 데이터 기준일 배지.
+            데이터 없으면 컴포넌트가 스스로 억제(null)한다 — 화면 조립부는 무조건 배치. */}
+        <SupplyDemandCard stockCode={code} />
+        {/* W2 컴플라이언스(M0 정책 §4): 출처 귀속 — 화면당 1회. 분봉·현재가=KIS, 일봉=KRX.
+            시점·신선도 고지는 QuoteHeader 배지·각 차트 정직 라벨이 담당(역할 분리). */}
+        <SourceAttribution sources={['KRX', 'KIS']} />
       </ScrollView>
     </SafeAreaView>
   );

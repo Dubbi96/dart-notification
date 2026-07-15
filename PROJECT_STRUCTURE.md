@@ -60,15 +60,16 @@ dart-notification/
 │   │   ├── engine1-disclosure/ # 🟦 Engine1: 공시 인텔리전스 도메인 (DDD Bounded Context)
 │   │   │   ├── CLAUDE.md            # 도메인 규칙 (작업 시 자동 로드)
 │   │   │   ├── disclosures/         # 공시 조회 (GET /disclosures)
-│   │   │   ├── scheduler/           # 수집 배치 (DART 폴링·재시도) — M0
-│   │   │   ├── dart-api/            # DART OpenAPI 클라이언트
+│   │   │   ├── scheduler/           # 수집 배치 (DART 폴링·재시도 + 장중 1분 델타 폴링 [갭분석 W5]) — M0
+│   │   │   ├── dart-api/            # DART OpenAPI 클라이언트 (일일 쿼터 3단 가드)
 │   │   │   ├── disclosure-documents/ # 원문 파싱 (HTML/XML/표·정정 diff) — M1
-│   │   │   └── disclosure-events/   # 이벤트·수치 추출 (extractors) — M2
+│   │   │   ├── disclosure-events/   # 이벤트·수치 추출 (extractors 14종 — 가이던스 guidance.ts [갭분석 W9] 포함) — M2
+│   │   │   └── pipeline/            # 파이프라인 무결성·드레인·이벤트 백필·rawText/tables S3 오프로드 + 제목 기반 이벤트 백필(title-event-backfill.*, 매일 02:40 [갭분석 W4])
 │   │   ├── engine2-ai-analyst/ # 🟨 Engine2: AI Analyst 엔진 (M3, DAR-17)
 │   │   │   ├── CLAUDE.md
 │   │   │   ├── tasks/               # 4개 AI Task (summary·event-classification·persona·thesis)
 │   │   │   ├── cost-gate/           # AI 비용 게이트 L0~L3 분기
-│   │   │   ├── cost-metrics/        # CostPerDisclosure/Signal/Trade 지표
+│   │   │   ├── cost-metrics/        # CostPerDisclosure/Signal/Trade 지표 + AI 커버리지 계기판(ai-coverage-metrics — GET /ai-cost/coverage [갭분석 W10])
 │   │   │   ├── cost-aggregation/    # AIUsageLog 기간별 집계
 │   │   │   ├── usage-log/           # AIUsageLogService
 │   │   │   ├── llm/                 # LLM API 클라이언트 (OpenAI/Claude)
@@ -84,7 +85,8 @@ dart-notification/
 │   │   │   └── ai-analyst.module.ts
 │   │   ├── engine3-quant-market/ # 🟧 Engine3: Quant Market 엔진 (M4~M6, M9, DAR-25)
 │   │   │   ├── CLAUDE.md
-│   │   │   ├── market-data/         # KRX/증권사 시세 수집 (Phase 5+) · ETF 일봉(KIS 소스 어댑터, DAR-484) · ETF 과거 일봉 백필+S3 원본 보관(DAR-490)
+│   │   │   ├── market-data/         # KRX/증권사 시세 수집 (Phase 5+) · ETF 일봉(KIS 소스 어댑터, DAR-484) · ETF 과거 일봉 백필+S3 원본 보관(DAR-490) · 수급·공매도 EOD 수집기/조회(investor-flow.*, KRX→KIS 소스 체인 [갭분석 W16]) · 기술지표 구간 조회(indicator-history/indicator-query [갭분석 W13])
+│   │   │   ├── price-move-alert/    # 관심종목 급변동 감시 5분 틱 — ±5% 판정→PRICE_MOVE 알림, 무공시 변동 정직 병기 [갭분석 W7/W6]
 │   │   │   ├── indicators/          # 기술지표 계산 (MA/RSI/MACD/BB/ATR/VWAP)
 │   │   │   ├── buy-signal/          # Buy Score 7컴포넌트 계산 (Rule 기반)
 │   │   │   │   ├── config/
@@ -128,7 +130,10 @@ dart-notification/
 │   │   │   │   ├── portfolio.service.ts
 │   │   │   │   ├── portfolio.module.ts
 │   │   │   │   ├── position-thesis.controller.ts
-│   │   │   │   └── position-thesis.service.ts
+│   │   │   │   ├── position-thesis.service.ts
+│   │   │   │   ├── briefing.controller.ts   # 오늘의 브리핑 GET /portfolio/briefing/today [갭분석 W14]
+│   │   │   │   ├── briefing.service.ts      # LLM $0 룰 조립 — 당일 이벤트·일간 손익·점검 포지션
+│   │   │   │   └── briefing.util.ts
 │   │   │   ├── position-thesis.spec.ts          # fixture 단위 테스트 (32건)
 │   │   │   └── portfolio-exit.module.ts
 │   │   ├── engine5-trading-risk/ # 🟥 Engine5: 모의투자 엔진 (M10-A, DAR-16)
@@ -167,10 +172,13 @@ dart-notification/
 │   │   │   ├── expo-push.service.ts
 │   │   │   └── expo-push.module.ts
 │   │   ├── saved-disclosures/ # 공시 저장(북마크) — /api/saved-disclosures
-│   │   ├── search/            # 통합 검색 (기업·공시) — /api/search
+│   │   ├── search/            # 통합 검색 (기업·공시) — /api/search + 제로결과 수요 계측(search-miss.classifier·POST /search/us-demand [갭분석 W8])
 │   │   ├── collection-status/ # 공시 수집 상태 집계 — /api/collection
-│   │   ├── cron-health/       # 크론 실행 기록(CronRunLog)·데이터 신선도(freshness) 진단
-│   │   ├── ops/               # 운영 헬스체크·메트릭 (prisma/redis/외부키 인디케이터) — /api/ops
+│   │   ├── cron-health/       # 크론 실행 기록(CronRunLog)·데이터 신선도(freshness) 진단 + 제로런 감지 증축(zeroRunThreshold [갭분석 W11])
+│   │   ├── ops/               # 운영 헬스체크·메트릭 (prisma/redis/외부키 인디케이터) — /api/ops + 온보딩 퍼널 계측(funnel.* — POST /ops/funnel 비인증 [갭분석 W15]) + 공시 알림 지연 계측(notification-latency.* [갭분석 W5])
+│   │   ├── legal/             # 법적 고지 공개 HTML — /api/legal/privacy·account-deletion (Play 컴플라이언스 [갭분석 W3])
+│   │   ├── web-surface/       # 공개 웹 표면 — 랜딩(GET /)·공시 공유 페이지(GET /share/:rcpNo, og 메타+딥링크 [갭분석 W3b])
+│   │   ├── status/            # 공개 시스템 상태 페이지 — GET /status·/status.json (운영 사실만·60s 캐시 [갭분석 W11/W12])
 │   │   ├── storage-ops/       # S3 스토리지 헬스·유지보수 — /api/storage
 │   │   ├── config/            # 환경변수 검증 (env.validation.ts)
 │   │   ├── e2e/               # E2E 통합 회귀 스크립트
@@ -250,13 +258,17 @@ dart-notification/
 │   │   │   └── index.tsx      # 서비스 소개 캐러셀 (첫 실행 인트로)
 │   │   ├── legal/             # 법적 문서
 │   │   │   ├── terms.tsx      # 서비스 이용약관
-│   │   │   └── privacy.tsx    # 개인정보 처리방침
+│   │   │   ├── privacy.tsx    # 개인정보 처리방침
+│   │   │   └── data-sources.tsx # 데이터 출처·라이선스 고지 (DART·KRX·KIS 귀속 [갭분석 W2])
 │   │   ├── settings-detail/   # 설정 하위 화면
 │   │   │   ├── watchlist.tsx  # 관심 기업 관리
 │   │   │   ├── notification-settings.tsx  # 알림 설정
-│   │   │   └── profile.tsx    # 프로필 수정
+│   │   │   ├── profile.tsx    # 프로필 수정 + 계정 삭제(탈퇴) 2단 다이얼로그 [갭분석 W3]
+│   │   │   ├── pro.tsx        # Pro 사전신청 (서버 영속화 — useProWaitlist [갭분석 W1])
+│   │   │   └── support.tsx    # 문의·지원 (mailto + 스낵바 폴백 [갭분석 W12])
 │   │   ├── +not-found.tsx
 │   │   ├── kakao.tsx          # 카카오 로그인 딥링크 콜백 (gongsion://kakao)
+│   │   ├── dev-login.tsx      # dev 전용 테스트계정 로그인 딥링크 (__DEV__/EXPO_PUBLIC_ALLOW_DEV_LOGIN — Maestro 스모크용 [갭분석 W15])
 │   │   ├── _layout.tsx
 │   │   └── index.tsx
 │   ├── components/            # 재사용 컴포넌트
@@ -271,18 +283,21 @@ dart-notification/
 │   │   │   ├── ScoreGauge.tsx         # Buy/Exit 점수 게이지(+용어 InfoSheet, 리스트 카운트업 정적) [DAR-21·448]
 │   │   │   ├── StateView.tsx          # 로딩/빈/에러 상태 뷰 [DAR-21]
 │   │   │   ├── ProvenanceBar.tsx      # AI 출처 표시 바 [DAR-32]
-│   │   │   └── PriceChangeChip.tsx    # 등락률 칩 컴포넌트 [DAR-32]
+│   │   │   ├── PriceChangeChip.tsx    # 등락률 칩 컴포넌트 [DAR-32]
+│   │   │   └── SourceAttribution.tsx  # 데이터 출처 귀속 표기 (한국거래소·DART 등 [갭분석 W2])
 │   │   ├── signals/                  # [DAR-21]
 │   │   │   ├── BuyScoreCard.tsx       # 매수 신호 카드
 │   │   │   ├── ExitScoreCard.tsx      # 매도 신호 카드
-│   │   │   └── ScoreBreakdownSection.tsx  # Buy/Exit Score 7컴포넌트 분해 섹션 [DAR-32]
-│   │   ├── company/                  # 기업/종목 상세 (탭·차트) — DecisionHubTab, Fundamentals/InsiderHoldingsTab, Daily/MinuteCandleChart 등 8종
+│   │   │   ├── ScoreBreakdownSection.tsx  # Buy/Exit Score 7컴포넌트 분해 섹션 [DAR-32]
+│   │   │   └── EvidenceIndicatorsSection.tsx # 신호 상세 근거 지표 펼치기 (as-of 재조회 근사·tradeDate 병기 [갭분석 W13])
+│   │   ├── company/                  # 기업/종목 상세 (탭·차트) — DecisionHubTab, Fundamentals/InsiderHoldingsTab, Daily/MinuteCandleChart(MA/볼린저 오버레이 [W13]), SupplyDemandCard(수급 요약 [W16]) 등 9종
 │   │   ├── disclosure/               # 공시 상세 섹션 — DisclosureAiAnalysisSection, DisclosureFiledFactsSection, DisclosureSignalLink
 │   │   ├── home/                     # 홈 화면 — DisclosureFeedCard, HomeSignalPreview, MarketIndexBadge, GraduationTracker 등 6종
 │   │   ├── persona/                  # 투자 페르소나 — PersonaSelectCard, MarketRegimeCard, personaDisplay
 │   │   ├── philosophy/               # 투자거장 철학 — PhilosophyMasterCard, PhilosophyChecklist, PhilosophyFitBreakdown 등 5종
 │   │   └── portfolio/                # [DAR-21]
-│   │       └── PositionCard.tsx       # 포지션 카드
+│   │       ├── PositionCard.tsx       # 포지션 카드
+│   │       └── TodayBriefingSection.tsx # 오늘의 브리핑 (포트폴리오 탭 상단 [갭분석 W14])
 │   ├── services/              # API 클라이언트
 │   │   ├── api.ts            # Axios 인스턴스
 │   │   ├── auth.service.ts
@@ -293,7 +308,12 @@ dart-notification/
 │   │   ├── notification-settings.service.ts
 │   │   ├── watchlist.service.ts
 │   │   ├── signal.service.ts        # 신호 계약(미존재 엔드포인트는 빈상태) [DAR-21]
-│   │   └── portfolio.service.ts     # 포트폴리오 계약 [DAR-21]
+│   │   ├── portfolio.service.ts     # 포트폴리오 계약 [DAR-21] + 오늘의 브리핑 [W14]
+│   │   ├── pro-waitlist.service.ts  # Pro 사전신청 3종 [갭분석 W1]
+│   │   ├── investor-flow.service.ts # 수급·공매도 조회 [갭분석 W16]
+│   │   ├── market-quote.service.ts  # 기술지표 구간 조회 [갭분석 W13]
+│   │   ├── funnel.service.ts        # 온보딩 퍼널 계측 fire-and-forget [갭분석 W15]
+│   │   └── shareLink.ts             # 공시 공유 링크(/share/:rcpNo) 생성 [갭분석 W3b]
 │   ├── hooks/                 # Custom Hooks
 │   │   ├── useAuth.ts
 │   │   ├── useCompanySearch.ts
@@ -306,7 +326,11 @@ dart-notification/
 │   │   ├── useWatchlist.ts
 │   │   ├── useSignals.ts            # 매수/매도 신호 (React Query) [DAR-21]
 │   │   ├── usePortfolio.ts          # 포지션/모의투자 (React Query) [DAR-21]
-│   │   └── useReducedMotion.ts      # 접근성: 모션 감소 선호 감지 [DAR-32]
+│   │   ├── useReducedMotion.ts      # 접근성: 모션 감소 선호 감지 [DAR-32]
+│   │   ├── useProWaitlist.ts        # Pro 사전신청 상태·등록·철회 [갭분석 W1]
+│   │   ├── useInvestorFlow.ts       # 수급·공매도 조회 [갭분석 W16]
+│   │   ├── useDailyIndicators.ts    # 기술지표 구간 조회 (차트 오버레이) [갭분석 W13]
+│   │   └── useUsDemand.ts           # 미국 주식 수요 원탭 기록 [갭분석 W8]
 │   ├── stores/                # Zustand 상태 관리
 │   │   ├── authStore.ts      # 사용자 정보, 토큰 (SecureStore 연동)
 │   │   └── settingsStore.ts  # 앱 설정 (다크모드 등)
@@ -322,13 +346,19 @@ dart-notification/
 │   │   ├── notification.types.ts
 │   │   ├── user.types.ts
 │   │   ├── signal.types.ts          # 신호 도메인 계약 [DAR-21]
-│   │   └── portfolio.types.ts       # 포트폴리오/Thesis/모의투자 계약 [DAR-21]
+│   │   ├── portfolio.types.ts       # 포트폴리오/Thesis/모의투자 계약 [DAR-21] + 브리핑 [W14]
+│   │   ├── investor-flow.types.ts   # 수급·공매도 계약 [갭분석 W16]
+│   │   └── market-quote.types.ts    # 기술지표 시리즈 계약 [갭분석 W13]
 │   ├── utils/                 # 유틸리티 함수
 │   │   ├── date.ts
 │   │   ├── signalDisplay.ts         # 점수/상태 → 테마색·레이블 매핑 [DAR-21]
 │   │   ├── copy.ts                  # UI 문자열 상수 (복사 텍스트) [DAR-32]
 │   │   ├── disclosureType.ts        # 공시 유형 분류 유틸 [DAR-32]
-│   │   └── marketIndexDisplay.ts    # 시장지수 배지 신선도 라벨 (REALTIME/EOD 종가 기준일) [DAR-371]
+│   │   ├── marketIndexDisplay.ts    # 시장지수 배지 신선도 라벨 (REALTIME/EOD 종가 기준일) [DAR-371]
+│   │   ├── funnel.ts                # 온보딩 퍼널 5단계 SSOT(FUNNEL_STEPS — BE DTO 미러) [갭분석 W15]
+│   │   └── priceMoveNews.ts         # 급변동 알림 뉴스 링크아웃 [갭분석 W6]
+│   ├── __tests__/             # jest-expo 유닛 테스트 (components·stores·utils [갭분석 W15])
+│   ├── .maestro/              # Maestro E2E 스모크 플로우 6종 + subflows(dev-login·guest-entry) [갭분석 W15]
 │   ├── assets/                # 정적 자산
 │   │   ├── android-icon-background.png
 │   │   ├── android-icon-foreground.png
@@ -337,12 +367,15 @@ dart-notification/
 │   │   ├── icon.png
 │   │   └── splash-icon.png
 │   ├── .env.example
+│   ├── .eslintrc.json
 │   ├── .gitignore
-│   ├── app.json
+│   ├── app.json               # expo-updates(runtimeVersion policy=appVersion) 설정 포함 [갭분석 W3]
 │   ├── babel.config.js
+│   ├── jest.config.js         # jest-expo preset (npm test) [갭분석 W15]
 │   ├── package.json
 │   ├── package-lock.json
-│   └── tsconfig.json
+│   ├── tsconfig.json
+│   └── tsconfig.test.json     # 테스트 전용 tsconfig [갭분석 W15]
 │
 ├── docs/                       # 문서
 │   ├── architecture.md        # 시스템 아키텍처
@@ -350,16 +383,20 @@ dart-notification/
 │   ├── api-specification.md   # API 명세서
 │   ├── workflow.md            # 업무 흐름도
 │   ├── deployment.md          # 배포 가이드
+│   ├── compliance/            # 컴플라이언스 정본 — data-license-ledger.md(데이터 라이선스 원장)·krx-inquiry-draft-2026-07.md(KRX 서면질의 초안)·investment-advisory-registration-checklist.md(유사투자자문업 신고 체크리스트) [갭분석 C-트랙]
+│   ├── security/              # 보안 감사 트리아지 (audit-triage-2026-07-16.md [갭분석 W17])
 │   ├── trading/               # 매매 전략 룰 정본 (strategy-rulebook.md — 전 트랙 진입/청산/사이징/한도 SSOT)
-│   ├── roadmap/               # 로드맵 정본 (비전·실행 로드맵·phase 명세·재개 계획)
+│   ├── roadmap/               # 로드맵 정본 (비전·실행 로드맵·phase 명세·재개 계획·cc-monetization-plan.md·cc-owner-actions-2026-07-16.md·cc-app-improvement-plan-2026-07-15.md)
 │   ├── work/                  # 진행 중 작업 문서 (완료분은 archive/로 이동)
 │   ├── mobile/                # 모바일 기획 (screen-plan 등)
 │   └── archive/               # 완료·대체된 문서 보관 (2026-07-02 문서 감사로 신설)
 │
 ├── harness/                    # paperclip 하네스 증거 문서 (VERIFICATION·KNOWN_FAILURES·ENTROPY_CHECK·tools)
 ├── infra/                      # Terraform IaC (AWS ECS/RDS 초안 — 현 prod는 OCI compose 배포)
-├── scripts/                    # 운영 스크립트 (oci-arm-a1-retry.sh — OCI ARM A1 용량 확보 재시도)
+├── scripts/                    # 운영 스크립트 (oci-arm-a1-retry.sh · audit-gate.mjs — npm audit allowlist 게이트 [W17] · edgar-poc.ts — SEC EDGAR PoC 스파이크 [W8])
+├── .github/                    # CI — workflows/regression-ci.yml(회귀 + 보안 잡 security-audit·secret-scan [W17]) · dependabot.yml
 │
+├── .audit-allowlist.json      # npm audit 수용 advisory 원장 (사유 동반 — audit-gate.mjs 소비 [W17])
 ├── .env.example
 ├── .gitignore
 ├── docker-compose.dev.yml     # 개발용 (PostgreSQL/Redis)
@@ -630,5 +667,5 @@ EXPO_PUBLIC_APP_ENV=development
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-02
-**버전**: 2.1 (횡단 모듈 8종·모바일 신규 라우트/컴포넌트 디렉터리·루트 harness/infra/scripts·브랜치 전략(feat+squash)·prod env 관리 현행화)
+**최종 수정일**: 2026-07-16
+**버전**: 2.2 (갭분석 퀵윈 웨이브 반영 — 백엔드: legal/·web-surface/·status/ 횡단 모듈 신설, ops/ funnel·notification-latency, engine1 pipeline/ 제목 이벤트 백필, engine3 market-data 수급·공매도/지표 조회 + price-move-alert/, engine4 briefing; 모바일: .maestro/·jest.config.js·__tests__/·dev-login.tsx·legal/data-sources.tsx·settings-detail/support.tsx + 신규 서비스/훅/타입; 루트: docs/compliance/·docs/security/·scripts/audit-gate.mjs·edgar-poc.ts·.audit-allowlist.json·.github CI 보안 잡) / 이전 2.1 (2026-07-02): 횡단 모듈 8종·모바일 신규 라우트/컴포넌트 디렉터리·루트 harness/infra/scripts·브랜치 전략(feat+squash)·prod env 관리 현행화

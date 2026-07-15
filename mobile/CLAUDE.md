@@ -37,6 +37,15 @@
 - 신호/승인/포지션 데이터는 백엔드 엔진(Engine3 신호·Engine4 포트폴리오·Engine5 주문)의 API 응답을 따른다 — `docs/api-specification.md`.
 - **AI는 참고 정보**다. 최종 주문 승인 UI는 사용자 명시 액션이며, 자동 승인 UI를 만들지 않는다(정책: `roles/plan-policy.md`).
 
+## 업데이트 규율 (expo-updates / EAS Update)
+
+stale APK 배포 사고(2026-06-25 단타 시각 버그 수정 미반영 실재) 재발 방지 — 바이너리/JS 이중 레일을 반드시 구분한다.
+
+- **네이티브 의존성 변경 = 바이너리 재빌드 필수**: 네이티브 모듈 추가/제거/버전 변경, Expo SDK 업그레이드, `app.json`의 네이티브 영역(plugins·android·ios) 변경 시 `eas build`로 새 APK/AAB를 만들어 재배포한다. 이 경우 EAS Update만 내보내면 안 된다.
+- **JS-only 수정 = EAS Update 채널 배포**: TS/TSX·에셋 등 JS 번들만 바뀐 핫픽스는 `eas update --channel <프로파일 채널>`로 배포한다. 채널은 `eas.json` 빌드 프로파일과 1:1(production/preview/oci) — 빌드가 태어난 채널로만 업데이트가 도달한다.
+- **runtimeVersion 정책 준수 (미준수 시 크래시)**: 정책은 `app.json`의 `runtimeVersion: { "policy": "appVersion" }` — 즉 `version` 필드가 네이티브 호환성 경계다. 네이티브가 변한 빌드는 반드시 `version`을 올려서 구 바이너리에 신 JS가 배달되지 않게 한다. 네이티브 변경 후 버전 미상승 상태로 `eas update`를 내보내면 구 APK가 신 번들을 받아 **앱이 크래시**한다.
+- 런타임에서 `expo-updates`를 직접 import하는 코드는 작성하지 않는다(기본 launch 체크 동작 사용). 커스텀 업데이트 UX가 필요해지면 별도 이슈로 설계 후 도입한다.
+
 ## DoD
 
 - `npm run lint` 통과 · 타입 에러 0 · Expo Go에서 동작 확인(secure-store 등 네이티브 제약 준수).

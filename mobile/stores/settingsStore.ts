@@ -23,7 +23,11 @@ interface SettingsState {
   setColorScheme: (scheme: ColorScheme | 'system') => void;
   textScaleOverride: TextScaleOverride;
   setTextScaleOverride: (scale: TextScaleOverride) => void;
-  /** Pro 출시 알림 사전 신청 여부(DAR-204). 결제 미구현 동안 로컬에만 보관. */
+  /**
+   * Pro 출시 알림 사전 신청 여부(DAR-204) — 레거시.
+   * 갭분석 W1 에서 서버 영속화(/users/pro-waitlist)로 전환되어 더 이상 정본이 아니다.
+   * pro.tsx 가 1회 마이그레이션(로컬 true → 서버 등록 후 소거) 소스로만 읽는다.
+   */
   proWaitlistOptIn: boolean;
   setProWaitlistOptIn: (optIn: boolean) => void;
 }

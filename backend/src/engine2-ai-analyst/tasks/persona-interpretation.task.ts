@@ -3,6 +3,7 @@ import { TaskRunResult, TaskParseFailureError } from '../types/ai-analyst.types'
 import { LlmClient } from '../llm/llm-client';
 import { OutputSchema, parseAndValidateArray, JsonOutputValidationError } from '../validation/json-output.validator';
 import { DisclosureSummaryDraft } from './summary.task';
+import { EARNINGS_BASIS_GUIDE } from './earnings-basis.constant';
 
 export type PersonaType = 'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE' | 'EVENT_DRIVEN';
 
@@ -20,7 +21,9 @@ export interface PersonaAnalysisDraft {
 
 const SYSTEM_PROMPT =
   '너는 한국 주식 투자자 Persona 해석 전문가다. 공시 요약을 투자 성향별로 해석한다. ' +
-  '추측·과장 금지. 반드시 JSON 객체로 출력한다.';
+  '추측·과장 금지. 반드시 JSON 객체로 출력한다. ' +
+  // W9: 실적 판정 기준(전년동기 대비/자사 전망) 명시 — 시장 기대치 대비로 오인 금지
+  EARNINGS_BASIS_GUIDE;
 
 const ITEM_SCHEMA: OutputSchema = {
   persona: { type: 'enum', values: ['CONSERVATIVE', 'BALANCED', 'AGGRESSIVE', 'EVENT_DRIVEN'] },

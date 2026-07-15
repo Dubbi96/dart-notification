@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger, RequestMethod, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
@@ -26,7 +26,19 @@ async function bootstrap() {
   expressInstance.set('etag', false);
 
   // Global prefix — 운영 헬스 프로브(/health·/health/live)는 prefix 제외(probe 는 /api 미사용, DAR-111).
-  app.setGlobalPrefix('api', { exclude: ['health', 'health/live'] });
+  // W3b: 공개 웹 표면(랜딩 `/`·공유 페이지 `/share/:rcpNo`)도 prefix 제외 — 카톡 공유 링크가
+  // https://<host>/share/:rcpNo 로 직접 접근한다(HTML 라우트, /api 미사용).
+  // W11/W12: /status·/status.json 도 제외(공개 시스템 무결성 페이지 — 브라우저 직접 접근 경로).
+  app.setGlobalPrefix('api', {
+    exclude: [
+      'health',
+      'health/live',
+      'status',
+      'status.json',
+      { path: '/', method: RequestMethod.GET },
+      { path: 'share/:rcpNo', method: RequestMethod.GET },
+    ],
+  });
 
   // Security
   // 개발 환경(http)에서는 Helmet의 https 강제 헤더를 끈다.
@@ -69,20 +81,26 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalInterceptors(new LoggingInterceptor());
 
-  // Swagger
-  const config = new DocumentBuilder()
-    .setTitle('DART Notification API')
-    .setDescription('DART 공시 알림 서비스 API')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  // Swagger — W17 prod 게이트: production 에서는 미설정.
+  // /api/docs 가 NODE_ENV 무관 무조건 노출되어 공개 IP에서 전체 API 스펙이
+  // 무인증 열람 가능하던 표면을 차단한다. 개발/로컬에서만 노출.
+  if (!isProd) {
+    const config = new DocumentBuilder()
+      .setTitle('DART Notification API')
+      .setDescription('DART 공시 알림 서비스 API')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
   const logger = new Logger('Bootstrap');
   logger.log(`Application is running on: http://localhost:${port}`);
-  logger.log(`Swagger docs: http://localhost:${port}/api/docs`);
+  if (!isProd) {
+    logger.log(`Swagger docs: http://localhost:${port}/api/docs`);
+  }
 }
 bootstrap();

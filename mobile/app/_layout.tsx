@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack } from 'expo-router';
@@ -12,6 +12,7 @@ import { DialogProvider } from '@components/common/DialogProvider';
 import { OfflineBanner } from '@components/common/OfflineBanner';
 import { useNotificationSetup } from '@hooks/useNotificationSetup';
 import { configureOnlineManager } from '@services/onlineManager';
+import { recordFunnelStep } from '@services/funnel.service';
 import { applyGlobalTextScalingPolicy } from '@utils/textScaling';
 
 // DAR-224: 앱 전역 ErrorBoundary. Expo Router가 이 named export 를 감지해
@@ -34,6 +35,12 @@ function AppContent() {
   const paperTheme = getPaperTheme(colorScheme);
 
   useNotificationSetup();
+
+  // 갭분석 W15 ③: 온보딩 퍼널 1단계(install) 계측 — 설치당 1회, fire-and-forget(실패 무시).
+  // 측정 전용 표면 — 렌더·네비게이션 흐름에 어떤 영향도 없다(온보딩 UI 재설계 금지).
+  useEffect(() => {
+    void recordFunnelStep('install', undefined, { once: true });
+  }, []);
 
   return (
     <PaperProvider theme={paperTheme}>
@@ -70,6 +77,7 @@ function AppContent() {
             <Stack.Screen name="settings-detail/saved-disclosures" />
             <Stack.Screen name="settings-detail/collection-status" />
             <Stack.Screen name="settings-detail/ai-cost" />
+            <Stack.Screen name="settings-detail/support" />
             <Stack.Screen name="portfolio/trade-history" />
             <Stack.Screen name="portfolio/auto-trading" />
             <Stack.Screen name="portfolio/backtest-track-record" />
@@ -80,6 +88,7 @@ function AppContent() {
             <Stack.Screen name="event-stats/index" />
             <Stack.Screen name="legal/terms" />
             <Stack.Screen name="legal/privacy" />
+            <Stack.Screen name="legal/data-sources" />
           </Stack>
           {/* DAR-173: 전역 오프라인 배너 — 절대 위치 오버레이라 화면 트리 위에 떠야 하므로 Stack 뒤. */}
           <OfflineBanner />

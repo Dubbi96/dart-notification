@@ -40,6 +40,8 @@ const EXPECTED: Record<string, { label: string }> = {
   // DAR-473(P01): 리스크·운영 출처.
   risk: { label: '리스크' },
   ops: { label: '운영' },
+  // 갭분석 W7: 급변동 출처.
+  'price-move': { label: '급변동' },
 };
 
 const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/u;
@@ -110,6 +112,8 @@ check('공시 행 = "삼성전자 · …" (이모지 없음)', !hasEmoji(disclos
 // (5) DAR-473(P01): 리스크·운영 타입 → 출처 매핑(백엔드 sourceByType 미러).
 check('RISK_ALERT → 리스크', sourceByType('RISK_ALERT').label === '리스크');
 check('OPS_ALERT → 운영', sourceByType('OPS_ALERT').label === '운영');
+// 갭분석 W7: 급변동 타입 → 출처 매핑(백엔드 sourceByType 미러).
+check('PRICE_MOVE → 급변동', sourceByType('PRICE_MOVE').label === '급변동');
 
 // (4) sourceByType + 폴백
 check('sourceByType DISCLOSURE → 공시', sourceByType('DISCLOSURE').label === '공시');

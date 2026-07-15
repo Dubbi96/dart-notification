@@ -27,10 +27,12 @@ describe('notification-source SSOT (DAR-432 · 2026-07-06 이모지 제거 개�
     // DAR-473(P01): 리스크·운영 출처.
     expect(NOTIFICATION_SOURCES.risk).toMatchObject({ label: '리스크' });
     expect(NOTIFICATION_SOURCES.ops).toMatchObject({ label: '운영' });
+    // 갭분석 W7: 급변동 출처.
+    expect(NOTIFICATION_SOURCES['price-move']).toMatchObject({ label: '급변동' });
   });
 
-  it('출처 키 개수 = 16 — mobile/scripts/check-notification-sources.ts EXPECTED 와 동수(be↔fe SSOT)', () => {
-    expect(Object.keys(NOTIFICATION_SOURCES)).toHaveLength(16);
+  it('출처 키 개수 = 17 — mobile/scripts/check-notification-sources.ts EXPECTED 와 동수(be↔fe SSOT)', () => {
+    expect(Object.keys(NOTIFICATION_SOURCES)).toHaveLength(17);
   });
 
   it('라벨은 출처마다 고유(중복 0) — 이모지 없이 텍스트만으로 식별 성립', () => {
@@ -73,6 +75,8 @@ describe('notification-source SSOT (DAR-432 · 2026-07-06 이모지 제거 개�
     // DAR-473(P01): 리스크·운영 타입 매핑.
     expect(sourceByType(NotificationType.RISK_ALERT).label).toBe('리스크');
     expect(sourceByType(NotificationType.OPS_ALERT).label).toBe('운영');
+    // 갭분석 W7: 급변동 타입 매핑.
+    expect(sourceByType(NotificationType.PRICE_MOVE).label).toBe('급변동');
   });
 
   it('sourcePrefix — 라벨 텍스트만(이모지 없음)', () => {

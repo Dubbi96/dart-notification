@@ -77,6 +77,10 @@ export const CRON_JOB_KEYS = {
   //   원장(OrderRequest/OrderExecution)의 건수·수량·금액 정합을 대조(불일치→OPS_ALERT). 이 잡이
   //   조용히 멈추면 M11 실주문 계층의 원장 드리프트가 무감지로 쌓이므로 안전망에 노출.
   ORDER_LEDGER_RECONCILE: 'paper.order-ledger-reconcile',
+  // 갭분석 W7: 관심종목 급변동 감시 — 장중 5분 틱(±5% 판정→PRICE_MOVE 알림). 스킵 틱(장외·
+  //   킬스위치 PRICE_MOVE_ALERT_ENABLED=false·겹침)은 미기록 — 실제 평가가 돈 틱만 남긴다.
+  //   조회·알림 계층 전용(매매 루프 무접점)이라 freshness 안전망 등록은 하지 않는다(비임계).
+  PRICE_MOVE_ALERT: 'market.price-move-alert',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];

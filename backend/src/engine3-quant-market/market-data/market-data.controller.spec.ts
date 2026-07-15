@@ -28,6 +28,7 @@ describe('MarketDataController.getMinuteCandles (DAR-352·DAR-377)', () => {
       {} as unknown as CandleHistoryService,
       minuteCollector,
       {} as never, // DAR-490: EtfDailyBackfillService (이 테스트에서 미사용)
+      {} as never, // W13: IndicatorHistoryService (이 테스트에서 미사용)
     );
     return { controller, getMinuteCandles, collectOnce };
   }

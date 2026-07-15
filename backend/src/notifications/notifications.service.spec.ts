@@ -286,6 +286,8 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
         // DAR-473(P01): 리스크·운영 알림 타입 키.
         RISK_ALERT: 0,
         OPS_ALERT: 0,
+        // 갭분석 W: 가격 변동 알림 타입 키(스키마 토대 선반영).
+        PRICE_MOVE: 0,
       });
     });
   });
@@ -306,6 +308,8 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
             NotificationType.SIGNAL,
             NotificationType.EXIT,
             NotificationType.THESIS_VIOLATED,
+            // 갭분석 W: PRICE_MOVE → 'signal' 버킷(SSOT NOTIFICATION_CATEGORY 와 일관).
+            NotificationType.PRICE_MOVE,
           ],
         },
       });

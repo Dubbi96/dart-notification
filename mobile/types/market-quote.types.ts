@@ -95,3 +95,54 @@ export interface CandleSeriesResult {
   /** 시간 오름차순 캔들. 미가용 시 빈 배열. */
   candles: CandleSeriesPoint[];
 }
+
+/**
+ * 기술지표 1점 — 백엔드 IndicatorPoint 와 1:1 (W13, GET /market-data/indicators).
+ * tradeDate(YYYYMMDD)로 일봉 캔들과 조인한다. 커버리지 구멍 가능(nullable) — 화면은 '—' 처리.
+ */
+export interface IndicatorSeriesPoint {
+  /** 기준 거래일 'YYYYMMDD'(KST) — 1d 캔들과 이 값으로 조인. */
+  tradeDate: string;
+  /** 거래일 대표 instant(자정 UTC, ISO 8601) — 1d 캔들 time 과 동일 규약. */
+  time: string;
+  ma5: number | null;
+  ma20: number | null;
+  ma60: number | null;
+  ma120: number | null;
+  rsi14: number | null;
+  macdLine: number | null;
+  macdSignal: number | null;
+  macdHistogram: number | null;
+  bollingerUpper: number | null;
+  bollingerMid: number | null;
+  bollingerLower: number | null;
+  atr14: number | null;
+  vwap: number | null;
+  volumeRatio20: number | null;
+  high52w: number | null;
+  low52w: number | null;
+  /** 공시 전 선행상승률 D-5~D-1 (%). */
+  preDsclReturn: number | null;
+}
+
+/**
+ * 기술지표 구간 조회 응답 — 백엔드 IndicatorSeriesResult 와 1:1 (W13).
+ * ★정직: latestTradeDate(지표 기준일 — 조회 구간과 무관한 적재 최신 거래일)를 반드시 배지로
+ * 고지한다(일봉 T+1 지연 이력 — stale 숨김 금지). UNAVAILABLE 이면 빈 배열 graceful.
+ */
+export interface IndicatorSeriesResult {
+  /** 조회한 6자리 종목코드. */
+  stockCode: string;
+  /** 지표 출처 — 'EOD'(KRX 일봉 확정치 파생 계산) | 'UNAVAILABLE'(미적재/조회불가 0행). */
+  source: 'EOD' | 'UNAVAILABLE';
+  /** 서버 조회 시각(ISO). 미가용/미조회 시 빈 문자열. */
+  asOf: string;
+  /** ★지표 기준일(YYYYMMDD) — 적재 최신 tradeDate. 적재 0행이면 null. */
+  latestTradeDate: string | null;
+  /** 반환 지표 행 수. */
+  count: number;
+  /** 다음(과거) 페이지 커서(가장 오래된 거래일 ISO). 더 없으면 null. */
+  nextCursor: string | null;
+  /** 거래일 오름차순 지표. 미가용 시 빈 배열. */
+  points: IndicatorSeriesPoint[];
+}

@@ -14,6 +14,7 @@ import { useCompanyDetail } from '@hooks/useCompanyDetail';
 import { useStockQuotes } from '@hooks/useStockQuotes';
 import { useMinuteCandles } from '@hooks/useMinuteCandles';
 import { useDailyCandles, type DailyRangePreset } from '@hooks/useDailyCandles';
+import { useDailyIndicators } from '@hooks/useDailyIndicators';
 import { resolveQuotePollInterval } from '@utils/marketQuoteDisplay';
 
 // DAR-355/384: 일반 주식앱 스타일 전용 종목 차트 화면(풀스크린, 분봉+일봉).
@@ -117,6 +118,13 @@ export default function StockChartScreen() {
 
   const [timeframe, setTimeframe] = useState<Timeframe>('minute');
 
+  // 기술지표(W13) — 일봉과 동일 구간 프리셋(limit)으로 tradeDate 조인 정합. 일봉 탭에서만 fetch.
+  // 미가용 시 빈 배열 graceful(차트가 토글 비활성+안내 처리) — 조회 실패가 차트를 막지 않는다.
+  const { points: dailyIndicators, latestTradeDate: indicatorBaseDate } = useDailyIndicators(
+    code,
+    { range: dailyRange, enabled: timeframe === 'daily' },
+  );
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <ScreenHeader title={title} subtitle={subtitle} onBack={() => router.back()} />
@@ -167,6 +175,8 @@ export default function StockChartScreen() {
               candles={dailyCandles}
               source={dailySource}
               asOf={dailyCandlesAsOf}
+              indicators={dailyIndicators}
+              indicatorBaseDate={indicatorBaseDate}
               isLoading={isLoadingDailyCandles}
               isError={isDailyCandlesError}
               onRetry={() => {

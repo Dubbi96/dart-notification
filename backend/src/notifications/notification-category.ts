@@ -34,6 +34,9 @@ export const NOTIFICATION_CATEGORY: Record<NotificationType, NotificationCategor
   // DAR-473(P01): 리스크·운영 알림 → 'system' 버킷.
   [NotificationType.RISK_ALERT]: 'system',
   [NotificationType.OPS_ALERT]: 'system',
+  // 갭분석 W: 가격 변동 알림(PRICE_MOVE, 스키마 토대 선반영) → 'signal' 버킷.
+  // Record<NotificationType, …> 전수 매핑 컴파일 게이트 충족용 최소 배선 — 발행 로직은 담당 레인 소유.
+  [NotificationType.PRICE_MOVE]: 'signal',
 };
 
 /** 카테고리 → 포함 NotificationType 목록(쿼리 필터용). */
@@ -43,6 +46,8 @@ export const CATEGORY_TYPES: Record<NotificationCategory, NotificationType[]> = 
     NotificationType.SIGNAL,
     NotificationType.EXIT,
     NotificationType.THESIS_VIOLATED,
+    // 갭분석 W: 가격 변동 알림(PRICE_MOVE) — NOTIFICATION_CATEGORY 매핑과 일관 유지.
+    NotificationType.PRICE_MOVE,
   ],
   trade: [NotificationType.TRADE_ENTRY, NotificationType.TRADE_EXIT],
   // DAR-473(P01): 운영 버킷 — 리스크·운영 알림.

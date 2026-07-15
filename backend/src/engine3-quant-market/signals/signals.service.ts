@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SignalGrade, ExitAction, Prisma } from '@prisma/client';
+import { tradeDateFromMs } from '../market-data/candle-query';
 
 // 등급무관 탐색(DAR-46): 백엔드 6단계 enum을 모바일에 1:1로 노출한다.
 // 기존엔 NEUTRAL/AVOID/WATCH를 'WATCH'로 합쳐 등급 칩·필터가 무의미해졌으므로,
@@ -190,6 +191,26 @@ function buildSampleNByKey(
     out[key] = sampleN;
   }
   return out;
+}
+
+/**
+ * W13 '근거 지표 펼치기' — 스코어링(signal-generation.loadStockContextAsOf)이 소비하는
+ * TechnicalIndicator 원시 수치의 read-only 스냅샷. 점수 계산 로직 무변경(노출만).
+ * nullable 유지(커버리지 구멍 가능) — 모바일이 '—' 처리한다(빈 값 노출 방지).
+ */
+export interface SignalEvidenceIndicators {
+  /** 지표 기준 거래일(YYYYMMDD) — 신호 생성 KST 거래일 이하 최신 행(as-of 근사). */
+  tradeDate: string;
+  ma5: number | null;
+  ma20: number | null;
+  ma60: number | null;
+  rsi14: number | null;
+  macdLine: number | null;
+  macdSignal: number | null;
+  bollingerMid: number | null;
+  volumeRatio20: number | null;
+  /** 공시 전 선행상승률 D-5~D-1 (%). */
+  preDsclReturn: number | null;
 }
 
 function mapExitReasons(exitSignal: {
@@ -384,8 +405,12 @@ export class SignalsService {
       throw new NotFoundException('Signal not found');
     }
 
-    const sampleCountByEventType = await this.sampleCountByEventType([
-      s.eventType,
+    const [sampleCountByEventType, evidenceIndicators] = await Promise.all([
+      this.sampleCountByEventType([s.eventType]),
+      this.loadEvidenceIndicators(
+        s.company?.stockCode ?? s.stockCode,
+        s.createdAt,
+      ),
     ]);
 
     return {
@@ -423,10 +448,63 @@ export class SignalsService {
         s.scoreBreakdown,
         buildSampleNByKey(s.eventType, sampleCountByEventType),
       ),
+      // W13: '근거 지표 펼치기' — 스코어링 소비 원시 수치 read-only(미가용 null → 모바일 미표시).
+      evidenceIndicators,
       relatedDisclosureRcpNo: s.rcpNo,
       expiresAt: s.validUntil?.toISOString() ?? undefined,
       createdAt: s.createdAt.toISOString(),
     };
+  }
+
+  /**
+   * W13 '근거 지표 펼치기' — 신호 상세에 스코어링이 소비한 TechnicalIndicator 원시 수치를
+   * read-only 로 동봉한다. 스코어링(loadStockContextAsOf)과 동일 규칙으로 '신호 생성 KST
+   * 거래일 이하 최신 행'을 as-of 조회한다(TradingSignal 이 지표 스냅샷을 persist 하지 않으므로
+   * point-in-time 근사 — tradeDate 를 함께 노출해 기준 시점을 정직 고지).
+   *
+   * ★graceful: 근거 지표는 보조 표면 — 조회 실패·미적재가 신호 상세 자체를 막지 않는다(null).
+   * ★AI 금지영역 무관: 순수 조회. 점수 계산 로직 무변경(노출만).
+   */
+  private async loadEvidenceIndicators(
+    stockCode: string | null | undefined,
+    createdAt: Date,
+  ): Promise<SignalEvidenceIndicators | null> {
+    if (!stockCode) return null;
+    try {
+      const asOfTradeDate = tradeDateFromMs(createdAt.getTime());
+      const ti = await this.prisma.technicalIndicator.findFirst({
+        where: { stockCode, tradeDate: { lte: asOfTradeDate } },
+        orderBy: { tradeDate: 'desc' },
+        select: {
+          tradeDate: true,
+          ma5: true,
+          ma20: true,
+          ma60: true,
+          rsi14: true,
+          macdLine: true,
+          macdSignal: true,
+          bollingerMid: true,
+          volumeRatio20: true,
+          preDsclReturn: true,
+        },
+      });
+      if (!ti) return null;
+      return {
+        tradeDate: ti.tradeDate,
+        ma5: ti.ma5,
+        ma20: ti.ma20,
+        ma60: ti.ma60,
+        rsi14: ti.rsi14,
+        macdLine: ti.macdLine,
+        macdSignal: ti.macdSignal,
+        bollingerMid: ti.bollingerMid,
+        volumeRatio20: ti.volumeRatio20,
+        preDsclReturn: ti.preDsclReturn,
+      };
+    } catch {
+      // 미주입 목/DB 오류 등 — 근거 지표 없이 상세를 서빙(비파괴 graceful).
+      return null;
+    }
   }
 
   /**

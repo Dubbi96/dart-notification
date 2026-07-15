@@ -47,6 +47,10 @@ const makePrismaMock = () => ({
     findMany: jest.fn().mockResolvedValue([]),
     createMany: jest.fn().mockResolvedValue({ count: 0 }),
   },
+  company: {
+    findMany: jest.fn().mockResolvedValue([]),
+    createMany: jest.fn().mockResolvedValue({ count: 0 }),
+  },
   watchList: {
     findMany: jest.fn().mockResolvedValue([]),
   },
@@ -858,5 +862,101 @@ describe('matchAndNotify — DAR-259 푸시 멱등·재시도 게이트', () => 
     expect(notif.rollbackNotification).not.toHaveBeenCalled();
     expect(notif.inbox.size).toBe(2);
     expect(expoPushMock.sendPushNotifications).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ════════════════════════════════════════════
+// describe: saveDisclosures — Company FK 가드 (2026-07-15 prod 장애 회귀)
+// 미동기 corpCode 1건이 createMany 배치 전체를 P2003으로 죽여
+// 수집이 통째로 FAILED 반복되던 결함 — 누락 기업 자동 생성으로 배치를 살린다.
+// ════════════════════════════════════════════
+describe('saveDisclosures — Company FK 가드 (미동기 기업 자동 생성)', () => {
+  let service: SchedulerService;
+  let prismaMock: ReturnType<typeof makePrismaMock>;
+  let dartApiMock: ReturnType<typeof makeDartApiMock>;
+
+  const makeItem = (over: Partial<Record<string, string>> = {}) => ({
+    corp_code: 'NEWCORP1',
+    corp_name: '신규상장사',
+    stock_code: '123456',
+    corp_cls: 'Y',
+    report_nm: '단일판매ㆍ공급계약체결',
+    rcept_no: 'RCP2026FK1',
+    flr_nm: '신규상장사',
+    rcept_dt: '20260715',
+    rm: '',
+    ...over,
+  });
+
+  beforeEach(async () => {
+    prismaMock = makePrismaMock();
+    dartApiMock = makeDartApiMock();
+    service = await buildModule(prismaMock, dartApiMock, makeExpoPushMock());
+  });
+
+  it('Company에 없는 corpCode는 DART 목록 메타로 자동 생성 후 공시를 저장한다', async () => {
+    dartApiMock.getAllDisclosures.mockResolvedValue([makeItem()]);
+    prismaMock.company.findMany.mockResolvedValue([]); // 미동기
+    prismaMock.disclosure.createMany.mockResolvedValue({ count: 1 });
+
+    await service.collectByDate('20260715', '20260715', 'MANUAL');
+
+    expect(prismaMock.company.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          corpCode: 'NEWCORP1',
+          corpName: '신규상장사',
+          stockCode: '123456',
+          market: 'KOSPI',
+        },
+      ],
+      skipDuplicates: true,
+    });
+    expect(prismaMock.disclosure.createMany).toHaveBeenCalled();
+  });
+
+  it('전부 알려진 기업이면 Company 생성을 건너뛴다', async () => {
+    dartApiMock.getAllDisclosures.mockResolvedValue([makeItem()]);
+    prismaMock.company.findMany.mockResolvedValue([{ corpCode: 'NEWCORP1' }]);
+    prismaMock.disclosure.createMany.mockResolvedValue({ count: 1 });
+
+    await service.collectByDate('20260715', '20260715', 'MANUAL');
+
+    expect(prismaMock.company.createMany).not.toHaveBeenCalled();
+  });
+
+  it('corp_cls K는 KOSDAQ, 그 외(N/E)는 null 시장으로 매핑하고 같은 기업 중복은 1건만 만든다', async () => {
+    dartApiMock.getAllDisclosures.mockResolvedValue([
+      makeItem({ corp_code: 'KOSDAQ01', corp_cls: 'K', rcept_no: 'RCP-K1' }),
+      makeItem({ corp_code: 'KOSDAQ01', corp_cls: 'K', rcept_no: 'RCP-K2' }),
+      makeItem({ corp_code: 'KONEX001', corp_cls: 'N', rcept_no: 'RCP-N1' }),
+    ]);
+    prismaMock.company.findMany.mockResolvedValue([]);
+    prismaMock.disclosure.createMany.mockResolvedValue({ count: 3 });
+
+    await service.collectByDate('20260715', '20260715', 'MANUAL');
+
+    const args = prismaMock.company.createMany.mock.calls[0][0];
+    expect(args.data).toHaveLength(2); // 중복 corpCode 1건으로 축약
+    expect(args.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ corpCode: 'KOSDAQ01', market: 'KOSDAQ' }),
+        expect.objectContaining({ corpCode: 'KONEX001', market: null }),
+      ]),
+    );
+  });
+
+  it('공백 stock_code는 null로 저장한다 (DART가 비상장 기업에 공백 문자열을 보냄)', async () => {
+    dartApiMock.getAllDisclosures.mockResolvedValue([
+      makeItem({ corp_code: 'UNLISTED', stock_code: '  ', corp_cls: 'E' }),
+    ]);
+    prismaMock.company.findMany.mockResolvedValue([]);
+    prismaMock.disclosure.createMany.mockResolvedValue({ count: 1 });
+
+    await service.collectByDate('20260715', '20260715', 'MANUAL');
+
+    expect(prismaMock.company.createMany.mock.calls[0][0].data[0]).toEqual(
+      expect.objectContaining({ corpCode: 'UNLISTED', stockCode: null, market: null }),
+    );
   });
 });

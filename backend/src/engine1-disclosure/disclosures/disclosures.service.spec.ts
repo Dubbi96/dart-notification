@@ -124,6 +124,80 @@ describe('DisclosuresService.findAll (DAR-45 기간 필터)', () => {
   });
 });
 
+describe('DisclosuresService 광역 count 캐시 (공시 피드 콜드 COUNT 타임아웃 해소)', () => {
+  let findMany: jest.Mock;
+  let count: jest.Mock;
+  let service: DisclosuresService;
+
+  beforeEach(() => {
+    findMany = jest.fn().mockResolvedValue([]);
+    count = jest.fn().mockResolvedValue(1000);
+    const prisma = {
+      disclosure: { findMany, count },
+      watchList: { findMany: jest.fn() },
+    } as unknown as PrismaService;
+    service = new DisclosuresService(prisma);
+  });
+
+  it('무필터 목록은 두 번째 호출부터 캐시된 total을 쓴다 (COUNT 1회)', async () => {
+    const r1 = await service.findAll({});
+    const r2 = await service.findAll({});
+
+    expect(count).toHaveBeenCalledTimes(1);
+    expect(r1.meta.total).toBe(1000);
+    expect(r2.meta.total).toBe(1000);
+  });
+
+  it('유형만 필터한 광역 목록도 캐시하되 유형별 키를 분리한다', async () => {
+    await service.findAll({});
+    await service.findAll({ disclosureType: 'MATERIAL' });
+    await service.findAll({ disclosureType: 'MATERIAL' });
+
+    // '*' 1회 + 'MATERIAL' 1회 — 서로 다른 키라 각 1회씩만 COUNT.
+    expect(count).toHaveBeenCalledTimes(2);
+  });
+
+  it('좁은 필터(corpCode·기간)는 캐시 없이 항상 정확 count를 실행한다', async () => {
+    await service.findAll({ corpCode: 'c1' });
+    await service.findAll({ corpCode: 'c1' });
+    await service.findAll({ from: '20240101', to: '20240131' });
+
+    expect(count).toHaveBeenCalledTimes(3);
+  });
+
+  it('TTL 만료 후엔 stale 값을 즉시 반환하고 백그라운드로 갱신한다', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(0);
+    try {
+      await service.findAll({}); // total=1000 캐시
+      count.mockResolvedValue(2000);
+      nowSpy.mockReturnValue(11 * 60 * 1000); // TTL(10분) 경과
+
+      const stale = await service.findAll({});
+      expect(stale.meta.total).toBe(1000); // 요청은 COUNT를 기다리지 않는다
+
+      await new Promise((resolve) => setImmediate(resolve)); // 백그라운드 갱신 flush
+      const fresh = await service.findAll({});
+      expect(fresh.meta.total).toBe(2000);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('빈 검색어 search(latest)도 findAll과 같은 광역 캐시를 공유한다', async () => {
+    await service.findAll({});
+    await service.search({ q: '   ' });
+
+    expect(count).toHaveBeenCalledTimes(1);
+  });
+
+  it('토큰 있는 search는 캐시를 쓰지 않는다', async () => {
+    await service.search({ q: '삼성' });
+    await service.search({ q: '삼성' });
+
+    expect(count).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("DisclosuresService.getTodayCount '오늘의 공시' (DAR-420)", () => {
   function makeService(findFirst: jest.Mock, count: jest.Mock) {
     const prisma = { disclosure: { findFirst, count } } as unknown as PrismaService;

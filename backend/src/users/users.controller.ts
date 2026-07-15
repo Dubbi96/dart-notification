@@ -59,6 +59,8 @@ export class UsersController {
   async leaveProWaitlist(@CurrentUser('id') userId: string) {
     const status = await this.usersService.leaveProWaitlist(userId);
     return { success: true, data: status };
+  }
+
   @Delete('me')
   @ApiOperation({
     summary: '계정 삭제(회원 탈퇴)',

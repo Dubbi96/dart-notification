@@ -190,6 +190,8 @@ describe('MarketDataController.getIndicators (W13)', () => {
       {} as unknown as CandleHistoryService,
       {} as unknown as StockMinutePriceCollector,
       {} as never, // EtfDailyBackfillService (이 테스트에서 미사용)
+      {} as never, // InvestorFlowQueryService (W16 — 이 테스트에서 미사용)
+      {} as never, // InvestorFlowCollector (W16 — 이 테스트에서 미사용)
       svc as unknown as IndicatorHistoryService,
     );
   }

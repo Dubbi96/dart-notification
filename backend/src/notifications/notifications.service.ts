@@ -163,8 +163,6 @@ export class NotificationsService {
       [NotificationType.SIGNAL]: 0,
       [NotificationType.EXIT]: 0,
       [NotificationType.THESIS_VIOLATED]: 0,
-      // 가격 급변동 알림(스키마 토대에 enum 선행 추가) — exhaustiveness 정합.
-      [NotificationType.PRICE_MOVE]: 0,
       // DAR-424: 라이브 페이퍼 체결 알림 타입.
       [NotificationType.TRADE_ENTRY]: 0,
       [NotificationType.TRADE_EXIT]: 0,

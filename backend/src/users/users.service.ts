@@ -124,6 +124,8 @@ export class UsersService {
       optedIn: entry !== null,
       createdAt: entry?.createdAt ?? null,
     };
+  }
+
   /**
    * 계정 삭제(회원 탈퇴) — Play 스토어 계정 삭제 하드 요구사항 (갭분석 W3 퀵윈 (5)).
    *

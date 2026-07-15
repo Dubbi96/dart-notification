@@ -8,6 +8,7 @@ import { spacing } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { ScreenHeader } from '@components/common/ScreenHeader';
 import { QuoteHeader } from '@components/common/QuoteHeader';
+import { SourceAttribution } from '@components/common/SourceAttribution';
 import { MinuteCandleChart } from '@components/company/MinuteCandleChart';
 import { DailyCandleChart } from '@components/company/DailyCandleChart';
 import { useCompanyDetail } from '@hooks/useCompanyDetail';
@@ -175,6 +176,10 @@ export default function StockChartScreen() {
             />
           )}
         </Card>
+
+        {/* W2 컴플라이언스(M0 정책 §4): 출처 귀속 — 화면당 1회. 분봉·현재가=KIS, 일봉=KRX.
+            시점·신선도 고지는 QuoteHeader 배지·각 차트 정직 라벨이 담당(역할 분리). */}
+        <SourceAttribution sources={['KRX', 'KIS']} />
       </ScrollView>
     </SafeAreaView>
   );

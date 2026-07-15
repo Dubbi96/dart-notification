@@ -7,6 +7,7 @@ import { pnlColor } from '@utils/signalDisplay';
 import { indexBasisLabel } from '@utils/marketIndexDisplay';
 import { useMarketIndices } from '@hooks/useMarketIndices';
 import { useSkeletonPulse, SkeletonBar } from '@components/common/SkeletonCard';
+import { SourceAttribution } from '@components/common/SourceAttribution';
 
 import type { MarketIndexQuote } from '@app-types/market.types';
 
@@ -158,6 +159,8 @@ export function MarketIndexBadge() {
           </React.Fragment>
         ))}
       </View>
+      {/* W2 컴플라이언스(M0 정책 §4): 지수 출처 귀속 — 홈 화면당 1회. 신선도는 basis 라벨이 담당. */}
+      <SourceAttribution sources={['KRX']} style={styles.sourceAttribution} />
     </View>
   );
 }
@@ -225,5 +228,9 @@ const styles = StyleSheet.create({
     width: StyleSheet.hairlineWidth,
     alignSelf: 'stretch',
     marginHorizontal: spacing.base,
+  },
+  // W2: 지수 출처 귀속 한 줄 — 열 아래 소형 보조 라벨.
+  sourceAttribution: {
+    marginTop: spacing.sm,
   },
 });

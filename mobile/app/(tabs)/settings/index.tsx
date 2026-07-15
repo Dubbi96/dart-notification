@@ -351,6 +351,14 @@ export default function SettingsScreen() {
                 onPress={() => router.push('/legal/privacy')}
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
+              {/* W2 컴플라이언스(M0 정책 §4): 시세·공시 데이터 출처·지연 고지·면책 화면 진입점. */}
+              <MenuItem
+                icon="database"
+                title="데이터 출처"
+                subtitle="시세·공시 데이터의 출처와 지연 고지"
+                onPress={() => router.push('/legal/data-sources')}
+              />
+              <Divider style={{ backgroundColor: colors.borderLight }} />
               {/* D9: dead tap 제거 — 버전 표시는 정보 행이므로 비터치(View)로 렌더. */}
               <MenuItem
                 icon="info"

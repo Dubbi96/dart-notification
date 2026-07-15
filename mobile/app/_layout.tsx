@@ -81,6 +81,7 @@ function AppContent() {
             <Stack.Screen name="event-stats/index" />
             <Stack.Screen name="legal/terms" />
             <Stack.Screen name="legal/privacy" />
+            <Stack.Screen name="legal/data-sources" />
           </Stack>
           {/* DAR-173: 전역 오프라인 배너 — 절대 위치 오버레이라 화면 트리 위에 떠야 하므로 Stack 뒤. */}
           <OfflineBanner />

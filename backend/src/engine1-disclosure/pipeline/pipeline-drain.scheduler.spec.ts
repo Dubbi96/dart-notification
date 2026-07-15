@@ -215,7 +215,8 @@ describe('PipelineDrainScheduler (DAR-126)', () => {
     // KST 벽시계 기준 결정론 시각(TZ 무관).
     const WEEKEND = new Date('2026-07-04T03:00:00Z'); // KST 토 12:00
     const WEEKDAY = new Date('2026-07-06T03:00:00Z'); // KST 월 12:00
-    const TWO_DAYS_MS = 2 * 24 * 60 * 60_000;
+    // 라이브 파싱 기아 장애 후속: 주중 자가 회복 창 2일→7일 확대.
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60_000;
 
     it('주말(헤비 창)은 전체 범위 — scope 미지정(undefined)로 drainOnce 호출', async () => {
       const pipeline = makePipeline();
@@ -227,14 +228,14 @@ describe('PipelineDrainScheduler (DAR-126)', () => {
       expect(call[1]).toBeUndefined();
     });
 
-    it('주중(헤비 창 밖)은 최근 2일 범위 — sinceCreatedAt 로 scope 지정', async () => {
+    it('주중(헤비 창 밖)은 최근 7일 범위 — sinceCreatedAt 로 scope 지정', async () => {
       const pipeline = makePipeline();
       const scheduler = new PipelineDrainScheduler(pipeline);
 
       await expect(scheduler.drainPipeline(WEEKDAY)).resolves.toBe('RAN');
       const call = (pipeline.drainOnce as jest.Mock).mock.calls[0];
       expect(call[1]).toEqual({
-        sinceCreatedAt: new Date(WEEKDAY.getTime() - TWO_DAYS_MS),
+        sinceCreatedAt: new Date(WEEKDAY.getTime() - SEVEN_DAYS_MS),
       });
     });
 

@@ -18,7 +18,7 @@ import { DisclosureDocumentsService } from './disclosure-documents.service';
 const RCP_NO = '20260702000001';
 
 /** 단건 파싱 happy-path 를 통과시키는 최소 Prisma 목. */
-function makePrismaMock() {
+function makePrismaMock(over: { isBackfill?: boolean } = {}) {
   return {
     disclosure: {
       findUnique: jest.fn().mockResolvedValue({
@@ -27,6 +27,7 @@ function makePrismaMock() {
         reportName: '주요사항보고서(유상증자결정)',
         rmk: '',
         rcpDt: '20260701',
+        isBackfill: over.isBackfill ?? false,
       }),
     },
     disclosureDocument: {
@@ -91,6 +92,34 @@ describe('DQ-1 — Nest DI 실주입 + 파싱 완료 시 체이닝 발화', () =
     // 체이닝 발화: 주입이 undefined 였다면(회귀) 호출 0 으로 실패한다.
     expect(eventsMock.onDocumentParsed).toHaveBeenCalledTimes(1);
     expect(eventsMock.onDocumentParsed).toHaveBeenCalledWith(RCP_NO);
+  });
+});
+
+describe('라이브 파싱 기아 후속 — 문서 fetch 쿼터 분류(priority) 전달', () => {
+  /** isBackfill 여부에 따라 downloadDocument 에 전달되는 priority 를 검증한다. */
+  async function parseWith(isBackfill: boolean) {
+    const dartApiMock = makeDartApiMock();
+    const service = new DisclosureDocumentsService(
+      makePrismaMock({ isBackfill }) as unknown as PrismaService,
+      dartApiMock as unknown as DartApiService,
+      { onDocumentParsed: jest.fn() } as unknown as DisclosureEventsService,
+    );
+    await service.parseDisclosure(RCP_NO);
+    return dartApiMock;
+  }
+
+  it('비백필(isBackfill=false) 공시는 live 예약분으로 fetch 한다', async () => {
+    const dartApiMock = await parseWith(false);
+    expect(dartApiMock.downloadDocument).toHaveBeenCalledWith(RCP_NO, {
+      priority: 'live',
+    });
+  });
+
+  it('백필(isBackfill=true) 공시는 bulk 상한 게이트로 fetch 한다', async () => {
+    const dartApiMock = await parseWith(true);
+    expect(dartApiMock.downloadDocument).toHaveBeenCalledWith(RCP_NO, {
+      priority: 'bulk',
+    });
   });
 });
 

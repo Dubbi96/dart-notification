@@ -37,15 +37,24 @@ export class DartQuotaReservedError extends Error {
 }
 
 /**
- * DAR-445: DART 일일 콜 예산(KST 자정 리셋).
+ * DAR-445 → 2026-07 라이브 파싱 기아 후속: DART 일일 콜 예산(KST 자정 리셋) 3단 분할.
  * - DAILY_BUDGET: DART 무료키 한도(20,000) 아래 보수 상한(시계 오차·키 공유 마진).
- * - LIVE_RESERVE: ★라이브 목록수집(오늘치 공시) 전용 예약분. 벌크는 절대 침범 못 함.
+ * - LIVE_RESERVE: ★라이브 목록수집(오늘치 공시 list) 전용 예약분. 최우선 — 아무도 침범 못 함.
  *   라이브 list 1회 ≈ 수십 콜 × (10분 카덴스 ~60회/일) ≈ 1,200 콜 → 2,000 예약이면 충분.
- * - BULK_CEILING = DAILY_BUDGET - LIVE_RESERVE: 벌크(문서/백필/재무) 누적 상한.
+ * - LIVE_PARSE_RESERVE: ★라이브(비백필) 문서 fetch 전용 예약분(신설).
+ *   ★근본원인: DAR-445 는 라이브 '목록 수집'만 보호했고 문서 fetch 는 전부 벌크로 분류돼
+ *     야간 벌크 소비(이벤트 백필 03:00·지분 03:30·재무 등)가 자정 리셋 직후 벌크 상한을
+ *     소진하면 낮의 라이브 공시 문서 fetch 까지 매일 차단됐다(prod 물증: 성공 추출
+ *     extractedAt 전부 KST 00:00~04:00 → 라이브 이벤트 추출 0 → 매수 신호 0).
+ *   일 500~600건 라이브 공시 + 재시도 여유 → 3,000 예약.
+ * - LIVE_PARSE_CEILING = DAILY_BUDGET - LIVE_RESERVE: 라이브 문서 fetch 누적 상한(17,000).
+ * - BULK_CEILING = LIVE_PARSE_CEILING - LIVE_PARSE_RESERVE: 벌크(문서/백필/재무) 누적 상한(14,000).
  */
 const DART_DAILY_BUDGET = 19_000;
 const DART_LIVE_RESERVE = 2_000;
-const DART_BULK_CEILING = DART_DAILY_BUDGET - DART_LIVE_RESERVE;
+const DART_LIVE_PARSE_RESERVE = 3_000;
+const DART_LIVE_PARSE_CEILING = DART_DAILY_BUDGET - DART_LIVE_RESERVE;
+const DART_BULK_CEILING = DART_LIVE_PARSE_CEILING - DART_LIVE_PARSE_RESERVE;
 
 export interface DartDisclosureItem {
   corp_code: string;
@@ -268,6 +277,19 @@ export class DartApiService {
     return this.callsToday < DART_BULK_CEILING;
   }
 
+  /**
+   * 라이브(비백필) 문서 fetch 를 지금 시도해도 되는가(라이브 파싱 기아 후속).
+   * 벌크 상한(BULK_CEILING)보다 높은 LIVE_PARSE_CEILING 까지 허용해, 야간 벌크가 벌크 상한을
+   * 소진해도 낮의 라이브 공시 문서 fetch 는 예약분(LIVE_PARSE_RESERVE)으로 계속 진행된다.
+   *  - 그 날 020/021 관측 → 하드스톱(실쿼터 소진은 라이브도 못 살림).
+   *  - 또는 누적 콜이 LIVE_PARSE_CEILING(=예산-목록수집 예약) 도달.
+   */
+  private canSpendLiveParse(): boolean {
+    this.rollDayIfNeeded();
+    if (this.quotaExhaustedDay === this.callDayKey) return false;
+    return this.callsToday < DART_LIVE_PARSE_CEILING;
+  }
+
   /** DAR-445: 쿼터 예산 현황(관측·디버깅용). */
   getQuotaBudgetStatus(): {
     day: string;
@@ -276,6 +298,8 @@ export class DartApiService {
     liveReserve: number;
     bulkCeiling: number;
     bulkAllowed: boolean;
+    liveParseCeiling: number;
+    liveParseAllowed: boolean;
     quotaExhausted: boolean;
   } {
     this.rollDayIfNeeded();
@@ -286,6 +310,8 @@ export class DartApiService {
       liveReserve: DART_LIVE_RESERVE,
       bulkCeiling: DART_BULK_CEILING,
       bulkAllowed: this.canSpendBulk(),
+      liveParseCeiling: DART_LIVE_PARSE_CEILING,
+      liveParseAllowed: this.canSpendLiveParse(),
       quotaExhausted: this.quotaExhaustedDay === this.callDayKey,
     };
   }
@@ -753,19 +779,32 @@ export class DartApiService {
    *
    * API 키 미설정(DART_API_KEY 빈 값) 또는 오프라인 환경에서는
    * DartApiUnavailableError를 throw한다.
+   *
+   * @param opts.priority 쿼터 분류 — 'live'(비백필 라이브 공시, LIVE_PARSE_CEILING 게이트) |
+   *   'bulk'(백필·기본값 보수, BULK_CEILING 게이트). 라이브 파싱 기아 후속: 야간 벌크가
+   *   벌크 상한을 소진해도 라이브 문서 fetch 는 예약분(LIVE_PARSE_RESERVE)으로 계속 진행.
    */
-  async downloadDocument(rcpNo: string): Promise<Buffer> {
+  async downloadDocument(
+    rcpNo: string,
+    opts: { priority?: 'live' | 'bulk' } = {},
+  ): Promise<Buffer> {
     if (!this.apiKey) {
       throw new DartApiUnavailableError('DART_API_KEY가 설정되지 않았습니다');
     }
 
-    // DAR-445: 문서 fetch 는 일일 쿼터의 최대 소비자다. 예약분에 닿으면 사전 차단해
+    // DAR-445: 문서 fetch 는 일일 쿼터의 최대 소비자다. 상한에 닿으면 사전 차단해
     //   라이브 목록수집 몫을 남긴다(HTTP 미발생 = 쿼터 비소모). message 의 dartStatus=020
     //   마커로 classifyFetchError 가 QUOTA 로 분류 → retryCount 비소모(영구 SKIPPED 방지).
-    if (!this.canSpendBulk()) {
+    //   ★마커 유지 필수: disclosure-documents 의 QUOTA 분류가 이 문자열에 의존한다.
+    const priority = opts.priority ?? 'bulk';
+    const allowed =
+      priority === 'live' ? this.canSpendLiveParse() : this.canSpendBulk();
+    if (!allowed) {
+      const ceiling =
+        priority === 'live' ? DART_LIVE_PARSE_CEILING : DART_BULK_CEILING;
       throw new DartQuotaReservedError(
-        `DART 문서 fetch 예약분 보호(벌크 중단, 라이브 수집 우선): dartStatus=020, ` +
-          `요청 제한(callsToday=${this.callsToday}/${DART_BULK_CEILING})`,
+        `DART 문서 fetch 예약분 보호(${priority} 중단, 라이브 수집 우선): dartStatus=020, ` +
+          `요청 제한(callsToday=${this.callsToday}/${ceiling})`,
       );
     }
 

@@ -20,11 +20,14 @@ const DRAIN_BATCH = 300;
  *
  * ★근거: 라이브 신규 공시는 수집 직후 BullMQ 체이닝(파싱→이벤트→AI)으로 즉시 처리되고,
  *   이 드레인은 그 체이닝이 실패(DQ-1)한 최근 건만 회수하는 세이프티넷이다. 주중엔 범위를
- *   최근 2일로 좁혀 과거 백필(24만+ 건)의 무차별 fetch·대형 스캔을 배제한다 — 커넥션 풀
+ *   최근 7일로 좁혀 과거 백필(24만+ 건)의 무차별 fetch·대형 스캔을 배제한다 — 커넥션 풀
  *   독점·DART 쿼터 경쟁을 피하면서 당일 체이닝 실패 복구는 그대로 유지한다. 주말(헤비 창)엔
  *   범위 무제한(전체)으로 백필 적체를 소진한다.
+ * ★2일→7일 확대(2026-07 라이브 파싱 기아 장애 후속): 쿼터 기아 등 수일 장애가 이어지면
+ *   미파싱 라이브 공시가 2일 창을 벗어나 주말까지 방치됐다 — 자가 회복 창을 7일로 넓혀
+ *   장애 복구 후 스케줄러가 지난 주중 공시까지 스스로 회수하게 한다.
  */
-const WEEKDAY_DRAIN_LOOKBACK_MS = 2 * 24 * 60 * 60_000; // 2일
+const WEEKDAY_DRAIN_LOOKBACK_MS = 7 * 24 * 60 * 60_000; // 7일
 
 /**
  * DAR-392 적응형 백오프 — 파싱 실패율이 이 임계 이상이면 DART 레이트리밋/쿼터 소진으로
@@ -61,7 +64,7 @@ export type DrainCycleStatus = 'RAN' | 'SKIPPED' | 'COOLDOWN';
  *   프로세스 재시작(재부팅) 후 자동 재개된다 — 수동 /tmp 루프(휘발성)를 시스템 자동화로 대체.
  *
  * ★DAR-503(주중/주말 이원화): 매 1분 발화는 유지하되 조회 범위를 헤비 수집 창으로 가른다.
- *   - 주중(헤비 창 밖) = 최근 2일 공시로 범위를 좁힌 **경량 세이프티넷**(DQ-1 체이닝 실패 회수).
+ *   - 주중(헤비 창 밖) = 최근 7일 공시로 범위를 좁힌 **경량 세이프티넷**(DQ-1 체이닝 실패 회수).
  *     과거 백필 무차별 fetch·대형 스캔을 배제해 커넥션 풀·DART 쿼터 경쟁을 피한다.
  *   - 주말(헤비 창) = 범위 무제한 **전체 드레인**으로 백필 적체를 소진한다.
  *   두 경로 모두 매 사이클 RAN(SUCCESS 기록)이라 freshness 신선도가 유지된다(임계 무변경).
@@ -97,7 +100,7 @@ export class PipelineDrainScheduler {
   /**
    * 매 1분 폐루프 연속 드레인(DAR-392). (간격형이라 TZ 무관이나 KST 명시로 의도 고정)
    * 큐가 비면 저비용 no-op. 레이트리밋 쿨다운 중이면 COOLDOWN 으로 빠진다.
-   * DAR-503: 주중은 최근 2일 범위(경량 세이프티넷), 주말은 전체 범위로 드레인한다.
+   * DAR-503: 주중은 최근 7일 범위(경량 세이프티넷), 주말은 전체 범위로 드레인한다.
    */
   @Cron('* * * * *', { timeZone: KST_TIMEZONE })
   async drainPipeline(now: Date = new Date()): Promise<DrainCycleStatus> {
@@ -120,13 +123,13 @@ export class PipelineDrainScheduler {
     // ★주의: 첫 await 이전에 동기적으로 락을 잡아야 겹친 cron 이 가드를 통과하지 못한다.
     this.isDraining = true;
 
-    // DAR-503: 헤비 수집 창(기본 주말)이면 전체 범위, 주중이면 최근 2일 경량 세이프티넷.
+    // DAR-503: 헤비 수집 창(기본 주말)이면 전체 범위, 주중이면 최근 7일 경량 세이프티넷.
     const heavy = isHeavyCollectionWindow(now);
     const scope = heavy
       ? undefined
       : { sinceCreatedAt: new Date(now.getTime() - WEEKDAY_DRAIN_LOOKBACK_MS) };
     this.logger.log(
-      `파이프라인 폐루프 드레인 스케줄러 실행(${heavy ? '전체 범위' : '주중 경량·최근 2일'})`,
+      `파이프라인 폐루프 드레인 스케줄러 실행(${heavy ? '전체 범위' : '주중 경량·최근 7일'})`,
     );
 
     const run = () => this.pipeline.drainOnce(DRAIN_BATCH, scope);

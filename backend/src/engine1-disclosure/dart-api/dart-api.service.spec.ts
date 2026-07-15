@@ -202,3 +202,100 @@ describe('DartApiService 일일 콜 예산 + 라이브 수집 예약분 (DAR-445
     );
   });
 });
+
+describe('DartApiService 라이브 문서 fetch 예약분 (라이브 파싱 기아 후속)', () => {
+  let service: DartApiService;
+  let httpGet: jest.SpyInstance;
+  // downloadDocument 의 ZIP 매직바이트 판별을 통과하는 최소 응답('PK\x03\x04' + 여유).
+  const zipResponse = {
+    status: 200,
+    data: Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00]),
+  };
+
+  beforeEach(() => {
+    const config = { get: jest.fn().mockReturnValue('TEST_KEY') } as unknown as ConfigService;
+    service = new DartApiService(config);
+    httpGet = jest
+      .spyOn((service as unknown as { httpClient: { get: jest.Mock } }).httpClient, 'get')
+      .mockResolvedValue(zipResponse);
+  });
+
+  /** 누적 콜을 지정 수치로 고정(당일 키 정렬). */
+  function fillTo(calls: number): void {
+    const internal = service as unknown as {
+      callDayKey: string;
+      callsToday: number;
+      currentDayKey: () => string;
+    };
+    internal.callDayKey = internal.currentDayKey();
+    internal.callsToday = calls;
+  }
+
+  it('3단 분할 상수: bulkCeiling=14,000 · liveParseCeiling=17,000', () => {
+    const status = service.getQuotaBudgetStatus();
+    expect(status.bulkCeiling).toBe(14_000);
+    expect(status.liveParseCeiling).toBe(17_000);
+  });
+
+  it('벌크 상한(14,000) 도달 시 bulk 문서 fetch 는 차단, live 는 예약분으로 통과', async () => {
+    fillTo(service.getQuotaBudgetStatus().bulkCeiling);
+    const status = service.getQuotaBudgetStatus();
+    expect(status.bulkAllowed).toBe(false);
+    expect(status.liveParseAllowed).toBe(true);
+
+    // bulk(기본값) — HTTP 없이 사전 차단.
+    await expect(service.downloadDocument('20260715000100')).rejects.toBeInstanceOf(
+      DartQuotaReservedError,
+    );
+    await expect(
+      service.downloadDocument('20260715000100', { priority: 'bulk' }),
+    ).rejects.toBeInstanceOf(DartQuotaReservedError);
+    expect(httpGet).not.toHaveBeenCalled();
+
+    // live — 예약분(LIVE_PARSE_RESERVE)으로 실제 호출된다.
+    const buf = await service.downloadDocument('20260715000100', { priority: 'live' });
+    expect(httpGet).toHaveBeenCalledTimes(1);
+    expect(buf.length).toBeGreaterThan(0);
+  });
+
+  it('라이브 상한(17,000) 도달 시 live 문서 fetch 도 차단(목록수집 예약분 보호)', async () => {
+    fillTo(service.getQuotaBudgetStatus().liveParseCeiling);
+    expect(service.getQuotaBudgetStatus().liveParseAllowed).toBe(false);
+
+    await expect(
+      service.downloadDocument('20260715000100', { priority: 'live' }),
+    ).rejects.toBeInstanceOf(DartQuotaReservedError);
+    expect(httpGet).not.toHaveBeenCalled();
+  });
+
+  it('당일 020 관측 시 live·bulk 둘 다 차단(실쿼터 소진은 라이브도 못 살림)', async () => {
+    httpGet.mockResolvedValueOnce({
+      status: 200,
+      data: listResponse({ status: '020', message: '사용한도를 초과하였습니다.' }),
+    });
+    await service.getDisclosureList({ bgn_de: '20260715', end_de: '20260715' });
+
+    const status = service.getQuotaBudgetStatus();
+    expect(status.quotaExhausted).toBe(true);
+    expect(status.bulkAllowed).toBe(false);
+    expect(status.liveParseAllowed).toBe(false);
+
+    await expect(
+      service.downloadDocument('20260715000100', { priority: 'live' }),
+    ).rejects.toBeInstanceOf(DartQuotaReservedError);
+    await expect(
+      service.downloadDocument('20260715000100', { priority: 'bulk' }),
+    ).rejects.toBeInstanceOf(DartQuotaReservedError);
+  });
+
+  it('차단 에러 메시지에 dartStatus=020 마커 포함(classifyFetchError QUOTA 분류 계약)', async () => {
+    fillTo(service.getQuotaBudgetStatus().liveParseCeiling);
+
+    await expect(
+      service.downloadDocument('20260715000100', { priority: 'live' }),
+    ).rejects.toThrow(/dartStatus=020/);
+    await expect(
+      service.downloadDocument('20260715000100', { priority: 'bulk' }),
+    ).rejects.toThrow(/dartStatus=020/);
+  });
+});

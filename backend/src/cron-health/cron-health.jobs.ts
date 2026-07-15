@@ -277,14 +277,16 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
   },
   {
     // DAR-391: 이벤트 추출 백필 드레인. 가동이 멈추면 과거 백필 공시의 이벤트 추출 적체가
-    //   영구화되어 신호·백테스트 연중화가 정체된다(rcpDt 분포 비어있음). 매일 03:00 가동 —
-    //   하루 누락(48h)까지 허용.
+    //   영구화되어 신호·백테스트 연중화가 정체된다(rcpDt 분포 비어있음).
+    // DAR-503(라이브 파싱 기아 후속): 매일 03:00 발화하나 실제 드레인은 주말 창에만(주중
+    //   WINDOW_SKIPPED — 자정 쿼터 리셋 직후 문서 fetch 벌크 소비가 라이브 파싱을 굶기던
+    //   것을 해소). 주말→다음 주말 공백을 흡수하도록 임계 8일로 상향.
     jobKey: CRON_JOB_KEYS.EVENT_BACKFILL_DRAIN,
     label: '이벤트 추출 백필 드레인',
     source: 'CRON_RUN_LOG',
     window: 'ALWAYS',
-    staleAfterMinutes: 2_880, // 48시간 — 매일 03:00, 하루 누락까지 허용
-    cadence: '매일 03:00',
+    staleAfterMinutes: WEEKEND_HEAVY_STALE_MIN, // 8일 — 주말 전용(DAR-503), 주말간 공백 흡수
+    cadence: '주말 03:00(주중 정지·DAR-503)',
   },
   {
     // DAR-395: rawText 오프로드 드레인. 가동이 멈추면 과거 원문 이전이 정체되어 DB 경량화가

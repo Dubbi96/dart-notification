@@ -69,20 +69,26 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalInterceptors(new LoggingInterceptor());
 
-  // Swagger
-  const config = new DocumentBuilder()
-    .setTitle('DART Notification API')
-    .setDescription('DART 공시 알림 서비스 API')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  // Swagger — W17 prod 게이트: production 에서는 미설정.
+  // /api/docs 가 NODE_ENV 무관 무조건 노출되어 공개 IP에서 전체 API 스펙이
+  // 무인증 열람 가능하던 표면을 차단한다. 개발/로컬에서만 노출.
+  if (!isProd) {
+    const config = new DocumentBuilder()
+      .setTitle('DART Notification API')
+      .setDescription('DART 공시 알림 서비스 API')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
   const logger = new Logger('Bootstrap');
   logger.log(`Application is running on: http://localhost:${port}`);
-  logger.log(`Swagger docs: http://localhost:${port}/api/docs`);
+  if (!isProd) {
+    logger.log(`Swagger docs: http://localhost:${port}/api/docs`);
+  }
 }
 bootstrap();

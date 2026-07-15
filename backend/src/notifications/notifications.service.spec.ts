@@ -280,6 +280,8 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
         SIGNAL: 1,
         EXIT: 0,
         THESIS_VIOLATED: 0,
+        // 가격 급변동 알림 타입 키(스키마 토대 enum 선행 추가).
+        PRICE_MOVE: 0,
         // DAR-424: 라이브 페이퍼 체결 알림 타입 키.
         TRADE_ENTRY: 0,
         TRADE_EXIT: 0,
@@ -292,7 +294,7 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
 
   // ─── DAR-430: 카테고리(3 버킷) 필터 + 카테고리별 미읽음 ──────────────────────
   describe('findAll — DAR-430 카테고리 필터 + 카테고리별 미읽음', () => {
-    it('category=signal 지정 시 where.type 에 신호 버킷(SIGNAL/EXIT/THESIS_VIOLATED) in 필터 반영', async () => {
+    it('category=signal 지정 시 where.type 에 신호 버킷(SIGNAL/EXIT/THESIS_VIOLATED/PRICE_MOVE) in 필터 반영', async () => {
       const { service, prisma } = buildService();
       prisma.notificationHistory.findMany.mockResolvedValueOnce([]);
 
@@ -306,6 +308,8 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
             NotificationType.SIGNAL,
             NotificationType.EXIT,
             NotificationType.THESIS_VIOLATED,
+            // 가격 급변동 알림(스키마 토대 enum 선행 추가) — 신호 버킷.
+            NotificationType.PRICE_MOVE,
           ],
         },
       });

@@ -29,6 +29,8 @@ export const NOTIFICATION_CATEGORY: Record<NotificationType, NotificationCategor
   [NotificationType.SIGNAL]: 'signal',
   [NotificationType.EXIT]: 'signal',
   [NotificationType.THESIS_VIOLATED]: 'signal',
+  // 가격 급변동 알림(스키마 토대에 enum 선행 추가) → 'signal' 버킷. 발송 로직은 별도 레인.
+  [NotificationType.PRICE_MOVE]: 'signal',
   [NotificationType.TRADE_ENTRY]: 'trade',
   [NotificationType.TRADE_EXIT]: 'trade',
   // DAR-473(P01): 리스크·운영 알림 → 'system' 버킷.
@@ -43,6 +45,7 @@ export const CATEGORY_TYPES: Record<NotificationCategory, NotificationType[]> = 
     NotificationType.SIGNAL,
     NotificationType.EXIT,
     NotificationType.THESIS_VIOLATED,
+    NotificationType.PRICE_MOVE,
   ],
   trade: [NotificationType.TRADE_ENTRY, NotificationType.TRADE_EXIT],
   // DAR-473(P01): 운영 버킷 — 리스크·운영 알림.

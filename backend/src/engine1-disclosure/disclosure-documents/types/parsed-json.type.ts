@@ -105,6 +105,16 @@ export interface ParsedJson {
   /** 영업이익 전년比 증감률 (소수점 4자리, 0.30 = +30%) */
   operatingProfitYoY?: number;
 
+  // ── 실적 가이던스 (EARNINGS_GUIDANCE) ────────────────────
+  // W9: '영업실적 등에 대한 전망(공정공시)'·'장래사업·경영계획(공정공시)' — 자사 전망.
+  //     파서가 정형 키를 채우는 경우에만 사용(없으면 guidance.ts 폴백 스캔 → null 게이팅).
+  /** 매출액 전망 (원) — 회사 자체 가이던스, 시장 기대치 아님 */
+  guidanceRevenue?: number;
+  /** 영업이익 전망 (원, 음수=손실 전망) — 회사 자체 가이던스 */
+  guidanceOperatingProfit?: number;
+  /** 전망 대상 기간 원문 (예: '2026 회계연도') */
+  guidancePeriod?: string;
+
   // ── 소송 (LAWSUIT) ───────────────────────────────────────
   // DAR-71: 고위험 공시 5종. 보유 parsedJson(JSON 컬럼)에 존재할 때만 사용
   //         (없으면 null → 부분 추출 허용·상위 NEEDS_REVIEW). 스키마 변경 없음.

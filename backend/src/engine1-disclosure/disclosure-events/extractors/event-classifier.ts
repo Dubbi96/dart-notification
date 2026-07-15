@@ -116,9 +116,31 @@ export const REPORT_NAME_RULES: ReportNameRule[] = [
     confidence: 0.90,
   },
 
+  // ── 실적 가이던스 (자사 전망 공정공시) ────────────────────────────────────
+  // W9: '연결재무제표 기준 영업실적 등에 대한 전망(공정공시)'·'영업실적등에대한전망',
+  //     '장래사업·경영계획(공정공시)' — 회사가 스스로 공시한 전망(가이던스)이다.
+  //     애널리스트 추정 집계가 아니므로 '시장 기대치 대비'로 오인시키는 표기 금지.
+  //     확정 실적(잠정실적) 룰보다 먼저 검사해 '전망' 공시가 실적 확정치로 새지 않게 한다.
+  //     방향(상향/하향)은 제목만으로 미상 → MIXED, 수치는 guidance.ts 추출기가 게이팅.
+  {
+    pattern: /영업\s*실적\s*등?\s*에?\s*대한\s*전망|영업\s*실적\s*전망|실적\s*등?\s*에?\s*대한\s*전망/,
+    eventType: EventType.EARNINGS_GUIDANCE,
+    polarity: 'MIXED',
+    confidence: 0.90,
+  },
+  {
+    // 중점(·U+00B7 / ㆍU+318D / ・U+30FB)·공백·'및' 변형 허용 — '장래사업ㆍ경영계획(공정공시)'
+    pattern: /장래\s*사업\s*[·ㆍ・.,&]?\s*(및\s*)?경영\s*계획/,
+    eventType: EventType.EARNINGS_GUIDANCE,
+    polarity: 'MIXED',
+    confidence: 0.90,
+  },
+
   // ── 실적 (서프라이즈·쇼크) ─────────────────────────────────────────────────
   // DAR-58: 방향성 명시(흑자/적자 전환·개선·악화) 우선, 그 외 일반 실적공시는
   //         방향 미상 → EARNINGS_SURPRISE(MIXED) 하향 confidence로 AI L1 보정 경로 진입.
+  // W9 주의: EARNINGS_SURPRISE/SHOCK 판정 기준은 전년동기(YoY) 대비다(earnings.ts).
+  //          시장 기대치 대비 판정이 아니므로 소비 표면 카피도 그 기준을 명시해야 한다.
   {
     pattern: /적자\s*전환|영업\s*손실|순\s*손실|실적\s*(쇼크|악화)|손익구조.*(악화|감소)/,
     eventType: EventType.EARNINGS_SHOCK,

@@ -12,6 +12,7 @@ import {
   sourcePrefix,
   gradeLabel,
 } from './notification-source';
+import { eventTypeNotificationCopy } from './event-type-copy';
 import {
   QUEUE,
   NOTIFY_JOB,
@@ -131,7 +132,8 @@ export class NotifyConsumer extends WorkerHost {
     const title = `${label} ${src.label}${grade ? ` ${grade}` : ''}`;
     const parts = [
       data.buyScore != null ? `${data.buyScore}점` : null,
-      data.eventType,
+      // W9 정직 라벨링: 실적 이벤트는 판정 기준(전년동기 대비/자사 전망)을 병기한다.
+      eventTypeNotificationCopy(data.eventType),
     ].filter(Boolean);
     const body = parts.join(' · ') || '신규 매수 신호가 도착했습니다.';
     const deepLink = `/signals/${signalId}`;

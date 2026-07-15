@@ -14,4 +14,11 @@ export const searchService = {
         },
       })
       .then((r) => r.data.data),
+
+  /**
+   * 미국 주식 알림 수요 기록 (검색 빈 상태 원탭 버튼 — 계측 전용, 기능 약속 아님).
+   * 탭 시점의 검색어(q)를 함께 보내 수요 맥락을 보존한다.
+   */
+  recordUsDemand: (q?: string) =>
+    api.post('/search/us-demand', { ...(q ? { q } : {}) }).then(() => undefined),
 };

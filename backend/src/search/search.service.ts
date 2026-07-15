@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CompaniesService } from '../companies/companies.service';
 import { DisclosuresService } from '../engine1-disclosure/disclosures/disclosures.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { UnifiedSearchDto } from './dto/unified-search.dto';
+import { classifySearchMiss, SEARCH_MISS_TAG } from './search-miss.classifier';
 
 /** 통합 검색 최소 질의 길이 — 종목코드 부분일치 등 과도한 DB 스캔을 막는 가드. */
 export const MIN_QUERY_LENGTH = 2;
@@ -25,6 +27,7 @@ export class SearchService {
   constructor(
     private readonly companiesService: CompaniesService,
     private readonly disclosuresService: DisclosuresService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -34,8 +37,11 @@ export class SearchService {
    * 부분실패 격리: 한쪽 도메인 조회가 reject 돼도 전체 500 이 되지 않도록
    * Promise.allSettled 로 실행하고, 실패한 카테고리만 빈 묶음(items: [], total: 0)으로
    * 폴백한다("개별 폴백" 약속 이행).
+   *
+   * 갭분석 W8: 결과 0건이면 SearchMissLog 에 비동기(fire-and-forget) 적재해
+   * '검색 실패 중 미국종목 비율'을 상시 계측한다. 검색 응답 지연 0 원칙.
    */
-  async search(dto: UnifiedSearchDto): Promise<UnifiedSearchResult> {
+  async search(dto: UnifiedSearchDto, userId?: string): Promise<UnifiedSearchResult> {
     const term = (dto.q ?? '').trim();
     const companyLimit = dto.companyLimit ?? 10;
     const disclosureLimit = dto.disclosureLimit ?? 10;
@@ -76,7 +82,49 @@ export class SearchService {
       (value) => ({ items: value.items, total: value.meta.total }),
     );
 
+    // 갭분석 W8: 양 카테고리 모두 '정상 조회 후 0건'일 때만 제로결과로 계측한다.
+    // 부분실패 폴백(총계 0으로 격리된 경우)은 진짜 수요 신호가 아니므로 오염 방지 차원에서 제외.
+    if (
+      companyOutcome.status === 'fulfilled' &&
+      disclosureOutcome.status === 'fulfilled' &&
+      companies.total === 0 &&
+      disclosures.total === 0
+    ) {
+      this.logSearchMiss(term, userId);
+    }
+
     return this.buildResult(term, companies, disclosures);
+  }
+
+  /**
+   * 갭분석 W8: 제로결과 검색어 적재 — 비동기 fire-and-forget.
+   * await 하지 않아 검색 응답 지연이 0이며, 적재 실패는 경고 로그로만 남긴다(검색 기능 무영향).
+   */
+  private logSearchMiss(term: string, userId?: string): void {
+    const tag = classifySearchMiss(term);
+    void this.prisma.searchMissLog
+      .create({ data: { query: term, tag, userId: userId ?? null } })
+      .catch((error: unknown) => {
+        this.logger.warn(
+          `제로결과 검색 로깅 실패 (q="${term}", tag=${tag}): ${
+            error instanceof Error ? error.message : error
+          }`,
+        );
+      });
+  }
+
+  /**
+   * 갭분석 W8: '미국 주식 알림, 필요하신가요?' 원탭 수요 버튼 기록.
+   * 기능 약속이 아니라 수요 계측 전용 — SearchMissLog 에 tag=US_DEMAND_TAP 으로 적재한다.
+   */
+  async recordUsDemandTap(q: string | undefined, userId?: string): Promise<void> {
+    await this.prisma.searchMissLog.create({
+      data: {
+        query: (q ?? '').trim(),
+        tag: SEARCH_MISS_TAG.US_DEMAND_TAP,
+        userId: userId ?? null,
+      },
+    });
   }
 
   /**

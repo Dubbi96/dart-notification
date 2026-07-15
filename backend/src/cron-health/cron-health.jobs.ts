@@ -41,6 +41,8 @@ export const CRON_JOB_KEYS = {
   AI_BACKFILL_DRAIN: 'ai.backfill-drain',
   // DAR-391: 이벤트 추출 백필 드레인 — 과거 백필 공시를 rcpDt 시간순 추출/파싱등록(신호·백테스트 연중화 게이트).
   EVENT_BACKFILL_DRAIN: 'event.backfill-drain',
+  // W4 신호 검증: 제목 기반 이벤트 분류 백필 — reportName 룰만으로 과거 백필 공시 이벤트 생성(DART 쿼터 0).
+  TITLE_EVENT_BACKFILL: 'event.title-backfill',
   // DAR-395: rawText 객체 스토리지 오프로드 드레인 — 과거 원문을 S3/로컬로 이전 후 DB 컬럼 비움(경량화).
   RAWTEXT_OFFLOAD_DRAIN: 'rawtext.offload-drain',
   // DAR-399: tables(파싱 표 JSONB·TOAST 진짜 bulk) 객체 스토리지 오프로드 드레인 — S3/로컬 이전 후 컬럼 비움.
@@ -289,6 +291,17 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: WEEKEND_HEAVY_STALE_MIN, // 8일 — 주말 전용(DAR-503), 주말간 공백 흡수
     cadence: '주말 03:00(주중 정지·DAR-503)',
+  },
+  {
+    // W4 신호 검증: 제목 기반 이벤트 분류 백필. 가동이 멈추면 신규 연속 백필 공시의 제목 이벤트
+    //   편입이 정체되어 Event Study 관측치 확장이 멈춘다. DART 문서 fetch 0(DB-only)이라
+    //   DAR-503 주말 창 게이트 없이 매일 02:40 가동 — 하루 누락(48h)까지 허용.
+    jobKey: CRON_JOB_KEYS.TITLE_EVENT_BACKFILL,
+    label: '제목 이벤트 분류 백필',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: 2_880, // 48시간 — 매일 02:40, 하루 누락까지 허용
+    cadence: '매일 02:40',
   },
   {
     // DAR-395: rawText 오프로드 드레인. 가동이 멈추면 과거 원문 이전이 정체되어 DB 경량화가

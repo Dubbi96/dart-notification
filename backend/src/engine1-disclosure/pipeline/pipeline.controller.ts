@@ -22,6 +22,11 @@ import {
   EventCoverageReport,
 } from './event-backfill-drain.service';
 import {
+  TitleEventBackfillProgress,
+  TitleEventBackfillResult,
+  TitleEventBackfillService,
+} from './title-event-backfill.service';
+import {
   RawTextOffloadDrainResult,
   RawTextOffloadDrainService,
   RawTextOffloadProgress,
@@ -64,6 +69,8 @@ export class PipelineController {
     private readonly pipeline: PipelineIntegrityService,
     // DAR-391: 과거 공시 이벤트 추출 백필 — 수동 드레인·커버리지 리포트.
     private readonly eventBackfill: EventBackfillDrainService,
+    // W4 신호 검증: 제목 기반 이벤트 분류 백필(DART 쿼터 0) — 수동 트리거·진행 리포트.
+    private readonly titleBackfill: TitleEventBackfillService,
     // DAR-395: 과거 rawText 객체 스토리지 오프로드 — 수동 드레인·진행 리포트.
     private readonly rawTextOffload: RawTextOffloadDrainService,
     // DAR-399: 과거 tables 객체 스토리지 오프로드(TOAST 진짜 bulk) — 수동 드레인·진행 리포트.
@@ -149,6 +156,54 @@ export class PipelineController {
     const data = await this.eventBackfill.drainOnce({
       extractLimit: parseOptionalInt(extractLimit),
       parseEnqueueLimit: parseOptionalInt(parseEnqueueLimit),
+    });
+    return { success: true, data };
+  }
+
+  // ─── W4 신호 검증: 제목 기반 과거 공시 이벤트 분류 백필(DART 쿼터 0) ──────────
+
+  @Get('title-event-backfill-progress')
+  @ApiOperation({
+    summary:
+      '제목 기반 이벤트 백필 진행 리포트(read-only): 잔여 후보·생성 누계(TITLE_ONLY 마커 분리 집계).',
+  })
+  async titleEventBackfillProgress(): Promise<{
+    success: true;
+    data: TitleEventBackfillProgress;
+  }> {
+    const data = await this.titleBackfill.getProgress();
+    return { success: true, data };
+  }
+
+  @Post('title-event-backfill')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      '제목(reportName) 룰 분류만으로 과거 백필 공시 이벤트 생성 1회 실행(멱등·DART 호출 0·AI 호출 0). ' +
+      '문서 fetch·파싱 미트리거 — cron(매일 02:40 KST)과 동일 경로.',
+  })
+  @ApiQuery({ name: 'scanLimit', required: false, type: Number, example: 200000 })
+  @ApiQuery({
+    name: 'startAfterRcpDt',
+    required: false,
+    type: String,
+    description: '재개 커서 rcpDt(YYYYMMDD…, 배타). startAfterRcpNo 와 함께 지정.',
+  })
+  @ApiQuery({
+    name: 'startAfterRcpNo',
+    required: false,
+    type: String,
+    description: '재개 커서 rcpNo(배타). startAfterRcpDt 와 함께 지정.',
+  })
+  async titleEventBackfill(
+    @Query('scanLimit') scanLimit?: string,
+    @Query('startAfterRcpDt') startAfterRcpDt?: string,
+    @Query('startAfterRcpNo') startAfterRcpNo?: string,
+  ): Promise<{ success: true; data: TitleEventBackfillResult }> {
+    const data = await this.titleBackfill.backfillOnce({
+      scanLimit: parseOptionalInt(scanLimit),
+      startAfterRcpDt: startAfterRcpDt || undefined,
+      startAfterRcpNo: startAfterRcpNo || undefined,
     });
     return { success: true, data };
   }

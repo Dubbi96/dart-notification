@@ -190,7 +190,10 @@ export default function DisclosureDetailScreen() {
   const keyFigures = extractKeyFigures(disclosureEvent?.extractedData);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      testID="disclosure-detail-screen"
+    >
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity

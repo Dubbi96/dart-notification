@@ -8,6 +8,8 @@ import { NotificationProducerModule } from '../notifications/notification-produc
 import { OpsHealthController } from './ops-health.controller';
 import { OpsMetricsController } from './ops-metrics.controller';
 import { OpsMetricsService } from './ops-metrics.service';
+import { FunnelController } from './funnel.controller';
+import { FunnelService } from './funnel.service';
 import { OpsDailyReportService } from './ops-daily-report.service';
 import { OpsDailyReportScheduler } from './ops-daily-report.scheduler';
 import { BiweeklyTrackReviewService } from './biweekly-track-review.service';
@@ -55,9 +57,17 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
     // 격주 트랙 성과 순위 리포트 — MarketRegimeService(시장국면 태깅) read-only 재사용.
     PersonaTradingModule,
   ],
-  controllers: [OpsHealthController, OpsMetricsController, BiweeklyTrackReviewController],
+  controllers: [
+    OpsHealthController,
+    OpsMetricsController,
+    BiweeklyTrackReviewController,
+    // 갭분석 W15 ③: 온보딩 퍼널 계측(비인증 POST /ops/funnel) — 측정 전용 표면.
+    FunnelController,
+  ],
   providers: [
     OpsMetricsService,
+    // 갭분석 W15 ③: FunnelEvent 적재(무소음 실패 흡수·meta 캡).
+    FunnelService,
     // DAR-477(견고화 W0·P05): 일일 운영 리포트 생성 서비스 + 20:30 KST 발송 스케줄러.
     OpsDailyReportService,
     OpsDailyReportScheduler,

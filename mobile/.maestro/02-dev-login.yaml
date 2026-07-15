@@ -1,0 +1,9 @@
+# [W15 ② 스모크 2] dev-login 딥링크 로그인 → 홈 진입
+# 테스트계정 JWT 주입(-e DEV_ACCESS/DEV_REFRESH/DEV_USER_ID) 후 인증 상태로 홈 도달.
+appId: com.gongsion.app
+tags:
+  - smoke
+---
+- runFlow: subflows/dev-login.yaml
+- assertVisible:
+    id: "home-feed-list"

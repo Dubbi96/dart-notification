@@ -65,5 +65,14 @@
       }
     ]
   },
+  "overrides": [
+    {
+      "files": ["__tests__/**/*.ts", "__tests__/**/*.tsx", "jest.config.js"],
+      "env": {
+        "jest": true,
+        "node": true
+      }
+    }
+  ],
   "ignorePatterns": ["node_modules/", ".expo/", "dist/", "babel.config.js"]
 }

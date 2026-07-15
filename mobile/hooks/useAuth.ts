@@ -58,6 +58,23 @@ export function useUpdateMe() {
   });
 }
 
+export function useDeleteAccount() {
+  const { clearAuth } = useAuthStore();
+
+  return useMutation({
+    mutationFn: () => authService.deleteMe(),
+    // 성공 시에만 로컬 세션을 정리한다 — 실패 시 계정이 남아 있으므로 세션 유지 후
+    // 화면에서 에러 안내(onError 콜백)를 노출한다.
+    onSuccess: async () => {
+      // 탈퇴 = 계정 소멸: 재로그인 시 신규 유저 온보딩이 다시 보이도록 환영 플래그도 제거
+      await SecureStore.deleteItemAsync('hasLoggedIn').catch(() => {});
+      // clearAuth 가 토큰·푸시토큰 초기화 + 서버 캐시(purgeServerCache) 전량 제거를 수행
+      clearAuth();
+      router.replace('/auth/sign-in');
+    },
+  });
+}
+
 export function useLogout() {
   const { clearAuth, expoPushToken } = useAuthStore();
 

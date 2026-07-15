@@ -8,6 +8,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { StorageModule } from './common/storage/storage.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { LegalModule } from './legal/legal.module';
 import { DevicesModule } from './devices/devices.module';
 import { CompaniesModule } from './companies/companies.module';
 import { WatchlistModule } from './watchlist/watchlist.module';
@@ -88,6 +89,8 @@ import {
     // Feature modules
     AuthModule,
     UsersModule,
+    // 갭분석 W3 — Play 컴플라이언스 공개 법적 고지(개인정보 처리방침·계정 삭제 안내)
+    LegalModule,
     DevicesModule,
     CompaniesModule,
     WatchlistModule,

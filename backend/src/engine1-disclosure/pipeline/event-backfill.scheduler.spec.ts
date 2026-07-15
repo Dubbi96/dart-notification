@@ -12,6 +12,10 @@ import {
 } from '../../cron-health/cron-run-recorder.service';
 import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
 
+// KST 벽시계 기준 결정론 시각(TZ 무관). 헤비 창=주말(DAR-503).
+const WEEKEND = new Date('2026-07-04T18:00:00Z'); // KST 일 03:00
+const WEEKDAY = new Date('2026-07-06T18:00:00Z'); // KST 화 03:00
+
 /** DAR-391 — 이벤트 추출 백필 cron 의 recorder 래핑·itemCount·throw 흡수·겹침 가드 검증. */
 describe('EventBackfillScheduler (DAR-391)', () => {
   const drainResult: EventBackfillDrainResult = {
@@ -52,7 +56,7 @@ describe('EventBackfillScheduler (DAR-391)', () => {
     const recorder = { record } as unknown as CronRunRecorderService;
 
     const scheduler = new EventBackfillScheduler(drain, recorder);
-    await scheduler.drainBackfill();
+    await scheduler.drainBackfill(WEEKEND);
 
     expect(record).toHaveBeenCalledTimes(1);
     expect(record.mock.calls[0][0]).toBe(CRON_JOB_KEYS.EVENT_BACKFILL_DRAIN);
@@ -62,14 +66,14 @@ describe('EventBackfillScheduler (DAR-391)', () => {
   it('recorder 미주입 환경에서도 drainOnce 를 직접 실행한다', async () => {
     const drain = makeService();
     const scheduler = new EventBackfillScheduler(drain);
-    await scheduler.drainBackfill();
+    await scheduler.drainBackfill(WEEKEND);
     expect(drain.drainOnce).toHaveBeenCalled();
   });
 
   it('drainOnce 가 throw 해도 스케줄러는 예외를 흡수한다(cron 유지)', async () => {
     const drain = makeService(() => Promise.reject(new Error('boom')));
     const scheduler = new EventBackfillScheduler(drain);
-    await expect(scheduler.drainBackfill()).resolves.toBe('RAN');
+    await expect(scheduler.drainBackfill(WEEKEND)).resolves.toBe('RAN');
   });
 
   it('드레인 진행 중 겹친 cron 은 즉시 SKIPPED — drainOnce 중복 호출 없음', async () => {
@@ -83,17 +87,17 @@ describe('EventBackfillScheduler (DAR-391)', () => {
     });
     const scheduler = new EventBackfillScheduler(drain);
 
-    const first = scheduler.drainBackfill();
+    const first = scheduler.drainBackfill(WEEKEND);
     await Promise.resolve(); // 마이크로태스크 flush → drainOnce 진입 보장
     expect(drain.drainOnce).toHaveBeenCalledTimes(1);
 
-    await expect(scheduler.drainBackfill()).resolves.toBe('SKIPPED');
+    await expect(scheduler.drainBackfill(WEEKEND)).resolves.toBe('SKIPPED');
     expect(drain.drainOnce).toHaveBeenCalledTimes(1);
 
     release();
     await expect(first).resolves.toBe('RAN');
 
-    await expect(scheduler.drainBackfill()).resolves.toBe('RAN');
+    await expect(scheduler.drainBackfill(WEEKEND)).resolves.toBe('RAN');
     expect(drain.drainOnce).toHaveBeenCalledTimes(2);
   });
 
@@ -101,9 +105,33 @@ describe('EventBackfillScheduler (DAR-391)', () => {
     const drain = makeService(() => Promise.reject(new Error('boom')));
     const scheduler = new EventBackfillScheduler(drain);
 
-    await expect(scheduler.drainBackfill()).resolves.toBe('RAN');
-    await expect(scheduler.drainBackfill()).resolves.toBe('RAN');
+    await expect(scheduler.drainBackfill(WEEKEND)).resolves.toBe('RAN');
+    await expect(scheduler.drainBackfill(WEEKEND)).resolves.toBe('RAN');
     expect(drain.drainOnce).toHaveBeenCalledTimes(2);
+  });
+
+  // ── DAR-503(라이브 파싱 기아 후속): 주중 헤비 창 밖 정지 ──────────────
+  it('주중(헤비 창 밖)은 WINDOW_SKIPPED — drainOnce 미호출, recordSkip 기록', async () => {
+    const drain = makeService();
+    const recorder = { record: jest.fn(), recordSkip: jest.fn() };
+    const scheduler = new EventBackfillScheduler(
+      drain,
+      recorder as unknown as CronRunRecorderService,
+    );
+
+    await expect(scheduler.drainBackfill(WEEKDAY)).resolves.toBe('WINDOW_SKIPPED');
+    expect(drain.drainOnce).not.toHaveBeenCalled();
+    expect(recorder.record).not.toHaveBeenCalled();
+    expect(recorder.recordSkip).toHaveBeenCalledWith(
+      CRON_JOB_KEYS.EVENT_BACKFILL_DRAIN,
+    );
+  });
+
+  it('주말(헤비 창)은 정상 RAN — 실제 드레인 수행', async () => {
+    const drain = makeService();
+    const scheduler = new EventBackfillScheduler(drain);
+    await expect(scheduler.drainBackfill(WEEKEND)).resolves.toBe('RAN');
+    expect(drain.drainOnce).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -171,7 +199,7 @@ describe('EventBackfillScheduler — 드레인 타임아웃(행 방지)', () => 
     const drain = neverResolvingDrain();
     const scheduler = new EventBackfillScheduler(drain);
 
-    const p = scheduler.drainBackfill();
+    const p = scheduler.drainBackfill(WEEKEND);
 
     // 타임아웃 직전 — 여전히 드레인 진행 중(락 유지, SKIPPED 로 후속 차단).
     await jest.advanceTimersByTimeAsync(DRAIN_TIMEOUT_MS - 1);
@@ -189,7 +217,7 @@ describe('EventBackfillScheduler — 드레인 타임아웃(행 방지)', () => 
     const { recorder, records } = makeRecorder();
     const scheduler = new EventBackfillScheduler(drain, recorder);
 
-    const p = scheduler.drainBackfill();
+    const p = scheduler.drainBackfill(WEEKEND);
     await jest.advanceTimersByTimeAsync(DRAIN_TIMEOUT_MS + 1);
 
     await expect(p).resolves.toBe('RAN');
@@ -209,11 +237,11 @@ describe('EventBackfillScheduler — 드레인 타임아웃(행 방지)', () => 
     } as unknown as EventBackfillDrainService & { drainOnce: jest.Mock };
     const scheduler = new EventBackfillScheduler(drain);
 
-    const first = scheduler.drainBackfill();
+    const first = scheduler.drainBackfill(WEEKEND);
     await jest.advanceTimersByTimeAsync(DRAIN_TIMEOUT_MS + 1);
     await expect(first).resolves.toBe('RAN');
 
-    await expect(scheduler.drainBackfill()).resolves.toBe('RAN');
+    await expect(scheduler.drainBackfill(WEEKEND)).resolves.toBe('RAN');
     expect(drain.drainOnce).toHaveBeenCalledTimes(2);
   });
 
@@ -224,7 +252,7 @@ describe('EventBackfillScheduler — 드레인 타임아웃(행 방지)', () => 
     } as unknown as EventBackfillDrainService & { drainOnce: jest.Mock };
     const scheduler = new EventBackfillScheduler(drain);
 
-    await expect(scheduler.drainBackfill()).resolves.toBe('RAN');
+    await expect(scheduler.drainBackfill(WEEKEND)).resolves.toBe('RAN');
     // race 정착 후 finally 가 setTimeout 을 clear — 잔여 타이머 0(누수 방지).
     expect(jest.getTimerCount()).toBe(0);
     expect(isDraining(scheduler)).toBe(false);

@@ -10,13 +10,15 @@ import {
 import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
 import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
 import { KST_TIMEZONE } from '../../common/time/kst';
+import { isHeavyCollectionWindow } from '../common/heavy-collection-window';
 
 /**
  * 드레인 사이클 결과 상태.
  * - RAN: 이번 사이클이 실제 드레인을 수행함(끝까지 진입, 성공/예외/타임아웃 무관).
  * - SKIPPED: 이전 드레인이 진행 중이라 겹침 가드가 즉시 차단함.
+ * - WINDOW_SKIPPED: DAR-503 헤비 수집 창 밖(주중) — 정책상 정지.
  */
-export type EventBackfillCycleStatus = 'RAN' | 'SKIPPED';
+export type EventBackfillCycleStatus = 'RAN' | 'SKIPPED' | 'WINDOW_SKIPPED';
 
 /**
  * 드레인 1회의 최대 허용 시간(ms) — 초과 시 강제 타임아웃 종료한다 (행(hang) 방지).
@@ -29,10 +31,13 @@ export type EventBackfillCycleStatus = 'RAN' | 'SKIPPED';
 export const DRAIN_TIMEOUT_MS = 10 * 60 * 1000; // 10분
 
 /**
- * EventBackfillScheduler (DAR-391) — 과거 공시 이벤트 추출 백필 일일 드레인 cron.
+ * EventBackfillScheduler (DAR-391) — 과거 공시 이벤트 추출 백필 드레인 cron.
  *
- * ★카덴스: 매일 03:00 KST(저트래픽·타 백필 크론과 분산). AI 백필(02:00)·내부자(03:30)와 비충돌.
- *   하루 한 배치(추출 200·파싱등록 200)만 진행 → 일자별로 rcpDt 분포를 과거로 점진 확장한다.
+ * ★카덴스: 매일 03:00 KST 발화(저트래픽·타 백필 크론과 분산). 단, DAR-503(라이브 파싱 기아
+ *   후속) 로 실제 드레인은 **주말 창**에만 수행한다 — 매일 자정(KST) 쿼터 리셋 직후 이 드레인의
+ *   문서 fetch 벌크 소비가 일일 벌크 상한을 소진해 낮의 라이브 문서 fetch 를 굶기던 것을 해소.
+ *   주중 사이클은 즉시 WINDOW_SKIPPED(드레인 미수행) + CronRunLog SKIPPED 기록(크론 생존 표면화).
+ *   한 배치(추출 200·파싱등록 200)씩 진행 → rcpDt 분포를 과거로 점진 확장한다.
  *   즉시 전량 처리 불가 — 진행성은 drainOnce 의 잔여 백로그(remaining*)로 정직 표기된다.
  *
  * ★멱등: drainOnce 의 추출(upsert rcpNo)·파싱등록(upsert)이 반복 무해.
@@ -56,9 +61,18 @@ export class EventBackfillScheduler {
     @Optional() private readonly recorder?: CronRunRecorderService,
   ) {}
 
-  /** 매일 03:00 KST 과거 공시 이벤트 추출 백필 드레인. */
+  /** 매일 03:00 KST 발화 — 주말 창에서만 과거 공시 이벤트 추출 백필 드레인(DAR-503). */
   @Cron('0 3 * * *', { timeZone: KST_TIMEZONE })
-  async drainBackfill(): Promise<EventBackfillCycleStatus> {
+  async drainBackfill(now: Date = new Date()): Promise<EventBackfillCycleStatus> {
+    // DAR-503: 헤비 수집 창(기본 주말) 밖이면 드레인하지 않고 SKIPPED 로 기록(크론 생존 표면화).
+    //   주중 03:00 문서 fetch 벌크 소비가 라이브 파싱 쿼터를 굶기지 못하게 한다.
+    if (!isHeavyCollectionWindow(now)) {
+      this.logger.log(
+        '이벤트 추출 백필 — 헤비 수집 창 밖(주중) 정지, 이번 사이클 WINDOW_SKIPPED(DAR-503)',
+      );
+      await this.recorder?.recordSkip(CRON_JOB_KEYS.EVENT_BACKFILL_DRAIN);
+      return 'WINDOW_SKIPPED';
+    }
     // 이전 사이클이 아직 진행 중이면 겹치지 않도록 즉시 스킵(중복 처리 방지).
     if (this.isDraining) {
       this.logger.warn(

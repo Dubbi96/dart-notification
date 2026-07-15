@@ -169,7 +169,12 @@ export class DisclosureDocumentsService {
     let rawHtmlS3Key: string | null = null;
 
     try {
-      const zipBuffer = await this.dartApiService.downloadDocument(rcpNo);
+      // 라이브 파싱 기아 후속: 비백필(라이브) 공시는 'live' 예약분으로 fetch — 야간 벌크
+      //   (이벤트 백필·지분·재무)가 벌크 상한을 소진해도 당일 공시 파싱은 굶지 않는다.
+      //   백필 공시는 기존대로 'bulk'(벌크 상한 게이트).
+      const zipBuffer = await this.dartApiService.downloadDocument(rcpNo, {
+        priority: disclosure.isBackfill ? 'bulk' : 'live',
+      });
       const extracted = await this.dartApiService.extractDocumentFromZip(
         zipBuffer,
         rcpNo,

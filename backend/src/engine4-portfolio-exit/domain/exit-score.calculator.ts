@@ -1,6 +1,12 @@
 // Exit Score Calculator — M8 (DAR-12)
 // AI 금지영역: Exit Score·트리거·5액션은 순수 Rule. AI 개입 0.
 // 판정 기준: 0~29: HOLD, 30~49: WATCH, 50~69: REDUCE, 70~89: EXIT, 90~100: BLOCK_REBUY(+EXIT)
+//
+// asOf 계약(보유일 계산, fix/exit-score-asof-clock): 시간초과 트리거가 쓰는 보유일은
+// **평가 시점(asOf)** 기준으로 센다. `tradingDaysSince`·`calcTimeExceededScore`·
+// `calculateExitScore` 는 마지막 인자로 `asOf: Date = new Date()` 를 받는다. 미전달 시
+// 기본값이 현재 벽시계라 라이브(장중 모니터·19:30 사이클) 동작은 무변경이고, 백테스트/
+// 리플레이는 과거 평가일을 주입해 '실제 오늘까지 보유'로 오판하는 룩어헤드를 차단한다.
 
 import {
   ExitAction,
@@ -215,12 +221,14 @@ export function calcThesisBreakScore(
 }
 
 // Trigger 4: 시간 초과 (timeExceededScore 0~10)
+// asOf: 보유일 계산 기준 시점(기본=현재 벽시계 — 라이브 무변경). 백테스트/리플레이는 평가일 주입.
 export function calcTimeExceededScore(
   pos: PositionSnapshot,
   thesis: ThesisSnapshot | null,
   tech: TechnicalSnapshot,
+  asOf: Date = new Date(),
 ): { score: number; triggered: boolean } {
-  const holdDays = tradingDaysSince(pos.entryDate);
+  const holdDays = tradingDaysSince(pos.entryDate, asOf);
   let score = 0;
 
   if (
@@ -411,8 +419,10 @@ export function countTradingDays(from: Date, to: Date): number {
 }
 
 // 진입 이후 경과 거래일(주말 제외 정확 계산).
-export function tradingDaysSince(entryDate: Date): number {
-  return countTradingDays(entryDate, new Date());
+// asOf: 평가 기준 시점(기본=현재 벽시계). 미전달 시 라이브 동작 보존, 과거 평가일 주입 시
+//   그 시점까지의 보유일만 세어 백테스트 룩어헤드(실제 오늘까지 보유 오판)를 차단한다.
+export function tradingDaysSince(entryDate: Date, asOf: Date = new Date()): number {
+  return countTradingDays(entryDate, asOf);
 }
 
 // 메인 계산 함수
@@ -422,13 +432,14 @@ export function calculateExitScore(
   thesis: ThesisSnapshot | null,
   disclosureEvents: DisclosureEvent[],
   insider: InsiderFlowSnapshot | null = null,
+  asOf: Date = new Date(),
 ): ExitScoreResult {
   const lossResult = calcLossRiskScore(pos, tech);
   // DAR-74: 보유 포지션의 시세 실데이터(pos·tech)를 넘겨 구조화 invalidConditions를
   // 기계 평가한다(테제 훼손 시 THESIS_INVALIDATED 트리거 → 재평가/알림).
   const thesisResult = calcThesisBreakScore(thesis, disclosureEvents, pos, tech);
   const chartResult = calcChartBreakScore(tech);
-  const timeResult = calcTimeExceededScore(pos, thesis, tech);
+  const timeResult = calcTimeExceededScore(pos, thesis, tech, asOf);
   const overweightResult = calcOverweightScore(pos, tech);
   const momentumBonus = calcPositiveMomentumBonus(tech);
 

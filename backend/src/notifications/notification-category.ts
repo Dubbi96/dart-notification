@@ -29,6 +29,8 @@ export const NOTIFICATION_CATEGORY: Record<NotificationType, NotificationCategor
   [NotificationType.SIGNAL]: 'signal',
   [NotificationType.EXIT]: 'signal',
   [NotificationType.THESIS_VIOLATED]: 'signal',
+  // 갭분석 W2: 급등락 알림(PRICE_MOVE) → '신호' 버킷 (스키마 토대 enum 정합 — 발송 로직은 별도 레인).
+  [NotificationType.PRICE_MOVE]: 'signal',
   [NotificationType.TRADE_ENTRY]: 'trade',
   [NotificationType.TRADE_EXIT]: 'trade',
   // DAR-473(P01): 리스크·운영 알림 → 'system' 버킷.
@@ -43,6 +45,8 @@ export const CATEGORY_TYPES: Record<NotificationCategory, NotificationType[]> = 
     NotificationType.SIGNAL,
     NotificationType.EXIT,
     NotificationType.THESIS_VIOLATED,
+    // 갭분석 W2: 급등락 알림(PRICE_MOVE) — enum 정합.
+    NotificationType.PRICE_MOVE,
   ],
   trade: [NotificationType.TRADE_ENTRY, NotificationType.TRADE_EXIT],
   // DAR-473(P01): 운영 버킷 — 리스크·운영 알림.

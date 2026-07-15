@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger, RequestMethod, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
@@ -26,7 +26,16 @@ async function bootstrap() {
   expressInstance.set('etag', false);
 
   // Global prefix — 운영 헬스 프로브(/health·/health/live)는 prefix 제외(probe 는 /api 미사용, DAR-111).
-  app.setGlobalPrefix('api', { exclude: ['health', 'health/live'] });
+  // W3b: 공개 웹 표면(랜딩 `/`·공유 페이지 `/share/:rcpNo`)도 prefix 제외 — 카톡 공유 링크가
+  // https://<host>/share/:rcpNo 로 직접 접근한다(HTML 라우트, /api 미사용).
+  app.setGlobalPrefix('api', {
+    exclude: [
+      'health',
+      'health/live',
+      { path: '/', method: RequestMethod.GET },
+      { path: 'share/:rcpNo', method: RequestMethod.GET },
+    ],
+  });
 
   // Security
   // 개발 환경(http)에서는 Helmet의 https 강제 헤더를 끈다.

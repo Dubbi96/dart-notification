@@ -280,6 +280,8 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
         SIGNAL: 1,
         EXIT: 0,
         THESIS_VIOLATED: 0,
+        // 갭분석 W2: 급등락 알림 타입 키.
+        PRICE_MOVE: 0,
         // DAR-424: 라이브 페이퍼 체결 알림 타입 키.
         TRADE_ENTRY: 0,
         TRADE_EXIT: 0,
@@ -306,6 +308,8 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
             NotificationType.SIGNAL,
             NotificationType.EXIT,
             NotificationType.THESIS_VIOLATED,
+            // 갭분석 W2: 급등락 알림 — 신호 버킷.
+            NotificationType.PRICE_MOVE,
           ],
         },
       });

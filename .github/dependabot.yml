@@ -1,0 +1,32 @@
+# W17 보안 태세 — Dependabot 의존성 업데이트 (npm 주간, backend/mobile 2개 디렉터리, PR 상한 5)
+# 주의: 자동 머지 금지 — PR 은 regression-ci(tsc/jest/lint/번들 + 보안 잡) 하드 게이트를 통과해야 하며,
+# Expo/RN peer-deps 특성상 mobile 메이저 범프는 사람이 직접 검토한다(--legacy-peer-deps 운용).
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Seoul"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+      - "backend"
+
+  - package-ecosystem: "npm"
+    directory: "/mobile"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Seoul"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+      - "mobile"

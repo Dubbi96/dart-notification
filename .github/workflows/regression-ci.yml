@@ -3,6 +3,13 @@
 # PR·main push마다 백엔드 핵심 도메인(신호·포트폴리오·페이퍼심·dedup) 스위트 +
 # 전체 jest + tsc, 모바일 타입체크/lint/Android 번들을 하드 게이트로 강제한다.
 #
+# W17 보안 잡 2종:
+#  - security-audit: backend/mobile npm audit(--omit=dev, high/critical)를
+#    allowlist(.audit-allowlist.json) 게이트(scripts/audit-gate.mjs) 경유로 검사.
+#    수정 불가 전이 의존성(Expo/NestJS 메이저 대기)은 사유와 함께 수용하고,
+#    "새로 유입되는" high/critical 만 하드 실패시킨다.
+#  - secret-scan: gitleaks 로 커밋 히스토리 시크릿 스캔(개인 리포 무료).
+#
 # compose-break 방지: 개별 PR이 깨끗해도 머지 상호작용으로 main이 tsc-red가 되는
 # 사례(DAR-167 선례)를 PR 단계에서 차단한다.
 #
@@ -68,3 +75,33 @@ jobs:
         run: npm run lint
       - name: Android 번들 (expo export)
         run: npm run bundle:android
+
+  # W17: npm audit allowlist 게이트 — allowlist 밖의 high/critical advisory 만 실패.
+  # node_modules 설치 불필요(npm audit 은 package-lock.json 기반) → npm ci 생략으로 잡 시간 절약.
+  security-audit:
+    name: 보안 감사(npm audit allowlist 게이트)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: 게이트 스크립트 self-test
+        run: node scripts/audit-gate.mjs --self-test
+      - name: 백엔드 npm audit 게이트 (--omit=dev · high/critical · allowlist 외 실패)
+        run: node scripts/audit-gate.mjs backend
+      - name: 모바일 npm audit 게이트 (--omit=dev · high/critical · allowlist 외 실패)
+        run: node scripts/audit-gate.mjs mobile
+
+  # W17: 시크릿 스캔 — gitleaks (개인 소유 리포는 라이선스 키 불필요·무료).
+  # fetch-depth: 0 — PR 커밋 히스토리 전체를 스캔 대상으로 확보.
+  secret-scan:
+    name: 시크릿 스캔(gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

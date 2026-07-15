@@ -710,6 +710,116 @@ describe('NotifyConsumer (DAR-85)', () => {
     });
   });
 
+  // ── PRICE_MOVE (갭분석 W7) ─────────────────────────────────────────────────
+  describe('PRICE_MOVE — 관심종목 급변동(갭분석 W7)', () => {
+    const priceMoveJob = {
+      refId: '005930-20260716',
+      corpCode: 'C001',
+      stockCode: '005930',
+      corpName: '알파전자',
+      tradeDate: '20260716',
+      changePct: 6.2,
+      price: 10_620,
+      prevClose: 10_000,
+      title: '알파전자 급변동 +6.2%',
+      body: '전일 종가 대비 +6.2% · 오늘 공시 2건 · 준실시간(최대 5분 지연)',
+      deepLink: '/company/C001',
+      newsUrl: 'https://finance.naver.com/item/news.naver?code=005930',
+    };
+
+    it('★기본 OFF: 설정행 미존재 watcher 는 인박스도 생략(스팸 방지)', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.watchList.findMany.mockResolvedValue([{ userId: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([]); // 설정행 없음 = 기본 OFF
+
+      await consumer.process(job(NOTIFY_JOB.PRICE_MOVE, priceMoveJob));
+
+      expect(notifications.createNotificationIfAbsent).not.toHaveBeenCalled();
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('priceMovePushEnabled=false → 인박스·푸시 모두 생략', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.watchList.findMany.mockResolvedValue([{ userId: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: true, priceMovePushEnabled: false },
+      ]);
+
+      await consumer.process(job(NOTIFY_JOB.PRICE_MOVE, priceMoveJob));
+
+      expect(notifications.createNotificationIfAbsent).not.toHaveBeenCalled();
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('priceMovePushEnabled=true → 인박스 기록 + 푸시 발송(제목·본문·딥링크·뉴스URL 동봉)', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.watchList.findMany.mockResolvedValue([{ userId: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: true, priceMovePushEnabled: true },
+      ]);
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+
+      await consumer.process(job(NOTIFY_JOB.PRICE_MOVE, priceMoveJob));
+
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'u1',
+          type: NotificationType.PRICE_MOVE,
+          refId: '005930-20260716',
+          title: priceMoveJob.title,
+          body: priceMoveJob.body,
+          deepLink: '/company/C001',
+        }),
+      );
+      expect(expoPush.sendPushNotifications).toHaveBeenCalledTimes(1);
+      const messages = expoPush.sendPushNotifications.mock.calls[0][0];
+      expect(messages[0].data).toMatchObject({
+        deepLink: '/company/C001',
+        type: NotificationType.PRICE_MOVE,
+        refId: '005930-20260716',
+        stockCode: '005930',
+        newsUrl: priceMoveJob.newsUrl,
+      });
+    });
+
+    it('master isEnabled=false 면 토글 ON 이어도 인박스만(푸시 미발송)', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.watchList.findMany.mockResolvedValue([{ userId: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: false, priceMovePushEnabled: true },
+      ]);
+
+      await consumer.process(job(NOTIFY_JOB.PRICE_MOVE, priceMoveJob));
+
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledTimes(1);
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('멱등: created=false(이미 통지)면 푸시 재발송 스킵 — 종목당 1일 1회 보장', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.watchList.findMany.mockResolvedValue([{ userId: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: true, priceMovePushEnabled: true },
+      ]);
+      notifications.createNotificationIfAbsent.mockResolvedValue({
+        notification: { id: 'n1' },
+        created: false,
+      });
+
+      await consumer.process(job(NOTIFY_JOB.PRICE_MOVE, priceMoveJob));
+
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('watcher 0명 → graceful no-op(설정 조회도 생략)', async () => {
+      const { consumer, prisma, notifications } = makeDeps();
+      prisma.watchList.findMany.mockResolvedValue([]);
+      await consumer.process(job(NOTIFY_JOB.PRICE_MOVE, priceMoveJob));
+      expect(prisma.notificationSettings.findMany).not.toHaveBeenCalled();
+      expect(notifications.createNotificationIfAbsent).not.toHaveBeenCalled();
+    });
+  });
+
   describe('포맷 헬퍼 (DAR-424)', () => {
     it('formatKrw — 천단위 구분·반올림', () => {
       expect(formatKrw(9500000)).toBe('9,500,000');

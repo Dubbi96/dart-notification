@@ -36,10 +36,13 @@ export const emptyStateCopy = {
     title: '로그인하고 알림을 받아보세요',
     actionLabel: '로그인',
   },
-  // 알림 피드 (알림 없음)
+  // 알림 피드 (알림 없음) — 갭분석 W7·W6 포지셔닝: 공시온은 DART 1차 원문 기반(뉴스는
+  // 시차·누락 있는 2차 채널). 이 키만 수정(W10 레인과 파일 공유 — 다른 키 불가침).
   notificationsEmpty: {
     icon: 'bell-off',
     title: '알림이 아직 없어요. 공시가 발생하면 바로 알려드릴게요',
+    description:
+      '공시온 알림은 DART 1차 원문 기반이에요. 뉴스는 시차·누락이 있는 2차 채널이라, 원문 공시를 기준으로 정확하게 알려드려요',
   },
   // 신호 피드 (관심기업 없음)
   signalsWatchlistEmpty: {

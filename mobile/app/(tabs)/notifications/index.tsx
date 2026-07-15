@@ -3,6 +3,7 @@ import {
   View,
   Text,
   FlatList,
+  Linking,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -25,6 +26,7 @@ import { useNotifications, useMarkAsRead, useMarkAllAsRead } from '@hooks/useNot
 import { getTypeLabel } from '@utils/disclosureType';
 import { resolveDeepLink } from '@utils/deeplink';
 import { stripSourceEmoji } from '@utils/notificationSource';
+import { stockCodeFromPriceMoveRefId, naverStockNewsUrl } from '@utils/priceMoveNews';
 import { relativeTime } from '@utils/datetime';
 
 import type {
@@ -51,6 +53,8 @@ const NOTIFICATION_TYPE_META: Record<NotificationType, TypeMeta> = {
   // DAR-473(P01): 리스크(경고 아이콘·error)·운영(설정 아이콘·warning) 알림.
   RISK_ALERT: { icon: 'shield-off', colorKey: 'error', label: '리스크' },
   OPS_ALERT: { icon: 'settings', colorKey: 'warning', label: '운영' },
+  // 갭분석 W7: 관심종목 급변동(전일 대비 ±5%·준실시간) — 시세성 알림(warning).
+  PRICE_MOVE: { icon: 'activity', colorKey: 'warning', label: '급변동' },
 };
 const getTypeMeta = (type: NotificationType): TypeMeta =>
   NOTIFICATION_TYPE_META[type] ?? NOTIFICATION_TYPE_META.DISCLOSURE;
@@ -175,6 +179,15 @@ function NotificationRowBase({ item, onPress }: NotificationRowProps) {
 
   const handlePress = useCallback(() => onPress(item), [onPress, item]);
 
+  // 갭분석 W7·W6(d): 급변동(PRICE_MOVE) 행에 네이버금융 종목 뉴스 링크아웃(외부 브라우저 전용,
+  // 수집·저장 0). refId(`<종목코드>-<YYYYMMDD>`)에서 종목코드를 파싱 — 형식 불일치면 미노출.
+  const newsStockCode =
+    item.type === 'PRICE_MOVE' ? stockCodeFromPriceMoveRefId(item.refId) : null;
+  const handleOpenNews = useCallback(() => {
+    if (!newsStockCode) return;
+    void Linking.openURL(naverStockNewsUrl(newsStockCode));
+  }, [newsStockCode]);
+
   // 카드 그룹핑: 행을 단일 단위로 읽기(타입·내용·시각·읽음 상태 합성).
   const a11yLabel = [
     meta.label,
@@ -218,6 +231,18 @@ function NotificationRowBase({ item, onPress }: NotificationRowProps) {
         <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
           {sentAtLabel}
         </Text>
+        {newsStockCode ? (
+          <TouchableOpacity
+            style={styles.newsLinkRow}
+            onPress={handleOpenNews}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="link"
+            accessibilityLabel="네이버금융에서 종목 뉴스 보기, 외부 브라우저로 열림"
+          >
+            <Feather name="external-link" size={12} color={colors.primary} />
+            <Text style={[typo.small, { color: colors.primary }]}>네이버금융 뉴스 보기</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
       <Feather name="chevron-right" size={18} color={colors.textTertiary} />
     </TouchableOpacity>
@@ -553,5 +578,13 @@ const styles = StyleSheet.create({
   notificationContent: {
     flex: 1,
     marginRight: spacing.sm,
+  },
+  // 갭분석 W7·W6(d): 급변동 행의 네이버금융 뉴스 링크아웃(외부 브라우저) — hitSlop 으로 44pt 확보.
+  newsLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+    alignSelf: 'flex-start',
   },
 });

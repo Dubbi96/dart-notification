@@ -34,6 +34,9 @@ export interface NotificationSettings {
   tradePushEnabled: boolean;
   // DAR-473(P01): 리스크·운영 알림 토글(기본 ON). OFF면 인박스·푸시 모두 생략.
   opsPushEnabled: boolean;
+  // 갭분석 W7: 관심종목 급변동 알림 토글(★기본 OFF). OFF면 인박스·푸시 모두 생략.
+  //   전일 종가 대비 ±5%·준실시간(최대 5분 지연).
+  priceMovePushEnabled: boolean;
   updatedAt: string;
 }
 

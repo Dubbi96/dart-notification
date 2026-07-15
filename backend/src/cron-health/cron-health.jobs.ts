@@ -90,6 +90,10 @@ export const CRON_JOB_KEYS = {
   // 갭분석 W16: 공매도 일별 EOD 수집 — 공매도 거래량·거래대금을 ShortSellingDaily 에 축적
   //   (평일 07:40·20:00·21:30, publishedDate=T+2 영업일 lookahead 불가침). 위와 동일 근거로 노출.
   SHORT_SELLING_COLLECT: 'market.short-selling-collect',
+  // 갭분석 W7: 관심종목 급변동 감시 — 장중 5분 틱(±5% 판정→PRICE_MOVE 알림). 스킵 틱(장외·
+  //   킬스위치 PRICE_MOVE_ALERT_ENABLED=false·겹침)은 미기록 — 실제 평가가 돈 틱만 남긴다.
+  //   조회·알림 계층 전용(매매 루프 무접점)이라 freshness 안전망 등록은 하지 않는다(비임계).
+  PRICE_MOVE_ALERT: 'market.price-move-alert',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];

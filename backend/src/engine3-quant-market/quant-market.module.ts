@@ -5,6 +5,7 @@ import { EventStudyModule } from './event-study/event-study.module';
 import { BuySignalModule } from './buy-signal/buy-signal.module';
 import { BacktestModule } from './backtest/backtest.module';
 import { SignalGenerationModule } from './signal-generation/signal-generation.module';
+import { PriceMoveAlertModule } from './price-move-alert/price-move-alert.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SignalsController } from './signals/signals.controller';
 import { SignalsService } from './signals/signals.service';
@@ -18,11 +19,11 @@ import { SignalsService } from './signals/signals.service';
  * 설계: docs/roadmap/cc-engine-architecture.md §3·§4-5, phase-05, phase-10
  */
 @Module({
-  imports: [MarketDataModule, IndicatorsModule, EventStudyModule, BuySignalModule, BacktestModule, SignalGenerationModule, PrismaModule],
+  imports: [MarketDataModule, IndicatorsModule, EventStudyModule, BuySignalModule, BacktestModule, SignalGenerationModule, PriceMoveAlertModule, PrismaModule],
   controllers: [SignalsController],
   providers: [SignalsService],
   // NestJS는 import한 모듈의 provider를 개별 re-export 불가 → 모듈 자체를 re-export한다.
   // (각 서브모듈이 자신의 서비스를 exports하므로, 이 모듈을 import하면 그 서비스들을 주입받을 수 있다.)
-  exports: [MarketDataModule, IndicatorsModule, EventStudyModule, BuySignalModule, BacktestModule, SignalGenerationModule],
+  exports: [MarketDataModule, IndicatorsModule, EventStudyModule, BuySignalModule, BacktestModule, SignalGenerationModule, PriceMoveAlertModule],
 })
 export class QuantMarketModule {}

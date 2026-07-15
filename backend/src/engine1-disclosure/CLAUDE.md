@@ -7,7 +7,7 @@
 
 | 하위 영역 | 현재 모듈 | 책임 |
 |---|---|---|
-| DART 클라이언트 | `dart-api/` | DART OpenAPI 호출 + **일일 쿼터 가드(DAR-445)**: 예산 19,000콜 중 라이브 목록수집 예약분 2,000을 보호, 벌크(문서 fetch·백필·재무)는 상한 17,000에서 사전 차단 — 벌크가 라이브 수집을 굶기지 못함 |
+| DART 클라이언트 | `dart-api/` | DART OpenAPI 호출 + **일일 쿼터 가드 3단 분할(DAR-445 → 2026-07 라이브 파싱 기아 후속)**: 예산 19,000콜 = 라이브 목록수집 예약 2,000 + 라이브(비백필) 문서 fetch 예약 3,000 + 벌크 상한 14,000. `downloadDocument(rcpNo, { priority: 'live'\|'bulk' })` — 벌크(백필 문서·지분·재무)는 14,000에서, 라이브 문서는 17,000에서 사전 차단. 야간 벌크가 라이브 수집·파싱 둘 다 굶기지 못함 |
 | 수집(collection) | `scheduler/` | DART 폴링(평일 08~18시 10분 간격, KST)·중복락·재시도, 투자이벤트 5종 1차 게이트(보고서명 정규식), 과거 연속 백필(continuous-backfill, 알림 스킵), `DisclosureCollectionLog` |
 | 원문 파싱(parsing) | `disclosure-documents/` | rcpNo 원문 fetch, HTML/XML/표 추출(`parsers/`), 정정공시 감지·diff(`mappers/`), 파싱 재시도 claim 스케줄러, 정형 사실 추출(`facts/` → `DartFiledFact`), rawText 스토리지 오프로드(`storage/`), `DisclosureDocument` |
 | 이벤트 추출(event-extraction) | `disclosure-events/` | report_nm/본문→eventType 분류(event-classifier) + **수치 추출기 13종**(`extractors/`: 공급계약·자사주·배당·유증·CB/BW·실적·소송·감사의견·거래정지·상폐위험·최대주주변경·5%보유·계약해지), trade-relevance 판정, 실패 이벤트 복구 스케줄러, `DisclosureEvent` |
@@ -41,4 +41,4 @@
 `npx tsc --noEmit` 0 · `npm test` 그린(M1·M2 extractor 스펙 포함) · 자연키 FK 정합 · 문서 동기화.
 
 ---
-*최종 수정: 2026-07-02*
+*최종 수정: 2026-07-15*

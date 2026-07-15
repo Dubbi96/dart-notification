@@ -59,5 +59,14 @@ export class UsersController {
   async leaveProWaitlist(@CurrentUser('id') userId: string) {
     const status = await this.usersService.leaveProWaitlist(userId);
     return { success: true, data: status };
+  @Delete('me')
+  @ApiOperation({
+    summary: '계정 삭제(회원 탈퇴)',
+    description:
+      '계정과 모든 개인 데이터(관심기업·알림·저장 공시·포트폴리오 등)를 영구 삭제하고 refresh 토큰을 전부 폐기한다. Play 스토어 계정 삭제 요구사항.',
+  })
+  async deleteMe(@CurrentUser('id') userId: string) {
+    const result = await this.usersService.deleteMe(userId);
+    return { success: true, data: result };
   }
 }

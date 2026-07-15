@@ -15,6 +15,7 @@ export const portfolioKeys = {
   thesis: (positionId: string) =>
     [...PORTFOLIO_KEY, 'position', positionId, 'thesis'] as const,
   paper: () => [...PORTFOLIO_KEY, 'paper'] as const,
+  briefing: () => [...PORTFOLIO_KEY, 'briefing', 'today'] as const,
 };
 
 // UXR-13 P-5(DAR-471 접힘 게이팅과 동일 사상): 포트폴리오 화면은 6개 서브탭이 한 화면을
@@ -74,6 +75,21 @@ export function usePaperPortfolio(options?: PortfolioQueryOptions) {
     queryKey: portfolioKeys.paper(),
     queryFn: () => portfolioService.getPaperPortfolio(),
     enabled: options?.enabled ?? true,
+    retry: 1,
+  });
+}
+
+/**
+ * W14 오늘의 브리핑 — 당일 이벤트·일간 손익·점검 포지션 결합 조회.
+ * 전 섹션 0건이면 data 는 null(화면은 섹션 자체를 그리지 않는다 — 0건 억제 계약).
+ * 보조 표면: 당일 데이터라 staleTime 5분, 재시도 1회로 소음 억제.
+ */
+export function useTodayBriefing(options?: PortfolioQueryOptions) {
+  return useQuery({
+    queryKey: portfolioKeys.briefing(),
+    queryFn: () => portfolioService.getTodayBriefing(),
+    enabled: options?.enabled ?? true,
+    staleTime: 5 * 60 * 1000,
     retry: 1,
   });
 }

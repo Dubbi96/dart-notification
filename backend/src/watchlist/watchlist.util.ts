@@ -13,7 +13,28 @@
  * 조회 직후(markViewed 가 커서를 최신 rcpNo 로 고정)에는 배지가 0 으로 떨어진다.
  */
 
+import { UserTier } from '@prisma/client';
+
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/**
+ * 갭분석 W1 — 엔티틀먼트 게이트: 관심기업 한도를 티어별로 정의한다.
+ * 기존 MAX_WATCHLIST_COUNT=30 하드코딩을 User.tier 조회 기반으로 전환하는 소켓.
+ * FREE=30(현행 유지), PRO=200. 결제·가격·티어 변경 API는 만들지 않는다 —
+ * 티어 부여는 당분간 서버 config(수동)로만 이뤄진다.
+ */
+export const WATCHLIST_LIMIT_BY_TIER: Record<UserTier, number> = {
+  [UserTier.FREE]: 30,
+  [UserTier.PRO]: 200,
+};
+
+/**
+ * 티어의 관심기업 한도를 반환한다. 사용자 행이 없거나 티어가 비어 있으면
+ * 보수적으로 FREE 한도(30)로 폴백한다(과거 행·경합 삭제 대비).
+ */
+export function watchlistLimitForTier(tier: UserTier | null | undefined): number {
+  return WATCHLIST_LIMIT_BY_TIER[tier ?? UserTier.FREE];
+}
 
 /**
  * 아직 한 번도 조회하지 않은(lastViewedRcpNo 부재) 항목의 기준 커서.

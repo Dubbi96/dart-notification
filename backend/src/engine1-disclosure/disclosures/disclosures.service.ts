@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { QueryDisclosureDto, SearchDisclosureDto } from './dto/query-disclosure.dto';
@@ -11,8 +11,63 @@ import {
 } from './search.util';
 
 @Injectable()
-export class DisclosuresService {
+export class DisclosuresService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * 광역 목록 count 캐시.
+   * - Disclosure 수백만 행(백필 포함)에서 무필터(또는 유형만) COUNT는 seq scan —
+   *   콜드 캐시에서 수 초~수십 초로 모바일 클라이언트 타임아웃(10s)을 넘겨
+   *   공시 피드가 간헐적으로 "업데이트 안 됨"으로 보인다.
+   * - 좁은 필터(corpCode·키워드·기간·관심목록)는 인덱스가 커버하므로 정확 count 유지.
+   * - 만료 후 첫 요청은 stale 값을 즉시 반환하고 백그라운드에서 갱신한다 —
+   *   프리웜 이후로는 어떤 요청도 광역 COUNT를 기다리지 않는다.
+   */
+  private static readonly BROAD_COUNT_TTL_MS = 10 * 60 * 1000;
+  private readonly broadCountCache = new Map<string, { total: number; expiresAt: number }>();
+  private readonly broadCountRefreshing = new Set<string>();
+
+  onModuleInit() {
+    // 부팅 직후 비차단 프리웜 — 재기동 후 첫 앱 오픈이 콜드 COUNT를 만나지 않게 한다.
+    this.refreshBroadCountInBackground({}, DisclosuresService.broadCountKey(undefined));
+  }
+
+  private static broadCountKey(disclosureType?: string): string {
+    return `type:${disclosureType ?? '*'}`;
+  }
+
+  private async countBroadCached(where: Prisma.DisclosureWhereInput, key: string): Promise<number> {
+    const hit = this.broadCountCache.get(key);
+    if (hit) {
+      if (hit.expiresAt <= Date.now()) {
+        this.refreshBroadCountInBackground(where, key);
+      }
+      return hit.total;
+    }
+    const total = await this.prisma.disclosure.count({ where });
+    this.broadCountCache.set(key, {
+      total,
+      expiresAt: Date.now() + DisclosuresService.BROAD_COUNT_TTL_MS,
+    });
+    return total;
+  }
+
+  private refreshBroadCountInBackground(where: Prisma.DisclosureWhereInput, key: string): void {
+    if (this.broadCountRefreshing.has(key)) {
+      return;
+    }
+    this.broadCountRefreshing.add(key);
+    void this.prisma.disclosure
+      .count({ where })
+      .then((total) => {
+        this.broadCountCache.set(key, {
+          total,
+          expiresAt: Date.now() + DisclosuresService.BROAD_COUNT_TTL_MS,
+        });
+      })
+      .catch(() => undefined) // 갱신 실패 시 다음 만료 요청이 재시도한다.
+      .finally(() => this.broadCountRefreshing.delete(key));
+  }
 
   async findAll(query: QueryDisclosureDto, userId?: string) {
     const { page = 1, limit = 20, corpCode, disclosureType, watchlistOnly, keywords, from, to } = query;
@@ -46,6 +101,10 @@ export class DisclosuresService {
       ...(period && { rcpDt: period }),
     };
 
+    // 광역 쿼리(무필터 또는 유형만) = 홈 피드 기본 경로 — 전체 테이블 COUNT라 캐시 대상.
+    const isBroadQuery =
+      !corpCode && !watchlistCorpCodes && !(keywords && keywords.length > 0) && !period;
+
     const [items, total] = await Promise.all([
       this.prisma.disclosure.findMany({
         where,
@@ -53,7 +112,9 @@ export class DisclosuresService {
         take: limit,
         orderBy: [{ rcpDt: 'desc' }, { rcpNo: 'desc' }],
       }),
-      this.prisma.disclosure.count({ where }),
+      isBroadQuery
+        ? this.countBroadCached(where, DisclosuresService.broadCountKey(disclosureType))
+        : this.prisma.disclosure.count({ where }),
     ]);
 
     return {
@@ -233,6 +294,8 @@ export class DisclosuresService {
     }
 
     // 최신순(기본): DB 정렬 + 페이지네이션.
+    // 빈 검색어 + 필터 없음 = findAll 광역 경로와 동일한 전체 COUNT → 같은 캐시를 공유한다.
+    const isBroadQuery = tokens.length === 0 && !disclosureType && !period;
     const [items, total] = await Promise.all([
       this.prisma.disclosure.findMany({
         where,
@@ -240,7 +303,9 @@ export class DisclosuresService {
         take: limit,
         orderBy: [{ rcpDt: 'desc' }, { rcpNo: 'desc' }],
       }),
-      this.prisma.disclosure.count({ where }),
+      isBroadQuery
+        ? this.countBroadCached(where, DisclosuresService.broadCountKey(disclosureType))
+        : this.prisma.disclosure.count({ where }),
     ]);
 
     return {

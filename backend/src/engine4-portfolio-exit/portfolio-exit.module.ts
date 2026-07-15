@@ -24,11 +24,13 @@ import { PortfolioController } from './portfolio/portfolio.controller';
 import { PortfolioService } from './portfolio/portfolio.service';
 import { PositionThesisController } from './portfolio/position-thesis.controller';
 import { PositionThesisService as PortfolioPositionThesisService } from './portfolio/position-thesis.service';
+import { BriefingController } from './portfolio/briefing.controller';
+import { BriefingService } from './portfolio/briefing.service';
 import { NotificationProducerModule } from '../notifications/notification-producer.module';
 
 @Module({
   imports: [PrismaModule, NotificationProducerModule],
-  controllers: [PortfolioController, PositionThesisController],
+  controllers: [PortfolioController, PositionThesisController, BriefingController],
   providers: [
     PositionThesisService,
     // 영속화 어댑터 — DI 토큰을 Prisma 구현체로 바인딩 (InMemory → Prisma 교체)
@@ -40,6 +42,8 @@ import { NotificationProducerModule } from '../notifications/notification-produc
     ExitEngineService,
     PortfolioService,
     PortfolioPositionThesisService,
+    // W14 오늘의 브리핑 — LLM $0 룰 기반 결합 표면(읽기 전용, 매매 경로 무접촉).
+    BriefingService,
   ],
   exports: [
     PositionThesisService,

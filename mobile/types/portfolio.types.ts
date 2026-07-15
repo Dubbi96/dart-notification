@@ -129,3 +129,63 @@ export interface PaperPortfolio {
   /** 모의투자 시작 여부 */
   started: boolean;
 }
+
+// ====================================
+// 오늘의 브리핑 (W14) — GET /portfolio/briefing/today
+// LLM $0 룰 기반 결합 표면: 수치·문구 전부 서버 룰 렌더링(신규 AI 호출 0).
+// 계약: 섹션별 0건이면 해당 섹션 null, 전 섹션 0건이면 응답 data 자체가 null.
+// ====================================
+
+/** 브리핑 이벤트 항목의 종목 출처 — 보유 포지션 vs 관심종목. */
+export type BriefingSourceType = 'POSITION' | 'WATCHLIST';
+
+/** 당일 공시 이벤트 1건 — 공시 상세(/disclosure/{rcpNo}) 딥링크 대상. */
+export interface BriefingEventItem {
+  rcpNo: string;
+  corpCode: string;
+  corpName: string;
+  reportName: string;
+  eventType: string;
+  polarity: string;
+  /** 캐시된 AI 요약 1줄(공시 카드 요약 재사용). 캐시 없으면 null. */
+  summaryLine: string | null;
+  source: BriefingSourceType;
+}
+
+/** 일간 손익 — PositionDailySnapshot 최신·직전 시점 차분(서버 집계). */
+export interface BriefingPnlSection {
+  /** 데이터 기준 거래일 'YYYYMMDD' (freshness 정직 표기). */
+  snapshotDate: string;
+  dailyPnl: number;
+  /** 분모(전일 평가금액) 산출 불가 시 null — 0% 위장 금지. */
+  dailyPnlPct: number | null;
+  positionCount: number;
+}
+
+/** 점검 필요 포지션 1건 — 포지션 상세 딥링크 대상. */
+export interface BriefingCheckItem {
+  positionId: string;
+  portfolioId: string;
+  corpCode: string;
+  corpName: string;
+  thesisStatus: ThesisStatus;
+  exitScore: number | null;
+  exitAction: string | null;
+  /** ExitSignal 점검 시각(ISO). thesis 사유만이면 null. */
+  checkedAt: string | null;
+  /** 점검 이유 1줄(서버 룰 렌더링). */
+  reason: string;
+}
+
+/** 오늘의 브리핑 응답. */
+export interface TodayBriefing {
+  /** KST 기준일 'YYYY-MM-DD'. */
+  dateKst: string;
+  /** 조립 시각(ISO) — 데이터 기준 시각. */
+  asOf: string;
+  events: BriefingEventItem[] | null;
+  dailyPnl: BriefingPnlSection | null;
+  checks: BriefingCheckItem[] | null;
+  /** 리스크 스냅샷 — 화면에선 PortfolioRiskBadge가 전담하므로 브리핑 섹션은 미렌더(중복 금지). */
+  risk: PortfolioRiskSnapshot | null;
+}

@@ -18,6 +18,7 @@ import { StyleComparisonSection } from '@components/portfolio/StyleComparisonSec
 import { StrategyComparisonSection } from '@components/portfolio/StrategyComparisonSection';
 import { PersonaTrackSection } from '@components/portfolio/PersonaTrackSection';
 import { TodayCheckSlot } from '@components/portfolio/TodayCheckSlot';
+import { TodayBriefingSection } from '@components/portfolio/TodayBriefingSection';
 import { PositionSearchBar } from '@components/portfolio/PositionSearchBar';
 import { PortfolioRiskBadge } from '@components/portfolio/PortfolioRiskBadge';
 import { AutoTradingEntryButton } from '@components/portfolio/AutoTradingEntryButton';
@@ -26,6 +27,7 @@ import {
   usePortfolioSummary,
   usePortfolioRisk,
   usePaperPortfolio,
+  useTodayBriefing,
 } from '@hooks/usePortfolio';
 import { pnlColor, formatPnlPercent } from '@utils/signalDisplay';
 import { currentPortfolioBasisLabel } from '@utils/marketQuoteDisplay';
@@ -138,6 +140,9 @@ export default function PortfolioScreen() {
   const positionsQuery = usePositions({ enabled: isAuthenticated && isLiveTab });
   const summaryQuery = usePortfolioSummary({ enabled: isAuthenticated && isLiveTab });
   const riskQuery = usePortfolioRisk({ enabled: isAuthenticated && isLiveTab });
+  // W14 오늘의 브리핑 — 실전 탭에서만 발화(P-5 게이팅 사상 동일). 보조 표면이라
+  // 로딩/에러는 무음(섹션 미표시)이고, 실패 시 아래 TodayCheckSlot 폴백이 점검 동선을 보존한다.
+  const briefingQuery = useTodayBriefing({ enabled: isAuthenticated && isLiveTab });
   const paperQuery = usePaperPortfolio({ enabled: isAuthenticated && subTab === 'paper' });
 
   const handlePositionPress = useCallback((position: Position) => {
@@ -208,6 +213,11 @@ export default function PortfolioScreen() {
     ).length;
   }, [positionsQuery.data]);
 
+  // W14 통합 판단(중복 정보 반복 금지): 브리핑이 같은 소스(ExitSignal·thesisStatus)의 점검
+  // 섹션을 이미 그리면 TodayCheckSlot 토글은 숨긴다 — 점검 표면은 화면당 1개.
+  // 브리핑 실패/부재 시에는 기존 토글이 그대로 폴백(회귀 0).
+  const briefingCoversChecks = (briefingQuery.data?.checks?.length ?? 0) > 0;
+
   const renderLive = () => {
     if (positionsQuery.isLoading) return <SkeletonList variant="buyScore" />;
     if (positionsQuery.isError) {
@@ -247,6 +257,7 @@ export default function PortfolioScreen() {
             positionsQuery.refetch();
             summaryQuery.refetch();
             riskQuery.refetch();
+            briefingQuery.refetch();
           }}
           ListHeaderComponent={
           <View style={styles.liveHeader}>
@@ -322,8 +333,14 @@ export default function PortfolioScreen() {
               </Surface>
             ) : null}
 
-            {/* DAR-356: '오늘 점검할 포지션'은 요약 아래 세컨더리 + 기본 접힘. 글랜스 존을 덮지 않는다. */}
-            {todayCheckCount > 0 ? (
+            {/* W14 오늘의 브리핑 — 요약(글랜스 존, DAR-356) 바로 아래 상단 배치.
+                내 종목 당일 이벤트·일간 손익·점검 포지션 결합 표면(각 항목 딥링크).
+                섹션 0건·브리핑 null·로딩·에러는 전부 무렌더(0건 억제 — 소음 0). */}
+            <TodayBriefingSection briefing={briefingQuery.data} />
+
+            {/* DAR-356: '오늘 점검할 포지션'은 요약 아래 세컨더리 + 기본 접힘. 글랜스 존을 덮지 않는다.
+                W14: 브리핑이 점검 섹션(같은 소스)을 그리는 동안은 숨김 — 점검 표면 이중 노출 방지. */}
+            {todayCheckCount > 0 && !briefingCoversChecks ? (
               <View>
                 <TouchableOpacity
                   style={[styles.collapseToggle, { borderColor: colors.borderLight, backgroundColor: colors.surface }]}

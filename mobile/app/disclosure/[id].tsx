@@ -31,6 +31,7 @@ import { useDisclosureDetail, useDisclosureEvent } from '@hooks/useDisclosures';
 import { useCheckSaved, useSaveDisclosure, useUnsaveDisclosure } from '@hooks/useSavedDisclosures';
 import { useWatchlist, useAddToWatchlist, useRemoveFromWatchlist } from '@hooks/useWatchlist';
 import { useRequireAuth } from '@hooks/useRequireAuth';
+import { buildDisclosureShareUrl } from '@services/shareLink';
 import { isOfflineMutationBlockedError } from '@utils/offlineMutation';
 import {
   getTypeStyle,
@@ -448,7 +449,8 @@ export default function DisclosureDetailScreen() {
         <Button
           title="공유"
           onPress={() => {
-            const url = `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${disclosure.rcpNo}`;
+            // W3b: DART 원문 대신 자체 공유 페이지(og 미리보기 + 캐시 AI 요약 + 앱 유도) 링크 공유.
+            const url = buildDisclosureShareUrl(disclosure.rcpNo);
             Share.share({
               message: `${disclosure.reportName} - ${disclosure.corpName}\n${url}`,
               url,

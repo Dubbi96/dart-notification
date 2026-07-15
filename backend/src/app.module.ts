@@ -40,6 +40,7 @@ import { CollectionStatusModule } from './collection-status/collection-status.mo
 import { CronHealthModule } from './cron-health/cron-health.module';
 import { OpsModule } from './ops/ops.module';
 import { StorageOpsModule } from './storage-ops/storage-ops.module';
+import { WebSurfaceModule } from './web-surface/web-surface.module';
 import {
   envValidationSchema,
   envValidationOptions,
@@ -148,6 +149,9 @@ import {
     // 횡단 — 운영 헬스(/health)/메트릭(/ops/metrics) 엔드포인트 (DAR-111)
     OpsModule,
     StorageOpsModule,
+
+    // 횡단 — 공개 웹 표면(랜딩 + 공시 공유 페이지, W3b) — DB read-only·외부 API 콜 0
+    WebSurfaceModule,
 
   ],
   providers: [

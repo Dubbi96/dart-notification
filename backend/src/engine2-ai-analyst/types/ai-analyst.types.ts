@@ -103,7 +103,7 @@ export interface AiCostAcceptance {
   allOk: boolean;
 }
 
-/** 한도 대비 사용률 (일 $1 / 월 $20). 0~1+ (초과 시 1 이상). */
+/** 한도 대비 사용률 (ENV AI_DAILY_LIMIT_USD/AI_MONTHLY_LIMIT_USD — 기본 일 $1 / 월 $31). 0~1+ (초과 시 1 이상). */
 export interface AiCostLimitUsage {
   dailyUsedRatio: number;
   monthlyUsedRatio: number;

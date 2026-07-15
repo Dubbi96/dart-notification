@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiCostLevel, AiCostLimitStatus } from '../types/ai-analyst.types';
 import { kstDayStart, kstMonthStart } from '../../common/time/kst';
@@ -36,8 +37,19 @@ export interface CostReservation {
  */
 @Injectable()
 export class AiCostLimitGuardService {
-  static readonly DAILY_LIMIT_USD = 1.0;
-  static readonly MONTHLY_LIMIT_USD = 20.0;
+  /**
+   * W10(갭분석): 하드캡 static 상수 → ENV 주입 전환.
+   *   AI_DAILY_LIMIT_USD (기본 1.0) / AI_MONTHLY_LIMIT_USD (기본 31.0).
+   * 월캡 기본값 20→31 상향: 기존 월 $20은 일평균 $0.65로 일캡($1)보다 먼저 바인딩되어
+   * 실적시즌 월말 조기 차단을 일으켰다 — 일캡 × 31일 정합으로 유일한 실질 결함을 제거.
+   * ENV 미설정·비수치·0 이하 값은 기본값으로 폴백한다(안전 백스톱 상시 유지).
+   */
+  static readonly DEFAULT_DAILY_LIMIT_USD = 1.0;
+  static readonly DEFAULT_MONTHLY_LIMIT_USD = 31.0;
+
+  /** 런타임 확정 한도(USD) — 생성 시 1회 해석(핫패스 재파싱 없음). */
+  readonly dailyLimitUsd: number;
+  readonly monthlyLimitUsd: number;
 
   /**
    * 호출당 보수적 예약 추정치(USD). 공시당 목표 비용(<$0.005)·단일 LLM 호출 실비용보다
@@ -53,7 +65,26 @@ export class AiCostLimitGuardService {
   /** read+reserve 임계구역 직렬화용 인프로세스 뮤텍스(프로미스 체인). */
   private mutex: Promise<void> = Promise.resolve();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    config: ConfigService,
+  ) {
+    this.dailyLimitUsd = AiCostLimitGuardService.resolveLimit(
+      config.get<string>('AI_DAILY_LIMIT_USD'),
+      AiCostLimitGuardService.DEFAULT_DAILY_LIMIT_USD,
+    );
+    this.monthlyLimitUsd = AiCostLimitGuardService.resolveLimit(
+      config.get<string>('AI_MONTHLY_LIMIT_USD'),
+      AiCostLimitGuardService.DEFAULT_MONTHLY_LIMIT_USD,
+    );
+  }
+
+  /** ENV 원시값 → 한도(USD). 비수치·비유한·0 이하 값은 기본값 폴백(백스톱 무력화 방지). */
+  private static resolveLimit(raw: string | number | undefined, fallback: number): number {
+    if (raw === undefined || raw === null || String(raw).trim() === '') return fallback;
+    const parsed = typeof raw === 'number' ? raw : Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  }
 
   async getLimitStatus(): Promise<AiCostLimitStatus> {
     // 한도 윈도 경계는 KST 벽시계 자정/월초로 고정한다(DAR-243). createdAt은
@@ -76,16 +107,16 @@ export class AiCostLimitGuardService {
 
     const dailyCostUsd = dailyAgg._sum.costUsd ?? 0;
     const monthlyCostUsd = monthlyAgg._sum.costUsd ?? 0;
-    const dailyExceeded = dailyCostUsd >= AiCostLimitGuardService.DAILY_LIMIT_USD;
-    const monthlyExceeded = monthlyCostUsd >= AiCostLimitGuardService.MONTHLY_LIMIT_USD;
+    const dailyExceeded = dailyCostUsd >= this.dailyLimitUsd;
+    const monthlyExceeded = monthlyCostUsd >= this.monthlyLimitUsd;
     const forcedLevel = dailyExceeded || monthlyExceeded ? AiCostLevel.L0 : null;
 
     return {
       dailyCostUsd,
-      dailyLimitUsd: AiCostLimitGuardService.DAILY_LIMIT_USD,
+      dailyLimitUsd: this.dailyLimitUsd,
       dailyExceeded,
       monthlyCostUsd,
-      monthlyLimitUsd: AiCostLimitGuardService.MONTHLY_LIMIT_USD,
+      monthlyLimitUsd: this.monthlyLimitUsd,
       monthlyExceeded,
       forcedLevel,
     };
@@ -107,8 +138,7 @@ export class AiCostLimitGuardService {
       const dailyProjected = status.dailyCostUsd + this.reservedDailyUsd + reserve;
       const monthlyProjected = status.monthlyCostUsd + this.reservedMonthlyUsd + reserve;
       const wouldExceed =
-        dailyProjected > AiCostLimitGuardService.DAILY_LIMIT_USD ||
-        monthlyProjected > AiCostLimitGuardService.MONTHLY_LIMIT_USD;
+        dailyProjected > this.dailyLimitUsd || monthlyProjected > this.monthlyLimitUsd;
 
       if (status.forcedLevel !== null || wouldExceed) {
         return { level: AiCostLevel.L0, settle: () => {} };

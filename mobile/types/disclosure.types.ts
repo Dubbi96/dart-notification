@@ -86,8 +86,16 @@ export interface PersonaAnalysis {
   createdAt: string;
 }
 
+/**
+ * AI 분석 파이프라인 상태 (W10 기대치 관리 UX).
+ * ready=산출물 존재 · pending=대상 이벤트 추출 완료, 순차 생성/익일 02:00 백필 대기 · excluded=분석 비대상.
+ */
+export type AiAnalysisStatus = 'ready' | 'pending' | 'excluded';
+
 export interface DisclosureAnalysis {
   rcpNo: string;
+  /** 구버전 서버는 미제공(optional) — 미제공 시 화면은 '대기'로 폴백. */
+  analysisStatus?: AiAnalysisStatus;
   analyses: DisclosureAnalysisItem[];
   personaAnalysis: PersonaAnalysis | null;
 }

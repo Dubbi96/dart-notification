@@ -4,6 +4,7 @@ import { AiCostAggregationService } from '../cost-aggregation/ai-cost-aggregatio
 import { AiCostLimitGuardService } from '../cost-gate/ai-cost-limit-guard.service';
 import { AiUsageLogService } from '../usage-log/ai-usage-log.service';
 import { AiCostHealthService } from './ai-cost-health.service';
+import { AiCoverageMetricsService } from './ai-coverage-metrics.service';
 
 @ApiTags('AI Cost Governance')
 @Controller('ai-cost')
@@ -13,6 +14,7 @@ export class AiCostMetricsController {
     private readonly limitGuard: AiCostLimitGuardService,
     private readonly usageLog: AiUsageLogService,
     private readonly health: AiCostHealthService,
+    private readonly coverage: AiCoverageMetricsService,
   ) {}
 
   @Get('metrics')
@@ -61,6 +63,19 @@ export class AiCostMetricsController {
   })
   async getHealth() {
     const data = await this.health.getHealth();
+    return { success: true, data };
+  }
+
+  @Get('coverage')
+  @ApiOperation({
+    summary: 'AI 분석 커버리지 계기판 (W10) — 최근 N일 대상 공시 대비 생성률(%)·수신→생성 P50/P95 지연(초)',
+  })
+  @ApiQuery({ name: 'days', required: false, example: 7, description: '조회창(일). 기본 7, 최대 90' })
+  async getCoverage(@Query('days') days?: string) {
+    const windowDays = days
+      ? AiCoverageMetricsService.clampWindowDays(Number(days))
+      : AiCoverageMetricsService.DEFAULT_WINDOW_DAYS;
+    const data = await this.coverage.getCoverage(new Date(), windowDays);
     return { success: true, data };
   }
 

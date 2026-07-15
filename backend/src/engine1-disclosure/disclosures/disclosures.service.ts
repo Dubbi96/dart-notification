@@ -194,16 +194,31 @@ export class DisclosuresService implements OnModuleInit {
   }
 
   async findAnalysis(rcpNo: string) {
-    const [analyses, persona] = await Promise.all([
+    const [analyses, persona, event] = await Promise.all([
       this.prisma.disclosureAnalysis.findMany({
         where: { rcpNo },
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.personaAnalysis.findUnique({ where: { rcpNo } }),
+      // W10: '대기'와 '비대상' 구분용 — 이벤트 추출 여부만 확인(경량 select).
+      this.prisma.disclosureEvent.findUnique({
+        where: { rcpNo },
+        select: { rcpNo: true },
+      }),
     ]);
+
+    // W10 기대치 관리 UX: 분석 캐시 미존재 + 대상 이벤트 존재 = pending(라이브 순차 처리
+    // 또는 익일 02:00 백필 드레인으로 채워질 예정). 이벤트 자체가 없으면 excluded(비대상).
+    const hasContent = analyses.length > 0 || !!persona;
+    const analysisStatus: 'ready' | 'pending' | 'excluded' = hasContent
+      ? 'ready'
+      : event
+        ? 'pending'
+        : 'excluded';
 
     return {
       rcpNo,
+      analysisStatus,
       analyses: analyses.map((a) => ({
         task: a.task,
         level: a.level,

@@ -10,6 +10,7 @@ import { ScreenHeader } from '@components/common/ScreenHeader';
 import { QuoteHeader } from '@components/common/QuoteHeader';
 import { MinuteCandleChart } from '@components/company/MinuteCandleChart';
 import { DailyCandleChart } from '@components/company/DailyCandleChart';
+import { SupplyDemandCard } from '@components/company/SupplyDemandCard';
 import { useCompanyDetail } from '@hooks/useCompanyDetail';
 import { useStockQuotes } from '@hooks/useStockQuotes';
 import { useMinuteCandles } from '@hooks/useMinuteCandles';
@@ -175,6 +176,10 @@ export default function StockChartScreen() {
             />
           )}
         </Card>
+
+        {/* 수급 요약(W16) — 외국인·기관 5/20일 누적 순매수 + 공매도 지표 + 데이터 기준일 배지.
+            데이터 없으면 컴포넌트가 스스로 억제(null)한다 — 화면 조립부는 무조건 배치. */}
+        <SupplyDemandCard stockCode={code} />
       </ScrollView>
     </SafeAreaView>
   );

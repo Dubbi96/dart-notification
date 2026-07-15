@@ -19,6 +19,8 @@ import { CandleHistoryService } from './candle-history.service';
 import { CANDLE_RESOLUTIONS, CandleQueryError } from './candle-query';
 import { StockMinutePriceCollector } from './stock-minute-price.collector';
 import { EtfDailyBackfillService } from './etf-daily-backfill.service';
+import { InvestorFlowQueryService } from './investor-flow.query.service';
+import { InvestorFlowCollector } from './investor-flow.collector';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../auth/guards/optional-jwt-auth.guard';
 
@@ -34,6 +36,8 @@ export class MarketDataController {
     private readonly candleHistory: CandleHistoryService,
     private readonly minuteCollector: StockMinutePriceCollector,
     private readonly etfBackfill: EtfDailyBackfillService,
+    private readonly investorFlowQuery: InvestorFlowQueryService,
+    private readonly investorFlowCollector: InvestorFlowCollector,
   ) {}
 
   // 가격 배지 종단연결(DAR-158): 읽기 전용 시세 조회는 게스트 열람 허용(DAR-99 패턴).
@@ -177,6 +181,73 @@ export class MarketDataController {
       tradeDate: tradeDate || undefined,
     });
     return { success: true, data: result };
+  }
+
+  /**
+   * 종목 투자자별 매매동향 조회 (갭분석 W16 ③, read-only).
+   * 외국인/기관/개인 순매수 시계열 + 5/20일 누적 요약 — 모바일 '수급 요약' 카드 소비.
+   * 비개인 공개 시장 데이터이므로 quote/candles 와 동일 게스트 열람 패턴(OptionalJwtAuthGuard).
+   * ★SHADOW: 표면 전용 — Buy Score·트레이딩 무접점.
+   */
+  @Get('investor-flow')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      '종목 투자자별 매매동향 — 외국인/기관/개인 순매수(수량·금액) 최근 N거래일 + 5/20일 누적 요약. ' +
+      '데이터 없으면 asOfDate=null 빈 결과 graceful (게스트 열람, W16)',
+  })
+  @ApiQuery({ name: 'stockCode', required: true, description: '종목코드 6자리 (예: 005930)' })
+  @ApiQuery({
+    name: 'days',
+    required: false,
+    description: '조회 거래일 수 (기본 20, 최대 120). 요약(5/20일)은 항상 최근 20일로 산출.',
+  })
+  async getInvestorFlow(@Query('stockCode') stockCode?: string, @Query('days') days?: string) {
+    const data = await this.investorFlowQuery.getInvestorFlow(stockCode ?? '', days);
+    return { success: true, data };
+  }
+
+  /**
+   * 종목 공매도 일별 조회 (갭분석 W16 ③, read-only).
+   * 공매도 거래량·거래대금·거래비중(일봉 volume 조인 산출) 시계열. 잔고 필드는 소스 미가용 시
+   * null(합성 금지 — 정직). publishedDate(T+2 영업일)를 행별 동반해 as-of 소비를 지원한다.
+   */
+  @Get('short-selling')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      '종목 공매도 일별 — 공매도 거래량·거래대금·거래비중(%) 최근 N거래일 + publishedDate(T+2). ' +
+      '잔고 필드는 무료 소스 미가용으로 null. 데이터 없으면 asOfDate=null graceful (게스트 열람, W16)',
+  })
+  @ApiQuery({ name: 'stockCode', required: true, description: '종목코드 6자리 (예: 005930)' })
+  @ApiQuery({ name: 'days', required: false, description: '조회 거래일 수 (기본 20, 최대 120)' })
+  async getShortSelling(@Query('stockCode') stockCode?: string, @Query('days') days?: string) {
+    const data = await this.investorFlowQuery.getShortSelling(stockCode ?? '', days);
+    return { success: true, data };
+  }
+
+  /**
+   * 수급·공매도 수동 수집 (갭분석 W16 — cron 3슬롯 외 단발 트리거/백필용).
+   * 소스 체인(KRX→KIS)·done-set 멱등·publishedDate=T+2 는 cron 경로와 동일(SSOT collectOnce).
+   */
+  @Post('collect/investor-flow')
+  @ApiOperation({
+    summary:
+      '수급·공매도 수동 수집 — 투자자별 매매동향(InvestorFlowDaily) + 공매도 일별(ShortSellingDaily) ' +
+      '멱등 적재. cap 으로 KIS 유량 가드 (W16)',
+  })
+  @ApiQuery({
+    name: 'cap',
+    required: false,
+    description: '수집 상한 종목 수(KIS 유량 가드). 미지정 시 env INVESTOR_FLOW_COLLECT_CAP→3000.',
+  })
+  async collectInvestorFlow(@Query('cap') cap?: string) {
+    const parsedCap = cap ? parseInt(cap, 10) : undefined;
+    const capOpt =
+      Number.isFinite(parsedCap) && (parsedCap as number) > 0 ? parsedCap : undefined;
+    const investorFlow = await this.investorFlowCollector.collectInvestorFlowOnce({ cap: capOpt });
+    const shortSelling = await this.investorFlowCollector.collectShortSellingOnce({ cap: capOpt });
+    return { success: true, data: { investorFlow, shortSelling } };
   }
 
   /**

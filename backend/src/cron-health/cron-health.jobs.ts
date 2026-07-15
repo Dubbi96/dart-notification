@@ -77,6 +77,13 @@ export const CRON_JOB_KEYS = {
   //   원장(OrderRequest/OrderExecution)의 건수·수량·금액 정합을 대조(불일치→OPS_ALERT). 이 잡이
   //   조용히 멈추면 M11 실주문 계층의 원장 드리프트가 무감지로 쌓이므로 안전망에 노출.
   ORDER_LEDGER_RECONCILE: 'paper.order-ledger-reconcile',
+  // 갭분석 W16: 투자자별 매매동향 EOD 수집 — 외국인/기관/개인 순매수를 InvestorFlowDaily 에 축적
+  //   (평일 07:40·20:00·21:30). 수집이 조용히 멈추면 '무공시 급등락' 설명·수급 표면의 데이터 축이
+  //   정체되므로 안전망에 노출(krx.daily 거짓 stale 선례 재발 방지 — job key 등록 필수).
+  INVESTOR_FLOW_COLLECT: 'market.investor-flow-collect',
+  // 갭분석 W16: 공매도 일별 EOD 수집 — 공매도 거래량·거래대금을 ShortSellingDaily 에 축적
+  //   (평일 07:40·20:00·21:30, publishedDate=T+2 영업일 lookahead 불가침). 위와 동일 근거로 노출.
+  SHORT_SELLING_COLLECT: 'market.short-selling-collect',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];
@@ -436,5 +443,25 @@ export const FRESHNESS_JOB_SPECS: FreshnessJobSpec[] = [
     window: 'ALWAYS',
     staleAfterMinutes: 2_880, // 48시간 — 매일 20:45, 하루 누락까지 허용
     cadence: '매일 20:45',
+  },
+  {
+    // 갭분석 W16: 투자자별 매매동향 EOD 수집. 평일 3슬롯(07:40 아침 백스톱·20:00 정시·21:30 재시도).
+    //   소스 미설정 환경에선 graceful no-op 이라 SUCCESS(적재 0)를 남겨 '크론은 살아 있음'이 유지된다 —
+    //   가동 자체가 멈춰야만 stale. 주말(금 성공→월 평가 ≈72h) 공백 흡수.
+    jobKey: CRON_JOB_KEYS.INVESTOR_FLOW_COLLECT,
+    label: '투자자별 매매동향 수집',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 07:40·20:00·21:30, 주말 공백 흡수
+    cadence: '평일 07:40·20:00·21:30',
+  },
+  {
+    // 갭분석 W16: 공매도 일별 EOD 수집(publishedDate=T+2 영업일 — lookahead 불가침). 위와 동일 근거.
+    jobKey: CRON_JOB_KEYS.SHORT_SELLING_COLLECT,
+    label: '공매도 일별 수집',
+    source: 'CRON_RUN_LOG',
+    window: 'ALWAYS',
+    staleAfterMinutes: WEEKDAY_DAILY_STALE_MIN, // 72시간 — 평일 07:40·20:00·21:30, 주말 공백 흡수
+    cadence: '평일 07:40·20:00·21:30',
   },
 ];

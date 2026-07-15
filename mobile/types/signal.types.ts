@@ -64,6 +64,25 @@ export interface BuyScoreComponent {
   sampleScope?: string;
 }
 
+/**
+ * W13 '근거 지표 펼치기' — 스코어링이 실제 소비한 TechnicalIndicator 원시 수치 스냅샷.
+ * 백엔드 SignalEvidenceIndicators 와 1:1. nullable 필드는 화면에서 '—' 처리(빈 값 노출 방지).
+ */
+export interface SignalEvidenceIndicators {
+  /** 지표 기준 거래일(YYYYMMDD) — 신호 생성 시점 이전 최신 지표 행. */
+  tradeDate: string;
+  ma5: number | null;
+  ma20: number | null;
+  ma60: number | null;
+  rsi14: number | null;
+  macdLine: number | null;
+  macdSignal: number | null;
+  bollingerMid: number | null;
+  volumeRatio20: number | null;
+  /** 공시 전 선행상승률 D-5~D-1 (%). */
+  preDsclReturn: number | null;
+}
+
 /** 매수 신호 */
 export interface TradingSignal {
   id: string;
@@ -87,6 +106,11 @@ export interface TradingSignal {
    */
   suppressionReason?: SuppressionReason;
   scoreBreakdown?: BuyScoreComponent[];
+  /**
+   * W13: 스코어링이 소비한 원시 지표 스냅샷(read-only) — 상세 응답에만 존재.
+   * 미적재/미지원(구 서버)이면 null/undefined → '근거 지표' 섹션 미표시(graceful).
+   */
+  evidenceIndicators?: SignalEvidenceIndicators | null;
   relatedDisclosureRcpNo?: string;
   /** ISO 8601 — 신호 만료 시각 */
   expiresAt?: string;

@@ -17,6 +17,8 @@ import { StockQuoteService } from './stock-quote.service';
 import { MarketDataService } from './market-data.service';
 import { CandleHistoryService } from './candle-history.service';
 import { CANDLE_RESOLUTIONS, CandleQueryError } from './candle-query';
+import { IndicatorHistoryService } from './indicator-history.service';
+import { IndicatorQueryError } from './indicator-query';
 import { StockMinutePriceCollector } from './stock-minute-price.collector';
 import { EtfDailyBackfillService } from './etf-daily-backfill.service';
 import { InvestorFlowQueryService } from './investor-flow.query.service';
@@ -38,6 +40,7 @@ export class MarketDataController {
     private readonly etfBackfill: EtfDailyBackfillService,
     private readonly investorFlowQuery: InvestorFlowQueryService,
     private readonly investorFlowCollector: InvestorFlowCollector,
+    private readonly indicatorHistory: IndicatorHistoryService,
   ) {}
 
   // 가격 배지 종단연결(DAR-158): 읽기 전용 시세 조회는 게스트 열람 허용(DAR-99 패턴).
@@ -147,6 +150,59 @@ export class MarketDataController {
       return { success: true, data };
     } catch (err) {
       if (err instanceof CandleQueryError) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
+  }
+
+  // 기술지표 구간 조회(W13 데이터 자산 표면 개방): TechnicalIndicator 는 전종목 EOD 적재·인덱스
+  // 완비인데 사용자 조회 API 가 0개였다(ops 백필 POST 만 존재). candles 와 동일한 파라미터·응답
+  // 규약(from~to+before 커서+limit 상한, newest-first 조회 후 오름차순 반환)으로 개방한다 —
+  // Buy Score 입력 근거 검증·차트 오버레이용. ★정직: latestTradeDate(지표 기준일)로 T+1 stale
+  // 을 숨기지 않는다. 읽기 전용 시장 파생 데이터라 quote/candles 와 동일 게스트 열람 패턴.
+  @Get('indicators')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      '기술지표 구간 조회 — TechnicalIndicator(MA5/20/60/120·RSI14·MACD·볼린저·ATR14·VWAP·거래량비율 등, EOD 일봉 파생). ' +
+      'from~to+페이지네이션, 응답 latestTradeDate=지표 기준일(적재 최신 거래일 — T+1 지연 정직 고지) (게스트 열람, W13)',
+  })
+  @ApiQuery({ name: 'stockCode', required: true, description: '종목코드 6자리 (예: 005930)' })
+  @ApiQuery({
+    name: 'from',
+    required: false,
+    description: '구간 시작(포함) — ISO 8601 또는 YYYYMMDD (candles 와 동일 형식)',
+  })
+  @ApiQuery({ name: 'to', required: false, description: '구간 끝(포함) — from 과 동일 형식' })
+  @ApiQuery({
+    name: 'before',
+    required: false,
+    description: '페이지네이션 커서 — 이 거래일 이전(미만) 지표만(과거 페이지). 응답 nextCursor 사용.',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: '한 페이지 지표 행 수 (기본 200, 최대 1000).',
+  })
+  async getIndicators(
+    @Query('stockCode') stockCode?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('before') before?: string,
+    @Query('limit') limit?: string,
+  ) {
+    try {
+      const data = await this.indicatorHistory.getIndicators({
+        stockCode,
+        from,
+        to,
+        before,
+        limit,
+      });
+      return { success: true, data };
+    } catch (err) {
+      if (err instanceof IndicatorQueryError) {
         throw new BadRequestException(err.message);
       }
       throw err;

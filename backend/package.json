@@ -24,7 +24,9 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts",
     "seed:notifications": "ts-node prisma/seed-notifications.ts",
-    "seed:philosophy": "ts-node prisma/seed-philosophy.ts"
+    "seed:philosophy": "ts-node prisma/seed-philosophy.ts",
+    "backfill:title-events": "ts-node -r dotenv/config src/engine1-disclosure/pipeline/title-event-backfill.manual.ts",
+    "backtest:two-tier": "ts-node -r dotenv/config src/engine3-quant-market/two-tier-backtest/two-tier-backtest.manual.ts"
   },
   "dependencies": {
     "@nestjs/bullmq": "^11.0.4",

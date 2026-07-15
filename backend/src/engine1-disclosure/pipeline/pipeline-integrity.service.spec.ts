@@ -346,6 +346,19 @@ describe('PipelineIntegrityService (DAR-126)', () => {
     });
     // DAR-230: 이벤트추출 경로와 동일 자연키 jobId(ai-<rcpNo>)로 발행 → 다경로 중복 적재 방지.
     expect(options.jobId).toBe('ai-r1');
+
+    // W4 신호 검증: 제목 기반 백필(TITLE_ONLY) 관측치는 AI 재발행 후보에서 제외 —
+    // null 분기 명시(기존 라이브 행 전부 보존) + 마커 동등 제외.
+    const where = (prisma.disclosureEvent.findMany as jest.Mock).mock
+      .calls[0][0].where;
+    expect(where.AND).toEqual([
+      {
+        OR: [
+          { failReason: null },
+          { failReason: { not: 'TITLE_ONLY_BACKFILL' } },
+        ],
+      },
+    ]);
   });
 
   // DAR-230 DoD: 동일 rcpNo 를 다경로(reprocess 반복/드레인)에서 2회 add 해도

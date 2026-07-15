@@ -14,6 +14,9 @@ import {
   aiAnalyzeJobId,
   AiAnalyzeJobData,
 } from '../../common/queues/queue.constants';
+// W4 신호 검증: 제목 기반 백필 관측치(TITLE_ONLY) 구분 마커 — engine1(DisclosureEvent 소유)의
+//   데이터 계약 상수 import(서비스 직접 호출 아님). 해당 관측치는 AI 백필 대상에서 제외한다.
+import { TITLE_ONLY_BACKFILL_MARKER } from '../../engine1-disclosure/pipeline/title-event-backfill.constants';
 
 /** summary 태스크는 AI 분석 파이프라인의 필수 진입 게이트. 미존재 = 미분석 공시. */
 const SUMMARY_TASK = 'summary' as const;
@@ -204,6 +207,18 @@ export class AiBackfillDrainService {
         extractionStatus: {
           in: [ExtractionStatus.SUCCESS, ExtractionStatus.NEEDS_REVIEW],
         },
+        // W4 신호 검증: 제목 기반 백필(TITLE_ONLY) 관측치는 AI 백필 대상에서 제외 —
+        //   수만 건 과거 백필이 일 예산($1)을 잠식해 라이브 AI 카드가 굶는 것을 방지한다
+        //   (Event Study 전용 관측치 — extractedData 가 비어 AI 입력 계약도 못 채운다).
+        //   null 분기를 명시해 Prisma not-null 의미론과 무관하게 기존 행을 전부 보존한다.
+        AND: [
+          {
+            OR: [
+              { failReason: null },
+              { failReason: { not: TITLE_ONLY_BACKFILL_MARKER } },
+            ],
+          },
+        ],
         disclosure: {
           disclosureAnalyses: { none: { task: SUMMARY_TASK } },
         },

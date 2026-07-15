@@ -9,6 +9,7 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { PipelineController } from './pipeline.controller';
 import { PipelineIntegrityService } from './pipeline-integrity.service';
 import { EventBackfillDrainService } from './event-backfill-drain.service';
+import { TitleEventBackfillService } from './title-event-backfill.service';
 import { RawTextOffloadDrainService } from './rawtext-offload-drain.service';
 import { TablesOffloadDrainService } from './tables-offload-drain.service';
 
@@ -23,6 +24,10 @@ describe('PipelineController', () => {
   let eventBackfill: {
     drainOnce: jest.Mock;
     getCoverageReport: jest.Mock;
+  };
+  let titleBackfill: {
+    backfillOnce: jest.Mock;
+    getProgress: jest.Mock;
   };
   let rawTextOffload: {
     drainOnce: jest.Mock;
@@ -44,6 +49,10 @@ describe('PipelineController', () => {
       drainOnce: jest.fn(),
       getCoverageReport: jest.fn(),
     };
+    titleBackfill = {
+      backfillOnce: jest.fn(),
+      getProgress: jest.fn(),
+    };
     rawTextOffload = {
       drainOnce: jest.fn(),
       getProgress: jest.fn(),
@@ -55,6 +64,7 @@ describe('PipelineController', () => {
     controller = new PipelineController(
       service as unknown as PipelineIntegrityService,
       eventBackfill as unknown as EventBackfillDrainService,
+      titleBackfill as unknown as TitleEventBackfillService,
       rawTextOffload as unknown as RawTextOffloadDrainService,
       tablesOffload as unknown as TablesOffloadDrainService,
     );
@@ -172,6 +182,51 @@ describe('PipelineController', () => {
       expect(eventBackfill.drainOnce).toHaveBeenLastCalledWith({
         extractLimit: 150,
         parseEnqueueLimit: undefined,
+      });
+    });
+  });
+
+  // ── W4 신호 검증: 제목 기반 이벤트 분류 백필 ─────────────────────────
+  describe('GET /pipeline/title-event-backfill-progress', () => {
+    it('진행 리포트를 success 봉투로 매핑한다', async () => {
+      const progress = {
+        backfillWithoutEvent: 3,
+        titleBackfillCandidates: 2,
+        titleOnlyEventsCreated: 1,
+      };
+      titleBackfill.getProgress.mockResolvedValue(progress);
+
+      const result = await controller.titleEventBackfillProgress();
+
+      expect(titleBackfill.getProgress).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ success: true, data: progress });
+    });
+  });
+
+  describe('POST /pipeline/title-event-backfill', () => {
+    it('미지정 옵션은 undefined 로 위임(서비스 기본값 사용)', async () => {
+      const out = { scanned: 0, created: 0 };
+      titleBackfill.backfillOnce.mockResolvedValue(out);
+
+      const result = await controller.titleEventBackfill();
+
+      expect(titleBackfill.backfillOnce).toHaveBeenCalledWith({
+        scanLimit: undefined,
+        startAfterRcpDt: undefined,
+        startAfterRcpNo: undefined,
+      });
+      expect(result).toEqual({ success: true, data: out });
+    });
+
+    it('scanLimit 은 정수 파싱, 커서 쿼리는 문자열 그대로 위임한다', async () => {
+      titleBackfill.backfillOnce.mockResolvedValue({});
+
+      await controller.titleEventBackfill('5000', '20180101', 'X123');
+
+      expect(titleBackfill.backfillOnce).toHaveBeenLastCalledWith({
+        scanLimit: 5000,
+        startAfterRcpDt: '20180101',
+        startAfterRcpNo: 'X123',
       });
     });
   });

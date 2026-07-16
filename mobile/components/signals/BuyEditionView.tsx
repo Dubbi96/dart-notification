@@ -1,10 +1,11 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet, FlatList } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiErrorState } from '@components/common/StateView';
 import { EditionDateStrip } from '@components/signals/EditionDateStrip';
 import { EditionSignalList } from '@components/signals/EditionSignalList';
 import { useDailyEditions } from '@hooks/useSignals';
+import { recordTesterEvent } from '@services/testerEvents.service';
 
 import type { TradingSignal } from '@app-types/signal.types';
 
@@ -31,6 +32,12 @@ function BuyEditionViewBase({ listRef }: BuyEditionViewProps) {
   // (meta 로드 전엔 undefined → EditionSignalList 스켈레톤. 로드 후 최신일로 자연 확정.)
   const [userSelectedDate, setUserSelectedDate] = useState<string | undefined>(undefined);
   const selectedDate = userSelectedDate ?? meta?.latestDate ?? meta?.todayDate;
+
+  // DAR-516 계측: 에디션 오픈(신호탭). 확정된 거래일이 표시될 때마다 발화 — deps=selectedDate 이므로
+  // 서로 다른 날짜당 1회(최초 확정 + 날짜 전환)만 기록된다. 실패는 서비스가 흡수(fire-and-forget).
+  useEffect(() => {
+    if (selectedDate) void recordTesterEvent('edition_open');
+  }, [selectedDate]);
 
   // pull-to-refresh(리스트) 시 날짜 목록(스트립)도 함께 갱신.
   const refreshEditions = useCallback(() => {

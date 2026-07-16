@@ -3016,6 +3016,44 @@ POST /ops/funnel        → 202 Accepted
 
 ---
 
+### 31.8 테스터 코호트 계측 (DAR-516, Wave A/A6) — **인증**
+
+```
+POST /ops/tester-event   (JWT)  → 202 Accepted
+GET  /ops/tester-metrics (JWT)  → 200 OK
+```
+
+Play 테스터 12인 코호트의 **로그인 후 인앱 행동**을 기록·집계하는 계측 표면. §31.7 온보딩 퍼널(비인증 anonId)의 인증판 형제 — 이 이벤트들은 로그인 후 참여이므로 **인증(JWT)+userId**로 적재한다. `SSOT`: 모바일 `utils/testerEvents.ts`·백엔드 `dto/record-tester-event.dto.ts` 의 `TESTER_EVENTS`(값 변경 시 양쪽 동시 갱신). 전체 스키마·집계 SQL·PII 정책 정본: `docs/analytics/tester-cohort-instrumentation.md`.
+
+> ★**PII 무수집(수용기준 1)**: 서버는 `userId`(인증)·`event`(화이트리스트)·`ts`(서버 스탬프)만 저장한다. 자유텍스트·종목/카드 식별자·기기정보 입력 경로 없음(`event` 는 `IsIn` 화이트리스트뿐). M10 무오염 — engine5(매매/리스크) 무접점.
+
+**POST /ops/tester-event** — 이벤트 1건 기록. **Request Body** (`RecordTesterEventDto`):
+```json
+{ "event": "edition_open" }
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `event` | enum | 필수 | `edition_open` \| `card_tap` \| `push_open` \| `stats_section_view` \| `waitlist_cta` \| `survey_ios_shown` \| `survey_ios_answer_yes` \| `survey_ios_answer_no` |
+
+- **Response**: `202 Accepted` — `{ "success": true }` (**적재 실패도 202로 흡수** — 계측 전용, 모바일 fire-and-forget). 라우트 전용 스로틀 120req/min(IP·인앱 연속 탭 버스트 통과).
+
+**GET /ops/tester-metrics** — 오픈율·재방문 코호트 집계(수용기준 3, ops-facing). 쿼리 `?days=`(관측창, 1~90, 기본 14).
+```json
+{
+  "success": true,
+  "data": {
+    "windowDays": 14, "since": "2026-07-03T...Z",
+    "totalUsers": 10, "editionOpenUsers": 8, "pushOpenUsers": 5, "revisitUsers": 4,
+    "openRate": 0.8, "revisitRate": 0.4,
+    "byEvent": [ { "event": "edition_open", "count": 42 }, { "event": "card_tap", "count": 30 } ]
+  }
+}
+```
+- `openRate` = 관측창 내 `edition_open` 1회↑ 고유 사용자 / 전체 활동 사용자. `revisitRate` = 활동일(KST) ≥2 고유 사용자 / 전체 활동 사용자. KST 일 버킷은 `createdAt`(naive-UTC) → `AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul'` 이중 변환 파생(DAR-505 패턴).
+
+---
+
 ## 부록 A. Rate Limiting
 
 ### 전역 제한
@@ -3193,4 +3231,4 @@ Play Console 스토어 리스팅에 게시할 공개 웹 URL. API가 아닌 정�
 
 ---
 
-**최종 수정일**: 2026-07-17 (§7.9 유사공시 반응 통계 `GET /disclosures/:rcpNo/event-stats` 신설 — 유형별 D+1/D+5/D+20 누적 평균수익률(실제 주가 반응)·초과수익·상승비율·표본수 n, `EventStudyObservation` 관측치 직접 집계, n<30→`stats=null`+`INSUFFICIENT_SAMPLE` 정직 규약, KST 일1회 캐시, 읽기 전용·마이그레이션 0; Wave A·A1, DAR-511, 버전 1.42) / 이전: 2026-07-17 (DAR-510 [문서] 일일 에디션 API 동기화 — §12.4·§12.5 를 구현(DAR-505)과 드리프트 0 재검증 + 에러 응답(400 BadRequest)·응답 봉투 `{ success, data, meta }`·라우트 선언 순서(`:id` catch-all 위)·PENDING↔QUIET 19:15 경계를 명시, 버전 1.41) / 이전: 2026-07-16 (갭분석 퀵윈 웨이브 신규 엔드포인트 전수 반영 — §2.3~2.6 Pro 사전신청 3종·계정 삭제(W1/W3), §7.8 미국 주식 수요 기록 + GET /search OptionalJwt(W8), §10.7 AI 커버리지 계기판(W10), §22.1 오늘의 브리핑(W14), §27.2 제목 이벤트 백필 2종(W4), §28.1 수급·공매도 수동 수집(W16), §31.6 알림 지연 계측(W5)·§31.7 온보딩 퍼널 비인증 기록(W15), §33 기술지표·수급·공매도 조회(W13/W16), §34 공개 웹 표면 — 랜딩·공유·/status·법적 고지(W3/W3b/W11), 버전 1.40) / 이전: 2026-07-07 (§12.3 신호 목록 `sinceDays` 최신성 윈도우 파라미터 문서화 — 홈 '오늘의 투자판단' 정체 해소, 버전 1.39) / 이전: 2026-07-06 (개장 체결 정렬 — §21.2·§21.3 철학·전략 forward 진입을 "저녁 예약(PENDING)→익일 개장 당일 시가 체결"로 통일: 사이클 응답 `reserved` 추가·`bought` 의미 재정의·철학 entryReady 폴백·체결 알림 출처 SSOT 16종(철학 4종 추가·`strategy:` 접두사 정규화); 같은 날 §31.5 신설 — 격주 트랙 성과 순위 리포트 `GET /api/ops/track-review` + 발송 잡 `ops.biweekly-track-review`; 같은 날 알림 이모지 제거 개정 — §8.1·§20·§20.1·부록 B 템플릿 갱신) / 이전: 2026-07-03
+**최종 수정일**: 2026-07-17 (DAR-516 Wave A/A6: §31.8 테스터 코호트 계측 2종 신설 — `POST /ops/tester-event`(인증·화이트리스트 8종·202 흡수·120req/min)·`GET /ops/tester-metrics`(오픈율·재방문 집계, days 1~90). PII 무수집(userId·event·ts만)·M10 무오염, 마이그레이션 20260717120000_dar516_tester_event(tester_events 단일 테이블). SSOT: 모바일 `utils/testerEvents.ts`↔`dto/record-tester-event.dto.ts`, 정본 `docs/analytics/tester-cohort-instrumentation.md`, 버전 1.43) / 이전: 2026-07-17 (§7.9 유사공시 반응 통계 `GET /disclosures/:rcpNo/event-stats` 신설 — 유형별 D+1/D+5/D+20 누적 평균수익률(실제 주가 반응)·초과수익·상승비율·표본수 n, `EventStudyObservation` 관측치 직접 집계, n<30→`stats=null`+`INSUFFICIENT_SAMPLE` 정직 규약, KST 일1회 캐시, 읽기 전용·마이그레이션 0; Wave A·A1, DAR-511, 버전 1.42) / 이전: 2026-07-17 (DAR-510 [문서] 일일 에디션 API 동기화 — §12.4·§12.5 를 구현(DAR-505)과 드리프트 0 재검증 + 에러 응답(400 BadRequest)·응답 봉투 `{ success, data, meta }`·라우트 선언 순서(`:id` catch-all 위)·PENDING↔QUIET 19:15 경계를 명시, 버전 1.41) / 이전: 2026-07-16 (갭분석 퀵윈 웨이브 신규 엔드포인트 전수 반영 — §2.3~2.6 Pro 사전신청 3종·계정 삭제(W1/W3), §7.8 미국 주식 수요 기록 + GET /search OptionalJwt(W8), §10.7 AI 커버리지 계기판(W10), §22.1 오늘의 브리핑(W14), §27.2 제목 이벤트 백필 2종(W4), §28.1 수급·공매도 수동 수집(W16), §31.6 알림 지연 계측(W5)·§31.7 온보딩 퍼널 비인증 기록(W15), §33 기술지표·수급·공매도 조회(W13/W16), §34 공개 웹 표면 — 랜딩·공유·/status·법적 고지(W3/W3b/W11), 버전 1.40) / 이전: 2026-07-07 (§12.3 신호 목록 `sinceDays` 최신성 윈도우 파라미터 문서화 — 홈 '오늘의 투자판단' 정체 해소, 버전 1.39) / 이전: 2026-07-06 (개장 체결 정렬 — §21.2·§21.3 철학·전략 forward 진입을 "저녁 예약(PENDING)→익일 개장 당일 시가 체결"로 통일: 사이클 응답 `reserved` 추가·`bought` 의미 재정의·철학 entryReady 폴백·체결 알림 출처 SSOT 16종(철학 4종 추가·`strategy:` 접두사 정규화); 같은 날 §31.5 신설 — 격주 트랙 성과 순위 리포트 `GET /api/ops/track-review` + 발송 잡 `ops.biweekly-track-review`; 같은 날 알림 이모지 제거 개정 — §8.1·§20·§20.1·부록 B 템플릿 갱신) / 이전: 2026-07-03

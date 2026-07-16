@@ -1057,6 +1057,22 @@ model FunnelEvent {
   @@map("funnel_events")
 }
 
+// DAR-516 [Wave A/cross·P1]: 테스터 코호트 행동 계측(인증 사용자, 7/22 온보딩 전).
+// FunnelEvent(비인증 온보딩 퍼널)의 인증판 형제 — 로그인 후 인앱 참여 이벤트를 userId로 적재.
+// ★ PII 무수집(수용기준 1): userId·event·createdAt(ts)만 저장. 카드/종목 식별자·자유텍스트·
+//   기기정보 미저장. 오픈율·재방문 집계는 createdAt→KST일 파생(AT TIME ZONE)으로 산출한다.
+// forward-only 감사 이력(FK 없음). event 는 TESTER_EVENTS 화이트리스트(DTO/모바일 SSOT 미러)만.
+model TesterEvent {
+  id        String   @id @default(cuid())
+  userId    String // 인증 사용자 ID(내부 식별자 — 개인정보 아님)
+  event     String // TESTER_EVENTS 화이트리스트 값(edition_open|card_tap|push_open|stats_section_view|waitlist_cta|survey_ios_*)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([event, createdAt])
+  @@map("tester_events")
+}
+
 // 공매도 일별 통계 (갭분석 W16) — lookahead 불가침: 공매도 잔고는 T+2 공표이므로
 // publishedDate(공표일)를 분리 저장하고 백테스트·as-of 조회는 publishedDate 기준으로만 참조한다.
 model ShortSellingDaily {

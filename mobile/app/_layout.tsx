@@ -10,6 +10,7 @@ import { ThemeContext, getTheme, useAppColorScheme, useTextScale, getPaperTheme 
 import { SnackbarProvider } from '@components/common/SnackbarProvider';
 import { DialogProvider } from '@components/common/DialogProvider';
 import { OfflineBanner } from '@components/common/OfflineBanner';
+import { IosGateSurvey } from '@components/survey/IosGateSurvey';
 import { useNotificationSetup } from '@hooks/useNotificationSetup';
 import { configureOnlineManager } from '@services/onlineManager';
 import { recordFunnelStep } from '@services/funnel.service';
@@ -92,6 +93,8 @@ function AppContent() {
           </Stack>
           {/* DAR-173: 전역 오프라인 배너 — 절대 위치 오버레이라 화면 트리 위에 떠야 하므로 Stack 뒤. */}
           <OfflineBanner />
+          {/* DAR-516: iOS 게이트 1문항 설문 — iOS+인증+미응답에서 1회 노출(Portal). 안드로이드=null. */}
+          <IosGateSurvey />
           </View>
         </SnackbarProvider>
         </DialogProvider>

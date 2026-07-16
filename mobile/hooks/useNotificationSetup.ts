@@ -9,6 +9,7 @@ import {
   shouldConsumePendingDeepLink,
 } from '@stores/pendingDeepLinkStore';
 import { deviceService } from '@services/device.service';
+import { recordTesterEvent } from '@services/testerEvents.service';
 import { resolveDeepLink } from '@utils/deeplink';
 import { EAS_PROJECT_ID } from '@utils/easProjectId';
 import { REGISTER_BACKOFF_MS, shouldRetryOnReconnect } from '@utils/pushTokenRetry';
@@ -192,6 +193,7 @@ export function useNotificationSetup() {
     if (!Notifications) return;
     const subscription = Notifications.addNotificationResponseReceivedListener(
       (response) => {
+        void recordTesterEvent('push_open'); // DAR-516 계측: 푸시 탭으로 앱 진입(포그라운드/백그라운드)
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
         const data = response.notification.request.content.data;
         const target = resolveDeepLink(data);
@@ -216,6 +218,7 @@ export function useNotificationSetup() {
       const response = await N.getLastNotificationResponseAsync();
       if (response) {
         coldStartHandled.current = true;
+        void recordTesterEvent('push_open'); // DAR-516 계측: 콜드스타트 푸시 탭(앱 종료 상태 진입)
         const data = response.notification.request.content.data;
         const target = resolveDeepLink(data);
         if (target) {

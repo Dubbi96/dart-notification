@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
@@ -7,6 +7,7 @@ import { spacing, radius } from '@theme/spacing';
 import { ApiErrorState } from '@components/common/StateView';
 import { SkeletonBar, useSkeletonPulse } from '@components/common/SkeletonCard';
 import { useDisclosureReactionStats } from '@hooks/useDisclosures';
+import { recordTesterEvent } from '@services/testerEvents.service';
 import { getEventTypeLabel } from '@utils/disclosureType';
 import { formatReturnPct, formatWinRate, returnColor } from '@utils/numberFormat';
 import { formatYmdDots } from '@utils/datetime';
@@ -202,6 +203,13 @@ function ReactionStatsBody({
 
 export function DisclosureReactionSection({ rcpNo }: { rcpNo: string }) {
   const { data, isLoading, isError, error, refetch } = useDisclosureReactionStats(rcpNo);
+
+  // DAR-516 계측: 통계 섹션 '노출'. 데이터 확정(로딩·에러 아님)으로 콘텐츠가 렌더될 때 rcpNo 당 1회.
+  // ★프록시 한계: ScrollView 내부라 뷰포트 교차가 아닌 콘텐츠 렌더 시점 기준(마운트 근사) — 문서화됨.
+  const contentReady = !isLoading && !isError;
+  useEffect(() => {
+    if (contentReady) void recordTesterEvent('stats_section_view');
+  }, [rcpNo, contentReady]);
 
   if (isLoading) {
     return (

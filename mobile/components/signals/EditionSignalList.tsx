@@ -10,6 +10,7 @@ import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { useEdition } from '@hooks/useSignals';
 import { getEditionEmptyCopy } from '@utils/editionDisplay';
+import { recordTesterEvent } from '@services/testerEvents.service';
 
 import type { TradingSignal } from '@app-types/signal.types';
 
@@ -55,6 +56,7 @@ function EditionSignalListBase({
   const showBanner = isPast && items.length > 0;
 
   const handlePress = useCallback((signal: TradingSignal) => {
+    void recordTesterEvent('card_tap'); // DAR-516 계측: 에디션 카드 탭(종목 식별자 미전송)
     router.push(`/signals/${signal.id}`);
   }, []);
 

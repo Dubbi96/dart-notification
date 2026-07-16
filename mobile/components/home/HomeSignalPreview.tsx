@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
 import { Surface, Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
@@ -29,6 +29,7 @@ import {
 } from '@utils/signalTerms';
 import { editionDayGap, ymdToMonthDay } from '@utils/editionSummary';
 import { isChartableTicker, navigateToStockChart } from '@utils/stockChartLink';
+import { recordTesterEvent } from '@services/testerEvents.service';
 import { useDailyEditions, useEdition } from '@hooks/useSignals';
 import { useCarouselCardWidth } from '@hooks/useCarouselCardWidth';
 import { CAROUSEL_GAP } from '@utils/carouselMetrics';
@@ -249,6 +250,12 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
   // 최신 에디션을 요약한다. 최신 에디션이 없으면(시스템 전무) 오늘을 조회해 빈 사유를 정직 노출.
   const displayDate = latestDate ?? todayDate;
   const edition = useEdition(displayDate);
+
+  // DAR-516 계측: 홈 최신 에디션 요약 노출 = 에디션 오픈. 인증 사용자가 확정된 에디션일을 볼 때만
+  // 발화(게스트는 잠금/로그인 유도 카드 → 실제 에디션 미노출). deps 로 displayDate 당 1회.
+  useEffect(() => {
+    if (isAuthenticated && displayDate) void recordTesterEvent('edition_open');
+  }, [isAuthenticated, displayDate]);
   // 화면 폭 반응형 카드 폭/스냅 간격(DAR-301).
   const { cardWidth, snapToInterval } = useCarouselCardWidth();
 
@@ -287,6 +294,7 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
   }, [editions, edition]);
 
   const handleCardPress = useCallback((signal: TradingSignal) => {
+    void recordTesterEvent('card_tap'); // DAR-516 계측: 홈 에디션 요약 카드 탭
     // 종목 판단허브 진입(§1) — 신호 상세로 직결.
     router.push(`/signals/${signal.id}`);
   }, []);

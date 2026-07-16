@@ -13,6 +13,9 @@ import { NotificationLatencyController } from './notification-latency.controller
 import { NotificationLatencyService } from './notification-latency.service';
 import { FunnelController } from './funnel.controller';
 import { FunnelService } from './funnel.service';
+// DAR-516(Wave A/A6): 테스터 코호트 계측 — 인증 인앱 이벤트 로깅(POST) + 오픈율·재방문 집계(GET).
+import { TesterEventController } from './tester-event.controller';
+import { TesterEventService } from './tester-event.service';
 // DAR-513(Wave A/A3): 에디션 밀도 실측 — 최근 60거래일 신호 분포 진단(read-only, 기존 테이블만).
 import { EditionDensityController } from './edition-density.controller';
 import { EditionDensityService } from './edition-density.service';
@@ -71,6 +74,8 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
     NotificationLatencyController,
     // 갭분석 W15 ③: 온보딩 퍼널 계측(비인증 POST /ops/funnel) — 측정 전용 표면.
     FunnelController,
+    // DAR-516(Wave A/A6): 테스터 코호트 계측(인증 POST /ops/tester-event · GET /ops/tester-metrics).
+    TesterEventController,
     // DAR-513: GET /ops/edition-density — 최근 N거래일 에디션 신호 분포 + 밀도 판정.
     EditionDensityController,
   ],
@@ -80,6 +85,8 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
     NotificationLatencyService,
     // 갭분석 W15 ③: FunnelEvent 적재(무소음 실패 흡수·meta 캡).
     FunnelService,
+    // DAR-516(Wave A/A6): 테스터 코호트 이벤트 적재 + 오픈율·재방문 집계.
+    TesterEventService,
     // DAR-513: 에디션 밀도 실측 서비스(trading_signals·stock_daily_prices read-only 집계).
     EditionDensityService,
     // DAR-477(견고화 W0·P05): 일일 운영 리포트 생성 서비스 + 20:30 KST 발송 스케줄러.

@@ -12,6 +12,7 @@ import { useAuthStore } from '@stores/authStore';
 import { useHaptics } from '@hooks/useHaptics';
 import { useNetworkStatus } from '@hooks/useNetworkStatus';
 import { useProWaitlistStatus, useToggleProWaitlist } from '@hooks/useProWaitlist';
+import { recordTesterEvent } from '@services/testerEvents.service';
 import { APP_BRAND_NAME } from '@utils/copy';
 import { toggleWaitlist } from '@utils/proWaitlist';
 import { shouldBlockMutation } from '@utils/offlineMutation';
@@ -114,6 +115,8 @@ export default function ProScreen() {
       return;
     }
     const { next, message, haptic } = toggleWaitlist(optedIn);
+    // DAR-516 계측: Pro waitlist CTA — 대기자 등록(opt-in) 의사를 표할 때만 기록(철회는 제외).
+    if (next) void recordTesterEvent('waitlist_cta');
     if (shouldBlockMutation(isOffline)) {
       // DAR-226 가드가 차단 안내 스낵바를 띄운다 — 성공 문구·햅틱은 생략.
       toggleMutation.mutate(next);

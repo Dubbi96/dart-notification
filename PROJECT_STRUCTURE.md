@@ -175,7 +175,7 @@ dart-notification/
 │   │   ├── search/            # 통합 검색 (기업·공시) — /api/search + 제로결과 수요 계측(search-miss.classifier·POST /search/us-demand [갭분석 W8])
 │   │   ├── collection-status/ # 공시 수집 상태 집계 — /api/collection
 │   │   ├── cron-health/       # 크론 실행 기록(CronRunLog)·데이터 신선도(freshness) 진단 + 제로런 감지 증축(zeroRunThreshold [갭분석 W11])
-│   │   ├── ops/               # 운영 헬스체크·메트릭 (prisma/redis/외부키 인디케이터) — /api/ops + 온보딩 퍼널 계측(funnel.* — POST /ops/funnel 비인증 [갭분석 W15]) + 공시 알림 지연 계측(notification-latency.* [갭분석 W5]) + 에디션 밀도 실측(edition-density.* — GET /ops/edition-density [DAR-513 Wave A/A3])
+│   │   ├── ops/               # 운영 헬스체크·메트릭 (prisma/redis/외부키 인디케이터) — /api/ops + 온보딩 퍼널 계측(funnel.* — POST /ops/funnel 비인증 [갭분석 W15]) + 공시 알림 지연 계측(notification-latency.* [갭분석 W5]) + 에디션 밀도 실측(edition-density.* — GET /ops/edition-density [DAR-513 Wave A/A3]) + 테스터 코호트 계측(tester-event.* — POST /ops/tester-event 인증·GET /ops/tester-metrics 오픈율/재방문 [DAR-516 Wave A/A6])
 │   │   ├── legal/             # 법적 고지 공개 HTML — /api/legal/privacy·account-deletion (Play 컴플라이언스 [갭분석 W3])
 │   │   ├── web-surface/       # 공개 웹 표면 — 랜딩(GET /)·공시 공유 페이지(GET /share/:rcpNo, og 메타+딥링크 [갭분석 W3b])
 │   │   ├── status/            # 공개 시스템 상태 페이지 — GET /status·/status.json (운영 사실만·60s 캐시 [갭분석 W11/W12])
@@ -300,6 +300,7 @@ dart-notification/
 │   │   ├── home/                     # 홈 화면 — DisclosureFeedCard, HomeSignalPreview(최신 에디션 요약 슬롯·정체 간극 hero·빈 4분기 [DAR-508]), MarketIndexBadge, GraduationTracker 등 6종
 │   │   ├── persona/                  # 투자 페르소나 — PersonaSelectCard, MarketRegimeCard, personaDisplay
 │   │   ├── philosophy/               # 투자거장 철학 — PhilosophyMasterCard, PhilosophyChecklist, PhilosophyFitBreakdown 등 5종
+│   │   ├── survey/                   # IosGateSurvey — iOS 게이트 1문항 설문(iOS+인증+미응답 1회 노출) [DAR-516 Wave A/A6]
 │   │   └── portfolio/                # [DAR-21]
 │   │       ├── PositionCard.tsx       # 포지션 카드
 │   │       └── TodayBriefingSection.tsx # 오늘의 브리핑 (포트폴리오 탭 상단 [갭분석 W14])
@@ -318,6 +319,7 @@ dart-notification/
 │   │   ├── investor-flow.service.ts # 수급·공매도 조회 [갭분석 W16]
 │   │   ├── market-quote.service.ts  # 기술지표 구간 조회 [갭분석 W13]
 │   │   ├── funnel.service.ts        # 온보딩 퍼널 계측 fire-and-forget [갭분석 W15]
+│   │   ├── testerEvents.service.ts  # 테스터 코호트 계측 전송(인증·fire-and-forget) [DAR-516 Wave A/A6]
 │   │   └── shareLink.ts             # 공시 공유 링크(/share/:rcpNo) 생성 [갭분석 W3b]
 │   ├── hooks/                 # Custom Hooks
 │   │   ├── useAuth.ts
@@ -361,6 +363,7 @@ dart-notification/
 │   │   ├── disclosureType.ts        # 공시 유형 분류 유틸 [DAR-32]
 │   │   ├── marketIndexDisplay.ts    # 시장지수 배지 신선도 라벨 (REALTIME/EOD 종가 기준일) [DAR-371]
 │   │   ├── funnel.ts                # 온보딩 퍼널 5단계 SSOT(FUNNEL_STEPS — BE DTO 미러) [갭분석 W15]
+│   │   ├── testerEvents.ts          # 테스터 코호트 이벤트 8종 SSOT(TESTER_EVENTS — BE DTO 미러) [DAR-516 Wave A/A6]
 │   │   ├── priceMoveNews.ts         # 급변동 알림 뉴스 링크아웃 [갭분석 W6]
 │   │   ├── signalTerms.ts           # 신호 용어 SSOT + buildEditionTitle(동적 에디션 헤더)·에디션 날짜 헬퍼 [DAR-504·DAR-506]
 │   │   ├── signalFreshness.ts       # 신호 신선도/에디션 날짜 상태 SSOT(getSignalDateStatus — 정상/지연/만료) [DAR-506]
@@ -677,4 +680,4 @@ EXPO_PUBLIC_APP_ENV=development
 
 **작성일**: 2026-03-07
 **최종 수정일**: 2026-07-17 (DAR-510 — 일일 투자판단 에디션 트리 반영: 모바일 signals/(SignalDateBadge·BuyEditionView·EditionDateStrip·EditionSignalList·SignalExploreCard)·home/HomeSignalPreview 에디션 슬롯·utils(signalTerms·signalFreshness·editionDisplay·editionSummary)·useSignals(useDailyEditions·useEdition·useCompanyBuySignal)·signal.service/signal.types 에디션 계약; 백엔드 engine3 signals/(daily-editions·daily/:date 읽기 파생))
-**버전**: 2.3 (일일 에디션 컴포넌트/훅/유틸 트리 반영 [DAR-505~509]) / 이전 2.2 (갭분석 퀵윈 웨이브 반영 — 백엔드: legal/·web-surface/·status/ 횡단 모듈 신설, ops/ funnel·notification-latency, engine1 pipeline/ 제목 이벤트 백필, engine3 market-data 수급·공매도/지표 조회 + price-move-alert/, engine4 briefing; 모바일: .maestro/·jest.config.js·__tests__/·dev-login.tsx·legal/data-sources.tsx·settings-detail/support.tsx + 신규 서비스/훅/타입; 루트: docs/compliance/·docs/security/·scripts/audit-gate.mjs·edgar-poc.ts·.audit-allowlist.json·.github CI 보안 잡) / 이전 2.1 (2026-07-02): 횡단 모듈 8종·모바일 신규 라우트/컴포넌트 디렉터리·루트 harness/infra/scripts·브랜치 전략(feat+squash)·prod env 관리 현행화
+**버전**: 2.4 (테스터 코호트 계측 반영 [DAR-516 Wave A/A6] — BE ops/tester-event.*·모바일 services/testerEvents.service.ts·utils/testerEvents.ts·components/survey/IosGateSurvey.tsx·docs/analytics/) / 이전 2.3 (일일 에디션 컴포넌트/훅/유틸 트리 반영 [DAR-505~509]) / 이전 2.2 (갭분석 퀵윈 웨이브 반영 — 백엔드: legal/·web-surface/·status/ 횡단 모듈 신설, ops/ funnel·notification-latency, engine1 pipeline/ 제목 이벤트 백필, engine3 market-data 수급·공매도/지표 조회 + price-move-alert/, engine4 briefing; 모바일: .maestro/·jest.config.js·__tests__/·dev-login.tsx·legal/data-sources.tsx·settings-detail/support.tsx + 신규 서비스/훅/타입; 루트: docs/compliance/·docs/security/·scripts/audit-gate.mjs·edgar-poc.ts·.audit-allowlist.json·.github CI 보안 잡) / 이전 2.1 (2026-07-02): 횡단 모듈 8종·모바일 신규 라우트/컴포넌트 디렉터리·루트 harness/infra/scripts·브랜치 전략(feat+squash)·prod env 관리 현행화

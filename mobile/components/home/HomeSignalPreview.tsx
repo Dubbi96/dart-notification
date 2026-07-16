@@ -15,7 +15,14 @@ import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { guestPromptCopy } from '@components/common/guestPromptCopy';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
 import { getEventTypeLabel } from '@utils/disclosureType';
-import { SIGNAL_TERMS, buildSignalCardA11yLabel } from '@utils/signalTerms';
+import {
+  SIGNAL_TERMS,
+  buildSignalCardA11yLabel,
+  buildEditionTitle,
+  editionDateLabel,
+  editionDateA11yLabel,
+  isTodayKst,
+} from '@utils/signalTerms';
 import { curateBuySignals } from '@utils/signalCuration';
 import { isChartableTicker, navigateToStockChart } from '@utils/stockChartLink';
 import { useBuySignals } from '@hooks/useSignals';
@@ -74,6 +81,8 @@ interface SignalPreviewCardProps {
 function SignalPreviewCard({ signal, onPress, cardWidth }: SignalPreviewCardProps) {
   const { colors, typography: typo } = useTheme();
   const evidence = historicalEventEvidence(signal);
+  // DAR-504: 발행일(createdAt) KST 'M/D' 날짜배지 — 헤더 '오늘' 단정을 카드 단위로도 정직화.
+  const dateLabel = editionDateLabel(signal.createdAt);
   const handlePress = useCallback(() => onPress(signal), [onPress, signal]);
   // DAR-363: 홈 프리뷰 카드에서 해당 종목 실시간 차트로 직접 진입. 6자리 종목코드 있을 때만.
   const handleChartPress = useCallback(() => navigateToStockChart(signal.ticker), [signal.ticker]);
@@ -93,6 +102,8 @@ function SignalPreviewCard({ signal, onPress, cardWidth }: SignalPreviewCardProp
         corpName: signal.corpName,
         buyScore: signal.buyScore,
         gradeText: gradeLabel(signal.grade),
+        // DAR-504: 시각 M/D 배지를 SR도 동일하게 듣도록 음성 형태('M월 D일') 병기.
+        dateText: editionDateA11yLabel(signal.createdAt),
       })}
       // DAR-363: 카드가 no-hide-descendants 라 자식 버튼이 a11y 트리에서 숨겨지므로,
       // 차트 진입을 카드 단위 보조 액션으로도 노출(스크린리더 1탭 동선).
@@ -164,7 +175,21 @@ function SignalPreviewCard({ signal, onPress, cardWidth }: SignalPreviewCardProp
           style={styles.evidence}
         />
 
+        {/* DAR-504: 발행일 M/D 배지(좌) + AI 참고 라벨(우). createdAt 결측 시 배지만 생략(균일 높이는
+            AiReferenceLabel 이 결정하므로 유지). 카드는 no-hide-descendants → 날짜는 카드 a11y 라벨에 병기. */}
         <View style={styles.cardFooter}>
+          {dateLabel ? (
+            <View style={styles.dateBadge}>
+              <Feather name="calendar" size={12} color={colors.textSecondary} />
+              <Text
+                style={[typo.small, { color: colors.textSecondary }]}
+                numberOfLines={1}
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+              >
+                {dateLabel}
+              </Text>
+            </View>
+          ) : null}
           <AiReferenceLabel />
         </View>
       </Surface>
@@ -212,6 +237,24 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
   // 가짜 BUY 금지(§2): 매수등급만 점수 내림차순 상위 N(공용 큐레이션 util). WATCH 이하 미노출.
   const topSignals = useMemo(() => curateBuySignals(data, MAX_PREVIEW), [data]);
 
+  // DAR-504: 정적 '오늘' 폐기 — 헤더는 최신 발행일(topSignals 중 max createdAt) 기준으로 동적 생성.
+  // 큐레이션이 buyScore desc 라 상단이 최신순이 아닐 수 있어 명시적으로 max createdAt 을 취한다.
+  const latestCreatedAt = useMemo(() => {
+    let bestIso: string | null = null;
+    let bestMs = -Infinity;
+    for (const s of topSignals) {
+      const ms = s.createdAt ? new Date(s.createdAt).getTime() : NaN;
+      if (!Number.isNaN(ms) && ms > bestMs) {
+        bestMs = ms;
+        bestIso = s.createdAt;
+      }
+    }
+    return bestIso;
+  }, [topSignals]);
+  // 최신 발행일 KST일이 오늘이면 '오늘의 투자판단', 아니면 '최신 투자판단 · M/D'(+간극≥2일 'N일 전').
+  // 데이터 미상(로딩·빈 상태·게스트)이면 '오늘' 단정 없는 우산 헤더 '투자판단'.
+  const editionTitle = buildEditionTitle(latestCreatedAt, isTodayKst(latestCreatedAt));
+
   const handleCardPress = useCallback((signal: TradingSignal) => {
     // 종목 판단허브 진입(§1) — 신호 상세로 직결.
     router.push(`/signals/${signal.id}`);
@@ -243,8 +286,8 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
   const Heading = (
     <View style={styles.heading}>
       <View style={styles.headingText}>
-        {/* L1 우산 헤더(DAR-217): 화면/섹션 헤더는 '투자판단', 부제는 콘텐츠 어휘 '매수 신호'. */}
-        <Text style={[typo.bodyMedium, { color: colors.text }]}>{SIGNAL_TERMS.homeHeader}</Text>
+        {/* L1 우산 헤더(DAR-217): '투자판단' 어휘 유지. DAR-504: 정적 '오늘' 폐기 → 최신 발행일 기준 동적 문구. */}
+        <Text style={[typo.bodyMedium, { color: colors.text }]}>{editionTitle}</Text>
         <Text style={[typo.small, { color: colors.textSecondary }]}>
           공시에서 찾은 상위 {SIGNAL_TERMS.card} (참고)
         </Text>
@@ -408,7 +451,17 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   cardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
     marginTop: spacing.md,
+  },
+  dateBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flexShrink: 1,
   },
   lockedCard: {
     justifyContent: 'center',

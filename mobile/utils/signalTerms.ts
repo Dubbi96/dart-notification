@@ -10,7 +10,7 @@
 //
 // ── 용어 위계(3단) ───────────────────────────────────────────────
 //   L0 탭 라벨        : '신호'       — 5탭 IA(app/(tabs)/_layout). 도메인 진입점.
-//   L1 화면/섹션 헤더 : '투자판단'    — 상위 '우산' 개념. 예) 홈 '오늘의 투자판단',
+//   L1 화면/섹션 헤더 : '투자판단'    — 상위 '우산' 개념. 예) 홈 에디션 헤더(buildEditionTitle),
 //                                     화면 단위 로딩/에러 상태 문구.
 //   L2 개별 카드/점수 : '매수 신호' + 'Buy Score'
 //                                   — 개별 시그널 카드와 점수는 항상 이 고정 어휘.
@@ -26,8 +26,6 @@ export const SIGNAL_TERMS = {
   tab: '신호',
   /** L1 — 화면/섹션 우산 헤더 어휘. */
   screenHeader: '투자판단',
-  /** L1 — 홈 프리뷰 섹션 헤더(우산, 정본 문구). */
-  homeHeader: '오늘의 투자판단',
   /** L2 — 개별 매수 시그널 카드 명사. */
   card: '매수 신호',
   /** L2 — 매수 점수 라벨(영문 고정). */
@@ -42,19 +40,101 @@ export const SIGNAL_TERMS = {
  * @param corpName    기업명
  * @param buyScore    매수 점수(0~100)
  * @param gradeText   gradeLabel(grade) 결과(한국어 등급 문구)
+ * @param dateText    선택 — 발행일 음성 표기(예: '7월 14일', DAR-504). 시각 날짜배지와 SR 병행 노출.
  * @param riskSummary 선택 — 위험 요약(있으면 끝에 덧붙임)
  */
 export function buildSignalCardA11yLabel({
   corpName,
   buyScore,
   gradeText,
+  dateText,
   riskSummary,
 }: {
   corpName: string;
   buyScore: number;
   gradeText: string;
+  dateText?: string | null;
   riskSummary?: string | null;
 }): string {
   const base = `${corpName} ${SIGNAL_TERMS.card}, ${SIGNAL_TERMS.buyScore} ${buyScore}점, ${gradeText}`;
-  return riskSummary ? `${base}, ${riskSummary}` : base;
+  const withDate = dateText ? `${base}, ${dateText}` : base;
+  return riskSummary ? `${withDate}, ${riskSummary}` : withDate;
+}
+
+// ── 에디션(신문 '호') 라벨 SSOT (DAR-504) ────────────────────────────
+// 문제: 홈 헤더가 정적 '오늘의 투자판단'으로 데이터 최신일과 무관하게 항상 '오늘'을 단정했다.
+//   그런데 홈 큐레이션은 최대 14일 창(useSignals sinceDays:14) + buyScore desc라, 최고점 1건이
+//   최대 14일 상단에 정체 → 과거 판단이 '오늘'로 오인됐다. 공시 카운트는 이미 '최신 M/D 기준'
+//   (DAR-422)으로 정직화됐으므로 신호 헤더도 같은 규약을 따른다.
+// 해결: createdAt(발행일)의 KST 달력일을 축으로 헤더를 동적 생성한다. 하드코딩 '오늘' 금지.
+//   디바이스 타임존에 무의존하도록 KST(+9h) 오프셋으로 달력일을 산출 → 결정론 단위검증 가능
+//   (now 주입, signalTiming.ts와 동일 관례).
+
+const EDITION_DAY_MS = 24 * 60 * 60 * 1000;
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/** ISO(UTC) → epoch ms. null/빈문자열/파싱불가면 null. */
+function isoToMs(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/** epoch ms → KST 달력일 자정의 일(day) 서수(자정 기준 일수 차 계산용). */
+function kstDayOrdinal(ms: number): number {
+  return Math.floor((ms + KST_OFFSET_MS) / EDITION_DAY_MS);
+}
+
+/**
+ * ISO(createdAt) → KST 달력일 'M/D'(예: '7/14'). 유효하지 않으면 null(호출부가 결측 처리).
+ * 프리뷰/에디션 카드 날짜배지 SSOT — 디바이스 타임존과 무관하게 KST 기준 표기.
+ */
+export function editionDateLabel(iso: string | null | undefined): string | null {
+  const ms = isoToMs(iso);
+  if (ms === null) return null;
+  const shifted = new Date(ms + KST_OFFSET_MS);
+  return `${shifted.getUTCMonth() + 1}/${shifted.getUTCDate()}`;
+}
+
+/**
+ * ISO(createdAt) → KST 달력일 'M월 D일'(스크린리더 음성 표기). 유효하지 않으면 null.
+ * 'M/D' 시각 배지는 SR이 '슬래시'로 읽어 어색하므로, a11y 라벨엔 이 음성 형태를 병기한다.
+ */
+export function editionDateA11yLabel(iso: string | null | undefined): string | null {
+  const ms = isoToMs(iso);
+  if (ms === null) return null;
+  const shifted = new Date(ms + KST_OFFSET_MS);
+  return `${shifted.getUTCMonth() + 1}월 ${shifted.getUTCDate()}일`;
+}
+
+/**
+ * iso 의 KST 달력일이 now 의 KST 달력일과 같은가('오늘' 판정 SSOT).
+ * now 주입 가능(테스트 결정론, 기본 Date.now()). iso 결측/무효면 false('오늘' 단정 금지).
+ */
+export function isTodayKst(iso: string | null | undefined, now: number = Date.now()): boolean {
+  const ms = isoToMs(iso);
+  if (ms === null) return false;
+  return kstDayOrdinal(ms) === kstDayOrdinal(now);
+}
+
+/**
+ * 홈/에디션 섹션 헤더 문구 SSOT(정적 '오늘' 폐기, DAR-504).
+ *  - isToday=true  → '오늘의 투자판단'
+ *  - isToday=false → '최신 투자판단 · M/D'(createdAt KST일 기준). 간극 ≥2일이면 ' · N일 전' 병기.
+ *  - latestCreatedAtISO 결측/무효(빈 상태·로딩·게스트) → 날짜 단정 없는 우산 헤더 '투자판단'.
+ * now 주입 가능(테스트 결정론). isToday 는 호출부가 isTodayKst 로 산출(S1 이후 백엔드 todayHasEdition 대체 가능).
+ */
+export function buildEditionTitle(
+  latestCreatedAtISO: string | null | undefined,
+  isToday: boolean,
+  now: number = Date.now(),
+): string {
+  if (isToday) return `오늘의 ${SIGNAL_TERMS.screenHeader}`;
+  const label = editionDateLabel(latestCreatedAtISO);
+  if (label === null) return SIGNAL_TERMS.screenHeader; // 날짜 미상 → '오늘' 단정 없는 우산 헤더
+  const ms = isoToMs(latestCreatedAtISO) as number;
+  const gapDays = kstDayOrdinal(now) - kstDayOrdinal(ms);
+  const base = `최신 ${SIGNAL_TERMS.screenHeader} · ${label}`;
+  // 간극 ≥2일(그제 이상)만 'N일 전' 병기 — 어제(1일)는 M/D만으로 충분(노이즈 방지).
+  return gapDays > 1 ? `${base} · ${gapDays}일 전` : base;
 }

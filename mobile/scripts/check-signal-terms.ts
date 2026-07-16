@@ -12,7 +12,7 @@
  *
  * 실행: npx tsx scripts/check-signal-terms.ts  (실패 시 exit 1)
  */
-import { SIGNAL_TERMS, buildSignalCardA11yLabel } from '../utils/signalTerms.ts';
+import { SIGNAL_TERMS, buildSignalCardA11yLabel, buildEditionTitle } from '../utils/signalTerms.ts';
 
 interface Case {
   name: string;
@@ -25,8 +25,24 @@ const cases: Case[] = [];
 // 1) 위계 상수 고정값 — 우산(L1) vs 카드/점수(L2) 어휘 분리.
 cases.push({
   name: "L1 화면 헤더 어휘 = '투자판단'",
-  pass: SIGNAL_TERMS.screenHeader === '투자판단' && SIGNAL_TERMS.homeHeader === '오늘의 투자판단',
-  detail: `screenHeader="${SIGNAL_TERMS.screenHeader}", homeHeader="${SIGNAL_TERMS.homeHeader}"`,
+  pass: SIGNAL_TERMS.screenHeader === '투자판단',
+  detail: `screenHeader="${SIGNAL_TERMS.screenHeader}"`,
+});
+
+// 1b) DAR-504: 정적 'homeHeader'(항상 '오늘') 폐기 → 헤더는 최신 발행일 기준 동적 문구.
+//     과거 발행일이면 '오늘' 미표기(정직 라벨), 오늘 발행일이면 '오늘의 투자판단'. now 주입 결정론.
+const EDITION_NOW = new Date('2026-07-16T00:30:00.000Z').getTime(); // KST 2026-07-16 09:30
+const pastEdition = buildEditionTitle('2026-07-14T09:00:00.000Z', false, EDITION_NOW); // KST 07-14
+const todayEdition = buildEditionTitle('2026-07-16T00:30:00.000Z', true, EDITION_NOW);
+cases.push({
+  name: "DAR-504: 과거 발행일 헤더는 '오늘' 미표기(정직 라벨)",
+  pass: !pastEdition.includes('오늘') && pastEdition.includes('7/14'),
+  detail: `past="${pastEdition}"`,
+});
+cases.push({
+  name: "DAR-504: 오늘 발행일 헤더 = '오늘의 투자판단'",
+  pass: todayEdition === '오늘의 투자판단',
+  detail: `today="${todayEdition}"`,
 });
 cases.push({
   name: "L2 카드/점수 어휘 = '매수 신호' + 'Buy Score'",

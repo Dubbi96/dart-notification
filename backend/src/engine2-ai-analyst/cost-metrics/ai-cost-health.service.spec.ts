@@ -19,6 +19,7 @@ describe('AiCostHealthService', () => {
       'event-classification': { costUsd: 0, callCount: 0 },
       'persona-interpretation': { costUsd: 0, callCount: 0 },
       'position-thesis': { costUsd: 0, callCount: 0 },
+      'price-move-reasoning': { costUsd: 0, callCount: 0 },
     };
   }
 

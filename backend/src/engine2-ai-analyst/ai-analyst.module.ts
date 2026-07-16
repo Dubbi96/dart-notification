@@ -18,11 +18,18 @@ import { HttpLlmClient } from './llm/http-llm-client';
 import { AiAnalysisRepository } from './ports/ai-analysis.repository';
 import { PrismaAiAnalysisRepository } from './adapters/prisma-ai-analysis.repository';
 import { EventExtractedConsumer } from './consumers/event-extracted.consumer';
+import { PriceMoveReasonConsumer } from './consumers/price-move-reason.consumer';
 import { AiBackfillDrainService } from './backfill/ai-backfill-drain.service';
 import { AiBackfillScheduler } from './backfill/ai-backfill.scheduler';
 import { MarketDataModule } from '../engine3-quant-market/market-data/market-data.module';
+import { EventStudyModule } from '../engine3-quant-market/event-study/event-study.module';
 import { QUEUE } from '../common/queues/queue.constants';
 import { NotificationProducerModule } from '../notifications/notification-producer.module';
+// DAR-522: PRICE_MOVE 역방향 리즈닝(설명층) — 5번째 AI Task + 오케스트레이터 + refId 멱등 캐시.
+import { PriceMoveReasoningTask } from './price-move-reasoning/price-move-reasoning.task';
+import { PriceMoveReasoningService } from './price-move-reasoning/price-move-reasoning.service';
+import { PriceMoveReasoningRepository } from './price-move-reasoning/price-move-reasoning.repository';
+import { PrismaPriceMoveReasoningRepository } from './price-move-reasoning/prisma-price-move-reasoning.repository';
 
 /**
  * Engine 2 — AI Analyst Engine (M3).
@@ -37,7 +44,10 @@ import { NotificationProducerModule } from '../notifications/notification-produc
 @Module({
   imports: [
     BullModule.registerQueue({ name: QUEUE.AI_ANALYZE }),
+    // DAR-522: engine3 PRICE_MOVE → engine2 역방향 리즈닝 트리거 큐.
+    BullModule.registerQueue({ name: QUEUE.PRICE_MOVE_REASON }),
     MarketDataModule, // DAR-69: DartStockStatusService (관리종목 실데이터 폴백)
+    EventStudyModule, // DAR-522: DisclosureReactionStatsService (EventStudy 유사사례 통계 주입)
     NotificationProducerModule, // DAR-476(P02): AI 비용 위반 OPS_ALERT 발행
   ],
   controllers: [AiCostMetricsController],
@@ -58,6 +68,12 @@ import { NotificationProducerModule } from '../notifications/notification-produc
     PrismaAiAnalysisRepository,
     { provide: AiAnalysisRepository, useClass: PrismaAiAnalysisRepository },
     EventExtractedConsumer,
+    // DAR-522: 역방향 리즈닝 — Task·오케스트레이터·refId 멱등 캐시 포트·큐 컨슈머.
+    PriceMoveReasoningTask,
+    PriceMoveReasoningService,
+    PrismaPriceMoveReasoningRepository,
+    { provide: PriceMoveReasoningRepository, useClass: PrismaPriceMoveReasoningRepository },
+    PriceMoveReasonConsumer,
     AiBackfillDrainService,
     AiBackfillScheduler,
   ],

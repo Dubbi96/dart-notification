@@ -27,6 +27,12 @@ import { PrismaMarketIndexAdapter } from './adapters/prisma-market-index.adapter
     { provide: STOCK_PRICE_PORT, useClass: PrismaStockPriceAdapter },
     { provide: MARKET_INDEX_PORT, useClass: PrismaMarketIndexAdapter },
   ],
-  exports: [EventStudyService, EventStudyQueryService, EventStudyCalculationService],
+  // DAR-522: 역방향 리즈닝(engine2)이 EventStudy 유사사례 통계를 주입받도록 노출.
+  exports: [
+    EventStudyService,
+    EventStudyQueryService,
+    EventStudyCalculationService,
+    DisclosureReactionStatsService,
+  ],
 })
 export class EventStudyModule {}

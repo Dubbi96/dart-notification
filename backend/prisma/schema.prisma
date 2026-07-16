@@ -685,6 +685,8 @@ enum AiTaskName {
   event_classification   @map("event-classification")
   persona_interpretation @map("persona-interpretation")
   position_thesis        @map("position-thesis")
+  // DAR-522 (Wave C1): PRICE_MOVE(±5%) 역방향 리즈닝 — 48h 공시 원인 역추적 해석(설명층 한정).
+  price_move_reasoning   @map("price-move-reasoning")
 }
 
 // ====================================
@@ -766,6 +768,34 @@ model AIUsageLog {
   @@index([createdAt])
   @@index([cacheHit])
   @@map("ai_usage_logs")
+}
+
+// DAR-522 (Wave C1·P0): PRICE_MOVE(±5%) 역방향 리즈닝 결과 캐시.
+// engine3 price-move-alert 발화(등락 이벤트) 1건마다 48h 내 공시 유무를 판정해:
+//   - 공시 존재 → AI Task(설명층 원인 해석) 결과를 resultJson 에 저장(status=ANALYZED).
+//   - 무공시(48h) → AI 호출 0, '관련 공시 없음(48h)' 포맷 응답 저장(status=NO_DISCLOSURE).
+//   - 일일 비용 상한 초과 → AI 호출 0 스킵 기록(status=CAP_SKIPPED).
+// 멱등: refId(`<stockCode>-<YYYYMMDD>` = 등락 이벤트 자연키)가 @unique → 등락 이벤트당 1행.
+//   causal 공시 rcpNo 를 함께 보존(rcpNo × 등락 이벤트 멱등). 시세성 이벤트라 rcpNo 는
+//   nullable·논리 FK(무공시 케이스는 rcpNo 없음 — Disclosure 강제 FK 금지).
+// ★AI 금지영역 무접점: 출력=설명층(원인 해석·근거)뿐 — 주문·점수·하드룰 경로 무접점.
+model PriceMoveReasoning {
+  id         String       @id @default(cuid())
+  refId      String       @unique // 등락 이벤트 자연키 `<stockCode>-<YYYYMMDD>` (종목당 1일 1회)
+  stockCode  String
+  corpCode   String // DART 고유번호 (논리 FK)
+  tradeDate  String // 발화 거래일 KST YYYYMMDD
+  changePct  Float // 전일 종가 대비 등락률(%) — 방향·폭
+  rcpNo      String? // causal 공시 접수번호(무공시 케이스는 null) — 논리 FK
+  status     String // ANALYZED | NO_DISCLOSURE | CAP_SKIPPED
+  level      AiCostLevel? // AI 실행 시 비용 등급(무공시·스킵은 null)
+  resultJson Json // 원인 해석·근거(ANALYZED) 또는 무공시/스킵 포맷 응답
+  createdAt  DateTime     @default(now())
+
+  @@index([corpCode])
+  @@index([tradeDate])
+  @@index([rcpNo])
+  @@map("price_move_reasonings")
 }
 
 // ====================================

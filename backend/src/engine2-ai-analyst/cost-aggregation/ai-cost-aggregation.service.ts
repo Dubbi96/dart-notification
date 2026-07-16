@@ -15,6 +15,7 @@ export class AiCostAggregationService {
     'event-classification',
     'persona-interpretation',
     'position-thesis',
+    'price-move-reasoning',
   ];
 
   private readonly prismaTaskMap: Record<AiTaskName, string> = {
@@ -22,6 +23,7 @@ export class AiCostAggregationService {
     'event-classification': 'event_classification',
     'persona-interpretation': 'persona_interpretation',
     'position-thesis': 'position_thesis',
+    'price-move-reasoning': 'price_move_reasoning',
   };
 
   constructor(

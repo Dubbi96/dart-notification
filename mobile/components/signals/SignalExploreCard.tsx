@@ -5,10 +5,10 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { SignalMiniGauge } from '@components/signals/SignalMiniGauge';
-import { SignalFreshnessBadge } from '@components/signals/SignalFreshnessBadge';
+import { SignalDateBadge } from '@components/signals/SignalDateBadge';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
 import { getEventTypeLabel } from '@utils/disclosureType';
-import { getSignalTiming } from '@utils/signalTiming';
+import { getSignalDateStatus } from '@utils/signalFreshness';
 import { isChartableTicker, navigateToStockChart } from '@utils/stockChartLink';
 
 import type { TradingSignal } from '@app-types/signal.types';
@@ -32,11 +32,14 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
   // 핵심 근거 1줄: AI 요약 우선, 없으면 점수·등급 기반 평문(항상 '(참고)' 꼬리표 포함).
   const rationale = signal.summary ?? scoreOneLiner(signal.buyScore, signal.grade);
 
-  // DAR-369: 발생 시점 — 신선/만료 무관 항상 표시(판단 가능성). 공시 접수일(rcpNo 앞 8자리) 우선,
-  // 없으면 createdAt 을 '신호' 라벨로 폴백(레코드 시각을 공시 발생으로 오인 방지).
-  const timing = getSignalTiming({
-    relatedDisclosureRcpNo: signal.relatedDisclosureRcpNo,
+  // DAR-509: 발생일 + 상태(지연/만료)를 공유 SignalDateBadge SSOT 로 통일(홈·에디션·explore).
+  // 절대 M/D 상시 병기 + 공시 접수일(rcpDt / rcpNo 앞 8자리) 우선(없으면 createdAt 폴백) + 지연/만료 톤.
+  // 여기 dateStatus 는 배지 표시 게이트 + 카드 단위 a11y 합성에만 쓰고, 색/렌더는 배지가 담당한다.
+  const dateStatus = getSignalDateStatus({
     createdAt: signal.createdAt,
+    rcpDt: signal.rcpDt,
+    relatedDisclosureRcpNo: signal.relatedDisclosureRcpNo,
+    expiresAt: signal.expiresAt,
   });
 
   return (
@@ -48,7 +51,7 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
       accessibilityLabel={`${signal.corpName}${
         signal.eventType ? `, ${getEventTypeLabel(signal.eventType)}` : ''
       }, 점수 ${signal.buyScore}, ${gradeLabel(signal.grade)}${
-        timing.show ? `, ${timing.accessibleText}` : ''
+        dateStatus.show ? `, ${dateStatus.accessibleText}` : ''
       }`}
       accessibilityHint="분석 상세 보기"
       // DAR-363: 카드가 no-hide-descendants 로 자식을 a11y 트리에서 숨기므로, 차트 퀵진입은
@@ -95,9 +98,9 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
           ) : null}
         </View>
 
-        {/* DAR-307: 이벤트 칩을 기업명과 별도 행으로 분리(좌측). DAR-369: 같은 행 우측에
-            발생 시점을 상시 노출 — 신선/만료 무관 '언제 발생했는지'를 한눈에. */}
-        {signal.eventType || timing.show ? (
+        {/* DAR-307: 이벤트 칩을 기업명과 별도 행으로 분리(좌측). DAR-509: 같은 행 우측에
+            발생일·상태 배지(SignalDateBadge)를 상시 노출 — 교차일 탐색 신선도 모호성 차단. */}
+        {signal.eventType || dateStatus.show ? (
           <View style={styles.metaRow}>
             {signal.eventType ? (
               <Chip
@@ -115,17 +118,14 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
                 {getEventTypeLabel(signal.eventType)}
               </Chip>
             ) : null}
-            {timing.show ? (
-              <View style={styles.timingRow}>
-                <Feather name="calendar" size={12} color={colors.textSecondary} />
-                <Text
-                  style={[typo.small, { color: colors.textSecondary }]}
-                  numberOfLines={1}
-                  maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-                >
-                  {timing.label}
-                </Text>
-              </View>
+            {dateStatus.show ? (
+              <SignalDateBadge
+                createdAt={signal.createdAt}
+                rcpDt={signal.rcpDt}
+                relatedDisclosureRcpNo={signal.relatedDisclosureRcpNo}
+                expiresAt={signal.expiresAt}
+                style={styles.dateBadge}
+              />
             ) : null}
           </View>
         ) : null}
@@ -140,13 +140,6 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
         >
           {rationale}
         </Text>
-
-        {/* DAR-326: 신선도 배지 — 만료/오래됨만 노출(신선 신호엔 미표시) */}
-        <SignalFreshnessBadge
-          createdAt={signal.createdAt}
-          expiresAt={signal.expiresAt}
-          style={styles.freshness}
-        />
       </Surface>
     </TouchableOpacity>
   );
@@ -179,11 +172,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginTop: spacing.xs,
   },
-  timingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    // 이벤트 칩이 없을 때 좌측 정렬, 있을 때는 행 우측으로 밀려 시점이 가지런히 보인다.
+  dateBadge: {
+    // 이벤트 칩이 없을 때 좌측, 있을 때는 행 우측으로 밀려 발생일 배지가 가지런히 보인다.
     marginLeft: 'auto',
     flexShrink: 1,
   },
@@ -203,8 +193,5 @@ const styles = StyleSheet.create({
   },
   gaugeWrap: {
     marginTop: spacing.md,
-  },
-  freshness: {
-    marginTop: spacing.sm,
   },
 });

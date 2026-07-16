@@ -4,12 +4,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { SegmentedButtons } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router, useScrollToTop } from 'expo-router';
-import { useQueryClient } from '@tanstack/react-query';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ExitScoreCard } from '@components/signals/ExitScoreCard';
 import { SignalExplorer } from '@components/signals/SignalExplorer';
-import { CurationSlot } from '@components/signals/CurationSlot';
+import { BuyEditionView } from '@components/signals/BuyEditionView';
 import { SignalSearchInput } from '@components/signals/SignalSearchInput';
 import { SignalsCoachmark } from '@components/signals/SignalsCoachmark';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
@@ -25,15 +24,18 @@ import { SIGNALS_HEADER_SUBTITLE } from '@utils/copy';
 import type { ExitSignal, TradingSignal } from '@app-types/signal.types';
 
 type FeedTab = 'buy' | 'sell';
+// DAR-509: 매수 뷰 2모드 — 'edition'(뉴스형 에디션 브라우징, 기본) / 'archive'(무한스크롤 탐색, 보조).
+type BuyMode = 'edition' | 'archive';
 
 export default function SignalsScreen() {
   const { colors, typography: typo } = useTheme();
   const [feedTab, setFeedTab] = useState<FeedTab>('buy');
+  const [buyMode, setBuyMode] = useState<BuyMode>('edition');
   const [search, setSearch] = useState('');
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
-  // DAR-181: 탭 재탭 시 최상단 복귀. 매수(SignalExplorer)·매도 FlatList는 상호배타로
-  // 동시에 하나만 마운트되므로 비활성 ref는 null → useScrollToTop이 no-op.
+  // DAR-181: 탭 재탭 시 최상단 복귀. 매수(에디션 리스트 또는 SignalExplorer)·매도 FlatList는
+  // 상호배타로 동시에 하나만 마운트되므로 비활성 ref는 null → useScrollToTop이 no-op.
   const buyListRef = useRef<FlatList<TradingSignal>>(null);
   const sellListRef = useRef<FlatList<ExitSignal>>(null);
   useScrollToTop(buyListRef);
@@ -42,30 +44,11 @@ export default function SignalsScreen() {
   const exitQuery = useExitSignals();
 
   // UXR(B-9): 매도 빈 상태가 보유 포지션 0건·평가 미실행에도 '모든 포지션이 안전'을 단정하던
-  // 문제 — 포지션 유무로 빈 상태 카피를 분기한다. 매도 탭 활성 시에만 발화(enabled 게이팅),
-  // 로딩/실패 시에는 단정 없는 기본 카피(exitSignalsEmpty)로 폴백.
+  // 문제 — 포지션 유무로 빈 상태 카피를 분기한다. 매도 탭 활성 시에만 발화(enabled 게이팅).
   const positionsQuery = usePositions({ enabled: isAuthenticated && feedTab === 'sell' });
   const hasNoPositions = positionsQuery.isSuccess && (positionsQuery.data?.length ?? 0) === 0;
 
-  // UXR-12(B-5): 당겨서 새로고침 시 헤더의 L1 '오늘 주목할 신호' 큐레이션(CurationSlot의
-  // useBuySignals — queryKey ['signals','buy',…])도 함께 갱신한다. 기존엔 피드 쿼리만 재조회돼
-  // '새로고침했는데 추천 카루셀(점수·신선도 배지)은 오래됨' 모순이 남았다(감사 ⑤ 잔존).
-  // invalidateQueries는 활성(마운트된) 큐레이션 쿼리를 즉시 refetch, 비활성은 stale 마킹만.
-  const queryClient = useQueryClient();
-  const refreshCuration = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['signals', 'buy'] });
-  }, [queryClient]);
-
-  // 매도 탭 pull-to-refresh — exit 피드 + 헤더 큐레이션 동시 갱신.
-  const refetchExit = exitQuery.refetch;
-  const handleSellRefresh = useCallback(() => {
-    refreshCuration();
-    refetchExit();
-  }, [refreshCuration, refetchExit]);
-
-  // UXR-3(B-2): 검색 입력이 sellHeader에도 있는데 매도 리스트에는 필터가 없어 무기능이었다
-  // (SignalSearchInput 힌트는 '매수·매도 신호 검색'을 약속). SignalExplorer(DAR-117)와 동일한
-  // corpName/ticker 클라이언트 필터를 매도 데이터에도 적용한다(서버 키워드 검색 미존재).
+  // UXR-3(B-2): 매도 검색 — corpName/ticker 클라이언트 필터(서버 키워드 검색 미존재).
   const trimmedQuery = search.trim().toLowerCase();
   const isSearching = trimmedQuery.length > 0;
   const exitItems = useMemo(() => {
@@ -78,13 +61,15 @@ export default function SignalsScreen() {
     );
   }, [exitQuery.data, trimmedQuery]);
 
-  // 검색 결과 0건 빈 상태의 '검색어 지우기' 액션(안정 참조 — useState setter만 의존).
   const handleClearSearch = useCallback(() => setSearch(''), []);
 
-  // DAR-310: 매도 신호는 보유 종목 기반이며 ExitSignal.id는 매수 상세(/signals/[id],
-  // useSignalDetail) 키가 아니라 그 라우트에서 항상 isError가 났다. ExitSignal에는
-  // positionId가 없어 포지션 상세로도 못 가므로, corpCode로 기업 허브(위험 배지·신호·
-  // 공시·통계)로 보낸다 — 매도 판단에 필요한 정보를 모두 담은 유효 라우트.
+  // 매도 빈 상태(보유 0건) CTA — 매수 에디션 브라우징으로 전환해 후보 탐색 유도.
+  const handleExplore = useCallback(() => {
+    setFeedTab('buy');
+    setBuyMode('edition');
+  }, []);
+
+  // DAR-310: 매도 신호는 corpCode로 기업 허브(위험 배지·신호·공시·통계)로 보낸다.
   const handleExitPress = useCallback((signal: ExitSignal) => {
     router.push(`/company/${signal.corpCode}`);
   }, []);
@@ -94,17 +79,22 @@ export default function SignalsScreen() {
     [handleExitPress],
   );
 
-  // 추천 0건일 때 큐레이션 슬롯 CTA → 매수(탐색) 피드로 전환해 L2 점수순 탐색 유도.
-  const handleExplore = useCallback(() => {
-    setFeedTab('buy');
-  }, []);
-
   // DAR-227: SegmentedButtons onValueChange를 안정 참조로 고정(매 렌더 새 함수 금지).
-  const handleFeedTabChange = useCallback((v: string) => {
-    setFeedTab(v as FeedTab);
-  }, []);
+  const handleFeedTabChange = useCallback((v: string) => setFeedTab(v as FeedTab), []);
 
-  // 상단 진입점 배너(투자거장·이벤트통계) — 추천 슬롯보다 아래 위계(§3-d). 위험 없으면 추천을 밀어내지 않음.
+  // 매도 pull-to-refresh — exit 피드 재조회.
+  const refetchExit = exitQuery.refetch;
+  const handleSellRefresh = useCallback(() => {
+    refetchExit();
+  }, [refetchExit]);
+
+  // 종목 검색 입력 — 아카이브(explore)·매도 필터에 연동. search에만 의존.
+  const searchInput = useMemo(
+    () => <SignalSearchInput value={search} onChangeText={setSearch} />,
+    [search],
+  );
+
+  // 진입점 배너(투자거장·이벤트통계) — 아카이브(탐색) 헤더에 배치. 정체 시에도 추천을 밀어내지 않음.
   const metaBanners = useMemo(
     () => (
       <View style={styles.metaBanners}>
@@ -113,8 +103,6 @@ export default function SignalsScreen() {
           onPress={() => router.push('/philosophy')}
           accessibilityRole="button"
           accessibilityLabel="투자거장 철학 보기 — 버핏·린치·그린블라트·드러켄밀러"
-          // UXR-3(W5-B9): 동급 진입 배너 2개의 배경 토큰을 surfaceSecondary로 통일 —
-          // primaryLight는 이 화면에서 활성 필터/정렬 칩의 '선택됨' 틴트라 오독 소지.
           style={[styles.metaBanner, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
         >
           <Feather name="award" size={18} color={colors.primary} />
@@ -146,76 +134,84 @@ export default function SignalsScreen() {
     [colors, typo],
   );
 
-  // DAR-227: 헤더 서브트리를 조각별로 메모이즈해 타이핑(search 변경)에도 참조 동일성 유지.
-  // 검색 입력만 search에 의존해 리렌더하고, CurationSlot·SegmentedButtons는 동일 엘리먼트
-  // 참조라 React가 재조정을 건너뛴다(매 렌더 헤더 변수 재생성으로 인한 서브트리 리렌더 제거).
-  const curationSlot = useMemo(() => <CurationSlot onExplore={handleExplore} />, [handleExplore]);
-
-  const searchInput = useMemo(
-    () => <SignalSearchInput value={search} onChangeText={setSearch} />,
-    [search],
-  );
-
-  // 전체 피드 입구(매수/매도) — feedTab에만 의존(search 무관)해 타이핑 시 리렌더 0.
-  const feedToggle = useMemo(
-    () => (
-      <View style={styles.feedToggle}>
-        <SegmentedButtons
-          value={feedTab}
-          onValueChange={handleFeedTabChange}
-          buttons={[
-            { value: 'buy', label: '매수 탐색', icon: 'trending-up' },
-            { value: 'sell', label: '매도', icon: 'trending-down' },
-          ]}
-        />
-      </View>
-    ),
-    [feedTab, handleFeedTabChange],
-  );
-
-  // 매수 탐색 화면 상단(L1 큐레이션 → L2 검색 → 피드 입구 토글 → 메타 배너).
-  // SegmentedButtons는 큐레이션·검색 아래 위계로 하향(§3-b).
-  const buyHeader = useMemo(
+  // 아카이브(explore) 상단 헤더 — 검색 + 진입 배너. SignalExplorer가 필터/정렬 헤더를 이어 붙인다.
+  const archiveHeader = useMemo(
     () => (
       <View>
-        {/* L1: 오늘 주목할 신호 큐레이션(§3-a) — 최상단 1순위 */}
-        {curationSlot}
-
-        {/* L2: 종목 검색(§3-b) */}
         {searchInput}
-
-        {/* 전체 피드 입구(매수/매도) — 위계 하향 */}
-        {feedToggle}
-
-        {/* 메타 배너(투자거장·이벤트통계) — 추천보다 아래 위계 */}
         {metaBanners}
-
-        <View style={styles.sectionLabel}>
-          <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>전체 신호 탐색</Text>
-        </View>
       </View>
     ),
-    [curationSlot, searchInput, feedToggle, metaBanners, typo, colors],
+    [searchInput, metaBanners],
   );
 
-  // 매도 피드도 큐레이션·검색·토글을 상단에 유지해 동선 일관성 확보.
+  // 매도 상단 헤더 — 검색 + 섹션 라벨(매수/매도 토글은 화면 상단 고정 위치로 분리).
   const sellHeader = useMemo(
     () => (
       <View>
-        {curationSlot}
         {searchInput}
-        {feedToggle}
         <View style={styles.sectionLabel}>
           <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>전체 매도 신호</Text>
         </View>
       </View>
     ),
-    [curationSlot, searchInput, feedToggle, typo, colors],
+    [searchInput, typo, colors],
+  );
+
+  // 매수/매도 토글 — 화면 상단 고정(스크롤 무관 상시 노출).
+  const feedToggle = (
+    <View style={styles.feedToggle}>
+      <SegmentedButtons
+        value={feedTab}
+        onValueChange={handleFeedTabChange}
+        buttons={[
+          { value: 'buy', label: '매수', icon: 'trending-up' },
+          { value: 'sell', label: '매도', icon: 'trending-down' },
+        ]}
+      />
+    </View>
+  );
+
+  // 매수 뷰 서브 토글 — 에디션(기본)/아카이브(보조). 매수/매도 토글보다 시각 위계 낮은 pill.
+  const buyModeToggle = (
+    <View style={styles.modeToggle}>
+      {(['edition', 'archive'] as BuyMode[]).map((mode) => {
+        const active = buyMode === mode;
+        const label = mode === 'edition' ? '에디션' : '아카이브';
+        const icon = mode === 'edition' ? 'book-open' : 'archive';
+        return (
+          <TouchableOpacity
+            key={mode}
+            onPress={() => setBuyMode(mode)}
+            activeOpacity={0.7}
+            style={[
+              styles.modePill,
+              active
+                ? { backgroundColor: colors.primaryLight, borderColor: colors.primary }
+                : { backgroundColor: colors.surface, borderColor: colors.borderLight },
+            ]}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+            accessibilityLabel={`${label}${active ? ', 선택됨' : ''}`}
+          >
+            <Feather name={icon} size={13} color={active ? colors.primaryDark : colors.textSecondary} />
+            <Text
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+              style={[
+                typo.small,
+                { color: active ? colors.primaryDark : colors.textSecondary, fontWeight: active ? '600' : '400' },
+              ]}
+            >
+              {label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
   );
 
   const renderBody = () => {
-    // DAR-113/DAR-213: 매수·매도 신호는 인증 필요(401). 게스트는 빈/에러 화면 대신
-    // read-only 미리보기(블러+잠금 카드) + 로그인 CTA로 가치를 직접 맛보게 한다.
+    // DAR-113/DAR-213: 매수·매도 신호는 인증 필요(401). 게스트는 read-only 미리보기 + 로그인 CTA.
     if (!isAuthenticated) {
       return (
         <GuestSignalPreview
@@ -226,18 +222,25 @@ export default function SignalsScreen() {
     }
 
     if (feedTab === 'buy') {
-      // L2 SignalExplorer가 단일 스크롤 컨테이너. 상단 슬롯은 ListHeaderComponent로 주입.
       return (
-        <SignalExplorer
-          searchQuery={search}
-          ListHeaderComponent={buyHeader}
-          listRef={buyListRef}
-          onRefreshHeader={refreshCuration}
-        />
+        <View style={styles.body}>
+          {buyModeToggle}
+          {buyMode === 'edition' ? (
+            // 기본: 뉴스형 에디션 브라우징(고정 날짜 스트립 + 선택일 세로 리스트).
+            <BuyEditionView listRef={buyListRef} />
+          ) : (
+            // 보조: 무한스크롤 아카이브 탐색(교차일 — 모든 카드 SignalDateBadge). 검색·필터 유지.
+            <SignalExplorer
+              searchQuery={search}
+              ListHeaderComponent={archiveHeader}
+              listRef={buyListRef}
+            />
+          )}
+        </View>
       );
     }
 
-    // 매도 피드 — 큐레이션·검색 아래의 전체 매도 신호. 토글로 진입.
+    // 매도 피드 — 전체 매도 신호.
     if (exitQuery.isLoading) {
       return (
         <View style={styles.body}>
@@ -259,8 +262,7 @@ export default function SignalsScreen() {
         </View>
       );
     }
-    // UXR-3(B-2): 검색 중 매칭 0건(원본 매도 신호는 존재)이면 검색 전용 빈 상태로 분기 —
-    // '매도 신호 자체가 없음'(안전 구간)과 오해되지 않도록 사유를 구분한다.
+    // UXR-3(B-2): 검색 중 매칭 0건(원본 존재)이면 검색 전용 빈 상태로 분기.
     const isSearchEmpty = isSearching && exitItems.length === 0 && (exitQuery.data?.length ?? 0) > 0;
     return (
       <FlatList
@@ -289,7 +291,6 @@ export default function SignalsScreen() {
               onAction={handleClearSearch}
             />
           ) : hasNoPositions ? (
-            // 보유 포지션 0건 — '안전' 단정 대신 매수 탐색 유도(CTA=매수 탭 전환).
             <EmptyState {...emptyStateCopy.exitSignalsNoPositions} onAction={handleExplore} />
           ) : (
             <EmptyState {...emptyStateCopy.exitSignalsEmpty} />
@@ -309,9 +310,10 @@ export default function SignalsScreen() {
           {SIGNALS_HEADER_SUBTITLE}
         </Text>
       </View>
-      {/* W1 잔여(6/27 감사): 신호 탭 첫 진입 코치마크 — 점수 게이지·등급 칩·표본 읽는 법.
-          닫기 후 재노출 없음(SecureStore). 게스트는 미리보기 상태라 미노출(1회성 소모 방지). */}
+      {/* 신호 탭 첫 진입 코치마크 — 게스트는 미리보기 상태라 미노출(1회성 소모 방지). */}
       {isAuthenticated && <SignalsCoachmark />}
+      {/* 매수/매도 토글 — 화면 상단 고정(에디션 스트립·리스트와 제스처 축 분리). */}
+      {isAuthenticated && feedToggle}
       {renderBody()}
     </SafeAreaView>
   );
@@ -343,6 +345,23 @@ const styles = StyleSheet.create({
   feedToggle: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
+  },
+  modeToggle: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
+  },
+  modePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    minHeight: 32,
   },
   sectionLabel: {
     paddingHorizontal: spacing.lg,

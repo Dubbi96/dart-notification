@@ -13,8 +13,9 @@
  *      - 절대일: 같은 해 'M/D', 다른 해 'YYYY/M/D'.
  *      - KST 경계: UTC 자정 직후도 KST 날짜로 환산.
  *  (B) 카피 정직성: 라벨이 한국어, 공시/신호 출처 구분, raw enum 노출 없음.
- *  (C) 소스 바인딩: SignalExploreCard 가 getSignalTiming import·timing.label 렌더·
- *      timing.accessibleText 를 카드 a11y 라벨에 합성.
+ *  (C) 소스 바인딩(DAR-509): SignalExploreCard 가 발생일 표기를 공유 SignalDateBadge SSOT 로
+ *      통일 — getSignalDateStatus import·SignalDateBadge 렌더·dateStatus.accessibleText 를
+ *      카드 a11y 라벨에 합성(구 인라인 timing.label + SignalFreshnessBadge 대체).
  *
  * 실행: npx tsx scripts/check-signal-timing.ts  (실패 시 exit 1)
  */
@@ -120,17 +121,17 @@ console.log('\n[B] 카피 정직성');
   check('출처 구분: 공시=공시 접두 / 신호=신호 접두', disc.label.startsWith('공시') && sig.label.startsWith('신호'), `${disc.label} | ${sig.label}`);
 }
 
-// ── (C) 소스 바인딩 (SignalExploreCard) ─────────────────────────────
-console.log('\n[C] 소스 바인딩 — SignalExploreCard');
+// ── (C) 소스 바인딩 (SignalExploreCard → SignalDateBadge, DAR-509) ────
+console.log('\n[C] 소스 바인딩 — SignalExploreCard (SignalDateBadge 통일)');
 {
   const card = readFileSync(join(root, 'components/signals/SignalExploreCard.tsx'), 'utf8');
-  check('getSignalTiming import', card.includes("from '@utils/signalTiming'") && card.includes('getSignalTiming'));
-  check('relatedDisclosureRcpNo 전달', card.includes('relatedDisclosureRcpNo: signal.relatedDisclosureRcpNo'));
-  check('createdAt 전달', /getSignalTiming\(\{[\s\S]*createdAt: signal\.createdAt/.test(card));
-  check('timing.label 렌더', card.includes('{timing.label}'));
-  check('timing.show 게이트', card.includes('timing.show'));
-  check('a11y 라벨에 timing.accessibleText 합성', card.includes('timing.accessibleText'));
-  check('calendar 아이콘(시각 단서)', card.includes('name="calendar"'));
+  check('getSignalDateStatus import(SSOT)', card.includes("from '@utils/signalFreshness'") && card.includes('getSignalDateStatus'));
+  check('SignalDateBadge import', card.includes("from '@components/signals/SignalDateBadge'") && card.includes('SignalDateBadge'));
+  check('SignalDateBadge 렌더', /<SignalDateBadge/.test(card));
+  check('rcpDt 전달(귀속일 정직화)', card.includes('rcpDt={signal.rcpDt}'));
+  check('createdAt 전달', card.includes('createdAt={signal.createdAt}'));
+  check('a11y 라벨에 dateStatus.accessibleText 합성', card.includes('dateStatus.accessibleText'));
+  check('배지 표시 게이트(dateStatus.show)', card.includes('dateStatus.show'));
 }
 
 // ── 결과 ────────────────────────────────────────────────────────────

@@ -68,6 +68,28 @@ export const emptyStateCopy = {
     description: '가짜 매수 신호 대신, 점수순으로 전체 신호를 살펴보세요',
     actionLabel: '점수순 탐색',
   },
+  // 홈 '최신 에디션' 빈 상태 4분기(DAR-508/517 §3) — emptyReason 별 정직 카피.
+  // 빈 오늘을 다른 날 신호로 채우지 않는다(카드 대신 명시 CTA만). 제목은 명세 §3 고정 문구.
+  homeEditionClosed: {
+    icon: 'moon',
+    title: '오늘은 휴장일입니다',
+    description: '거래일에 새 투자판단이 올라와요',
+  },
+  homeEditionPending: {
+    icon: 'clock',
+    title: '아직 오늘 판단이 집계되지 않았습니다',
+    description: '오늘 판단은 장 마감 후 집계돼요',
+  },
+  homeEditionQuiet: {
+    icon: 'inbox',
+    title: '오늘은 매수등급 신호가 없습니다',
+    description: '매수등급 신호가 없는 날은 비워둬요 (참고)',
+  },
+  homeEditionColdStart: {
+    icon: 'database',
+    title: '아직 데이터가 쌓이는 중입니다',
+    description: '판단이 쌓이면 여기에 요약해 드려요',
+  },
   // 분석 탐색 (전체 신호 없음 — 표본/분석 대기)
   signalsExploreEmpty: {
     icon: 'compass',

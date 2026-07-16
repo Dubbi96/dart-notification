@@ -11,34 +11,50 @@ import { AiReferenceLabel } from '@components/common/AiReferenceLabel';
 import { ApiErrorState } from '@components/common/StateView';
 import { GuestPrompt } from '@components/common/GuestPrompt';
 import { SkeletonCard } from '@components/common/SkeletonCard';
-import { emptyStateCopy } from '@components/common/emptyStateCopy';
+import {
+  emptyStateCopy,
+  type EmptyStateKey,
+  type EmptyStateCopy,
+} from '@components/common/emptyStateCopy';
 import { guestPromptCopy } from '@components/common/guestPromptCopy';
+import { SignalDateBadge } from '@components/signals/SignalDateBadge';
 import { gradeColor, gradeLabel, scoreOneLiner } from '@utils/signalDisplay';
 import { getEventTypeLabel } from '@utils/disclosureType';
 import {
   SIGNAL_TERMS,
   buildSignalCardA11yLabel,
   buildEditionTitle,
-  editionDateLabel,
   editionDateA11yLabel,
   isTodayKst,
 } from '@utils/signalTerms';
-import { curateBuySignals } from '@utils/signalCuration';
+import { editionDayGap, ymdToMonthDay } from '@utils/editionSummary';
 import { isChartableTicker, navigateToStockChart } from '@utils/stockChartLink';
-import { useBuySignals } from '@hooks/useSignals';
+import { useDailyEditions, useEdition } from '@hooks/useSignals';
 import { useCarouselCardWidth } from '@hooks/useCarouselCardWidth';
 import { CAROUSEL_GAP } from '@utils/carouselMetrics';
 
-import type { TradingSignal } from '@app-types/signal.types';
+import type { TradingSignal, EditionEmptyReason } from '@app-types/signal.types';
 
-// 홈 '오늘의 투자판단' 프리뷰 슬롯(DAR-61, 상용 패널 #8).
-// summaryCard 아래 최상단에 상위 1~3 매수등급 시그널을 가로 카루셀로 노출해
-// "공시→투자판단" 동선을 첫 화면 1순위로 끌어올린다.
-// 정직 원칙(§2): 매수등급(STRONG_BUY/BUY)이 0이면 가짜 BUY를 만들지 않고
-// '점수순 탐색' 빈 상태로 안내한다. 게스트는 1건 미리보기 + 잠금 오버레이.
+// 홈 '최신 에디션 요약' 슬롯(DAR-61 → DAR-508/517 S4, 상용 패널 #8).
+// 일일 투자판단 '에디션'(신문 '호' 모델)을 홈 첫 화면에 요약한다:
+//   - 오늘 에디션 있음  → '오늘의 투자판단' + 상위 1~2 카드.
+//   - 정체일(오늘 없음·과거 에디션 존재) → 'N일 전' 간극 hero + 최신 에디션 카드(정직하게 과거일 배지).
+//   - 시스템 전무      → 빈 사유(휴장/집계전/조용/콜드스타트) 4분기 + 직전 거래일 명시 CTA.
+// 정직 원칙(DAR-517 AC): 오늘 판단 0건이면 '오늘'을 단정하지 않고, 빈 오늘을 다른 날 신호로
+// 채우지 않는다(가짜 BUY 금지 — 백엔드가 매수등급만 buyScore desc 로 랭킹한 에디션 items 를 그대로 사용).
+// 게스트는 1건 미리보기 + 잠금 오버레이(DAR-113 분기 보존).
 
-const MAX_PREVIEW = 3;
+const MAX_PREVIEW = 2;
 const EXPLORE_ROUTE = '/(tabs)/signals' as const;
+
+// 에디션 빈 사유 → 빈 상태 카피 키(§3 4분기). FUTURE(홈 조회로는 미발생)·미상은 안전 폴백.
+const EDITION_EMPTY_KEY: Record<EditionEmptyReason, EmptyStateKey> = {
+  CLOSED: 'homeEditionClosed',
+  PENDING: 'homeEditionPending',
+  QUIET: 'homeEditionQuiet',
+  COLD_START: 'homeEditionColdStart',
+  FUTURE: 'homeEditionPending',
+};
 
 interface HomeSignalPreviewProps {
   /** 로그인 여부 — 게스트는 1건 미리보기 + 잠금 오버레이(§3). */
@@ -81,8 +97,6 @@ interface SignalPreviewCardProps {
 function SignalPreviewCard({ signal, onPress, cardWidth }: SignalPreviewCardProps) {
   const { colors, typography: typo } = useTheme();
   const evidence = historicalEventEvidence(signal);
-  // DAR-504: 발행일(createdAt) KST 'M/D' 날짜배지 — 헤더 '오늘' 단정을 카드 단위로도 정직화.
-  const dateLabel = editionDateLabel(signal.createdAt);
   const handlePress = useCallback(() => onPress(signal), [onPress, signal]);
   // DAR-363: 홈 프리뷰 카드에서 해당 종목 실시간 차트로 직접 진입. 6자리 종목코드 있을 때만.
   const handleChartPress = useCallback(() => navigateToStockChart(signal.ticker), [signal.ticker]);
@@ -175,21 +189,17 @@ function SignalPreviewCard({ signal, onPress, cardWidth }: SignalPreviewCardProp
           style={styles.evidence}
         />
 
-        {/* DAR-504: 발행일 M/D 배지(좌) + AI 참고 라벨(우). createdAt 결측 시 배지만 생략(균일 높이는
-            AiReferenceLabel 이 결정하므로 유지). 카드는 no-hide-descendants → 날짜는 카드 a11y 라벨에 병기. */}
+        {/* DAR-506/517: 공용 SignalDateBadge — 발생일(공시 접수일 rcpDt 우선) 절대 MM/DD 상시 +
+            지연/만료 톤. 귀속 근거 전무면 배지만 생략(균일 높이는 AiReferenceLabel 이 결정).
+            카드는 no-hide-descendants → 날짜는 카드 a11y 라벨(editionDateA11yLabel)에도 병기. */}
         <View style={styles.cardFooter}>
-          {dateLabel ? (
-            <View style={styles.dateBadge}>
-              <Feather name="calendar" size={12} color={colors.textSecondary} />
-              <Text
-                style={[typo.small, { color: colors.textSecondary }]}
-                numberOfLines={1}
-                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-              >
-                {dateLabel}
-              </Text>
-            </View>
-          ) : null}
+          <SignalDateBadge
+            createdAt={signal.createdAt}
+            rcpDt={signal.rcpDt}
+            relatedDisclosureRcpNo={signal.relatedDisclosureRcpNo}
+            expiresAt={signal.expiresAt}
+            variant="card"
+          />
           <AiReferenceLabel />
         </View>
       </Surface>
@@ -230,19 +240,29 @@ function LockedCard({ onPress, cardWidth }: { onPress: () => void; cardWidth: nu
 
 export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
   const { colors, typography: typo } = useTheme();
-  const { data, isLoading, isError, error, refetch } = useBuySignals();
+  // §2 데이터 소스: 에디션 날짜 목록(latest/today 메타) + 최신 에디션 상세(items).
+  const editions = useDailyEditions();
+  const meta = editions.data?.meta;
+  const latestDate = meta?.latestDate ?? null;
+  const todayDate = meta?.todayDate;
+  const todayHasEdition = meta?.todayHasEdition ?? false;
+  // 최신 에디션을 요약한다. 최신 에디션이 없으면(시스템 전무) 오늘을 조회해 빈 사유를 정직 노출.
+  const displayDate = latestDate ?? todayDate;
+  const edition = useEdition(displayDate);
   // 화면 폭 반응형 카드 폭/스냅 간격(DAR-301).
   const { cardWidth, snapToInterval } = useCarouselCardWidth();
 
-  // 가짜 BUY 금지(§2): 매수등급만 점수 내림차순 상위 N(공용 큐레이션 util). WATCH 이하 미노출.
-  const topSignals = useMemo(() => curateBuySignals(data, MAX_PREVIEW), [data]);
+  // 가짜 BUY 금지(AC): 백엔드가 이미 매수등급(STRONG_BUY/BUY)만 buyScore desc 로 랭킹한
+  // 에디션 items 를 그대로 상위 N 슬라이스한다(curateBuySignals 미사용).
+  const items = edition.data?.items;
+  const topItems = useMemo(() => (items ?? []).slice(0, MAX_PREVIEW), [items]);
 
-  // DAR-504: 정적 '오늘' 폐기 — 헤더는 최신 발행일(topSignals 중 max createdAt) 기준으로 동적 생성.
-  // 큐레이션이 buyScore desc 라 상단이 최신순이 아닐 수 있어 명시적으로 max createdAt 을 취한다.
+  // DAR-504 SSOT: 헤더는 에디션 item 의 최신 발행일(max createdAt) 기준으로 동적 생성.
+  // 랭킹이 buyScore desc 라 상단이 최신순이 아닐 수 있어 명시적으로 max createdAt 을 취한다.
   const latestCreatedAt = useMemo(() => {
     let bestIso: string | null = null;
     let bestMs = -Infinity;
-    for (const s of topSignals) {
+    for (const s of topItems) {
       const ms = s.createdAt ? new Date(s.createdAt).getTime() : NaN;
       if (!Number.isNaN(ms) && ms > bestMs) {
         bestMs = ms;
@@ -250,10 +270,21 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
       }
     }
     return bestIso;
-  }, [topSignals]);
+  }, [topItems]);
   // 최신 발행일 KST일이 오늘이면 '오늘의 투자판단', 아니면 '최신 투자판단 · M/D'(+간극≥2일 'N일 전').
   // 데이터 미상(로딩·빈 상태·게스트)이면 '오늘' 단정 없는 우산 헤더 '투자판단'.
   const editionTitle = buildEditionTitle(latestCreatedAt, isTodayKst(latestCreatedAt));
+
+  // §4 정체일 간극: 오늘 에디션 없음 + 최신 에디션 존재 → 오늘과 최신일 사이 '일수'(hero 배너).
+  const gapDays = editionDayGap(latestDate, todayDate);
+
+  const isLoading = editions.isLoading || (!!displayDate && edition.isLoading);
+  const isError = editions.isError || edition.isError;
+  const error = editions.error ?? edition.error;
+  const refetch = useCallback(() => {
+    void editions.refetch();
+    void edition.refetch();
+  }, [editions, edition]);
 
   const handleCardPress = useCallback((signal: TradingSignal) => {
     // 종목 판단허브 진입(§1) — 신호 상세로 직결.
@@ -268,13 +299,13 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
     router.push('/auth/sign-in');
   }, []);
 
-  // 게스트는 1건만 미리보기(§3). 로그인 사용자는 상위 3건까지.
-  const visibleSignals = isAuthenticated ? topSignals : topSignals.slice(0, 1);
-  const showLockedCard = !isAuthenticated && topSignals.length > 0;
+  // 게스트는 1건만 미리보기(§6). 로그인 사용자는 상위 2건까지.
+  const visibleItems = isAuthenticated ? topItems : topItems.slice(0, 1);
+  const showLockedCard = !isAuthenticated && topItems.length > 0;
 
   // DAR-113: 투자판단은 인증 필요(401). 게스트가 볼 데이터가 없으면(에러/빈) '버그' 오인을
   // 막기 위해 에러/빈 화면 대신 로그인 유도 카드로 자연스럽게 동선을 연다.
-  const showGuestPrompt = !isAuthenticated && (isError || topSignals.length === 0);
+  const showGuestPrompt = !isAuthenticated && (isError || topItems.length === 0);
 
   const renderCard = useCallback(
     ({ item }: { item: TradingSignal }) => (
@@ -340,50 +371,83 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
         description="잠시 후 다시 시도해 주세요."
       />
     );
-  } else if (topSignals.length === 0) {
-    // 정직 빈 상태(§2): 매수등급 0 → 가짜 BUY 금지, 점수순 탐색 유도.
+  } else if (topItems.length === 0) {
+    // 정직 빈 상태(§3): 오늘 판단 0건 → 가짜 BUY/타일 금지. emptyReason 4분기 카피 +
+    // 직전 거래일(prevEditionDate) 명시 CTA(날짜 표기 필수, 다른 날 신호로 채우지 않음).
+    const reason = edition.data?.meta.emptyReason;
+    const copy: EmptyStateCopy =
+      emptyStateCopy[reason ? EDITION_EMPTY_KEY[reason] : 'homeEditionColdStart'];
+    const prevDate = edition.data?.meta.prevEditionDate;
+    const prevLabel = ymdToMonthDay(prevDate);
+    const ctaLabel = prevDate && prevLabel ? `직전 거래일 ${prevLabel} 판단 보기` : '전체 신호 보기';
     body = (
       <Surface
         elevation={0}
         style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
       >
-        <Feather name={emptyStateCopy.homeSignalPreviewEmpty.icon} size={28} color={colors.textTertiary} />
-        <Text style={[typo.bodyMedium, { color: colors.text, marginTop: spacing.sm, textAlign: 'center' }]}>
-          {emptyStateCopy.homeSignalPreviewEmpty.title}
-        </Text>
-        <Text
-          style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs, textAlign: 'center' }]}
-        >
-          {emptyStateCopy.homeSignalPreviewEmpty.description}
-        </Text>
+        <Feather name={copy.icon} size={28} color={colors.textTertiary} />
+        <Text style={[styles.emptyTitle, typo.bodyMedium, { color: colors.text }]}>{copy.title}</Text>
+        {copy.description ? (
+          <Text
+            style={[styles.emptyDesc, typo.small, { color: colors.textSecondary }]}
+          >
+            {copy.description}
+          </Text>
+        ) : null}
         <TouchableOpacity
           onPress={handleExplore}
           style={[styles.exploreBtn, { borderColor: colors.primary }]}
           accessibilityRole="button"
-          accessibilityLabel="점수순으로 전체 신호 탐색"
+          accessibilityLabel={ctaLabel}
         >
-          <Text style={[typo.captionMedium, { color: colors.primary }]}>
-            {emptyStateCopy.homeSignalPreviewEmpty.actionLabel}
-          </Text>
+          <Text style={[typo.captionMedium, { color: colors.primary }]}>{ctaLabel}</Text>
           <Feather name="arrow-right" size={14} color={colors.primary} />
         </TouchableOpacity>
       </Surface>
     );
   } else {
+    const latestLabel = ymdToMonthDay(latestDate);
     body = (
-      <FlatList
-        horizontal
-        data={visibleSignals}
-        renderItem={renderCard}
-        keyExtractor={(item) => item.id}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.carousel}
-        // 카드 단위 스냅(DAR-301) — 카드폭 + gap 기준으로 멈춰 peek 정렬 일관.
-        snapToInterval={snapToInterval}
-        snapToAlignment="start"
-        decelerationRate="fast"
-        ListFooterComponent={showLockedCard ? <LockedCard onPress={handleSignIn} cardWidth={cardWidth} /> : null}
-      />
+      <View>
+        {/* §4 정체일 hero: 오늘 새 판단 없음 + 최신 에디션이 N일 전임을 카드 위 최우선으로 정직 고지. */}
+        {!todayHasEdition && latestDate && gapDays !== null && gapDays >= 1 ? (
+          <View
+            style={[
+              styles.gapBanner,
+              { backgroundColor: colors.surfaceSecondary, borderColor: colors.warning },
+            ]}
+            accessibilityRole="text"
+            accessibilityLabel={`오늘 새 투자판단은 아직 없어요. 아래는 ${gapDays}일 전${
+              latestLabel ? ` ${latestLabel}` : ''
+            } 최신 에디션입니다`}
+          >
+            <Feather name="clock" size={16} color={colors.warning} />
+            <View style={styles.gapBannerText}>
+              <Text style={[typo.captionMedium, { color: colors.text }]}>
+                오늘 새 투자판단은 아직 없어요
+              </Text>
+              <Text style={[typo.small, { color: colors.textSecondary }]}>
+                아래는 {gapDays}일 전{latestLabel ? `(${latestLabel})` : ''} 최신 에디션이에요
+              </Text>
+            </View>
+          </View>
+        ) : null}
+        <FlatList
+          horizontal
+          data={visibleItems}
+          renderItem={renderCard}
+          keyExtractor={(item) => item.id}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.carousel}
+          // 카드 단위 스냅(DAR-301) — 카드폭 + gap 기준으로 멈춰 peek 정렬 일관.
+          snapToInterval={snapToInterval}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          ListFooterComponent={
+            showLockedCard ? <LockedCard onPress={handleSignIn} cardWidth={cardWidth} /> : null
+          }
+        />
+      </View>
     );
   }
 
@@ -457,11 +521,20 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginTop: spacing.md,
   },
-  dateBadge: {
+  gapBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
-    flexShrink: 1,
+    gap: spacing.sm,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.base,
+    borderWidth: 1,
+    borderRadius: radius.md,
+  },
+  gapBannerText: {
+    flex: 1,
+    gap: 2,
   },
   lockedCard: {
     justifyContent: 'center',
@@ -495,6 +568,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: spacing.lg,
     alignItems: 'center',
+  },
+  emptyTitle: {
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
+  emptyDesc: {
+    marginTop: spacing.xs,
+    textAlign: 'center',
   },
   exploreBtn: {
     flexDirection: 'row',

@@ -1,9 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KisApiService } from '../market-data/kis-api.service';
 import { NotificationProducerService } from '../../notifications/notification-producer.service';
 import { formatKstDateCompact, isKstRegularMarketHours } from '../../common/time/kst';
+import {
+  QUEUE,
+  PRICE_MOVE_REASON_JOB,
+  PRICE_MOVE_REASON_JOB_OPTIONS,
+  priceMoveReasonJobId,
+  PriceMoveReasonJobData,
+} from '../../common/queues/queue.constants';
 import {
   PRICE_MOVE_THRESHOLD_PCT,
   computeChangePct,
@@ -76,6 +85,10 @@ export class PriceMoveAlertService {
     private readonly kis: KisApiService,
     private readonly producer: NotificationProducerService,
     private readonly config: ConfigService,
+    // DAR-522: 발화(등락 이벤트) → engine2 역방향 리즈닝 트리거 큐(@Optional — Redis 미배선 시 no-op).
+    @Optional()
+    @InjectQueue(QUEUE.PRICE_MOVE_REASON)
+    private readonly reasonQueue: Queue | null = null,
   ) {}
 
   /** 독립 킬스위치 — env PRICE_MOVE_ALERT_ENABLED=false|0|off 면 알림 폴링만 차단. */
@@ -201,6 +214,17 @@ export class PriceMoveAlertService {
         `[PriceMove] 발화 ${stockCode}(${company.corpName}) ${changePct!.toFixed(2)}% ` +
           `(현재 ${quote.price} / 전일 ${prevClose}) 공시오늘=${fact.disclosureCountToday}건`,
       );
+
+      // DAR-522: 역방향 리즈닝 트리거 — 등락 이벤트를 engine2 큐로 발행(48h 공시 판정·AI는 engine2 담당).
+      //   조회·알림 계층은 무접점 유지(여기선 enqueue 만). 실패는 알림을 깨지 않도록 graceful.
+      await this.enqueueReasoning({
+        refId,
+        corpCode: company.corpCode,
+        stockCode,
+        corpName: company.corpName,
+        tradeDate,
+        changePct: changePct!,
+      });
     }
 
     return { ran: true, scanned, fired, carried: this.carryover.length };
@@ -356,6 +380,25 @@ export class PriceMoveAlertService {
       if (row.closePrice > 0) result.set(row.stockCode, row.closePrice);
     }
     return result;
+  }
+
+  /**
+   * DAR-522: 역방향 리즈닝 잡 발행 — 발화(등락 이벤트)당 1회.
+   * 큐 미배선(@Optional null)·발행 실패는 알림 파이프라인을 깨지 않도록 graceful(warn 로깅).
+   * 멱등: jobId=`pmr-<refId>` + engine2 refId 캐시 → 중복 발행/재처리에 안전.
+   */
+  private async enqueueReasoning(data: PriceMoveReasonJobData): Promise<void> {
+    if (!this.reasonQueue) return;
+    try {
+      await this.reasonQueue.add(PRICE_MOVE_REASON_JOB.REASON, data, {
+        ...PRICE_MOVE_REASON_JOB_OPTIONS,
+        jobId: priceMoveReasonJobId(data.refId),
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[PriceMove] 역방향 리즈닝 발행 실패(graceful) refId=${data.refId}: ${String(err)}`,
+      );
+    }
   }
 
   /** 날짜 롤오버 시 인메모리 쿨다운 리셋(전일 발화 키가 오늘을 막지 않도록). */

@@ -14,6 +14,7 @@ function toPrismaTask(task: AiTaskName) {
     'event-classification': 'event_classification',
     'persona-interpretation': 'persona_interpretation',
     'position-thesis': 'position_thesis',
+    'price-move-reasoning': 'price_move_reasoning',
   };
   return map[task] as any;
 }
@@ -25,6 +26,7 @@ function fromPrismaTask(task: string): AiTaskName {
     event_classification: 'event-classification',
     persona_interpretation: 'persona-interpretation',
     position_thesis: 'position-thesis',
+    price_move_reasoning: 'price-move-reasoning',
   };
   return map[task];
 }

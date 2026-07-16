@@ -68,6 +68,7 @@ dart-notification/
 │   │   ├── engine2-ai-analyst/ # 🟨 Engine2: AI Analyst 엔진 (M3, DAR-17)
 │   │   │   ├── CLAUDE.md
 │   │   │   ├── tasks/               # 4개 AI Task (summary·event-classification·persona·thesis)
+│   │   │   ├── price-move-reasoning/ # 5번째 AI Task — PRICE_MOVE(±5%) 역방향 리즈닝(48h 공시 원인 역추적·설명층), refId 멱등 캐시 [Wave C1, DAR-522]
 │   │   │   ├── cost-gate/           # AI 비용 게이트 L0~L3 분기
 │   │   │   ├── cost-metrics/        # CostPerDisclosure/Signal/Trade 지표 + AI 커버리지 계기판(ai-coverage-metrics — GET /ai-cost/coverage [갭분석 W10])
 │   │   │   ├── cost-aggregation/    # AIUsageLog 기간별 집계

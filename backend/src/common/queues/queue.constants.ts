@@ -16,12 +16,51 @@ export const QUEUE = {
    * 재시작에도 receipt 처리를 보장한다(Redis 영속).
    */
   EXPO_RECEIPT: 'expo-receipt',
+  /**
+   * DAR-522(Wave C1): engine3 price-move-alert → engine2 역방향 리즈닝 트리거 큐.
+   * PRICE_MOVE(±5%) 발화 시 refId(등락 이벤트) 잡을 발행하고, engine2
+   * PriceMoveReasonConsumer가 48h 공시 유무 판정 + (존재 시)AI 원인 해석을 단독 담당한다.
+   * NOTIFY 큐와 분리한다(같은 큐 다중 컨슈머 = 잡 경합으로 알림 유실 위험).
+   */
+  PRICE_MOVE_REASON: 'price-move-reason',
 } as const;
 
 /** QUEUE.AI_ANALYZE 큐 잡 이름 */
 export const JOB = {
   EVENT_EXTRACTED: 'event.extracted',
 } as const;
+
+/** QUEUE.PRICE_MOVE_REASON 잡 이름 (DAR-522) */
+export const PRICE_MOVE_REASON_JOB = {
+  /** PRICE_MOVE(±5%) 발화 → 48h 공시 원인 역추적(AI 원인 해석 or 무공시 포맷) */
+  REASON: 'price-move.reason',
+} as const;
+
+/**
+ * QUEUE.PRICE_MOVE_REASON 잡 발행 옵션 (DAR-522) — AI_ANALYZE 큐 패턴 재사용.
+ *  - attempts:3 + exponential backoff: 일시적 LLM/DB 장애 자동 흡수.
+ *  - removeOnFail:100(보존): 소진된 실패 잡을 큐에 보존(관측·유실 방지).
+ *  - 재시도 시 중복 AI 비용: PriceMoveReasoning refId 멱등 캐시로 위험 낮음.
+ */
+export const PRICE_MOVE_REASON_JOB_OPTIONS = {
+  removeOnComplete: true,
+  removeOnFail: 100,
+  attempts: 3,
+  backoff: { type: 'exponential', delay: 5000 },
+} as const;
+
+/** QUEUE.PRICE_MOVE_REASON 잡 페이로드 — engine3 발화(등락 이벤트) 컨텍스트. */
+export interface PriceMoveReasonJobData {
+  /** 멱등 자연키 — `<stockCode>-<YYYYMMDD>` (등락 이벤트 = 종목당 1일 1회). */
+  refId: string;
+  corpCode: string;
+  stockCode: string;
+  corpName: string;
+  /** 발화 거래일(KST YYYYMMDD). */
+  tradeDate: string;
+  /** 전일 종가 대비 등락률(%) — 방향·폭(원인 해석 프롬프트 주입). */
+  changePct: number;
+}
 
 /** QUEUE.EXPO_RECEIPT 잡 이름 */
 export const EXPO_RECEIPT_JOB = {
@@ -320,6 +359,9 @@ export type NotifyJobData =
 
 /** AI_ANALYZE 잡 dedup jobId — 자연키 rcpNo 기반(`ai-<rcpNo>`). */
 export const aiAnalyzeJobId = (rcpNo: string): string => `ai-${rcpNo}`;
+
+/** PRICE_MOVE_REASON 잡 dedup jobId — 등락 이벤트 refId 기반(`pmr-<refId>`, ':' 미포함). */
+export const priceMoveReasonJobId = (refId: string): string => `pmr-${refId}`;
 
 /**
  * NOTIFY 잡 dedup jobId — 잡 유형별 자연키 기반.

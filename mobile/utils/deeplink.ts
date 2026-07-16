@@ -15,6 +15,12 @@
  *   단타·4전략은 `/portfolio/strategy/<key>`, 시스템 모의는 `/portfolio?tab=sim`.
  *   둘 다 `/portfolio` 허용 prefix 의 경로 경계(`/`)·쿼리(`?`) 규칙으로 통과하므로
  *   포트폴리오 루트로 폴백하지 않는다(트랙별 SSOT 와 검증은 `@utils/tradeTracks`).
+ *
+ * DAR-524: 관심종목 급변동(PRICE_MOVE) 알림은 '왜 움직였나' 카드(`/price-move/<refId>`)로
+ *   라우팅한다. refId=`<stockCode>-<YYYYMMDD>`(등락 이벤트 자연키). 백엔드가 deepLink 를
+ *   `/price-move/<refId>` 로 충전하거나, type=PRICE_MOVE·refId 만 실어도 타입별 폴백으로 카드에
+ *   도달한다(둘 다 화이트리스트 재검증). ★현재 engine3 발화는 deepLink=`/company/<corpCode>`
+ *   이므로, 카드 진입은 백엔드 deepLink 재타겟(BE 소유)이 선행돼야 실동작한다.
  */
 
 /** 라우팅 허용 prefix — 이 목록 밖 경로는 무시(임의 라우팅·신뢰 경계 방지) */
@@ -24,6 +30,7 @@ export const ALLOWED_DEEPLINK_PREFIXES = [
   '/company',
   '/disclosure',
   '/disclosures',
+  '/price-move',
 ] as const;
 
 /** 허용 prefix 로 시작하고 안전한(스킴·트래버설 없는) 절대 앱 경로인지 검증 */
@@ -60,6 +67,12 @@ function resolveTypedFallback(type: unknown, refId: unknown): string | null {
     case 'THESIS_VIOLATED':
       // refId = positionId 이나 portfolioId 가 없어 포지션 경로 도출 불가 → 포트폴리오 홈.
       return '/portfolio';
+    case 'PRICE_MOVE': {
+      // DAR-524: refId = 등락 이벤트(`<stockCode>-<YYYYMMDD>`) → '왜 움직였나' 카드.
+      // refId 없으면 대상 카드를 특정할 수 없어 라우팅하지 않는다(오도 방지).
+      const path = ref ? `/price-move/${encodeURIComponent(ref)}` : null;
+      return path && isAllowedDeepLink(path) ? path : null;
+    }
     default:
       return null;
   }

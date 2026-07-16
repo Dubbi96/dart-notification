@@ -35,12 +35,17 @@ export interface AiGateInput {
   isHolding?: boolean; // M8 이후 (보유 종목 악재면 L3)
 }
 
-/** 4개 AI Task 식별자 — rcpNo + task 복합키로 멱등 캐시 */
+/**
+ * AI Task 식별자 — rcpNo + task 복합키로 멱등 캐시(DisclosureAnalysis).
+ * price-move-reasoning(DAR-522)은 등락 이벤트(refId)당 1행으로 별도 캐시하되,
+ * AIUsageLog 비용 귀속은 이 식별자를 공유한다(누락 0).
+ */
 export type AiTaskName =
   | 'summary'
   | 'event-classification'
   | 'persona-interpretation'
-  | 'position-thesis';
+  | 'position-thesis'
+  | 'price-move-reasoning';
 
 /** AI 호출 기록 파라미터 — AIUsageLog 모델로 영속(M3 마이그레이션 예정) */
 export interface AiUsageLogParams {

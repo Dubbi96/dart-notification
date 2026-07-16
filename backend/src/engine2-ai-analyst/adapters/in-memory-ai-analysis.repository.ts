@@ -59,6 +59,7 @@ export class InMemoryAiAnalysisRepository extends AiAnalysisRepository {
       'event-classification': 'event_classification',
       'persona-interpretation': 'persona_interpretation',
       'position-thesis': 'position_thesis',
+      'price-move-reasoning': 'price_move_reasoning',
     };
     return this.usages
       .filter(u => u.createdAt >= from && u.createdAt <= to)

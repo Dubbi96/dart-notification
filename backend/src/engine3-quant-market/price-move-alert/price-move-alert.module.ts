@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { MarketDataModule } from '../market-data/market-data.module';
 import { NotificationProducerModule } from '../../notifications/notification-producer.module';
 import { CronHealthModule } from '../../cron-health/cron-health.module';
+import { QUEUE } from '../../common/queues/queue.constants';
 import { PriceMoveAlertService } from './price-move-alert.service';
 import { PriceMoveAlertScheduler } from './price-move-alert.scheduler';
 
@@ -17,7 +19,14 @@ import { PriceMoveAlertScheduler } from './price-move-alert.scheduler';
  *   엔진 간 전달은 BullMQ NOTIFY 큐(NotificationProducer)로만 — consumer 가 발송 단독 담당.
  */
 @Module({
-  imports: [PrismaModule, MarketDataModule, NotificationProducerModule, CronHealthModule],
+  imports: [
+    PrismaModule,
+    MarketDataModule,
+    NotificationProducerModule,
+    CronHealthModule,
+    // DAR-522: 발화 → engine2 역방향 리즈닝 트리거 큐(발행 측 등록).
+    BullModule.registerQueue({ name: QUEUE.PRICE_MOVE_REASON }),
+  ],
   providers: [PriceMoveAlertService, PriceMoveAlertScheduler],
   exports: [PriceMoveAlertService],
 })

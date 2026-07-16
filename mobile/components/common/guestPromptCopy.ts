@@ -16,10 +16,10 @@ export interface GuestPromptCopy {
 }
 
 export const guestPromptCopy = {
-  // 홈 '오늘의 투자판단' 프리뷰 슬롯(401) — 슬롯 내 카드(card variant).
+  // 홈 투자판단 프리뷰 슬롯(401) — 슬롯 내 카드(card variant).
   homeSignalPreview: {
     icon: 'compass',
-    title: '로그인하면 오늘의 투자판단을 볼 수 있어요',
+    title: '로그인하면 최신 투자판단을 볼 수 있어요',
     description: '공시에서 찾은 상위 매수 신호를 점수와 함께 확인하세요. (참고용)',
     ctaLabel: '로그인',
   },

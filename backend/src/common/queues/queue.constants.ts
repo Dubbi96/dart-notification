@@ -140,6 +140,8 @@ export const NOTIFY_JOB = {
   OPS_ALERT: 'notify.ops-alert',
   /** 갭분석 W7: 관심종목 급변동(전일 대비 ±5%) — engine3 price-move-alert 5분 틱이 발행 */
   PRICE_MOVE: 'notify.price-move',
+  /** DAR-523(Wave B/B2): 일일 에디션 발행 푸시 — engine3 edition-push 19:05 크론이 발행(빈 에디션 미발행) */
+  EDITION: 'notify.edition',
 } as const;
 
 /** QUEUE.AI_ANALYZE 잡 페이로드 */
@@ -300,13 +302,42 @@ export interface NotifyPriceMoveJobData {
   newsUrl?: string;
 }
 
+/**
+ * DAR-523(Wave B/B2·P0): NOTIFY_JOB.EDITION 페이로드 — 일일 투자판단 에디션 발행 푸시.
+ *
+ * ★조회·알림 계층 전용 — engine5(매매·체결)·Buy Score 경로 무접점(M10 무오염·AI 0).
+ * 발행자(engine3 EditionPublishPushScheduler 19:05)가 당일(KST) 에디션을 조회 API 재사용으로
+ * 가져와 ★빈 에디션(매수등급 0)은 애초에 enqueue 하지 않는다(하드 가드). 실린 count 는 항상 >0.
+ * 수신자는 실제 앱 사용자 전원(브로드캐스트)이며 consumer 가 editionPushEnabled(★기본 OFF — OFF 면
+ * 인박스도 생략) 게이트·멱등 인박스·일일 캡을 담당한다.
+ * 멱등: refId = editionDate(YYYYMMDD·KST) — 사용자당 에디션 1호 1회(NotificationHistory unique +
+ * push_delivery_log unique + BullMQ jobId 공유 → 재기동/재시도에도 중복 발송 0).
+ */
+export interface NotifyEditionJobData {
+  /** 멱등 자연키 — KST 에디션 발행일 YYYYMMDD(사용자당 1호 1회). */
+  editionDate: string;
+  /** 매수등급(STRONG_BUY+BUY) 총 건수. ★하드 가드 불변식: >0 이어야 발행(빈 에디션 미발송). */
+  count: number;
+  /** 적극매수(STRONG_BUY) 건수(본문 표기용). */
+  strongBuyCount: number;
+  /** 헤드라인 기업명(최고 점수 종목 — 본문 표기용). */
+  headlineCorpName: string;
+  /** 완성된 푸시 제목(발행 측 산출 — point-in-time 보존). */
+  title: string;
+  /** 완성된 푸시 본문(매수 후보 수·헤드라인 — 정직 팩트, 권고 문구 아님). */
+  body: string;
+  /** 인앱 딥링크 — 신호탭 에디션 브라우징(`/signals`). */
+  deepLink: string;
+}
+
 export type NotifyJobData =
   | NotifySignalJobData
   | NotifyExitJobData
   | NotifyThesisViolatedJobData
   | NotifyTradeJobData
   | NotifyOpsAlertJobData
-  | NotifyPriceMoveJobData;
+  | NotifyPriceMoveJobData
+  | NotifyEditionJobData;
 
 // ─── DAR-230: 자연키 기반 dedup jobId ───────────────────────────────────────
 //
@@ -366,6 +397,9 @@ export function notifyJobId(
     // 갭분석 W7: 급변동 — refId(`<stockCode>-<YYYYMMDD>`) 자연키로 종목당 1일 1잡(':' 미포함).
     case NOTIFY_JOB.PRICE_MOVE:
       return `pmove-${(data as NotifyPriceMoveJobData).refId}`;
+    // DAR-523: 에디션 발행 — editionDate(YYYYMMDD) 자연키로 하루 1잡(재기동/재시도 중복 적재 방지·':' 미포함).
+    case NOTIFY_JOB.EDITION:
+      return `edition-${(data as NotifyEditionJobData).editionDate}`;
     default:
       return undefined;
   }

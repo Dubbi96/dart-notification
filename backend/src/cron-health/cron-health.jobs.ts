@@ -94,6 +94,10 @@ export const CRON_JOB_KEYS = {
   //   킬스위치 PRICE_MOVE_ALERT_ENABLED=false·겹침)은 미기록 — 실제 평가가 돈 틱만 남긴다.
   //   조회·알림 계층 전용(매매 루프 무접점)이라 freshness 안전망 등록은 하지 않는다(비임계).
   PRICE_MOVE_ALERT: 'market.price-move-alert',
+  // DAR-523(Wave B/B2·P0): 일일 에디션 발행 푸시 — 평일 19:05(신호 생성 19:00 직후). 빈 에디션(매수등급 0)
+  //   날은 발송 0(하드 가드)이나 크론은 SUCCESS(count 0)를 남겨 '살아 있음'이 유지된다. 조회·알림 계층
+  //   전용(매매 루프 무접점)이라 PRICE_MOVE_ALERT 와 동형으로 freshness 안전망 등록은 하지 않는다(비임계).
+  EDITION_PUBLISH_PUSH: 'edition.publish-push',
 } as const;
 
 export type CronJobKey = (typeof CRON_JOB_KEYS)[keyof typeof CRON_JOB_KEYS];

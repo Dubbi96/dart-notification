@@ -300,6 +300,7 @@ enum NotificationType {
   RISK_ALERT // 리스크 알림(킬스위치 발동·드로다운 컷 등) — P02 감지점 배선이 발행
   OPS_ALERT // 운영 알림(크론 stale·수집/청산 실패·일일 리포트 등) — enqueueOpsAlert 발행
   PRICE_MOVE // 갭분석 W7: 관심종목 급변동 알림(전일 대비 ±5%, 당일 공시 유무 병기) — 준실시간(최대 5분 지연)
+  EDITION // DAR-523(Wave B/B2): 일일 투자판단 에디션 발행 알림(19:05·빈 에디션 발송 금지 하드 가드) — editionPushEnabled(기본 OFF) 게이트
 }
 
 model NotificationHistory {

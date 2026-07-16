@@ -23,6 +23,7 @@ import {
   NotifyTradeJobData,
   NotifyOpsAlertJobData,
   NotifyPriceMoveJobData,
+  NotifyEditionJobData,
   OpsAlertSeverity,
 } from '../common/queues/queue.constants';
 
@@ -101,6 +102,8 @@ export class NotifyConsumer extends WorkerHost {
         return this.handleOpsAlert(job.data as NotifyOpsAlertJobData);
       case NOTIFY_JOB.PRICE_MOVE:
         return this.handlePriceMove(job.data as NotifyPriceMoveJobData);
+      case NOTIFY_JOB.EDITION:
+        return this.handleEdition(job.data as NotifyEditionJobData);
       default:
         this.logger.warn(`알 수 없는 NOTIFY 잡: ${job.name}`);
         return;
@@ -453,6 +456,74 @@ export class NotifyConsumer extends WorkerHost {
     }
     this.logger.log(
       `[NOTIFY:PRICE_MOVE] ${data.refId} (${data.changePct.toFixed(2)}%) watchers=${watchers.length} 신규인박스=${inboxed}`,
+    );
+  }
+
+  // ── EDITION (DAR-523 Wave B/B2) ─────────────────────────────────────────────
+  //
+  // 일일 투자판단 에디션 발행 푸시(19:05) — 신호 생성(19:00) 직후 발행. 수신자 = 실제 앱 사용자 전원.
+  //   - ★하드 가드(방어적 재확인): 빈 에디션(매수등급 0)은 발행 측(scheduler)이 애초에 enqueue 하지
+  //     않지만, 재기동/레거시 잡이 count<=0 을 실어와도 절대 발송하지 않는다(정직 원칙 §3 — 판단
+  //     없는 날 배달 금지). 이 이중 방어로 '빈 에디션 발송 0'을 구조적으로 보장한다.
+  //   - ★editionPushEnabled(기본 OFF) 토글로 인박스·푸시를 함께 게이트한다(PRICE_MOVE 동형 —
+  //     기본 OFF 신규 계열의 옵트인 전제·과알림 방지). 설정행 미존재 = 기본 OFF → 아무것도 남기지 않는다.
+  //   - 푸시는 추가로 master isEnabled + 유효 디바이스 토큰 + 일일 캡(EDITION 은 면제 아님 — sendPush
+  //     가 push_delivery_log 로 발송/억제 원장 기록)을 통과해야 한다.
+  //   - 멱등: (userId, EDITION, refId=editionDate) NotificationHistory unique — 사용자당 에디션 1호 1회.
+  //     잡 재시도·서버 재기동에도 createNotificationIfAbsent(created=false)로 중복 발송 0(재기동 안전).
+  // ★조회·알림 계층 전용 — 매매·체결·Buy Score 경로 무접점(M10 무오염·AI 0).
+  private async handleEdition(data: NotifyEditionJobData): Promise<void> {
+    // ★하드 가드: 빈 에디션은 절대 발송하지 않는다(count>0 불변식 — 발행 측 가드의 이중 방어).
+    if (data.count <= 0) {
+      this.logger.warn(
+        `[NOTIFY:EDITION] 빈 에디션(count=${data.count}) — 발송 금지(하드 가드): ${data.editionDate}`,
+      );
+      return;
+    }
+
+    // 수신자 = 실제 앱 사용자 전원(브로드캐스트). 합성 시스템 유저(provider='system') 제외.
+    const users = await this.prisma.user.findMany({
+      where: { provider: { not: 'system' } },
+      select: { id: true },
+    });
+    if (users.length === 0) {
+      this.logger.debug(`[NOTIFY:EDITION] 수신 대상 사용자 없음 — 스킵`);
+      return;
+    }
+
+    // 토글 일괄 조회(설정행 미존재 = ★기본 OFF 로 간주 — 스키마 default(false) 정합).
+    const settingsRows = await this.prisma.notificationSettings.findMany({
+      where: { userId: { in: users.map((u) => u.id) } },
+      select: { userId: true, isEnabled: true, editionPushEnabled: true },
+    });
+    const settingsByUser = new Map(settingsRows.map((s) => [s.userId, s]));
+
+    const refId = data.editionDate; // 멱등 자연키 — 사용자당 에디션 1호 1회.
+    let inboxed = 0;
+    for (const u of users) {
+      const s = settingsByUser.get(u.id);
+      // ★기본 OFF: 설정행 미존재/editionPushEnabled=false 면 미발송(인박스도 생략 — 옵트아웃 존중).
+      const editionOn = s ? s.editionPushEnabled : false;
+      if (!editionOn) continue;
+
+      const { created } = await this.notifications.createNotificationIfAbsent({
+        userId: u.id,
+        type: NotificationType.EDITION,
+        refId,
+        title: data.title,
+        body: data.body,
+        deepLink: data.deepLink,
+      });
+      if (!created) continue; // 멱등 — 이미 통지(잡 재시도·재기동) → 푸시 재발송 스킵.
+      inboxed += 1;
+
+      // 푸시는 master isEnabled(기본 true) + 유효 토큰 + 일일 캡일 때만(에디션 토글은 위에서 통과).
+      const masterOn = s ? s.isEnabled : true;
+      if (!masterOn) continue;
+      await this.sendPush(u.id, data.title, data.body, data.deepLink, NotificationType.EDITION, refId);
+    }
+    this.logger.log(
+      `[NOTIFY:EDITION] ${data.editionDate} count=${data.count} 수신자=${users.length} 신규인박스=${inboxed}`,
     );
   }
 

@@ -171,6 +171,8 @@ export class NotificationsService {
       [NotificationType.OPS_ALERT]: 0,
       // 갭분석 W7: 관심종목 급변동 알림 타입.
       [NotificationType.PRICE_MOVE]: 0,
+      // DAR-523: 일일 에디션 발행 알림 타입.
+      [NotificationType.EDITION]: 0,
     };
     for (const row of unreadByTypeRows) {
       unreadByType[row.type] = row._count._all;

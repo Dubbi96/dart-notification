@@ -288,6 +288,8 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
         OPS_ALERT: 0,
         // 갭분석 W7: 관심종목 급변동 알림 타입 키.
         PRICE_MOVE: 0,
+        // DAR-523: 일일 에디션 발행 알림 타입 키.
+        EDITION: 0,
       });
     });
   });
@@ -310,6 +312,8 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
             NotificationType.THESIS_VIOLATED,
             // 갭분석 W7: 급변동 알림 — 시세성 사용자 알림이라 신호 버킷 포함.
             NotificationType.PRICE_MOVE,
+            // DAR-523: 일일 에디션 발행 알림 — 신호 집약이라 신호 버킷 포함.
+            NotificationType.EDITION,
           ],
         },
       });

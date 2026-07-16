@@ -4,6 +4,7 @@ import type {
   Disclosure,
   DisclosureAnalysis,
   DisclosureEvent,
+  DisclosureReactionStatsResponse,
   DisclosureType,
   FiledFact,
   TodayDisclosureCount,
@@ -93,4 +94,15 @@ export const disclosureService = {
    */
   getFiledFacts: (rcpNo: string): Promise<FiledFact[]> =>
     api.get<FiledFact[]>(`/disclosure-facts/${rcpNo}`).then((r) => r.data),
+
+  /**
+   * 과거 유사공시 반응 통계 (GET /disclosures/:rcpNo/event-stats, DAR-511 BE / DAR-512 FE).
+   * 같은 이벤트 유형 공시의 D+1/D+5/D+20 실제 주가 반응·승률·표본수(n). 게스트 조회 가능(시장 집계).
+   * n<minSampleSize(30) 유형은 results[].stats=null+reason='INSUFFICIENT_SAMPLE'(정직 게이트),
+   * 이벤트 미추출 공시는 results=[]. 네트워크/서버 오류는 삼키지 않는다 — API실패 상태로 정직 분기.
+   */
+  getEventStats: (rcpNo: string): Promise<DisclosureReactionStatsResponse> =>
+    api
+      .get<ApiResponse<DisclosureReactionStatsResponse>>(`/disclosures/${rcpNo}/event-stats`)
+      .then((r) => r.data.data),
 };

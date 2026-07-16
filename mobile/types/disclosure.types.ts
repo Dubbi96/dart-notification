@@ -122,3 +122,49 @@ export interface PositionThesisResult {
   invalidConditions: string[];
   riskNotes: string;
 }
+
+// ─── 과거 유사공시 반응 통계 (GET /disclosures/:rcpNo/event-stats, DAR-511 BE / DAR-512 FE) ───
+// 점수(권고)가 아니라 과거 사실(통계) — 같은 이벤트 유형 공시의 D+1/D+5/D+20 실제 주가 반응.
+// n<30 유형은 stats=null+reason='INSUFFICIENT_SAMPLE'(소표본 허수 방지, BE 정직 게이트).
+
+/** 단일 지평(D+N) 반응 요약. 백엔드 HorizonReaction 미러. */
+export interface ReactionHorizon {
+  /** 실제 주가 반응 — 종목 단순수익률 D0→D+N 누적 평균(%). */
+  avgReturn: number;
+  /** 시장 대비 초과수익(AR) D+N 누적 평균(%). 표본 결측 시 null. */
+  avgAbnormalReturn: number | null;
+  /** 상승비율 — 누적 단순수익률>0 관측치 비율(0~1). */
+  winRate: number;
+}
+
+/** 이벤트 유형 반응 통계(n≥minSampleSize 게이트 통과 시). */
+export interface ReactionStats {
+  d1: ReactionHorizon;
+  d5: ReactionHorizon;
+  d20: ReactionHorizon;
+}
+
+/** 이벤트 유형별 반응 통계 결과. */
+export interface DisclosureReactionResult {
+  eventType: string;
+  /** 집계 표본수 n. 관측치가 없으면 0. */
+  sampleCount: number;
+  /** n≥minSampleSize 통과 시 통계, 아니면 null. */
+  stats: ReactionStats | null;
+  /** stats=null 사유. 통과 시 null. */
+  reason: 'INSUFFICIENT_SAMPLE' | null;
+  /** 산출기간(YYYYMMDD). 표본 없으면 null. */
+  period: { fromDate: string; toDate: string } | null;
+  /** 기준일(관측치 최신 영속 시각 ISO). 표본 없으면 null. */
+  calculatedAt: string | null;
+}
+
+/** GET /disclosures/:rcpNo/event-stats 응답 data. 이벤트 미추출 공시는 results=[]. */
+export interface DisclosureReactionStatsResponse {
+  rcpNo: string;
+  /** 노출 최소 표본수(=30). n<이 값이면 통계 미표시(정직 게이트). */
+  minSampleSize: number;
+  /** 응답 생성 시각(ISO) — 일1회 캐시 표면. */
+  generatedAt: string;
+  results: DisclosureReactionResult[];
+}

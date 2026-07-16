@@ -24,6 +24,7 @@ import { EvidenceMeta } from '@components/common/EvidenceMeta';
 import { DisclosureAiAnalysisSection } from '@components/disclosure/DisclosureAiAnalysisSection';
 import { DisclosureSignalLink } from '@components/disclosure/DisclosureSignalLink';
 import { DisclosureFiledFactsSection } from '@components/disclosure/DisclosureFiledFactsSection';
+import { DisclosureReactionSection } from '@components/disclosure/DisclosureReactionSection';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
 import { useHaptics } from '@hooks/useHaptics';
@@ -426,6 +427,10 @@ export default function DisclosureDetailScreen() {
             ) : null}
           </Surface>
         ) : null}
+
+        {/* 과거 유사공시 반응(DAR-512) — 같은 이벤트 유형 공시의 D+1/D+5/D+20 실제 주가 반응·승률·표본수.
+            점수(권고)가 아닌 과거 사실(통계). 이벤트가 추출된 공시에만 노출(유형 없으면 비교 표본 부재). */}
+        {disclosureEvent ? <DisclosureReactionSection rcpNo={disclosure.rcpNo} /> : null}
 
         {/* AI 심층 분석(Engine2) — 요약·Persona 해석·Position Thesis 실연동 (DAR-102).
             E8(DAR-453): 가장 무거운 섹션 → 기본 접힘(접이식)으로 밀도 완화. */}

@@ -88,7 +88,7 @@ dart-notification/
 │   │   │   ├── CLAUDE.md
 │   │   │   ├── market-data/         # KRX/증권사 시세 수집 (Phase 5+) · ETF 일봉(KIS 소스 어댑터, DAR-484) · ETF 과거 일봉 백필+S3 원본 보관(DAR-490) · 수급·공매도 EOD 수집기/조회(investor-flow.*, KRX→KIS 소스 체인 [갭분석 W16]) · 기술지표 구간 조회(indicator-history/indicator-query [갭분석 W13])
 │   │   │   ├── price-move-alert/    # 관심종목 급변동 감시 5분 틱 — ±5% 판정→PRICE_MOVE 알림, 무공시 변동 정직 병기 [갭분석 W7/W6]
-│   │   │   ├── edition-push/         # 일일 에디션 발행 푸시 19:05 — 조회 API(findDailyEdition) 재사용, ★빈 에디션 발송 금지 하드 가드(guard 순수함수), editionPushEnabled 게이트·멱등·캡 [DAR-523 Wave B/B2]
+│   │   │   ├── edition-push/         # 일일 에디션 발행 푸시 19:05 — 조회 API(findDailyEdition) 재사용, ★빈 에디션 발송 금지 하드 가드(guard 순수함수), editionPushEnabled 게이트·멱등·캡 [DAR-523 Wave B/B2]. ★본문 '한 줄 판단' 표준(헤드라인 종목 eventType+유사공시 D+5 반응통계 주입, n<30 폴백) [DAR-525 Wave B/B4]
 │   │   │   ├── indicators/          # 기술지표 계산 (MA/RSI/MACD/BB/ATR/VWAP)
 │   │   │   ├── buy-signal/          # Buy Score 7컴포넌트 계산 (Rule 기반)
 │   │   │   │   ├── config/
@@ -166,6 +166,8 @@ dart-notification/
 │   │   ├── notifications/     # 알림 히스토리
 │   │   │   ├── dto/
 │   │   │   │   └── query-notification.dto.ts
+│   │   │   ├── event-type-copy.ts        # 실적 이벤트 정직 라벨 SSOT(전년동기 대비/자사 전망)
+│   │   │   ├── push-body-template.ts     # ★푸시 본문 '한 줄 판단' 표준(순수) — 유형별 리드·유사공시 통계 문구(n<30 생략)·길이 트렁케이션 [DAR-525 Wave B/B4]
 │   │   │   ├── notifications.controller.ts
 │   │   │   ├── notifications.service.ts
 │   │   │   └── notifications.module.ts
@@ -681,5 +683,5 @@ EXPO_PUBLIC_APP_ENV=development
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-17 (DAR-523 Wave B/B2·P0 — engine3 `edition-push/` 신규 모듈 트리 반영: 일일 에디션 발행 푸시 19:05(edition-push.guard 순수 하드 가드·service·scheduler·module), 조회 API 재사용·빈 에디션 발송 금지·editionPushEnabled 게이트·멱등·캡, NotificationType EDITION 가산) / 이전: 2026-07-17 (DAR-510 — 일일 투자판단 에디션 트리 반영: 모바일 signals/(SignalDateBadge·BuyEditionView·EditionDateStrip·EditionSignalList·SignalExploreCard)·home/HomeSignalPreview 에디션 슬롯·utils(signalTerms·signalFreshness·editionDisplay·editionSummary)·useSignals(useDailyEditions·useEdition·useCompanyBuySignal)·signal.service/signal.types 에디션 계약; 백엔드 engine3 signals/(daily-editions·daily/:date 읽기 파생))
+**최종 수정일**: 2026-07-17 (DAR-525 Wave B/B4·P1 — 푸시 본문 '한 줄 판단' 표준: `notifications/push-body-template.ts` 신규(순수 — 유형별 리드 템플릿·유사공시 반응통계 문구 n<30 생략·길이 트렁케이션), 에디션 발행 푸시(DAR-523) 본문에 헤드라인 종목 eventType+D+5 반응통계 주입 적용, 문서 `docs/notifications/push-body-one-line-judgment.md`) / 이전: 2026-07-17 (DAR-523 Wave B/B2·P0 — engine3 `edition-push/` 신규 모듈 트리 반영: 일일 에디션 발행 푸시 19:05(edition-push.guard 순수 하드 가드·service·scheduler·module), 조회 API 재사용·빈 에디션 발송 금지·editionPushEnabled 게이트·멱등·캡, NotificationType EDITION 가산) / 이전: 2026-07-17 (DAR-510 — 일일 투자판단 에디션 트리 반영: 모바일 signals/(SignalDateBadge·BuyEditionView·EditionDateStrip·EditionSignalList·SignalExploreCard)·home/HomeSignalPreview 에디션 슬롯·utils(signalTerms·signalFreshness·editionDisplay·editionSummary)·useSignals(useDailyEditions·useEdition·useCompanyBuySignal)·signal.service/signal.types 에디션 계약; 백엔드 engine3 signals/(daily-editions·daily/:date 읽기 파생))
 **버전**: 2.4 (테스터 코호트 계측 반영 [DAR-516 Wave A/A6] — BE ops/tester-event.*·모바일 services/testerEvents.service.ts·utils/testerEvents.ts·components/survey/IosGateSurvey.tsx·docs/analytics/) / 이전 2.3 (일일 에디션 컴포넌트/훅/유틸 트리 반영 [DAR-505~509]) / 이전 2.2 (갭분석 퀵윈 웨이브 반영 — 백엔드: legal/·web-surface/·status/ 횡단 모듈 신설, ops/ funnel·notification-latency, engine1 pipeline/ 제목 이벤트 백필, engine3 market-data 수급·공매도/지표 조회 + price-move-alert/, engine4 briefing; 모바일: .maestro/·jest.config.js·__tests__/·dev-login.tsx·legal/data-sources.tsx·settings-detail/support.tsx + 신규 서비스/훅/타입; 루트: docs/compliance/·docs/security/·scripts/audit-gate.mjs·edgar-poc.ts·.audit-allowlist.json·.github CI 보안 잡) / 이전 2.1 (2026-07-02): 횡단 모듈 8종·모바일 신규 라우트/컴포넌트 디렉터리·루트 harness/infra/scripts·브랜치 전략(feat+squash)·prod env 관리 현행화

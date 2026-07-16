@@ -4,6 +4,7 @@ import {
   type EditionQueryResultShape,
   type EditionPushPublish,
 } from './edition-push.guard';
+import type { ReactionStatInput } from '../../notifications/push-body-template';
 
 /**
  * DAR-523(Wave B/B2·P0) — 에디션 발행 하드 가드 단위테스트.
@@ -68,6 +69,26 @@ describe('decideEditionPush — 빈 에디션 발송 금지 하드 가드(DAR-52
       }
     });
 
+    it('★DAR-525: 헤드라인 종목의 eventType·relatedDisclosureRcpNo 를 결정에 surface', () => {
+      const decision = decideEditionPush({
+        items: [
+          {
+            corpName: '삼성전자',
+            grade: 'STRONG_BUY',
+            eventType: 'SUPPLY_CONTRACT',
+            relatedDisclosureRcpNo: '20260717000123',
+          },
+          { corpName: 'LG전자', grade: 'BUY' },
+        ],
+        meta: { date: '20260717', isEmpty: false },
+      });
+      expect(decision.publish).toBe(true);
+      if (decision.publish) {
+        expect(decision.headlineEventType).toBe('SUPPLY_CONTRACT');
+        expect(decision.headlineRcpNo).toBe('20260717000123');
+      }
+    });
+
     it('단일 매수후보(적극매수 0)도 발행', () => {
       const decision = decideEditionPush(
         nonEmptyEdition('20260717', [{ corpName: 'LG전자', grade: 'BUY' }]),
@@ -116,5 +137,45 @@ describe('buildEditionPushContent — 정직 카피(DAR-523)', () => {
     for (const word of ['추천', '지금', '급등', '보장', '확실']) {
       expect(c.body).not.toContain(word);
     }
+  });
+
+  // ─── DAR-525: '한 줄 판단' 표준 적용 ─────────────────────────────────
+  const withHeadline: EditionPushPublish = {
+    ...base,
+    headlineEventType: 'SUPPLY_CONTRACT',
+    headlineRcpNo: '20260717000123',
+  };
+  const d5Stat: ReactionStatInput = {
+    horizon: 'D+5',
+    avgReturnPct: 2.1,
+    sampleCount: 142,
+    minSampleSize: 30,
+  };
+
+  it('★통계 있음(n≥30): "<기업 이벤트라벨 외 N곳> — 유사공시 D+5 평균 …"', () => {
+    const c = buildEditionPushContent(withHeadline, d5Stat);
+    expect(c.body).toBe('삼성전자 공급계약 외 2곳 — 유사공시 D+5 평균 +2.1% (n=142)');
+    expect(c.statsIncluded).toBe(true);
+  });
+
+  it('★통계 없음(n<30): 대체 꼬리로 폴백(허수 미노출)', () => {
+    const c = buildEditionPushContent(withHeadline, {
+      ...d5Stat,
+      sampleCount: 12,
+    });
+    expect(c.body).toBe('삼성전자 공급계약 외 2곳 · 매수 후보 3곳 (적극매수 1)');
+    expect(c.statsIncluded).toBe(false);
+  });
+
+  it('statInput 미제공 → 대체 꼬리(이벤트 라벨만 포함)', () => {
+    const c = buildEditionPushContent(withHeadline);
+    expect(c.body).toBe('삼성전자 공급계약 외 2곳 · 매수 후보 3곳 (적극매수 1)');
+    expect(c.statsIncluded).toBe(false);
+  });
+
+  it('eventType 미상이면 라벨 생략(기존 형식과 하위호환)', () => {
+    const c = buildEditionPushContent(base);
+    expect(c.body).toBe('삼성전자 외 2곳 · 매수 후보 3곳 (적극매수 1)');
+    expect(c.statsIncluded).toBe(false);
   });
 });

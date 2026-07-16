@@ -2934,6 +2934,59 @@ GET /api/ops/notification-latency?days=7
 }
 ```
 
+### 31.6.1 에디션 밀도 실측 (DAR-513, Wave A/A3) — 인증 불요(운영/내부용)
+
+```
+GET /api/ops/edition-density?days=60
+```
+
+'1거래일=1호' 일일 투자판단 에디션이 '대부분 빈 신문'인지 판정할 데이터를 산출한다. 최근 N(기본 60) **거래일**의 일자별 **에디션 신호 건수** 분포(중앙값·평균·p25/p75·0건일 비율·히스토그램)와 판정을 반환한다(read-only — 신규 테이블·수집·외부호출·체결·AI 개입·마이그레이션 0, `trading_signals`·`stock_daily_prices` 집계만). prod DB에 읽기 전용으로 안전 실행 가능.
+
+- **에디션 신호 정의(정직성 계약)**: 매수등급(`STRONG_BUY`+`BUY`)·백필 제외(`disclosure.isBackfill=false`) `TradingSignal`. 귀속 거래일 = `createdAt`을 KST로 이중 환산한 날짜(`(… AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date`). → `GET /signals/daily-editions`가 세는 '호'의 밀도와 1:1 일치.
+- **거래일 열거**: `common/time/market-calendar`(SSOT, KRX 2024~2026 동결)의 `isTradingDay`/`prevTradingDay`. 주말·공휴일 자동 제외.
+- **앵커**: 최근 '완료된' 거래일(KST 19:15 신호 크론 완료 후 오늘, 그 전이면 직전 거래일 — 오늘 미완료 에디션이 0건일 비율을 오염시키지 않도록 제외).
+- **판정(수용기준)**: `median < 2` **또는** `zeroDayRatio > 0.40`이면 `fallbackProposalTriggered=true` → 비신호 콘텐츠 폴백 스코프 제안서(`docs/roadmap/cc-edition-density-fallback-proposal-2026-07-17.md`) 오너 판정 회부.
+- **보조 계열**: `allGrade`(전등급 신호 밀도) — 파이프라인이 신호는 만들지만 매수등급이 아닐 뿐인지(폴백 여지) 진단.
+- **분모 교차검증**: 캘린더 거래일 수 vs 윈도 구간 일봉(`StockDailyPrice`) 실재 거래일 distinct 수 대조(불일치 시 캘린더 누락 공휴일/시세 수집 공백 의심).
+
+| 쿼리 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `days` | number | 선택 | 집계 거래일 수(1~120 클램프, 기본 60) — 최근 완료 거래일 기준 역산 |
+
+**Response** (`data`: `EditionDensityReport`):
+```jsonc
+{
+  "metric": "edition-signal-density",
+  "definition": "에디션 신호 = 매수등급(STRONG_BUY+BUY)·백필 제외 … (정직성 계약)",
+  "windowTradingDays": 60,
+  "anchorEndDate": "20260716",     // 최근 완료 거래일(YYYYMMDD)
+  "oldestDate": "20260421",
+  "todayDate": "20260717",
+  "todayIncludedInWindow": false,  // 오늘 19:15 KST 전이면 제외(0건일 오염 차단)
+  "generatedAt": "2026-07-16T18:14:58.838Z",
+  "buyGrade": {                    // ★주계열: 에디션에 실제 노출되는 매수등급 밀도
+    "days": 60, "totalSignals": 34, "mean": 0.57, "median": 0,
+    "min": 0, "max": 17, "p25": 0, "p75": 0,
+    "zeroDays": 55, "zeroDayRatio": 0.9167,
+    "histogram": [ { "bucket": "0", "days": 55 }, /* 1,2,3-4,5-9,10+ */ ]
+  },
+  "allGrade": { /* 전등급 신호 밀도(동일 구조) — 폴백 여지 진단 */ },
+  "verdict": {
+    "medianBelowThreshold": true, "zeroDayRatioAboveThreshold": true,
+    "fallbackProposalTriggered": true,
+    "thresholds": { "medianLt": 2, "zeroDayRatioGt": 0.4 },
+    "proposalDoc": "docs/roadmap/cc-edition-density-fallback-proposal-2026-07-17.md",
+    "summary": "트리거: 중앙값 0 < 2 · 0건일 비율 91.7% > 40% → …"
+  },
+  "tradingDayCrossCheck": {
+    "calendarTradingDays": 60, "marketDataTradingDays": 41, "matches": false, "note": "…"
+  },
+  "daily": [ { "date": "20260717", "buyCount": 0, "totalCount": 0 } /* 최신 우선, N행 */ ]
+}
+```
+
+> ★위 예시 수치는 **dev/데모 DB**(신호 8일치, 2026-06 한정) 실행 결과다. 권위 판정(수용기준 (1)(2))은 **prod 읽기 전용** 실행값으로 산출한다.
+
 ### 31.7 온보딩 퍼널 이벤트 기록 (갭분석 W15) — **비인증**
 
 ```

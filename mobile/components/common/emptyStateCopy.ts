@@ -117,10 +117,10 @@ export const emptyStateCopy = {
     description: '매도 신호는 보유 포지션 기준으로 평가돼요. 매수 탐색에서 시작해 보세요',
     actionLabel: '매수 탐색으로',
   },
-  // 저장된 공시 (없음)
+  // 보관함 (없음)
   savedDisclosuresEmpty: {
     icon: 'bookmark',
-    title: '저장된 공시가 없어요. 공시 상세에서 북마크 버튼을 탭해 보세요',
+    title: '보관함이 비어 있어요. 공시 상세에서 북마크 버튼을 탭해 보세요',
   },
   // 관심목록 (없음)
   watchlistEmpty: {

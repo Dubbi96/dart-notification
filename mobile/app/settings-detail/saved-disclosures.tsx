@@ -135,20 +135,20 @@ export default function SavedDisclosuresScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader
-        title="저장된 공시"
+        title="보관함"
         onBack={() => router.back()}
         subtitle={!isLoading && !isError ? `${items.length}건` : undefined}
       />
 
       {isLoading ? (
         // UXR-17(D-1): 수제 스피너 대신 표준 StateView.LoadingState로 통일(에러/빈 상태와 같은 계열).
-        <LoadingState message="저장된 공시를 불러오는 중..." />
+        <LoadingState message="보관함을 불러오는 중..." />
       ) : isError ? (
         // 장애를 '저장 0건' 빈 상태로 위장하지 않도록 에러는 명시 분기 + 재시도 동선 제공.
         <ApiErrorState
           error={error}
           onRetry={refetch}
-          title="저장된 공시를 불러오지 못했습니다"
+          title="보관함을 불러오지 못했습니다"
           description="잠시 후 다시 시도해 주세요."
         />
       ) : (

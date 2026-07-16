@@ -327,7 +327,7 @@ describe('SignalsService — findDailyEditions', () => {
   it('$queryRaw bigint COUNT를 number로 파싱', async () => {
     prisma.$queryRaw.mockResolvedValue([
       {
-        date: '2026-07-16',
+        date: '20260716',
         count: BigInt(5),
         strongBuyCount: BigInt(2),
         headlineCorpName: '삼성전자',
@@ -335,6 +335,8 @@ describe('SignalsService — findDailyEditions', () => {
       },
     ]);
     const result = await service.findDailyEditions();
+    // date 는 compact 'YYYYMMDD'(SQL to_char) — todayDate·before 커서와 동일 형식.
+    expect(result.items[0].date).toBe('20260716');
     expect(typeof result.items[0].count).toBe('number');
     expect(result.items[0].count).toBe(5);
     expect(typeof result.items[0].strongBuyCount).toBe('number');
@@ -344,7 +346,7 @@ describe('SignalsService — findDailyEditions', () => {
   it('topGradeRaw(STRONG_BUY_CANDIDATE) → topGrade=STRONG_BUY', async () => {
     prisma.$queryRaw.mockResolvedValue([
       {
-        date: '2026-07-16',
+        date: '20260716',
         count: BigInt(3),
         strongBuyCount: BigInt(3),
         headlineCorpName: '삼성전자',
@@ -364,12 +366,13 @@ describe('SignalsService — findDailyEditions', () => {
   it('결과 수 = limit 이면 hasMore=true, nextCursor=마지막 날짜', async () => {
     const limit = 2;
     prisma.$queryRaw.mockResolvedValue([
-      { date: '2026-07-16', count: BigInt(1), strongBuyCount: BigInt(0), headlineCorpName: null, topGradeRaw: SignalGrade.BUY_CANDIDATE },
-      { date: '2026-07-15', count: BigInt(1), strongBuyCount: BigInt(0), headlineCorpName: null, topGradeRaw: SignalGrade.BUY_CANDIDATE },
+      { date: '20260716', count: BigInt(1), strongBuyCount: BigInt(0), headlineCorpName: null, topGradeRaw: SignalGrade.BUY_CANDIDATE },
+      { date: '20260715', count: BigInt(1), strongBuyCount: BigInt(0), headlineCorpName: null, topGradeRaw: SignalGrade.BUY_CANDIDATE },
     ]);
     const result = await service.findDailyEditions(undefined, limit);
     expect(result.meta.hasMore).toBe(true);
-    expect(result.meta.nextCursor).toBe('2026-07-15');
+    // nextCursor 는 compact 'YYYYMMDD' — before 커서(\d{8})로 그대로 왕복 가능해야 한다.
+    expect(result.meta.nextCursor).toBe('20260715');
   });
 
   it('todayHasEdition: count>0이면 true', async () => {

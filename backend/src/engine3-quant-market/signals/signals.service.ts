@@ -679,9 +679,13 @@ export class SignalsService {
     const clampedLimit = Math.min(Math.max(limit ?? 7, 1), 90);
     const todayKst = tradeDateFromMs(Date.now());
 
-    // 커서 조건 — 미지정이면 적용 안 함
+    // 커서 조건 — 미지정이면 적용 안 함.
+    // ★KST 거래일 환산: created_at 은 `timestamp WITHOUT time zone`(UTC 벽시계 저장)이므로
+    //   단일 `AT TIME ZONE 'Asia/Seoul'` 은 UTC 값을 KST 로 오해석해 하루 어긋난다(서버 TZ=UTC).
+    //   먼저 `AT TIME ZONE 'UTC'`(UTC 로 해석→instant) 후 `AT TIME ZONE 'Asia/Seoul'`(KST 벽시계)
+    //   로 이중 환산해야 세션 TZ 무관하게 정확한 KST 거래일이 나온다. 단순화(단일 환산) 금지.
     const beforeCond = before
-      ? Prisma.sql`AND (ts.created_at AT TIME ZONE 'Asia/Seoul')::date < ${before}::date`
+      ? Prisma.sql`AND (ts.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date < ${before}::date`
       : Prisma.sql``;
 
     const [rows, todayCount, latestSig] = await Promise.all([
@@ -696,12 +700,12 @@ export class SignalsService {
       >(Prisma.sql`
         WITH ranked AS (
           SELECT
-            (ts.created_at AT TIME ZONE 'Asia/Seoul')::date AS kst_date,
+            (ts.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date AS kst_date,
             ts.signal::text                                  AS signal,
             ts.buy_score,
             c.corp_name,
             ROW_NUMBER() OVER (
-              PARTITION BY (ts.created_at AT TIME ZONE 'Asia/Seoul')::date
+              PARTITION BY (ts.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date
               ORDER BY ts.buy_score DESC, ts.created_at DESC, ts.id DESC
             ) AS rn
           FROM trading_signals ts
@@ -712,7 +716,9 @@ export class SignalsService {
             ${beforeCond}
         )
         SELECT
-          kst_date::text                                                 AS date,
+          -- date 는 API 계약상 compact 'YYYYMMDD'(todayDate·before 커서와 동일 형식) —
+          -- date::text 는 ISO 대시('2026-07-16')라 nextCursor 왕복(before=\d{8})이 깨진다.
+          to_char(kst_date, 'YYYYMMDD')                                 AS date,
           COUNT(*)::bigint                                               AS count,
           SUM(CASE WHEN signal = ${STRONG_BUY} THEN 1 ELSE 0 END)::bigint AS "strongBuyCount",
           MAX(CASE WHEN rn = 1 THEN corp_name   END)                    AS "headlineCorpName",

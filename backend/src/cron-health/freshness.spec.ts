@@ -258,6 +258,80 @@ describe('freshness (DAR-110)', () => {
     });
   });
 
+  // [DAR-515] 휴장일(평일 공휴일·대체공휴일) 오탐 억제 — 시장캘린더(isTradingDay) 참조.
+  //   요일 기반 폴링 크론은 평일 공휴일에도 돌며 0행 SUCCESS 를 남기므로, 캘린더 없이는
+  //   그 0행 연속이 제로런 오탐이 된다(2026-07-15 기아 대응이 휴장일에 오발화하면 안 됨).
+  describe('휴장일 오탐 억제 (DAR-515, 시장캘린더)', () => {
+    // 2026-08-17(월) = 광복절 대체공휴일(KRX 휴장). market-calendar 가 지목한 하반기 최초 위험일.
+    const holidayIntraday = new Date('2026-08-17T10:00:00');
+    // 2026-08-18(화) = 공휴일 다음 정상 거래일(대조군 — 캘린더 게이트가 날짜별임을 증명).
+    const tradingDayIntraday = new Date('2026-08-18T10:00:00');
+
+    const zeroRunSpec: FreshnessJobSpec = { ...intradaySpec, zeroRunThreshold: 3 };
+    function run(minutesAgo: number, itemCount: number | null, base: Date) {
+      return { finishedAt: new Date(base.getTime() - minutesAgo * 60_000), itemCount };
+    }
+
+    it('평일 공휴일 장중에는 age 축 정체여도 판정 보류(applicable=false, 사유=휴장일)', () => {
+      const lastSuccessAt = new Date(holidayIntraday.getTime() - 90 * 60_000); // 90분 > 30분 임계
+      const r = evaluateJobFreshness(
+        input(intradaySpec, { lastSuccessAt, lastStatus: 'SUCCESS' }),
+        holidayIntraday,
+      );
+      expect(r.applicable).toBe(false);
+      expect(r.isStale).toBe(false);
+      expect(r.reason).toContain('휴장일');
+    });
+
+    it('평일 공휴일 장중에는 제로런 축이 미발화한다(연속 0행이어도 오탐 0)', () => {
+      const r = evaluateJobFreshness(
+        input(zeroRunSpec, {
+          lastSuccessAt: new Date(holidayIntraday.getTime() - 5 * 60_000), // age 신선
+          lastStatus: 'SUCCESS',
+          lastItemCount: 0,
+          recentRuns: [
+            run(5, 0, holidayIntraday),
+            run(15, 0, holidayIntraday),
+            run(25, 0, holidayIntraday),
+          ],
+        }),
+        holidayIntraday,
+      );
+      expect(r.applicable).toBe(false);
+      expect(r.zeroRunStreak).toBeNull();
+      expect(r.isZeroRun).toBe(false);
+      expect(r.isStale).toBe(false);
+    });
+
+    it('공휴일 다음 거래일에는 정상 평가가 재개되어 제로런이 발화한다(캘린더 게이트는 날짜별)', () => {
+      const r = evaluateJobFreshness(
+        input(zeroRunSpec, {
+          lastSuccessAt: new Date(tradingDayIntraday.getTime() - 5 * 60_000),
+          lastStatus: 'SUCCESS',
+          lastItemCount: 0,
+          recentRuns: [
+            run(5, 0, tradingDayIntraday),
+            run(15, 0, tradingDayIntraday),
+            run(25, 0, tradingDayIntraday),
+          ],
+        }),
+        tradingDayIntraday,
+      );
+      expect(r.applicable).toBe(true);
+      expect(r.zeroRunStreak).toBe(3);
+      expect(r.isZeroRun).toBe(true);
+      expect(r.isStale).toBe(true);
+      expect(r.reason).toContain('제로런');
+    });
+
+    it('주말도 휴장 사유로 판정 보류한다(사유 문구를 장외시간과 구분)', () => {
+      const r = evaluateJobFreshness(input(intradaySpec), weekend);
+      expect(r.applicable).toBe(false);
+      expect(r.isStale).toBe(false);
+      expect(r.reason).toContain('휴장일');
+    });
+  });
+
   describe('buildFreshnessReport', () => {
     it('stale 잡 키 목록과 anyStale 플래그를 집계한다', () => {
       const fresh = new Date(weekdayIntraday.getTime() - 5 * 60_000);

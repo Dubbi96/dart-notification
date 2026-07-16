@@ -11,6 +11,13 @@
 // ageMinutes 축이 영원히 잡지 못한다(마지막 성공시각은 계속 갱신되므로). 2026-07-15
 // 라이브 파싱 기아 장애가 이 클래스 — 잡은 돌았지만 산출 0으로 신호가 굶었다.
 // 장중 시간대에 기대 크론이 연속 N회 0행을 산출하면 stale 로 표면화한다.
+//
+// [DAR-515] 휴장일 오탐 0: 장중 윈도 판정은 시장캘린더 SSOT(market-calendar.isTradingDay)를
+// 참조해 평일 공휴일·대체공휴일엔 판정 자체를 보류한다(age·제로런 두 축 모두). 공시 폴링
+// 크론은 요일 기반(`*/10 8-17 * * 1-5`)이라 평일 공휴일에도 돌며 0행 SUCCESS 를 남기므로,
+// 캘린더 없이는 그 0행 연속이 제로런 오탐이 된다(예: 2026-08-17 광복절 대체 — 하반기 최초 위험일).
+
+import { isTradingDay } from '../common/time/market-calendar';
 
 /** 잡 평가 윈도 — 언제 stale 판정을 적용할지. */
 export type FreshnessWindow =
@@ -110,18 +117,29 @@ export interface FreshnessReport {
 
 const MS_PER_MINUTE = 60_000;
 
-/** 평일(월~금) 여부 — 서버 로컬 시간 기준. */
-function isWeekday(now: Date): boolean {
-  const day = now.getDay(); // 0=일, 6=토
-  return day >= 1 && day <= 5;
+/** 서버 로컬 날짜의 YYYYMMDD — 시장캘린더(isTradingDay) 조회용. isSameLocalDay 와 동일 로컬 기준. */
+function localYmd(now: Date): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}${m}${d}`;
 }
 
 /**
- * 장중 폴링 윈도 — 평일 08:00 ~ 18:30(서버 로컬).
+ * 거래일 여부 — 시장캘린더 SSOT(market-calendar) 참조. 주말 + KRX 공휴일·대체공휴일 모두 비거래일.
+ * [DAR-515] 요일만 보던 기존 판정을 대체 — 평일 공휴일 오탐(제로런·age)을 원천 차단한다.
+ */
+function isTradingLocalDay(now: Date): boolean {
+  return isTradingDay(localYmd(now));
+}
+
+/**
+ * 장중 폴링 윈도 — 거래일 08:00 ~ 18:30(서버 로컬).
  * 폴링 크론('*\/10 8-17')은 08:00~17:59 실행, 마지막 실행 반영 여유로 18:30 까지 평가.
+ * [DAR-515] 휴장일(주말·공휴일)엔 false — 판정을 보류해 오탐 0.
  */
 function isWithinIntradayWindow(now: Date): boolean {
-  if (!isWeekday(now)) return false;
+  if (!isTradingLocalDay(now)) return false;
   const minutes = now.getHours() * 60 + now.getMinutes();
   const open = 8 * 60; // 08:00
   const close = 18 * 60 + 30; // 18:30
@@ -168,7 +186,8 @@ export function evaluateJobFreshness(
     lastItemCount,
   };
 
-  // 1) 평가 윈도 밖이면 판정 보류(장외시간 오탐 방지). 제로런 축도 함께 보류(장외 미발화).
+  // 1) 평가 윈도 밖이면 판정 보류(장외시간·휴장일 오탐 방지). 제로런 축도 함께 보류.
+  //    휴장일(주말·공휴일)과 장외시간을 사유로 구분해 표기한다([DAR-515] 시장캘린더 참조).
   if (spec.window === 'WEEKDAY_INTRADAY' && !isWithinIntradayWindow(now)) {
     return {
       ...base,
@@ -179,7 +198,9 @@ export function evaluateJobFreshness(
         : null,
       zeroRunStreak: null,
       isZeroRun: false,
-      reason: '장외시간 — 신선도 판정 보류',
+      reason: isTradingLocalDay(now)
+        ? '장외시간 — 신선도 판정 보류'
+        : '휴장일(주말·공휴일) — 신선도 판정 보류',
     };
   }
 

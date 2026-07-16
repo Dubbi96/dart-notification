@@ -121,6 +121,34 @@ describe('StatusService (W11/W12)', () => {
     expect(s.pipeline.staleJobKeys).toEqual(['pipeline.drain']);
   });
 
+  it('[DAR-515] 공시 제로런 정체(isZeroRun)도 서비스 상태를 DEGRADED 로 표면화한다(/status 연동)', async () => {
+    const report = freshnessReport({
+      anyStale: true,
+      staleJobs: ['disclosure.intraday'],
+      jobs: [
+        {
+          jobKey: 'disclosure.intraday',
+          label: '공시 장중 폴링',
+          cadence: '평일 08:00~18:00 / 10분',
+          applicable: true,
+          isStale: true,
+          lastSuccessAt: now.toISOString(),
+          lastStatus: 'SUCCESS',
+          lastItemCount: 0,
+          ageMinutes: 5, // age 축은 신선 — 제로런 축만으로 stale
+          zeroRunStreak: 9,
+          isZeroRun: true,
+          reason: '장중 연속 9회 0행 산출(임계 9회) — 제로런 정체 의심',
+        },
+      ],
+    });
+    const service = new StatusService(makePrisma(), makeFreshness(report));
+    const s = await service.getStatus(now);
+
+    expect(s.service.status).toBe('DEGRADED');
+    expect(s.service.label).toBe('일부 수집 지연');
+  });
+
   it('파이프라인 외 잡만 정체면 서비스는 DEGRADED, 파이프라인은 정상', async () => {
     const report = freshnessReport({
       anyStale: true,

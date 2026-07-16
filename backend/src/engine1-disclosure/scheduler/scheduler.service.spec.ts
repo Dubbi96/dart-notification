@@ -5,6 +5,8 @@ import { DartApiService } from '../dart-api/dart-api.service';
 import { ExpoPushService } from '../../expo-push/expo-push.service';
 import { ExpoPushMessage } from 'expo-server-sdk';
 import { NotificationsService } from '../../notifications/notifications.service';
+import { PushCapService } from '../../notifications/push-cap.service';
+import { NotificationType } from '@prisma/client';
 import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
 import { DisclosureDocumentsService } from '../disclosure-documents/disclosure-documents.service';
 
@@ -958,5 +960,86 @@ describe('saveDisclosures — Company FK 가드 (미동기 기업 자동 생성)
     expect(prismaMock.company.createMany.mock.calls[0][0].data[0]).toEqual(
       expect.objectContaining({ corpCode: 'UNLISTED', stockCode: null, market: null }),
     );
+  });
+});
+
+// ════════════════════════════════════════════
+// describe: matchAndNotify — DAR-514 일일 푸시 캡(공시 발송 경로 캡 존중)
+// ════════════════════════════════════════════
+describe('matchAndNotify — DAR-514 일일 푸시 캡', () => {
+  const VALID_TOKEN = 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]';
+
+  const makeItem = (rcptNo: string) => ({
+    corp_code: 'CORP-X',
+    corp_name: '테스트기업',
+    stock_code: '000001',
+    corp_cls: 'Y',
+    report_nm: '주요사항보고',
+    rcept_no: rcptNo,
+    flr_nm: '테스트기업',
+    rcept_dt: '20260717',
+    rm: '',
+  });
+
+  function build(pushCap?: { consume: jest.Mock }) {
+    const prismaMock = makePrismaMock();
+    const expoPushMock = makeExpoPushMock();
+    expoPushMock.isValidExpoPushToken.mockReturnValue(true);
+    prismaMock.watchList.findMany.mockResolvedValue([
+      {
+        corpCode: 'CORP-X',
+        user: {
+          id: 'user-1',
+          notificationSettings: { isEnabled: true, disclosureTypes: [], keywords: [] },
+          devices: [{ deviceToken: VALID_TOKEN }],
+        },
+      },
+    ]);
+    const service = new SchedulerService(
+      prismaMock as unknown as PrismaService,
+      makeDartApiMock() as unknown as DartApiService,
+      expoPushMock as unknown as ExpoPushService,
+      makeNotificationsMock() as unknown as NotificationsService,
+      undefined, // disclosureDocumentsService
+      undefined, // cronRunRecorder
+      pushCap as unknown as PushCapService,
+    );
+    const run = (items: unknown[]) =>
+      (service as unknown as { matchAndNotify: (i: unknown[]) => Promise<void> }).matchAndNotify(
+        items,
+      );
+    return { service, run, expoPushMock };
+  }
+
+  it('캡 이내(allowed=true) → 공시 푸시 정상 발송 · DISCLOSURE 타입으로 소비', async () => {
+    const pushCap = {
+      consume: jest.fn().mockResolvedValue({ allowed: true, cap: 30, sentToday: 0, suppressed: false }),
+    };
+    const { run, expoPushMock } = build(pushCap);
+
+    await run([makeItem('RCP-A')]);
+
+    expect(pushCap.consume).toHaveBeenCalledWith('user-1', NotificationType.DISCLOSURE, 'RCP-A');
+    expect(expoPushMock.sendPushNotifications).toHaveBeenCalledTimes(1);
+  });
+
+  it('캡 초과(allowed=false) → 공시 실발송 억제(인박스는 이미 보존)', async () => {
+    const pushCap = {
+      consume: jest.fn().mockResolvedValue({ allowed: false, cap: 30, sentToday: 30, suppressed: true }),
+    };
+    const { run, expoPushMock } = build(pushCap);
+
+    await run([makeItem('RCP-A')]);
+
+    expect(pushCap.consume).toHaveBeenCalledWith('user-1', NotificationType.DISCLOSURE, 'RCP-A');
+    expect(expoPushMock.sendPushNotifications).not.toHaveBeenCalled();
+  });
+
+  it('pushCap 미주입(@Optional) 환경 → 종전대로 발송(캡 미적용·하위호환)', async () => {
+    const { run, expoPushMock } = build(undefined);
+
+    await run([makeItem('RCP-A')]);
+
+    expect(expoPushMock.sendPushNotifications).toHaveBeenCalledTimes(1);
   });
 });

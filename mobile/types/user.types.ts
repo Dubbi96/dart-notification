@@ -37,7 +37,14 @@ export interface NotificationSettings {
   // 갭분석 W7: 관심종목 급변동 알림 토글(★기본 OFF). OFF면 인박스·푸시 모두 생략.
   //   전일 종가 대비 ±5%·준실시간(최대 5분 지연).
   priceMovePushEnabled: boolean;
+  // DAR-514(Wave A): 신규 2계열 토글(★기본 OFF — 예약). 발송 배선은 Wave B 가 소비.
+  editionPushEnabled: boolean;
+  digestPushEnabled: boolean;
+  // DAR-514(Wave A): 사용자별 일일 푸시 캡(리스크·운영 알림 제외). 기본 30·범위 1~500.
+  dailyPushCap: number;
   updatedAt: string;
+  // DAR-514: 설정 조회 시 서버가 붙여주는 당일(KST) 발송/억제 관측치(읽기 전용). 구버전 서버 호환 위해 optional.
+  pushUsage?: { sent: number; suppressed: number; cap: number };
 }
 
 export interface Company {

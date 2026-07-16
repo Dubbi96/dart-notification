@@ -1,5 +1,15 @@
-import { IsOptional, IsBoolean, IsArray, IsString, ArrayMaxSize } from 'class-validator';
+import {
+  IsOptional,
+  IsBoolean,
+  IsArray,
+  IsString,
+  IsInt,
+  Min,
+  Max,
+  ArrayMaxSize,
+} from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { MIN_DAILY_PUSH_CAP, MAX_DAILY_PUSH_CAP } from '../../notifications/push-cap.service';
 
 export class UpdateNotificationSettingsDto {
   @ApiProperty({
@@ -66,4 +76,37 @@ export class UpdateNotificationSettingsDto {
   @IsBoolean()
   @IsOptional()
   priceMovePushEnabled?: boolean;
+
+  // DAR-514(Wave A): 신규 2계열 토글(★기본 OFF — 보수적 기본값). 발송 배선은 Wave B 가 소비.
+  @ApiProperty({
+    example: false,
+    required: false,
+    description: '일일 에디션 발행 알림(예약 — Wave B 소비, 기본 OFF)',
+  })
+  @IsBoolean()
+  @IsOptional()
+  editionPushEnabled?: boolean;
+
+  @ApiProperty({
+    example: false,
+    required: false,
+    description: '다이제스트(요약) 알림(예약 — Wave B 소비, 기본 OFF)',
+  })
+  @IsBoolean()
+  @IsOptional()
+  digestPushEnabled?: boolean;
+
+  // DAR-514(Wave A): 사용자별 일일 푸시 캡(면제 계열 제외). 기본 30·범위 1~500.
+  @ApiProperty({
+    example: 30,
+    required: false,
+    minimum: MIN_DAILY_PUSH_CAP,
+    maximum: MAX_DAILY_PUSH_CAP,
+    description: '일일 푸시 상한(리스크·운영 알림 제외). 초과분은 실발송 억제(인박스는 보존).',
+  })
+  @IsInt()
+  @Min(MIN_DAILY_PUSH_CAP)
+  @Max(MAX_DAILY_PUSH_CAP)
+  @IsOptional()
+  dailyPushCap?: number;
 }

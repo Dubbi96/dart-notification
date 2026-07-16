@@ -9,6 +9,7 @@ import { ExpoPushService } from '../../expo-push/expo-push.service';
 import { ExpoPushMessage } from 'expo-server-sdk';
 import { DisclosureCollectionLog, NotificationType } from '@prisma/client';
 import { NotificationsService } from '../../notifications/notifications.service';
+import { PushCapService } from '../../notifications/push-cap.service';
 import { channelIdForType } from '../../notifications/notification-category';
 import { truncateForTitle } from '../../notifications/notification-source';
 import { DisclosureDocumentsService } from '../disclosure-documents/disclosure-documents.service';
@@ -77,6 +78,12 @@ export class SchedulerService {
      */
     @Optional()
     private readonly cronRunRecorder?: CronRunRecorderService,
+    /**
+     * DAR-514: 공시 푸시도 사용자별 일일 캡을 존중한다(발송 경로 전체 정합).
+     * @Optional: PushCapService 미주입 환경(일부 테스트)에서는 캡을 적용하지 않고 종전대로 발송한다.
+     */
+    @Optional()
+    private readonly pushCap?: PushCapService,
   ) {}
 
   /**
@@ -693,6 +700,22 @@ export class SchedulerService {
 
         // 발송 가능한 토큰이 없으면 인박스만 남긴다(보낼 곳이 없어 롤백·재발송이 무의미).
         if (userData.pushTokens.length === 0) continue;
+
+        // DAR-514: 일일 푸시 캡 게이트 — 초과 시 실발송 억제(인박스는 이미 보존). 억제 로그는
+        //   push_delivery_log 에 남는다. 공시(DISCLOSURE)는 면제 대상이 아니다(피로 방지 핵심 계열).
+        if (this.pushCap) {
+          const decision = await this.pushCap.consume(
+            userData.userId,
+            NotificationType.DISCLOSURE,
+            disclosureRcpNo,
+          );
+          if (!decision.allowed) {
+            this.logger.log(
+              `[DISCLOSURE] 일일 푸시 캡 초과 — 실발송 억제(인박스 보존): user=${userData.userId} rcpNo=${disclosureRcpNo} (${decision.sentToday}/${decision.cap})`,
+            );
+            continue;
+          }
+        }
 
         const pushMessages: ExpoPushMessage[] = userData.pushTokens.map((token) => ({
           to: token,

@@ -222,6 +222,12 @@ model NotificationSettings {
   tradePushEnabled  Boolean @default(true)
   // DAR-473(P01): 리스크·운영 알림 토글(기본 ON). OFF면 인박스·푸시 모두 생략.
   opsPushEnabled    Boolean @default(true)
+  // 갭분석 W7: 관심종목 급변동(PRICE_MOVE) 알림 토글(★기본 OFF).
+  priceMovePushEnabled Boolean @default(false)
+  // DAR-514(Wave A): 신규 2계열 토글(★기본 OFF — 예약, Wave B 소비) + 사용자별 일일 푸시 캡.
+  editionPushEnabled Boolean @default(false) // 일일 에디션 발행 알림(예약)
+  digestPushEnabled  Boolean @default(false) // 다이제스트(요약) 알림(예약)
+  dailyPushCap       Int     @default(30)    // 일일 푸시 상한(면제 계열 RISK/OPS 제외). 1~500.
 
   updatedAt       DateTime @updatedAt
 
@@ -229,6 +235,28 @@ model NotificationSettings {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notification_settings")
+}
+
+// DAR-514(Wave A): 푸시 실발송/억제 원장 — 사용자별 일일 캡 계산의 SSOT + 억제 로그.
+//   kstDate(YYYYMMDD KST 버킷)별 SENT 행 수가 그날 발송 카운트. (userId,type,refId) 멱등(원장 1건/통지).
+//   FK 없음(forward-only). status=SUPPRESSED_CAP 행이 '캡 초과 억제' 로그다(인박스는 별도 보존).
+enum PushDeliveryStatus {
+  SENT
+  SUPPRESSED_CAP
+}
+
+model PushDeliveryLog {
+  id        String             @id @default(cuid())
+  userId    String
+  type      NotificationType
+  refId     String
+  kstDate   String // YYYYMMDD(KST) — 일일 캡 버킷
+  status    PushDeliveryStatus
+  createdAt DateTime           @default(now())
+
+  @@unique([userId, type, refId]) // 멱등: 통지 1건당 원장 1건
+  @@index([userId, kstDate, status]) // 캡 카운트(당일 SENT 집계)
+  @@map("push_delivery_log")
 }
 
 // 통합 알림 유형 (DAR-84/85/424/473)
@@ -1956,6 +1984,6 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-15 (갭분석 W0 토대: User.tier(UserTier FREE|PRO 엔티틀먼트 소켓)·ProWaitlistEntry(Pro 사전신청 서버 영속화)·§7.4.2 InvestorFlowDaily·§7.4.3 ShortSellingDaily(수급/공매도 EOD, publishedDate as-of)·SearchMissLog(W8 검색 제로결과 계측)·FunnelEvent(W15 온보딩 퍼널 계측)·notification_settings.priceMovePushEnabled(기본 OFF)·NotificationType 에 PRICE_MOVE 가산·EventType 에 EARNINGS_GUIDANCE 가산 — 마이그레이션 20260715230700_gap_analysis_foundation, 전부 additive·트레이딩 경로 무접촉) · 2026-07-04 (DAR-502 P20: §40 RiskDecisionLog 재사용 — 자동 킬스위치 SHADOW 계측이 `meta.kind='AUTO_KILL_ADVICE'` 로 기록[track+tradeDate 1행 멱등·raw 입력 보존·activate() 미호출], **스키마·마이그레이션 무변경**) · 2026-07-04 (DAR-497 P19: §41 AccountHighWaterMark 신규 — 계좌 고점 forward-only 추적(FK 없음·포트폴리오 단위) + 드로다운 컷 −15% REDUCE_ONLY 발동 근거, 마이그레이션 20260704120000_dar497_account_high_water_mark, 관측·발동층 전용) · 2026-07-04 (DAR-496 P18: §40 RiskDecisionLog 신규 — RiskGuard 공용 진입 게이트(일일손실·현금) 판정 이력(FK 없음·측정 트랙 SHADOW·코어 forward ENFORCE), 마이그레이션 20260704090000_dar496_risk_decision_log, 관측층 전용) · 2026-07-04 (DAR-494 P13: §39 DualMomentumForwardTrade 신규 — 듀얼모멘텀 코어 forward 트랙 ETF 월말 리밸런싱 이력(FK 없음·PENDING→OPEN→CLOSED), 마이그레이션 20260703160000_dar494_dual_momentum_forward_trade, 모의·데이터층 전용) · 2026-07-03 (DAR-486 P25: §7.4.1 StockStatusDaily 신규 — 종목상태 일별 이력(forward-only, 백테스트 생존편향) + ExitReason 에 DELISTED 가산) · 2026-07-03 (DAR-479 P04: §38 BacktestForwardDivergenceSnapshot 추가 — 백테스트 vs forward 괴리 일일 스냅샷, read-only 측정) · 2026-07-03 (DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산 + notification_settings.opsPushEnabled 추가 — 리스크·운영 알림 채널 신설)
+**최종 수정일**: 2026-07-17 (DAR-514 Wave A/cross·P0: 알림 설정 센터 v2 — notification_settings 에 editionPushEnabled·digestPushEnabled(신규 2계열 예약·기본 OFF)·dailyPushCap(일일 푸시 상한·기본 30) 가산 + PushDeliveryLog 신규 테이블·PushDeliveryStatus enum(SENT|SUPPRESSED_CAP — 캡 계산 SSOT·억제 로그, FK 없음). 마이그레이션 20260717010000_dar514_notification_settings_v2, 전부 additive·기존 설정 무손실·알림층 전용·트레이딩 경로 무접촉(M10 무오염). 캡 면제 계열: RISK_ALERT/OPS_ALERT) · 2026-07-15 (갭분석 W0 토대: User.tier(UserTier FREE|PRO 엔티틀먼트 소켓)·ProWaitlistEntry(Pro 사전신청 서버 영속화)·§7.4.2 InvestorFlowDaily·§7.4.3 ShortSellingDaily(수급/공매도 EOD, publishedDate as-of)·SearchMissLog(W8 검색 제로결과 계측)·FunnelEvent(W15 온보딩 퍼널 계측)·notification_settings.priceMovePushEnabled(기본 OFF)·NotificationType 에 PRICE_MOVE 가산·EventType 에 EARNINGS_GUIDANCE 가산 — 마이그레이션 20260715230700_gap_analysis_foundation, 전부 additive·트레이딩 경로 무접촉) · 2026-07-04 (DAR-502 P20: §40 RiskDecisionLog 재사용 — 자동 킬스위치 SHADOW 계측이 `meta.kind='AUTO_KILL_ADVICE'` 로 기록[track+tradeDate 1행 멱등·raw 입력 보존·activate() 미호출], **스키마·마이그레이션 무변경**) · 2026-07-04 (DAR-497 P19: §41 AccountHighWaterMark 신규 — 계좌 고점 forward-only 추적(FK 없음·포트폴리오 단위) + 드로다운 컷 −15% REDUCE_ONLY 발동 근거, 마이그레이션 20260704120000_dar497_account_high_water_mark, 관측·발동층 전용) · 2026-07-04 (DAR-496 P18: §40 RiskDecisionLog 신규 — RiskGuard 공용 진입 게이트(일일손실·현금) 판정 이력(FK 없음·측정 트랙 SHADOW·코어 forward ENFORCE), 마이그레이션 20260704090000_dar496_risk_decision_log, 관측층 전용) · 2026-07-04 (DAR-494 P13: §39 DualMomentumForwardTrade 신규 — 듀얼모멘텀 코어 forward 트랙 ETF 월말 리밸런싱 이력(FK 없음·PENDING→OPEN→CLOSED), 마이그레이션 20260703160000_dar494_dual_momentum_forward_trade, 모의·데이터층 전용) · 2026-07-03 (DAR-486 P25: §7.4.1 StockStatusDaily 신규 — 종목상태 일별 이력(forward-only, 백테스트 생존편향) + ExitReason 에 DELISTED 가산) · 2026-07-03 (DAR-479 P04: §38 BacktestForwardDivergenceSnapshot 추가 — 백테스트 vs forward 괴리 일일 스냅샷, read-only 측정) · 2026-07-03 (DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산 + notification_settings.opsPushEnabled 추가 — 리스크·운영 알림 채널 신설)
 **이전 수정일**: 2026-07-02 (전수 현행화 — 미문서 모델 15종 전용 섹션 추가(§23~§37: CompanyOverview·SavedDisclosure·CronRunLog·DisclosureCollectionLog·DisclosureEvent·DartFiledFact·CompanyFinancial·FinancialCollectionLog·DisclosureAnalysis·PersonaAnalysis·InvestorPhilosophy·PhilosophyMetric·PhilosophySource·SignalEntryFunnelDaily·IntradayScalpTrade), User 카카오 OAuth(password nullable·provider/providerId·(provider,providerId) unique) 반영, NotificationHistory 통합 인박스(type/refId 멱등키) 반영, §17 절 번호 충돌 정리, SSOT 관계(schema.prisma=SSOT·본 문서=해설·총 50개 모델) 헤더 명시)
-**버전**: 3.2 (2026-07-03 DAR-486 P25: StockStatusDaily 신규 테이블 + ExitReason.DELISTED 가산(마이그레이션 20260703150000_dar486_stock_status_daily_survivorship) — 종목상태 일별 이력 forward-only 축적 + 상폐 감액 청산 옵션, 백테스트 생존편향 처리(측정·데이터층 전용·운용 매매 무접촉); 3.1 DAR-479 P04: BacktestForwardDivergenceSnapshot 신규 테이블(마이그레이션 20260703130000_dar479_backtest_forward_divergence_snapshot) — 백테스트 vs forward 괴리 일일 스냅샷, 조회·적재 전용 측정; 3.0 DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산(additive 마이그레이션 20260703010000_dar473_risk_ops_notifications) + notification_settings.opsPushEnabled(기본 ON) 추가 — 능동 리스크/운영 알림 채널 신설(카테고리 4 버킷: 공시·신호·체결·운영); 2.9 2026-07-02 전수 현행화; 2.8 DAR-424: NotificationType 에 TRADE_ENTRY/TRADE_EXIT 가산 + notification_settings.tradePushEnabled 추가 — 라이브 페이퍼 체결 알림; 2.7 DAR-404: BacktestRun.strategyKey 비파괴 추가 + @@index — 트레이딩 로직 축 다중 트랙; DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)
+**버전**: 3.3 (2026-07-17 DAR-514 Wave A/cross·P0: notification_settings 에 editionPushEnabled·digestPushEnabled(예약·기본 OFF)·dailyPushCap(기본 30) 3컬럼 가산 + PushDeliveryLog 신규 테이블·PushDeliveryStatus enum(마이그레이션 20260717010000_dar514_notification_settings_v2) — 계열별 on/off·보수적 기본값·일일 캡·억제 로그, 전부 additive·기존 설정 무손실·알림층 전용; 3.2 2026-07-03 DAR-486 P25: StockStatusDaily 신규 테이블 + ExitReason.DELISTED 가산(마이그레이션 20260703150000_dar486_stock_status_daily_survivorship) — 종목상태 일별 이력 forward-only 축적 + 상폐 감액 청산 옵션, 백테스트 생존편향 처리(측정·데이터층 전용·운용 매매 무접촉); 3.1 DAR-479 P04: BacktestForwardDivergenceSnapshot 신규 테이블(마이그레이션 20260703130000_dar479_backtest_forward_divergence_snapshot) — 백테스트 vs forward 괴리 일일 스냅샷, 조회·적재 전용 측정; 3.0 DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산(additive 마이그레이션 20260703010000_dar473_risk_ops_notifications) + notification_settings.opsPushEnabled(기본 ON) 추가 — 능동 리스크/운영 알림 채널 신설(카테고리 4 버킷: 공시·신호·체결·운영); 2.9 2026-07-02 전수 현행화; 2.8 DAR-424: NotificationType 에 TRADE_ENTRY/TRADE_EXIT 가산 + notification_settings.tradePushEnabled 추가 — 라이브 페이퍼 체결 알림; 2.7 DAR-404: BacktestRun.strategyKey 비파괴 추가 + @@index — 트레이딩 로직 축 다중 트랙; DAR-401: 원본 HTML S3 고정 + rawHtmlS3Key 포인터 컬럼·로컬 디스크 제거; DAR-399 tables 오프로드; DAR-395 rawText 오프로드; DAR-87 InsiderHoldingChange + DAR-377 StockMinutePrice 반영 유지)

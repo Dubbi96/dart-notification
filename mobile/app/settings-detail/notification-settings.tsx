@@ -60,6 +60,9 @@ interface NotificationSettingsForm {
   opsPushEnabled: boolean;
   // 갭분석 W7: 관심종목 급변동 알림 토글(기본 OFF)
   priceMovePushEnabled: boolean;
+  // DAR-514(Wave A): 신규 2계열 토글(★기본 OFF — 예약). 발송 배선은 Wave B 가 소비.
+  editionPushEnabled: boolean;
+  digestPushEnabled: boolean;
 }
 
 // DAR-85: 투자 신호 푸시 토글 정의(기본 OFF — 스팸 차단·안전)
@@ -87,6 +90,25 @@ const SIGNAL_PUSH_TOGGLES: {
     name: 'priceMovePushEnabled',
     label: '관심종목 급변동 알림',
     description: '전일 종가 대비 ±5% 변동 시 당일 공시 유무와 함께 알림 · 준실시간(최대 5분 지연)',
+  },
+];
+
+// DAR-514(Wave A): 신규 2계열(에디션 발행·다이제스트) — ★기본 OFF(보수적 기본값).
+//   실제 발송은 Wave B(에디션 푸시)가 배선한다. 지금은 사용자 선호만 미리 저장한다('준비 중').
+const EDITION_PUSH_TOGGLES: {
+  name: 'editionPushEnabled' | 'digestPushEnabled';
+  label: string;
+  description: string;
+}[] = [
+  {
+    name: 'editionPushEnabled',
+    label: '에디션 발행 알림',
+    description: '매일 발행되는 투자 에디션을 알림으로 받기 (준비 중)',
+  },
+  {
+    name: 'digestPushEnabled',
+    label: '다이제스트 알림',
+    description: '기간별 요약(다이제스트)을 알림으로 받기 (준비 중)',
   },
 ];
 
@@ -118,6 +140,9 @@ export default function NotificationSettingsScreen() {
       opsPushEnabled: true,
       // 갭분석 W7: 급변동 알림 기본 OFF(알림 피로 방지).
       priceMovePushEnabled: false,
+      // DAR-514(Wave A): 신규 2계열 기본 OFF(보수적 기본값·예약).
+      editionPushEnabled: false,
+      digestPushEnabled: false,
     },
   });
 
@@ -137,6 +162,9 @@ export default function NotificationSettingsScreen() {
         opsPushEnabled: settings.opsPushEnabled ?? true,
         // 갭분석 W7: 급변동 알림은 기본 OFF — 구버전 호환 위해 ?? false.
         priceMovePushEnabled: settings.priceMovePushEnabled ?? false,
+        // DAR-514(Wave A): 신규 2계열도 기본 OFF — 구버전 서버 호환 위해 ?? false.
+        editionPushEnabled: settings.editionPushEnabled ?? false,
+        digestPushEnabled: settings.digestPushEnabled ?? false,
       });
     }
   }, [settings, reset]);
@@ -216,6 +244,9 @@ export default function NotificationSettingsScreen() {
         tradePushEnabled: data.tradePushEnabled,
         opsPushEnabled: data.opsPushEnabled,
         priceMovePushEnabled: data.priceMovePushEnabled,
+        // DAR-514(Wave A): 신규 2계열 토글(예약) 저장.
+        editionPushEnabled: data.editionPushEnabled,
+        digestPushEnabled: data.digestPushEnabled,
       },
       {
         onSuccess: () => {
@@ -288,6 +319,32 @@ export default function NotificationSettingsScreen() {
 
         {watch('isEnabled') && (
           <>
+            {/* DAR-514: 일일 푸시 캡 안내 — 상한·오늘 발송/보류 관측치(억제 로그 표면화). */}
+            {settings ? (
+              <View
+                style={[styles.capInfo, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+                accessible
+                accessibilityLabel={
+                  settings.pushUsage
+                    ? `하루 최대 ${settings.pushUsage.cap}건 알림, 오늘 ${settings.pushUsage.sent}건 발송, ${settings.pushUsage.suppressed}건 보류`
+                    : `하루 최대 ${settings.dailyPushCap ?? 30}건 알림`
+                }
+              >
+                <Text style={[typo.bodyMedium, { color: colors.text }]}>
+                  하루 최대 {settings.pushUsage?.cap ?? settings.dailyPushCap ?? 30}건까지 알림을 받아요
+                </Text>
+                {settings.pushUsage ? (
+                  <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+                    오늘 {settings.pushUsage.sent}건 발송
+                    {settings.pushUsage.suppressed > 0 ? ` · ${settings.pushUsage.suppressed}건 보류` : ''}
+                  </Text>
+                ) : null}
+                <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
+                  상한을 넘는 알림은 알림함에는 남고 푸시만 잠시 멈춰요. 리스크·운영 알림은 상한과 무관하게 받아요.
+                </Text>
+              </View>
+            ) : null}
+
             {/* 구분선 */}
             <View style={[styles.sectionDivider, { backgroundColor: colors.border }]} />
 
@@ -299,6 +356,35 @@ export default function NotificationSettingsScreen() {
               매수 신호·청산 권고·논리 훼손 시점 알림 (기본 꺼짐)
             </Text>
             {SIGNAL_PUSH_TOGGLES.map((toggle) => (
+              <Controller
+                key={toggle.name}
+                control={control}
+                name={toggle.name}
+                render={({ field: { onChange, value } }) => (
+                  <AccessibleToggleRow
+                    label={toggle.label}
+                    description={toggle.description}
+                    value={value}
+                    onChange={onChange}
+                    colors={colors}
+                    typo={typo}
+                    style={{ marginBottom: spacing.sm }}
+                  />
+                )}
+              />
+            ))}
+
+            {/* 구분선 */}
+            <View style={[styles.sectionDivider, { backgroundColor: colors.border }]} />
+
+            {/* DAR-514(Wave A): 에디션·요약 알림(신규 2계열·기본 OFF·준비 중) */}
+            <Text style={[typo.h3, { color: colors.text, marginBottom: spacing.xs }]}>
+              에디션·요약 알림
+            </Text>
+            <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.md }]}>
+              매일 에디션·기간 요약 알림 (준비 중 — 켜 두면 발송 시작 시 바로 받아요)
+            </Text>
+            {EDITION_PUSH_TOGGLES.map((toggle) => (
               <Controller
                 key={toggle.name}
                 control={control}
@@ -642,6 +728,13 @@ const styles = StyleSheet.create({
   sectionDivider: {
     height: 1,
     marginVertical: spacing.xl,
+  },
+  // DAR-514: 일일 푸시 캡 안내 카드(상한·오늘 발송/보류).
+  capInfo: {
+    padding: spacing.base,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    marginTop: spacing.md,
   },
   toggleRow: {
     flexDirection: 'row',

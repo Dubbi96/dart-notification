@@ -11,8 +11,18 @@ import { EditionPublishPushService } from './edition-push.service';
 const makeDeps = () => {
   const signals = { findDailyEdition: jest.fn() };
   const producer = { enqueueEdition: jest.fn().mockResolvedValue(undefined) };
-  const service = new EditionPublishPushService(signals as any, producer as any);
-  return { service, signals, producer };
+  // 기본: 반응 통계 조회는 빈 결과(이벤트 미추출) — 통계 없이 대체 꼬리 폴백.
+  const reactionStats = {
+    getReactionStatsByRcpNo: jest
+      .fn()
+      .mockResolvedValue({ rcpNo: '', minSampleSize: 30, generatedAt: '', results: [] }),
+  };
+  const service = new EditionPublishPushService(
+    signals as any,
+    producer as any,
+    reactionStats as any,
+  );
+  return { service, signals, producer, reactionStats };
 };
 
 // 2026-07-17(금) 19:05 KST = 10:05 UTC — tradeDateFromMs 가 '20260717' 을 산출하는 시각.
@@ -71,6 +81,123 @@ describe('EditionPublishPushService (DAR-523)', () => {
       deepLink: '/signals',
     });
     expect(result).toMatchObject({ editionDate: '20260717', published: true, count: 3 });
+  });
+
+  it('★DAR-525: 헤드라인 반응 통계(n≥30)를 "한 줄 판단" 본문에 주입해 enqueue', async () => {
+    const { service, signals, producer, reactionStats } = makeDeps();
+    signals.findDailyEdition.mockResolvedValue({
+      items: [
+        {
+          corpName: '삼성전자',
+          grade: 'STRONG_BUY',
+          eventType: 'SUPPLY_CONTRACT',
+          relatedDisclosureRcpNo: '20260717000123',
+        },
+        { corpName: 'LG에너지솔루션', grade: 'BUY' },
+        { corpName: 'SK하이닉스', grade: 'BUY' },
+      ],
+      meta: { date: '20260717', isEmpty: false },
+    });
+    reactionStats.getReactionStatsByRcpNo.mockResolvedValue({
+      rcpNo: '20260717000123',
+      minSampleSize: 30,
+      generatedAt: '2026-07-17T10:05:00.000Z',
+      results: [
+        {
+          eventType: 'SUPPLY_CONTRACT',
+          sampleCount: 142,
+          stats: {
+            d1: { avgReturn: 0.4, avgAbnormalReturn: 0.2, winRate: 0.55 },
+            d5: { avgReturn: 2.1, avgAbnormalReturn: 1.3, winRate: 0.6 },
+            d20: { avgReturn: 3.0, avgAbnormalReturn: 1.8, winRate: 0.58 },
+          },
+          reason: null,
+          period: { fromDate: '20250101', toDate: '20260716' },
+          calculatedAt: '2026-07-17T09:00:00.000Z',
+        },
+      ],
+    });
+
+    await service.publishTodayEdition(NOW_20260717_1905_KST);
+
+    // 헤드라인 rcpNo 로 Wave A 통계 조회.
+    expect(reactionStats.getReactionStatsByRcpNo).toHaveBeenCalledWith('20260717000123');
+    expect(producer.enqueueEdition).toHaveBeenCalledTimes(1);
+    expect(producer.enqueueEdition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        editionDate: '20260717',
+        count: 3,
+        strongBuyCount: 1,
+        headlineCorpName: '삼성전자',
+        title: '오늘의 투자판단 에디션',
+        body: '삼성전자 공급계약 외 2곳 — 유사공시 D+5 평균 +2.1% (n=142)',
+        deepLink: '/signals',
+      }),
+    );
+  });
+
+  it('★DAR-525: 반응 통계 n<30 → 통계 생략·대체 꼬리로 폴백(허수 미노출)', async () => {
+    const { service, signals, producer, reactionStats } = makeDeps();
+    signals.findDailyEdition.mockResolvedValue({
+      items: [
+        {
+          corpName: '삼성전자',
+          grade: 'STRONG_BUY',
+          eventType: 'SUPPLY_CONTRACT',
+          relatedDisclosureRcpNo: '20260717000123',
+        },
+        { corpName: 'LG전자', grade: 'BUY' },
+      ],
+      meta: { date: '20260717', isEmpty: false },
+    });
+    reactionStats.getReactionStatsByRcpNo.mockResolvedValue({
+      rcpNo: '20260717000123',
+      minSampleSize: 30,
+      generatedAt: '',
+      results: [
+        {
+          eventType: 'SUPPLY_CONTRACT',
+          sampleCount: 12,
+          stats: null,
+          reason: 'INSUFFICIENT_SAMPLE',
+          period: { fromDate: '20260101', toDate: '20260716' },
+          calculatedAt: '2026-07-17T09:00:00.000Z',
+        },
+      ],
+    });
+
+    await service.publishTodayEdition(NOW_20260717_1905_KST);
+
+    expect(producer.enqueueEdition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: '삼성전자 공급계약 외 1곳 · 매수 후보 2곳 (적극매수 1)',
+      }),
+    );
+  });
+
+  it('반응 통계 조회 예외 → 통계 없이 발행 계속(발송 신뢰 우선)', async () => {
+    const { service, signals, producer, reactionStats } = makeDeps();
+    signals.findDailyEdition.mockResolvedValue({
+      items: [
+        {
+          corpName: '삼성전자',
+          grade: 'BUY',
+          eventType: 'SUPPLY_CONTRACT',
+          relatedDisclosureRcpNo: '20260717000123',
+        },
+      ],
+      meta: { date: '20260717', isEmpty: false },
+    });
+    reactionStats.getReactionStatsByRcpNo.mockRejectedValue(new Error('DB down'));
+
+    const result = await service.publishTodayEdition(NOW_20260717_1905_KST);
+
+    expect(result).toMatchObject({ published: true, count: 1 });
+    expect(producer.enqueueEdition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: '삼성전자 공급계약 · 매수 후보 1곳',
+      }),
+    );
   });
 
   it('now 를 다른 거래일로 주입하면 그 날짜로 조회·발행(결정론)', async () => {

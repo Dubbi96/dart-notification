@@ -831,6 +831,156 @@ describe('NotifyConsumer (DAR-85)', () => {
     });
   });
 
+  // ── EDITION — 일일 에디션 발행 푸시 (DAR-523 Wave B/B2) ─────────────────────
+  describe('EDITION — 일일 에디션 발행 푸시(DAR-523)', () => {
+    const editionJob = {
+      editionDate: '20260717',
+      count: 3,
+      strongBuyCount: 1,
+      headlineCorpName: '삼성전자',
+      title: '오늘의 투자판단 에디션',
+      body: '삼성전자 외 2곳 · 매수 후보 3곳 (적극매수 1)',
+      deepLink: '/signals',
+    };
+
+    it('★하드 가드: count<=0(빈 에디션)은 발송 금지 — 수신자 조회조차 안 함', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+
+      await consumer.process(job(NOTIFY_JOB.EDITION, { ...editionJob, count: 0 }));
+
+      expect(prisma.user.findMany).not.toHaveBeenCalled();
+      expect(notifications.createNotificationIfAbsent).not.toHaveBeenCalled();
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('★기본 OFF: 설정행 미존재 사용자는 인박스도 생략(옵트인 전제)', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([]); // 설정행 없음 = 기본 OFF
+
+      await consumer.process(job(NOTIFY_JOB.EDITION, editionJob));
+
+      // 합성 시스템 유저 제외 조건으로 조회.
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { provider: { not: 'system' } } }),
+      );
+      expect(notifications.createNotificationIfAbsent).not.toHaveBeenCalled();
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('editionPushEnabled=false → 인박스·푸시 모두 생략(옵트아웃 미발송)', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: true, editionPushEnabled: false },
+      ]);
+
+      await consumer.process(job(NOTIFY_JOB.EDITION, editionJob));
+
+      expect(notifications.createNotificationIfAbsent).not.toHaveBeenCalled();
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('editionPushEnabled=true + master ON + 유효토큰 → 인박스 + 푸시(제목·본문·딥링크·signal 채널)', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: true, editionPushEnabled: true },
+      ]);
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+
+      await consumer.process(job(NOTIFY_JOB.EDITION, editionJob));
+
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'u1',
+          type: NotificationType.EDITION,
+          refId: '20260717', // editionDate = 멱등 자연키
+          title: editionJob.title,
+          body: editionJob.body,
+          deepLink: '/signals',
+        }),
+      );
+      expect(expoPush.sendPushNotifications).toHaveBeenCalledTimes(1);
+      const msg = expoPush.sendPushNotifications.mock.calls[0][0][0];
+      expect(msg).toMatchObject({ to: 'ExponentPushToken[x]' });
+      // DAR-523: EDITION → 'signal' 카테고리 → 'signal' 채널(기존 모바일 채널 재사용).
+      expect(msg.channelId).toBe('signal');
+      expect(msg.data).toMatchObject({ type: NotificationType.EDITION, refId: '20260717' });
+    });
+
+    it('master isEnabled=false → 인박스만, 푸시 미발송', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: false, editionPushEnabled: true },
+      ]);
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+
+      await consumer.process(job(NOTIFY_JOB.EDITION, editionJob));
+
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledTimes(1);
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('멱등(재기동 안전): created=false 면 푸시 재발송 스킵 — 사용자당 에디션 1호 1회', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: true, editionPushEnabled: true },
+      ]);
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+      notifications.createNotificationIfAbsent.mockResolvedValue({
+        notification: { id: 'n1' },
+        created: false,
+      });
+
+      await consumer.process(job(NOTIFY_JOB.EDITION, editionJob));
+
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('일일 캡 초과(allowed=false) → 인박스 보존·실발송 억제 · consume(userId,EDITION,editionDate)', async () => {
+      const { consumer, prisma, notifications, expoPush, pushCap } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: true, editionPushEnabled: true },
+      ]);
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+      pushCap.consume.mockResolvedValue({ allowed: false, cap: 30, sentToday: 30, suppressed: true });
+
+      await consumer.process(job(NOTIFY_JOB.EDITION, editionJob));
+
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledTimes(1);
+      // EDITION 은 캡 면제 아님 → consume 호출(발송/억제 원장 기록 경로).
+      expect(pushCap.consume).toHaveBeenCalledWith('u1', NotificationType.EDITION, '20260717');
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('혼합: u1 OFF·u2 ON → u2 만 인박스+푸시(브로드캐스트 게이트)', async () => {
+      const { consumer, prisma, notifications, expoPush } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }, { id: 'u2' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: true, editionPushEnabled: false },
+        { userId: 'u2', isEnabled: true, editionPushEnabled: true },
+      ]);
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+
+      await consumer.process(job(NOTIFY_JOB.EDITION, editionJob));
+
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledTimes(1);
+      expect(notifications.createNotificationIfAbsent.mock.calls[0][0]).toMatchObject({ userId: 'u2' });
+      expect(expoPush.sendPushNotifications).toHaveBeenCalledTimes(1);
+    });
+
+    it('수신 사용자 0명 → graceful no-op', async () => {
+      const { consumer, prisma, notifications } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([]);
+      await consumer.process(job(NOTIFY_JOB.EDITION, editionJob));
+      expect(notifications.createNotificationIfAbsent).not.toHaveBeenCalled();
+    });
+  });
+
   describe('포맷 헬퍼 (DAR-424)', () => {
     it('formatKrw — 천단위 구분·반올림', () => {
       expect(formatKrw(9500000)).toBe('9,500,000');

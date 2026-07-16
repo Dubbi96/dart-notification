@@ -10,6 +10,7 @@ import {
   NotifyTradeJobData,
   NotifyOpsAlertJobData,
   NotifyPriceMoveJobData,
+  NotifyEditionJobData,
   OpsAlertSeverity,
   NotifyJobData,
   notifyJobId,
@@ -95,6 +96,18 @@ export class NotificationProducerService {
    */
   async enqueuePriceMove(data: NotifyPriceMoveJobData): Promise<void> {
     await this.enqueue(NOTIFY_JOB.PRICE_MOVE, data);
+  }
+
+  /**
+   * DAR-523(Wave B/B2·P0): 일일 에디션 발행 푸시 발행 — engine3 EditionPublishPushScheduler(19:05) 전용.
+   *
+   * ★조회·알림 계층 전용(매매 루프 무접점·AI 0·M10 무오염). ★하드 가드는 발행 측(scheduler/service)이
+   * 이미 적용했다 — 빈 에디션(매수등급 0)은 이 메서드가 호출되지 않는다(count>0 불변식). consumer 는
+   * 수신자 해석(실 사용자 전원) + editionPushEnabled(★기본 OFF — OFF 면 인박스도 생략) 게이트 + 일일 캡을
+   * 담당한다. 멱등: editionDate 자연키(jobId=`edition-<date>`) — 재기동/재시도 중복 적재·중복 발송 0.
+   */
+  async enqueueEdition(data: NotifyEditionJobData): Promise<void> {
+    await this.enqueue(NOTIFY_JOB.EDITION, data);
   }
 
   /**

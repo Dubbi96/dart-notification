@@ -36,6 +36,8 @@ export const NOTIFICATION_CATEGORY: Record<NotificationType, NotificationCategor
   [NotificationType.OPS_ALERT]: 'system',
   // 갭분석 W7: 관심종목 급변동 알림 → 시세성 사용자 알림이므로 'signal' 버킷(기존 모바일 채널 재사용).
   [NotificationType.PRICE_MOVE]: 'signal',
+  // DAR-523(Wave B/B2): 일일 에디션 발행 알림 → 투자판단 신호 집약이므로 'signal' 버킷(기존 모바일 'signal' 채널 재사용).
+  [NotificationType.EDITION]: 'signal',
 };
 
 /** 카테고리 → 포함 NotificationType 목록(쿼리 필터용). */
@@ -47,6 +49,8 @@ export const CATEGORY_TYPES: Record<NotificationCategory, NotificationType[]> = 
     NotificationType.THESIS_VIOLATED,
     // 갭분석 W7: 관심종목 급변동 알림.
     NotificationType.PRICE_MOVE,
+    // DAR-523: 일일 에디션 발행 알림(인앱 '신호' 필터에 포함).
+    NotificationType.EDITION,
   ],
   trade: [NotificationType.TRADE_ENTRY, NotificationType.TRADE_EXIT],
   // DAR-473(P01): 운영 버킷 — 리스크·운영 알림.

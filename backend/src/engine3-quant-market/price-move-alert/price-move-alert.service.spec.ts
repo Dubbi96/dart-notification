@@ -145,7 +145,7 @@ describe('PriceMoveAlertService (갭분석 W7·W6)', () => {
 
   // ── ±5% 판정·발화 페이로드 ─────────────────────────────────────────────────
   describe('발화·페이로드', () => {
-    it('+6% 종목만 발화 — refId·딥링크(종목 상세)·뉴스 링크아웃·본문 공시 병기', async () => {
+    it("+6% 종목만 발화 — refId·딥링크('왜 움직였나' 카드)·뉴스 링크아웃·본문 공시 병기", async () => {
       const { service, kis, producer, prisma } = makeDeps();
       primeSurge(kis, ['000200'], 6);
       prisma.disclosure.count.mockResolvedValueOnce(2); // 당일 공시 2건(첫 count 호출)
@@ -163,7 +163,8 @@ describe('PriceMoveAlertService (갭분석 W7·W6)', () => {
         tradeDate: TRADE_DATE,
         prevClose: 10_000,
         price: 10_600,
-        deepLink: '/company/C002',
+        // DAR-526: 카드(`/price-move/<refId>`)로 재타겟 — 기업상세(`/company/<corpCode>`)가 아님.
+        deepLink: `/price-move/000200-${TRADE_DATE}`,
         newsUrl: 'https://finance.naver.com/item/news.naver?code=000200',
       });
       expect(payload.changePct).toBeCloseTo(6.0);

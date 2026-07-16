@@ -30,6 +30,9 @@ import { PriceMoveReasoningTask } from './price-move-reasoning/price-move-reason
 import { PriceMoveReasoningService } from './price-move-reasoning/price-move-reasoning.service';
 import { PriceMoveReasoningRepository } from './price-move-reasoning/price-move-reasoning.repository';
 import { PrismaPriceMoveReasoningRepository } from './price-move-reasoning/prisma-price-move-reasoning.repository';
+// DAR-526: '왜 움직였나' 카드 조회 표면 — GET /price-move-reasonings/:refId (읽기 전용, AI 무접점).
+import { PriceMoveReasoningController } from './price-move-reasoning/price-move-reasoning.controller';
+import { PriceMoveReasoningQueryService } from './price-move-reasoning/price-move-reasoning-query.service';
 
 /**
  * Engine 2 — AI Analyst Engine (M3).
@@ -50,7 +53,7 @@ import { PrismaPriceMoveReasoningRepository } from './price-move-reasoning/prism
     EventStudyModule, // DAR-522: DisclosureReactionStatsService (EventStudy 유사사례 통계 주입)
     NotificationProducerModule, // DAR-476(P02): AI 비용 위반 OPS_ALERT 발행
   ],
-  controllers: [AiCostMetricsController],
+  controllers: [AiCostMetricsController, PriceMoveReasoningController],
   providers: [
     AiAnalystService,
     AiCostGateService,
@@ -73,6 +76,8 @@ import { PrismaPriceMoveReasoningRepository } from './price-move-reasoning/prism
     PriceMoveReasoningService,
     PrismaPriceMoveReasoningRepository,
     { provide: PriceMoveReasoningRepository, useClass: PrismaPriceMoveReasoningRepository },
+    // DAR-526: 카드 조회 서비스(읽기 전용) — refId 조회 + 표시용 corpName 조인.
+    PriceMoveReasoningQueryService,
     PriceMoveReasonConsumer,
     AiBackfillDrainService,
     AiBackfillScheduler,

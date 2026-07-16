@@ -1,11 +1,13 @@
-// DAR-334 결정론 검증: 공시 상세 4개 쿼리(useDisclosureDetail/Event/Analysis/FiledFacts)에
+// DAR-334 결정론 검증: 공시 상세 5개 쿼리(useDisclosureDetail/Event/Analysis/FiledFacts/ReactionStats)에
 // staleTime 누락(=default 0, 매 mount refetch) → 형제 정본(useCompanyDetail/useFinancials)과 동일한
 // staleTime: 1000*60*30(30분) 추가. rcpNo 단건은 발행 후 사실상 불변이므로 재진입 시 불필요 refetch 억제.
+// (앵커 갱신 2026-07-17: DAR-512 이 useDisclosureReactionStats(과거 유사공시 반응 통계, 산출 후 불변)를
+//  같은 30분 정책으로 추가 → 상세 훅 4→5, 30분 출현 4→5·총 출현 5→6 으로 재바인딩.)
 // 판정 축:
-//   (A) 4개 상세 훅 각각이 staleTime: 1000 * 60 * 30 바인딩
+//   (A) 5개 상세 훅 각각이 staleTime: 1000 * 60 * 30 바인딩
 //   (B) 값 정합: 1000*60*30 === 1800000(30분), 형제 정본과 동일 상수
 //   (C) 회귀: 목록/검색 무한쿼리(useDisclosures/useDisclosureSearch)에는 staleTime 미추가(동작 불변)
-//   (D) 총 staleTime 출현 정확히 4회(상세 4훅에만), 과·소 적용 방지
+//   (D) 총 staleTime 출현 정확히 5회(상세 5훅에만), 과·소 적용 방지
 //   (E) enabled:!!rcpNo·retry:false 등 기존 옵션 보존(추가만, 제거/변경 없음)
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -51,6 +53,7 @@ const detailHooks = [
   'useDisclosureEvent',
   'useDisclosureAnalysis',
   'useDisclosureFiledFacts',
+  'useDisclosureReactionStats',
 ];
 for (const h of detailHooks) {
   const body = fnBody(h);
@@ -60,7 +63,12 @@ for (const h of detailHooks) {
   ok(`(E) ${h}: enabled:!!rcpNo 보존`, /enabled:\s*!!rcpNo/.test(body));
 }
 // retry:false 보존(Event/Analysis/FiledFacts 3종)
-for (const h of ['useDisclosureEvent', 'useDisclosureAnalysis', 'useDisclosureFiledFacts']) {
+for (const h of [
+  'useDisclosureEvent',
+  'useDisclosureAnalysis',
+  'useDisclosureFiledFacts',
+  'useDisclosureReactionStats',
+]) {
   ok(`(E) ${h}: retry:false 보존`, /retry:\s*false/.test(fnBody(h)));
 }
 
@@ -79,9 +87,9 @@ for (const h of ['useDisclosures', 'useDisclosureSearch']) {
 //      의도적으로 추가 → 총 출현은 5회가 되었고, 30분 정책 출현만 4회로 재바인딩.
 //      잉여 1회가 정확히 today-count 훅의 5분 정책인지까지 단정해 과·소 적용을 계속 막는다.)
 const stale30Count = (src.match(/staleTime:\s*1000\s*\*\s*60\s*\*\s*30\b/g) ?? []).length;
-ok('(D) 30분 staleTime 출현 정확히 4회(상세 4훅에만)', stale30Count === 4);
+ok('(D) 30분 staleTime 출현 정확히 5회(상세 5훅에만)', stale30Count === 5);
 const staleCount = (src.match(/staleTime:/g) ?? []).length;
-ok('(D) 총 staleTime 출현 정확히 5회(상세 4 + today-count 1)', staleCount === 5);
+ok('(D) 총 staleTime 출현 정확히 6회(상세 5 + today-count 1)', staleCount === 6);
 const todayBody = fnBody('useTodayDisclosureCount');
 ok('(D) useTodayDisclosureCount: 함수 본문 추출', todayBody.length > 0);
 ok(

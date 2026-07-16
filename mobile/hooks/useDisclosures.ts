@@ -99,3 +99,18 @@ export function useDisclosureFiledFacts(rcpNo: string) {
     staleTime: 1000 * 60 * 30, // 30분 — rcpNo 본문 정량 fact는 발행 후 불변, 재진입 시 불필요 재요청 방지(기업메타 정책 정렬)
   });
 }
+
+/**
+ * 과거 유사공시 반응 통계 — GET /disclosures/:rcpNo/event-stats 실연동(DAR-511/512).
+ * 같은 이벤트 유형 공시의 D+1/D+5/D+20 실제 주가 반응·승률·표본수(n).
+ * 산출 후 사실상 불변인 과거 통계(일1회 캐시)라 30분 staleTime + 재시도 없음(정직 3상태 분기).
+ */
+export function useDisclosureReactionStats(rcpNo: string) {
+  return useQuery({
+    queryKey: ['disclosure-reaction-stats', rcpNo],
+    queryFn: () => disclosureService.getEventStats(rcpNo),
+    enabled: !!rcpNo,
+    retry: false,
+    staleTime: 1000 * 60 * 30, // 30분 — 산출 후 사실상 불변인 과거 반응 통계, 재진입 시 불필요 재요청 방지(기업메타 정책 정렬)
+  });
+}

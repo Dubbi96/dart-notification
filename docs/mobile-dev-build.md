@@ -3,6 +3,7 @@
 > 목적: Galaxy(Android) 실기기에서 **재현 가능하게** dev build를 만들고 설치·검증하며, PR 단계에서 Android 빌드 회귀를 자동 차단한다.
 > 스택: Expo SDK 56 · React Native 0.85.3 · New Architecture(Fabric) · `expo-dev-client` ~56.0.18.
 > 배경/네이티브 함정은 [`mobile-cross-platform-issues.md`](./mobile-cross-platform-issues.md) 참조.
+> standalone APK 의 FCM 푸시 e2e 검증 절차는 [`mobile/fcm-push-standalone-e2e-verification.md`](./mobile/fcm-push-standalone-e2e-verification.md)(DAR-521) 참조.
 
 이 프로젝트는 `expo-dev-client`가 들어있어 **원래 development build 전제**다. Expo Go는 RN 0.85/Fabric에서 `refreshControl` 등 네이티브 이슈에 취약했으므로(현재는 수정으로 동작), 장기 안정 경로는 dev build다.
 

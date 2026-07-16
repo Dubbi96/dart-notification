@@ -1,0 +1,30 @@
+{
+  "_note": "DAR-521 standalone APK FCM e2e — send/receipt log (emulator dar_test, build 442c3a18). Device-scoped push tokens redacted.",
+  "send_request": {
+    "to": "ExponentPushToken[ahKiAoEQ…REDACTED]",
+    "title": "[삼성전자] 주요사항보고서(유상증자)",
+    "body": "오늘의 매수 신호 · 점수 82 · 한 줄 판단: 관심",
+    "channelId": "signal",
+    "priority": "high",
+    "sound": "default",
+    "data": {
+      "deepLink": "dart://disclosure/20260717000123",
+      "disclosureRcpNo": "20260717000123",
+      "kind": "SIGNAL",
+      "dar521": "e2e-verify"
+    }
+  },
+  "send_response_ticket": {
+    "data": {
+      "status": "ok",
+      "id": "019f6d16-9420-7708-a729-661d148e804a"
+    }
+  },
+  "receipt": {
+    "data": {
+      "019f6d16-9420-7708-a729-661d148e804a": {
+        "status": "ok"
+      }
+    }
+  }
+}

@@ -32,7 +32,10 @@ SSH_KEY="$HOME/.ssh/oci_instance"
 SSH_OPTS=(-i "$SSH_KEY" -o ConnectTimeout=10)
 REMOTE="ubuntu@$HOST"
 REMOTE_DIR="/home/ubuntu/dano"
-COMPOSE="docker compose -f $REMOTE_DIR/docker-compose.prod.yml"
+# ★원격 실경로(2026-07-16 실측): compose 는 docker-compose.yml 이다(repo 의 docker-compose.prod.yml 아님).
+#   dano 는 git checkout 이 아니라 compose + backend/.env.prod 만 있는 배포 디렉터리다(그래서 git pull 불가).
+#   원격 compose 의 migrate 프로파일도 이 파일에 있고, DB=micro2(10.0.1.151)는 .env.prod 로 연결된다.
+COMPOSE="docker compose -f $REMOTE_DIR/docker-compose.yml"
 IMAGE="dart-notification-backend:prod"
 BASE_URL="https://168.138.198.152.nip.io"
 
@@ -144,10 +147,12 @@ if $VERIFY_ONLY; then verify; trap - EXIT; exit 0; fi
 
 confirm "prod($HOST) 배포를 시작합니다. 계속?"
 
-# ── ⓪ 원격 저장소 동기화 (compose·백업 스크립트 최신화 — 이미지는 로컬 빌드라 무관) ──
-log "⓪ 원격 저장소 git pull (best-effort)"
-ssh "${SSH_OPTS[@]}" "$REMOTE" "cd $REMOTE_DIR && git pull --ff-only" \
-  || warn "원격 git pull 실패 — compose/스크립트 변경이 없는 배포라면 무시 가능"
+# ── ⓪ 원격 배포 파일 확인 (★원격은 git checkout 이 아님 — compose·.env.prod 는 out-of-band 관리) ──
+#   /home/ubuntu/dano 는 compose + backend/.env.prod 만 있는 배포 디렉터리다. compose·스크립트
+#   변경이 필요하면 scp 로 개별 전송한다(git pull 아님). 이미지는 로컬 빌드→docker load 라 무관.
+log "⓪ 원격 compose 존재 확인"
+ssh "${SSH_OPTS[@]}" "$REMOTE" "test -f $REMOTE_DIR/docker-compose.yml" \
+  || die "원격 compose 없음: $REMOTE_DIR/docker-compose.yml — 원격 배포 디렉터리 상태 확인 필요"
 
 # ── ① 배포 직전 수동 백업 ────────────────────────────────────────────────────
 if $SKIP_BACKUP; then

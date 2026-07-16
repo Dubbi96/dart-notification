@@ -680,12 +680,12 @@ export class SignalsService {
     const todayKst = tradeDateFromMs(Date.now());
 
     // 커서 조건 — 미지정이면 적용 안 함.
-    // ★KST 거래일 환산: created_at 은 `timestamp WITHOUT time zone`(UTC 벽시계 저장)이므로
+    // ★KST 거래일 환산: "createdAt" 은 `timestamp WITHOUT time zone`(UTC 벽시계 저장)이므로
     //   단일 `AT TIME ZONE 'Asia/Seoul'` 은 UTC 값을 KST 로 오해석해 하루 어긋난다(서버 TZ=UTC).
     //   먼저 `AT TIME ZONE 'UTC'`(UTC 로 해석→instant) 후 `AT TIME ZONE 'Asia/Seoul'`(KST 벽시계)
     //   로 이중 환산해야 세션 TZ 무관하게 정확한 KST 거래일이 나온다. 단순화(단일 환산) 금지.
     const beforeCond = before
-      ? Prisma.sql`AND (ts.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date < ${before}::date`
+      ? Prisma.sql`AND (ts."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date < ${before}::date`
       : Prisma.sql``;
 
     const [rows, todayCount, latestSig] = await Promise.all([
@@ -700,18 +700,18 @@ export class SignalsService {
       >(Prisma.sql`
         WITH ranked AS (
           SELECT
-            (ts.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date AS kst_date,
+            (ts."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date AS kst_date,
             ts.signal::text                                  AS signal,
-            ts.buy_score,
-            c.corp_name,
+            ts."buyScore",
+            c."corpName" AS corp_name,
             ROW_NUMBER() OVER (
-              PARTITION BY (ts.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date
-              ORDER BY ts.buy_score DESC, ts.created_at DESC, ts.id DESC
+              PARTITION BY (ts."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date
+              ORDER BY ts."buyScore" DESC, ts."createdAt" DESC, ts.id DESC
             ) AS rn
           FROM trading_signals ts
-          JOIN companies c ON c.corp_code = ts.corp_code
-          JOIN disclosures d ON d.rcp_no = ts.rcp_no
-          WHERE d.is_backfill = false
+          JOIN companies c ON c."corpCode" = ts."corpCode"
+          JOIN disclosures d ON d."rcpNo" = ts."rcpNo"
+          WHERE d."isBackfill" = false
             AND ts.signal::text IN (${STRONG_BUY}, ${BUY})
             ${beforeCond}
         )

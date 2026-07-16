@@ -112,6 +112,11 @@ export interface TradingSignal {
    */
   evidenceIndicators?: SignalEvidenceIndicators | null;
   relatedDisclosureRcpNo?: string;
+  /**
+   * 공시 접수일(YYYYMMDD 또는 YYYYMMDDHHmmss) — 일일 에디션(GET /signals/daily/:date) item 에만 존재.
+   * 귀속일 정직화 근거(발행일 createdAt ↔ 실제 공시 접수일 간극 = 지연배지 판정). 그 외 응답엔 미포함.
+   */
+  rcpDt?: string;
   /** ISO 8601 — 신호 만료 시각 */
   expiresAt?: string;
   /** ISO 8601 — 공시 발생/신호 생성 시각 */
@@ -165,6 +170,74 @@ export interface CompanySignalBadge {
   expiresAt?: string;
   /** ISO 8601 — 신호 생성 시각 */
   createdAt: string;
+}
+
+// ── 일일 투자판단 에디션(신문 '호' 모델, DAR-505/507) ──────────────────
+// 거래일 1일 = 신문 1호. 조회 전용(파이프라인 무변경). 날짜 키는 KST 거래일 compact 'YYYYMMDD'.
+
+/**
+ * 일일 에디션 목록 아이템(GET /signals/daily-editions data[]) — 판단 존재일 요약.
+ * 빈 날은 목록에 미포함(백엔드가 '빈 날 발명' 금지). 최신순.
+ */
+export interface DailyEditionSummary {
+  /** KST 거래일 (YYYYMMDD) */
+  date: string;
+  /** 그 날 매수등급(STRONG_BUY/BUY) 신호 수 */
+  count: number;
+  /** 그 중 STRONG_BUY 수 */
+  strongBuyCount: number;
+  /** 그 날 최상위(headline) 종목명 — 없으면 미포함 */
+  headlineCorpName?: string;
+  /** 그 날 최상위 신호 등급 */
+  topGrade?: SignalGrade;
+}
+
+/** 일일 에디션 목록 메타(GET /signals/daily-editions meta). */
+export interface DailyEditionsMeta {
+  /** 시스템 최신 에디션 날짜 (YYYYMMDD) — 판단이 하나도 없으면 null */
+  latestDate: string | null;
+  /** 서버 기준 KST 오늘 (YYYYMMDD) */
+  todayDate: string;
+  /** 오늘 에디션(판단) 존재 여부 */
+  todayHasEdition: boolean;
+  /** 다음 페이지 커서 (before 로 재요청) — 없으면 미포함 */
+  nextCursor?: string;
+  /** 더 과거 에디션 존재 여부 */
+  hasMore: boolean;
+}
+
+/**
+ * 빈 에디션 사유(§3 정직 규약) — 빈 날을 '평가했으나 없음'으로 위장하지 않고 4분기 + 미래를 구분.
+ * CLOSED(휴장)·PENDING(19시 전)·QUIET(조용)·COLD_START(시스템 전무)·FUTURE(미래).
+ */
+export type EditionEmptyReason = 'CLOSED' | 'PENDING' | 'QUIET' | 'COLD_START' | 'FUTURE';
+
+/** 일일 에디션 상세 메타(GET /signals/daily/:date meta). */
+export interface DailyEditionMeta {
+  /** 조회한 KST 거래일 (YYYYMMDD) */
+  date: string;
+  /** 오늘 에디션인가 */
+  isToday: boolean;
+  /** 매수등급 신호 0건인가 */
+  isEmpty: boolean;
+  /** isEmpty=true 일 때의 사유(빈 카피 분기). 신호가 있으면 미포함 */
+  emptyReason?: EditionEmptyReason;
+  /** 직전 에디션 존재일 (YYYYMMDD) — 없으면 미포함. 날짜 스트립 좌측 플립 대상 */
+  prevEditionDate?: string;
+  /** 직후 에디션 존재일 (YYYYMMDD) — 없으면 미포함. 날짜 스트립 우측 플립 대상 */
+  nextEditionDate?: string;
+}
+
+/** GET /signals/daily-editions 정규화 응답(items + meta). */
+export interface DailyEditionsPage {
+  items: DailyEditionSummary[];
+  meta: DailyEditionsMeta;
+}
+
+/** GET /signals/daily/:date 정규화 응답(items + meta). item 은 TradingSignal(+rcpDt). */
+export interface DailyEdition {
+  items: TradingSignal[];
+  meta: DailyEditionMeta;
 }
 
 /** 신호 피드 필터 */

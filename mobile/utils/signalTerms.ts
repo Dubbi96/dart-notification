@@ -86,6 +86,31 @@ function kstDayOrdinal(ms: number): number {
 }
 
 /**
+ * epoch ms → KST 달력일 compact 'YYYYMMDD'(에디션 date 키) — 백엔드 tradeDateFromMs 와 동형.
+ * 에디션 조회(useEdition/useDailyEditions)의 '오늘' 판정 SSOT. now 주입으로 결정론
+ * (디바이스 타임존·Date.now() 무의존, +9h 오프셋 벽시계). isToday 배지 단정 아닌 캐시 분기용.
+ */
+export function kstEditionDate(now: number = Date.now()): string {
+  const shifted = new Date(now + KST_OFFSET_MS);
+  const y = shifted.getUTCFullYear();
+  const m = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(shifted.getUTCDate()).padStart(2, '0');
+  return `${y}${m}${d}`;
+}
+
+/**
+ * 에디션 date(YYYYMMDD)가 KST '오늘'인가 — useEdition staleTime 분기용(오늘 짧게·과거 불변 길게).
+ * 형식 불일치/결측이면 false(과거 취급 = 안전측 긴 staleTime). now 주입으로 결정론.
+ */
+export function isTodayEditionDate(
+  date: string | null | undefined,
+  now: number = Date.now(),
+): boolean {
+  if (!date || !/^\d{8}$/.test(date)) return false;
+  return date === kstEditionDate(now);
+}
+
+/**
  * ISO(createdAt) → KST 달력일 'M/D'(예: '7/14'). 유효하지 않으면 null(호출부가 결측 처리).
  * 프리뷰/에디션 카드 날짜배지 SSOT — 디바이스 타임존과 무관하게 KST 기준 표기.
  */

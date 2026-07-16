@@ -3,6 +3,8 @@ import {
   editionDateA11yLabel,
   isTodayKst,
   buildEditionTitle,
+  kstEditionDate,
+  isTodayEditionDate,
 } from '@utils/signalTerms';
 
 // KST(+9h) 달력일 기준 날짜 포맷·'오늘' 판정·에디션 헤더 생성 회귀 가드 (DAR-504).
@@ -115,5 +117,52 @@ describe('buildEditionTitle', () => {
 
   it('파싱 불가 → 투자판단', () => {
     expect(buildEditionTitle('bad-date', false, NOW_KST_2026_07_16)).toBe('투자판단');
+  });
+});
+
+// ── 에디션 date(YYYYMMDD) KST '오늘' 판정 — useEdition staleTime 분기 회귀 가드 (DAR-507). ──
+describe('kstEditionDate', () => {
+  it('KST 오전(UTC 00:30) → 같은 달력일 YYYYMMDD', () => {
+    // 2026-07-16 00:30 UTC = 2026-07-16 09:30 KST
+    expect(kstEditionDate(NOW_KST_2026_07_16)).toBe('20260716');
+  });
+
+  it('UTC 저녁이 KST 다음날로 넘어감 (자정 경계, 디바이스 TZ 무의존)', () => {
+    // 2026-07-16 15:30 UTC = 2026-07-17 00:30 KST → 17일
+    const eveningUtc = new Date('2026-07-16T15:30:00Z').getTime();
+    expect(kstEditionDate(eveningUtc)).toBe('20260717');
+  });
+
+  it('월/일 zero-pad (한 자리 월·일)', () => {
+    // 2026-01-05 03:00 UTC = 2026-01-05 12:00 KST
+    const jan5 = new Date('2026-01-05T03:00:00Z').getTime();
+    expect(kstEditionDate(jan5)).toBe('20260105');
+  });
+});
+
+describe('isTodayEditionDate', () => {
+  it('오늘 KST 거래일 → true', () => {
+    expect(isTodayEditionDate('20260716', NOW_KST_2026_07_16)).toBe(true);
+  });
+
+  it('과거 거래일 → false', () => {
+    expect(isTodayEditionDate('20260715', NOW_KST_2026_07_16)).toBe(false);
+  });
+
+  it('결측/빈문자열/형식불일치 → false (과거 취급, 안전측 긴 staleTime)', () => {
+    expect(isTodayEditionDate(undefined, NOW_KST_2026_07_16)).toBe(false);
+    expect(isTodayEditionDate(null, NOW_KST_2026_07_16)).toBe(false);
+    expect(isTodayEditionDate('', NOW_KST_2026_07_16)).toBe(false);
+    expect(isTodayEditionDate('2026-07-16', NOW_KST_2026_07_16)).toBe(false);
+  });
+
+  it('자정 경계: UTC 15:00 전후로 오늘 판정이 뒤집힘', () => {
+    // 2026-07-16 14:59 UTC = 2026-07-16 23:59 KST → 16일이 오늘
+    const justBefore = new Date('2026-07-16T14:59:00Z').getTime();
+    expect(isTodayEditionDate('20260716', justBefore)).toBe(true);
+    // 2026-07-16 15:01 UTC = 2026-07-17 00:01 KST → 17일이 오늘
+    const justAfter = new Date('2026-07-16T15:01:00Z').getTime();
+    expect(isTodayEditionDate('20260716', justAfter)).toBe(false);
+    expect(isTodayEditionDate('20260717', justAfter)).toBe(true);
   });
 });

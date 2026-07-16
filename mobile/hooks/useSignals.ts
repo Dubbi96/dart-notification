@@ -1,13 +1,13 @@
-import { useCallback } from 'react';
-import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { signalService } from '@services/signal.service';
 import { eventStudyService } from '@services/event-study.service';
 import { CURATION_BUY_GRADES } from '@utils/signalCuration';
+import { isTodayEditionDate } from '@utils/signalTerms';
 
 import type {
   SignalFilters,
   SignalExploreFilters,
-  TradingSignal,
 } from '@app-types/signal.types';
 
 /**
@@ -43,6 +43,18 @@ function buySignalsFeedKey(filters: SignalFilters) {
 /** 피드 공유 staleTime — 피드·종목 관찰자가 같은 신선도 기준을 써 중복 refetch를 막는다(UXR-23 P-2). */
 const BUY_FEED_STALE_TIME_MS = 60 * 1000;
 
+/** 에디션 날짜 목록 staleTime(DAR-507) — 하루 1호라 자주 변하지 않음(5분). */
+const EDITIONS_LIST_STALE_TIME_MS = 5 * 60 * 1000;
+/** 오늘 에디션 staleTime — 19:00 발행·장중 갱신 가능성으로 짧게(60초). */
+const EDITION_TODAY_STALE_TIME_MS = 60 * 1000;
+/** 과거 에디션 staleTime — 지난 거래일 판단은 불변 → 길게(1시간)로 재fetch 억제. */
+const EDITION_PAST_STALE_TIME_MS = 60 * 60 * 1000;
+
+/** 에디션 date(YYYYMMDD)별 staleTime — 오늘만 짧게, 과거는 불변이라 길게. */
+function editionStaleTime(date: string | undefined): number {
+  return isTodayEditionDate(date) ? EDITION_TODAY_STALE_TIME_MS : EDITION_PAST_STALE_TIME_MS;
+}
+
 export function useBuySignals(filters?: SignalFilters) {
   // 인자 미지정 시 점수순 매수등급 큐레이션을 기본으로 사용(홈 프리뷰·신호탭 L1 공통).
   const effective = filters ?? CURATION_FILTERS;
@@ -56,25 +68,77 @@ export function useBuySignals(filters?: SignalFilters) {
 
 /**
  * 종목 의사결정 허브(DAR-59) — 특정 corpCode의 최신 매수 신호 1건(scoreBreakdown 포함).
- * 종목별 scoreBreakdown 단건 엔드포인트가 없으므로 홈/신호탭과 같은 큐레이션 피드를 쓰되,
- * queryKey를 피드 공통 키로 통일하고 select로 해당 종목 1건만 추출한다(UXR-23 P-2).
- * (기존: corpCode별 queryKey + 무필터 전량 fetch — 종목 상세를 옮겨 다닐 때마다
- * 동일 피드를 재다운로드하며 캐시 공유 0. 홈/신호탭 드릴다운이면 이제 추가 요청 0)
- * 피드에 미노출이면 null(결측 graceful 부분노출) — 기존 계약 유지.
+ * DAR-507: 홈이 에디션 훅으로 전환되면 공유하던 `buySignalsFeedKey`(UXR-23)가 더는
+ * 채워지지 않아 종목 드릴다운이 캐시 미스로 14일 큐레이션 피드 전량을 재다운로드하게 된다.
+ * → 홈 피드키 의존을 끊고 종목 전용 엔드포인트 조합으로 이관한다:
+ *   1) GET /signals/by-corp/:corpCode(findLatestByCorpCode) 로 그 종목 최신 신호 id/배지 확보,
+ *   2) id 로 GET /signals/:id(findOne) 상세를 받아 scoreBreakdown 을 보존한다.
+ * (배지 엔드포인트는 scoreBreakdown 을 싣지 않으므로 상세 단계 없이는 '점수 기여 상위' 회귀.)
+ * queryKey 는 `['signals','company-buy',corpCode]` 로 corpCode 격리 + `['signals']` 네임스페이스
+ * 하위 → pull-to-refresh invalidateQueries({queryKey:['signals']})가 함께 갱신.
+ * 종목 신호가 없으면 null(결측 graceful) — 기존 계약 유지.
  */
 export function useCompanyBuySignal(corpCode: string | undefined) {
-  const selectCompanySignal = useCallback(
-    (signals: TradingSignal[]) => signals.find((s) => s.corpCode === corpCode) ?? null,
-    [corpCode],
-  );
   return useQuery({
-    queryKey: buySignalsFeedKey(CURATION_FILTERS),
-    queryFn: () => signalService.getBuySignals(CURATION_FILTERS),
+    queryKey: ['signals', 'company-buy', corpCode],
+    queryFn: async () => {
+      const badge = await signalService.getCompanySignal(corpCode!);
+      if (!badge) return null;
+      // scoreBreakdown·근거지표는 상세(findOne)에만 존재 — 배지 id 로 전체 신호를 승격 조회.
+      return signalService.getBuySignalDetail(badge.id);
+    },
     enabled: !!corpCode,
     retry: 1,
     staleTime: BUY_FEED_STALE_TIME_MS,
-    select: selectCompanySignal,
   });
+}
+
+/**
+ * 일일 투자판단 에디션 날짜 목록(DAR-505/507) — 판단 존재일만 최신순(빈 날 미포함).
+ * 날짜 스트립·아카이브가 소비. before 커서로 과거 페이지네이션(meta.nextCursor).
+ * queryKey 는 `['signals','daily-editions', before]` — `['signals']` 네임스페이스 하위라
+ * pull-to-refresh invalidateQueries({queryKey:['signals']})가 함께 갱신한다.
+ */
+export function useDailyEditions(before?: string) {
+  return useQuery({
+    queryKey: ['signals', 'daily-editions', before],
+    queryFn: () => signalService.getDailyEditions(before),
+    retry: 1,
+    staleTime: EDITIONS_LIST_STALE_TIME_MS,
+  });
+}
+
+/**
+ * 특정 KST 거래일 에디션 상세(DAR-505/507) — 매수등급 랭킹 + meta(빈 사유·인접 에디션일).
+ * queryKey `['signals','edition', date]`, date 없으면 enabled:false. staleTime 은 오늘(60s)·
+ * 과거(불변, 1시간) 분기. 인접 에디션(meta.prev·nextEditionDate)을 프리페치해 날짜 스트립
+ * 좌우 플립을 즉시화한다(빈 날은 스트립에 없으므로 ±1 달력일이 아닌 '인접 에디션일'을 프리페치).
+ */
+export function useEdition(date: string | undefined) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: ['signals', 'edition', date],
+    queryFn: () => signalService.getEdition(date!),
+    enabled: !!date,
+    retry: 1,
+    staleTime: editionStaleTime(date),
+  });
+
+  // meta 확정 후 인접 에디션(직전·직후 판단 존재일)을 프리페치 — 플립 시 캐시 히트.
+  const prevEditionDate = query.data?.meta.prevEditionDate;
+  const nextEditionDate = query.data?.meta.nextEditionDate;
+  useEffect(() => {
+    for (const adjacent of [prevEditionDate, nextEditionDate]) {
+      if (!adjacent) continue;
+      void queryClient.prefetchQuery({
+        queryKey: ['signals', 'edition', adjacent],
+        queryFn: () => signalService.getEdition(adjacent),
+        staleTime: editionStaleTime(adjacent),
+      });
+    }
+  }, [prevEditionDate, nextEditionDate, queryClient]);
+
+  return query;
 }
 
 /**

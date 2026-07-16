@@ -5,6 +5,11 @@ import type {
   SignalFilters,
   SignalExploreFilters,
   CompanySignalBadge,
+  DailyEditionSummary,
+  DailyEditionsMeta,
+  DailyEditionsPage,
+  DailyEditionMeta,
+  DailyEdition,
 } from '@app-types/signal.types';
 
 import { api } from './api';
@@ -49,6 +54,39 @@ export const signalService = {
 
   getBuySignalDetail: (id: string) =>
     api.get<ApiResponse<TradingSignal>>(`/signals/${id}`).then((r) => r.data.data),
+
+  /**
+   * 일일 에디션 날짜 목록(DAR-505/507) — GET /signals/daily-editions. 판단 존재일만 최신순.
+   * meta 는 PaginationMeta 가 아닌 에디션 전용 커서 메타(latestDate/todayDate/nextCursor…)라
+   * 응답 envelope 를 명시 타이핑해 items·meta 를 정규화 반환한다(빈 날은 목록에 없음).
+   * @param before 커서: 이 날짜(YYYYMMDD) 미만만. 미지정=최신부터.
+   * @param limit 페이지 크기(기본 7·최대 90, 백엔드 클램프).
+   */
+  getDailyEditions: (before?: string, limit?: number): Promise<DailyEditionsPage> =>
+    api
+      .get<{ success: boolean; data: DailyEditionSummary[]; meta: DailyEditionsMeta }>(
+        '/signals/daily-editions',
+        {
+          params: {
+            ...(before && { before }),
+            ...(limit !== undefined && { limit }),
+          },
+        },
+      )
+      .then((r) => ({ items: r.data.data, meta: r.data.meta })),
+
+  /**
+   * 특정 KST 거래일 에디션(DAR-505/507) — GET /signals/daily/:date. 매수등급 랭킹 + meta.
+   * item 은 TradingSignal(+rcpDt). 빈 날이면 items=[] + meta.emptyReason 로 사유(휴장/조용/…) 구분.
+   * meta 는 date/isToday/isEmpty/emptyReason/prev·nextEditionDate 로 별도 타이핑.
+   * @param date KST 거래일(YYYYMMDD).
+   */
+  getEdition: (date: string): Promise<DailyEdition> =>
+    api
+      .get<{ success: boolean; data: TradingSignal[]; meta: DailyEditionMeta }>(
+        `/signals/daily/${date}`,
+      )
+      .then((r) => ({ items: r.data.data, meta: r.data.meta })),
 
   getExitSignals: () =>
     api.get<ApiResponse<ExitSignal[]>>('/signals/exit').then((r) => r.data.data),

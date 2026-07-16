@@ -45,8 +45,19 @@ const makeDeps = () => {
     isValidExpoPushToken: jest.fn().mockReturnValue(true),
     sendPushNotifications: jest.fn().mockResolvedValue([]),
   };
-  const consumer = new NotifyConsumer(prisma as any, notifications as any, expoPush as any);
-  return { consumer, prisma, notifications, expoPush };
+  // DAR-514: 실발송 직전 일일 캡 게이트. 기본은 항상 허용(캡 이내) — 기존 발송 단언 보존.
+  const pushCap = {
+    consume: jest
+      .fn()
+      .mockResolvedValue({ allowed: true, cap: 30, sentToday: 0, suppressed: false }),
+  };
+  const consumer = new NotifyConsumer(
+    prisma as any,
+    notifications as any,
+    expoPush as any,
+    pushCap as any,
+  );
+  return { consumer, prisma, notifications, expoPush, pushCap };
 };
 
 const job = (name: string, data: any) => ({ name, data }) as any;
@@ -832,6 +843,123 @@ describe('NotifyConsumer (DAR-85)', () => {
       expect(signedPct(0)).toBe('+0.00%');
       expect(signedPct(undefined)).toBe('');
       expect(signedPct(null)).toBe('');
+    });
+  });
+
+  // ── DAR-514: 일일 푸시 캡 게이트(발송 경로 전체가 캡 존중) ─────────────────────
+  describe('일일 푸시 캡 (DAR-514)', () => {
+    it('SIGNAL: 캡 초과(allowed=false) → 인박스는 남고 실발송만 억제', async () => {
+      const { consumer, prisma, notifications, expoPush, pushCap } = makeDeps();
+      prisma.tradingSignal.findUnique.mockResolvedValue({ id: 's1', isNotified: false });
+      prisma.watchList.findMany.mockResolvedValue([{ userId: 'u1' }]);
+      prisma.notificationSettings.findUnique.mockResolvedValue({
+        isEnabled: true,
+        signalPushEnabled: true,
+        exitPushEnabled: false,
+        thesisPushEnabled: false,
+      });
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+      pushCap.consume.mockResolvedValue({
+        allowed: false,
+        cap: 30,
+        sentToday: 30,
+        suppressed: true,
+      });
+
+      await consumer.process(job(NOTIFY_JOB.SIGNAL, { signalId: 's1', corpCode: 'c1' }));
+
+      // 인박스는 기록됨(정보 손실 아님) · 캡 소비는 호출 · 실발송은 억제.
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledTimes(1);
+      expect(pushCap.consume).toHaveBeenCalledWith('u1', NotificationType.SIGNAL, 's1');
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('TRADE: 캡 초과 → 실발송 억제(인박스는 보존)', async () => {
+      const { consumer, prisma, notifications, expoPush, pushCap } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([]); // 기본 ON
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+      pushCap.consume.mockResolvedValue({
+        allowed: false,
+        cap: 30,
+        sentToday: 30,
+        suppressed: true,
+      });
+
+      await consumer.process(
+        job(NOTIFY_JOB.TRADE_ENTRY, {
+          kind: 'ENTRY',
+          refId: 'trade-1',
+          strategyKey: 'intraday-scalp',
+          strategyLabel: '분봉 단타',
+          corpCode: 'c1',
+          stockCode: '005930',
+          corpName: '삼성전자',
+          price: 105000,
+          shares: 10,
+          cash: 9500000,
+          totalValue: 10200000,
+          deepLink: '/portfolio/strategy/intraday-scalp',
+        }),
+      );
+
+      expect(notifications.createNotificationIfAbsent).toHaveBeenCalledTimes(1);
+      expect(pushCap.consume).toHaveBeenCalledWith('u1', NotificationType.TRADE_ENTRY, 'trade-1');
+      expect(expoPush.sendPushNotifications).not.toHaveBeenCalled();
+    });
+
+    it('PRICE_MOVE: 캡 이내(allowed=true) → 정상 발송', async () => {
+      const { consumer, prisma, expoPush, pushCap } = makeDeps();
+      prisma.watchList.findMany.mockResolvedValue([{ userId: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([
+        { userId: 'u1', isEnabled: true, priceMovePushEnabled: true },
+      ]);
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+
+      await consumer.process(
+        job(NOTIFY_JOB.PRICE_MOVE, {
+          refId: '005930-20260716',
+          corpCode: 'C001',
+          stockCode: '005930',
+          corpName: '알파전자',
+          tradeDate: '20260716',
+          changePct: 6.2,
+          title: '알파전자 급변동 +6.2%',
+          body: '전일 종가 대비 +6.2%',
+          deepLink: '/company/C001',
+        }),
+      );
+
+      expect(pushCap.consume).toHaveBeenCalledWith('u1', NotificationType.PRICE_MOVE, '005930-20260716');
+      expect(expoPush.sendPushNotifications).toHaveBeenCalledTimes(1);
+    });
+
+    it('★면제: RISK_ALERT/OPS_ALERT 는 캡을 소비하지 않고 항상 발송(안전 신호 은닉 금지)', async () => {
+      const { consumer, prisma, expoPush, pushCap } = makeDeps();
+      prisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      prisma.notificationSettings.findMany.mockResolvedValue([]); // 기본 ON
+      prisma.userDevice.findMany.mockResolvedValue([{ deviceToken: 'ExponentPushToken[x]' }]);
+      // 캡이 초과 상태여도 면제 계열은 소비 자체를 하지 않는다.
+      pushCap.consume.mockResolvedValue({
+        allowed: false,
+        cap: 30,
+        sentToday: 99,
+        suppressed: true,
+      });
+
+      await consumer.process(
+        job(NOTIFY_JOB.OPS_ALERT, {
+          type: 'RISK_ALERT',
+          severity: 'CRITICAL',
+          source: 'kill-switch',
+          message: '킬스위치가 발동했습니다.',
+          dedupeKey: 'kill-switch:2026-07-17',
+        }),
+      );
+
+      // 면제 계열: consume 미호출 + 정상 발송.
+      expect(pushCap.consume).not.toHaveBeenCalled();
+      expect(expoPush.sendPushNotifications).toHaveBeenCalledTimes(1);
     });
   });
 

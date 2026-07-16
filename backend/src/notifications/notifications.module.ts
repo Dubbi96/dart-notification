@@ -4,6 +4,7 @@ import { QUEUE } from '../common/queues/queue.constants';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { NotifyConsumer } from './notify.consumer';
+import { PushCapService } from './push-cap.service';
 import { ExpoPushModule } from '../expo-push/expo-push.module';
 
 /**
@@ -16,7 +17,8 @@ import { ExpoPushModule } from '../expo-push/expo-push.module';
 @Module({
   imports: [BullModule.registerQueue({ name: QUEUE.NOTIFY }), ExpoPushModule],
   controllers: [NotificationsController],
-  providers: [NotificationsService, NotifyConsumer],
-  exports: [NotificationsService],
+  providers: [NotificationsService, NotifyConsumer, PushCapService],
+  // DAR-514: PushCapService 는 공시 발송 경로(SchedulerService)·설정 센터에서도 소비하므로 export.
+  exports: [NotificationsService, PushCapService],
 })
 export class NotificationsModule {}

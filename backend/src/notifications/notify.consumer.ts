@@ -5,6 +5,7 @@ import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ExpoPushService } from '../expo-push/expo-push.service';
 import { NotificationsService } from './notifications.service';
+import { PushCapService, isCapExemptType } from './push-cap.service';
 import { channelIdForType } from './notification-category';
 import {
   sourceByKey,
@@ -79,6 +80,8 @@ export class NotifyConsumer extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly expoPush: ExpoPushService,
+    // DAR-514: 실발송 직전 일일 캡 게이트(면제 계열 제외).
+    private readonly pushCap: PushCapService,
   ) {
     super();
   }
@@ -540,6 +543,19 @@ export class NotifyConsumer extends WorkerHost {
     if (tokens.length === 0) {
       this.logger.debug(`[NOTIFY] 유효 디바이스 토큰 없음: user=${userId}`);
       return;
+    }
+
+    // DAR-514: 일일 푸시 캡 게이트 — 유효 토큰 확인 뒤(실발송 직전)에만 소비한다(무토큰은 미계상).
+    //   면제 계열(RISK/OPS)은 캡을 적용하지 않는다(안전 신호 은닉 금지). 초과 시 실발송을
+    //   억제하되 인박스는 이미 남겼으므로 앱에서 확인 가능(억제 로그는 push_delivery_log 에 기록).
+    if (!isCapExemptType(type)) {
+      const decision = await this.pushCap.consume(userId, type, refId);
+      if (!decision.allowed) {
+        this.logger.log(
+          `[NOTIFY] 일일 푸시 캡 초과 — 실발송 억제(인박스 보존): user=${userId} type=${type} ref=${refId} (${decision.sentToday}/${decision.cap})`,
+        );
+        return;
+      }
     }
 
     // DAR-430: 카테고리(공시/신호/체결)에 매핑된 Android 알림 채널로 발송한다.

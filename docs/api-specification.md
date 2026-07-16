@@ -1558,7 +1558,7 @@ GET /api/signals/daily-editions   (JWT 필수)
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
-| `date` | string | KST 날짜 (YYYY-MM-DD, $queryRaw AT TIME ZONE 'Asia/Seoul' 파생) |
+| `date` | string | KST 거래일 (YYYYMMDD — `before`/`nextCursor` 커서와 동일 형식. $queryRaw `to_char(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul', 'YYYYMMDD')` 파생 — created_at 은 UTC 저장 timestamp 라 이중 환산 필수) |
 | `count` | number | 해당일 매수등급(STRONG_BUY+BUY) 신호 수 |
 | `strongBuyCount` | number | 그 중 STRONG_BUY 수 |
 | `topGrade` | string | 최고점 신호 등급 (STRONG_BUY \| BUY) |

@@ -175,7 +175,7 @@ dart-notification/
 │   │   ├── search/            # 통합 검색 (기업·공시) — /api/search + 제로결과 수요 계측(search-miss.classifier·POST /search/us-demand [갭분석 W8])
 │   │   ├── collection-status/ # 공시 수집 상태 집계 — /api/collection
 │   │   ├── cron-health/       # 크론 실행 기록(CronRunLog)·데이터 신선도(freshness) 진단 + 제로런 감지 증축(zeroRunThreshold [갭분석 W11])
-│   │   ├── ops/               # 운영 헬스체크·메트릭 (prisma/redis/외부키 인디케이터) — /api/ops + 온보딩 퍼널 계측(funnel.* — POST /ops/funnel 비인증 [갭분석 W15]) + 공시 알림 지연 계측(notification-latency.* [갭분석 W5])
+│   │   ├── ops/               # 운영 헬스체크·메트릭 (prisma/redis/외부키 인디케이터) — /api/ops + 온보딩 퍼널 계측(funnel.* — POST /ops/funnel 비인증 [갭분석 W15]) + 공시 알림 지연 계측(notification-latency.* [갭분석 W5]) + 에디션 밀도 실측(edition-density.* — GET /ops/edition-density [DAR-513 Wave A/A3])
 │   │   ├── legal/             # 법적 고지 공개 HTML — /api/legal/privacy·account-deletion (Play 컴플라이언스 [갭분석 W3])
 │   │   ├── web-surface/       # 공개 웹 표면 — 랜딩(GET /)·공시 공유 페이지(GET /share/:rcpNo, og 메타+딥링크 [갭분석 W3b])
 │   │   ├── status/            # 공개 시스템 상태 페이지 — GET /status·/status.json (운영 사실만·60s 캐시 [갭분석 W11/W12])

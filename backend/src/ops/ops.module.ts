@@ -13,6 +13,9 @@ import { NotificationLatencyController } from './notification-latency.controller
 import { NotificationLatencyService } from './notification-latency.service';
 import { FunnelController } from './funnel.controller';
 import { FunnelService } from './funnel.service';
+// DAR-513(Wave A/A3): 에디션 밀도 실측 — 최근 60거래일 신호 분포 진단(read-only, 기존 테이블만).
+import { EditionDensityController } from './edition-density.controller';
+import { EditionDensityService } from './edition-density.service';
 import { OpsDailyReportService } from './ops-daily-report.service';
 import { OpsDailyReportScheduler } from './ops-daily-report.scheduler';
 import { BiweeklyTrackReviewService } from './biweekly-track-review.service';
@@ -68,6 +71,8 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
     NotificationLatencyController,
     // 갭분석 W15 ③: 온보딩 퍼널 계측(비인증 POST /ops/funnel) — 측정 전용 표면.
     FunnelController,
+    // DAR-513: GET /ops/edition-density — 최근 N거래일 에디션 신호 분포 + 밀도 판정.
+    EditionDensityController,
   ],
   providers: [
     OpsMetricsService,
@@ -75,6 +80,8 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
     NotificationLatencyService,
     // 갭분석 W15 ③: FunnelEvent 적재(무소음 실패 흡수·meta 캡).
     FunnelService,
+    // DAR-513: 에디션 밀도 실측 서비스(trading_signals·stock_daily_prices read-only 집계).
+    EditionDensityService,
     // DAR-477(견고화 W0·P05): 일일 운영 리포트 생성 서비스 + 20:30 KST 발송 스케줄러.
     OpsDailyReportService,
     OpsDailyReportScheduler,

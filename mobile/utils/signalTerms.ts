@@ -163,3 +163,22 @@ export function buildEditionTitle(
   // 간극 ≥2일(그제 이상)만 'N일 전' 병기 — 어제(1일)는 M/D만으로 충분(노이즈 방지).
   return gapDays > 1 ? `${base} · ${gapDays}일 전` : base;
 }
+
+// ── 에디션 신선도 표기 규약 SSOT (DAR-506) ──────────────────────────
+// 화면 간 신선도 규약을 이 파일에 명문화한다(마스트헤드 = buildEditionTitle, 카드 = SignalDateBadge).
+//
+//   규약 1) 신호 카드는 '절대 MM/DD'를 상시 병기한다. 날짜 없는 카드(구 홈 프리뷰)나
+//           'N시간 전' 상대시간 '단독' 배지는 폐기한다 — 상대표기는 절대일의 보조로만 붙는다.
+//   규약 2) 발생일 귀속은 공시 접수일(rcpDt / rcpNo 앞 8자리)을 1순위로, 없으면 createdAt를
+//           '신호' 출처로 폴백한다(레코드 시각을 공시 발생으로 오인 금지 — DAR-369 계승).
+//   규약 3) 만료(expiresAt 경과)·지연 반영(접수일↔발행일 ≥2거래일)은 톤으로 시각 구분한다.
+//   규약 4) 마스트헤드 헤더는 buildEditionTitle 로만 만든다(정적 '오늘' 단정 금지 — DAR-504).
+//
+// 카드 날짜/상태 파생은 utils/signalFreshness.getSignalDateStatus(SSOT), 렌더는
+// components/signals/SignalDateBadge 가 담당한다. 카피/규약 변경은 반드시 이 두 파일에서만 한다.
+export const EDITION_FRESHNESS_CONVENTION = {
+  /** 카드 절대 MM/DD 상시 병기 여부(규약 1). false 로 되돌리는 회귀 차단용 명시 상수. */
+  absoluteDateAlways: true,
+  /** 'N시간 전' 상대시간 단독 배지 폐기(규약 1). */
+  relativeOnlyBadgeDeprecated: true,
+} as const;

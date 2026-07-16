@@ -3,13 +3,14 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
-import { relativeTimeOrFallback } from '@utils/datetime';
-import { getSignalFreshness } from '@utils/signalFreshness';
+import { getSignalDateStatus, getSignalFreshness } from '@utils/signalFreshness';
 
 // 신호 신선도 배지(DAR-326) — 점수 게이지 하단·신호카드에 일관 표기.
 // '만료(재평가 필요)' / '오래됨(조건 재확인)' 만 노출하고 신선 신호엔 미표시(노이즈 방지).
 // 판정 로직은 utils/signalFreshness(SSOT)·여기는 테마 색상 매핑 + 렌더만 담당.
 // reduce-motion 무관(정적), Feather clock/alert-triangle, 테마 토큰 색상만 사용.
+// DAR-506: 상세 변형의 'N시간 전 평가' 상대시간 단독 표기를 폐기하고 절대 발생일(M/D)을 병기한다
+// (절대일 상시 병기 규약). 공시 접수일 우선·지연/만료 날짜 배지는 공용 SignalDateBadge 가 담당한다.
 
 interface SignalFreshnessBadgeProps {
   /** ISO 8601 — 신호 생성/평가 시각 */
@@ -37,9 +38,12 @@ function SignalFreshnessBadgeBase({
 
   const toneColor = freshness.tone === 'alert' ? colors.error : colors.warning;
 
-  // 상세에선 정직한 경과를 동반 노출('… · N시간 전 평가') — 카드는 압축 라벨만.
-  const elapsed = variant === 'detail' && createdAt ? relativeTimeOrFallback(createdAt, '') : '';
-  const fullLabel = elapsed ? `${freshness.label} · ${elapsed} 평가` : freshness.label;
+  // DAR-506: 상세에선 절대 발생일(M/D)을 동반 노출('… · 6/18') — 'N시간 전' 상대시간 단독 폐기.
+  // 카드는 압축 라벨만. 날짜 파생은 getSignalDateStatus(SSOT) 재사용(공시 없으면 createdAt 폴백).
+  const dateStatus = variant === 'detail' ? getSignalDateStatus({ createdAt, expiresAt }) : null;
+  const fullLabel = dateStatus?.show
+    ? `${freshness.label} · ${dateStatus.dateText}`
+    : freshness.label;
 
   return (
     <View

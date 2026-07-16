@@ -106,9 +106,9 @@ dart-notification/
 │   │   │   ├── dual-momentum/        # 코어 듀얼모멘텀 판정 순수 함수 + 상수 (DAR-492, P12 — 월말 리밸런싱)
 │   │   │   ├── volatility-breakout/  # 위성 변동성 돌파 신호·사이징 순수 함수 + 상수 (DAR-491, P14)
 │   │   │   ├── two-tier-backtest/    # 2단 프레임 상수 + ETF 비용 프로파일 + 코어·위성 백테스트 + 엣지 게이트 리포트 (DAR-493, P16, read-only)
-│   │   │   ├── signals/             # REST API — /api/signals [DAR-25: signals/ 이동]
-│   │   │   │   ├── signals.controller.ts
-│   │   │   │   ├── signals.service.ts
+│   │   │   ├── signals/             # REST API — /api/signals + 일일 에디션 조회(daily-editions·daily/:date, 읽기 파생·마이그 0) [DAR-25·DAR-505]
+│   │   │   │   ├── signals.controller.ts   # GET /signals·:id·daily-editions·daily/:date·by-corp·by-disclosure (:id catch-all 최하단)
+│   │   │   │   ├── signals.service.ts      # findDailyEditions($queryRaw KST 그룹핑)·findDailyEdition(findByCreatedRange·emptyReason)
 │   │   │   │   └── signals.module.ts
 │   │   │   └── quant-market.module.ts
 │   │   ├── engine4-portfolio-exit/ # 🟩 Engine4: Position Thesis 엔진 (M7, DAR-11)
@@ -285,14 +285,19 @@ dart-notification/
 │   │   │   ├── ProvenanceBar.tsx      # AI 출처 표시 바 [DAR-32]
 │   │   │   ├── PriceChangeChip.tsx    # 등락률 칩 컴포넌트 [DAR-32]
 │   │   │   └── SourceAttribution.tsx  # 데이터 출처 귀속 표기 (한국거래소·DART 등 [갭분석 W2])
-│   │   ├── signals/                  # [DAR-21]
+│   │   ├── signals/                  # [DAR-21] + 일일 투자판단 에디션(뉴스형) 컴포넌트 [DAR-505~509]
 │   │   │   ├── BuyScoreCard.tsx       # 매수 신호 카드
 │   │   │   ├── ExitScoreCard.tsx      # 매도 신호 카드
 │   │   │   ├── ScoreBreakdownSection.tsx  # Buy/Exit Score 7컴포넌트 분해 섹션 [DAR-32]
-│   │   │   └── EvidenceIndicatorsSection.tsx # 신호 상세 근거 지표 펼치기 (as-of 재조회 근사·tradeDate 병기 [갭분석 W13])
+│   │   │   ├── EvidenceIndicatorsSection.tsx # 신호 상세 근거 지표 펼치기 (as-of 재조회 근사·tradeDate 병기 [갭분석 W13])
+│   │   │   ├── SignalDateBadge.tsx     # 에디션 날짜/신선도 배지 SSOT (절대 MM/DD 상시 + 만료/지연 톤) [DAR-506]
+│   │   │   ├── BuyEditionView.tsx      # 신호탭 매수 에디션 뷰 (날짜 스트립 + 그날 리스트 게이팅) [DAR-509]
+│   │   │   ├── EditionDateStrip.tsx    # 고정 가로 날짜 스트립 (건수 dot·auto-center·합성 today) [DAR-509]
+│   │   │   ├── EditionSignalList.tsx   # 선택일 세로 리스트 (과거/만료 배너·빈 4분기·refreshing) [DAR-509]
+│   │   │   └── SignalExploreCard.tsx   # 탐색(아카이브) 카드 — SignalDateBadge 이관 [DAR-509]
 │   │   ├── company/                  # 기업/종목 상세 (탭·차트) — DecisionHubTab, Fundamentals/InsiderHoldingsTab, Daily/MinuteCandleChart(MA/볼린저 오버레이 [W13]), SupplyDemandCard(수급 요약 [W16]) 등 9종
 │   │   ├── disclosure/               # 공시 상세 섹션 — DisclosureAiAnalysisSection, DisclosureFiledFactsSection, DisclosureSignalLink
-│   │   ├── home/                     # 홈 화면 — DisclosureFeedCard, HomeSignalPreview, MarketIndexBadge, GraduationTracker 등 6종
+│   │   ├── home/                     # 홈 화면 — DisclosureFeedCard, HomeSignalPreview(최신 에디션 요약 슬롯·정체 간극 hero·빈 4분기 [DAR-508]), MarketIndexBadge, GraduationTracker 등 6종
 │   │   ├── persona/                  # 투자 페르소나 — PersonaSelectCard, MarketRegimeCard, personaDisplay
 │   │   ├── philosophy/               # 투자거장 철학 — PhilosophyMasterCard, PhilosophyChecklist, PhilosophyFitBreakdown 등 5종
 │   │   └── portfolio/                # [DAR-21]
@@ -307,7 +312,7 @@ dart-notification/
 │   │   ├── notification.service.ts
 │   │   ├── notification-settings.service.ts
 │   │   ├── watchlist.service.ts
-│   │   ├── signal.service.ts        # 신호 계약(미존재 엔드포인트는 빈상태) [DAR-21]
+│   │   ├── signal.service.ts        # 신호 계약 + 일일 에디션 조회(getDailyEditions·getEdition) [DAR-21·DAR-507]
 │   │   ├── portfolio.service.ts     # 포트폴리오 계약 [DAR-21] + 오늘의 브리핑 [W14]
 │   │   ├── pro-waitlist.service.ts  # Pro 사전신청 3종 [갭분석 W1]
 │   │   ├── investor-flow.service.ts # 수급·공매도 조회 [갭분석 W16]
@@ -324,7 +329,7 @@ dart-notification/
 │   │   ├── useNotificationSettings.ts
 │   │   ├── useRequireAuth.ts        # 인증 필요 기능 가드
 │   │   ├── useWatchlist.ts
-│   │   ├── useSignals.ts            # 매수/매도 신호 (React Query) [DAR-21]
+│   │   ├── useSignals.ts            # 매수/매도 신호 + 일일 에디션 훅(useDailyEditions·useEdition 인접일 prefetch·useCompanyBuySignal by-corp) (React Query) [DAR-21·DAR-507]
 │   │   ├── usePortfolio.ts          # 포지션/모의투자 (React Query) [DAR-21]
 │   │   ├── useReducedMotion.ts      # 접근성: 모션 감소 선호 감지 [DAR-32]
 │   │   ├── useProWaitlist.ts        # Pro 사전신청 상태·등록·철회 [갭분석 W1]
@@ -345,7 +350,7 @@ dart-notification/
 │   │   ├── disclosure.types.ts
 │   │   ├── notification.types.ts
 │   │   ├── user.types.ts
-│   │   ├── signal.types.ts          # 신호 도메인 계약 [DAR-21]
+│   │   ├── signal.types.ts          # 신호 도메인 계약 + 에디션 계약(DailyEditionSummary/Meta·DailyEdition·TradingSignal.rcpDt) [DAR-21·DAR-505]
 │   │   ├── portfolio.types.ts       # 포트폴리오/Thesis/모의투자 계약 [DAR-21] + 브리핑 [W14]
 │   │   ├── investor-flow.types.ts   # 수급·공매도 계약 [갭분석 W16]
 │   │   └── market-quote.types.ts    # 기술지표 시리즈 계약 [갭분석 W13]
@@ -356,7 +361,11 @@ dart-notification/
 │   │   ├── disclosureType.ts        # 공시 유형 분류 유틸 [DAR-32]
 │   │   ├── marketIndexDisplay.ts    # 시장지수 배지 신선도 라벨 (REALTIME/EOD 종가 기준일) [DAR-371]
 │   │   ├── funnel.ts                # 온보딩 퍼널 5단계 SSOT(FUNNEL_STEPS — BE DTO 미러) [갭분석 W15]
-│   │   └── priceMoveNews.ts         # 급변동 알림 뉴스 링크아웃 [갭분석 W6]
+│   │   ├── priceMoveNews.ts         # 급변동 알림 뉴스 링크아웃 [갭분석 W6]
+│   │   ├── signalTerms.ts           # 신호 용어 SSOT + buildEditionTitle(동적 에디션 헤더)·에디션 날짜 헬퍼 [DAR-504·DAR-506]
+│   │   ├── signalFreshness.ts       # 신호 신선도/에디션 날짜 상태 SSOT(getSignalDateStatus — 정상/지연/만료) [DAR-506]
+│   │   ├── editionDisplay.ts        # 에디션 칩 라벨·빈 4분기 카피 순수 유틸 [DAR-509]
+│   │   └── editionSummary.ts        # 에디션 날짜 간극(editionDayGap)·MM/DD 포맷(ymdToMonthDay) 순수 유틸 [DAR-508]
 │   ├── __tests__/             # jest-expo 유닛 테스트 (components·stores·utils [갭분석 W15])
 │   ├── .maestro/              # Maestro E2E 스모크 플로우 6종 + subflows(dev-login·guest-entry) [갭분석 W15]
 │   ├── assets/                # 정적 자산
@@ -667,5 +676,5 @@ EXPO_PUBLIC_APP_ENV=development
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-16
-**버전**: 2.2 (갭분석 퀵윈 웨이브 반영 — 백엔드: legal/·web-surface/·status/ 횡단 모듈 신설, ops/ funnel·notification-latency, engine1 pipeline/ 제목 이벤트 백필, engine3 market-data 수급·공매도/지표 조회 + price-move-alert/, engine4 briefing; 모바일: .maestro/·jest.config.js·__tests__/·dev-login.tsx·legal/data-sources.tsx·settings-detail/support.tsx + 신규 서비스/훅/타입; 루트: docs/compliance/·docs/security/·scripts/audit-gate.mjs·edgar-poc.ts·.audit-allowlist.json·.github CI 보안 잡) / 이전 2.1 (2026-07-02): 횡단 모듈 8종·모바일 신규 라우트/컴포넌트 디렉터리·루트 harness/infra/scripts·브랜치 전략(feat+squash)·prod env 관리 현행화
+**최종 수정일**: 2026-07-17 (DAR-510 — 일일 투자판단 에디션 트리 반영: 모바일 signals/(SignalDateBadge·BuyEditionView·EditionDateStrip·EditionSignalList·SignalExploreCard)·home/HomeSignalPreview 에디션 슬롯·utils(signalTerms·signalFreshness·editionDisplay·editionSummary)·useSignals(useDailyEditions·useEdition·useCompanyBuySignal)·signal.service/signal.types 에디션 계약; 백엔드 engine3 signals/(daily-editions·daily/:date 읽기 파생))
+**버전**: 2.3 (일일 에디션 컴포넌트/훅/유틸 트리 반영 [DAR-505~509]) / 이전 2.2 (갭분석 퀵윈 웨이브 반영 — 백엔드: legal/·web-surface/·status/ 횡단 모듈 신설, ops/ funnel·notification-latency, engine1 pipeline/ 제목 이벤트 백필, engine3 market-data 수급·공매도/지표 조회 + price-move-alert/, engine4 briefing; 모바일: .maestro/·jest.config.js·__tests__/·dev-login.tsx·legal/data-sources.tsx·settings-detail/support.tsx + 신규 서비스/훅/타입; 루트: docs/compliance/·docs/security/·scripts/audit-gate.mjs·edgar-poc.ts·.audit-allowlist.json·.github CI 보안 잡) / 이전 2.1 (2026-07-02): 횡단 모듈 8종·모바일 신규 라우트/컴포넌트 디렉터리·루트 harness/infra/scripts·브랜치 전략(feat+squash)·prod env 관리 현행화

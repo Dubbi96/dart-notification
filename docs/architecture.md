@@ -102,9 +102,10 @@ External APIs:
 #### Engine 3 — Quant Market (`engine3-quant-market/`)
 - **책임**: 시세 수집·기술지표 계산·Event Study·Buy Score 생성 (M4~M6, M9, ⬜ 예정)
 - **AI 정책**: Buy Score 계산은 **순수 Rule 기반** (AI 개입 금지)
-- **구성**: market-data, indicators, buy-signal, event-study, signals(HTTP), backtest
+- **구성**: market-data, indicators, buy-signal, event-study, signal-generation(cron), signals(HTTP), backtest
 - **BullMQ 소비**: `signal-generate` / **발행**: `portfolio-check`
-- **주요 엔드포인트**: `GET /signals`, `GET /signals/:id`
+- **신호 생성 크론**: `SignalGenerationScheduler.generateDaily` — 평일 19:00 KST(`0 19 * * 1-5`), 18:30 일봉·18:50 지표 이후·19:30 모의운용 이전(`docs/workflow.md` §5.15). 각 신호는 생성 시각(`createdAt` KST)에 귀속돼 그 거래일의 "에디션"이 된다.
+- **주요 엔드포인트**: `GET /signals`, `GET /signals/:id`, `GET /signals/daily-editions`(에디션 날짜 목록), `GET /signals/daily/:date`(에디션 상세). 두 에디션 조회는 마이그레이션 0의 **읽기 파생 API**(§3.4).
 
 #### Engine 4 — Portfolio & Exit (`engine4-portfolio-exit/`)
 - **책임**: 포트폴리오·포지션 관리·Exit Score 계산 (M7~M8, ⬜ 예정)
@@ -310,6 +311,37 @@ External APIs:
 └──────────────────────┘
 ```
 
+### 3.4 일일 투자판단 에디션 조회 흐름 (읽기 파생 · 마이그레이션 0)
+
+거래일 1일 = 신문 1"호". 각 `TradingSignal`은 자기 생성일(`createdAt` KST)에 귀속돼 그 날의 에디션이 된다. **신규 테이블·컬럼·마이그레이션 없이** 기존 `TradingSignal`/`Disclosure`를 KST 거래일로 재그룹핑하는 읽기 전용 파생 API다.
+
+```
+[모바일 신호탭·홈]                         [Engine3 signals(HTTP)]
+ useDailyEditions() ──GET /signals/daily-editions──▶ findDailyEditions(before, limit)
+ useEdition(date)   ──GET /signals/daily/:date─────▶ findDailyEdition(date)
+        │                                                   │
+        │                                                   ▼
+        │                        ┌────────────────────────────────────────────┐
+        │                        │ 날짜 목록: $queryRaw                        │
+        │                        │  (created_at AT TIME ZONE 'UTC'             │
+        │                        │      AT TIME ZONE 'Asia/Seoul')::date       │
+        │                        │  GROUP BY KST 거래일 · to_char YYYYMMDD 커서 │
+        │                        │  판단 존재일만(빈 날 미포함)                │
+        │                        ├────────────────────────────────────────────┤
+        │                        │ 상세: findByCreatedRange(gteUtc, ltUtc)     │
+        │                        │  KST 폐구간 [자정, +1일) · findAll 매퍼 재사용│
+        │                        │  disclosure.rcpDt 조인(접수일 병기)         │
+        │                        │  meta.emptyReason ← 시장캘린더(휴장/미발행) │
+        │                        └────────────────────────────────────────────┘
+        ▼
+ 날짜 스트립(건수 dot) + 그 날 매수등급 랭킹 렌더
+```
+
+- **읽기 파생·비침습**: 파이프라인·스키마 무변경(마이그레이션 0). `TradingSignal.createdAt` 기존 인덱스 + `Disclosure.rcpDt` 조인만 사용해 M10 모의운용 측정 클록을 오염시키지 않는다.
+- **KST 이중 환산**: `created_at`은 UTC 저장 naive timestamp라 `AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul'` 이중 변환으로 KST 자정 경계를 맞춘다(단일 환산 금지).
+- **정직 규약**: 빈 날짜는 404가 아니라 `data:[]`+`emptyReason`(CLOSED/PENDING/QUIET/COLD_START/FUTURE)으로 응답하고 다른 날 신호로 채우지 않는다. `rcpDt`(공시 접수일)·`expiresAt`(만료) 병기로 신선도를 정직화한다.
+- **캐시 이관**: 홈이 에디션 훅으로 전환되며 종목 배지는 공유 피드키 대신 `GET /signals/by-corp/:corpCode`로 조회한다(DAR-507). API 계약은 `docs/api-specification.md` §12.4·§12.5.
+
 ## 4. 보안 아키텍처
 
 ### 4.1 인증/인가
@@ -502,5 +534,5 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
 ---
 
 **작성일**: 2026-04-18
-**최종 수정일**: 2026-06-05
-**버전**: 2.0 (5엔진 DDD 구조·헥사고날 포트/어댑터·BullMQ 큐 반영)
+**최종 수정일**: 2026-07-17 (DAR-510 — §2.2 Engine3 신호 생성 크론(평일 19:00 KST)·에디션 조회 엔드포인트 2종 추가, §3.4 일일 투자판단 에디션 조회 흐름 신설(읽기 파생·마이그레이션 0·KST 이중 환산·정직 규약)) / 이전: 2026-06-05
+**버전**: 2.1 (일일 에디션 읽기 파생 흐름 §3.4 추가) / 이전: 2.0 (5엔진 DDD 구조·헥사고날 포트/어댑터·BullMQ 큐 반영)

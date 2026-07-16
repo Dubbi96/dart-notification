@@ -1,8 +1,9 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiBearerAuth,
   ApiOperation,
+  ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
 import { SignalsService, SignalSort } from './signals.service';
@@ -65,6 +66,35 @@ export class SignalsController {
   async findExitSignals() {
     const data = await this.signalsService.findExitSignals();
     return { success: true, data };
+  }
+
+  // DAR-505: 일일 에디션 목록 — ':id'(catch-all)보다 먼저 선언해 라우트 충돌 방지.
+  @Get('daily-editions')
+  @ApiOperation({ summary: '일일 투자판단 에디션 날짜 목록 (판단 존재일만, 최신순)' })
+  @ApiQuery({ name: 'before', required: false, description: '페이지 커서: 이 날짜(YYYYMMDD) 미만의 에디션만 반환' })
+  @ApiQuery({ name: 'limit', required: false, description: '페이지 크기 (기본 7, 최대 90)' })
+  async findDailyEditions(
+    @Query('before') before?: string,
+    @Query('limit') limitStr?: string,
+  ) {
+    if (before !== undefined && !/^\d{8}$/.test(before)) {
+      throw new BadRequestException('before 파라미터는 YYYYMMDD 형식이어야 합니다');
+    }
+    const limit = parsePaginationInt(limitStr, { default: 7, min: 1, max: 90 });
+    const result = await this.signalsService.findDailyEditions(before, limit);
+    return { success: true, data: result.items, meta: result.meta };
+  }
+
+  // DAR-505: 일일 에디션 상세 — ':id'(catch-all)보다 먼저 선언해 라우트 충돌 방지.
+  @Get('daily/:date')
+  @ApiOperation({ summary: '일일 투자판단 에디션 조회 (KST 거래일 매수등급 랭킹 + meta)' })
+  @ApiParam({ name: 'date', description: 'KST 거래일 (YYYYMMDD)' })
+  async findDailyEdition(@Param('date') date: string) {
+    if (!/^\d{8}$/.test(date)) {
+      throw new BadRequestException('date 파라미터는 YYYYMMDD 형식이어야 합니다');
+    }
+    const result = await this.signalsService.findDailyEdition(date);
+    return { success: true, data: result.items, meta: result.meta };
   }
 
   // DAR-159: 종목별 최신 신호 단건 — ':id'(catch-all)보다 먼저 선언해 라우트 충돌 방지.

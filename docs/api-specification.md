@@ -1541,6 +1541,76 @@ GET /api/signals   (JWT 필수)
 
 > 동일 컨트롤러에는 청산 신호 목록 `GET /api/signals/exit`(JWT 필수)와 신호 상세 `GET /api/signals/:id`(JWT 필수)도 있다.
 
+### 12.4 일일 투자판단 에디션 날짜 목록 (DAR-505)
+
+```
+GET /api/signals/daily-editions   (JWT 필수)
+```
+
+**Query Parameters**
+
+| 파라미터 | 타입 | 설명 |
+|---|---|---|
+| `before` | string (YYYYMMDD) | 페이지 커서 — 이 날짜 미만의 에디션만 반환 |
+| `limit` | number | 페이지 크기 (기본 7, 최대 90) |
+
+**Response `data[]`** — 판단이 존재한 날짜만 최신순
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `date` | string | KST 거래일 (YYYYMMDD — `before`/`nextCursor` 커서와 동일 형식. $queryRaw `to_char(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul', 'YYYYMMDD')` 파생 — created_at 은 UTC 저장 timestamp 라 이중 환산 필수) |
+| `count` | number | 해당일 매수등급(STRONG_BUY+BUY) 신호 수 |
+| `strongBuyCount` | number | 그 중 STRONG_BUY 수 |
+| `topGrade` | string | 최고점 신호 등급 (STRONG_BUY \| BUY) |
+| `headlineCorpName` | string | 최고점 신호 종목명 |
+
+**Response `meta`**
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `latestDate` | string \| null | 시스템 전체 최신 에디션 날짜 (YYYYMMDD) |
+| `todayDate` | string | 오늘 KST 날짜 (YYYYMMDD) |
+| `todayHasEdition` | boolean | 오늘 에디션 존재 여부 |
+| `nextCursor` | string \| undefined | 다음 페이지 `before` 커서 값 |
+| `hasMore` | boolean | 다음 페이지 존재 여부 |
+
+### 12.5 일일 투자판단 에디션 상세 조회 (DAR-505)
+
+```
+GET /api/signals/daily/:date   (JWT 필수)
+```
+
+**Path Parameters** — `date`: KST 거래일 (YYYYMMDD)
+
+**Response `data[]`** — 해당일 매수등급(STRONG_BUY+BUY) 랭킹. 각 item에 `rcpDt`(공시 접수일) 추가.
+
+각 item은 `GET /api/signals` 응답 item과 동일하며 추가 필드:
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `rcpDt` | string \| undefined | 공시 접수일 (Disclosure.rcpDt, YYYYMMDD 또는 YYYYMMDDHHmmss) |
+
+**Response `meta`**
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `date` | string | 요청 KST 날짜 (YYYYMMDD) |
+| `isToday` | boolean | 오늘 여부 |
+| `isEmpty` | boolean | 매수등급 신호 없음 여부 |
+| `emptyReason` | string \| undefined | 빈 이유 (`CLOSED` \| `PENDING` \| `QUIET` \| `COLD_START` \| `FUTURE`). isEmpty=false 이면 undefined |
+| `prevEditionDate` | string \| undefined | 이전 에디션 날짜 (YYYYMMDD) |
+| `nextEditionDate` | string \| undefined | 다음 에디션 날짜 (YYYYMMDD) |
+
+**emptyReason 값**
+
+| 값 | 조건 |
+|---|---|
+| `CLOSED` | 주말·공휴일(KRX 휴장일) — `isTradingDay()` false |
+| `FUTURE` | 오늘 KST보다 미래인 거래일 |
+| `PENDING` | 오늘이며 KST 19:15 이전 (engine3 미실행 휴리스틱) |
+| `QUIET` | 과거 거래일, 신호 없음 |
+| `COLD_START` | 시스템 최초 신호 이전 날짜 |
+
 > **`sinceDays` 도입 배경(2026-07-07).** 점수순(`sort=score`) 큐레이션은 전체 이력에서
 > `buyScore` 내림차순이라, 6월 고득점 신호가 이후 신규 신호가 나와도 영원히 상단에 고정돼
 > 홈 '오늘의 투자판단'이 수 주째 미갱신됐다. `sort=score` 기본 14일 윈도우는 **서버측 기본값**

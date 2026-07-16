@@ -289,10 +289,10 @@ export default function SettingsScreen() {
                   onPress={() => router.push('/settings-detail/notification-settings')}
                 />
                 <Divider style={{ backgroundColor: colors.borderLight }} />
-                {/* D12: 저장된 공시 진입점을 설정에 노출(기존엔 홈·공시상세에서만 접근 가능해 발견성 낮음). */}
+                {/* D12/DAR-520: '보관함'(저장한 공시) 진입점을 설정에 노출(홈 summaryCard 1탭과 병행 — 발견성·재방문 훅 보존). */}
                 <MenuItem
                   icon="bookmark"
-                  title="저장된 공시"
+                  title="보관함"
                   subtitle="북마크한 공시 모아보기"
                   onPress={() => router.push('/settings-detail/saved-disclosures')}
                 />

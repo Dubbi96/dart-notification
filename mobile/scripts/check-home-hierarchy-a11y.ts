@@ -69,9 +69,9 @@ ok('regression: footer 에 페이지네이션 ActivityIndicator 유지', /isFetc
   const labelCount = (summaryBlock.match(/accessibilityLabel=/g) ?? []).length;
   ok('A-HOME-4: 요약 통계 3개 모두 accessibilityRole="button"', roleCount === 3);
   ok('A-HOME-4: 요약 통계 3개 모두 accessibilityLabel', labelCount === 3);
-  // 기존 누락분(관심 기업·저장된 공시) 라벨 명시 확인.
+  // 기존 누락분(관심 기업·보관함) 라벨 명시 확인. DAR-520: '저장된 공시' → '보관함' 명명 승격.
   ok('A-HOME-4: 관심 기업 통계 라벨 존재', /관심 기업 목록 열기/.test(summaryBlock));
-  ok('A-HOME-4: 저장된 공시 통계 라벨 존재', /저장한 공시 열기/.test(summaryBlock));
+  ok('A-HOME-4: 보관함 통계 라벨 존재', /보관함 열기/.test(summaryBlock));
 }
 
 // ── A-HOME-5: 핵심 수치 amount 토큰 강조(이름 h2보다 큰 위계) ───────────────────

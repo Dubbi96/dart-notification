@@ -18,7 +18,7 @@ export const snackbarCopy = {
   // 공시 저장 / 저장 취소
   disclosureSaved: '공시를 저장했어요.',
   disclosureSaveFailed: '저장에 실패했어요.',
-  disclosureUnsaved: '저장된 공시에서 제거했어요.',
+  disclosureUnsaved: '보관함에서 제거했어요.',
   // 알림 전체 읽음
   allNotificationsRead: (count: number) => `${count}개의 알림을 모두 읽었어요.`,
   // 알림 탭 시 이동 대상이 없을 때(DAR-150 dead tap 안내)

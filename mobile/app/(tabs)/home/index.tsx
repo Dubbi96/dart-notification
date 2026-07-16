@@ -441,14 +441,14 @@ export default function HomeScreen() {
               accessibilityRole="button"
               accessibilityLabel={
                 !isAuthenticated
-                  ? '저장된 공시 — 로그인하고 보기'
+                  ? '보관함 — 로그인하고 보기'
                   : savedLoading || savedError
-                    ? '저장된 공시 집계 불러오는 중, 저장한 공시 열기'
-                    : `저장된 공시 ${savedCount}건, 저장한 공시 열기`
+                    ? '저장한 공시 집계 불러오는 중, 보관함 열기'
+                    : `저장한 공시 ${savedCount}건, 보관함 열기`
               }
             >
               <Text style={[typo.amount, { color: colors.onColor }]}>{savedCountDisplay}</Text>
-              <Text style={[typo.small, { color: colors.onColorMuted }]}>저장된 공시</Text>
+              <Text style={[typo.small, { color: colors.onColorMuted }]}>보관함</Text>
             </TouchableOpacity>
           </View>
         </GlassCard>

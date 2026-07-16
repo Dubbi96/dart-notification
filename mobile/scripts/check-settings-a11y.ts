@@ -7,7 +7,7 @@
 //  D3 로그아웃 확인 다이얼로그("로그아웃하시겠어요?") 게이트(즉시 logout 금지)
 //  D8 cycle 행(화면 설정/글자 크기) 현재값 칩 + accessibilityHint
 //  D9 "앱 정보" dead tap(onPress={() => {}}) 제거 → 비터치(View) 행
-//  D12 "저장된 공시" 진입점을 계정 관리 섹션에 추가(라우팅 /settings-detail/saved-disclosures)
+//  D12 "보관함"(저장한 공시) 진입점을 계정 관리 섹션에 추가(라우팅 /settings-detail/saved-disclosures) — DAR-520 명명 승격
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -83,11 +83,11 @@ const appInfoRow = src.slice(src.indexOf('title="앱 정보"'), src.indexOf('tit
 ok('D9: 앱 정보 nonInteractive 행', /nonInteractive/.test(appInfoRow));
 ok('D9: 앱 정보 빈 onPress(dead tap) 제거', !/onPress=\{\(\) => \{\}\}/.test(src));
 
-// --- D12: 저장된 공시 진입점 ---
-ok('D12: 저장된 공시 MenuItem 존재', /title="저장된 공시"/.test(src));
+// --- D12/DAR-520: 보관함(저장한 공시) 진입점 ---
+ok('D12: 보관함 MenuItem 존재', /title="보관함"/.test(src));
 ok('D12: 라우팅 /settings-detail/saved-disclosures', /router\.push\('\/settings-detail\/saved-disclosures'\)/.test(src));
 // 계정 관리(인증 섹션) 안 — '일반' 섹션 타이틀보다 앞에 위치
-const idxSaved = src.indexOf('title="저장된 공시"');
+const idxSaved = src.indexOf('title="보관함"');
 const idxAccount = src.indexOf('계정 관리');
 const idxGeneral = src.indexOf('>\n              일반');
 ok('D12: 계정 관리 섹션 내부(일반 섹션보다 앞)', idxSaved > idxAccount && idxSaved < (idxGeneral === -1 ? src.indexOf('title="화면 설정"') : idxGeneral));

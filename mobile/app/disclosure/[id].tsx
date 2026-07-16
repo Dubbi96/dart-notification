@@ -118,7 +118,7 @@ export default function DisclosureDetailScreen() {
         haptics.success();
         showSnackbar(snackbarCopy.disclosureSaved, {
           duration: SNACKBAR_DURATION.success,
-          action: { label: '저장된 공시 보기', onPress: () => router.push('/settings-detail/saved-disclosures') },
+          action: { label: '보관함에서 보기', onPress: () => router.push('/settings-detail/saved-disclosures') },
         });
       }
       refetchSaved();

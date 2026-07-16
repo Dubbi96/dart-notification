@@ -13,8 +13,10 @@
  *      - createdAt 결측 → 판단 불가 → fresh/미표시(억지 경고 금지).
  *      - 미래 expiresAt → 만료 아님(경과로 판정).
  *  (C) 카피 정직성: 라벨이 한국어 + 행동유도이고 raw enum/공포조장 패턴 없음.
- *  (D) 소스 바인딩: 신호상세 + 3개 카드가 SignalFreshnessBadge 를 import·createdAt/expiresAt 전달,
- *      배지가 !show 일 때 null 반환(신선 신호 미표시).
+ *  (D) 소스 바인딩: 신호상세 + 2개 카드(BuyScore·Curated)가 SignalFreshnessBadge 를 import·
+ *      createdAt/expiresAt 전달, 배지가 !show 일 때 null 반환(신선 신호 미표시).
+ *      ※ SignalExploreCard 는 DAR-509 에서 공유 SignalDateBadge 로 이관(발생일 상시 + 지연/만료 톤)
+ *        → 여기 목록에서 제외(check-signal-timing (C) 가 SignalDateBadge 바인딩을 검증).
  *
  * 실행: npx tsx scripts/check-signal-freshness.ts  (실패 시 exit 1)
  */
@@ -151,13 +153,13 @@ console.log('\n[C] 카피 정직성(공포조장·raw enum 차단)');
 }
 
 // ── (D) 소스 바인딩 ─────────────────────────────────────────────────
-console.log('\n[D] 소스 바인딩(상세 + 3 카드 + 배지 미표시 폴백)');
+console.log('\n[D] 소스 바인딩(상세 + 2 카드 + 배지 미표시 폴백)');
 {
+  // DAR-509: SignalExploreCard 는 SignalDateBadge 로 이관 → 여기서 제외(check-signal-timing (C) 검증).
   const sites = [
     'app/signals/[id].tsx',
     'components/signals/BuyScoreCard.tsx',
     'components/signals/CuratedSignalCard.tsx',
-    'components/signals/SignalExploreCard.tsx',
   ];
   for (const rel of sites) {
     const src = readFileSync(join(root, rel), 'utf8');

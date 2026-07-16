@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SignalGrade, ExitAction, Prisma } from '@prisma/client';
 import { tradeDateFromMs } from '../market-data/candle-query';
+import { isTradingDay } from '../../common/time/market-calendar';
 
 // 등급무관 탐색(DAR-46): 백엔드 6단계 enum을 모바일에 1:1로 노출한다.
 // 기존엔 NEUTRAL/AVOID/WATCH를 'WATCH'로 합쳐 등급 칩·필터가 무의미해졌으므로,
@@ -582,6 +583,259 @@ export class SignalsService {
       relatedDisclosureRcpNo: s.rcpNo,
       expiresAt: s.validUntil?.toISOString() ?? undefined,
       createdAt: s.createdAt.toISOString(),
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // DAR-505: 일일 에디션 API
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * YYYYMMDD(KST) → UTC 폐구간 [gte, lt).
+   * KST 자정 00:00 = UTC 전날 15:00. 하루치 = 24h.
+   */
+  private kstDateToUtcRange(ymd: string): { gteUtc: Date; ltUtc: Date } {
+    const y = Number(ymd.slice(0, 4));
+    const m = Number(ymd.slice(4, 6));
+    const d = Number(ymd.slice(6, 8));
+    const gteMs = Date.UTC(y, m - 1, d) - 9 * 3600 * 1000;
+    return { gteUtc: new Date(gteMs), ltUtc: new Date(gteMs + 86_400_000) };
+  }
+
+  /**
+   * 매수등급(STRONG_BUY+BUY) 신호를 KST 폐구간 [gteUtc, ltUtc)로 조회·매핑한다.
+   * findAll 매퍼 재사용 — 응답 item에 rcpDt(Disclosure.rcpDt 조인) 추가.
+   */
+  private async findByCreatedRange(gteUtc: Date, ltUtc: Date) {
+    const where: Prisma.TradingSignalWhereInput = {
+      disclosure: { isBackfill: false },
+      signal: { in: [SignalGrade.STRONG_BUY_CANDIDATE, SignalGrade.BUY_CANDIDATE] },
+      createdAt: { gte: gteUtc, lt: ltUtc },
+    };
+
+    const signals = await this.prisma.tradingSignal.findMany({
+      where,
+      orderBy: [{ buyScore: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      include: {
+        company: { select: { corpCode: true, corpName: true, stockCode: true } },
+        disclosure: { select: { rcpDt: true } },
+      },
+    });
+
+    const sampleCountMap = await this.sampleCountByEventType(signals.map((s) => s.eventType));
+
+    return signals.map((s) => ({
+      id: s.id,
+      corpCode: s.corpCode,
+      corpName: s.company?.corpName ?? '',
+      ticker: s.company?.stockCode ?? s.stockCode ?? undefined,
+      eventType: s.eventType,
+      grade: mapGrade(s.signal),
+      buyScore: s.buyScore,
+      summary: s.signalSummary ?? undefined,
+      entryConditions: [
+        ...s.entryConditionMet.map((label, i) => ({ id: `met_${i}`, label, required: true, met: true })),
+        ...s.entryConditionUnmet.map((label, i) => ({ id: `unmet_${i}`, label, required: true, met: false })),
+      ],
+      riskFlags: s.riskFactors.map((label, i) => ({ id: `risk_${i}`, label, severity: 'medium' as const })),
+      blockedReason: s.blockedReason ?? undefined,
+      suppressionReason: s.suppressionReason ?? undefined,
+      scoreBreakdown: mapScoreBreakdown(
+        s.scoreBreakdown,
+        buildSampleNByKey(s.eventType, sampleCountMap),
+      ),
+      relatedDisclosureRcpNo: s.rcpNo,
+      rcpDt: s.disclosure?.rcpDt ?? undefined,
+      expiresAt: s.validUntil?.toISOString() ?? undefined,
+      createdAt: s.createdAt.toISOString(),
+    }));
+  }
+
+  /** RawEditionRow for $queryRaw result. COUNT returns bigint in PostgreSQL. */
+  private parseEditionRow(row: {
+    date: string;
+    count: bigint;
+    strongBuyCount: bigint;
+    headlineCorpName: string | null;
+    topGradeRaw: string | null;
+  }) {
+    return {
+      date: row.date,
+      count: Number(row.count),
+      strongBuyCount: Number(row.strongBuyCount),
+      headlineCorpName: row.headlineCorpName ?? undefined,
+      topGrade: row.topGradeRaw ? mapGrade(row.topGradeRaw as SignalGrade) : undefined,
+    };
+  }
+
+  /**
+   * GET /signals/daily-editions — 판단 존재일만 최신순 목록(단일 $queryRaw, AT TIME ZONE 'Asia/Seoul').
+   * @param before YYYYMMDD 커서(해당 날짜 미만, 미지정=전체 최신부터)
+   * @param limit 페이지 크기 (기본 7, 최대 90)
+   */
+  async findDailyEditions(before?: string, limit?: number) {
+    const STRONG_BUY = SignalGrade.STRONG_BUY_CANDIDATE;
+    const BUY = SignalGrade.BUY_CANDIDATE;
+    const clampedLimit = Math.min(Math.max(limit ?? 7, 1), 90);
+    const todayKst = tradeDateFromMs(Date.now());
+
+    // 커서 조건 — 미지정이면 적용 안 함
+    const beforeCond = before
+      ? Prisma.sql`AND (ts.created_at AT TIME ZONE 'Asia/Seoul')::date < ${before}::date`
+      : Prisma.sql``;
+
+    const [rows, todayCount, latestSig] = await Promise.all([
+      this.prisma.$queryRaw<
+        {
+          date: string;
+          count: bigint;
+          strongBuyCount: bigint;
+          headlineCorpName: string | null;
+          topGradeRaw: string | null;
+        }[]
+      >(Prisma.sql`
+        WITH ranked AS (
+          SELECT
+            (ts.created_at AT TIME ZONE 'Asia/Seoul')::date AS kst_date,
+            ts.signal::text                                  AS signal,
+            ts.buy_score,
+            c.corp_name,
+            ROW_NUMBER() OVER (
+              PARTITION BY (ts.created_at AT TIME ZONE 'Asia/Seoul')::date
+              ORDER BY ts.buy_score DESC, ts.created_at DESC, ts.id DESC
+            ) AS rn
+          FROM trading_signals ts
+          JOIN companies c ON c.corp_code = ts.corp_code
+          JOIN disclosures d ON d.rcp_no = ts.rcp_no
+          WHERE d.is_backfill = false
+            AND ts.signal::text IN (${STRONG_BUY}, ${BUY})
+            ${beforeCond}
+        )
+        SELECT
+          kst_date::text                                                 AS date,
+          COUNT(*)::bigint                                               AS count,
+          SUM(CASE WHEN signal = ${STRONG_BUY} THEN 1 ELSE 0 END)::bigint AS "strongBuyCount",
+          MAX(CASE WHEN rn = 1 THEN corp_name   END)                    AS "headlineCorpName",
+          MAX(CASE WHEN rn = 1 THEN signal      END)                    AS "topGradeRaw"
+        FROM ranked
+        GROUP BY kst_date
+        ORDER BY kst_date DESC
+        LIMIT ${clampedLimit}
+      `),
+      this.prisma.tradingSignal.count({
+        where: {
+          disclosure: { isBackfill: false },
+          signal: { in: [SignalGrade.STRONG_BUY_CANDIDATE, SignalGrade.BUY_CANDIDATE] },
+          createdAt: {
+            gte: this.kstDateToUtcRange(todayKst).gteUtc,
+            lt: this.kstDateToUtcRange(todayKst).ltUtc,
+          },
+        },
+      }),
+      this.prisma.tradingSignal.findFirst({
+        where: {
+          disclosure: { isBackfill: false },
+          signal: { in: [SignalGrade.STRONG_BUY_CANDIDATE, SignalGrade.BUY_CANDIDATE] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      }),
+    ]);
+
+    const items = rows.map((r) => this.parseEditionRow(r));
+    const hasMore = items.length === clampedLimit;
+    const nextCursor = hasMore ? items[items.length - 1].date : undefined;
+    const latestDate = latestSig ? tradeDateFromMs(latestSig.createdAt.getTime()) : null;
+
+    return {
+      items,
+      meta: {
+        latestDate,
+        todayDate: todayKst,
+        todayHasEdition: todayCount > 0,
+        nextCursor,
+        hasMore,
+      },
+    };
+  }
+
+  /**
+   * GET /signals/daily/:date — 해당 KST 거래일 매수등급 랭킹 + meta.
+   * @param date YYYYMMDD (KST 거래일)
+   */
+  async findDailyEdition(date: string) {
+    const { gteUtc, ltUtc } = this.kstDateToUtcRange(date);
+    const todayKst = tradeDateFromMs(Date.now());
+
+    const [items, prevSig, nextSig, firstSig] = await Promise.all([
+      this.findByCreatedRange(gteUtc, ltUtc),
+      // 이 날짜 UTC 범위 이전의 가장 최근 매수 신호 (prevEditionDate 산출)
+      this.prisma.tradingSignal.findFirst({
+        where: {
+          disclosure: { isBackfill: false },
+          signal: { in: [SignalGrade.STRONG_BUY_CANDIDATE, SignalGrade.BUY_CANDIDATE] },
+          createdAt: { lt: gteUtc },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      }),
+      // 이 날짜 UTC 범위 이후의 가장 이른 매수 신호 (nextEditionDate 산출)
+      this.prisma.tradingSignal.findFirst({
+        where: {
+          disclosure: { isBackfill: false },
+          signal: { in: [SignalGrade.STRONG_BUY_CANDIDATE, SignalGrade.BUY_CANDIDATE] },
+          createdAt: { gte: ltUtc },
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+      // 시스템 최초 신호 시각 (COLD_START 판정용)
+      this.prisma.tradingSignal.findFirst({
+        where: { disclosure: { isBackfill: false } },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+    ]);
+
+    const isEmpty = items.length === 0;
+    const isToday = date === todayKst;
+
+    let emptyReason: 'CLOSED' | 'PENDING' | 'QUIET' | 'COLD_START' | 'FUTURE' | undefined;
+    if (isEmpty) {
+      if (!isTradingDay(date)) {
+        // 주말/공휴일은 과거·미래 불문 CLOSED (휴장일에 신호가 생길 일이 없음)
+        emptyReason = 'CLOSED';
+      } else if (date > todayKst) {
+        emptyReason = 'FUTURE';
+      } else if (isToday) {
+        // 19:15 KST 이전이면 PENDING (engine3 아직 실행 전 휴리스틱)
+        const kstNow = new Date(Date.now() + 9 * 3600 * 1000);
+        const kstH = kstNow.getUTCHours();
+        const kstM = kstNow.getUTCMinutes();
+        emptyReason = kstH < 19 || (kstH === 19 && kstM < 15) ? 'PENDING' : 'QUIET';
+      } else if (
+        firstSig &&
+        tradeDateFromMs(firstSig.createdAt.getTime()) > date
+      ) {
+        emptyReason = 'COLD_START';
+      } else {
+        emptyReason = 'QUIET';
+      }
+    }
+
+    const prevEditionDate = prevSig ? tradeDateFromMs(prevSig.createdAt.getTime()) : undefined;
+    const nextEditionDate = nextSig ? tradeDateFromMs(nextSig.createdAt.getTime()) : undefined;
+
+    return {
+      items,
+      meta: {
+        date,
+        isToday,
+        isEmpty,
+        emptyReason,
+        prevEditionDate,
+        nextEditionDate,
+      },
     };
   }
 

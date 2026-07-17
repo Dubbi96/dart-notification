@@ -605,6 +605,11 @@ export class SignalsService {
   /**
    * 매수등급(STRONG_BUY+BUY) 신호를 KST 폐구간 [gteUtc, ltUtc)로 조회·매핑한다.
    * findAll 매퍼 재사용 — 응답 item에 rcpDt(Disclosure.rcpDt 조인) 추가.
+   *
+   * DAR-553: TradingSignal 자연키는 (corpCode,rcpNo,eventType,persona) — 공시 1건당
+   * 최대 4장(페르소나별)이 개별 카드로 노출돼 같은 종목이 에디션에 중복 표시됐다.
+   * corpCode당 대표 1건(최고 buyScore, 동점은 orderBy 그대로 tie-break)으로 dedup하고,
+   * 나머지는 personaCount·otherPersonas 메타로 흡수한다(정보 손실 없이 '외 N개 관점' 표기 가능).
    */
   private async findByCreatedRange(gteUtc: Date, ltUtc: Date) {
     const where: Prisma.TradingSignalWhereInput = {
@@ -622,33 +627,58 @@ export class SignalsService {
       },
     });
 
-    const sampleCountMap = await this.sampleCountByEventType(signals.map((s) => s.eventType));
+    // 정렬이 이미 tie-break 규칙(buyScore desc→createdAt desc→id desc)이므로,
+    // corpCode별 첫 등장 행이 대표(최고 buyScore)다. Map은 삽입 순서를 보존하므로
+    // groups.values() 는 대표들을 원래 정렬 순서 그대로 산출한다(재정렬 불필요).
+    const groups = new Map<string, typeof signals>();
+    for (const s of signals) {
+      const group = groups.get(s.corpCode);
+      if (group) {
+        group.push(s);
+      } else {
+        groups.set(s.corpCode, [s]);
+      }
+    }
+    const representatives = [...groups.values()].map((group) => group[0]);
 
-    return signals.map((s) => ({
-      id: s.id,
-      corpCode: s.corpCode,
-      corpName: s.company?.corpName ?? '',
-      ticker: s.company?.stockCode ?? s.stockCode ?? undefined,
-      eventType: s.eventType,
-      grade: mapGrade(s.signal),
-      buyScore: s.buyScore,
-      summary: s.signalSummary ?? undefined,
-      entryConditions: [
-        ...s.entryConditionMet.map((label, i) => ({ id: `met_${i}`, label, required: true, met: true })),
-        ...s.entryConditionUnmet.map((label, i) => ({ id: `unmet_${i}`, label, required: true, met: false })),
-      ],
-      riskFlags: s.riskFactors.map((label, i) => ({ id: `risk_${i}`, label, severity: 'medium' as const })),
-      blockedReason: s.blockedReason ?? undefined,
-      suppressionReason: s.suppressionReason ?? undefined,
-      scoreBreakdown: mapScoreBreakdown(
-        s.scoreBreakdown,
-        buildSampleNByKey(s.eventType, sampleCountMap),
-      ),
-      relatedDisclosureRcpNo: s.rcpNo,
-      rcpDt: s.disclosure?.rcpDt ?? undefined,
-      expiresAt: s.validUntil?.toISOString() ?? undefined,
-      createdAt: s.createdAt.toISOString(),
-    }));
+    const sampleCountMap = await this.sampleCountByEventType(
+      representatives.map((s) => s.eventType),
+    );
+
+    return representatives.map((s) => {
+      const group = groups.get(s.corpCode)!;
+      const otherPersonas = [...new Set(group.map((g) => g.persona))].filter(
+        (persona) => persona !== s.persona,
+      );
+      return {
+        id: s.id,
+        corpCode: s.corpCode,
+        corpName: s.company?.corpName ?? '',
+        ticker: s.company?.stockCode ?? s.stockCode ?? undefined,
+        eventType: s.eventType,
+        grade: mapGrade(s.signal),
+        buyScore: s.buyScore,
+        summary: s.signalSummary ?? undefined,
+        entryConditions: [
+          ...s.entryConditionMet.map((label, i) => ({ id: `met_${i}`, label, required: true, met: true })),
+          ...s.entryConditionUnmet.map((label, i) => ({ id: `unmet_${i}`, label, required: true, met: false })),
+        ],
+        riskFlags: s.riskFactors.map((label, i) => ({ id: `risk_${i}`, label, severity: 'medium' as const })),
+        blockedReason: s.blockedReason ?? undefined,
+        suppressionReason: s.suppressionReason ?? undefined,
+        scoreBreakdown: mapScoreBreakdown(
+          s.scoreBreakdown,
+          buildSampleNByKey(s.eventType, sampleCountMap),
+        ),
+        relatedDisclosureRcpNo: s.rcpNo,
+        rcpDt: s.disclosure?.rcpDt ?? undefined,
+        expiresAt: s.validUntil?.toISOString() ?? undefined,
+        createdAt: s.createdAt.toISOString(),
+        // DAR-553: 대표 카드 뒤에 흡수된 페르소나 관점 수(대표 포함) + 대표를 제외한 목록.
+        personaCount: otherPersonas.length + 1,
+        otherPersonas,
+      };
+    });
   }
 
   /** RawEditionRow for $queryRaw result. COUNT returns bigint in PostgreSQL. */
@@ -699,21 +729,39 @@ export class SignalsService {
         }[]
       >(Prisma.sql`
         WITH ranked AS (
+          -- DAR-553: corpCode당 대표 1건(최고 buyScore, 동점 tie-break 기존 규칙)만 남긴다 —
+          -- 공시 1건당 최대 4장(페르소나별)이 개별 신호로 부풀리던 count/headline을 정정.
           SELECT
             (ts."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date AS kst_date,
             ts.signal::text                                  AS signal,
             ts."buyScore",
+            ts."createdAt",
+            ts.id,
             c."corpName" AS corp_name,
             ROW_NUMBER() OVER (
-              PARTITION BY (ts."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date
+              PARTITION BY (ts."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date,
+                           ts."corpCode"
               ORDER BY ts."buyScore" DESC, ts."createdAt" DESC, ts.id DESC
-            ) AS rn
+            ) AS rn_corp
           FROM trading_signals ts
           JOIN companies c ON c."corpCode" = ts."corpCode"
           JOIN disclosures d ON d."rcpNo" = ts."rcpNo"
           WHERE d."isBackfill" = false
             AND ts.signal::text IN (${STRONG_BUY}, ${BUY})
             ${beforeCond}
+        ),
+        corp_reps AS (
+          SELECT
+            kst_date,
+            signal,
+            "buyScore",
+            corp_name,
+            ROW_NUMBER() OVER (
+              PARTITION BY kst_date
+              ORDER BY "buyScore" DESC, "createdAt" DESC, id DESC
+            ) AS rn_day
+          FROM ranked
+          WHERE rn_corp = 1
         )
         SELECT
           -- date 는 API 계약상 compact 'YYYYMMDD'(todayDate·before 커서와 동일 형식) —
@@ -721,9 +769,9 @@ export class SignalsService {
           to_char(kst_date, 'YYYYMMDD')                                 AS date,
           COUNT(*)::bigint                                               AS count,
           SUM(CASE WHEN signal = ${STRONG_BUY} THEN 1 ELSE 0 END)::bigint AS "strongBuyCount",
-          MAX(CASE WHEN rn = 1 THEN corp_name   END)                    AS "headlineCorpName",
-          MAX(CASE WHEN rn = 1 THEN signal      END)                    AS "topGradeRaw"
-        FROM ranked
+          MAX(CASE WHEN rn_day = 1 THEN corp_name END)                   AS "headlineCorpName",
+          MAX(CASE WHEN rn_day = 1 THEN signal    END)                   AS "topGradeRaw"
+        FROM corp_reps
         GROUP BY kst_date
         ORDER BY kst_date DESC
         LIMIT ${clampedLimit}

@@ -232,6 +232,91 @@ describe('SignalsService — findDailyEdition', () => {
     expect(result.meta.isToday).toBe(false);
   });
 
+  it('신호 1건이면 personaCount=1, otherPersonas=[]', async () => {
+    prisma.tradingSignal.findMany.mockResolvedValue([BASE_SIGNAL]);
+    prisma.eventStudyResult.findMany.mockResolvedValue([]);
+    const result = await service.findDailyEdition(TODAY_KST);
+    expect(result.items[0].personaCount).toBe(1);
+    expect(result.items[0].otherPersonas).toEqual([]);
+  });
+
+  // ─── DAR-553: corpCode당 대표 1건 dedup ────────────────────────────────────
+
+  function signalFixture(overrides: Partial<typeof BASE_SIGNAL>): typeof BASE_SIGNAL {
+    return { ...BASE_SIGNAL, ...overrides };
+  }
+
+  it('같은 corpCode·다른 persona 2건 → 에디션 1카드로 dedup + personaCount=2', async () => {
+    const high = signalFixture({ id: 'sig_high', persona: 'GROWTH', buyScore: 90 });
+    const low = signalFixture({ id: 'sig_low', persona: 'VALUE', buyScore: 70 });
+    // Prisma orderBy(buyScore desc)를 흉내: 서비스가 이미 정렬된 결과를 받는다고 가정.
+    prisma.tradingSignal.findMany.mockResolvedValue([high, low]);
+    prisma.eventStudyResult.findMany.mockResolvedValue([]);
+
+    const result = await service.findDailyEdition(TODAY_KST);
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].id).toBe('sig_high'); // 최고 buyScore가 대표
+    expect(result.items[0].buyScore).toBe(90);
+    expect(result.items[0].personaCount).toBe(2);
+    expect(result.items[0].otherPersonas).toEqual(['VALUE']);
+  });
+
+  it('같은 corpCode·동일 buyScore 동점 → tie-break(createdAt desc)가 대표를 결정', async () => {
+    const older = signalFixture({
+      id: 'sig_older',
+      persona: 'GROWTH',
+      buyScore: 80,
+      createdAt: new Date('2026-07-15T15:10:00.000Z'),
+    });
+    const newer = signalFixture({
+      id: 'sig_newer',
+      persona: 'MOMENTUM',
+      buyScore: 80,
+      createdAt: new Date('2026-07-15T15:20:00.000Z'),
+    });
+    // findMany 는 orderBy(buyScore desc, createdAt desc, id desc) 결과를 반환하므로 newer 가 먼저 온다.
+    prisma.tradingSignal.findMany.mockResolvedValue([newer, older]);
+    prisma.eventStudyResult.findMany.mockResolvedValue([]);
+
+    const result = await service.findDailyEdition(TODAY_KST);
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].id).toBe('sig_newer');
+    expect(result.items[0].otherPersonas).toEqual(['GROWTH']);
+  });
+
+  it('서로 다른 corpCode 2건 → dedup 없이 2카드 유지(과도 병합 금지)', async () => {
+    const corpA = signalFixture({ id: 'sig_a', corpCode: 'CORP_A', buyScore: 90 });
+    const corpB = signalFixture({ id: 'sig_b', corpCode: 'CORP_B', buyScore: 80 });
+    prisma.tradingSignal.findMany.mockResolvedValue([corpA, corpB]);
+    prisma.eventStudyResult.findMany.mockResolvedValue([]);
+
+    const result = await service.findDailyEdition(TODAY_KST);
+
+    expect(result.items).toHaveLength(2);
+    expect(result.items.map((i) => i.corpCode)).toEqual(['CORP_A', 'CORP_B']);
+    expect(result.items.every((i) => i.personaCount === 1)).toBe(true);
+  });
+
+  it('DAR-553 계약: 홈 요약 상위 2건(top-2)이 자동으로 서로 다른 종목이 된다', async () => {
+    // 같은 corp(A)가 페르소나 2개(90, 85)로 1·2위를 모두 점유하던 회귀 시나리오.
+    // dedup 전이었다면 top-2 = [A(90), A(85)] — 홈 요약이 같은 종목을 두 번 보여줬을 것.
+    const corpAHigh = signalFixture({ id: 'sig_a_high', corpCode: 'CORP_A', persona: 'GROWTH', buyScore: 90 });
+    const corpALow = signalFixture({ id: 'sig_a_low', corpCode: 'CORP_A', persona: 'VALUE', buyScore: 85 });
+    const corpB = signalFixture({ id: 'sig_b', corpCode: 'CORP_B', persona: 'MOMENTUM', buyScore: 80 });
+    prisma.tradingSignal.findMany.mockResolvedValue([corpAHigh, corpALow, corpB]);
+    prisma.eventStudyResult.findMany.mockResolvedValue([]);
+
+    const result = await service.findDailyEdition(TODAY_KST);
+    const top2 = result.items.slice(0, 2); // HomeSignalPreview.MAX_PREVIEW=2 와 동일 슬라이스
+
+    expect(top2).toHaveLength(2);
+    expect(new Set(top2.map((i) => i.corpCode)).size).toBe(2); // 서로 다른 종목
+    expect(top2[0]).toMatchObject({ corpCode: 'CORP_A', buyScore: 90, personaCount: 2 });
+    expect(top2[1]).toMatchObject({ corpCode: 'CORP_B', buyScore: 80 });
+  });
+
   // ─── prevEditionDate / nextEditionDate ────────────────────────────────────
 
   it('prevSig 있으면 prevEditionDate가 KST 날짜 문자열로 반환', async () => {
@@ -287,6 +372,81 @@ describe('SignalsService — findDailyEdition', () => {
       gte: new Date('2026-07-15T15:00:00.000Z'),
       lt: new Date('2026-07-16T15:00:00.000Z'),
     });
+  });
+
+  // ─── DAR-551: 빈 에디션 폴백 브리핑(meta.fallbackBriefing) ──────────────────
+
+  const BRIEFING_ROWS = [
+    {
+      rcpNo: '20260716000009',
+      corpName: '카카오',
+      reportName: '단일판매·공급계약 체결',
+      eventType: 'SUPPLY_CONTRACT',
+      summaryText: '1,200억 규모 공급계약을 체결했다.',
+    },
+    {
+      rcpNo: '20260716000003',
+      corpName: '네이버',
+      reportName: '주주총회 소집결의',
+      eventType: null,
+      summaryText: null,
+    },
+  ];
+
+  it('빈 에디션(QUIET) + 주요 공시 존재 → meta.fallbackBriefing 매핑 노출(판단 count 불변)', async () => {
+    prisma.$queryRaw.mockResolvedValue(BRIEFING_ROWS);
+    const result = await service.findDailyEdition(TODAY_KST);
+    expect(result.meta.isEmpty).toBe(true);
+    expect(result.meta.emptyReason).toBe('QUIET');
+    // ★정직 불변식: 판단(items) 은 여전히 0 — 브리핑은 판단이 아니다.
+    expect(result.items).toHaveLength(0);
+    // 브리핑은 meta 로 분리 노출.
+    expect(result.meta.fallbackBriefing).toHaveLength(2);
+    expect(result.meta.fallbackBriefing?.[0]).toEqual({
+      rcpNo: '20260716000009',
+      corpName: '카카오',
+      eventLabel: '공급계약',
+      summaryLine: '1,200억 규모 공급계약을 체결했다.',
+      summarySource: 'AI',
+    });
+    expect(result.meta.fallbackBriefing?.[1]).toEqual({
+      rcpNo: '20260716000003',
+      corpName: '네이버',
+      eventLabel: '기타 공시',
+      summaryLine: '주주총회 소집결의',
+      summarySource: 'TITLE',
+    });
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('빈 에디션 + 주요 공시 없음 → meta.fallbackBriefing=[] (빈 배열)', async () => {
+    prisma.$queryRaw.mockResolvedValue([]);
+    const result = await service.findDailyEdition(TODAY_KST);
+    expect(result.meta.isEmpty).toBe(true);
+    expect(result.meta.fallbackBriefing).toEqual([]);
+  });
+
+  it('비빈 에디션(판단 존재) → fallbackBriefing 없음 + 브리핑 쿼리 미호출', async () => {
+    prisma.tradingSignal.findMany.mockResolvedValue([BASE_SIGNAL]);
+    prisma.eventStudyResult.findMany.mockResolvedValue([]);
+    const result = await service.findDailyEdition(TODAY_KST);
+    expect(result.meta.isEmpty).toBe(false);
+    expect(result.meta.fallbackBriefing).toBeUndefined();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('FUTURE → 브리핑 미조회(fallbackBriefing undefined)', async () => {
+    const result = await service.findDailyEdition('20260901');
+    expect(result.meta.emptyReason).toBe('FUTURE');
+    expect(result.meta.fallbackBriefing).toBeUndefined();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('CLOSED(주말) → 브리핑 미조회(fallbackBriefing undefined)', async () => {
+    const result = await service.findDailyEdition('20260718'); // 토요일
+    expect(result.meta.emptyReason).toBe('CLOSED');
+    expect(result.meta.fallbackBriefing).toBeUndefined();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 });
 

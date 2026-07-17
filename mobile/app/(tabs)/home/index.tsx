@@ -19,6 +19,7 @@ import { typography } from '@theme/typography';
 import { verticalHitSlopForHeight } from '@utils/touchTarget';
 import { formatUnreadBadge } from '@utils/unreadBadge';
 import { deriveActiveCompanies } from '@utils/coldStartSuggestions';
+import { SHOW_TRADING } from '@utils/tradingVisibility';
 import { GlassCard } from '@components/common/GlassCard';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
@@ -343,7 +344,9 @@ export default function HomeScreen() {
   const listFooterElement = useMemo(
     () => (
       <>
-        {isAuthenticated ? (
+        {/* DAR-549: 첫 게시(Play) 빌드(!SHOW_TRADING)는 '운용 성과' footer(졸업 트래커+전환 현황)를
+            렌더하지 않는다 — 모의운용 성과 표면 전면 제외. 페이지네이션 스피너는 그대로 유지. */}
+        {isAuthenticated && SHOW_TRADING ? (
           <View style={styles.listFooterSection}>
             <GraduationTracker />
           </View>

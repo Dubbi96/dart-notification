@@ -32,7 +32,9 @@ const MIN_WINDOW_TRADING_DAYS = 1;
 export const EDITION_SIGNAL_DEFINITION =
   "에디션 신호 = 매수등급(STRONG_BUY+BUY) TradingSignal 중 백필 제외(disclosure.isBackfill=false). " +
   "귀속 거래일 = created_at 을 KST 로 환산한 날짜((created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date). " +
-  "이는 GET /signals/daily-editions 가 세는 '호'의 밀도와 1:1 일치한다. " +
+  'buyGrade(원시 신호 행수)는 TradingSignal 자연키가 (corpCode,rcpNo,eventType,persona)라 ' +
+  '페르소나별 중복을 포함할 수 있다(DAR-553) — GET /signals/daily-editions 가 세는 실제 \'호\' 카드 수와 ' +
+  '1:1 일치하는 계열은 buyGradeUniqueCorp(corpCode dedup)다. ' +
   'allGrade 계열은 매수등급 필터만 뺀 전등급 신호(백필 제외)로, 파이프라인이 신호는 만들지만 ' +
   '매수등급이 아닐 뿐인지(폴백 여지)를 진단한다.';
 
@@ -41,6 +43,8 @@ interface RawDensityRow {
   date: string;
   totalCount: bigint;
   buyCount: bigint;
+  /** DAR-553: 매수등급 신호의 유니크 corpCode 수(페르소나 중복 제거). */
+  uniqueCorpBuyCount: bigint;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -245,6 +249,7 @@ export class EditionDensityService {
           date,
           buyCount: row?.buyCount ?? 0,
           totalCount: row?.totalCount ?? 0,
+          uniqueCorpBuyCount: row?.uniqueCorpBuyCount ?? 0,
         };
       })
       // 최신 우선
@@ -254,9 +259,13 @@ export class EditionDensityService {
     const totalCounts = tradingDays.map(
       (d) => countsByDate.get(d)?.totalCount ?? 0,
     );
+    const uniqueCorpBuyCounts = tradingDays.map(
+      (d) => countsByDate.get(d)?.uniqueCorpBuyCount ?? 0,
+    );
 
     const buyGrade = computeDensityStats(buyCounts);
     const allGrade = computeDensityStats(totalCounts);
+    const buyGradeUniqueCorp = computeDensityStats(uniqueCorpBuyCounts);
     const verdict = buildVerdict(buyGrade);
 
     const crossCheck: TradingDayCrossCheck = {
@@ -289,6 +298,7 @@ export class EditionDensityService {
       generatedAt: now.toISOString(),
       buyGrade,
       allGrade,
+      buyGradeUniqueCorp,
       verdict,
       tradingDayCrossCheck: crossCheck,
       daily,
@@ -297,7 +307,8 @@ export class EditionDensityService {
 
   /**
    * [oldestYmd, anchorEndYmd] KST 거래일 범위의 신호를 일자별로 집계.
-   * 매수등급(buyCount)·전등급(totalCount)을 한 번의 $queryRaw 로 산출한다.
+   * 매수등급 원시 행수(buyCount)·전등급(totalCount)·매수등급 유니크 corpCode 수
+   * (uniqueCorpBuyCount, DAR-553)를 한 번의 $queryRaw 로 산출한다.
    * ★KST 환산은 findDailyEditions 와 동일한 이중 변환(AT TIME ZONE 'UTC' → 'Asia/Seoul').
    *   단순 단일 변환은 서버 TZ 에 따라 하루 어긋나므로 금지.
    * 신호 없는 날은 행이 없어 호출부에서 0 으로 채운다.
@@ -305,7 +316,9 @@ export class EditionDensityService {
   private async countSignalsByKstDate(
     oldestYmd: string,
     anchorEndYmd: string,
-  ): Promise<Map<string, { buyCount: number; totalCount: number }>> {
+  ): Promise<
+    Map<string, { buyCount: number; totalCount: number; uniqueCorpBuyCount: number }>
+  > {
     const STRONG_BUY = SignalGrade.STRONG_BUY_CANDIDATE;
     const BUY = SignalGrade.BUY_CANDIDATE;
     // ★컬럼명은 Prisma 기본(따옴표 camelCase) — 스키마에 per-field @map 이 없으므로
@@ -319,7 +332,9 @@ export class EditionDensityService {
         )                                                                    AS date,
         COUNT(*)::bigint                                                     AS "totalCount",
         SUM(CASE WHEN ts.signal::text IN (${STRONG_BUY}, ${BUY}) THEN 1 ELSE 0 END)::bigint
-                                                                            AS "buyCount"
+                                                                            AS "buyCount",
+        COUNT(DISTINCT CASE WHEN ts.signal::text IN (${STRONG_BUY}, ${BUY}) THEN ts."corpCode" END)::bigint
+                                                                            AS "uniqueCorpBuyCount"
       FROM trading_signals ts
       JOIN disclosures d ON d."rcpNo" = ts."rcpNo"
       WHERE d."isBackfill" = false
@@ -330,11 +345,15 @@ export class EditionDensityService {
       GROUP BY (ts."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date
     `);
 
-    const map = new Map<string, { buyCount: number; totalCount: number }>();
+    const map = new Map<
+      string,
+      { buyCount: number; totalCount: number; uniqueCorpBuyCount: number }
+    >();
     for (const r of rows) {
       map.set(r.date, {
         buyCount: Number(r.buyCount),
         totalCount: Number(r.totalCount),
+        uniqueCorpBuyCount: Number(r.uniqueCorpBuyCount),
       });
     }
     return map;

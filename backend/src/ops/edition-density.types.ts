@@ -56,10 +56,19 @@ export interface DensityStats {
 export interface DensityDailyRow {
   /** KST 거래일(YYYYMMDD). */
   date: string;
-  /** 매수등급(STRONG_BUY+BUY) 에디션 신호 건수 — 사용자가 실제로 보는 '호'의 밀도. */
+  /**
+   * 매수등급(STRONG_BUY+BUY) 에디션 신호 건수(TradingSignal 원시 행수, 페르소나별 중복 포함).
+   * ★DAR-553 이후 `GET /signals/daily-editions`의 count(corp당 대표 1건)와 더 이상 1:1 아님 —
+   * 실제 카드 수는 `uniqueCorpBuyCount` 참조.
+   */
   buyCount: number;
   /** 전등급 신호 건수(백필 제외) — 파이프라인이 신호는 만드나 매수등급이 아닐 뿐인지 진단용. */
   totalCount: number;
+  /**
+   * DAR-553: 매수등급 신호의 유니크 종목(corpCode) 수 — 페르소나 중복 제거.
+   * `GET /signals/daily-editions`의 count·에디션 실제 노출 카드 수와 1:1 일치.
+   */
+  uniqueCorpBuyCount: number;
 }
 
 /** 분모(거래일 수) 교차검증 — 캘린더 규칙 vs 운영 데이터(일봉 실재일). */
@@ -109,10 +118,19 @@ export interface EditionDensityReport {
    */
   todayIncludedInWindow: boolean;
   generatedAt: string;
-  /** ★주계열: 매수등급(에디션에 실제 노출) 신호 밀도. */
+  /**
+   * ★주계열: 매수등급 TradingSignal 원시 행 밀도(페르소나별 중복 포함).
+   * DAR-553 이전 정의 그대로 유지(회귀 방지) — 해석 시 `buyGradeUniqueCorp` 병기 참조.
+   */
   buyGrade: DensityStats;
   /** 보조계열: 전등급 신호 밀도(폴백 여지 진단). */
   allGrade: DensityStats;
+  /**
+   * DAR-553: 매수등급 신호를 corpCode 기준 dedup한 밀도(에디션이 실제 노출하는 카드 수).
+   * `GET /signals/daily-editions`의 count 분포와 1:1 일치 — `buyGrade`(원시 행수)는
+   * 페르소나 중복을 포함해 과대집계될 수 있으므로, "빈 신문" 여부의 정확한 해석은 이 계열을 우선한다.
+   */
+  buyGradeUniqueCorp: DensityStats;
   /** 판정(수용기준 2). */
   verdict: EditionDensityVerdict;
   /** 분모 교차검증(정직성). */

@@ -58,8 +58,12 @@ ok('A-HOME-2: ListHeader 에 MarketIndexBadge 존재', /<MarketIndexBadge/.test(
 }
 
 // ── A-HOME-3: 게스트 게이팅 — 운용 성과(졸업/퍼널)는 footer + isAuthenticated 게이트 ──
+// DAR-549: 첫 게시(Play) 빌드는 여기에 SHOW_TRADING 조건이 추가돼 모의운용 성과 footer 를 전면 제외한다.
 ok('A-HOME-3: GraduationTracker 는 ListFooter 에서 렌더', /<GraduationTracker/.test(listFooterBlock));
-ok('A-HOME-3: footer 의 GraduationTracker 는 isAuthenticated 게이트', /isAuthenticated\s*\?[\s\S]*<GraduationTracker/.test(listFooterBlock));
+ok(
+  'A-HOME-3: footer 의 GraduationTracker 는 isAuthenticated + SHOW_TRADING 게이트(DAR-549)',
+  /isAuthenticated\s*&&\s*SHOW_TRADING\s*\?[\s\S]*<GraduationTracker/.test(listFooterBlock),
+);
 // 회귀: 페이지네이션 스피너(ActivityIndicator) 유지.
 ok('regression: footer 에 페이지네이션 ActivityIndicator 유지', /isFetchingNextPage\s*\?[\s\S]*ActivityIndicator/.test(listFooterBlock));
 

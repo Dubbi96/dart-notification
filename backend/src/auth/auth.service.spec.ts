@@ -469,3 +469,82 @@ describe('AuthService kakaoLogin fetch 타임아웃 (DAR-297)', () => {
     );
   });
 });
+
+/**
+ * DAR-550 [BE·P1·오너결정]: 공개 코호트 트레이딩 알림 차단 — 체결 계열 발송 가드.
+ *
+ * 오너 결정으로 신규 가입자는 체결(TRADE_ENTRY/TRADE_EXIT) 푸시 기본 OFF 다.
+ * 두 가입 경로(local signup / kakao 신규) 모두 notificationSettings 생성 시
+ * tradePushEnabled:false 로 만들어 공개(Play) 사용자에게 체결 푸시가 기본 발송되지 않게 한다.
+ * (기존 사용자 무손실은 스키마 default 변경 + migration SET DEFAULT 로 보장 — 기존 row 미변경.)
+ */
+describe('AuthService 신규 가입자 체결 푸시 기본 OFF (DAR-550)', () => {
+  it('local signup: notificationSettings 를 tradePushEnabled=false 로 생성', async () => {
+    const { service, prisma } = createService();
+    const createMock = jest.fn(async ({ data }: any) => ({
+      id: 'u_new',
+      email: data.email,
+      name: data.name,
+      createdAt: new Date('2026-07-17T00:00:00Z'),
+    }));
+    prisma.user = {
+      findUnique: jest.fn(async () => null), // 신규 이메일(중복 아님)
+      create: createMock,
+    };
+
+    const result = await service.signup({
+      email: 'new@user.com',
+      password: 'pw123456',
+      name: '신규유저',
+    } as any);
+
+    // notificationSettings 중첩 create 에 tradePushEnabled:false 가 명시됐는지 입증.
+    const createArg = createMock.mock.calls[0][0] as any;
+    expect(createArg.data.notificationSettings.create.tradePushEnabled).toBe(false);
+    // 다른 기본값(회귀): 마스터 스위치·공시설정은 그대로.
+    expect(createArg.data.notificationSettings.create.isEnabled).toBe(true);
+    expect(result.user.email).toBe('new@user.com');
+  });
+
+  it('kakao 신규 가입: notificationSettings 를 tradePushEnabled=false 로 생성', async () => {
+    const KAKAO_ID = 246813579;
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ access_token: 'tok' }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: KAKAO_ID,
+          kakao_account: { email: 'knew@user.com', profile: { nickname: '카카오신규' } },
+        }),
+      });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      const { service, prisma } = createService();
+      const createMock = jest.fn(async ({ data }: any) => ({
+        id: 'kakao_new_1',
+        email: data.email,
+        name: data.name,
+        createdAt: new Date('2026-07-17T00:00:00Z'),
+      }));
+      prisma.user = {
+        findFirst: jest.fn(async () => null), // 기존 kakao 사용자 없음 → 신규 생성 경로
+        create: createMock,
+        update: jest.fn(async () => undefined),
+      };
+      prisma.watchList = { count: jest.fn(async () => 0) };
+
+      const result = await service.kakaoLogin('auth-code', 'https://app/callback');
+
+      const createArg = createMock.mock.calls[0][0] as any;
+      expect(createArg.data.notificationSettings.create.tradePushEnabled).toBe(false);
+      expect(createArg.data.notificationSettings.create.isEnabled).toBe(true);
+      expect(result.isNewUser).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

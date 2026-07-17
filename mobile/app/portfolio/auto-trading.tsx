@@ -5,7 +5,6 @@ import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { withTradingGuard } from '@components/common/withTradingGuard';
-import { useTheme } from '@theme';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
@@ -143,7 +142,10 @@ function OrderRow({ item }: { item: AutoStatusOrderItem }) {
             numberOfLines={1}
             ellipsizeMode="tail"
           >
-            {item.stockCode} · {sideLabel} {item.requestedShares.toLocaleString('ko-KR')}주
+            {item.stockCode} · {sideLabel}
+          </Text>
+          <Text style={[typo.captionMedium, { color: colors.text, flexShrink: 0 }]}>
+            {' '}{item.requestedShares.toLocaleString('ko-KR')}주
           </Text>
         </View>
         <Text style={[typo.small, { color: colors.textTertiary, marginTop: 2 }]}>

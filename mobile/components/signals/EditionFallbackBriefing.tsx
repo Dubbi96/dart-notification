@@ -2,7 +2,7 @@ import React, { useCallback } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 
@@ -35,12 +35,17 @@ function BriefingRowBase({ item, onPress }: RowProps) {
       <Card style={styles.row} variant="elevated">
         <View style={styles.rowHeader}>
           <View style={[styles.badge, { backgroundColor: colors.surfaceSecondary }]}>
-            <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+            <Text
+              style={[typo.small, { color: colors.textSecondary, flexShrink: 1, minWidth: 0 }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+            >
               {item.eventLabel}
             </Text>
           </View>
           <Text
-            style={[typo.captionMedium, styles.corpName, { color: colors.text }]}
+            style={[typo.captionMedium, styles.corpName, { color: colors.text, flexShrink: 1, minWidth: 0 }]}
             numberOfLines={1}
             ellipsizeMode="tail"
           >
@@ -49,7 +54,7 @@ function BriefingRowBase({ item, onPress }: RowProps) {
           <Feather name="chevron-right" size={16} color={colors.textTertiary} />
         </View>
         <Text
-          style={[typo.caption, styles.summary, { color: colors.textSecondary }]}
+          style={[typo.caption, styles.summary, { color: colors.textSecondary, flexShrink: 1, minWidth: 0 }]}
           numberOfLines={1}
           ellipsizeMode="tail"
         >

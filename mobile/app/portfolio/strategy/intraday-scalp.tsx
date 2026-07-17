@@ -5,7 +5,6 @@ import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { withTradingGuard } from '@components/common/withTradingGuard';
-import { useTheme } from '@theme';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';

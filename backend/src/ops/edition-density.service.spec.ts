@@ -209,10 +209,11 @@ describe('EditionDensityService.getEditionDensity — 통합(모킹)', () => {
   beforeEach(() => {
     prisma = {
       // 20260716·20260714 는 행 없음(신호 0건일) → 호출부에서 0 채움
+      // 20260717: buyCount=3 이지만 uniqueCorpBuyCount=2 — 한 corp가 2페르소나 중복(DAR-553 dedup 대상).
       $queryRaw: jest.fn().mockResolvedValue([
-        { date: '20260717', totalCount: BigInt(5), buyCount: BigInt(3) },
-        { date: '20260715', totalCount: BigInt(4), buyCount: BigInt(1) },
-        { date: '20260713', totalCount: BigInt(2), buyCount: BigInt(2) },
+        { date: '20260717', totalCount: BigInt(5), buyCount: BigInt(3), uniqueCorpBuyCount: BigInt(2) },
+        { date: '20260715', totalCount: BigInt(4), buyCount: BigInt(1), uniqueCorpBuyCount: BigInt(1) },
+        { date: '20260713', totalCount: BigInt(2), buyCount: BigInt(2), uniqueCorpBuyCount: BigInt(2) },
       ]),
       stockDailyPrice: {
         findMany: jest.fn().mockResolvedValue([
@@ -245,11 +246,11 @@ describe('EditionDensityService.getEditionDensity — 통합(모킹)', () => {
       '20260713',
     ]);
     const by = Object.fromEntries(r.daily.map((d) => [d.date, d]));
-    expect(by['20260717']).toMatchObject({ buyCount: 3, totalCount: 5 });
-    expect(by['20260716']).toMatchObject({ buyCount: 0, totalCount: 0 }); // 행 없음 → 0
-    expect(by['20260715']).toMatchObject({ buyCount: 1, totalCount: 4 });
-    expect(by['20260714']).toMatchObject({ buyCount: 0, totalCount: 0 });
-    expect(by['20260713']).toMatchObject({ buyCount: 2, totalCount: 2 });
+    expect(by['20260717']).toMatchObject({ buyCount: 3, totalCount: 5, uniqueCorpBuyCount: 2 });
+    expect(by['20260716']).toMatchObject({ buyCount: 0, totalCount: 0, uniqueCorpBuyCount: 0 }); // 행 없음 → 0
+    expect(by['20260715']).toMatchObject({ buyCount: 1, totalCount: 4, uniqueCorpBuyCount: 1 });
+    expect(by['20260714']).toMatchObject({ buyCount: 0, totalCount: 0, uniqueCorpBuyCount: 0 });
+    expect(by['20260713']).toMatchObject({ buyCount: 2, totalCount: 2, uniqueCorpBuyCount: 2 });
   });
 
   it('buyGrade/allGrade 통계 + 판정', async () => {
@@ -275,6 +276,23 @@ describe('EditionDensityService.getEditionDensity — 통합(모킹)', () => {
     expect(r.verdict.medianBelowThreshold).toBe(true);
     expect(r.verdict.zeroDayRatioAboveThreshold).toBe(false);
     expect(r.verdict.fallbackProposalTriggered).toBe(true);
+  });
+
+  it('DAR-553: buyGradeUniqueCorp — corpCode dedup 밀도가 원시 buyGrade와 별도로 산출된다', async () => {
+    const r = await service.getEditionDensity(5, NOW);
+    // uniqueCorpBuyCounts asc[20260713..17] = [2,0,1,0,2] — buyGrade(원시 [2,0,1,0,3])와 다름(20260717 dedup 반영).
+    expect(r.buyGradeUniqueCorp).toMatchObject({
+      days: 5,
+      totalSignals: 5,
+      mean: 1,
+      median: 1,
+      zeroDays: 2,
+      zeroDayRatio: 0.4,
+    });
+    // 20260717 은 원시 3건이 유니크 corp 2건으로 dedup — 두 계열이 갈라짐을 명시적으로 고정.
+    expect(r.buyGrade.totalSignals).not.toBe(r.buyGradeUniqueCorp.totalSignals);
+    // verdict(수용기준)는 기존 buyGrade 기준 그대로 — dedup 계열은 병기(해석 정정용)일 뿐 판정을 바꾸지 않는다.
+    expect(r.verdict.medianBelowThreshold).toBe(r.buyGrade.median < 2);
   });
 
   it('분모 교차검증 — 캘린더 vs 일봉 일치', async () => {

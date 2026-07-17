@@ -232,6 +232,91 @@ describe('SignalsService — findDailyEdition', () => {
     expect(result.meta.isToday).toBe(false);
   });
 
+  it('신호 1건이면 personaCount=1, otherPersonas=[]', async () => {
+    prisma.tradingSignal.findMany.mockResolvedValue([BASE_SIGNAL]);
+    prisma.eventStudyResult.findMany.mockResolvedValue([]);
+    const result = await service.findDailyEdition(TODAY_KST);
+    expect(result.items[0].personaCount).toBe(1);
+    expect(result.items[0].otherPersonas).toEqual([]);
+  });
+
+  // ─── DAR-553: corpCode당 대표 1건 dedup ────────────────────────────────────
+
+  function signalFixture(overrides: Partial<typeof BASE_SIGNAL>): typeof BASE_SIGNAL {
+    return { ...BASE_SIGNAL, ...overrides };
+  }
+
+  it('같은 corpCode·다른 persona 2건 → 에디션 1카드로 dedup + personaCount=2', async () => {
+    const high = signalFixture({ id: 'sig_high', persona: 'GROWTH', buyScore: 90 });
+    const low = signalFixture({ id: 'sig_low', persona: 'VALUE', buyScore: 70 });
+    // Prisma orderBy(buyScore desc)를 흉내: 서비스가 이미 정렬된 결과를 받는다고 가정.
+    prisma.tradingSignal.findMany.mockResolvedValue([high, low]);
+    prisma.eventStudyResult.findMany.mockResolvedValue([]);
+
+    const result = await service.findDailyEdition(TODAY_KST);
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].id).toBe('sig_high'); // 최고 buyScore가 대표
+    expect(result.items[0].buyScore).toBe(90);
+    expect(result.items[0].personaCount).toBe(2);
+    expect(result.items[0].otherPersonas).toEqual(['VALUE']);
+  });
+
+  it('같은 corpCode·동일 buyScore 동점 → tie-break(createdAt desc)가 대표를 결정', async () => {
+    const older = signalFixture({
+      id: 'sig_older',
+      persona: 'GROWTH',
+      buyScore: 80,
+      createdAt: new Date('2026-07-15T15:10:00.000Z'),
+    });
+    const newer = signalFixture({
+      id: 'sig_newer',
+      persona: 'MOMENTUM',
+      buyScore: 80,
+      createdAt: new Date('2026-07-15T15:20:00.000Z'),
+    });
+    // findMany 는 orderBy(buyScore desc, createdAt desc, id desc) 결과를 반환하므로 newer 가 먼저 온다.
+    prisma.tradingSignal.findMany.mockResolvedValue([newer, older]);
+    prisma.eventStudyResult.findMany.mockResolvedValue([]);
+
+    const result = await service.findDailyEdition(TODAY_KST);
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].id).toBe('sig_newer');
+    expect(result.items[0].otherPersonas).toEqual(['GROWTH']);
+  });
+
+  it('서로 다른 corpCode 2건 → dedup 없이 2카드 유지(과도 병합 금지)', async () => {
+    const corpA = signalFixture({ id: 'sig_a', corpCode: 'CORP_A', buyScore: 90 });
+    const corpB = signalFixture({ id: 'sig_b', corpCode: 'CORP_B', buyScore: 80 });
+    prisma.tradingSignal.findMany.mockResolvedValue([corpA, corpB]);
+    prisma.eventStudyResult.findMany.mockResolvedValue([]);
+
+    const result = await service.findDailyEdition(TODAY_KST);
+
+    expect(result.items).toHaveLength(2);
+    expect(result.items.map((i) => i.corpCode)).toEqual(['CORP_A', 'CORP_B']);
+    expect(result.items.every((i) => i.personaCount === 1)).toBe(true);
+  });
+
+  it('DAR-553 계약: 홈 요약 상위 2건(top-2)이 자동으로 서로 다른 종목이 된다', async () => {
+    // 같은 corp(A)가 페르소나 2개(90, 85)로 1·2위를 모두 점유하던 회귀 시나리오.
+    // dedup 전이었다면 top-2 = [A(90), A(85)] — 홈 요약이 같은 종목을 두 번 보여줬을 것.
+    const corpAHigh = signalFixture({ id: 'sig_a_high', corpCode: 'CORP_A', persona: 'GROWTH', buyScore: 90 });
+    const corpALow = signalFixture({ id: 'sig_a_low', corpCode: 'CORP_A', persona: 'VALUE', buyScore: 85 });
+    const corpB = signalFixture({ id: 'sig_b', corpCode: 'CORP_B', persona: 'MOMENTUM', buyScore: 80 });
+    prisma.tradingSignal.findMany.mockResolvedValue([corpAHigh, corpALow, corpB]);
+    prisma.eventStudyResult.findMany.mockResolvedValue([]);
+
+    const result = await service.findDailyEdition(TODAY_KST);
+    const top2 = result.items.slice(0, 2); // HomeSignalPreview.MAX_PREVIEW=2 와 동일 슬라이스
+
+    expect(top2).toHaveLength(2);
+    expect(new Set(top2.map((i) => i.corpCode)).size).toBe(2); // 서로 다른 종목
+    expect(top2[0]).toMatchObject({ corpCode: 'CORP_A', buyScore: 90, personaCount: 2 });
+    expect(top2[1]).toMatchObject({ corpCode: 'CORP_B', buyScore: 80 });
+  });
+
   // ─── prevEditionDate / nextEditionDate ────────────────────────────────────
 
   it('prevSig 있으면 prevEditionDate가 KST 날짜 문자열로 반환', async () => {

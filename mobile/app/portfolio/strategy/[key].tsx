@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
+import { withTradingGuard } from '@components/common/withTradingGuard';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
@@ -150,7 +151,7 @@ function TradeRow({ trade }: { trade: StrategyTrade }) {
   );
 }
 
-export default function StrategyTradeTimelineScreen() {
+function StrategyTradeTimelineScreen() {
   const { colors, typography: typo } = useTheme();
   const params = useLocalSearchParams<{ key: string }>();
   const key = isStrategyKey(params.key) ? params.key : undefined;
@@ -238,6 +239,9 @@ export default function StrategyTradeTimelineScreen() {
     </SafeAreaView>
   );
 }
+
+// DAR-549: 첫 게시(Play) 빌드에서 트레이딩 라우트 진입 시 홈으로 리다이렉트(가드).
+export default withTradingGuard(StrategyTradeTimelineScreen);
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

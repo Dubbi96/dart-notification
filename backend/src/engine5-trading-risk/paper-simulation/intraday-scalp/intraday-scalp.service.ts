@@ -20,6 +20,7 @@ import {
   scanEntrySignals,
   ScalpCandle,
   SCALP_ENTRY_TAG,
+  DEFAULT_SCALP_ENTRY_PARAMS,
 } from '../../../engine3-quant-market/intraday-scalp/intraday-scalp-signal';
 import { RealtimeQuoteCache } from '../../../engine3-quant-market/market-data/realtime-quote.cache';
 import { KrxMarketDataScheduler } from '../../../engine3-quant-market/market-data/krx-market-data.scheduler';
@@ -149,6 +150,13 @@ function toNum(v: unknown): number {
   if (v === null || v === undefined) return 0;
   return Number(v);
 }
+
+/**
+ * ★DAR-531: KST(UTC+9, DST 없음) 오프셋 ms. 분봉 ts 는 'KST 벽시계를 UTC 컴포넌트에 담은 naive
+ *   instant'(minuteTimestamp SSOT)라, 현재 시각도 같은 basis(=real UTC now + 9h)로 환산해야 봉 ts 와
+ *   직접 비교된다. 예: real UTC 00:02Z(=09:02 KST) + 9h → 09:02Z, 09:02 KST 봉 ts 와 동일 instant.
+ */
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 /** 'YYYYMMDD' 의 직전 달력일('YYYYMMDD'). 월/연 경계 안전(UTC 산술). DAR-412 flat-fill 앵커. */
 function compactDayBefore(yyyymmdd: string): string {
@@ -575,6 +583,9 @@ export class IntradayScalpService {
       else availableCash -= toNum(t.entryPrice) * t.shares;
     }
 
+    // ★DAR-531: 미래봉 가드 기준 — 현재 KST 벽시계를 분봉 ts 와 동일 basis(naive instant)로 환산.
+    const nowKstNaiveMs = now.getTime() + KST_OFFSET_MS;
+
     let entered = 0;
     let scannedStocks = 0;
     for (const cand of universe) {
@@ -583,8 +594,10 @@ export class IntradayScalpService {
 
       const candles = await this.loadTodayCandles(cand.stockCode, tradeDate);
       // ★DAR-415 윈도우 스캔: 직전 스캔 이후 도착 분봉부터 각 봉을 '현재'로 평가, 첫 충족봉 포착.
+      // ★DAR-531 미래봉 하드가드: now(KST 벽시계 naive) 이후 봉은 신호 대상에서 제외 — 개장 직후 전일
+      //   분봉이 당일로 오라벨돼 DB 에 남아도 '미래 시각 충족봉' 기반 유령 진입을 원천 차단(이중 방어).
       const fromIndex = this.scanCursor.get(cand.stockCode) ?? 0;
-      const scan = scanEntrySignals(candles, fromIndex);
+      const scan = scanEntrySignals(candles, fromIndex, DEFAULT_SCALP_ENTRY_PARAMS, nowKstNaiveMs);
       scannedStocks += 1;
 
       if (scan.index < 0 || scan.candle === null || scan.decision.currentPrice === null) {

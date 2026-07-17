@@ -215,8 +215,12 @@ export class RiskGuardService {
     const advice = checkAutoKill(inputs, SHADOW_AUTO_KILL_CONDITIONS);
 
     // ③ 멱등 기록 + ④ 알림 — 부수효과(graceful). activate() 미호출(구조적).
-    await this.persistAutoKillAdvice(input, inputs, advice);
-    if (advice.shouldKill) {
+    // ★DAR-531: OPS_ALERT 를 '당일 최초 발동 권고 전환' 시에만 발행(스팸 억제). 장중 모니터가 매
+    //   10분 재평가하므로, 이전엔 shouldKill 인 매 사이클마다 재발행돼 수신자에게 10분마다 경보가
+    //   갔다(2026-07-17 유령진입 사고 정황). 멱등 기록의 에스컬레이션(ALLOW→SHADOW_VIOLATION, 또는
+    //   신규 발동 생성) 전환에서만 1회 알림 → track+tradeDate 당 하루 1건(수신자 스팸 0).
+    const newlyEscalated = await this.persistAutoKillAdvice(input, inputs, advice);
+    if (advice.shouldKill && newlyEscalated) {
       await this.alertAutoKill(input, advice);
     }
 
@@ -311,12 +315,16 @@ export class RiskGuardService {
    *   장중 모니터가 매 10분 재호출해도 당일 1행만 유지(측정 노이즈 억제). 당일 에스컬레이션
    *   (ALLOW→SHADOW_VIOLATION)만 갱신해 '그날 최악' 권고를 반영한다. money 컬럼은 자동킬 컨텍스트에
    *   부적합 → 0 고정하고 meta 가 권위(raw 입력 전량 보존 — P23 사후 임계 결정용). graceful.
+   *
+   * ★DAR-531 반환값: '당일 최초로 발동 권고(shouldKill=true)로 전환됐는가'(신규 발동 생성 또는
+   *   ALLOW→SHADOW_VIOLATION 갱신). 호출부가 이 전환에서만 OPS_ALERT 를 1회 발행해 10분 간격
+   *   재발행 스팸을 차단한다. 이미 발동 상태·비발동·영속 실패는 false(재알림·오알림 방지).
    */
   private async persistAutoKillAdvice(
     input: RiskGuardAutoKillInput,
     inputs: AutoKillCheckInput,
     advice: AutoKillResult,
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       const action = advice.shouldKill ? 'SHADOW_VIOLATION' : 'ALLOW';
       const meta = {
@@ -358,7 +366,8 @@ export class RiskGuardService {
             meta,
           },
         });
-        return;
+        // 신규 행이 곧바로 발동 상태면 '최초 발동 전환' → 알림 1회 허용.
+        return advice.shouldKill;
       }
       // 에스컬레이션(비발동→발동)만 갱신 — 멱등·당일 worst 반영.
       if (existing.action === 'ALLOW' && advice.shouldKill) {
@@ -366,11 +375,15 @@ export class RiskGuardService {
           where: { id: existing.id },
           data: { action, violationCodes: advice.triggerCode ?? '', meta },
         });
+        return true; // ALLOW→SHADOW_VIOLATION 전환 → 알림 1회 허용.
       }
+      // 이미 SHADOW_VIOLATION(발동 지속) 또는 비발동 → 재알림 금지.
+      return false;
     } catch (e) {
       this.logger.error(
         `[AutoKill] AUTO_KILL_ADVICE 영속 실패(무시): ${(e as Error).message}`,
       );
+      return false; // 영속 실패 시 알림 보류(오알림 방지·안전 측).
     }
   }
 

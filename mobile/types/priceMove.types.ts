@@ -24,6 +24,12 @@ export interface PriceMoveReasoningAnalyzed {
   eventLinkage: PriceMoveEventLinkage;
   /** 정직 한계 고지(상관≠인과·시장/수급 요인 가능성). */
   caveat: string;
+  /**
+   * 재무 맥락 한 줄(DAR-528, 규칙 기반·AI 무접점) — 공시 규모를 연매출 분모로 상대화
+   * (예: '이번 계약 규모는 2025 연매출의 약 12.3% (1230억 / 연매출 1조)').
+   * 분자(공시 규모)·분모(연매출) 중 하나라도 결측/불확실이면 null(수치 발명 금지 → 표시 생략).
+   */
+  financialContext: string | null;
 }
 
 /** NO_DISCLOSURE — 48h 무공시. AI 호출 0, 포맷 응답(분석 위장 금지). */

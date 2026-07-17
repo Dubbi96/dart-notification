@@ -3,6 +3,7 @@ import { View, StyleSheet, FlatList } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiErrorState } from '@components/common/StateView';
 import { EditionDateStrip } from '@components/signals/EditionDateStrip';
+import { EditionOptInBanner } from '@components/signals/EditionOptInBanner';
 import { EditionSignalList } from '@components/signals/EditionSignalList';
 import { useDailyEditions } from '@hooks/useSignals';
 import { useNotificationSettings } from '@hooks/useNotificationSettings';
@@ -103,6 +104,8 @@ function BuyEditionViewBase({ listRef, focusDate }: BuyEditionViewProps) {
 
   return (
     <View style={styles.container}>
+      {/* DAR-547: 에디션 뷰 상단 옵트인 배너(에디션 푸시 발견성). 이미 ON·dismiss 시 스스로 미노출. */}
+      <EditionOptInBanner />
       {/* 판단 존재일이 있거나 오늘 진입점이 있으면 스트립 노출(로딩 중엔 미노출 → 리스트 스켈레톤). */}
       {editions.length > 0 || todayDate ? (
         <EditionDateStrip

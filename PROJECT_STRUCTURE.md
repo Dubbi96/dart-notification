@@ -6,9 +6,7 @@
 dart-notification/
 ├── backend/                    # NestJS 백엔드
 │   ├── prisma/
-│   │   ├── migrations/        # DB 마이그레이션 파일
-│   │   │   └── 20260307131416_init/
-│   │   │       └── migration.sql
+│   │   ├── migrations/        # DB 마이그레이션 파일 (64개·전부 가산적 — 20260307131416_init ~ 최신 20260717150000_dar532_dart_quota_state. 예: dar514_notification_settings_v2·dar516_tester_event·dar522_price_move_reasoning·dar523_edition_notification_type)
 │   │   ├── migration_lock.toml
 │   │   └── schema.prisma      # Prisma 스키마 (provider/providerId on User)
 │   ├── src/
@@ -59,11 +57,14 @@ dart-notification/
 │   │   │   └── notification-settings.module.ts
 │   │   ├── engine1-disclosure/ # 🟦 Engine1: 공시 인텔리전스 도메인 (DDD Bounded Context)
 │   │   │   ├── CLAUDE.md            # 도메인 규칙 (작업 시 자동 로드)
+│   │   │   ├── common/              # engine1 공통 유틸(수집 공통 헬퍼)
 │   │   │   ├── disclosures/         # 공시 조회 (GET /disclosures)
-│   │   │   ├── scheduler/           # 수집 배치 (DART 폴링·재시도 + 장중 1분 델타 폴링 [갭분석 W5]) — M0
-│   │   │   ├── dart-api/            # DART OpenAPI 클라이언트 (일일 쿼터 3단 가드)
+│   │   │   ├── scheduler/           # 수집 배치 (DART 폴링·재시도 + 장중 1분 델타 폴링 [갭분석 W5] + forward 갭 복구 [DAR-434]) — M0
+│   │   │   ├── dart-api/            # DART OpenAPI 클라이언트 (일일 쿼터 3단 가드 + 재기동 영속화 dart_quota_state [DAR-532])
 │   │   │   ├── disclosure-documents/ # 원문 파싱 (HTML/XML/표·정정 diff) — M1
 │   │   │   ├── disclosure-events/   # 이벤트·수치 추출 (extractors 14종 — 가이던스 guidance.ts [갭분석 W9] 포함) — M2
+│   │   │   ├── financials/          # 재무제표 수집·성장률 파생·조회 (CompanyFinancial — 야간 수집 스케줄러·growth 순수함수)
+│   │   │   ├── insider-holdings/    # 지분공시(임원·주요주주 소유) 수집·매퍼·야간 벌크 게이트 (GET /insider-holdings) [DAR-87·DAR-540]
 │   │   │   ├── upcoming-events/     # 공시발 예정 이벤트 캘린더 v1 — extractedData 날짜 파생 D-day 조회(GET /upcoming-events, 읽기 전용) [DAR-538]
 │   │   │   └── pipeline/            # 파이프라인 무결성·드레인·이벤트 백필·rawText/tables S3 오프로드 + 제목 기반 이벤트 백필(title-event-backfill.*, 매일 02:40 [갭분석 W4])
 │   │   ├── engine2-ai-analyst/ # 🟨 Engine2: AI Analyst 엔진 (M3, DAR-17)
@@ -83,6 +84,7 @@ dart-notification/
 │   │   │   ├── types/               # 타입 정의
 │   │   │   ├── consumers/           # BullMQ 컨슈머 (ai-analyze 큐)
 │   │   │   ├── backfill/            # AI 평가 백필 드레이너·스케줄러 (과거 미분석 공시, DAR-379)
+│   │   │   ├── philosophy/          # 투자거장 4철학 엔진 (P-A/P-B/P-C) — 시더·적합도 스코어러(philosophy-fit)·adapters·fusion (GET /philosophies)
 │   │   │   ├── smoke/               # 스모크 테스트
 │   │   │   └── ai-analyst.module.ts
 │   │   ├── engine3-quant-market/ # 🟧 Engine3: Quant Market 엔진 (M4~M6, M9, DAR-25)
@@ -95,7 +97,8 @@ dart-notification/
 │   │   │   │   ├── config/
 │   │   │   │   ├── entry/
 │   │   │   │   └── scoring/
-│   │   │   ├── event-study/         # Event Study 집계 (DAR-9)
+│   │   │   ├── intraday-scalp/       # 분봉 단타 진입 신호 순수 룰(intraday-scalp-signal — 미래봉 하드가드 [DAR-531]) [DAR-411/416]
+│   │   │   ├── event-study/         # Event Study 집계 (DAR-9) + 유사공시 반응 통계(disclosure-reaction-stats — 유형별 D+1/5/20·n≥30 정직 게이트, GET /disclosure-reaction-stats [DAR-511])
 │   │   │   │   ├── adapters/
 │   │   │   │   ├── ports/
 │   │   │   │   └── utils/
@@ -109,6 +112,7 @@ dart-notification/
 │   │   │   ├── dual-momentum/        # 코어 듀얼모멘텀 판정 순수 함수 + 상수 (DAR-492, P12 — 월말 리밸런싱)
 │   │   │   ├── volatility-breakout/  # 위성 변동성 돌파 신호·사이징 순수 함수 + 상수 (DAR-491, P14)
 │   │   │   ├── two-tier-backtest/    # 2단 프레임 상수 + ETF 비용 프로파일 + 코어·위성 백테스트 + 엣지 게이트 리포트 (DAR-493, P16, read-only)
+│   │   │   ├── signal-generation/    # 일일 신호 생성 배치·페르소나 뷰 룰(persona-view.rule)·재생성·백필 스케줄러 [DAR-25]
 │   │   │   ├── signals/             # REST API — /api/signals + 일일 에디션 조회(daily-editions·daily/:date, 읽기 파생·마이그 0) [DAR-25·DAR-505]
 │   │   │   │   ├── signals.controller.ts   # GET /signals·:id·daily-editions·daily/:date·by-corp·by-disclosure (:id catch-all 최하단)
 │   │   │   │   ├── signals.service.ts      # findDailyEditions($queryRaw KST 그룹핑)·findDailyEdition(findByCreatedRange·emptyReason)
@@ -162,7 +166,8 @@ dart-notification/
 │   │   │   ├── fill-simulator.spec.ts           # fixture 단위 테스트 (11건)
 │   │   │   ├── paper-portfolio.spec.ts          # fixture 단위 테스트 (9건)
 │   │   │   ├── cost-metrics.spec.ts             # fixture 단위 테스트 (5건)
-│   │   │   ├── paper-simulation/dual-momentum-forward/ # 듀얼모멘텀 코어 forward 트랙(모의) — 월말 리밸런싱·예약→익일시가·킬스위치 REDUCE_ONLY (DAR-494, P13). 모델 DualMomentumForwardTrade(FK 없음)
+│   │   │   ├── simulation/          # 모의 운용 오케스트레이터(simulation-orchestrator)·졸업 지표(graduation-metrics — GET /paper-simulation/graduation)·adapters·domain(position-sizing·signal-funnel 순수 룰) — M10 실데이터 모의운용 코어
+│   │   │   ├── paper-simulation/     # 트랙별 모의 실행·backtest-forward 괴리 스냅샷(DAR-479)·현금가드·cross-source 정합 + dual-momentum-forward/(듀얼모멘텀 코어 forward 트랙 — 월말 리밸런싱·예약→익일시가·킬스위치 REDUCE_ONLY, 모델 DualMomentumForwardTrade FK 없음 [DAR-494 P13])
 │   │   │   └── trading-risk.module.ts
 │   │   ├── notifications/     # 알림 히스토리
 │   │   │   ├── dto/
@@ -244,6 +249,10 @@ dart-notification/
 │   │   │   └── [stockCode].tsx # 종목 차트 전용 화면 (풀스크린 분봉+일봉) [DAR-355/384]
 │   │   ├── event-stats/
 │   │   │   └── index.tsx      # 이벤트 유형별 시장 통계 (Event Study 집계) [DAR-81]
+│   │   ├── price-move/
+│   │   │   └── [refId].tsx    # '왜 움직였나' 급변동 원인 리즈닝 상세 (PRICE_MOVE 알림 딥링크 타겟) [DAR-524/526]
+│   │   ├── upcoming-events/
+│   │   │   └── index.tsx      # 예정 이벤트 캘린더 전체 화면 + 관심종목 D-day 목록 [DAR-541]
 │   │   ├── philosophy/        # 투자거장 4철학 (버핏·린치·그린블라트·드러켄밀러)
 │   │   │   ├── index.tsx      # 철학 카드 목록 (게스트 열람 가능) [DAR-54]
 │   │   │   ├── [id].tsx       # 철학 상세 — 종목별 적합도
@@ -302,10 +311,12 @@ dart-notification/
 │   │   │   └── SignalExploreCard.tsx   # 탐색(아카이브) 카드 — SignalDateBadge 이관 [DAR-509]
 │   │   ├── company/                  # 기업/종목 상세 (탭·차트) — DecisionHubTab, Fundamentals/InsiderHoldingsTab, Daily/MinuteCandleChart(MA/볼린저 오버레이 [W13]), SupplyDemandCard(수급 요약 [W16]) 등 9종
 │   │   ├── disclosure/               # 공시 상세 섹션 — DisclosureAiAnalysisSection, DisclosureFiledFactsSection, DisclosureSignalLink
-│   │   ├── home/                     # 홈 화면 — DisclosureFeedCard, HomeSignalPreview(최신 에디션 요약 슬롯·정체 간극 hero·빈 4분기 [DAR-508]), UpcomingEventsSection(관심기업 예정 이벤트 D-day·빈 시 미표시 [DAR-538]), MarketIndexBadge, GraduationTracker 등 7종
+│   │   ├── home/                     # 홈 화면 — DisclosureFeedCard, HomeSignalPreview(최신 에디션 요약 슬롯·정체 간극 hero·빈 4분기 [DAR-508]), UpcomingEventsSection(관심기업 예정 이벤트 D-day·빈 시 미표시 [DAR-538]), ColdStartOnboarding·FirstWatchCoachmark(관심종목 콜드스타트 승격형 첫 등록 유도 [DAR-537]), EntryFunnelSection, MarketIndexBadge, GraduationTracker 등 8종
 │   │   ├── persona/                  # 투자 페르소나 — PersonaSelectCard, MarketRegimeCard, personaDisplay
 │   │   ├── philosophy/               # 투자거장 철학 — PhilosophyMasterCard, PhilosophyChecklist, PhilosophyFitBreakdown 등 5종
 │   │   ├── survey/                   # IosGateSurvey — iOS 게이트 1문항 설문(iOS+인증+미응답 1회 노출) [DAR-516 Wave A/A6]
+│   │   ├── priceMove/                # PriceMoveReasoningCard — '왜 움직였나' 급변동 원인 카드(3상태 정직화·재무 맥락 한 줄) [DAR-524/526/528/534 Wave C]
+│   │   ├── upcomingEvents/           # UpcomingEventRow·route — 예정 이벤트 D-day 행/라우팅 [DAR-541]
 │   │   └── portfolio/                # [DAR-21]
 │   │       ├── PositionCard.tsx       # 포지션 카드
 │   │       └── TodayBriefingSection.tsx # 오늘의 브리핑 (포트폴리오 탭 상단 [갭분석 W14])
@@ -326,6 +337,7 @@ dart-notification/
 │   │   ├── funnel.service.ts        # 온보딩 퍼널 계측 fire-and-forget [갭분석 W15]
 │   │   ├── testerEvents.service.ts  # 테스터 코호트 계측 전송(인증·fire-and-forget) [DAR-516 Wave A/A6]
 │   │   ├── upcomingEvents.service.ts # 관심기업 예정 이벤트 캘린더 조회(GET /upcoming-events) [DAR-538]
+│   │   ├── priceMove.service.ts     # '왜 움직였나' 리즈닝 조회(GET /price-move-reasonings/:refId) [DAR-526]
 │   │   └── shareLink.ts             # 공시 공유 링크(/share/:rcpNo) 생성 [갭분석 W3b]
 │   ├── hooks/                 # Custom Hooks
 │   │   ├── useAuth.ts
@@ -344,7 +356,9 @@ dart-notification/
 │   │   ├── useProWaitlist.ts        # Pro 사전신청 상태·등록·철회 [갭분석 W1]
 │   │   ├── useInvestorFlow.ts       # 수급·공매도 조회 [갭분석 W16]
 │   │   ├── useDailyIndicators.ts    # 기술지표 구간 조회 (차트 오버레이) [갭분석 W13]
-│   │   └── useUsDemand.ts           # 미국 주식 수요 원탭 기록 [갭분석 W8]
+│   │   ├── useUsDemand.ts           # 미국 주식 수요 원탭 기록 [갭분석 W8]
+│   │   ├── usePriceMoveReasoning.ts # '왜 움직였나' 리즈닝 조회 (React Query) [DAR-526]
+│   │   └── useColdStartOnboarding.ts # 관심종목 콜드스타트 온보딩 상태(useFirstWatchCoachmark 동반) [DAR-537]
 │   ├── stores/                # Zustand 상태 관리
 │   │   ├── authStore.ts      # 사용자 정보, 토큰 (SecureStore 연동)
 │   │   └── settingsStore.ts  # 앱 설정 (다크모드 등)
@@ -363,7 +377,8 @@ dart-notification/
 │   │   ├── portfolio.types.ts       # 포트폴리오/Thesis/모의투자 계약 [DAR-21] + 브리핑 [W14]
 │   │   ├── investor-flow.types.ts   # 수급·공매도 계약 [갭분석 W16]
 │   │   ├── market-quote.types.ts    # 기술지표 시리즈 계약 [갭분석 W13]
-│   │   └── upcomingEvent.types.ts   # 예정 이벤트 캘린더 계약 (BE DTO 1:1 미러) [DAR-538]
+│   │   ├── upcomingEvent.types.ts   # 예정 이벤트 캘린더 계약 (BE DTO 1:1 미러) [DAR-538]
+│   │   └── priceMove.types.ts       # '왜 움직였나' 리즈닝 계약 [DAR-526]
 │   ├── utils/                 # 유틸리티 함수
 │   │   ├── date.ts
 │   │   ├── signalDisplay.ts         # 점수/상태 → 테마색·레이블 매핑 [DAR-21]
@@ -377,7 +392,8 @@ dart-notification/
 │   │   ├── signalTerms.ts           # 신호 용어 SSOT + buildEditionTitle(동적 에디션 헤더)·에디션 날짜 헬퍼 [DAR-504·DAR-506]
 │   │   ├── signalFreshness.ts       # 신호 신선도/에디션 날짜 상태 SSOT(getSignalDateStatus — 정상/지연/만료) [DAR-506]
 │   │   ├── editionDisplay.ts        # 에디션 칩 라벨·빈 4분기 카피 순수 유틸 [DAR-509]
-│   │   └── editionSummary.ts        # 에디션 날짜 간극(editionDayGap)·MM/DD 포맷(ymdToMonthDay) 순수 유틸 [DAR-508]
+│   │   ├── editionSummary.ts        # 에디션 날짜 간극(editionDayGap)·MM/DD 포맷(ymdToMonthDay) 순수 유틸 [DAR-508]
+│   │   └── brokerHandoff.ts         # 증권사 앱 핸드오프 딥링크 빌더('증권사 앱에서 열기') [DAR-545]
 │   ├── __tests__/             # jest-expo 유닛 테스트 (components·stores·utils [갭분석 W15])
 │   ├── .maestro/              # Maestro E2E 스모크 플로우 6종 + subflows(dev-login·guest-entry) [갭분석 W15]
 │   ├── assets/                # 정적 자산
@@ -688,5 +704,5 @@ EXPO_PUBLIC_APP_ENV=development
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-17 (DAR-538 [cross·고도화] — 공시발 예정 이벤트 캘린더 v1 트리 반영: 백엔드 engine1 `upcoming-events/`(deriver·service·controller·module — extractedData 날짜 파생 D-day 읽기 전용), 모바일 components/home/UpcomingEventsSection.tsx·hooks/useUpcomingEvents.ts·services/upcomingEvents.service.ts·types/upcomingEvent.types.ts·utils/dday.ts) / 이전: 2026-07-17 (DAR-525 Wave B/B4·P1 — 푸시 본문 '한 줄 판단' 표준: `notifications/push-body-template.ts` 신규(순수 — 유형별 리드 템플릿·유사공시 반응통계 문구 n<30 생략·길이 트렁케이션), 에디션 발행 푸시(DAR-523) 본문에 헤드라인 종목 eventType+D+5 반응통계 주입 적용, 문서 `docs/notifications/push-body-one-line-judgment.md`) / 이전: 2026-07-17 (DAR-523 Wave B/B2·P0 — engine3 `edition-push/` 신규 모듈 트리 반영: 일일 에디션 발행 푸시 19:05(edition-push.guard 순수 하드 가드·service·scheduler·module), 조회 API 재사용·빈 에디션 발송 금지·editionPushEnabled 게이트·멱등·캡, NotificationType EDITION 가산) / 이전: 2026-07-17 (DAR-510 — 일일 투자판단 에디션 트리 반영: 모바일 signals/(SignalDateBadge·BuyEditionView·EditionDateStrip·EditionSignalList·SignalExploreCard)·home/HomeSignalPreview 에디션 슬롯·utils(signalTerms·signalFreshness·editionDisplay·editionSummary)·useSignals(useDailyEditions·useEdition·useCompanyBuySignal)·signal.service/signal.types 에디션 계약; 백엔드 engine3 signals/(daily-editions·daily/:date 읽기 파생))
-**버전**: 2.4 (테스터 코호트 계측 반영 [DAR-516 Wave A/A6] — BE ops/tester-event.*·모바일 services/testerEvents.service.ts·utils/testerEvents.ts·components/survey/IosGateSurvey.tsx·docs/analytics/) / 이전 2.3 (일일 에디션 컴포넌트/훅/유틸 트리 반영 [DAR-505~509]) / 이전 2.2 (갭분석 퀵윈 웨이브 반영 — 백엔드: legal/·web-surface/·status/ 횡단 모듈 신설, ops/ funnel·notification-latency, engine1 pipeline/ 제목 이벤트 백필, engine3 market-data 수급·공매도/지표 조회 + price-move-alert/, engine4 briefing; 모바일: .maestro/·jest.config.js·__tests__/·dev-login.tsx·legal/data-sources.tsx·settings-detail/support.tsx + 신규 서비스/훅/타입; 루트: docs/compliance/·docs/security/·scripts/audit-gate.mjs·edgar-poc.ts·.audit-allowlist.json·.github CI 보안 잡) / 이전 2.1 (2026-07-02): 횡단 모듈 8종·모바일 신규 라우트/컴포넌트 디렉터리·루트 harness/infra/scripts·브랜치 전략(feat+squash)·prod env 관리 현행화
+**최종 수정일**: 2026-07-17 (DAR-548 [docs·부채] — 정본 전수 동기화 감사: 트리 누락분 정정 — prisma/migrations 64개 실상 반영(구 init 1개 표기), engine1 `financials/`·`insider-holdings/`·`common/`, engine2 `philosophy/`, engine3 `intraday-scalp/`·`signal-generation/`·event-study 유사공시 반응통계[DAR-511], engine5 `simulation/`·paper-simulation 확장, 모바일 app `price-move/`·`upcoming-events/`, components `priceMove/`·`upcomingEvents/`, home 8종, 서비스/훅/유틸/타입 today 추가분(priceMove·brokerHandoff·usePriceMoveReasoning·useColdStartOnboarding·priceMove.types)) / 이전: 2026-07-17 (DAR-538 [cross·고도화] — 공시발 예정 이벤트 캘린더 v1 트리 반영: 백엔드 engine1 `upcoming-events/`(deriver·service·controller·module — extractedData 날짜 파생 D-day 읽기 전용), 모바일 components/home/UpcomingEventsSection.tsx·hooks/useUpcomingEvents.ts·services/upcomingEvents.service.ts·types/upcomingEvent.types.ts·utils/dday.ts) / 이전: 2026-07-17 (DAR-525 Wave B/B4·P1 — 푸시 본문 '한 줄 판단' 표준: `notifications/push-body-template.ts` 신규(순수 — 유형별 리드 템플릿·유사공시 반응통계 문구 n<30 생략·길이 트렁케이션), 에디션 발행 푸시(DAR-523) 본문에 헤드라인 종목 eventType+D+5 반응통계 주입 적용, 문서 `docs/notifications/push-body-one-line-judgment.md`) / 이전: 2026-07-17 (DAR-523 Wave B/B2·P0 — engine3 `edition-push/` 신규 모듈 트리 반영: 일일 에디션 발행 푸시 19:05(edition-push.guard 순수 하드 가드·service·scheduler·module), 조회 API 재사용·빈 에디션 발송 금지·editionPushEnabled 게이트·멱등·캡, NotificationType EDITION 가산) / 이전: 2026-07-17 (DAR-510 — 일일 투자판단 에디션 트리 반영: 모바일 signals/(SignalDateBadge·BuyEditionView·EditionDateStrip·EditionSignalList·SignalExploreCard)·home/HomeSignalPreview 에디션 슬롯·utils(signalTerms·signalFreshness·editionDisplay·editionSummary)·useSignals(useDailyEditions·useEdition·useCompanyBuySignal)·signal.service/signal.types 에디션 계약; 백엔드 engine3 signals/(daily-editions·daily/:date 읽기 파생))
+**버전**: 2.5 (DAR-548 전수 동기화 감사 — 7/17 웨이브 누락 디렉터리/모듈·마이그레이션 실상 정정) / 이전 2.4 (테스터 코호트 계측 반영 [DAR-516 Wave A/A6] — BE ops/tester-event.*·모바일 services/testerEvents.service.ts·utils/testerEvents.ts·components/survey/IosGateSurvey.tsx·docs/analytics/) / 이전 2.3 (일일 에디션 컴포넌트/훅/유틸 트리 반영 [DAR-505~509]) / 이전 2.2 (갭분석 퀵윈 웨이브 반영 — 백엔드: legal/·web-surface/·status/ 횡단 모듈 신설, ops/ funnel·notification-latency, engine1 pipeline/ 제목 이벤트 백필, engine3 market-data 수급·공매도/지표 조회 + price-move-alert/, engine4 briefing; 모바일: .maestro/·jest.config.js·__tests__/·dev-login.tsx·legal/data-sources.tsx·settings-detail/support.tsx + 신규 서비스/훅/타입; 루트: docs/compliance/·docs/security/·scripts/audit-gate.mjs·edgar-poc.ts·.audit-allowlist.json·.github CI 보안 잡) / 이전 2.1 (2026-07-02): 횡단 모듈 8종·모바일 신규 라우트/컴포넌트 디렉터리·루트 harness/infra/scripts·브랜치 전략(feat+squash)·prod env 관리 현행화

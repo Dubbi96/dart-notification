@@ -65,7 +65,8 @@ const idxSecRow = hero.indexOf('heroSecondaryRow');
 check('1행(승률) 위계가 2행(평균지표)보다 위', idxWinLabel >= 0 && idxSecRow > idxWinLabel);
 
 console.log('— ③ 표본부족 과신방지 배지 보존 —');
-check('lowSample 시 데이터 한계 배지', /lowSample[\s\S]{0,400}데이터 한계 \(표본/.test(hero));
+// DAR-554: maxFontSizeMultiplier 추가로 배지 Text가 여러 줄로 늘어나 근접창 확대(400→600).
+check('lowSample 시 데이터 한계 배지', /lowSample[\s\S]{0,600}데이터 한계 \(표본/.test(hero));
 
 console.log('— ④ SummaryRow 세컨더리화(스파크라인 보조, 대형 수치 제거) —');
 const sumStart = src.indexOf('function SummaryRow');

@@ -7,12 +7,7 @@ import { spacing, radius } from '@theme/spacing';
 import { RiskStatusBadges, summarizeRiskStatus } from '@components/common/RiskStatusBadges';
 import { ScoreGauge } from '@components/common/ScoreGauge';
 import { useStockRiskStatus } from '@hooks/useStockRiskStatus';
-import {
-  exitActionColor,
-  exitActionLabel,
-  pnlColor,
-  formatPnlPercent,
-} from '@utils/signalDisplay';
+import { exitActionColor, exitActionLabel, pnlColor, formatPnlPercent } from '@utils/signalDisplay';
 
 import type { ExitSignal, ExitReason } from '@app-types/signal.types';
 
@@ -77,7 +72,11 @@ function ExitScoreCardBase({ signal, onPress }: ExitScoreCardProps) {
         style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
       >
         <View style={styles.headerRow}>
-          <Text style={[typo.bodyMedium, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+          <Text
+            style={[typo.bodyMedium, { color: colors.text, flex: 1, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {signal.corpName}
           </Text>
           <Chip
@@ -86,7 +85,10 @@ function ExitScoreCardBase({ signal, onPress }: ExitScoreCardProps) {
             // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
             maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
             style={[styles.actionChip, { backgroundColor: colors.surfaceSecondary }]}
-            textStyle={[typo.small, { color: exitActionColor(signal.action, colors), fontWeight: '700' }]}
+            textStyle={[
+              typo.small,
+              { color: exitActionColor(signal.action, colors), fontWeight: '700' },
+            ]}
           >
             {exitActionLabel(signal.action)}
           </Chip>
@@ -113,7 +115,9 @@ function ExitScoreCardBase({ signal, onPress }: ExitScoreCardProps) {
                 accessibilityLabel={`매도 근거 ${reasonKindLabel(r.kind)}: ${r.label}`}
               >
                 <Feather name="alert-circle" size={13} color={reasonColor(r.kind, colors)} />
-                <Text style={[typo.small, { color: colors.textSecondary, flex: 1 }]}>{r.label}</Text>
+                <Text style={[typo.small, { color: colors.textSecondary, flex: 1 }]}>
+                  {r.label}
+                </Text>
               </View>
             ))}
           </View>
@@ -145,7 +149,11 @@ function ExitScoreCardBase({ signal, onPress }: ExitScoreCardProps) {
         ) : null}
 
         {signal.blockRebuy ? (
-          <Banner visible actions={[]} style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}>
+          <Banner
+            visible
+            actions={[]}
+            style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}
+          >
             <Text style={[typo.small, { color: colors.error }]}>
               재매수 차단됨 — 이 종목은 일정 기간 재진입이 차단됩니다.
             </Text>

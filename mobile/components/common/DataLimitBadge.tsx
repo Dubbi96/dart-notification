@@ -30,7 +30,11 @@ export function DataLimitBadge({ sampleCount, style }: DataLimitBadgeProps) {
 
   return (
     <View
-      style={[styles.badge, { backgroundColor: colors.surfaceSecondary, borderColor: colors.warning }, style]}
+      style={[
+        styles.badge,
+        { backgroundColor: colors.surfaceSecondary, borderColor: colors.warning },
+        style,
+      ]}
       accessibilityRole="text"
       accessibilityLabel={a11y}
     >
@@ -38,7 +42,17 @@ export function DataLimitBadge({ sampleCount, style }: DataLimitBadgeProps) {
       <Text
         numberOfLines={1}
         maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-        style={[typo.small, { color: colors.warning, marginLeft: spacing.xs, fontWeight: '600' }]}
+        style={[
+          typo.small,
+          {
+            color: colors.warning,
+            marginLeft: spacing.xs,
+            fontWeight: '600',
+            flexShrink: 1,
+            minWidth: 0,
+          },
+        ]}
+        ellipsizeMode="tail"
       >
         {label}
       </Text>

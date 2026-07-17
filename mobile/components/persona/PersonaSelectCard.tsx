@@ -52,7 +52,17 @@ function RecommendedBadge() {
       <Text
         numberOfLines={1}
         maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-        style={[typo.small, { color: colors.success, marginLeft: spacing.xs / 2, fontWeight: '600' }]}
+        style={[
+          typo.small,
+          {
+            color: colors.success,
+            marginLeft: spacing.xs / 2,
+            fontWeight: '600',
+            flexShrink: 1,
+            minWidth: 0,
+          },
+        ]}
+        ellipsizeMode="tail"
       >
         현재 장 추천
       </Text>
@@ -96,17 +106,25 @@ function PersonaSelectCardBase({ row, selected, onSelect }: PersonaSelectCardPro
           <View style={styles.titleCol}>
             <View style={styles.titleRow}>
               <Text style={[typo.bodyMedium, { color: colors.text }]}>{perf.label}</Text>
-              <View style={[styles.archChip, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+              <View
+                style={[
+                  styles.archChip,
+                  { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+                ]}
+              >
                 <Text
                   numberOfLines={1}
                   maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-                  style={[typo.small, { color: colors.textSecondary }]}
+                  style={[typo.small, { color: colors.textSecondary, flexShrink: 1, minWidth: 0 }]}
+                  ellipsizeMode="tail"
                 >
                   {row.archetype}
                 </Text>
               </View>
             </View>
-            <Text style={[typo.small, { color: colors.textTertiary, marginTop: 2 }]}>{archetypeDesc}</Text>
+            <Text style={[typo.small, { color: colors.textTertiary, marginTop: 2 }]}>
+              {archetypeDesc}
+            </Text>
           </View>
           {selected ? (
             <Feather name="check-circle" size={20} color={colors.primary} />
@@ -165,7 +183,12 @@ function PersonaSelectCardBase({ row, selected, onSelect }: PersonaSelectCardPro
         {selected ? (
           <View style={[styles.selectedBar, { backgroundColor: colors.primaryLight }]}>
             <Feather name="bookmark" size={12} color={colors.primary} />
-            <Text style={[typo.small, { color: colors.primary, marginLeft: spacing.xs, fontWeight: '600' }]}>
+            <Text
+              style={[
+                typo.small,
+                { color: colors.primary, marginLeft: spacing.xs, fontWeight: '600' },
+              ]}
+            >
               {PERSONA_EMPHASIS.emphasizedBar}
             </Text>
           </View>

@@ -99,6 +99,7 @@ function MetricCell({ label, value, valueColor }: MetricCellProps) {
         numberOfLines={1}
         adjustsFontSizeToFit
         minimumFontScale={0.85}
+        ellipsizeMode="tail"
       >
         {label}
       </Text>
@@ -108,6 +109,7 @@ function MetricCell({ label, value, valueColor }: MetricCellProps) {
         numberOfLines={1}
         adjustsFontSizeToFit
         minimumFontScale={0.85}
+        ellipsizeMode="tail"
       >
         {value}
       </Text>
@@ -138,7 +140,11 @@ function EventRow({ item }: EventRowProps) {
         style={styles.rowInner}
       >
         <View style={styles.rowHeader}>
-          <Text style={[typo.bodyMedium, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+          <Text
+            style={[typo.bodyMedium, { color: colors.text, flex: 1, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {getEventTypeLabel(item.eventType)}
           </Text>
           {item.lowSample ? <DataLimitBadge /> : null}
@@ -149,13 +155,29 @@ function EventRow({ item }: EventRowProps) {
             '승률'은 매매 성적(체결 거래 기반 win rate) 전용 어휘로 예약(분모 다른 지표 이름 충돌 해소). */}
         <View style={styles.metrics}>
           <View style={styles.metricsRow}>
-            <MetricCell label="D+1 초과" value={formatReturnPct(item.avgArD1)} valueColor={arColor(item.avgArD1)} />
-            <MetricCell label="D+5 초과" value={formatReturnPct(item.avgArD5)} valueColor={arColor(item.avgArD5)} />
-            <MetricCell label="D+20 초과" value={formatReturnPct(item.avgArD20)} valueColor={arColor(item.avgArD20)} />
+            <MetricCell
+              label="D+1 초과"
+              value={formatReturnPct(item.avgArD1)}
+              valueColor={arColor(item.avgArD1)}
+            />
+            <MetricCell
+              label="D+5 초과"
+              value={formatReturnPct(item.avgArD5)}
+              valueColor={arColor(item.avgArD5)}
+            />
+            <MetricCell
+              label="D+20 초과"
+              value={formatReturnPct(item.avgArD20)}
+              valueColor={arColor(item.avgArD20)}
+            />
           </View>
           <View style={styles.metricsRow}>
             <MetricCell label="상승 확률(D+5)" value={winPct} valueColor={winColor} />
-            <MetricCell label="표본" value={`${item.totalSample.toLocaleString('ko-KR')}건`} valueColor={colors.text} />
+            <MetricCell
+              label="표본"
+              value={`${item.totalSample.toLocaleString('ko-KR')}건`}
+              valueColor={colors.text}
+            />
           </View>
         </View>
       </View>
@@ -206,12 +228,13 @@ export default function EventStatsScreen() {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         refreshing={query.isRefetching}
-          onRefresh={query.refetch}
+        onRefresh={query.refetch}
         ListHeaderComponent={
           hasData ? (
             <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.md }]}>
-              공시 유형별 시장 전체 평균 초과수익(시장 대비)·상승 확률·표본입니다. 초과수익(D+5) 높은 순.
-              표본 {DATA_LIMIT_SAMPLE_THRESHOLD}건 미만이거나 통계적으로 유의하지 않으면 데이터 한계로 표시되며 참고용입니다.
+              공시 유형별 시장 전체 평균 초과수익(시장 대비)·상승 확률·표본입니다. 초과수익(D+5)
+              높은 순. 표본 {DATA_LIMIT_SAMPLE_THRESHOLD}건 미만이거나 통계적으로 유의하지 않으면
+              데이터 한계로 표시되며 참고용입니다.
             </Text>
           ) : null
         }
@@ -232,7 +255,10 @@ export default function EventStatsScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <ScreenHeader
         title="이벤트 통계"
         subtitle="어떤 공시 유형이 실제 초과수익을 냈는가"

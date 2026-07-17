@@ -75,7 +75,11 @@ function ContributionRow({ item }: { item: ScoreContribution }) {
         item.isPenalty ? '리스크 차감' : '기여도'
       } ${pctText}`}
     >
-      <Text style={[typo.small, { color: colors.textSecondary }, styles.label]} numberOfLines={1}>
+      <Text
+        style={[typo.small, { color: colors.textSecondary }, styles.label, { minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {item.label}
         {sampleText ? (
           <Text style={[typo.small, { color: colors.textTertiary }]}>{sampleText}</Text>

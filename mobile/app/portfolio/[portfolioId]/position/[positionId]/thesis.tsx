@@ -13,7 +13,7 @@ import { Surface, Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { LoadingState, ErrorState } from '@components/common/StateView';
@@ -82,11 +82,9 @@ export default function ThesisScreen() {
   const thesisQuery = usePositionThesis(positionId!);
 
   const handleReadonlyPress = useCallback(() => {
-    Alert.alert(
-      '편집 불가',
-      '이 값은 시스템이 관리하는 안전 한도로 변경할 수 없습니다.',
-      [{ text: '확인', style: 'cancel' }],
-    );
+    Alert.alert('편집 불가', '이 값은 시스템이 관리하는 안전 한도로 변경할 수 없습니다.', [
+      { text: '확인', style: 'cancel' },
+    ]);
   }, []);
 
   // C7: 형제 화면(포지션 상세)과 동일한 당겨 새로고침 — 훼손 조건 최신화를 사용자가 당겨서 확인.
@@ -96,7 +94,10 @@ export default function ThesisScreen() {
 
   if (thesisQuery.isLoading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        edges={['top']}
+      >
         <LoadingState message="Thesis를 불러오는 중…" />
       </SafeAreaView>
     );
@@ -104,7 +105,10 @@ export default function ThesisScreen() {
 
   if (thesisQuery.isError) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        edges={['top']}
+      >
         <ErrorState title="Thesis를 불러오지 못했습니다." onRetry={thesisQuery.refetch} />
       </SafeAreaView>
     );
@@ -115,7 +119,10 @@ export default function ThesisScreen() {
   const borderColor = thesis ? thesisStatusColor(thesis.status, colors) : colors.border;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -138,127 +145,176 @@ export default function ThesisScreen() {
         </View>
       ) : (
         <>
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={thesisQuery.isRefetching}
-              onRefresh={handleRefresh}
-              colors={[colors.primary]}
-              tintColor={colors.primary}
-            />
-          }
-        >
-          {/* 상태 배지 + 헤더 */}
-          <Surface
-            elevation={0}
-            style={[styles.card, { backgroundColor: colors.surface, borderColor, borderWidth: 2 }]}
+          <ScrollView
+            contentContainerStyle={styles.scroll}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={thesisQuery.isRefetching}
+                onRefresh={handleRefresh}
+                colors={[colors.primary]}
+                tintColor={colors.primary}
+              />
+            }
           >
-            <Chip
-              compact
-              mode="flat"
-              style={{ backgroundColor: colors.surfaceSecondary, alignSelf: 'flex-start' }}
-              textStyle={[typo.small, { color: statusColor, fontWeight: '700' }]}
-              accessibilityLabel={`Thesis 상태: ${thesisStatusLabel(thesis.status)}`}
+            {/* 상태 배지 + 헤더 */}
+            <Surface
+              elevation={0}
+              style={[
+                styles.card,
+                { backgroundColor: colors.surface, borderColor, borderWidth: 2 },
+              ]}
             >
-              {thesisStatusLabel(thesis.status)}
-            </Chip>
-            <Text style={[typo.h3, { color: colors.text, marginTop: spacing.sm }]}>
-              {thesis.corpName}
-              {thesis.personaType ? `  ·  ${thesis.personaType}` : ''}
-            </Text>
-          </Surface>
-
-          {/* 진입 논리 */}
-          {thesis.entryLogic.length > 0 ? (
-            <Surface elevation={0} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Text style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.sm }]}>
-                ▌ 진입 논리
+              <Chip
+                compact
+                mode="flat"
+                style={{ backgroundColor: colors.surfaceSecondary, alignSelf: 'flex-start' }}
+                textStyle={[typo.small, { color: statusColor, fontWeight: '700' }]}
+                accessibilityLabel={`Thesis 상태: ${thesisStatusLabel(thesis.status)}`}
+              >
+                {thesisStatusLabel(thesis.status)}
+              </Chip>
+              <Text style={[typo.h3, { color: colors.text, marginTop: spacing.sm }]}>
+                {thesis.corpName}
+                {thesis.personaType ? `  ·  ${thesis.personaType}` : ''}
               </Text>
-              {thesis.entryLogic.map((item) => (
-                <ConditionRow key={item.id} item={item} isViolation={false} />
-              ))}
             </Surface>
-          ) : null}
 
-          {/* 훼손 조건 */}
-          {thesis.violationConditions.length > 0 ? (
-            <Surface elevation={0} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Text style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.sm }]}>
-                ▌ 훼손 조건
-              </Text>
-              {thesis.violationConditions.map((item) => (
-                <ConditionRow key={item.id} item={item} isViolation />
-              ))}
-            </Surface>
-          ) : null}
-
-          {/* 청산 룰 (읽기 전용) */}
-          <TouchableOpacity onPress={handleReadonlyPress} activeOpacity={0.85}
-            accessibilityRole="button" accessibilityLabel="청산 룰 읽기 전용 — 탭하면 설명"
-          >
-            <Surface elevation={0} style={[styles.card, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-              <View style={styles.rowBetween}>
-                <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>
-                  ▌ 청산 룰
+            {/* 진입 논리 */}
+            {thesis.entryLogic.length > 0 ? (
+              <Surface
+                elevation={0}
+                style={[
+                  styles.card,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}
+              >
+                <Text
+                  style={[
+                    typo.captionMedium,
+                    { color: colors.textSecondary, marginBottom: spacing.sm },
+                  ]}
+                >
+                  ▌ 진입 논리
                 </Text>
-                <View style={styles.readonlyTag}>
-                  <Feather name="lock" size={11} color={colors.textTertiary} />
-                  <Text style={[typo.small, { color: colors.textTertiary }]}>편집 불가</Text>
-                </View>
-              </View>
-              <View style={[styles.ruleGrid, { marginTop: spacing.sm }]}>
-                <View style={styles.ruleItem}>
-                  <Text style={[typo.small, { color: colors.textSecondary }]}>손절</Text>
-                  <Text style={[typo.bodyMedium, { color: colors.error }]}>
-                    {formatExitRulePct(thesis.exitRules.stopLossPercent, 'loss')}
-                  </Text>
-                </View>
-                <View style={styles.ruleItem}>
-                  <Text style={[typo.small, { color: colors.textSecondary }]}>분할익절</Text>
-                  <Text style={[typo.bodyMedium, { color: colors.success }]}>
-                    {formatExitRulePct(thesis.exitRules.takeProfitPercent, 'gain')}
-                  </Text>
-                </View>
-                <View style={styles.ruleItem}>
-                  <Text style={[typo.small, { color: colors.textSecondary }]}>트레일링</Text>
-                  <Text style={[typo.bodyMedium, { color: colors.text }]}>
-                    고점 {formatExitRulePct(thesis.exitRules.trailingStopPercent, 'loss')}
-                  </Text>
-                </View>
-                <View style={styles.ruleItem}>
-                  <Text style={[typo.small, { color: colors.textSecondary }]}>최대 보유</Text>
-                  <Text style={[typo.bodyMedium, { color: colors.text }]}>
-                    {thesis.exitRules.maxHoldingDays}거래일
-                  </Text>
-                </View>
-              </View>
-            </Surface>
-          </TouchableOpacity>
+                {thesis.entryLogic.map((item) => (
+                  <ConditionRow key={item.id} item={item} isViolation={false} />
+                ))}
+              </Surface>
+            ) : null}
 
-          {/* 공시 트리거 */}
-          {thesis.triggerDisclosureRcpNo ? (
+            {/* 훼손 조건 */}
+            {thesis.violationConditions.length > 0 ? (
+              <Surface
+                elevation={0}
+                style={[
+                  styles.card,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}
+              >
+                <Text
+                  style={[
+                    typo.captionMedium,
+                    { color: colors.textSecondary, marginBottom: spacing.sm },
+                  ]}
+                >
+                  ▌ 훼손 조건
+                </Text>
+                {thesis.violationConditions.map((item) => (
+                  <ConditionRow key={item.id} item={item} isViolation />
+                ))}
+              </Surface>
+            ) : null}
+
+            {/* 청산 룰 (읽기 전용) */}
             <TouchableOpacity
-              onPress={() => router.push(`/disclosure/${thesis.triggerDisclosureRcpNo}`)}
-              activeOpacity={0.8}
+              onPress={handleReadonlyPress}
+              activeOpacity={0.85}
               accessibilityRole="button"
-              accessibilityLabel="공시 트리거 보기"
+              accessibilityLabel="청산 룰 읽기 전용 — 탭하면 설명"
             >
-              <Surface elevation={0} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Surface
+                elevation={0}
+                style={[
+                  styles.card,
+                  { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+                ]}
+              >
                 <View style={styles.rowBetween}>
-                  <View style={{ gap: spacing.xs }}>
-                    <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>▌ 공시 트리거</Text>
-                    <Text style={[typo.captionMedium, { color: colors.primary }]}>공시 상세 보기</Text>
+                  <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>
+                    ▌ 청산 룰
+                  </Text>
+                  <View style={styles.readonlyTag}>
+                    <Feather name="lock" size={11} color={colors.textTertiary} />
+                    <Text
+                      style={[typo.small, { color: colors.textTertiary }]}
+                      maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                    >
+                      편집 불가
+                    </Text>
                   </View>
-                  <Feather name="chevron-right" size={18} color={colors.textTertiary} />
+                </View>
+                <View style={[styles.ruleGrid, { marginTop: spacing.sm }]}>
+                  <View style={styles.ruleItem}>
+                    <Text style={[typo.small, { color: colors.textSecondary }]}>손절</Text>
+                    <Text style={[typo.bodyMedium, { color: colors.error }]}>
+                      {formatExitRulePct(thesis.exitRules.stopLossPercent, 'loss')}
+                    </Text>
+                  </View>
+                  <View style={styles.ruleItem}>
+                    <Text style={[typo.small, { color: colors.textSecondary }]}>분할익절</Text>
+                    <Text style={[typo.bodyMedium, { color: colors.success }]}>
+                      {formatExitRulePct(thesis.exitRules.takeProfitPercent, 'gain')}
+                    </Text>
+                  </View>
+                  <View style={styles.ruleItem}>
+                    <Text style={[typo.small, { color: colors.textSecondary }]}>트레일링</Text>
+                    <Text style={[typo.bodyMedium, { color: colors.text }]}>
+                      고점 {formatExitRulePct(thesis.exitRules.trailingStopPercent, 'loss')}
+                    </Text>
+                  </View>
+                  <View style={styles.ruleItem}>
+                    <Text style={[typo.small, { color: colors.textSecondary }]}>최대 보유</Text>
+                    <Text style={[typo.bodyMedium, { color: colors.text }]}>
+                      {thesis.exitRules.maxHoldingDays}거래일
+                    </Text>
+                  </View>
                 </View>
               </Surface>
             </TouchableOpacity>
-          ) : null}
-        </ScrollView>
-        {/* DisclaimerSection — 화면 최하단 고정(§10-2) */}
-        <DisclaimerSection style={styles.disclaimer} />
+
+            {/* 공시 트리거 */}
+            {thesis.triggerDisclosureRcpNo ? (
+              <TouchableOpacity
+                onPress={() => router.push(`/disclosure/${thesis.triggerDisclosureRcpNo}`)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="공시 트리거 보기"
+              >
+                <Surface
+                  elevation={0}
+                  style={[
+                    styles.card,
+                    { backgroundColor: colors.surface, borderColor: colors.border },
+                  ]}
+                >
+                  <View style={styles.rowBetween}>
+                    <View style={{ gap: spacing.xs }}>
+                      <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>
+                        ▌ 공시 트리거
+                      </Text>
+                      <Text style={[typo.captionMedium, { color: colors.primary }]}>
+                        공시 상세 보기
+                      </Text>
+                    </View>
+                    <Feather name="chevron-right" size={18} color={colors.textTertiary} />
+                  </View>
+                </Surface>
+              </TouchableOpacity>
+            ) : null}
+          </ScrollView>
+          {/* DisclaimerSection — 화면 최하단 고정(§10-2) */}
+          <DisclaimerSection style={styles.disclaimer} />
         </>
       )}
     </SafeAreaView>

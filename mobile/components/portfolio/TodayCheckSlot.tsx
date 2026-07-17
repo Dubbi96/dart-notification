@@ -35,15 +35,13 @@ export function TodayCheckSlot({ positions, onPress }: TodayCheckSlotProps) {
   const curated = useMemo(() => {
     const filtered = positions.filter(
       (p) =>
-        p.exitScore !== undefined ||
-        p.thesisStatus === 'VIOLATED' ||
-        p.thesisStatus === 'EXPIRED',
+        p.exitScore !== undefined || p.thesisStatus === 'VIOLATED' || p.thesisStatus === 'EXPIRED',
     );
     return filtered
       .sort(
         (a, b) =>
-          (STATUS_ORDER[a.thesisStatus] - STATUS_ORDER[b.thesisStatus]) ||
-          ((b.exitScore ?? 0) - (a.exitScore ?? 0)),
+          STATUS_ORDER[a.thesisStatus] - STATUS_ORDER[b.thesisStatus] ||
+          (b.exitScore ?? 0) - (a.exitScore ?? 0),
       )
       .slice(0, 5);
   }, [positions]);
@@ -63,9 +61,16 @@ export function TodayCheckSlot({ positions, onPress }: TodayCheckSlotProps) {
           accessibilityLabel={accessLabel}
           style={styles.cardWrapper}
         >
-          <Surface elevation={2} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Surface
+            elevation={2}
+            style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          >
             <View style={styles.cardHeader}>
-              <Text style={[typo.bodyMedium, styles.cardTitle, { color: colors.text }]} numberOfLines={1}>
+              <Text
+                style={[typo.bodyMedium, styles.cardTitle, { color: colors.text, minWidth: 0 }]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
                 {item.corpName}
               </Text>
               {item.exitAction ? (
@@ -75,35 +80,39 @@ export function TodayCheckSlot({ positions, onPress }: TodayCheckSlotProps) {
                   // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
                   maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                   style={[styles.actionChip, { backgroundColor: colors.surfaceSecondary }]}
-                  textStyle={[typo.small, styles.actionChipText, { color: exitActionColor(item.exitAction, colors) }]}
+                  textStyle={[
+                    typo.small,
+                    styles.actionChipText,
+                    { color: exitActionColor(item.exitAction, colors) },
+                  ]}
                 >
                   {exitActionLabel(item.exitAction)}
                 </Chip>
               ) : null}
             </View>
 
-            <Text style={[typo.captionMedium, { color: pnlColor(item.pnlPercent, colors), marginTop: spacing.xs }]}>
+            <Text
+              style={[
+                typo.captionMedium,
+                { color: pnlColor(item.pnlPercent, colors), marginTop: spacing.xs },
+              ]}
+            >
               {formatPnlPercent(item.pnlPercent)}
             </Text>
 
             {item.exitScore !== undefined ? (
-              <ScoreGauge
-                score={item.exitScore}
-                kind="exit"
-                accessibilityHidden
-              />
+              <ScoreGauge score={item.exitScore} kind="exit" accessibilityHidden />
             ) : (
-              <View
-                style={[
-                  styles.urgencyBar,
-                  { backgroundColor: statusColor },
-                ]}
-              />
+              <View style={[styles.urgencyBar, { backgroundColor: statusColor }]} />
             )}
 
             <Text
-              style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}
+              style={[
+                typo.small,
+                { color: colors.textSecondary, marginTop: spacing.xs, flexShrink: 1, minWidth: 0 },
+              ]}
               numberOfLines={1}
+              ellipsizeMode="tail"
             >
               {item.checkReason ?? thesisStatusLabel(item.thesisStatus)}
             </Text>
@@ -119,7 +128,11 @@ export function TodayCheckSlot({ positions, onPress }: TodayCheckSlotProps) {
   return (
     <View style={styles.container}>
       <View style={styles.sectionHeader}>
-        <Text style={[typo.bodyMedium, styles.sectionTitle, { color: colors.text }]} numberOfLines={1}>
+        <Text
+          style={[typo.bodyMedium, styles.sectionTitle, { color: colors.text, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           오늘 점검할 포지션
         </Text>
         <Chip
@@ -127,6 +140,7 @@ export function TodayCheckSlot({ positions, onPress }: TodayCheckSlotProps) {
           mode="flat"
           style={[styles.criterionChip, { backgroundColor: colors.surfaceSecondary }]}
           textStyle={[typo.small, styles.criterionChipText, { color: colors.textSecondary }]}
+          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
         >
           Exit Score 순
         </Chip>

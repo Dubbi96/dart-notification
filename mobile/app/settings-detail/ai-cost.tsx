@@ -1,12 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  RefreshControl,
-  StyleSheet,
-  TouchableOpacity,
-} from 'react-native';
+import { View, Text, ScrollView, RefreshControl, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -100,7 +93,8 @@ function AcceptanceBadge({ ok, label }: { ok: boolean; label: string }) {
       <Text
         numberOfLines={1}
         maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-        style={[typo.caption, { color: fg, marginLeft: spacing.xs }]}
+        style={[typo.caption, { color: fg, marginLeft: spacing.xs, flexShrink: 1, minWidth: 0 }]}
+        ellipsizeMode="tail"
       >
         {label} {ok ? 'OK' : '위반'}
       </Text>
@@ -147,7 +141,9 @@ function LimitUsageBar({
 function MonitoringCard({ health }: { health: AiCostHealth }) {
   const { colors, typography: typo } = useTheme();
   return (
-    <View style={[styles.monitorCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <View
+      style={[styles.monitorCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+    >
       <View style={styles.monitorHeader}>
         <Feather name="activity" size={16} color={colors.primary} />
         <Text style={[typo.bodyMedium, { color: colors.text, marginLeft: spacing.xs }]}>
@@ -160,8 +156,10 @@ function MonitoringCard({ health }: { health: AiCostHealth }) {
         <AcceptanceBadge ok={health.acceptance.l0Ok} label="L0비율" />
       </View>
       <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.md }]}>
-        건당 {formatUsd(health.acceptance.costPerDisclosureUsd)} (기준 &lt;{formatUsd(health.acceptance.costThresholdUsd)})
-        {' · '}L0 {formatPct(health.acceptance.l0Ratio)} (기준 ≥{formatPct(health.acceptance.l0ThresholdRatio)})
+        건당 {formatUsd(health.acceptance.costPerDisclosureUsd)} (기준 &lt;
+        {formatUsd(health.acceptance.costThresholdUsd)}){' · '}L0{' '}
+        {formatPct(health.acceptance.l0Ratio)} (기준 ≥
+        {formatPct(health.acceptance.l0ThresholdRatio)})
       </Text>
 
       <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
@@ -235,7 +233,8 @@ function LevelDistribution({ summary }: { summary: AiCostPeriodSummary }) {
           <Text
             numberOfLines={1}
             maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-            style={[typo.small, { color: colors.textSecondary }]}
+            style={[typo.small, { color: colors.textSecondary, flexShrink: 1, minWidth: 0 }]}
+            ellipsizeMode="tail"
           >
             {lv.label}
           </Text>
@@ -267,7 +266,9 @@ function PeriodCostCard({
       ) : (
         <>
           <View style={styles.subCardHeader}>
-            <Text style={[typo.h3, { color: colors.primary }]}>{formatUsd(summary.totalCostUsd)}</Text>
+            <Text style={[typo.h3, { color: colors.primary }]}>
+              {formatUsd(summary.totalCostUsd)}
+            </Text>
             <Text style={[typo.caption, { color: colors.textSecondary }]}>
               {summary.callCount}건 · {formatKrw(summary.totalCostUsd)} 추정
             </Text>
@@ -292,7 +293,9 @@ function LimitStatusCard({
 }) {
   const { colors, typography: typo } = useTheme();
   return (
-    <View style={[styles.monitorCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <View
+      style={[styles.monitorCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+    >
       <View style={styles.monitorHeader}>
         <Feather name="shield" size={16} color={colors.primary} />
         <Text style={[typo.bodyMedium, { color: colors.text, marginLeft: spacing.xs }]}>
@@ -368,7 +371,12 @@ function CrossEngineCard({
             accessibilityLabel={`${row.label} ${row.value > 0 ? formatKrwValue(row.value) : '표본 없음'}`}
           >
             <Text style={[typo.bodyMedium, { color: colors.text }]}>{row.label}</Text>
-            <Text style={[typo.bodyMedium, { color: row.value > 0 ? colors.primary : colors.textTertiary }]}>
+            <Text
+              style={[
+                typo.bodyMedium,
+                { color: row.value > 0 ? colors.primary : colors.textTertiary },
+              ]}
+            >
               {row.value > 0 ? formatKrwValue(row.value) : '표본 없음'}
             </Text>
           </View>
@@ -401,7 +409,9 @@ function SummaryCard({
 }) {
   const { colors, typography: typo } = useTheme();
   return (
-    <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <View
+      style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+    >
       <Text style={[typo.caption, { color: colors.textSecondary }]}>이번 달 AI 비용</Text>
       <Text
         style={[typo.amount, { color: colors.primary, marginTop: spacing.xs }]}
@@ -439,7 +449,10 @@ function AdvancedToggle({ open, onToggle }: { open: boolean; onToggle: () => voi
   return (
     <TouchableOpacity
       onPress={onToggle}
-      style={[styles.advancedToggle, { backgroundColor: colors.surface, borderColor: colors.border }]}
+      style={[
+        styles.advancedToggle,
+        { backgroundColor: colors.surface, borderColor: colors.border },
+      ]}
       accessibilityRole="button"
       accessibilityState={{ expanded: open }}
       accessibilityLabel={`고급 · 운영/거버넌스 상세 ${open ? '접기' : '펼치기'}`}
@@ -463,7 +476,9 @@ function TermGuide() {
     '단위경제: 공시·신호·거래 하나를 만드는 데 든 AI 비용',
   ];
   return (
-    <View style={[styles.termGuide, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <View
+      style={[styles.termGuide, { backgroundColor: colors.surface, borderColor: colors.border }]}
+    >
       <Text style={[typo.captionMedium, { color: colors.text, marginBottom: spacing.xs }]}>
         용어 안내
       </Text>
@@ -583,31 +598,44 @@ export default function AiCostScreen() {
                   { backgroundColor: colors.surface, borderColor: colors.border },
                 ]}
               >
-                <Text style={[typo.caption, { color: colors.textSecondary, marginBottom: spacing.xs }]}>
+                <Text
+                  style={[typo.caption, { color: colors.textSecondary, marginBottom: spacing.xs }]}
+                >
                   총 비용 (월간)
                 </Text>
                 <Text style={[typo.h3, { color: colors.primary }]}>
                   {formatUsd(data.totalCostUsd)}
                 </Text>
-                <Text style={[typo.bodyMedium, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+                <Text
+                  style={[typo.bodyMedium, { color: colors.textSecondary, marginTop: spacing.xs }]}
+                >
                   ≈ {formatKrw(data.totalCostUsd)} 추정
                 </Text>
                 <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
                 <View style={styles.tokenRow}>
                   <Feather name="cpu" size={14} color={colors.textTertiary} />
-                  <Text style={[typo.caption, { color: colors.textSecondary, marginLeft: spacing.xs }]}>
+                  <Text
+                    style={[typo.caption, { color: colors.textSecondary, marginLeft: spacing.xs }]}
+                  >
                     총 토큰: {formatTokens(data.totalTokens)}
                   </Text>
                 </View>
               </View>
 
               {/* By-task breakdown (D7 — 영문 키 → 한국어 라벨) */}
-              <Text style={[typo.h3, { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.md }]}>
+              <Text
+                style={[
+                  typo.h3,
+                  { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.md },
+                ]}
+              >
                 태스크별 비용
               </Text>
 
               {taskEntries.length === 0 ? (
-                <Text style={[typo.caption, { color: colors.textTertiary }]}>태스크 데이터 없음</Text>
+                <Text style={[typo.caption, { color: colors.textTertiary }]}>
+                  태스크 데이터 없음
+                </Text>
               ) : (
                 taskEntries.map(([task, stat]) => (
                   <View
@@ -619,12 +647,18 @@ export default function AiCostScreen() {
                   >
                     <View style={styles.taskInfo}>
                       <Text
-                        style={[typo.bodyMedium, { color: colors.text }]}
+                        style={[typo.bodyMedium, { color: colors.text, minWidth: 0 }]}
                         numberOfLines={1}
+                        ellipsizeMode="tail"
                       >
                         {taskLabel(task)}
                       </Text>
-                      <Text style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+                      <Text
+                        style={[
+                          typo.caption,
+                          { color: colors.textSecondary, marginTop: spacing.xs },
+                        ]}
+                      >
                         {formatTokens(stat.tokens)} 토큰 · {stat.count}건
                       </Text>
                     </View>
@@ -632,7 +666,9 @@ export default function AiCostScreen() {
                       <Text style={[typo.bodyMedium, { color: colors.primary }]}>
                         {formatUsd(stat.costUsd)}
                       </Text>
-                      <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+                      <Text
+                        style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}
+                      >
                         {formatKrw(stat.costUsd)}
                       </Text>
                     </View>
@@ -641,7 +677,12 @@ export default function AiCostScreen() {
               )}
 
               {/* 한도 소진율 (DAR-98) */}
-              <Text style={[typo.h3, { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.md }]}>
+              <Text
+                style={[
+                  typo.h3,
+                  { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.md },
+                ]}
+              >
                 한도 현황
               </Text>
               <LimitStatusCard
@@ -650,7 +691,12 @@ export default function AiCostScreen() {
               />
 
               {/* 일/월 비용 추이 (DAR-98) */}
-              <Text style={[typo.h3, { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.md }]}>
+              <Text
+                style={[
+                  typo.h3,
+                  { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.md },
+                ]}
+              >
                 비용 추이
               </Text>
               <PeriodCostCard
@@ -665,7 +711,12 @@ export default function AiCostScreen() {
               />
 
               {/* 단위비용 (DAR-98) */}
-              <Text style={[typo.h3, { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.md }]}>
+              <Text
+                style={[
+                  typo.h3,
+                  { color: colors.text, marginTop: spacing.xl, marginBottom: spacing.md },
+                ]}
+              >
                 단위경제
               </Text>
               <CrossEngineCard

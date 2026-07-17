@@ -6,6 +6,7 @@ import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { withTradingGuard } from '@components/common/withTradingGuard';
 import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
 import { ApiErrorState, EmptyState } from '@components/common/StateView';
@@ -108,10 +109,18 @@ function TradeRow({ trade }: { trade: StrategyTrade }) {
       {/* 상단: 종목명 + 수익률(색조) */}
       <View style={styles.tradeTopRow}>
         <View style={styles.tradeTitleCol}>
-          <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
+          <Text
+            style={[typo.bodyMedium, { color: colors.text, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {trade.stockName}
           </Text>
-          <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={1}>
+          <Text
+            style={[typo.small, { color: colors.textTertiary, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {getEventTypeLabel(trade.eventType)}
           </Text>
         </View>
@@ -127,21 +136,34 @@ function TradeRow({ trade }: { trade: StrategyTrade }) {
       <View style={styles.tradeFlowRow}>
         <View style={styles.tradeFlowCol}>
           <Text style={[typo.small, { color: colors.textSecondary }]}>매수</Text>
-          <Text style={[typo.captionMedium, { color: colors.text }]}>{priceText(trade.entryPrice)}</Text>
-          <Text style={[typo.small, { color: colors.textTertiary }]}>{dotDate(trade.entryDate)}</Text>
+          <Text style={[typo.captionMedium, { color: colors.text }]}>
+            {priceText(trade.entryPrice)}
+          </Text>
+          <Text style={[typo.small, { color: colors.textTertiary }]}>
+            {dotDate(trade.entryDate)}
+          </Text>
         </View>
         <Feather name="arrow-right" size={16} color={colors.textTertiary} />
         <View style={styles.tradeFlowCol}>
           <Text style={[typo.small, { color: colors.textSecondary }]}>매도</Text>
-          <Text style={[typo.captionMedium, { color: colors.text }]}>{priceText(trade.exitPrice)}</Text>
-          <Text style={[typo.small, { color: colors.textTertiary }]}>{dotDate(trade.exitDate)}</Text>
+          <Text style={[typo.captionMedium, { color: colors.text }]}>
+            {priceText(trade.exitPrice)}
+          </Text>
+          <Text style={[typo.small, { color: colors.textTertiary }]}>
+            {dotDate(trade.exitDate)}
+          </Text>
         </View>
       </View>
 
       {/* 하단: 청산사유 + 보유일 */}
       <View style={styles.tradeMetaRow}>
         <View style={[styles.tag, { backgroundColor: colors.surfaceSecondary }]}>
-          <Text style={[typo.small, { color: colors.textSecondary }]}>{exitReasonLabel(trade.exitReason)}</Text>
+          <Text
+            style={[typo.small, { color: colors.textSecondary }]}
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          >
+            {exitReasonLabel(trade.exitReason)}
+          </Text>
         </View>
         <Text style={[typo.small, { color: colors.textTertiary }]}>
           {trade.holdDays !== null ? `보유 ${trade.holdDays}일` : `보유 중`}
@@ -190,7 +212,10 @@ function StrategyTradeTimelineScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <ScreenHeader title={headerTitle} onBack={() => router.back()} />
 
       {invalidKey ? (

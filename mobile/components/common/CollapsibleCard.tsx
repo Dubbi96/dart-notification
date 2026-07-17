@@ -42,11 +42,19 @@ function CollapsibleCardBase({
       >
         <Feather name={icon} size={16} color={colors.primary} />
         <View style={styles.titleWrap}>
-          <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
+          <Text
+            style={[typo.bodyMedium, { color: colors.text, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {title}
           </Text>
           {summary && !expanded ? (
-            <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+            <Text
+              style={[typo.small, { color: colors.textSecondary, minWidth: 0 }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
               {summary}
             </Text>
           ) : null}

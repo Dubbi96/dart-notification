@@ -193,7 +193,8 @@ for (const f of signalsFiles) {
 {
   const src = read('app/portfolio/[portfolioId]/position/[positionId]/index.tsx');
   ok('position detail: import', capImport.test(src));
-  ok('position detail: corpName numberOfLines={1}', /\{position\.corpName\}[\s\S]{0,40}?numberOfLines=\{1\}|numberOfLines=\{1\}[\s\S]{0,60}?\{position\.corpName\}/.test(src));
+  // DAR-554: ellipsizeMode/minWidth 3종 세트 추가로 속성이 여러 줄로 늘어나 근접창 확대(40/60→100/140).
+  ok('position detail: corpName numberOfLines={1}', /\{position\.corpName\}[\s\S]{0,100}?numberOfLines=\{1\}|numberOfLines=\{1\}[\s\S]{0,140}?\{position\.corpName\}/.test(src));
   ok('position detail: 상태칩 캡 ≥1', capCount(src) >= 1);
 }
 
@@ -211,7 +212,8 @@ for (const f of signalsFiles) {
   ok('disclosure/[id]: aiChip minHeight', minHeightOnly(src, 'aiChip'));
   ok('disclosure/[id]: aiChip 캡', capCount(src) >= 1);
   ok('disclosure/[id]: infoValue flexShrink:1', /infoValue:\s*\{[^}]*flexShrink:\s*1/.test(src));
-  ok('disclosure/[id]: 값 numberOfLines={1}', /styles\.infoValue[\s\S]{0,80}?numberOfLines=\{1\}/.test(src));
+  // DAR-554: minWidth 추가로 스타일 배열이 여러 줄로 늘어나 근접창 확대(80→160).
+  ok('disclosure/[id]: 값 numberOfLines={1}', /styles\.infoValue[\s\S]{0,160}?numberOfLines=\{1\}/.test(src));
   ok('disclosure/[id]: › 분리(infoChevron flexShrink:0)', /infoChevron:\s*\{[^}]*flexShrink:\s*0/.test(src));
 }
 

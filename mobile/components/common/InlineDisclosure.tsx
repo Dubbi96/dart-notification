@@ -45,13 +45,13 @@ export function InlineDisclosure({
         <View style={styles.discHeaderLeft}>
           {icon ? (
             // 보조 라벨 아이콘 — 스케일 밖 작은 값(14)이라 토큰 미적용(원본 시각 보존).
-            <Feather
-              name={icon}
-              size={14}
-              color={accent ? colors.warning : colors.textTertiary}
-            />
+            <Feather name={icon} size={14} color={accent ? colors.warning : colors.textTertiary} />
           ) : null}
-          <Text style={[typo.small, { color: tone }]} numberOfLines={1}>
+          <Text
+            style={[typo.small, { color: tone, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {label}
           </Text>
         </View>

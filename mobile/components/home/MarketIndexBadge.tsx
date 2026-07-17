@@ -39,7 +39,8 @@ function MarketIndexColumn({ quote }: { quote: MarketIndexQuote }) {
   // 등락을 숨긴다. 사용자에게 -63% 같은 값 대신 '점검중' 으로 정직하게 표기한다.
   const isSuspect = quote.suspect === true && isMissing;
   const changeColor = isMissing ? colors.textTertiary : pnlColor(pct, colors);
-  const iconName = pct === null ? 'minus' : pct > 0 ? 'trending-up' : pct < 0 ? 'trending-down' : 'minus';
+  const iconName =
+    pct === null ? 'minus' : pct > 0 ? 'trending-up' : pct < 0 ? 'trending-down' : 'minus';
   const sign = pct !== null && pct > 0 ? '+' : '';
   const pctText = isSuspect ? '점검중' : isMissing ? '—' : `${sign}${pct.toFixed(2)}%`;
   const direction = isSuspect
@@ -63,7 +64,10 @@ function MarketIndexColumn({ quote }: { quote: MarketIndexQuote }) {
       accessibilityRole="text"
       accessibilityLabel={`${quote.market} ${formatIndex(quote.closeIndex)} 전일대비 ${pctText} ${direction}, ${basis.a11y}`}
     >
-      <Text style={[typo.small, { color: colors.textSecondary }]} maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}>
+      <Text
+        style={[typo.small, { color: colors.textSecondary }]}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+      >
         {quote.market}
       </Text>
       <Text
@@ -86,13 +90,12 @@ function MarketIndexColumn({ quote }: { quote: MarketIndexQuote }) {
         </Text>
       </View>
       <View style={styles.basisRow}>
-        {basis.isRealtime && (
-          <View style={[styles.liveDot, { backgroundColor: colors.success }]} />
-        )}
+        {basis.isRealtime && <View style={[styles.liveDot, { backgroundColor: colors.success }]} />}
         <Text
-          style={[typo.small, styles.basisText, { color: basisColor }]}
+          style={[typo.small, styles.basisText, { color: basisColor, flexShrink: 1, minWidth: 0 }]}
           maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
           numberOfLines={1}
+          ellipsizeMode="tail"
         >
           {basis.label}
         </Text>
@@ -113,15 +116,38 @@ function MarketIndexBadgeSkeleton() {
       accessibilityLabel="시장 지수 불러오는 중"
     >
       <View style={styles.titleRow}>
-        <SkeletonBar width={SKELETON_WIDTH.title} height={typo.captionMedium.lineHeight} opacity={opacity} />
+        <SkeletonBar
+          width={SKELETON_WIDTH.title}
+          height={typo.captionMedium.lineHeight}
+          opacity={opacity}
+        />
       </View>
       <View style={styles.columns}>
         {[0, 1].map((i) => (
           <View key={i} style={styles.column}>
-            <SkeletonBar width={SKELETON_WIDTH.market} height={typo.small.lineHeight} opacity={opacity} />
-            <SkeletonBar width={SKELETON_WIDTH.value} height={typo.caption.lineHeight} opacity={opacity} style={styles.skeletonGap} />
-            <SkeletonBar width={SKELETON_WIDTH.change} height={typo.small.lineHeight} opacity={opacity} style={styles.skeletonGap} />
-            <SkeletonBar width={SKELETON_WIDTH.basis} height={typo.small.lineHeight} opacity={opacity} style={styles.skeletonGap} />
+            <SkeletonBar
+              width={SKELETON_WIDTH.market}
+              height={typo.small.lineHeight}
+              opacity={opacity}
+            />
+            <SkeletonBar
+              width={SKELETON_WIDTH.value}
+              height={typo.caption.lineHeight}
+              opacity={opacity}
+              style={styles.skeletonGap}
+            />
+            <SkeletonBar
+              width={SKELETON_WIDTH.change}
+              height={typo.small.lineHeight}
+              opacity={opacity}
+              style={styles.skeletonGap}
+            />
+            <SkeletonBar
+              width={SKELETON_WIDTH.basis}
+              height={typo.small.lineHeight}
+              opacity={opacity}
+              style={styles.skeletonGap}
+            />
           </View>
         ))}
       </View>

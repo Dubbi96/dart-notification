@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { getEventTypeLabel } from '@utils/disclosureType';
 import { formatReturnPct, formatWinRate, returnColor } from '@utils/numberFormat';
@@ -63,18 +63,33 @@ function StatusBadge({ status }: { status: CalibrationStatus }) {
       style={[styles.statusBadge, { backgroundColor: colors.surfaceSecondary }]}
       accessibilityLabel={`상태 ${STATUS_LABEL[status]}`}
     >
-      <Text style={[typo.small, { color, fontWeight: '600' }]}>{STATUS_LABEL[status]}</Text>
+      <Text
+        style={[typo.small, { color, fontWeight: '600' }]}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+      >
+        {STATUS_LABEL[status]}
+      </Text>
     </View>
   );
 }
 
 /** 작은 라벨/값 1쌍 */
-function Field({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
+function Field({
+  label,
+  value,
+  valueColor,
+}: {
+  label: string;
+  value: string;
+  valueColor?: string;
+}) {
   const { colors, typography: typo } = useTheme();
   return (
     <View style={styles.field} accessibilityRole="text" accessibilityLabel={`${label} ${value}`}>
       <Text style={[typo.small, { color: colors.textTertiary }]}>{label}</Text>
-      <Text style={[typo.captionMedium, { color: valueColor ?? colors.text, marginTop: spacing.xs }]}>
+      <Text
+        style={[typo.captionMedium, { color: valueColor ?? colors.text, marginTop: spacing.xs }]}
+      >
         {value}
       </Text>
     </View>
@@ -84,15 +99,17 @@ function Field({ label, value, valueColor }: { label: string; value: string; val
 function EventRow({ item }: { item: EventScoreCalibration }) {
   const { colors, typography: typo } = useTheme();
   const arColor =
-    item.avgExcessReturn === null
-      ? colors.textTertiary
-      : returnColor(item.avgExcessReturn, colors);
+    item.avgExcessReturn === null ? colors.textTertiary : returnColor(item.avgExcessReturn, colors);
   const showDelta = item.status === 'CALIBRATE';
 
   return (
     <View style={[styles.row, { borderTopColor: colors.borderLight }]}>
       <View style={styles.rowHead}>
-        <Text style={[typo.caption, { color: colors.text, flexShrink: 1 }]} numberOfLines={1}>
+        <Text
+          style={[typo.caption, { color: colors.text, flexShrink: 1, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {getEventTypeLabel(item.eventType)}
         </Text>
         <StatusBadge status={item.status} />
@@ -100,7 +117,11 @@ function EventRow({ item }: { item: EventScoreCalibration }) {
 
       <View style={styles.fieldGrid}>
         <Field label="현재 BASE" value={formatScore(item.currentBaseScore)} />
-        <Field label="실현 초과수익" value={formatReturnPct(item.avgExcessReturn)} valueColor={arColor} />
+        <Field
+          label="실현 초과수익"
+          value={formatReturnPct(item.avgExcessReturn)}
+          valueColor={arColor}
+        />
         <Field label="괴리(gap)" value={formatSignedInt(item.gap)} />
       </View>
 
@@ -118,11 +139,21 @@ function EventRow({ item }: { item: EventScoreCalibration }) {
             <Text style={[typo.captionMedium, { color: colors.textTertiary }]}>
               {formatScore(item.currentBaseScore)}
             </Text>
-            <Feather name="arrow-right" size={13} color={colors.textTertiary} style={styles.arrow} />
+            <Feather
+              name="arrow-right"
+              size={13}
+              color={colors.textTertiary}
+              style={styles.arrow}
+            />
             <Text style={[typo.captionMedium, { color: colors.text }]}>
               {formatScore(item.suggestedNewScore)}
             </Text>
-            <Text style={[typo.small, { color: colors.warning, marginLeft: spacing.sm, fontWeight: '600' }]}>
+            <Text
+              style={[
+                typo.small,
+                { color: colors.warning, marginLeft: spacing.sm, fontWeight: '600' },
+              ]}
+            >
               ({formatSignedInt(item.suggestedDelta)})
             </Text>
           </View>
@@ -132,9 +163,7 @@ function EventRow({ item }: { item: EventScoreCalibration }) {
           {item.lowSample ? (
             <DataLimitBadge sampleCount={item.sampleCount} />
           ) : (
-            <Text style={[typo.small, { color: colors.textTertiary }]}>
-              {item.reason}
-            </Text>
+            <Text style={[typo.small, { color: colors.textTertiary }]}>{item.reason}</Text>
           )}
         </View>
       )}
@@ -150,7 +179,11 @@ function GradeRow({ item }: { item: GradeConfidenceCalibration }) {
   return (
     <View style={[styles.row, { borderTopColor: colors.borderLight }]}>
       <View style={styles.rowHead}>
-        <Text style={[typo.caption, { color: colors.text, flexShrink: 1 }]} numberOfLines={1}>
+        <Text
+          style={[typo.caption, { color: colors.text, flexShrink: 1, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {GRADE_LABEL[item.grade] ?? item.grade}
         </Text>
         <StatusBadge status={item.status} />
@@ -159,11 +192,7 @@ function GradeRow({ item }: { item: GradeConfidenceCalibration }) {
       <View style={styles.fieldGrid}>
         <Field label="실현 승률" value={formatWinRate(item.winRate)} />
         <Field label="기대 승률" value={formatWinRate(item.expectedWinRate)} />
-        <Field
-          label="보정계수"
-          value={item.coefficient.toFixed(3)}
-          valueColor={coeffColor}
-        />
+        <Field label="보정계수" value={item.coefficient.toFixed(3)} valueColor={coeffColor} />
       </View>
 
       <View style={styles.holdRow}>
@@ -171,7 +200,9 @@ function GradeRow({ item }: { item: GradeConfidenceCalibration }) {
           <DataLimitBadge sampleCount={item.sampleCount} />
         ) : (
           <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={2}>
-            {isDiscount ? `confidence ${item.coefficient.toFixed(3)} 디스카운트 (점수 한정·실주문 무관)` : item.reason}
+            {isDiscount
+              ? `confidence ${item.coefficient.toFixed(3)} 디스카운트 (점수 한정·실주문 무관)`
+              : item.reason}
           </Text>
         )}
       </View>
@@ -209,8 +240,8 @@ export function CalibrationSection() {
         ) : null}
       </View>
       <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.sm }]}>
-        실현 초과수익과 현재 기준점수의 괴리를 권장 조정량으로 제시합니다. 읽기 전용 권고이며,
-        실제 상수 반영은 사람의 검토(PR)로만 이뤄집니다.
+        실현 초과수익과 현재 기준점수의 괴리를 권장 조정량으로 제시합니다. 읽기 전용 권고이며, 실제
+        상수 반영은 사람의 검토(PR)로만 이뤄집니다.
       </Text>
 
       {/* 자동반영 금지 고지 — 항상 명시(휴먼 승인 게이트) */}
@@ -232,10 +263,18 @@ export function CalibrationSection() {
               style={[styles.tab, active ? { backgroundColor: colors.surface } : null]}
               accessibilityRole="tab"
               accessibilityState={{ selected: active }}
-              accessibilityLabel={d === 'event' ? '이벤트별 기준점수 보정 보기' : '등급별 confidence 보정 보기'}
+              accessibilityLabel={
+                d === 'event' ? '이벤트별 기준점수 보정 보기' : '등급별 confidence 보정 보기'
+              }
             >
               <Text
-                style={[typo.small, { color: active ? colors.text : colors.textSecondary, fontWeight: active ? '600' : '400' }]}
+                style={[
+                  typo.small,
+                  {
+                    color: active ? colors.text : colors.textSecondary,
+                    fontWeight: active ? '600' : '400',
+                  },
+                ]}
               >
                 {d === 'event' ? '이벤트별' : '등급별'}
               </Text>
@@ -266,6 +305,7 @@ export function CalibrationSection() {
                       fontWeight: active ? '700' : '400',
                     },
                   ]}
+                  maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                 >
                   {h === 'd20' ? 'D+20' : 'D+5'}
                 </Text>
@@ -284,7 +324,11 @@ export function CalibrationSection() {
           <Text style={[typo.small, { color: colors.textSecondary }]}>
             보정 리포트를 불러오지 못했습니다.
           </Text>
-          <TouchableOpacity onPress={() => query.refetch()} accessibilityRole="button" accessibilityLabel="다시 시도">
+          <TouchableOpacity
+            onPress={() => query.refetch()}
+            accessibilityRole="button"
+            accessibilityLabel="다시 시도"
+          >
             <Text style={[typo.small, { color: colors.info, fontWeight: '600' }]}>다시 시도</Text>
           </TouchableOpacity>
         </View>

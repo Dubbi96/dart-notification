@@ -72,12 +72,22 @@ const CHART_CHEVRON_SIZE = sizing.icon.md;
 // 전체화면 링크의 보조 아이콘 — 스케일 밖 작은 값(14)이라 토큰 미적용(의도적 one-off).
 const CHART_LINK_ICON_SIZE = 14;
 // DAR-452/E4: 접기 토글 hitSlop — 시각 높이 유지 + 유효 터치 ≥44pt. (chevron+제목 ≈26pt + 24 = 50pt)
-const CHART_TOUCH_HIT_SLOP = { top: spacing.md, bottom: spacing.md, left: spacing.sm, right: spacing.sm } as const;
+const CHART_TOUCH_HIT_SLOP = {
+  top: spacing.md,
+  bottom: spacing.md,
+  left: spacing.sm,
+  right: spacing.sm,
+} as const;
 // DAR-472: "크게 보기" 링크의 시각 높이(typo.small lineHeight=16; 아이콘 14<16). verticalHitSlopForHeight 로
 // 세로 터치를 정확히 44pt까지 보정한다(기존 CHART_TOUCH_HIT_SLOP 으론 16+24=40pt < 44pt 였음).
 const CHART_LINK_VISUAL_HEIGHT = 16;
 // DAR-452/E4: 상단 6탭 칩 hitSlop(기존 인라인 {8,8,4,4} 토큰화). 가로는 인접 칩 오탭 방지로 좁게.
-const TAB_CHIP_HIT_SLOP = { top: spacing.sm, bottom: spacing.sm, left: spacing.xs, right: spacing.xs } as const;
+const TAB_CHIP_HIT_SLOP = {
+  top: spacing.sm,
+  bottom: spacing.sm,
+  left: spacing.xs,
+  right: spacing.xs,
+} as const;
 
 // 기업 상세 상단 6탭(DAR-156). 한 줄 SegmentedButtons는 좁은 기기에서 라벨이 압축·잘려
 // 오탭을 유발하므로 가로 스크롤 칩 행으로 노출한다(홈 segmentTab 패턴 재사용).
@@ -100,14 +110,22 @@ const MARKET_LABELS: Record<string, string> = {
 function getMarketLabel(corpCls: string | null, market: string | null): string {
   if (market) return MARKET_LABELS[market] ?? market;
   switch (corpCls) {
-    case 'Y': return '코스피';
-    case 'K': return '코스닥';
-    case 'N': return '코넥스';
-    default: return '비상장';
+    case 'Y':
+      return '코스피';
+    case 'K':
+      return '코스닥';
+    case 'N':
+      return '코넥스';
+    default:
+      return '비상장';
   }
 }
 
-function PctText({ value, typo, colors }: {
+function PctText({
+  value,
+  typo,
+  colors,
+}: {
   value: number;
   typo: ReturnType<typeof useTheme>['typography'];
   colors: ReturnType<typeof useTheme>['colors'];
@@ -192,6 +210,7 @@ function EventStudyTab({ corpCode }: EventStudyTabProps) {
               onPress={() => setSelectedEventType(et)}
               style={styles.chip}
               accessibilityLabel={`이벤트 유형: ${et}`}
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
             >
               {et}
             </Chip>
@@ -202,29 +221,49 @@ function EventStudyTab({ corpCode }: EventStudyTabProps) {
       {selected && (
         <View style={styles.statsContent}>
           {/* Sample count header */}
-          <Text style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.base }]}>
+          <Text
+            style={[
+              typo.captionMedium,
+              { color: colors.textSecondary, marginBottom: spacing.base },
+            ]}
+          >
             {selected.eventType} 이벤트 통계 · 표본: {selected.sampleCount}건 기준
           </Text>
 
           {/* UXR-6/E-7: 표본 경고를 공용 규약(isDataLimited + DataLimitBadge, DAR-121 §6)으로 통일 —
               event-stats 와 동일 판정(유의성 반영) + 자체 배너·알파 hex 합성(warning+'22') 제거. */}
-          {isDataLimited({ sampleCount: selected.sampleCount, isSignificant: selected.isSignificant }) && (
+          {isDataLimited({
+            sampleCount: selected.sampleCount,
+            isSignificant: selected.isSignificant,
+          }) && (
             <View style={styles.dataLimitWrap}>
               <DataLimitBadge />
               <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
-                표본이 적거나 통계적으로 유의하지 않아 신뢰도가 제한적입니다. 참고용으로만 활용하세요.
+                표본이 적거나 통계적으로 유의하지 않아 신뢰도가 제한적입니다. 참고용으로만
+                활용하세요.
               </Text>
             </View>
           )}
 
           {/* D+N return table */}
           <Card variant="elevated" style={styles.tableCard}>
-            <Text style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.sm }]}>
+            <Text
+              style={[
+                typo.captionMedium,
+                { color: colors.textSecondary, marginBottom: spacing.sm },
+              ]}
+            >
               단순 수익률 (이벤트 이후)
             </Text>
             <View style={styles.tableHeader}>
               {['D+1', 'D+3', 'D+5', 'D+20'].map((label) => (
-                <Text key={label} style={[typo.caption, { color: colors.textTertiary, flex: 1, textAlign: 'center' }]}>
+                <Text
+                  key={label}
+                  style={[
+                    typo.caption,
+                    { color: colors.textTertiary, flex: 1, textAlign: 'center' },
+                  ]}
+                >
                   {label}
                 </Text>
               ))}
@@ -273,7 +312,12 @@ function EventStudyTab({ corpCode }: EventStudyTabProps) {
             />
           </Card>
 
-          <Text style={[typo.small, { color: colors.textTertiary, textAlign: 'center', marginTop: spacing.sm }]}>
+          <Text
+            style={[
+              typo.small,
+              { color: colors.textTertiary, textAlign: 'center', marginTop: spacing.sm },
+            ]}
+          >
             집계 기간: {selected.dataFromDate} ~ {selected.dataToDate}
           </Text>
 
@@ -523,7 +567,9 @@ export default function CompanyDetailScreen() {
           </TouchableOpacity>
         </View>
         <View style={styles.loadingContainer}>
-          <Text style={[typo.body, { color: colors.textSecondary }]}>기업 정보를 찾을 수 없습니다</Text>
+          <Text style={[typo.body, { color: colors.textSecondary }]}>
+            기업 정보를 찾을 수 없습니다
+          </Text>
         </View>
       </SafeAreaView>
     );
@@ -544,7 +590,11 @@ export default function CompanyDetailScreen() {
         >
           <Ionicons name="chevron-back" size={BACK_ICON_SIZE} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[typo.h3, styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
+        <Text
+          style={[typo.h3, styles.headerTitle, { color: colors.text, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {company.corpName}
         </Text>
         <View style={styles.headerSpacer} />
@@ -567,9 +617,13 @@ export default function CompanyDetailScreen() {
               accessibilityLabel={`시장: ${marketLabel}`}
             >
               <Text
-                style={[typo.small, { color: colors.success, fontWeight: '600' }]}
+                style={[
+                  typo.small,
+                  { color: colors.success, fontWeight: '600', flexShrink: 1, minWidth: 0 },
+                ]}
                 numberOfLines={1}
                 maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                ellipsizeMode="tail"
               >
                 {marketLabel}
               </Text>
@@ -589,7 +643,6 @@ export default function CompanyDetailScreen() {
           {company.stockCode ? (
             <OfflineStaleLabel updatedAt={quoteUpdatedAt} style={styles.staleLabel} />
           ) : null}
-
 
           {/* DAR-99: 위험 배지 — 위험 없으면 미표시. 근사값(DART 공시 기반) 라벨 병기. */}
           <RiskStatusBadges status={riskStatus} style={styles.riskBadges} />
@@ -613,10 +666,12 @@ export default function CompanyDetailScreen() {
               size={16}
               color={isWatched ? colors.text : colors.textInverse}
             />
-            <Text style={[
-              typo.bodyMedium,
-              { color: isWatched ? colors.text : colors.textInverse, marginLeft: spacing.xs },
-            ]}>
+            <Text
+              style={[
+                typo.bodyMedium,
+                { color: isWatched ? colors.text : colors.textInverse, marginLeft: spacing.xs },
+              ]}
+            >
               {isWatched ? '관심기업' : '관심기업 추가'}
             </Text>
           </TouchableOpacity>
@@ -709,10 +764,15 @@ export default function CompanyDetailScreen() {
                 <Text
                   style={[
                     typo.captionMedium,
-                    { color: isActive ? colors.primaryForeground : colors.textSecondary },
+                    {
+                      color: isActive ? colors.primaryForeground : colors.textSecondary,
+                      flexShrink: 1,
+                      minWidth: 0,
+                    },
                   ]}
                   numberOfLines={1}
                   maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                  ellipsizeMode="tail"
                 >
                   {tab.label}
                 </Text>
@@ -740,22 +800,54 @@ export default function CompanyDetailScreen() {
         >
           {overview && (
             <View style={styles.section}>
-              <Text style={[typo.h3, { color: colors.text, marginBottom: spacing.md }]}>기업 개요</Text>
+              <Text style={[typo.h3, { color: colors.text, marginBottom: spacing.md }]}>
+                기업 개요
+              </Text>
               <Card variant="elevated">
                 {overview.ceoName && (
-                  <InfoRow icon="user" label="대표이사" value={overview.ceoName} colors={colors} typo={typo} />
+                  <InfoRow
+                    icon="user"
+                    label="대표이사"
+                    value={overview.ceoName}
+                    colors={colors}
+                    typo={typo}
+                  />
                 )}
                 {overview.industryCode && (
-                  <InfoRow icon="briefcase" label="업종코드" value={overview.industryCode} colors={colors} typo={typo} />
+                  <InfoRow
+                    icon="briefcase"
+                    label="업종코드"
+                    value={overview.industryCode}
+                    colors={colors}
+                    typo={typo}
+                  />
                 )}
                 {overview.estDate && (
-                  <InfoRow icon="calendar" label="설립일" value={formatYmdDots(overview.estDate)} colors={colors} typo={typo} />
+                  <InfoRow
+                    icon="calendar"
+                    label="설립일"
+                    value={formatYmdDots(overview.estDate)}
+                    colors={colors}
+                    typo={typo}
+                  />
                 )}
                 {overview.accMonth && (
-                  <InfoRow icon="clock" label="결산월" value={`${overview.accMonth}월`} colors={colors} typo={typo} />
+                  <InfoRow
+                    icon="clock"
+                    label="결산월"
+                    value={`${overview.accMonth}월`}
+                    colors={colors}
+                    typo={typo}
+                  />
                 )}
                 {overview.address && (
-                  <InfoRow icon="map-pin" label="주소" value={overview.address} colors={colors} typo={typo} />
+                  <InfoRow
+                    icon="map-pin"
+                    label="주소"
+                    value={overview.address}
+                    colors={colors}
+                    typo={typo}
+                  />
                 )}
                 {overview.homepageUrl && (
                   <TouchableOpacity
@@ -768,7 +860,14 @@ export default function CompanyDetailScreen() {
                     accessibilityRole="link"
                     accessibilityLabel={`홈페이지: ${overview.homepageUrl}`}
                   >
-                    <InfoRow icon="globe" label="홈페이지" value={overview.homepageUrl} colors={colors} typo={typo} isLink />
+                    <InfoRow
+                      icon="globe"
+                      label="홈페이지"
+                      value={overview.homepageUrl}
+                      colors={colors}
+                      typo={typo}
+                      isLink
+                    />
                   </TouchableOpacity>
                 )}
               </Card>
@@ -776,10 +875,21 @@ export default function CompanyDetailScreen() {
           )}
 
           <View style={styles.section}>
-            <Text style={[typo.h3, { color: colors.text, marginBottom: spacing.md }]}>최근 공시</Text>
+            <Text style={[typo.h3, { color: colors.text, marginBottom: spacing.md }]}>
+              최근 공시
+            </Text>
             {company.recentDisclosures.length === 0 ? (
               <Card variant="elevated">
-                <Text style={[typo.body, { color: colors.textSecondary, textAlign: 'center', paddingVertical: spacing.lg }]}>
+                <Text
+                  style={[
+                    typo.body,
+                    {
+                      color: colors.textSecondary,
+                      textAlign: 'center',
+                      paddingVertical: spacing.lg,
+                    },
+                  ]}
+                >
                   최근 공시가 없습니다
                 </Text>
               </Card>
@@ -803,8 +913,12 @@ export default function CompanyDetailScreen() {
                         <Text
                           style={[
                             typo.small,
-                            { color: getTypeStyle(disclosure.disclosureType, isDark).text, fontWeight: '600' },
+                            {
+                              color: getTypeStyle(disclosure.disclosureType, isDark).text,
+                              fontWeight: '600',
+                            },
                           ]}
+                          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                         >
                           {getTypeLabel(disclosure.disclosureType)}
                         </Text>
@@ -813,7 +927,10 @@ export default function CompanyDetailScreen() {
                         {formatYmdDots(disclosure.rcpDt)}
                       </Text>
                     </View>
-                    <Text style={[typo.body, { color: colors.text, marginTop: spacing.sm }]} numberOfLines={2}>
+                    <Text
+                      style={[typo.body, { color: colors.text, marginTop: spacing.sm }]}
+                      numberOfLines={2}
+                    >
                       {disclosure.reportName}
                     </Text>
                   </Card>
@@ -900,7 +1017,9 @@ function CompanyPhilosophyTab({ corpCode, corpName }: CompanyPhilosophyTabProps)
       }
     >
       {basis ? (
-        <Text style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.base }]}>
+        <Text
+          style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.base }]}
+        >
           {basis.bsnsYear}년 {basis.fsDiv} 재무 기준 · 점수 높은 순
         </Text>
       ) : null}
@@ -955,12 +1074,18 @@ function CompanySignalBadgeRow({ corpCode }: { corpCode: string }) {
   if (!data) {
     return (
       <View
-        style={[styles.signalBadgeEmpty, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+        style={[
+          styles.signalBadgeEmpty,
+          { backgroundColor: colors.surface, borderColor: colors.borderLight },
+        ]}
         accessible
         accessibilityLabel="아직 매수 신호가 없습니다"
       >
         <Feather name="bell-off" size={13} color={colors.textTertiary} />
-        <Text style={[typo.small, { color: colors.textTertiary, marginLeft: spacing.xs }]}>
+        <Text
+          style={[typo.small, { color: colors.textTertiary, marginLeft: spacing.xs }]}
+          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        >
           아직 매수 신호 없음
         </Text>
       </View>
@@ -972,7 +1097,10 @@ function CompanySignalBadgeRow({ corpCode }: { corpCode: string }) {
 
   return (
     <TouchableOpacity
-      style={[styles.signalBadgeRow, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+      style={[
+        styles.signalBadgeRow,
+        { backgroundColor: colors.surface, borderColor: colors.borderLight },
+      ]}
       activeOpacity={0.8}
       onPress={() => router.push(`/signals/${data.id}`)}
       accessibilityRole="button"
@@ -984,9 +1112,10 @@ function CompanySignalBadgeRow({ corpCode }: { corpCode: string }) {
         style={[styles.gradeChip, { backgroundColor: colors.surfaceSecondary, borderColor: color }]}
       >
         <Text
-          style={[typo.small, { color, fontWeight: '700' }]}
+          style={[typo.small, { color, fontWeight: '700', flexShrink: 1, minWidth: 0 }]}
           numberOfLines={1}
           maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          ellipsizeMode="tail"
         >
           {label}
         </Text>
@@ -1000,9 +1129,14 @@ function CompanySignalBadgeRow({ corpCode }: { corpCode: string }) {
         <View style={[styles.entryReadyChip, { backgroundColor: colors.successSurface }]}>
           <Feather name="check-circle" size={12} color={colors.success} />
           <Text
-            style={[typo.small, styles.entryReadyText, { color: colors.success }]}
+            style={[
+              typo.small,
+              styles.entryReadyText,
+              { color: colors.success, flexShrink: 1, minWidth: 0 },
+            ]}
             numberOfLines={1}
             maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+            ellipsizeMode="tail"
           >
             진입 준비
           </Text>
@@ -1014,7 +1148,14 @@ function CompanySignalBadgeRow({ corpCode }: { corpCode: string }) {
   );
 }
 
-function InfoRow({ icon, label, value, colors, typo, isLink }: {
+function InfoRow({
+  icon,
+  label,
+  value,
+  colors,
+  typo,
+  isLink,
+}: {
   icon: string;
   label: string;
   value: string;
@@ -1025,8 +1166,14 @@ function InfoRow({ icon, label, value, colors, typo, isLink }: {
   return (
     <View style={styles.infoRow}>
       <View style={styles.infoLabel}>
-        <Feather name={icon as keyof typeof Feather.glyphMap} size={14} color={colors.textTertiary} />
-        <Text style={[typo.caption, { color: colors.textSecondary, marginLeft: spacing.sm }]}>{label}</Text>
+        <Feather
+          name={icon as keyof typeof Feather.glyphMap}
+          size={14}
+          color={colors.textTertiary}
+        />
+        <Text style={[typo.caption, { color: colors.textSecondary, marginLeft: spacing.sm }]}>
+          {label}
+        </Text>
       </View>
       <Text
         style={[

@@ -59,7 +59,8 @@ function FusionRow({ fusion }: FusionRowProps) {
         : colors.textSecondary;
 
   const scoreText = fusion.fusionScore != null ? `${Math.round(fusion.fusionScore)}` : '—';
-  const barRatio = fusion.fusionScore != null ? Math.max(0, Math.min(1, fusion.fusionScore / 100)) : 0;
+  const barRatio =
+    fusion.fusionScore != null ? Math.max(0, Math.min(1, fusion.fusionScore / 100)) : 0;
   const viewLabel = fusion.personaView.view ? VIEW_LABEL[fusion.personaView.view] : null;
 
   return (
@@ -72,7 +73,11 @@ function FusionRow({ fusion }: FusionRowProps) {
     >
       <View style={styles.rowHeader}>
         <View style={styles.nameWrap}>
-          <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
+          <Text
+            style={[typo.bodyMedium, { color: colors.text, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {fusion.investorName}
           </Text>
           <Chip
@@ -85,7 +90,9 @@ function FusionRow({ fusion }: FusionRowProps) {
             {`AI ${PERSONA_LABEL[fusion.mappedPersona]}`}
           </Chip>
         </View>
-        <Text style={[typo.h3, { color: fusion.computable ? colors.primary : colors.textTertiary }]}>
+        <Text
+          style={[typo.h3, { color: fusion.computable ? colors.primary : colors.textTertiary }]}
+        >
           {fusion.computable ? scoreText : '산출 불가'}
         </Text>
       </View>
@@ -93,7 +100,10 @@ function FusionRow({ fusion }: FusionRowProps) {
       {fusion.computable ? (
         <View style={[styles.barTrack, { backgroundColor: colors.surfaceSecondary }]}>
           <View
-            style={[styles.barFill, { backgroundColor: colors.primary, width: `${barRatio * 100}%` }]}
+            style={[
+              styles.barFill,
+              { backgroundColor: colors.primary, width: `${barRatio * 100}%` },
+            ]}
           />
         </View>
       ) : null}
@@ -101,7 +111,8 @@ function FusionRow({ fusion }: FusionRowProps) {
       {/* 축별 점수(철학 / AI 관점) */}
       <View style={styles.axisRow}>
         <Text style={[typo.small, { color: colors.textSecondary }]}>
-          철학 적합도 {fusion.philosophyScore != null ? `${Math.round(fusion.philosophyScore)}점` : '결측'}
+          철학 적합도{' '}
+          {fusion.philosophyScore != null ? `${Math.round(fusion.philosophyScore)}점` : '결측'}
         </Text>
         <Text style={[typo.small, { color: colors.textSecondary }]}>
           AI 관점{viewLabel ? ` ${viewLabel}` : ''}{' '}
@@ -115,7 +126,9 @@ function FusionRow({ fusion }: FusionRowProps) {
           {fusion.basis.map((line, i) => (
             <View key={i} style={styles.basisRow}>
               <Feather name="corner-down-right" size={11} color={colors.textTertiary} />
-              <Text style={[typo.small, styles.basisText, { color: colors.textSecondary }]}>{line}</Text>
+              <Text style={[typo.small, styles.basisText, { color: colors.textSecondary }]}>
+                {line}
+              </Text>
             </View>
           ))}
         </View>
@@ -123,7 +136,10 @@ function FusionRow({ fusion }: FusionRowProps) {
 
       {/* AI 해석 스니펫(있으면) */}
       {fusion.personaView.available && fusion.personaView.interpretation ? (
-        <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]} numberOfLines={3}>
+        <Text
+          style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}
+          numberOfLines={3}
+        >
           {`"${fusion.personaView.interpretation}"`}
         </Text>
       ) : null}
@@ -146,7 +162,10 @@ interface PersonaPhilosophyFusionListProps {
   limit?: number;
 }
 
-export function PersonaPhilosophyFusionList({ fusions, limit = 3 }: PersonaPhilosophyFusionListProps) {
+export function PersonaPhilosophyFusionList({
+  fusions,
+  limit = 3,
+}: PersonaPhilosophyFusionListProps) {
   const visible = fusions.slice(0, limit);
   return (
     <View>

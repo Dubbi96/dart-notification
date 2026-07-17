@@ -60,7 +60,10 @@ function BenefitRow({ icon, title, description, isLast }: Benefit & { isLast: bo
     <View
       style={[
         styles.benefitRow,
-        { borderBottomColor: colors.borderLight, borderBottomWidth: isLast ? 0 : StyleSheet.hairlineWidth },
+        {
+          borderBottomColor: colors.borderLight,
+          borderBottomWidth: isLast ? 0 : StyleSheet.hairlineWidth,
+        },
       ]}
     >
       <View style={[styles.benefitIcon, { backgroundColor: colors.primaryLight }]}>
@@ -131,7 +134,10 @@ export default function ProScreen() {
   }, [isAuthenticated, isOffline, optedIn, toggleMutation, haptics, showSnackbar]);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <ScreenHeader title="Pro" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -151,7 +157,9 @@ export default function ProScreen() {
         </View>
 
         {/* Benefits */}
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <View
+          style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        >
           {BENEFITS.map((b, i) => (
             <BenefitRow key={b.title} {...b} isLast={i === BENEFITS.length - 1} />
           ))}
@@ -178,7 +186,9 @@ export default function ProScreen() {
           activeOpacity={0.8}
           accessibilityRole="button"
           accessibilityState={{ selected: optedIn }}
-          accessibilityLabel={optedIn ? '출시 알림 신청 완료, 다시 누르면 취소' : '출시 알림 신청하기'}
+          accessibilityLabel={
+            optedIn ? '출시 알림 신청 완료, 다시 누르면 취소' : '출시 알림 신청하기'
+          }
         >
           <Feather
             name={optedIn ? 'check-circle' : 'bell'}
@@ -224,7 +234,7 @@ const styles = StyleSheet.create({
   },
   heroBadge: {
     width: 64,
-    height: 64,
+    minHeight: 64,
     borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',

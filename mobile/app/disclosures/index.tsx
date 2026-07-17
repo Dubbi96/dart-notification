@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { verticalHitSlopForHeight } from '@utils/touchTarget';
 import { Card } from '@components/common/Card';
@@ -73,15 +73,10 @@ function DisclosureRowBase({ item, onPress, onPressCompany }: DisclosureRowProps
   );
   // 고위험 5종(거래정지·상폐위험·감사의견·소송·계약해지)은 보고서명으로 1차 식별해 강조.
   const risk = useMemo(() => getHighRiskInfo(item.reportName), [item.reportName]);
-  const formattedDate = useMemo(
-    () => formatYmdDots(item.rcpDt),
-    [item.rcpDt],
-  );
+  const formattedDate = useMemo(() => formatYmdDots(item.rcpDt), [item.rcpDt]);
   const cardStyle = useMemo(
     () =>
-      risk
-        ? { ...styles.card, borderLeftWidth: 3, borderLeftColor: colors.error }
-        : styles.card,
+      risk ? { ...styles.card, borderLeftWidth: 3, borderLeftColor: colors.error } : styles.card,
     [risk, colors.error],
   );
 
@@ -105,14 +100,20 @@ function DisclosureRowBase({ item, onPress, onPressCompany }: DisclosureRowProps
         <View style={styles.cardHeader}>
           <View style={styles.badgeRow}>
             <View style={[styles.typeBadge, { backgroundColor: typeStyle.bg }]}>
-              <Text style={[typo.small, { color: typeStyle.text, fontWeight: '600' }]}>
+              <Text
+                style={[typo.small, { color: typeStyle.text, fontWeight: '600' }]}
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+              >
                 {getTypeLabel(item.disclosureType)}
               </Text>
             </View>
             {risk && (
               <View style={[styles.riskBadge, { backgroundColor: colors.errorSurface }]}>
                 <Feather name="alert-triangle" size={11} color={colors.error} />
-                <Text style={[typo.small, { color: colors.error, fontWeight: '700' }]}>
+                <Text
+                  style={[typo.small, { color: colors.error, fontWeight: '700' }]}
+                  maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                >
                   {risk.label}
                 </Text>
               </View>
@@ -139,7 +140,11 @@ function DisclosureRowBase({ item, onPress, onPressCompany }: DisclosureRowProps
             accessibilityRole="link"
             accessibilityLabel={`${item.corpName} 기업 정보 보기`}
           >
-            <Text style={[typo.caption, { color: colors.primary }]} numberOfLines={1}>
+            <Text
+              style={[typo.caption, { color: colors.primary, flexShrink: 1, minWidth: 0 }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
               {item.corpName}
             </Text>
             <Feather name="chevron-right" size={13} color={colors.primary} />
@@ -187,7 +192,7 @@ export default function DisclosuresScreen() {
   const moreFiltersApplied = period !== 'all' || (isSearching && sort !== 'latest');
   const moreFiltersLabel =
     period !== 'all'
-      ? PERIOD_OPTIONS.find((o) => o.key === period)?.label ?? '기간'
+      ? (PERIOD_OPTIONS.find((o) => o.key === period)?.label ?? '기간')
       : isSearching
         ? '기간·정렬'
         : '기간';
@@ -263,8 +268,18 @@ export default function DisclosuresScreen() {
         accessibilityRole="button"
         accessibilityLabel="로그인하고 시작하기. 관심기업 공시만 모아볼 수 있어요"
       >
-        <View style={[styles.loginBanner, { borderColor: colors.primary, backgroundColor: colors.primaryLight }]}>
-          <View style={[styles.loginIconCircle, { borderColor: colors.primary, backgroundColor: colors.surface }]}>
+        <View
+          style={[
+            styles.loginBanner,
+            { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+          ]}
+        >
+          <View
+            style={[
+              styles.loginIconCircle,
+              { borderColor: colors.primary, backgroundColor: colors.surface },
+            ]}
+          >
             <Feather name="user" size={18} color={colors.primary} />
           </View>
           <View style={{ flex: 1, marginLeft: spacing.md }}>
@@ -301,15 +316,21 @@ export default function DisclosuresScreen() {
       />
 
       {/* Search Bar */}
-      <View style={[
-        styles.searchBar,
-        {
-          backgroundColor: colors.inputBackground,
-          borderColor: searchFocused ? colors.primary : colors.inputBorder,
-        },
-      ]}>
+      <View
+        style={[
+          styles.searchBar,
+          {
+            backgroundColor: colors.inputBackground,
+            borderColor: searchFocused ? colors.primary : colors.inputBorder,
+          },
+        ]}
+      >
         {/* 검색바 아이콘은 통합 검색(SearchOverlay 정본)과 동일한 Feather 계열로 통일(E-8). */}
-        <Feather name="search" size={sizing.icon.md} color={searchFocused ? colors.primary : colors.textTertiary} />
+        <Feather
+          name="search"
+          size={sizing.icon.md}
+          color={searchFocused ? colors.primary : colors.textTertiary}
+        />
         <TextInput
           style={[typo.body, styles.searchInput, { color: colors.inputText }]}
           placeholder="기업명·보고서명 검색"
@@ -337,11 +358,11 @@ export default function DisclosuresScreen() {
 
       {/* Filter Chips */}
       <View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filterRow}
-          >
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
           {/* 기간·정렬 접이 토글(E10): 보조 필터행을 기본 접어 첫 공시 카드를 화면 위로 끌어올린다. */}
           <TouchableOpacity
             style={[
@@ -361,7 +382,9 @@ export default function DisclosuresScreen() {
             <Feather
               name="sliders"
               size={13}
-              color={moreFiltersApplied || showMoreFilters ? colors.primaryDark : colors.textSecondary}
+              color={
+                moreFiltersApplied || showMoreFilters ? colors.primaryDark : colors.textSecondary
+              }
             />
             <Text
               style={[
@@ -369,6 +392,7 @@ export default function DisclosuresScreen() {
                 moreFiltersApplied ? styles.chipLabelBold : styles.chipLabelRegular,
                 { color: moreFiltersApplied || showMoreFilters ? colors.primaryDark : colors.text },
               ]}
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
             >
               {moreFiltersLabel}
             </Text>
@@ -379,7 +403,11 @@ export default function DisclosuresScreen() {
                 styles.filterChip,
                 watchlistOnly
                   ? { backgroundColor: colors.primary }
-                  : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
+                  : {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.borderLight,
+                      borderWidth: 1,
+                    },
               ]}
               onPress={() => setWatchlistOnly(!watchlistOnly)}
               activeOpacity={0.7}
@@ -401,6 +429,7 @@ export default function DisclosuresScreen() {
                     fontWeight: watchlistOnly ? '600' : '400',
                   },
                 ]}
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
               >
                 관심목록
               </Text>
@@ -417,7 +446,11 @@ export default function DisclosuresScreen() {
                   styles.filterChip,
                   isActive
                     ? { backgroundColor: colors.primary }
-                    : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
+                    : {
+                        backgroundColor: colors.surface,
+                        borderColor: colors.borderLight,
+                        borderWidth: 1,
+                      },
                 ]}
                 onPress={() => handleFilterPress(filter)}
                 activeOpacity={0.7}
@@ -449,100 +482,119 @@ export default function DisclosuresScreen() {
                       fontWeight: isActive ? '600' : '400',
                     },
                   ]}
+                  maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                 >
                   {label}
                 </Text>
               </TouchableOpacity>
             );
           })}
-          </ScrollView>
-        </View>
+        </ScrollView>
+      </View>
 
       {/* 기간 / 정렬 필터 (DAR-45 §2) — 접이 토글(E10)로 기본 접힘, 펼칠 때만 렌더 */}
       {showMoreFilters && (
-      <View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.subFilterRow}
-        >
-          {PERIOD_OPTIONS.map((opt) => {
-            const isActive = period === opt.key;
-            return (
-              <TouchableOpacity
-                key={opt.key}
-                style={[
-                  styles.subFilterChip,
-                  isActive
-                    ? { backgroundColor: colors.primaryLight, borderColor: colors.primary, borderWidth: 1 }
-                    : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
-                ]}
-                onPress={() => setPeriod(opt.key)}
-                activeOpacity={0.7}
-                hitSlop={SUB_FILTER_CHIP_HIT_SLOP}
-                accessibilityRole="button"
-                accessibilityState={{ selected: isActive }}
-                accessibilityLabel={`${opt.label} 기간 필터`}
-              >
-                <Text
+        <View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.subFilterRow}
+          >
+            {PERIOD_OPTIONS.map((opt) => {
+              const isActive = period === opt.key;
+              return (
+                <TouchableOpacity
+                  key={opt.key}
                   style={[
-                    typo.small,
-                    {
-                      color: isActive ? colors.primaryDark : colors.textSecondary,
-                      fontWeight: isActive ? '600' : '400',
-                    },
-                  ]}
-                >
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-          {/* 정렬: 검색 중일 때만 의미 있음(관련도순) */}
-          {isSearching && (
-            <>
-              <View style={[styles.subFilterDivider, { backgroundColor: colors.border }]} />
-              {SORT_OPTIONS.map((opt) => {
-                const isActive = sort === opt.key;
-                return (
-                  <TouchableOpacity
-                    key={opt.key}
-                    style={[
-                      styles.subFilterChip,
-                      isActive
-                        ? { backgroundColor: colors.primaryLight, borderColor: colors.primary, borderWidth: 1 }
-                        : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
-                    ]}
-                    onPress={() => setSort(opt.key)}
-                    activeOpacity={0.7}
-                    hitSlop={SUB_FILTER_CHIP_HIT_SLOP}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: isActive }}
-                    accessibilityLabel={`${opt.label} 정렬`}
-                  >
-                    <Feather
-                      name={opt.key === 'relevance' ? 'zap' : 'clock'}
-                      size={12}
-                      color={isActive ? colors.primaryDark : colors.textTertiary}
-                    />
-                    <Text
-                      style={[
-                        typo.small,
-                        {
-                          color: isActive ? colors.primaryDark : colors.textSecondary,
-                          fontWeight: isActive ? '600' : '400',
+                    styles.subFilterChip,
+                    isActive
+                      ? {
+                          backgroundColor: colors.primaryLight,
+                          borderColor: colors.primary,
+                          borderWidth: 1,
+                        }
+                      : {
+                          backgroundColor: colors.surface,
+                          borderColor: colors.borderLight,
+                          borderWidth: 1,
                         },
+                  ]}
+                  onPress={() => setPeriod(opt.key)}
+                  activeOpacity={0.7}
+                  hitSlop={SUB_FILTER_CHIP_HIT_SLOP}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isActive }}
+                  accessibilityLabel={`${opt.label} 기간 필터`}
+                >
+                  <Text
+                    style={[
+                      typo.small,
+                      {
+                        color: isActive ? colors.primaryDark : colors.textSecondary,
+                        fontWeight: isActive ? '600' : '400',
+                      },
+                    ]}
+                    maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+            {/* 정렬: 검색 중일 때만 의미 있음(관련도순) */}
+            {isSearching && (
+              <>
+                <View style={[styles.subFilterDivider, { backgroundColor: colors.border }]} />
+                {SORT_OPTIONS.map((opt) => {
+                  const isActive = sort === opt.key;
+                  return (
+                    <TouchableOpacity
+                      key={opt.key}
+                      style={[
+                        styles.subFilterChip,
+                        isActive
+                          ? {
+                              backgroundColor: colors.primaryLight,
+                              borderColor: colors.primary,
+                              borderWidth: 1,
+                            }
+                          : {
+                              backgroundColor: colors.surface,
+                              borderColor: colors.borderLight,
+                              borderWidth: 1,
+                            },
                       ]}
+                      onPress={() => setSort(opt.key)}
+                      activeOpacity={0.7}
+                      hitSlop={SUB_FILTER_CHIP_HIT_SLOP}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isActive }}
+                      accessibilityLabel={`${opt.label} 정렬`}
                     >
-                      {opt.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </>
-          )}
-        </ScrollView>
-      </View>
+                      <Feather
+                        name={opt.key === 'relevance' ? 'zap' : 'clock'}
+                        size={12}
+                        color={isActive ? colors.primaryDark : colors.textTertiary}
+                      />
+                      <Text
+                        style={[
+                          typo.small,
+                          {
+                            color: isActive ? colors.primaryDark : colors.textSecondary,
+                            fontWeight: isActive ? '600' : '400',
+                          },
+                        ]}
+                        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                      >
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </>
+            )}
+          </ScrollView>
+        </View>
       )}
 
       {/* List — 비로그인 배너는 고정 chrome 누적을 피해 리스트 헤더(스크롤 영역)로 이동(E10) */}
@@ -583,10 +635,7 @@ export default function DisclosuresScreen() {
               // 공시 검색 빈 결과(§1-2)
               <EmptyState icon="search" title={`'${debouncedQuery}' 검색 결과가 없어요`} />
             ) : isFilterActive ? (
-              <EmptyState
-                {...emptyStateCopy.disclosureFilterEmpty}
-                onAction={resetFilters}
-              />
+              <EmptyState {...emptyStateCopy.disclosureFilterEmpty} onAction={resetFilters} />
             ) : (
               <EmptyState {...emptyStateCopy.homeDisclosureEmpty} />
             )
@@ -669,7 +718,7 @@ const styles = StyleSheet.create({
   },
   chipDot: {
     width: 6,
-    height: 6,
+    minHeight: 6,
     borderRadius: 3,
   },
   listContent: {

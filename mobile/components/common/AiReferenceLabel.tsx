@@ -2,7 +2,7 @@ import React, { useCallback } from 'react';
 import { StyleSheet } from 'react-native';
 import { Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 
 // "AI 분석 참고용" 표준 레이블(기획 §5). AI 생성 콘텐츠 블록에 인라인 배치.
 // Chip(outlined) + Feather info 아이콘 + 텍스트.
@@ -13,7 +13,10 @@ interface AiReferenceLabelProps {
   compact?: boolean;
 }
 
-export function AiReferenceLabel({ text = 'AI 분석 참고용', compact = true }: AiReferenceLabelProps) {
+export function AiReferenceLabel({
+  text = 'AI 분석 참고용',
+  compact = true,
+}: AiReferenceLabelProps) {
   const { colors, typography: typo } = useTheme();
 
   const renderIcon = useCallback(
@@ -31,6 +34,7 @@ export function AiReferenceLabel({ text = 'AI 분석 참고용', compact = true 
       style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.surface }]}
       textStyle={[typo.small, { color: colors.textSecondary }]}
       accessibilityLabel={`${text} 레이블`}
+      maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
     >
       {text}
     </Chip>

@@ -1,7 +1,7 @@
 import React, { useMemo, useCallback } from 'react';
 import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { Surface, Banner } from 'react-native-paper';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { InlineDisclosure } from '@components/common/InlineDisclosure';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
@@ -13,10 +13,7 @@ import { DataLimitBadge } from '@components/common/DataLimitBadge';
 import { useStyleComparison } from '@hooks/useStyleComparison';
 import { formatReturnPct, formatWinRate } from '@utils/numberFormat';
 
-import type {
-  StyleComparison,
-  StylePerformance,
-} from '@app-types/style-comparison.types';
+import type { StyleComparison, StylePerformance } from '@app-types/style-comparison.types';
 
 // 철학 스타일별(버핏·린치·그린블라트·드러켄밀러) 모의운용 성과 비교 — DAR-76 (P-D).
 // 어느 거장 스타일이 한국시장 공시에서 실제 모의수익을 내는지 데이터로 변별한다(Main Thesis B).
@@ -40,7 +37,12 @@ function BestBadge() {
       accessibilityRole="text"
       accessibilityLabel="현재 최고 수익 스타일"
     >
-      <Text style={[typo.small, { color: colors.success }]}>최고 수익</Text>
+      <Text
+        style={[typo.small, { color: colors.success }]}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+      >
+        최고 수익
+      </Text>
     </View>
   );
 }
@@ -73,14 +75,26 @@ function PrimaryStat({ label, value, sub }: { label: string; value: string; sub?
       accessibilityRole="text"
       accessibilityLabel={`${label} ${value}${sub ? ` ${sub}` : ''}`}
     >
-      <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+      <Text
+        style={[typo.small, { color: colors.textSecondary, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {label}
       </Text>
-      <Text style={[typo.body, styles.primaryValue, { color: colors.text }]} numberOfLines={1}>
+      <Text
+        style={[typo.body, styles.primaryValue, { color: colors.text, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {value}
       </Text>
       {sub ? (
-        <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={1}>
+        <Text
+          style={[typo.small, { color: colors.textTertiary, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {sub}
         </Text>
       ) : null}
@@ -178,8 +192,11 @@ function ComparisonHeader({ data }: { data: StyleComparison }) {
             <Text style={[typo.h3, { color: colors.text, marginTop: spacing.xs }]}>
               {best.label}
             </Text>
-            <Text style={[typo.captionMedium, { color: colors.textSecondary, marginTop: spacing.xs }]}>
-              누적수익 {formatReturnPct(best.scorecard.cumulativeReturnPct)} · 표본 {best.scorecard.sampleSize}건
+            <Text
+              style={[typo.captionMedium, { color: colors.textSecondary, marginTop: spacing.xs }]}
+            >
+              누적수익 {formatReturnPct(best.scorecard.cumulativeReturnPct)} · 표본{' '}
+              {best.scorecard.sampleSize}건
             </Text>
           </>
         ) : (
@@ -193,11 +210,7 @@ function ComparisonHeader({ data }: { data: StyleComparison }) {
         </Text>
         <View style={styles.headerDisclosure}>
           <InlineDisclosure
-            label={
-              data.ranking.allLowSample
-                ? `표본 적음 · 진입 기준 보기`
-                : '진입 기준 보기'
-            }
+            label={data.ranking.allLowSample ? `표본 적음 · 진입 기준 보기` : '진입 기준 보기'}
             icon={data.ranking.allLowSample ? 'alert-triangle' : 'info'}
             accent={data.ranking.allLowSample}
           >
@@ -241,9 +254,7 @@ export function StyleComparisonSection() {
 
   if (query.isLoading) return <SkeletonList variant="buyScore" />;
   if (query.isError) {
-    return (
-      <ErrorState title="스타일별 성과를 불러오지 못했습니다." onRetry={query.refetch} />
-    );
+    return <ErrorState title="스타일별 성과를 불러오지 못했습니다." onRetry={query.refetch} />;
   }
 
   const data = query.data;
@@ -256,7 +267,7 @@ export function StyleComparisonSection() {
       contentContainerStyle={styles.listContent}
       showsVerticalScrollIndicator={false}
       refreshing={query.isRefetching}
-          onRefresh={query.refetch}
+      onRefresh={query.refetch}
       ListHeaderComponent={data ? <ComparisonHeader data={data} /> : null}
       ListEmptyComponent={
         <EmptyState

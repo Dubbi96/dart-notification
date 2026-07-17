@@ -1,16 +1,9 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import {
-  View,
-  Text,
-  FlatList,
-  StyleSheet,
-  TouchableOpacity,
-  RefreshControl,
-} from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { formatDistanceToNow, parse } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -75,8 +68,9 @@ const WatchlistRow = React.memo(function WatchlistRow({
       <View style={styles.itemContent}>
         <View style={styles.nameRow}>
           <Text
-            style={[typo.bodyMedium, styles.nameText, { color: colors.text }]}
+            style={[typo.bodyMedium, styles.nameText, { color: colors.text, minWidth: 0 }]}
             numberOfLines={1}
+            ellipsizeMode="tail"
           >
             {item.corpName}
           </Text>
@@ -86,7 +80,10 @@ const WatchlistRow = React.memo(function WatchlistRow({
               accessibilityRole="text"
               accessibilityLabel={`신규 공시 ${item.newDisclosureCount}건`}
             >
-              <Text style={[typo.small, styles.newBadgeText, { color: colors.primaryForeground }]}>
+              <Text
+                style={[typo.small, styles.newBadgeText, { color: colors.primaryForeground }]}
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+              >
                 신규 {(item.newDisclosureCount ?? 0) > 99 ? '99+' : item.newDisclosureCount}
               </Text>
             </View>
@@ -97,7 +94,9 @@ const WatchlistRow = React.memo(function WatchlistRow({
           {item.stockCode && item.lastDisclosureDate ? ' · ' : ''}
           {item.lastDisclosureDate
             ? `마지막 공시 ${formatDistanceToNow(parse(item.lastDisclosureDate, 'yyyyMMdd', new Date()), { addSuffix: true, locale: ko })}`
-            : !item.stockCode ? '공시 없음' : ''}
+            : !item.stockCode
+              ? '공시 없음'
+              : ''}
         </Text>
         {/* DAR-158: 가격 배지 — 시세 있을 때만, 없으면 미표시. */}
         {item.stockCode && quote ? (
@@ -179,7 +178,9 @@ export default function WatchlistScreen() {
   // DAR-202: 한도 도달 시 +버튼 dead tap 대신 안내 스낵바.
   const handleAdd = () => {
     if (total >= limit) {
-      showSnackbar(snackbarCopy.watchlistLimitReached(limit), { duration: SNACKBAR_DURATION.error });
+      showSnackbar(snackbarCopy.watchlistLimitReached(limit), {
+        duration: SNACKBAR_DURATION.error,
+      });
       return;
     }
     setSearchVisible(true);
@@ -256,7 +257,11 @@ export default function WatchlistScreen() {
             accessibilityRole="button"
             accessibilityLabel={total >= limit ? '관심기업 추가 (한도 도달)' : '관심기업 추가'}
           >
-            <Feather name="plus" size={24} color={total >= limit ? colors.textTertiary : colors.primary} />
+            <Feather
+              name="plus"
+              size={24}
+              color={total >= limit ? colors.textTertiary : colors.primary}
+            />
           </TouchableOpacity>
         }
       />
@@ -283,11 +288,7 @@ export default function WatchlistScreen() {
         ListEmptyComponent={
           isError ? (
             // 연결 실패 시 빈 화면 대신 사유+재시도(DAR-43 §1).
-            <ApiErrorState
-              error={error}
-              onRetry={refetch}
-              title="관심기업을 불러오지 못했습니다"
-            />
+            <ApiErrorState error={error} onRetry={refetch} title="관심기업을 불러오지 못했습니다" />
           ) : (
             <EmptyState
               {...emptyStateCopy.watchlistEmpty}
@@ -298,10 +299,7 @@ export default function WatchlistScreen() {
         renderItem={renderItem}
       />
 
-      <SearchOverlay
-        visible={searchVisible}
-        onClose={() => setSearchVisible(false)}
-      />
+      <SearchOverlay visible={searchVisible} onClose={() => setSearchVisible(false)} />
     </SafeAreaView>
   );
 }

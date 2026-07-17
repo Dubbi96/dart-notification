@@ -2,7 +2,7 @@ import React, { useCallback } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ApiErrorState } from '@components/common/StateView';
 import { SkeletonCard } from '@components/common/SkeletonCard';
@@ -78,19 +78,30 @@ function GateRow({ gate }: { gate: GraduationGate }) {
       )}, ${BADGE_TEXT[kind]}${gate.sampleSize !== null ? `, 표본 ${gate.sampleSize}건` : ''}`}
     >
       <View style={styles.gateInfo}>
-        <Text style={[typo.captionMedium, { color: colors.text }]} numberOfLines={1}>
+        <Text
+          style={[typo.captionMedium, { color: colors.text, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {gate.label}
         </Text>
         <Text style={[typo.small, { color: colors.textSecondary }]}>
           {formatCurrent(gate)}
-          <Text style={{ color: colors.textTertiary }}>{`  (기준 ${formatThreshold(gate)})${sampleSuffix}`}</Text>
+          <Text
+            style={{ color: colors.textTertiary }}
+          >{`  (기준 ${formatThreshold(gate)})${sampleSuffix}`}</Text>
         </Text>
       </View>
       <View
         style={[styles.badge, { backgroundColor: badgeBg, borderColor: badgeColor }]}
         importantForAccessibility="no-hide-descendants"
       >
-        <Text style={[typo.small, { color: badgeColor, fontWeight: '700' }]}>{BADGE_TEXT[kind]}</Text>
+        <Text
+          style={[typo.small, { color: badgeColor, fontWeight: '700' }]}
+          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        >
+          {BADGE_TEXT[kind]}
+        </Text>
       </View>
     </View>
   );
@@ -122,13 +133,23 @@ function NextGateSummary({ report }: { report: GraduationReport }) {
         gate,
       )}, ${BADGE_TEXT[kind]}`}
     >
-      <Text style={[typo.small, styles.nextGateLabel, { color: colors.text }]} numberOfLines={1}>
-        <Text style={{ color: colors.textTertiary }}>다음 목표  </Text>
+      <Text
+        style={[typo.small, styles.nextGateLabel, { color: colors.text, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
+        <Text style={{ color: colors.textTertiary }}>다음 목표 </Text>
         {gate.label}
       </Text>
-      <Text style={[typo.captionMedium, { color: colors.text }]} numberOfLines={1}>
+      <Text
+        style={[typo.captionMedium, { color: colors.text, flexShrink: 1, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {formatCurrent(gate)}
-        <Text style={[typo.small, { color: colors.textTertiary }]}>{`  (기준 ${formatThreshold(gate)})`}</Text>
+        <Text
+          style={[typo.small, { color: colors.textTertiary }]}
+        >{`  (기준 ${formatThreshold(gate)})`}</Text>
       </Text>
     </View>
   );
@@ -157,7 +178,12 @@ function TrackerBody({ report }: { report: GraduationReport }) {
                   style={[styles.lowSampleBadge, { borderColor: colors.border }]}
                   accessibilityLabel="표본 부족 — 일부 지표는 데이터가 더 쌓여야 합니다"
                 >
-                  <Text style={[typo.small, { color: colors.textTertiary }]}>표본 부족</Text>
+                  <Text
+                    style={[typo.small, { color: colors.textTertiary }]}
+                    maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                  >
+                    표본 부족
+                  </Text>
                 </View>
               ) : null}
             </View>
@@ -206,9 +232,7 @@ function TrackerBody({ report }: { report: GraduationReport }) {
             report.sharpe !== null ? report.sharpe.toFixed(2) : '측정 불가'
           }, 참고지표`}
         >
-          <Text style={[typo.small, { color: colors.textSecondary }]}>
-            위험 대비 수익
-          </Text>
+          <Text style={[typo.small, { color: colors.textSecondary }]}>위험 대비 수익</Text>
           <Text style={[typo.captionMedium, { color: colors.text }]}>
             {report.sharpe !== null ? report.sharpe.toFixed(2) : '—'}
             <Text style={[typo.small, { color: colors.textTertiary }]}>{'  참고'}</Text>
@@ -230,7 +254,9 @@ export function GraduationTracker() {
   const Heading = (
     <View style={styles.heading}>
       <Text style={[typo.bodyMedium, { color: colors.text }]}>운용 성과</Text>
-      <Text style={[typo.small, { color: colors.textSecondary }]}>모의 운용 누적 성과 측정값 (참고)</Text>
+      <Text style={[typo.small, { color: colors.textSecondary }]}>
+        모의 운용 누적 성과 측정값 (참고)
+      </Text>
     </View>
   );
 
@@ -241,7 +267,11 @@ export function GraduationTracker() {
   let body: React.ReactNode;
   if (isLoading) {
     body = (
-      <View style={styles.skeletonWrap} accessibilityRole="progressbar" accessibilityLabel="운용 성과 불러오는 중">
+      <View
+        style={styles.skeletonWrap}
+        accessibilityRole="progressbar"
+        accessibilityLabel="운용 성과 불러오는 중"
+      >
         <SkeletonCard variant="buyScore" />
       </View>
     );

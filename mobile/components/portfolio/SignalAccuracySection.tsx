@@ -91,13 +91,19 @@ function BucketRow({ bucket, dimension }: { bucket: AccuracyBucket; dimension: D
   return (
     <View style={[styles.row, { borderTopColor: colors.borderLight }]}>
       <View style={styles.rowHead}>
-        <Text style={[typo.caption, { color: colors.text, flexShrink: 1 }]} numberOfLines={1}>
+        <Text
+          style={[typo.caption, { color: colors.text, flexShrink: 1, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {bucketLabel(dimension, bucket.key)}
         </Text>
         {bucket.lowSample ? (
           <DataLimitBadge sampleCount={bucket.sampleCount} />
         ) : (
-          <Text style={[typo.small, { color: colors.textTertiary }]}>표본 {bucket.sampleCount}</Text>
+          <Text style={[typo.small, { color: colors.textTertiary }]}>
+            표본 {bucket.sampleCount}
+          </Text>
         )}
       </View>
       <View style={styles.horizonRow}>
@@ -117,11 +123,7 @@ export function SignalAccuracySection() {
   const query = useSignalAccuracy();
   const data = query.data;
 
-  const buckets = data
-    ? dimension === 'grade'
-      ? data.byGrade
-      : data.byEventType
-    : [];
+  const buckets = data ? (dimension === 'grade' ? data.byGrade : data.byEventType) : [];
   const noRealized = !!data && data.realizedD5 === 0 && data.realizedD20 === 0;
 
   return (
@@ -144,11 +146,14 @@ export function SignalAccuracySection() {
           </TouchableOpacity>
         </View>
         {data ? (
-          <Text style={[typo.small, { color: colors.textTertiary }]}>신호 {data.totalSignals}건</Text>
+          <Text style={[typo.small, { color: colors.textTertiary }]}>
+            신호 {data.totalSignals}건
+          </Text>
         ) : null}
       </View>
       <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.sm }]}>
-        과거 신호의 D+5/D+20 실현 초과수익(시장 대비) 중앙값·승률을 검증합니다. 조정은 사람의 판단입니다.
+        과거 신호의 D+5/D+20 실현 초과수익(시장 대비) 중앙값·승률을 검증합니다. 조정은 사람의
+        판단입니다.
       </Text>
 
       {/* 차원 탭: 등급별 / 이벤트별 */}
@@ -167,7 +172,15 @@ export function SignalAccuracySection() {
               <Text
                 numberOfLines={1}
                 maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-                style={[typo.small, { color: active ? colors.text : colors.textSecondary, fontWeight: active ? '600' : '400' }]}
+                style={[
+                  typo.small,
+                  {
+                    color: active ? colors.text : colors.textSecondary,
+                    fontWeight: active ? '600' : '400',
+                    minWidth: 0,
+                  },
+                ]}
+                ellipsizeMode="tail"
               >
                 {d === 'grade' ? '등급별' : '이벤트별'}
               </Text>
@@ -185,7 +198,11 @@ export function SignalAccuracySection() {
           <Text style={[typo.small, { color: colors.textSecondary }]}>
             정밀도 리포트를 불러오지 못했습니다.
           </Text>
-          <TouchableOpacity onPress={() => query.refetch()} accessibilityRole="button" accessibilityLabel="다시 시도">
+          <TouchableOpacity
+            onPress={() => query.refetch()}
+            accessibilityRole="button"
+            accessibilityLabel="다시 시도"
+          >
             <Text style={[typo.small, { color: colors.info, fontWeight: '600' }]}>다시 시도</Text>
           </TouchableOpacity>
         </View>

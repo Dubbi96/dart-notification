@@ -15,7 +15,7 @@ import * as SecureStore from 'expo-secure-store';
 import { router } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { Surface, Chip } from 'react-native-paper';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Button } from '@components/common/Button';
 import { ScoreGauge } from '@components/common/ScoreGauge';
@@ -67,67 +67,72 @@ function SlideShell({ children }: { children: React.ReactNode }) {
 function Slide1({ colors, typo }: SlideProps) {
   return (
     <SlideShell>
-        <View style={[styles.iconCircle, { backgroundColor: colors.primaryLight }]}>
-          <Feather name="bell" size={40} color={colors.primary} />
-        </View>
+      <View style={[styles.iconCircle, { backgroundColor: colors.primaryLight }]}>
+        <Feather name="bell" size={40} color={colors.primary} />
+      </View>
 
-        <Text style={[typo.h1, { color: colors.text, textAlign: 'center', marginTop: spacing.xl }]}>
-          실시간 공시를{'\n'}바로 확인하세요
-        </Text>
-        <Text
+      <Text style={[typo.h1, { color: colors.text, textAlign: 'center', marginTop: spacing.xl }]}>
+        실시간 공시를{'\n'}바로 확인하세요
+      </Text>
+      <Text
+        style={[
+          typo.body,
+          { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm },
+        ]}
+      >
+        DART에 등록된 공시가 올라오면{'\n'}즉시 알려드립니다
+      </Text>
+
+      {/* 예시 공시 목록 */}
+      <View style={styles.mockList}>
+        <View
           style={[
-            typo.body,
-            { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm },
+            styles.exampleBadgeRow,
+            { backgroundColor: colors.primaryLight, borderRadius: radius.full },
           ]}
         >
-          DART에 등록된 공시가 올라오면{'\n'}즉시 알려드립니다
-        </Text>
+          <Feather name="info" size={12} color={colors.primary} />
+          <Text
+            style={[typo.small, { color: colors.primary }]}
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          >
+            예시
+          </Text>
+        </View>
 
-        {/* 예시 공시 목록 */}
-        <View style={styles.mockList}>
-          <View
+        {MOCK_DISCLOSURES.map((d, i) => (
+          <Surface
+            key={i}
+            elevation={1}
             style={[
-              styles.exampleBadgeRow,
-              { backgroundColor: colors.primaryLight, borderRadius: radius.full },
+              styles.mockDisclosureCard,
+              { backgroundColor: colors.surface, borderColor: colors.border },
             ]}
           >
-            <Feather name="info" size={12} color={colors.primary} />
-            <Text style={[typo.small, { color: colors.primary }]}>예시</Text>
-          </View>
-
-          {MOCK_DISCLOSURES.map((d, i) => (
-            <Surface
-              key={i}
-              elevation={1}
-              style={[
-                styles.mockDisclosureCard,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}
-            >
-              <View style={styles.disclosureRow}>
-                <View style={styles.disclosureLeft}>
-                  <Text style={[typo.bodyMedium, { color: colors.text }]}>{d.corp}</Text>
-                  <Text style={[typo.small, { color: colors.textSecondary, marginTop: 2 }]}>
-                    {d.type}
-                  </Text>
-                </View>
-                <View style={styles.disclosureRight}>
-                  <View
-                    style={[
-                      styles.badgePill,
-                      { backgroundColor: colors.primaryLight },
-                    ]}
-                  >
-                    <Text style={[typo.small, { color: colors.primary }]}>{d.badge}</Text>
-                  </View>
-                  <Text style={[typo.small, { color: colors.textTertiary, marginTop: 2 }]}>
-                    {d.time}
-                  </Text>
-                </View>
+            <View style={styles.disclosureRow}>
+              <View style={styles.disclosureLeft}>
+                <Text style={[typo.bodyMedium, { color: colors.text }]}>{d.corp}</Text>
+                <Text style={[typo.small, { color: colors.textSecondary, marginTop: 2 }]}>
+                  {d.type}
+                </Text>
               </View>
-            </Surface>
-          ))}
-        </View>
+              <View style={styles.disclosureRight}>
+                <View style={[styles.badgePill, { backgroundColor: colors.primaryLight }]}>
+                  <Text
+                    style={[typo.small, { color: colors.primary }]}
+                    maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                  >
+                    {d.badge}
+                  </Text>
+                </View>
+                <Text style={[typo.small, { color: colors.textTertiary, marginTop: 2 }]}>
+                  {d.time}
+                </Text>
+              </View>
+            </View>
+          </Surface>
+        ))}
+      </View>
     </SlideShell>
   );
 }
@@ -135,104 +140,106 @@ function Slide1({ colors, typo }: SlideProps) {
 function Slide2({ colors, typo }: SlideProps) {
   return (
     <SlideShell>
-        <View style={[styles.iconCircle, { backgroundColor: colors.primaryLight }]}>
-          <Feather name="trending-up" size={40} color={colors.primary} />
-        </View>
+      <View style={[styles.iconCircle, { backgroundColor: colors.primaryLight }]}>
+        <Feather name="trending-up" size={40} color={colors.primary} />
+      </View>
 
-        {/* D1(L-4): '투자 판단 받아보기' 단정형 → 참고 정보 제공으로 교정(약관 '참고 자료' 원칙과 톤 일치). */}
-        <Text style={[typo.h1, { color: colors.text, textAlign: 'center', marginTop: spacing.xl }]}>
-          투자 판단에 참고할 신호를{'\n'}30초 만에 받아보세요
-        </Text>
-        <Text
-          style={[
-            typo.body,
-            { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm },
-          ]}
-        >
-          공시 발생 즉시 AI가 매수 점수를{'\n'}분석해 드립니다
-        </Text>
+      {/* D1(L-4): '투자 판단 받아보기' 단정형 → 참고 정보 제공으로 교정(약관 '참고 자료' 원칙과 톤 일치). */}
+      <Text style={[typo.h1, { color: colors.text, textAlign: 'center', marginTop: spacing.xl }]}>
+        투자 판단에 참고할 신호를{'\n'}30초 만에 받아보세요
+      </Text>
+      <Text
+        style={[
+          typo.body,
+          { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm },
+        ]}
+      >
+        공시 발생 즉시 AI가 매수 점수를{'\n'}분석해 드립니다
+      </Text>
 
-        {/* 예시 BuyScoreCard */}
-        <View style={styles.mockCardWrap}>
-          <View style={styles.exampleBadgeRow}>
-            <View
-              style={[
-                styles.exampleBadgeRow,
-                { backgroundColor: colors.primaryLight, borderRadius: radius.full },
-              ]}
-            >
-              <Feather name="info" size={12} color={colors.primary} />
-              <Text style={[typo.small, { color: colors.primary }]}>예시</Text>
-            </View>
-          </View>
-
-          <Surface
-            elevation={2}
+      {/* 예시 BuyScoreCard */}
+      <View style={styles.mockCardWrap}>
+        <View style={styles.exampleBadgeRow}>
+          <View
             style={[
-              styles.mockScoreCard,
-              { backgroundColor: colors.surface, borderColor: colors.border },
+              styles.exampleBadgeRow,
+              { backgroundColor: colors.primaryLight, borderRadius: radius.full },
             ]}
           >
-            <View style={styles.scoreCardHeader}>
-              <View style={styles.scoreCardHeaderLeft}>
-                <Chip
-                  compact
-                  mode="flat"
-                  style={{ backgroundColor: colors.surfaceSecondary }}
-                  textStyle={[typo.small, { color: colors.textSecondary }]}
-                >
-                  유상증자
-                </Chip>
-                <Text style={[typo.bodyMedium, { color: colors.text }]}>○○전자</Text>
-              </View>
+            <Feather name="info" size={12} color={colors.primary} />
+            <Text
+              style={[typo.small, { color: colors.primary }]}
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+            >
+              예시
+            </Text>
+          </View>
+        </View>
+
+        <Surface
+          elevation={2}
+          style={[
+            styles.mockScoreCard,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.scoreCardHeader}>
+            <View style={styles.scoreCardHeaderLeft}>
               <Chip
                 compact
                 mode="flat"
-                style={{ backgroundColor: colors.successSurface }}
-                textStyle={[typo.small, { color: colors.success, fontWeight: '700' }]}
+                style={{ backgroundColor: colors.surfaceSecondary }}
+                textStyle={[typo.small, { color: colors.textSecondary }]}
               >
-                강한매수
+                유상증자
               </Chip>
+              <Text style={[typo.bodyMedium, { color: colors.text }]}>○○전자</Text>
             </View>
-
-            <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
-              예시 종목 · 유상증자 결정
-            </Text>
-
-            <View style={{ marginTop: spacing.md }}>
-              <ScoreGauge
-                score={82}
-                kind="buy"
-                statusText="강한매수"
-                accessibilityHidden
-                animated={false}
-              />
-            </View>
-
-            <Text
-              style={[
-                typo.small,
-                { color: colors.textSecondary, marginTop: spacing.sm },
-              ]}
-              numberOfLines={2}
+            <Chip
+              compact
+              mode="flat"
+              style={{ backgroundColor: colors.successSurface }}
+              textStyle={[typo.small, { color: colors.success, fontWeight: '700' }]}
             >
-              저PBR·고ROE 구간 — 저평가 가능성 있음 (예시)
-            </Text>
+              강한매수
+            </Chip>
+          </View>
 
-            {/* 면책 */}
-            <View
-              style={[
-                styles.disclaimerMini,
-                { backgroundColor: colors.surfaceSecondary, borderRadius: radius.sm },
-              ]}
-            >
-              <Feather name="alert-triangle" size={11} color={colors.textTertiary} />
-              <Text style={[typo.small, { color: colors.textTertiary, flex: 1 }]}>
-                AI 참고 정보 · 투자자문 아님
-              </Text>
-            </View>
-          </Surface>
-        </View>
+          <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+            예시 종목 · 유상증자 결정
+          </Text>
+
+          <View style={{ marginTop: spacing.md }}>
+            <ScoreGauge
+              score={82}
+              kind="buy"
+              statusText="강한매수"
+              accessibilityHidden
+              animated={false}
+            />
+          </View>
+
+          <Text
+            style={[typo.small, { color: colors.textSecondary, marginTop: spacing.sm }]}
+            numberOfLines={2}
+          >
+            저PBR·고ROE 구간 — 저평가 가능성 있음 (예시)
+          </Text>
+
+          {/* 면책 */}
+          <View
+            style={[
+              styles.disclaimerMini,
+              { backgroundColor: colors.surfaceSecondary, borderRadius: radius.sm },
+            ]}
+          >
+            <Feather name="alert-triangle" size={11} color={colors.textTertiary} />
+            <Text style={[typo.small, { color: colors.textTertiary, flex: 1 }]}>
+              AI 참고 정보 · 투자자문 아님
+            </Text>
+          </View>
+        </Surface>
+      </View>
     </SlideShell>
   );
 }
@@ -240,55 +247,53 @@ function Slide2({ colors, typo }: SlideProps) {
 function Slide3({ colors, typo }: SlideProps) {
   return (
     <SlideShell>
-        <View style={[styles.iconCircle, { backgroundColor: colors.primaryLight }]}>
-          <Feather name="award" size={40} color={colors.primary} />
-        </View>
+      <View style={[styles.iconCircle, { backgroundColor: colors.primaryLight }]}>
+        <Feather name="award" size={40} color={colors.primary} />
+      </View>
 
-        <Text style={[typo.h1, { color: colors.text, textAlign: 'center', marginTop: spacing.xl }]}>
-          거장의 투자 철학으로{'\n'}분석합니다
-        </Text>
-        <Text
-          style={[
-            typo.body,
-            { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm },
-          ]}
-        >
-          버핏·린치·그린블라트·드러켄밀러의{'\n'}기준으로 종목 적합도를 계산합니다
-        </Text>
+      <Text style={[typo.h1, { color: colors.text, textAlign: 'center', marginTop: spacing.xl }]}>
+        거장의 투자 철학으로{'\n'}분석합니다
+      </Text>
+      <Text
+        style={[
+          typo.body,
+          { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm },
+        ]}
+      >
+        버핏·린치·그린블라트·드러켄밀러의{'\n'}기준으로 종목 적합도를 계산합니다
+      </Text>
 
-        <View style={styles.philosophyGrid}>
-          {PHILOSOPHERS.map((p) => (
-            <Surface
-              key={p.name}
-              elevation={1}
-              style={[
-                styles.philosophyCard,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}
-            >
-              <View
-                style={[styles.philosophyIconWrap, { backgroundColor: colors.primaryLight }]}
-              >
-                <Feather name="user" size={20} color={colors.primary} />
-              </View>
-              <Text
-                style={[typo.captionMedium, { color: colors.text, marginTop: spacing.sm }]}
-              >
-                {p.name}
-              </Text>
-              <View style={styles.tagRow}>
-                {p.tags.map((tag) => (
-                  <View
-                    key={tag}
-                    style={[styles.tagPill, { backgroundColor: colors.primaryLight }]}
+      <View style={styles.philosophyGrid}>
+        {PHILOSOPHERS.map((p) => (
+          <Surface
+            key={p.name}
+            elevation={1}
+            style={[
+              styles.philosophyCard,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
+          >
+            <View style={[styles.philosophyIconWrap, { backgroundColor: colors.primaryLight }]}>
+              <Feather name="user" size={20} color={colors.primary} />
+            </View>
+            <Text style={[typo.captionMedium, { color: colors.text, marginTop: spacing.sm }]}>
+              {p.name}
+            </Text>
+            <View style={styles.tagRow}>
+              {p.tags.map((tag) => (
+                <View key={tag} style={[styles.tagPill, { backgroundColor: colors.primaryLight }]}>
+                  <Text
+                    style={[typo.small, { color: colors.primary }]}
+                    maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                   >
-                    <Text style={[typo.small, { color: colors.primary }]}>{tag}</Text>
-                  </View>
-                ))}
-              </View>
-            </Surface>
-          ))}
-        </View>
+                    {tag}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </Surface>
+        ))}
+      </View>
     </SlideShell>
   );
 }
@@ -391,8 +396,7 @@ export default function GuestIntroScreen() {
               style={[
                 styles.dot,
                 {
-                  backgroundColor:
-                    i === currentIndex ? colors.primary : colors.border,
+                  backgroundColor: i === currentIndex ? colors.primary : colors.border,
                   width: i === currentIndex ? 20 : 8,
                 },
               ]}
@@ -403,41 +407,27 @@ export default function GuestIntroScreen() {
         {isLastSlide ? (
           /* 마지막 슬라이드 CTA */
           <View style={styles.ctaGroup}>
-            <Button
-              title="시작하기"
-              onPress={handleStart}
-              fullWidth
-              size="lg"
-            />
+            <Button title="시작하기" onPress={handleStart} fullWidth size="lg" />
             <TouchableOpacity
               style={styles.guestButton}
               onPress={handleGuest}
               accessibilityRole="button"
               accessibilityLabel="로그인 없이 둘러보기"
             >
-              <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>
-                둘러보기
-              </Text>
+              <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>둘러보기</Text>
             </TouchableOpacity>
           </View>
         ) : (
           /* 다음 슬라이드 네비게이션 */
           <View style={styles.navGroup}>
-            <Button
-              title="다음"
-              onPress={goNext}
-              fullWidth
-              size="lg"
-            />
+            <Button title="다음" onPress={goNext} fullWidth size="lg" />
             <TouchableOpacity
               style={styles.skipButton}
               onPress={handleStart}
               accessibilityRole="button"
               accessibilityLabel="소개 건너뛰고 시작 화면으로 이동"
             >
-              <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>
-                건너뛰기
-              </Text>
+              <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>건너뛰기</Text>
             </TouchableOpacity>
           </View>
         )}

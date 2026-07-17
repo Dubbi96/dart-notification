@@ -12,7 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
@@ -67,9 +67,7 @@ export default function UnifiedSearchScreen() {
         label: '기업',
         count: data?.companies.total ?? companies.length,
       });
-      companies.forEach((c) =>
-        out.push({ kind: 'company', key: `c-${c.corpCode}`, company: c }),
-      );
+      companies.forEach((c) => out.push({ kind: 'company', key: `c-${c.corpCode}`, company: c }));
     }
     if (disclosures.length > 0) {
       const disclosureTotal = data?.disclosures.total ?? disclosures.length;
@@ -109,9 +107,7 @@ export default function UnifiedSearchScreen() {
       if (item.kind === 'sectionHeader') {
         return (
           <View style={styles.sectionHeader}>
-            <Text style={[typo.caption, { color: colors.textSecondary }]}>
-              {item.label}
-            </Text>
+            <Text style={[typo.caption, { color: colors.textSecondary }]}>{item.label}</Text>
             <Text style={[typo.small, { color: colors.textTertiary }]}>
               {item.count.toLocaleString()}건
             </Text>
@@ -133,7 +129,11 @@ export default function UnifiedSearchScreen() {
             <Card style={styles.card} variant="elevated">
               <View style={styles.companyRow}>
                 <View style={styles.companyInfo}>
-                  <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
+                  <Text
+                    style={[typo.bodyMedium, { color: colors.text, minWidth: 0 }]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
                     {c.corpName}
                   </Text>
                   {c.stockCode ? (
@@ -181,7 +181,10 @@ export default function UnifiedSearchScreen() {
           <Card style={styles.card} variant="elevated">
             <View style={styles.disclosureHeader}>
               <View style={[styles.typeBadge, { backgroundColor: typeStyle.bg }]}>
-                <Text style={[typo.small, styles.typeBadgeText, { color: typeStyle.text }]}>
+                <Text
+                  style={[typo.small, styles.typeBadgeText, { color: typeStyle.text }]}
+                  maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                >
                   {getTypeLabel(d.disclosureType)}
                 </Text>
               </View>
@@ -189,7 +192,10 @@ export default function UnifiedSearchScreen() {
                 {formatYmdDots(d.rcpDt)}
               </Text>
             </View>
-            <Text style={[typo.bodyMedium, { color: colors.text, marginTop: spacing.sm }]} numberOfLines={2}>
+            <Text
+              style={[typo.bodyMedium, { color: colors.text, marginTop: spacing.sm }]}
+              numberOfLines={2}
+            >
               {d.reportName}
             </Text>
             <Text style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
@@ -241,7 +247,10 @@ export default function UnifiedSearchScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -275,7 +284,11 @@ export default function UnifiedSearchScreen() {
               },
             ]}
           >
-            <Feather name="search" size={18} color={focused ? colors.primary : colors.textTertiary} />
+            <Feather
+              name="search"
+              size={18}
+              color={focused ? colors.primary : colors.textTertiary}
+            />
             <TextInput
               style={[typo.body, styles.searchInput, { color: colors.text }]}
               placeholder="기업명·종목코드·공시명 검색"

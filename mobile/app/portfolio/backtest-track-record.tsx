@@ -71,7 +71,17 @@ function VerificationStatusBadge() {
       <Text
         numberOfLines={1}
         maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-        style={[typo.small, { color: colors.warning, marginLeft: spacing.xs, fontWeight: '600' }]}
+        style={[
+          typo.small,
+          {
+            color: colors.warning,
+            marginLeft: spacing.xs,
+            fontWeight: '600',
+            flexShrink: 1,
+            minWidth: 0,
+          },
+        ]}
+        ellipsizeMode="tail"
       >
         매수 로직 재검증 진행 중 (참고)
       </Text>
@@ -145,8 +155,16 @@ function CoreMetricsCard({ metrics }: { metrics: BacktestMetrics }) {
     { label: '위험 대비 수익(Sharpe)', value: formatNumber(metrics.sharpe) },
     { label: '총 거래', value: `${metrics.totalTrades}건` },
     { label: '평균 보유', value: `${formatNumber(metrics.avgHoldDays, 1)}일` },
-    { label: '평균 수익(승)', value: formatReturnPct(metrics.avgWin, { digits: 2 }), tone: colors.success },
-    { label: '평균 손실(패)', value: formatReturnPct(metrics.avgLoss, { digits: 2 }), tone: colors.error },
+    {
+      label: '평균 수익(승)',
+      value: formatReturnPct(metrics.avgWin, { digits: 2 }),
+      tone: colors.success,
+    },
+    {
+      label: '평균 손실(패)',
+      value: formatReturnPct(metrics.avgLoss, { digits: 2 }),
+      tone: colors.error,
+    },
   ];
 
   return (
@@ -208,7 +226,9 @@ function EventTypeBreakdownCard({
             <Text style={[typo.small, styles.colType, { color: colors.textTertiary }]}>유형</Text>
             <Text style={[typo.small, styles.colNum, { color: colors.textTertiary }]}>거래</Text>
             <Text style={[typo.small, styles.colNum, { color: colors.textTertiary }]}>승률</Text>
-            <Text style={[typo.small, styles.colNum, { color: colors.textTertiary }]}>평균수익</Text>
+            <Text style={[typo.small, styles.colNum, { color: colors.textTertiary }]}>
+              평균수익
+            </Text>
           </View>
           {rows.map((r) => (
             <View
@@ -218,7 +238,11 @@ function EventTypeBreakdownCard({
                 r.winRate,
               )}, 평균수익 ${formatReturnPct(r.avgReturn, { digits: 2 })}`}
             >
-              <Text style={[typo.caption, styles.colType, { color: colors.text }]} numberOfLines={1}>
+              <Text
+                style={[typo.caption, styles.colType, { color: colors.text, minWidth: 0 }]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
                 {getEventTypeLabel(r.eventType)}
               </Text>
               <Text style={[typo.caption, styles.colNum, { color: colors.textSecondary }]}>
@@ -228,7 +252,11 @@ function EventTypeBreakdownCard({
                 {formatPct(r.winRate, 0)}
               </Text>
               <Text
-                style={[typo.captionMedium, styles.colNum, { color: pnlColor(r.avgReturn, colors) }]}
+                style={[
+                  typo.captionMedium,
+                  styles.colNum,
+                  { color: pnlColor(r.avgReturn, colors) },
+                ]}
               >
                 {formatReturnPct(r.avgReturn, { digits: 2 })}
               </Text>
@@ -260,7 +288,10 @@ function BacktestTrackRecordScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <ScreenHeader title="백테스트 트랙레코드" onBack={() => router.back()} />
 
       {query.isLoading ? (
@@ -297,8 +328,9 @@ function BacktestTrackRecordScreen() {
           <View style={[styles.notice, { backgroundColor: colors.surfaceSecondary }]}>
             <Feather name="info" size={14} color={colors.info} />
             <Text style={[typo.small, { color: colors.info, marginLeft: spacing.xs, flex: 1 }]}>
-              point-in-time 백테스트(미래정보 미사용) · 신호 {record.totalSignals.toLocaleString('ko-KR')}건
-              기준. 공시 추출이 진행될수록 커버리지가 채워집니다. 손실도 그대로 표시해요.
+              point-in-time 백테스트(미래정보 미사용) · 신호{' '}
+              {record.totalSignals.toLocaleString('ko-KR')}건 기준. 공시 추출이 진행될수록
+              커버리지가 채워집니다. 손실도 그대로 표시해요.
             </Text>
           </View>
 
@@ -334,9 +366,7 @@ function BacktestTrackRecordScreen() {
               { color: colors.textTertiary, textAlign: 'center', marginTop: spacing.sm },
             ]}
           >
-            {record.completedAt
-              ? `리플레이 완료 ${dotDate(record.completedAt.slice(0, 10))}`
-              : ''}{' '}
+            {record.completedAt ? `리플레이 완료 ${dotDate(record.completedAt.slice(0, 10))}` : ''}{' '}
             · 실주문 없는 격리 백테스트 포트폴리오
           </Text>
         </ScrollView>

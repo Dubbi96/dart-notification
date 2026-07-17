@@ -60,7 +60,11 @@ export default function PhilosophyChecklistScreen() {
     content = (
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {corpName ? (
-          <Text style={[typo.h3, { color: colors.text }]} numberOfLines={1}>
+          <Text
+            style={[typo.h3, { color: colors.text, flexShrink: 1, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {corpName}
           </Text>
         ) : null}
@@ -79,7 +83,10 @@ export default function PhilosophyChecklistScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       {/* 공용 ScreenHeader(L-5a A-1): 자체 헤더(Ionicons chevron-back + 좌측 제목) 드리프트 제거. */}
       <ScreenHeader title={title} onBack={() => router.back()} />
       <View style={styles.body}>{content}</View>

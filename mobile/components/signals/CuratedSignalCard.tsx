@@ -64,10 +64,17 @@ function CuratedSignalCardBase({ signal, onPress, cardWidth }: CuratedSignalCard
       <Surface
         elevation={2}
         importantForAccessibility="no-hide-descendants"
-        style={[styles.card, { width: cardWidth, backgroundColor: colors.surface, borderColor: colors.border }]}
+        style={[
+          styles.card,
+          { width: cardWidth, backgroundColor: colors.surface, borderColor: colors.border },
+        ]}
       >
         <View style={styles.headerRow}>
-          <Text style={[typo.bodyMedium, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+          <Text
+            style={[typo.bodyMedium, { color: colors.text, flex: 1, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {signal.corpName}
           </Text>
           <Chip
@@ -111,7 +118,12 @@ function CuratedSignalCardBase({ signal, onPress, cardWidth }: CuratedSignalCard
         ) : null}
 
         {isBlocked ? (
-          <View style={[styles.blockedBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <View
+            style={[
+              styles.blockedBox,
+              { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+            ]}
+          >
             <Feather name="slash" size={14} color={colors.textTertiary} />
             <Text style={[typo.small, { color: colors.textTertiary, flex: 1 }]} numberOfLines={2}>
               {signal.blockedReason ?? '조건 미충족으로 차단된 신호입니다.'}

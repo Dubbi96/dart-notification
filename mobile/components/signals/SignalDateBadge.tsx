@@ -63,7 +63,7 @@ function SignalDateBadgeBase({
     >
       <Feather name={status.icon} size={variant === 'detail' ? 14 : 12} color={toneColor} />
       <Text
-        style={[typo.small, { color: toneColor }]}
+        style={[typo.small, { color: toneColor, flexShrink: 1, minWidth: 0 }]}
         numberOfLines={1}
         ellipsizeMode="tail"
         maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}

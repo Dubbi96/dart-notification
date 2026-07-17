@@ -1,8 +1,9 @@
 import React from 'react';
+import { Text, type ColorValue } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing } from '@theme/spacing';
 import { useAuthStore } from '@stores/authStore';
 import { useUnreadCount } from '@hooks/useNotifications';
@@ -26,6 +27,32 @@ export { ErrorFallback as ErrorBoundary } from '@components/common/ErrorFallback
 // 인디케이터 인셋(34)을 분리한 값으로, 인셋 큰 기기의 라벨-인디케이터 근접과 인셋 없는
 // Android의 과대 높이를 함께 해소한다(인셋 있는 iOS 시각 높이 88은 보존).
 const TAB_BAR_CONTENT_HEIGHT = 54;
+
+// DAR-554: 5탭 균등폭에서 '포트폴리오'(5자)가 OS 큰 글꼴(1.3x)에서 실측 잘림('포트폴...')
+// 재현됨(에뮬 실측). R-4 헤드라인 패턴(adjustsFontSizeToFit)을 탭 라벨에도 적용해 말줄임 대신
+// 배율 축소로 온전히 표시 — flexShrink 이웃이 없는 고정폭 탭이라 R-1 3종세트 대신 폰트 축소로 해결.
+function TabLabel({
+  label,
+  color,
+  fontSize,
+}: {
+  label: string;
+  color: ColorValue;
+  fontSize: number;
+}) {
+  return (
+    <Text
+      style={{ color, fontSize, fontWeight: '500' }}
+      numberOfLines={1}
+      ellipsizeMode="tail"
+      adjustsFontSizeToFit
+      minimumFontScale={0.8}
+      maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+    >
+      {label}
+    </Text>
+  );
+}
 
 export default function TabLayout() {
   const { colors, typography: typo } = useTheme();
@@ -72,6 +99,9 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="home-outline" size={size} color={color} />
           ),
+          tabBarLabel: ({ color }) => (
+            <TabLabel label="홈" color={color} fontSize={typo.small.fontSize} />
+          ),
         }}
       />
       <Tabs.Screen
@@ -80,6 +110,9 @@ export default function TabLayout() {
           title: '알림',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="notifications-outline" size={size} color={color} />
+          ),
+          tabBarLabel: ({ color }) => (
+            <TabLabel label="알림" color={color} fontSize={typo.small.fontSize} />
           ),
           tabBarBadge: unreadBadge,
           tabBarBadgeStyle: {
@@ -95,6 +128,9 @@ export default function TabLayout() {
         options={{
           title: '신호',
           tabBarIcon: ({ color, size }) => <Feather name="zap" size={size} color={color} />,
+          tabBarLabel: ({ color }) => (
+            <TabLabel label="신호" color={color} fontSize={typo.small.fontSize} />
+          ),
         }}
       />
       <Tabs.Screen
@@ -105,6 +141,9 @@ export default function TabLayout() {
           // 라우트 자체는 남지만 딥링크/구 링크 진입은 화면 상단 TradingRouteGuard 가 홈으로 리다이렉트.
           href: SHOW_TRADING ? undefined : null,
           tabBarIcon: ({ color, size }) => <Feather name="briefcase" size={size} color={color} />,
+          tabBarLabel: ({ color }) => (
+            <TabLabel label="포트폴리오" color={color} fontSize={typo.small.fontSize} />
+          ),
           tabBarBadge: violatedCount > 0 ? violatedCount : undefined,
           tabBarBadgeStyle: {
             backgroundColor: colors.error,
@@ -120,6 +159,9 @@ export default function TabLayout() {
           title: '설정',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="settings-outline" size={size} color={color} />
+          ),
+          tabBarLabel: ({ color }) => (
+            <TabLabel label="설정" color={color} fontSize={typo.small.fontSize} />
           ),
         }}
       />

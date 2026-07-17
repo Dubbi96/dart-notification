@@ -62,7 +62,11 @@ export function OfflineBanner() {
       ]}
     >
       <Feather name="wifi-off" size={14} color={colors.warning} />
-      <Text style={[typo.small, styles.text, { color: colors.text }]} numberOfLines={1}>
+      <Text
+        style={[typo.small, styles.text, { color: colors.text, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         오프라인 — 인터넷 연결이 없어 마지막으로 받은 데이터를 표시합니다
       </Text>
     </Animated.View>

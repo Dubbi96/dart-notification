@@ -43,6 +43,7 @@ export function AutoTradingEntryButton({ style }: AutoTradingEntryButtonProps) {
           style={[typo.captionMedium, { color: colors.text }]}
           numberOfLines={1}
           maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          ellipsizeMode="tail"
         >
           자동매매 상태
         </Text>

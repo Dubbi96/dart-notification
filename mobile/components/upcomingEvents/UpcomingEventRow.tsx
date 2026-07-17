@@ -55,24 +55,37 @@ function UpcomingEventRowBase({ item, isLast }: UpcomingEventRowProps) {
         <Text
           style={[
             typo.captionMedium,
-            { color: imminent ? colors.warning : colors.primary, fontWeight: '700' },
+            { color: imminent ? colors.warning : colors.primary, fontWeight: '700', flexShrink: 1 },
           ]}
           numberOfLines={1}
           maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          ellipsizeMode="tail"
         >
           {formatDday(item.dDay)}
         </Text>
       </View>
       <View style={styles.rowText}>
-        <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
+        <Text
+          style={[typo.bodyMedium, { color: colors.text, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {item.corpName}
         </Text>
-        <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+        <Text
+          style={[typo.small, { color: colors.textSecondary, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {item.label}
         </Text>
       </View>
       {dateLabel ? (
-        <Text style={[typo.captionMedium, { color: colors.textSecondary }]} numberOfLines={1}>
+        <Text
+          style={[typo.captionMedium, { color: colors.textSecondary, flexShrink: 1, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {dateLabel}
         </Text>
       ) : null}

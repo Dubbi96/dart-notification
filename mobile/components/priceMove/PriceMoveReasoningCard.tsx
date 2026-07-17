@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { DisclosureReactionSection } from '@components/disclosure/DisclosureReactionSection';
 import { getEventTypeLabel } from '@utils/disclosureType';
@@ -48,15 +48,15 @@ function MoveHeadline({ name, changePct }: { name: string; changePct: number }) 
       accessibilityRole="header"
       accessibilityLabel={`${name} ${pctText}`}
     >
-      <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
+      <Text
+        style={[typo.bodyMedium, { color: colors.text, flexShrink: 1, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {name}
       </Text>
       <View style={styles.headlinePct}>
-        <Feather
-          name={up ? 'arrow-up-right' : 'arrow-down-right'}
-          size={16}
-          color={pctColor}
-        />
+        <Feather name={up ? 'arrow-up-right' : 'arrow-down-right'} size={16} color={pctColor} />
         <Text style={[typo.h3, { color: pctColor, marginLeft: spacing.xs }]}>{pctText}</Text>
       </View>
     </View>
@@ -64,13 +64,7 @@ function MoveHeadline({ name, changePct }: { name: string; changePct: number }) 
 }
 
 /** 섹션 소제목(아이콘 + 라벨) — FiledFacts/AI/유사공시 섹션과 동일 규약. */
-function SectionLabel({
-  icon,
-  label,
-}: {
-  icon: keyof typeof Feather.glyphMap;
-  label: string;
-}) {
+function SectionLabel({ icon, label }: { icon: keyof typeof Feather.glyphMap; label: string }) {
   const { colors, typography: typo } = useTheme();
   return (
     <View style={styles.sectionLabel}>
@@ -112,10 +106,20 @@ function AnalyzedBody({
         {/* 이벤트 유형 + 연관 강도(설명용 칩) — 어떤 공시가 원인 후보인지·연관 절제 표기. */}
         <View style={styles.metaRow}>
           <View style={[styles.chip, { backgroundColor: colors.primaryLight }]}>
-            <Text style={[typo.small, { color: colors.primary }]}>{eventTypeLabel}</Text>
+            <Text
+              style={[typo.small, { color: colors.primary }]}
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+            >
+              {eventTypeLabel}
+            </Text>
           </View>
           <View style={[styles.chip, { backgroundColor: colors.surfaceSecondary }]}>
-            <Text style={[typo.small, { color: colors.textSecondary }]}>{linkageLabel}</Text>
+            <Text
+              style={[typo.small, { color: colors.textSecondary }]}
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+            >
+              {linkageLabel}
+            </Text>
           </View>
         </View>
 
@@ -185,7 +189,11 @@ function HonestNotice({
   return (
     <Surface
       elevation={0}
-      style={[styles.card, styles.noticeCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+      style={[
+        styles.card,
+        styles.noticeCard,
+        { backgroundColor: colors.surface, borderColor: colors.border },
+      ]}
       accessible
       accessibilityLabel={`${title}. ${description}`}
     >

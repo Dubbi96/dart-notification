@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { getTypeStyle, getTypeLabel } from '@utils/disclosureType';
@@ -32,10 +32,7 @@ function DisclosureFeedCardComponent({ item }: DisclosureFeedCardProps) {
     [item.disclosureType, isDark],
   );
 
-  const formattedDate = useMemo(
-    () => formatYmdDots(item.rcpDt),
-    [item.rcpDt],
-  );
+  const formattedDate = useMemo(() => formatYmdDots(item.rcpDt), [item.rcpDt]);
 
   // DAR-446(A-HOME-6): 카드 전체를 단일 버튼으로 읽히도록 요약 a11y 라벨을 구성한다.
   // 내부 텍스트(유형/날짜/보고서명/기업명)는 no-hide-descendants 로 묶어 중복 읽기를 막는다.
@@ -55,26 +52,34 @@ function DisclosureFeedCardComponent({ item }: DisclosureFeedCardProps) {
     >
       <Card style={styles.disclosureCard} variant="elevated">
         <View style={styles.disclosureBody} importantForAccessibility="no-hide-descendants">
-        <View style={styles.disclosureHeader}>
-          <View style={[styles.typeBadge, { backgroundColor: typeStyle.bg }]}>
-            <Text style={[typo.small, styles.typeBadgeText, { color: typeStyle.text }]}>
-              {getTypeLabel(item.disclosureType)}
-            </Text>
+          <View style={styles.disclosureHeader}>
+            <View style={[styles.typeBadge, { backgroundColor: typeStyle.bg }]}>
+              <Text
+                style={[typo.small, styles.typeBadgeText, { color: typeStyle.text }]}
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+              >
+                {getTypeLabel(item.disclosureType)}
+              </Text>
+            </View>
+            <Text style={[typo.small, { color: colors.textTertiary }]}>{formattedDate}</Text>
           </View>
-          <Text style={[typo.small, { color: colors.textTertiary }]}>{formattedDate}</Text>
-        </View>
-        <Text
-          style={[typo.bodyMedium, styles.reportName, { color: colors.text }]}
-          numberOfLines={2}
-        >
-          {item.reportName}
-        </Text>
-        <Text
-          style={[typo.caption, styles.corpName, { color: colors.textSecondary }]}
-          numberOfLines={1}
-        >
-          {item.corpName}
-        </Text>
+          <Text
+            style={[typo.bodyMedium, styles.reportName, { color: colors.text }]}
+            numberOfLines={2}
+          >
+            {item.reportName}
+          </Text>
+          <Text
+            style={[
+              typo.caption,
+              styles.corpName,
+              { color: colors.textSecondary, flexShrink: 1, minWidth: 0 },
+            ]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {item.corpName}
+          </Text>
         </View>
       </Card>
     </TouchableOpacity>

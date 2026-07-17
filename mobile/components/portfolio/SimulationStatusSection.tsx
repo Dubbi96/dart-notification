@@ -49,7 +49,9 @@ function MetricRow({ label, value, sub }: MetricRowProps) {
       <Text style={[typo.small, { color: colors.textSecondary }]}>{label}</Text>
       <Text style={[typo.captionMedium, { color: colors.text }]}>
         {value}
-        {sub ? <Text style={[typo.small, { color: colors.textTertiary }]}>{`  ${sub}`}</Text> : null}
+        {sub ? (
+          <Text style={[typo.small, { color: colors.textTertiary }]}>{`  ${sub}`}</Text>
+        ) : null}
       </Text>
     </View>
   );
@@ -65,7 +67,11 @@ function PositionRow({ item }: { item: SimPosition }) {
     >
       <View style={styles.positionTop}>
         <View style={styles.positionNameBox}>
-          <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
+          <Text
+            style={[typo.bodyMedium, { color: colors.text, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {name}
           </Text>
           <Text style={[typo.small, { color: colors.textSecondary }]}>
@@ -159,7 +165,11 @@ function FooterLink({
       style={styles.footerLink}
     >
       <Feather name={icon} size={16} color={colors.primary} />
-      <Text style={[typo.small, { color: colors.primary }]} numberOfLines={1}>
+      <Text
+        style={[typo.small, { color: colors.primary, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {label}
       </Text>
     </TouchableOpacity>
@@ -215,7 +225,11 @@ function SummaryHeader({
         </Text>
         <View style={styles.summaryChipRow}>
           {/* UXR(A-2): 모의 수익률 칩 — 시세용 '호가 확인' 카피 대신 pnl 문맥 InfoSheet. */}
-          <PriceChangeChip value={metrics.cumulativeReturnPct} amount={metrics.netPnl} context="pnl" />
+          <PriceChangeChip
+            value={metrics.cumulativeReturnPct}
+            amount={metrics.netPnl}
+            context="pnl"
+          />
         </View>
         {/* DAR-393: 평가금액·등락률은 '지금' 실시간 실가 재평가값(자산곡선 최신점과 동일). 과거
             스냅샷일을 기준일로 표기하면 live 값을 stale 로 오인시키므로 '실시간 현재가 기준'으로 정직 표기.

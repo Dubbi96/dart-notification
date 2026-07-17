@@ -6,6 +6,7 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { withTradingGuard } from '@components/common/withTradingGuard';
 import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
 import { ApiErrorState } from '@components/common/StateView';
@@ -69,7 +70,12 @@ function KillSwitchCard({ killSwitch }: { killSwitch: AutoStatusKillSwitch }) {
       <View style={styles.cardHeaderRow}>
         <Text style={[typo.small, { color: colors.textSecondary }]}>킬스위치 (Kill Switch)</Text>
         <View style={[styles.disabledPill, { backgroundColor: colors.surfaceSecondary }]}>
-          <Text style={[typo.small, { color: colors.textTertiary }]}>토글 준비중</Text>
+          <Text
+            style={[typo.small, { color: colors.textTertiary }]}
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          >
+            토글 준비중
+          </Text>
         </View>
       </View>
 
@@ -113,7 +119,7 @@ function RiskGateCard({ riskGate }: { riskGate: AutoStatusRiskGate }) {
       </View>
       <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
         {blocked
-          ? riskGate.blockedReason ?? '주문이 차단된 상태입니다.'
+          ? (riskGate.blockedReason ?? '주문이 차단된 상태입니다.')
           : '하드룰(손실·비중 한도 등)은 주문 시점마다 건별 평가됩니다. 현재 상시 차단 없음.'}
       </Text>
     </Surface>
@@ -132,7 +138,11 @@ function OrderRow({ item }: { item: AutoStatusOrderItem }) {
     <View style={[styles.orderRow, { borderTopColor: colors.borderLight }]}>
       <View style={styles.orderLeft}>
         <View style={styles.orderTitleRow}>
-          <Text style={[typo.captionMedium, { color: colors.text }]} numberOfLines={1}>
+          <Text
+            style={[typo.captionMedium, { color: colors.text, flexShrink: 1, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {item.stockCode} · {sideLabel} {item.requestedShares.toLocaleString('ko-KR')}주
           </Text>
         </View>
@@ -142,7 +152,10 @@ function OrderRow({ item }: { item: AutoStatusOrderItem }) {
         </Text>
       </View>
       <View style={[styles.orderStatusBadge, { backgroundColor: colors.surfaceSecondary }]}>
-        <Text style={[typo.small, { color: tone, fontWeight: '600' }]}>
+        <Text
+          style={[typo.small, { color: tone, fontWeight: '600' }]}
+          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        >
           {orderStatusLabel(item.status)}
         </Text>
       </View>
@@ -219,7 +232,10 @@ function AutoTradingStatusScreen() {
   const { refreshing, onRefresh } = useManualRefresh(query.refetch);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <ScreenHeader title="자동매매 상태" onBack={() => router.back()} />
 
       {query.isLoading ? (
@@ -276,7 +292,12 @@ function AutoTradingStatusScreen() {
           {/* ③ 최근 실행 · 감사 트레일 */}
           <RecentOrdersCard orders={data.recentOrders} />
 
-          <Text style={[typo.small, { color: colors.textTertiary, textAlign: 'center', marginTop: spacing.sm }]}>
+          <Text
+            style={[
+              typo.small,
+              { color: colors.textTertiary, textAlign: 'center', marginTop: spacing.sm },
+            ]}
+          >
             갱신 {formatDateTime(data.asOf)} · 30초마다 자동 갱신
           </Text>
         </ScrollView>

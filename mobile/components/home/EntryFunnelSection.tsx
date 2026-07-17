@@ -56,7 +56,11 @@ function FunnelStage({ label, count, widthPercent, fillColor, rateCaption }: Sta
       accessibilityLabel={`${label} ${count}건${rateCaption ? `, ${rateCaption}` : ''}`}
     >
       <View style={styles.stageHeader}>
-        <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+        <Text
+          style={[typo.small, { color: colors.textSecondary, flexShrink: 1, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {label}
         </Text>
         <Text style={[typo.captionMedium, { color: colors.text }]}>
@@ -71,7 +75,10 @@ function FunnelStage({ label, count, widthPercent, fillColor, rateCaption }: Sta
         <View style={[styles.barFill, { backgroundColor: fillColor, width: `${widthPercent}%` }]} />
       </View>
       {rateCaption ? (
-        <Text style={[typo.small, { color: colors.textTertiary }]} importantForAccessibility="no-hide-descendants">
+        <Text
+          style={[typo.small, { color: colors.textTertiary }]}
+          importantForAccessibility="no-hide-descendants"
+        >
           {rateCaption}
         </Text>
       ) : null}
@@ -161,7 +168,11 @@ export function EntryFunnelSection() {
   let body: React.ReactNode;
   if (isLoading) {
     body = (
-      <View style={styles.skeletonWrap} accessibilityRole="progressbar" accessibilityLabel="전환 현황 불러오는 중">
+      <View
+        style={styles.skeletonWrap}
+        accessibilityRole="progressbar"
+        accessibilityLabel="전환 현황 불러오는 중"
+      >
         <SkeletonCard variant="buyScore" />
       </View>
     );
@@ -187,7 +198,9 @@ export function EntryFunnelSection() {
       <View style={styles.heading}>
         {/* UXR L-1 A-7: 카드 타이틀과 다르게 부르던 헤딩('신호가 진입으로')을 '신호에서 체결까지'로 통일. */}
         <Text style={[typo.bodyMedium, { color: colors.text }]}>신호에서 체결까지</Text>
-        <Text style={[typo.small, { color: colors.textSecondary }]}>생성 신호 → 진입 후보 → 체결 전환</Text>
+        <Text style={[typo.small, { color: colors.textSecondary }]}>
+          생성 신호 → 진입 후보 → 체결 전환
+        </Text>
       </View>
       {body}
     </View>

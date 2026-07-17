@@ -95,7 +95,13 @@ export function TodayBriefingSection({ briefing }: TodayBriefingSectionProps) {
             size={sizing.icon.sm}
             color={pnlColor(dailyPnl.dailyPnl, colors)}
           />
-          <Text style={[typo.captionMedium, styles.pnlText, { color: pnlColor(dailyPnl.dailyPnl, colors) }]}>
+          <Text
+            style={[
+              typo.captionMedium,
+              styles.pnlText,
+              { color: pnlColor(dailyPnl.dailyPnl, colors) },
+            ]}
+          >
             일간 손익 {formatSignedKrw(dailyPnl.dailyPnl)}
             {dailyPnl.dailyPnlPct != null ? ` (${formatPnlPercent(dailyPnl.dailyPnlPct)})` : ''}
           </Text>
@@ -120,19 +126,43 @@ export function TodayBriefingSection({ briefing }: TodayBriefingSectionProps) {
               accessibilityLabel={`${item.corpName} ${getEventTypeLabel(item.eventType)} 공시 상세 보기`}
               style={[styles.itemRow, { borderColor: colors.borderLight }]}
             >
-              <View style={[styles.polarityDot, { backgroundColor: polarityColor(item.polarity, colors) }]} />
+              <View
+                style={[
+                  styles.polarityDot,
+                  { backgroundColor: polarityColor(item.polarity, colors) },
+                ]}
+              />
               <View style={styles.itemBody}>
                 <View style={styles.itemTitleRow}>
-                  <Text style={[typo.captionMedium, styles.itemTitle, { color: colors.text }]} numberOfLines={1}>
+                  <Text
+                    style={[
+                      typo.captionMedium,
+                      styles.itemTitle,
+                      { color: colors.text, minWidth: 0 },
+                    ]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
                     {item.corpName}
                   </Text>
-                  <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+                  <Text
+                    style={[
+                      typo.small,
+                      { color: colors.textSecondary, flexShrink: 1, minWidth: 0 },
+                    ]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
                     {getEventTypeLabel(item.eventType)}
                     {item.source === 'POSITION' ? ' · 보유' : ' · 관심'}
                   </Text>
                 </View>
                 {/* 캐시된 AI 요약 1줄(없으면 보고서명 폴백 — 결측을 요약처럼 위장하지 않게 원문 제목 그대로). */}
-                <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+                <Text
+                  style={[typo.small, { color: colors.textSecondary, minWidth: 0 }]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
                   {item.summaryLine ?? item.reportName}
                 </Text>
               </View>
@@ -163,10 +193,22 @@ export function TodayBriefingSection({ briefing }: TodayBriefingSectionProps) {
                 color={item.thesisStatus === 'VIOLATED' ? colors.error : colors.warning}
               />
               <View style={styles.itemBody}>
-                <Text style={[typo.captionMedium, styles.itemTitle, { color: colors.text }]} numberOfLines={1}>
+                <Text
+                  style={[
+                    typo.captionMedium,
+                    styles.itemTitle,
+                    { color: colors.text, minWidth: 0 },
+                  ]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
                   {item.corpName}
                 </Text>
-                <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+                <Text
+                  style={[typo.small, { color: colors.textSecondary, minWidth: 0 }]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
                   {item.reason}
                 </Text>
               </View>

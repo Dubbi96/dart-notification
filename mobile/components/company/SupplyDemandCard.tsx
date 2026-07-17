@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { useInvestorFlow, useShortSelling } from '@hooks/useInvestorFlow';
@@ -97,8 +97,8 @@ export function SupplyDemandCard({ stockCode }: SupplyDemandCardProps) {
   if (!hasFlow && !latestShort) return null;
 
   // 데이터 기준일 — 두 축 중 더 최신 거래일(stale 숨김 금지, 항상 표기).
-  const asOfCandidates = [flow?.asOfDate, shortSelling?.asOfDate].filter(
-    (d): d is string => Boolean(d),
+  const asOfCandidates = [flow?.asOfDate, shortSelling?.asOfDate].filter((d): d is string =>
+    Boolean(d),
   );
   const sortedAsOf = [...asOfCandidates].sort();
   const asOfDate = sortedAsOf.length > 0 ? sortedAsOf[sortedAsOf.length - 1] : '';
@@ -126,7 +126,10 @@ export function SupplyDemandCard({ stockCode }: SupplyDemandCardProps) {
             ]}
             accessibilityLabel={`데이터 기준일 ${formatYmdDot(asOfDate)}`}
           >
-            <Text style={[typo.caption, { color: colors.textSecondary }]}>
+            <Text
+              style={[typo.caption, { color: colors.textSecondary }]}
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+            >
               데이터 기준일 {formatYmdDot(asOfDate)}
             </Text>
           </View>

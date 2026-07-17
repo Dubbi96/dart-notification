@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface, Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { useDisclosureSignal } from '@hooks/useSignals';
 import { gradeColor, gradeLabel, buyScoreColor } from '@utils/signalDisplay';
@@ -58,10 +58,13 @@ export function DisclosureSignalLink({ rcpNo, enabled = true }: DisclosureSignal
           mode="flat"
           style={[styles.gradeChip, { backgroundColor: colors.surfaceSecondary }]}
           textStyle={[typo.small, { color: gradeColor(signal.grade, colors), fontWeight: '700' }]}
+          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
         >
           {gradeLabel(signal.grade)}
         </Chip>
-        <Text style={[typo.captionMedium, { color: buyScoreColor(signal.buyScore, colors), flex: 1 }]}>
+        <Text
+          style={[typo.captionMedium, { color: buyScoreColor(signal.buyScore, colors), flex: 1 }]}
+        >
           {SIGNAL_TERMS.buyScore} {signal.buyScore}
         </Text>
         <Feather name="chevron-right" size={16} color={colors.textTertiary} />

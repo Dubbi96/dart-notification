@@ -36,7 +36,9 @@ ok('(1) 빈 상태 콘텐츠 flexGrow(세로 중앙)', /listEmptyContent:\s*\{[^
 
 // ───────── (2) A-ONB-2: 권한 거부 무음 실패 금지 ─────────
 ok('(2) permissionDenied 상태 존재', /const\s*\[permissionDenied,\s*setPermissionDenied\]\s*=\s*useState\(false\)/.test(src));
-const denialBranch = src.match(/if\s*\(status\s*!==\s*'granted'\)\s*\{[\s\S]*?\}/);
+// 분기 블록은 '줄 시작 6칸 들여쓰기 + }' 까지 취한다 — 비탐욕 `[\s\S]*?\}` 는 분기 안의
+// 인라인 객체(`{ outcome: 'denied' }`, DAR-516 계측)에 조기 종료돼 오탐(FAIL)했다.
+const denialBranch = src.match(/if\s*\(status\s*!==\s*'granted'\)\s*\{[\s\S]*?\n {6}\}/);
 ok("(2) status!=='granted' 분기 존재", !!denialBranch);
 ok('(2) 거부 시 setPermissionDenied(true)', !!denialBranch && /setPermissionDenied\(true\)/.test(denialBranch[0]));
 // 거부 분기는 setStep을 호출하지 않고 보류(return)해야 한다(무음 자동진행 금지).

@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router, useScrollToTop, useLocalSearchParams } from 'expo-router';
+import { withTradingGuard } from '@components/common/withTradingGuard';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { PositionCard } from '@components/portfolio/PositionCard';
@@ -112,7 +113,7 @@ function SummaryHeadlineSkeleton() {
   );
 }
 
-export default function PortfolioScreen() {
+function PortfolioScreen() {
   const { colors, typography: typo } = useTheme();
   // DAR-431: 체결 알림 딥링크(`/portfolio?tab=sim` 등)가 해당 트랙 서브탭으로 직행하도록
   //   초기 탭을 쿼리 파라미터에서 도출(허용 목록 밖/미지정은 'live' 폴백).
@@ -643,6 +644,9 @@ export default function PortfolioScreen() {
     </SafeAreaView>
   );
 }
+
+// DAR-549: 첫 게시(Play) 빌드에서 트레이딩 라우트 진입 시 홈으로 리다이렉트(가드).
+export default withTradingGuard(PortfolioScreen);
 
 const styles = StyleSheet.create({
   container: {

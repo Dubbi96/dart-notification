@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { SignalExploreCard } from '@components/signals/SignalExploreCard';
+import { EditionFallbackBriefing } from '@components/signals/EditionFallbackBriefing';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
@@ -97,6 +98,11 @@ function EditionSignalListBase({
 
   const prevDate = meta?.prevEditionDate;
   const emptyCopy = getEditionEmptyCopy(meta?.emptyReason);
+  // 빈 에디션 폴백 '오늘의 주요 공시 브리핑'(DAR-551 BE·DAR-552 FE) — 있으면(항목 1개 이상)
+  // 정직 카피(상위) 아래 별도 섹션으로 노출. 정직 불변식: '판단' 아님 — EmptyState 를 대체하지
+  // 않고 그 아래에 이어 붙인다(compact 레이아웃으로 전환해 두 섹션이 함께 보이게).
+  const fallbackBriefing = meta?.fallbackBriefing ?? [];
+  const hasFallbackBriefing = fallbackBriefing.length > 0;
 
   return (
     // testID: 선택 에디션(날짜)의 매수 신호 세로 리스트 앵커(DAR-542 스모크 ② — 날짜 스트립 탭 후 갱신 확인).
@@ -134,13 +140,17 @@ function EditionSignalListBase({
         refreshing={query.isRefetching}
         onRefresh={handleRefresh}
         ListEmptyComponent={
-          <EmptyState
-            icon={emptyCopy.icon}
-            title={emptyCopy.title}
-            description={emptyCopy.description}
-            actionLabel={prevDate ? '직전 거래일 보기' : undefined}
-            onAction={prevDate ? () => onSelectDate(prevDate) : undefined}
-          />
+          <View>
+            <EmptyState
+              icon={emptyCopy.icon}
+              title={emptyCopy.title}
+              description={emptyCopy.description}
+              actionLabel={prevDate ? '직전 거래일 보기' : undefined}
+              onAction={prevDate ? () => onSelectDate(prevDate) : undefined}
+              compact={hasFallbackBriefing}
+            />
+            {hasFallbackBriefing ? <EditionFallbackBriefing items={fallbackBriefing} /> : null}
+          </View>
         }
         ListFooterComponent={items.length > 0 ? <DisclaimerSection style={styles.disclaimer} /> : null}
       />

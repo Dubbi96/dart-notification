@@ -3,6 +3,12 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SignalGrade, ExitAction, Prisma } from '@prisma/client';
 import { tradeDateFromMs } from '../market-data/candle-query';
 import { isTradingDay } from '../../common/time/market-calendar';
+import {
+  FALLBACK_BRIEFING_LIMIT,
+  FallbackBriefingItem,
+  FallbackBriefingRow,
+  buildFallbackBriefingItems,
+} from './fallback-briefing';
 
 // 등급무관 탐색(DAR-46): 백엔드 6단계 enum을 모바일에 1:1로 노출한다.
 // 기존엔 NEUTRAL/AVOID/WATCH를 'WATCH'로 합쳐 등급 칩·필터가 무의미해졌으므로,
@@ -605,6 +611,11 @@ export class SignalsService {
   /**
    * 매수등급(STRONG_BUY+BUY) 신호를 KST 폐구간 [gteUtc, ltUtc)로 조회·매핑한다.
    * findAll 매퍼 재사용 — 응답 item에 rcpDt(Disclosure.rcpDt 조인) 추가.
+   *
+   * DAR-553: TradingSignal 자연키는 (corpCode,rcpNo,eventType,persona) — 공시 1건당
+   * 최대 4장(페르소나별)이 개별 카드로 노출돼 같은 종목이 에디션에 중복 표시됐다.
+   * corpCode당 대표 1건(최고 buyScore, 동점은 orderBy 그대로 tie-break)으로 dedup하고,
+   * 나머지는 personaCount·otherPersonas 메타로 흡수한다(정보 손실 없이 '외 N개 관점' 표기 가능).
    */
   private async findByCreatedRange(gteUtc: Date, ltUtc: Date) {
     const where: Prisma.TradingSignalWhereInput = {
@@ -622,33 +633,58 @@ export class SignalsService {
       },
     });
 
-    const sampleCountMap = await this.sampleCountByEventType(signals.map((s) => s.eventType));
+    // 정렬이 이미 tie-break 규칙(buyScore desc→createdAt desc→id desc)이므로,
+    // corpCode별 첫 등장 행이 대표(최고 buyScore)다. Map은 삽입 순서를 보존하므로
+    // groups.values() 는 대표들을 원래 정렬 순서 그대로 산출한다(재정렬 불필요).
+    const groups = new Map<string, typeof signals>();
+    for (const s of signals) {
+      const group = groups.get(s.corpCode);
+      if (group) {
+        group.push(s);
+      } else {
+        groups.set(s.corpCode, [s]);
+      }
+    }
+    const representatives = [...groups.values()].map((group) => group[0]);
 
-    return signals.map((s) => ({
-      id: s.id,
-      corpCode: s.corpCode,
-      corpName: s.company?.corpName ?? '',
-      ticker: s.company?.stockCode ?? s.stockCode ?? undefined,
-      eventType: s.eventType,
-      grade: mapGrade(s.signal),
-      buyScore: s.buyScore,
-      summary: s.signalSummary ?? undefined,
-      entryConditions: [
-        ...s.entryConditionMet.map((label, i) => ({ id: `met_${i}`, label, required: true, met: true })),
-        ...s.entryConditionUnmet.map((label, i) => ({ id: `unmet_${i}`, label, required: true, met: false })),
-      ],
-      riskFlags: s.riskFactors.map((label, i) => ({ id: `risk_${i}`, label, severity: 'medium' as const })),
-      blockedReason: s.blockedReason ?? undefined,
-      suppressionReason: s.suppressionReason ?? undefined,
-      scoreBreakdown: mapScoreBreakdown(
-        s.scoreBreakdown,
-        buildSampleNByKey(s.eventType, sampleCountMap),
-      ),
-      relatedDisclosureRcpNo: s.rcpNo,
-      rcpDt: s.disclosure?.rcpDt ?? undefined,
-      expiresAt: s.validUntil?.toISOString() ?? undefined,
-      createdAt: s.createdAt.toISOString(),
-    }));
+    const sampleCountMap = await this.sampleCountByEventType(
+      representatives.map((s) => s.eventType),
+    );
+
+    return representatives.map((s) => {
+      const group = groups.get(s.corpCode)!;
+      const otherPersonas = [...new Set(group.map((g) => g.persona))].filter(
+        (persona) => persona !== s.persona,
+      );
+      return {
+        id: s.id,
+        corpCode: s.corpCode,
+        corpName: s.company?.corpName ?? '',
+        ticker: s.company?.stockCode ?? s.stockCode ?? undefined,
+        eventType: s.eventType,
+        grade: mapGrade(s.signal),
+        buyScore: s.buyScore,
+        summary: s.signalSummary ?? undefined,
+        entryConditions: [
+          ...s.entryConditionMet.map((label, i) => ({ id: `met_${i}`, label, required: true, met: true })),
+          ...s.entryConditionUnmet.map((label, i) => ({ id: `unmet_${i}`, label, required: true, met: false })),
+        ],
+        riskFlags: s.riskFactors.map((label, i) => ({ id: `risk_${i}`, label, severity: 'medium' as const })),
+        blockedReason: s.blockedReason ?? undefined,
+        suppressionReason: s.suppressionReason ?? undefined,
+        scoreBreakdown: mapScoreBreakdown(
+          s.scoreBreakdown,
+          buildSampleNByKey(s.eventType, sampleCountMap),
+        ),
+        relatedDisclosureRcpNo: s.rcpNo,
+        rcpDt: s.disclosure?.rcpDt ?? undefined,
+        expiresAt: s.validUntil?.toISOString() ?? undefined,
+        createdAt: s.createdAt.toISOString(),
+        // DAR-553: 대표 카드 뒤에 흡수된 페르소나 관점 수(대표 포함) + 대표를 제외한 목록.
+        personaCount: otherPersonas.length + 1,
+        otherPersonas,
+      };
+    });
   }
 
   /** RawEditionRow for $queryRaw result. COUNT returns bigint in PostgreSQL. */
@@ -699,21 +735,39 @@ export class SignalsService {
         }[]
       >(Prisma.sql`
         WITH ranked AS (
+          -- DAR-553: corpCode당 대표 1건(최고 buyScore, 동점 tie-break 기존 규칙)만 남긴다 —
+          -- 공시 1건당 최대 4장(페르소나별)이 개별 신호로 부풀리던 count/headline을 정정.
           SELECT
             (ts."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date AS kst_date,
             ts.signal::text                                  AS signal,
             ts."buyScore",
+            ts."createdAt",
+            ts.id,
             c."corpName" AS corp_name,
             ROW_NUMBER() OVER (
-              PARTITION BY (ts."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date
+              PARTITION BY (ts."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul')::date,
+                           ts."corpCode"
               ORDER BY ts."buyScore" DESC, ts."createdAt" DESC, ts.id DESC
-            ) AS rn
+            ) AS rn_corp
           FROM trading_signals ts
           JOIN companies c ON c."corpCode" = ts."corpCode"
           JOIN disclosures d ON d."rcpNo" = ts."rcpNo"
           WHERE d."isBackfill" = false
             AND ts.signal::text IN (${STRONG_BUY}, ${BUY})
             ${beforeCond}
+        ),
+        corp_reps AS (
+          SELECT
+            kst_date,
+            signal,
+            "buyScore",
+            corp_name,
+            ROW_NUMBER() OVER (
+              PARTITION BY kst_date
+              ORDER BY "buyScore" DESC, "createdAt" DESC, id DESC
+            ) AS rn_day
+          FROM ranked
+          WHERE rn_corp = 1
         )
         SELECT
           -- date 는 API 계약상 compact 'YYYYMMDD'(todayDate·before 커서와 동일 형식) —
@@ -721,9 +775,9 @@ export class SignalsService {
           to_char(kst_date, 'YYYYMMDD')                                 AS date,
           COUNT(*)::bigint                                               AS count,
           SUM(CASE WHEN signal = ${STRONG_BUY} THEN 1 ELSE 0 END)::bigint AS "strongBuyCount",
-          MAX(CASE WHEN rn = 1 THEN corp_name   END)                    AS "headlineCorpName",
-          MAX(CASE WHEN rn = 1 THEN signal      END)                    AS "topGradeRaw"
-        FROM ranked
+          MAX(CASE WHEN rn_day = 1 THEN corp_name END)                   AS "headlineCorpName",
+          MAX(CASE WHEN rn_day = 1 THEN signal    END)                   AS "topGradeRaw"
+        FROM corp_reps
         GROUP BY kst_date
         ORDER BY kst_date DESC
         LIMIT ${clampedLimit}
@@ -832,6 +886,14 @@ export class SignalsService {
     const prevEditionDate = prevSig ? tradeDateFromMs(prevSig.createdAt.getTime()) : undefined;
     const nextEditionDate = nextSig ? tradeDateFromMs(nextSig.createdAt.getTime()) : undefined;
 
+    // DAR-551: 빈 에디션 폴백 브리핑. 판단(items)이 없는 거래일에만, '그 KST 거래일 주요 공시'를
+    //   meta.fallbackBriefing 으로 분리 노출한다(판단 count 무변경 — 정직 불변식).
+    //   휴장(CLOSED)·미래(FUTURE)는 브리핑 대상이 아니므로 조회 자체를 생략한다(불필요 쿼리 0).
+    const fallbackBriefing =
+      isEmpty && emptyReason !== 'CLOSED' && emptyReason !== 'FUTURE'
+        ? await this.buildFallbackBriefing(date)
+        : undefined;
+
     return {
       items,
       meta: {
@@ -841,8 +903,60 @@ export class SignalsService {
         emptyReason,
         prevEditionDate,
         nextEditionDate,
+        fallbackBriefing,
       },
     };
+  }
+
+  /**
+   * DAR-551: 그 KST 거래일(rcpDt) 주요 공시 top N 을 중요도 순으로 뽑아 브리핑 항목으로 매핑한다.
+   *
+   * 중요도 정렬(이슈 명세 순): ①이벤트성(분류된 DisclosureEvent 존재, OTHER 제외)
+   *   → ②시총(스키마 미보유 — KOSPI 본판을 대용 프록시로 사용) → ③AI 요약 존재
+   *   → ④최신·결정론 tiebreak(rcpNo desc). 랭킹·LIMIT 은 SQL 이 수행(전일 로드 회피).
+   *
+   * 신규 AI 호출 0: 기존 DisclosureAnalysis(summary task) 캐시(`resultJson->>'summary'`)만 읽는다.
+   * 백필 공시(isBackfill=true) 는 라이브 표면 불가침 원칙에 따라 제외한다.
+   * rcpDt 범위는 인덱스 친화적 [date, nextYmd) 문자열 범위로 조회한다(prefix LIKE 회피).
+   */
+  private async buildFallbackBriefing(date: string): Promise<FallbackBriefingItem[]> {
+    const nextYmd = this.nextYmd(date);
+    const rows = await this.prisma.$queryRaw<FallbackBriefingRow[]>(Prisma.sql`
+      SELECT
+        d."rcpNo"                    AS "rcpNo",
+        d."corpName"                 AS "corpName",
+        d."reportName"               AS "reportName",
+        e."eventType"::text          AS "eventType",
+        a."resultJson"->>'summary'   AS "summaryText"
+      FROM disclosures d
+      JOIN companies c              ON c."corpCode" = d."corpCode"
+      LEFT JOIN disclosure_events e ON e."rcpNo"   = d."rcpNo"
+      -- summary task 는 (rcpNo, task) UNIQUE 이므로 rcpNo 당 ≤1행(중복 없음)
+      LEFT JOIN disclosure_analyses a
+        ON a."rcpNo" = d."rcpNo" AND a."task"::text = 'summary'
+      WHERE d."isBackfill" = false
+        AND d."rcpDt" >= ${date}
+        AND d."rcpDt" <  ${nextYmd}
+      ORDER BY
+        (e."eventType" IS NOT NULL AND e."eventType"::text <> 'OTHER') DESC, -- ①이벤트성
+        (c."market" = 'KOSPI') DESC,                                        -- ②시총(대용 프록시)
+        ((a."resultJson"->>'summary') IS NOT NULL) DESC,                    -- ③AI 요약 존재
+        d."rcpNo" DESC                                                      -- ④최신·결정론 tiebreak
+      LIMIT ${FALLBACK_BRIEFING_LIMIT}
+    `);
+    return buildFallbackBriefingItems(rows);
+  }
+
+  /** YYYYMMDD 의 다음 날(YYYYMMDD). rcpDt 문자열 상한(반개구간 [date, nextYmd)) 산출용. */
+  private nextYmd(ymd: string): string {
+    const y = Number(ymd.slice(0, 4));
+    const m = Number(ymd.slice(4, 6));
+    const d = Number(ymd.slice(6, 8));
+    const next = new Date(Date.UTC(y, m - 1, d + 1));
+    const yy = next.getUTCFullYear();
+    const mm = String(next.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(next.getUTCDate()).padStart(2, '0');
+    return `${yy}${mm}${dd}`;
   }
 
   async findExitSignals() {

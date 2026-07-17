@@ -189,9 +189,15 @@ model NotificationSettings {
   exitPushEnabled   Boolean @default(false) // 청산 권고(EXIT) 푸시
   thesisPushEnabled Boolean @default(false) // 투자논리 훼손(THESIS_VIOLATED) 푸시
 
-  // DAR-424: 라이브 페이퍼 체결 알림(TRADE_ENTRY/TRADE_EXIT) 토글. ★기본 ON(체결 통지 기본 수신).
-  //   OFF면 인박스 기록·푸시 모두 생략(과알림 방지). 설정행 미존재 시에도 기본 ON으로 간주한다.
-  tradePushEnabled Boolean @default(true) // 매수/매도 체결(TRADE_ENTRY/TRADE_EXIT) 알림
+  // DAR-424: 라이브 페이퍼 체결 알림(TRADE_ENTRY/TRADE_EXIT) 토글.
+  //   OFF면 인박스 기록·푸시 모두 생략(과알림 방지).
+  // DAR-550(오너결정·공개 코호트 가드): 신규 가입자 기본값 ON→★OFF 로 전환 —
+  //   공개(Play) 사용자에게 체결(트레이딩) 푸시가 기본 발송되지 않도록 가드. 트레이딩 표면
+  //   (SHOW_TRADING)에서만 켠다. 기존 사용자 무손실: 스키마 default 변경은 신규 INSERT 에만
+  //   적용되고 기존 row 값은 보존된다(migration 은 SET DEFAULT 만·백필 UPDATE 없음).
+  //   설정행 미존재(레거시 no-row) 사용자는 consumer 폴백에서 여전히 ON 으로 간주(무변경) —
+  //   신규 가입자는 가입 시 항상 row 가 생성되므로 이 default(false)로 OFF 가 된다.
+  tradePushEnabled Boolean @default(false) // 매수/매도 체결(TRADE_ENTRY/TRADE_EXIT) 알림 — ★신규 기본 OFF
 
   // DAR-473(P01): 리스크·운영 알림(RISK_ALERT/OPS_ALERT) 토글. ★기본 ON(운영 알림 기본 수신).
   //   OFF면 인박스 기록·푸시 모두 생략. 설정행 미존재 시에도 기본 ON으로 간주한다.

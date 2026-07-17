@@ -212,6 +212,24 @@ export interface DailyEditionsMeta {
  */
 export type EditionEmptyReason = 'CLOSED' | 'PENDING' | 'QUIET' | 'COLD_START' | 'FUTURE';
 
+/** 브리핑 한 줄의 출처 — AI 요약 재사용(`AI`) 또는 제목 폴백(`TITLE`, DAR-551 정직 표기). */
+export type FallbackBriefingSummarySource = 'AI' | 'TITLE';
+
+/**
+ * 빈 에디션 폴백 '오늘의 주요 공시 브리핑' 항목(DAR-551, meta.fallbackBriefing[]).
+ * '판단'이 아니라 그 거래일 주요 공시 브리핑 — TradingSignal 과 물리적으로 분리된 계약.
+ */
+export interface FallbackBriefingItem {
+  /** DART 접수번호 — 공시 상세 딥링크 키(`/disclosure/:rcpNo`) */
+  rcpNo: string;
+  corpName: string;
+  /** 이벤트 라벨(한국어). 이벤트 미분류·미등록 타입은 '기타 공시' */
+  eventLabel: string;
+  /** 주요 내용 한 줄(공백 정규화 + 최대 100자 말줄임) */
+  summaryLine: string;
+  summarySource: FallbackBriefingSummarySource;
+}
+
 /** 일일 에디션 상세 메타(GET /signals/daily/:date meta). */
 export interface DailyEditionMeta {
   /** 조회한 KST 거래일 (YYYYMMDD) */
@@ -226,6 +244,11 @@ export interface DailyEditionMeta {
   prevEditionDate?: string;
   /** 직후 에디션 존재일 (YYYYMMDD) — 없으면 미포함. 날짜 스트립 우측 플립 대상 */
   nextEditionDate?: string;
+  /**
+   * 빈 에디션 폴백 '오늘의 주요 공시 브리핑'(DAR-551) — isEmpty=true 이고
+   * emptyReason∈{PENDING,QUIET,COLD_START} 일 때만 존재(그 외 undefined). 항목 없으면 [].
+   */
+  fallbackBriefing?: FallbackBriefingItem[];
 }
 
 /** GET /signals/daily-editions 정규화 응답(items + meta). */

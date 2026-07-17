@@ -1,0 +1,30 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`utils/tradingVisibility play 빌드(EXPO_PUBLIC_SHOW_TRADING="false")는 트레이딩 표면을 전면 숨긴다: show=false (play) 1`] = `
+{
+  "homePerformanceFooter": false,
+  "portfolioTab": false,
+  "signalPaperTradeEntry": false,
+  "tradingRoutes": false,
+}
+`;
+
+exports[`utils/tradingVisibility resolveShowTrading 진리표: 오직 "false" 만 숨긴다 1`] = `
+{
+  "False": true,
+  "empty": true,
+  "false": false,
+  "true": true,
+  "undefined": true,
+  "zero": true,
+}
+`;
+
+exports[`utils/tradingVisibility 기본(oci/preview/production, 미설정)은 트레이딩 표면을 유지한다: show=true (default oci) 1`] = `
+{
+  "homePerformanceFooter": true,
+  "portfolioTab": true,
+  "signalPaperTradeEntry": true,
+  "tradingRoutes": true,
+}
+`;

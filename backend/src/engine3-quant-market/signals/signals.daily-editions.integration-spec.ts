@@ -99,3 +99,103 @@ describe('SignalsService.findDailyEditions (실 Postgres 통합)', () => {
     expect(top.topGrade).toBe('STRONG_BUY'); // signal → 모바일 등급 매핑
   });
 });
+
+/**
+ * DAR-553 — corpCode당 대표 1건 dedup 실 Postgres 통합테스트.
+ *
+ * 오너 실사용 보고 원인: TradingSignal 자연키가 (corpCode,rcpNo,eventType,persona)라
+ * 공시 1건이 페르소나별로 최대 4장까지 개별 신호를 만든다. 단위 스펙(모킹)은 $queryRaw의
+ * corpCode dedup(2단 ROW_NUMBER CTE)을 검증할 수 없으므로, 실 DB에 같은 corpCode·다른
+ * persona 신호 2건을 시드해 daily-editions/daily 두 엔드포인트가 모두 유니크 corp
+ * 기준으로 정정됐는지 실측한다.
+ */
+const TAG_553 = 'DAR553';
+const SEED_CREATED_AT_553 = new Date('2099-06-16T03:00:00.000Z'); // KST 2099-06-16 12:00
+const SEED_KST_DATE_553 = '20990616';
+
+describe('SignalsService — DAR-553 corpCode당 대표 1건 dedup (실 Postgres 통합)', () => {
+  let baselineCount: number;
+
+  beforeAll(async () => {
+    await prisma.$connect();
+    baselineCount = await prisma.tradingSignal.count();
+  });
+
+  afterAll(async () => {
+    const finalCount = await prisma.tradingSignal.count();
+    expect(finalCount).toBe(baselineCount); // 잔여 0 — 데모 DB 무변경
+    await prisma.$disconnect();
+  });
+
+  it('같은 corpCode·다른 persona 2건 시드 → daily-editions count=1(유니크 corp) + daily/:date 1카드·personaCount=2', async () => {
+    await withRollback(prisma, async (tx) => {
+      const corpCode = `${TAG_553}_CORP`;
+      const rcpNo = `${TAG_553}_RCP`;
+      const corpName = 'DAR553테스트사';
+
+      await tx.company.create({
+        data: { corpCode, corpName, stockCode: '451901', market: 'KOSPI' },
+      });
+      await tx.disclosure.create({
+        data: {
+          rcpNo,
+          corpCode,
+          corpName,
+          reportName: 'DAR553 유상증자 결정',
+          rcpDt: '20990616',
+          flrName: corpName,
+          rmk: '',
+          disclosureType: '주요사항보고',
+          isBackfill: false,
+        },
+      });
+      // 같은 공시(rcpNo)에서 파생된 페르소나별 신호 2건 — corpCode 축에서 dedup 대상.
+      await tx.tradingSignal.create({
+        data: {
+          rcpNo,
+          corpCode,
+          stockCode: '451901',
+          eventType: 'PAID_IN_CAPITAL_INCREASE',
+          persona: 'GROWTH',
+          buyScore: 91,
+          signal: SignalGrade.STRONG_BUY_CANDIDATE,
+          scoreBreakdown: {},
+          riskPenalty: 0,
+          createdAt: SEED_CREATED_AT_553,
+        },
+      });
+      await tx.tradingSignal.create({
+        data: {
+          rcpNo,
+          corpCode,
+          stockCode: '451901',
+          eventType: 'PAID_IN_CAPITAL_INCREASE',
+          persona: 'VALUE',
+          buyScore: 76,
+          signal: SignalGrade.BUY_CANDIDATE,
+          scoreBreakdown: {},
+          riskPenalty: 0,
+          createdAt: SEED_CREATED_AT_553,
+        },
+      });
+
+      const service = new SignalsService(tx as unknown as PrismaService);
+
+      // GET /signals/daily-editions — 목록의 count/strongBuyCount/headline이 유니크 corp 기준인지.
+      const editions = await service.findDailyEditions();
+      const top = editions.items[0];
+      expect(top.date).toBe(SEED_KST_DATE_553);
+      expect(top.count).toBe(1); // 신호 2건이지만 corp 1개 → 1
+      expect(top.strongBuyCount).toBe(1); // 대표(GROWTH, STRONG_BUY)만 카운트
+      expect(top.headlineCorpName).toBe('DAR553테스트사');
+      expect(top.topGrade).toBe('STRONG_BUY');
+
+      // GET /signals/daily/:date — 카드 1장 + personaCount/otherPersonas 메타.
+      const detail = await service.findDailyEdition(SEED_KST_DATE_553);
+      expect(detail.items).toHaveLength(1);
+      expect(detail.items[0].buyScore).toBe(91); // 최고 buyScore가 대표
+      expect(detail.items[0].personaCount).toBe(2);
+      expect(detail.items[0].otherPersonas).toEqual(['VALUE']);
+    });
+  });
+});

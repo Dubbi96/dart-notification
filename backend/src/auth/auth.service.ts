@@ -81,6 +81,9 @@ export class AuthService {
             disclosureTypes: [],
             keywords: [],
             isEnabled: true,
+            // DAR-550(오너결정·공개 코호트 가드): 신규 가입자는 체결(트레이딩) 푸시 기본 OFF.
+            //   스키마 default(false)와 동일값을 명시 — 공개(Play) 사용자 기본 미발송 보장.
+            tradePushEnabled: false,
           },
         },
       },
@@ -227,6 +230,9 @@ export class AuthService {
               disclosureTypes: [],
               keywords: [],
               isEnabled: true,
+              // DAR-550(오너결정·공개 코호트 가드): 신규 가입자는 체결(트레이딩) 푸시 기본 OFF.
+              //   스키마 default(false)와 동일값을 명시 — 공개(Play) 사용자 기본 미발송 보장.
+              tradePushEnabled: false,
             },
           },
         },

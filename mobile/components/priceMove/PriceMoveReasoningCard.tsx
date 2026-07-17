@@ -96,6 +96,9 @@ function AnalyzedBody({
   const { colors, typography: typo } = useTheme();
   const linkageLabel = LINKAGE_LABEL[result.eventLinkage];
   const eventTypeLabel = getEventTypeLabel(result.eventType);
+  // DAR-528 — 재무 맥락 한 줄(공시 규모 ÷ 연매출). null/공백이면 행 자체를 그리지 않는다
+  // (수치 발명 금지·빈 행 금지). 백엔드가 분자/분모 결측 시 null 로 내려보낸다.
+  const financialContext = result.financialContext?.trim();
 
   return (
     <View>
@@ -119,6 +122,16 @@ function AnalyzedBody({
         {/* 원인 해석(설명층 한정). */}
         <SectionLabel icon="help-circle" label="원인 해석" />
         <Text style={[typo.body, styles.cause, { color: colors.text }]}>{result.cause}</Text>
+
+        {/* 재무 맥락 한 줄(DAR-528) — 공시 규모를 연매출 대비로 상대화. null이면 미표시. */}
+        {financialContext ? (
+          <View style={styles.block}>
+            <SectionLabel icon="percent" label="재무 맥락" />
+            <Text style={[typo.small, styles.financialContext, { color: colors.textSecondary }]}>
+              {financialContext}
+            </Text>
+          </View>
+        ) : null}
 
         {/* 근거 목록 — 공시 이벤트·유사사례 통계 인용. */}
         {result.evidence.length > 0 ? (
@@ -251,6 +264,9 @@ const styles = StyleSheet.create({
   },
   cause: {
     lineHeight: 22,
+  },
+  financialContext: {
+    lineHeight: 20,
   },
   block: {
     marginTop: spacing.md,

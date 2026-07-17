@@ -21,7 +21,15 @@ function base(overrides: Partial<PriceMoveReasoning>): PriceMoveReasoning {
     rcpNo: '20260717000001',
     status: 'ANALYZED',
     createdAt: '2026-07-17T06:00:00.000Z',
-    resultJson: { status: 'ANALYZED', eventType: 'UNKNOWN', cause: '', evidence: [], eventLinkage: 'WEAK', caveat: '' },
+    resultJson: {
+      status: 'ANALYZED',
+      eventType: 'UNKNOWN',
+      cause: '',
+      evidence: [],
+      eventLinkage: 'WEAK',
+      caveat: '',
+      financialContext: null,
+    },
     ...overrides,
   };
 }
@@ -50,6 +58,7 @@ describe('components/priceMove/PriceMoveReasoningCard', () => {
         evidence: ['공급계약 규모가 시가총액 대비 큼', '유사공시 D+5 평균 +4%'],
         eventLinkage: 'STRONG',
         caveat: '상관관계일 뿐 인과를 단정할 수 없습니다.',
+        financialContext: null,
       },
     });
     const { getByText, getByLabelText } = render(<PriceMoveReasoningCard reasoning={reasoning} />);
@@ -74,11 +83,50 @@ describe('components/priceMove/PriceMoveReasoningCard', () => {
         evidence: [],
         eventLinkage: 'UNCLEAR',
         caveat: '',
+        financialContext: null,
       },
     });
     const { queryByLabelText, getByText } = render(<PriceMoveReasoningCard reasoning={reasoning} />);
     expect(getByText('원인 해석 본문')).toBeTruthy();
     expect(queryByLabelText('과거 유사공시 반응 불러오는 중')).toBeNull();
+  });
+
+  // DAR-534 — 재무 맥락 한 줄(financialContext) 존재/null 2상태(수용기준 1).
+  it('ANALYZED — financialContext 존재 시 "재무 맥락" 행과 한 줄을 렌더한다', () => {
+    const reasoning = base({
+      status: 'ANALYZED',
+      rcpNo: null, // 유사공시 섹션 제외 — 재무 맥락 행만 검증.
+      resultJson: {
+        status: 'ANALYZED',
+        eventType: 'SUPPLY_CONTRACT',
+        cause: '대규모 공급계약 공시.',
+        evidence: [],
+        eventLinkage: 'STRONG',
+        caveat: '',
+        financialContext: '이번 계약 규모는 2025 연매출의 약 12.3% (1230억 / 연매출 1조)',
+      },
+    });
+    const { getByText } = render(<PriceMoveReasoningCard reasoning={reasoning} />);
+    expect(getByText('재무 맥락')).toBeTruthy();
+    expect(getByText('이번 계약 규모는 2025 연매출의 약 12.3% (1230억 / 연매출 1조)')).toBeTruthy();
+  });
+
+  it('ANALYZED — financialContext=null 이면 "재무 맥락" 행 자체를 렌더하지 않는다(수치 발명 금지·빈 행 금지)', () => {
+    const reasoning = base({
+      status: 'ANALYZED',
+      rcpNo: null,
+      resultJson: {
+        status: 'ANALYZED',
+        eventType: 'SUPPLY_CONTRACT',
+        cause: '대규모 공급계약 공시.',
+        evidence: [],
+        eventLinkage: 'STRONG',
+        caveat: '',
+        financialContext: null,
+      },
+    });
+    const { queryByText } = render(<PriceMoveReasoningCard reasoning={reasoning} />);
+    expect(queryByText('재무 맥락')).toBeNull();
   });
 
   it('NO_DISCLOSURE — 48시간 무공시 정직 카피를 렌더한다(분석 위장 금지)', () => {

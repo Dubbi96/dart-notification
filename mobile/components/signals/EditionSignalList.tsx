@@ -99,7 +99,8 @@ function EditionSignalListBase({
   const emptyCopy = getEditionEmptyCopy(meta?.emptyReason);
 
   return (
-    <View style={styles.container}>
+    // testID: 선택 에디션(날짜)의 매수 신호 세로 리스트 앵커(DAR-542 스모크 ② — 날짜 스트립 탭 후 갱신 확인).
+    <View style={styles.container} testID="edition-signal-list">
       {showBanner ? (
         <View style={[styles.banner, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
           <Feather name="clock" size={16} color={colors.textSecondary} />

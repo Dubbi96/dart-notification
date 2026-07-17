@@ -460,7 +460,9 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
   }
 
   return (
-    <View style={styles.container}>
+    // testID: 홈 '최신 에디션 요약' 슬롯 앵커(DAR-542 스모크 ① — 게스트 홈 피드+에디션 요약 렌더).
+    // 게스트/로그인/로딩/빈 상태 무관하게 슬롯 컨테이너는 상시 마운트되므로 데이터 타이밍에 견고.
+    <View style={styles.container} testID="home-edition-summary">
       {Heading}
       {body}
     </View>

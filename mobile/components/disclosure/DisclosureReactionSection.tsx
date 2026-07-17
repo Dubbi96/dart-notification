@@ -33,6 +33,9 @@ function SectionFrame({ children }: { children: React.ReactNode }) {
   return (
     <Surface
       elevation={0}
+      // testID: 공시 상세 '과거 유사공시 반응(통계)' 섹션 앵커(DAR-542 스모크 ③ — 유사공시 통계 섹션 노출).
+      // 이벤트 추출 공시에만 마운트되나, 마운트되면 로딩/표본부족/정상 전 상태에서 SectionFrame 은 상시 렌더.
+      testID="disclosure-reaction-section"
       style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}
       accessibilityLabel="과거 유사공시 반응 섹션"
     >

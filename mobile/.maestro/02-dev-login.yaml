@@ -1,9 +1,29 @@
-# [W15 ② 스모크 2] dev-login 딥링크 로그인 → 홈 진입
-# 테스트계정 JWT 주입(-e DEV_ACCESS/DEV_REFRESH/DEV_USER_ID) 후 인증 상태로 홈 도달.
+# [DAR-542 스모크 ② / W15 ②] dev-login → 신호탭 매수·에디션 브라우징(날짜 스트립 탭)
+# 테스트계정 JWT 주입(-e DEV_ACCESS/DEV_REFRESH/DEV_USER_ID) 후 인증 상태로 홈 → 신호탭 →
+# 에디션 날짜 스트립에서 날짜 칩을 탭해 해당 호(선택일) 매수 신호 리스트가 렌더되는지 확인한다.
+# 전제: dev 빌드(__DEV__) 또는 EXPO_PUBLIC_ALLOW_DEV_LOGIN=true 빌드 + 백엔드 서명 유효 JWT.
 appId: com.gongsion.app
 tags:
   - smoke
+  - core
 ---
 - runFlow: subflows/dev-login.yaml
 - assertVisible:
     id: "home-feed-list"
+# 하단 '신호' 탭으로 이동(인증 사용자만 매수/매도 토글 + 에디션 뷰 마운트).
+- tapOn: "신호"
+# 매수·에디션 모드(기본)에서 날짜 스트립이 뜬다(판단 존재일 또는 '오늘' 진입 칩).
+- extendedWaitUntil:
+    visible:
+      id: "edition-date-strip"
+    timeout: 15000
+# 날짜 스트립의 첫 칩을 탭(뉴스형 '하루 넘겨보기' 축). index 0 은 항상 존재(스트립이 보이면 칩 ≥1).
+# 여러 판단일이 쌓인 백엔드에선 index 를 올려 실제 '다른 날'로 전환하는 브라우징도 검증 가능.
+- tapOn:
+    id: "edition-date-chip"
+    index: 0
+# 선택일 매수 신호 세로 리스트가 렌더(브라우징 결과 확인).
+- extendedWaitUntil:
+    visible:
+      id: "edition-signal-list"
+    timeout: 15000

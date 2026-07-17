@@ -78,7 +78,7 @@ describe('EditionPublishPushService (DAR-523)', () => {
       headlineCorpName: '삼성전자',
       title: '오늘의 투자판단 에디션',
       body: '삼성전자 외 2곳 · 매수 후보 3곳 (적극매수 1)',
-      deepLink: '/signals',
+      deepLink: '/signals?date=20260717',
     });
     expect(result).toMatchObject({ editionDate: '20260717', published: true, count: 3 });
   });
@@ -131,7 +131,7 @@ describe('EditionPublishPushService (DAR-523)', () => {
         headlineCorpName: '삼성전자',
         title: '오늘의 투자판단 에디션',
         body: '삼성전자 공급계약 외 2곳 — 유사공시 D+5 평균 +2.1% (n=142)',
-        deepLink: '/signals',
+        deepLink: '/signals?date=20260717',
       }),
     );
   });

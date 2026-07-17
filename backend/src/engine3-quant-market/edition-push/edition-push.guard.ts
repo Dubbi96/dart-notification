@@ -116,7 +116,7 @@ export interface EditionPushContent {
  * 제목은 고정('오늘의 투자판단 에디션'). 본문은 헤드라인 종목의 '한 줄 판단':
  *   - 통계 있음(n≥30): '삼성전자 공급계약 외 4곳 — 유사공시 D+5 평균 +2.1% (n=142)'.
  *   - 통계 없음(n<30·미추출): '삼성전자 공급계약 외 4곳 · 매수 후보 5곳 (적극매수 2)'(대체 꼬리·허수 미노출).
- * 권고·과장 문구 없음(팩트/과거 통계만). 딥링크는 신호탭 에디션 브라우징(`/signals`).
+ * 권고·과장 문구 없음(팩트/과거 통계만). 딥링크는 해당 호(거래일) 직행(`/signals?date=<editionDate>` — DAR-533).
  *
  * @param statInput 헤드라인 종목의 유사공시 반응 통계(Wave A DAR-511 페이로드 발췌). n<30 이면
  *   buildReactionStatPhrase 가 null 을 반환해 자동으로 대체 꼬리로 폴백한다.
@@ -125,7 +125,7 @@ export function buildEditionPushContent(
   decision: EditionPushPublish,
   statInput?: ReactionStatInput | null,
 ): EditionPushContent {
-  const { count, strongBuyCount, headlineCorpName, headlineEventType } = decision;
+  const { count, strongBuyCount, headlineCorpName, headlineEventType, editionDate } = decision;
   const others = count > 1 ? ` 외 ${count - 1}곳` : '';
   const strong = strongBuyCount > 0 ? ` (적극매수 ${strongBuyCount})` : '';
 
@@ -141,7 +141,8 @@ export function buildEditionPushContent(
   return {
     title: '오늘의 투자판단 에디션',
     body: result.body,
-    deepLink: '/signals',
+    // DAR-533: 해당 호(거래일) 직행 — 신호탭이 date 쿼리를 소비해 해당 editionDate 호로 바로 연다.
+    deepLink: `/signals?date=${editionDate}`,
     statsIncluded: result.statsIncluded,
   };
 }

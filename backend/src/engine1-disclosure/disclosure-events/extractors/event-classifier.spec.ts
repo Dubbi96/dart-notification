@@ -410,3 +410,155 @@ describe('classifyEventType — W9 EARNINGS_GUIDANCE (자사 전망)', () => {
     expect(result.eventType).not.toBe(EventType.EARNINGS_GUIDANCE);
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// DAR-338: DAR-346 후속 — OTHER 재누적분(15530) reportName 재조사 기반 확대
+// 라이브 DB(2026-07-17) OTHER NEEDS_REVIEW reportName 재집계: 기존 룰 커버 3503건(486종,
+// 백로그·reprocess 대상) 제외 미커버 12027건(701종) 상위 유형 4종 신규 + 근접실패 8종 보강.
+// 전체 89694종 reportName 대상 신구 분류기 결과 diff = 기존 typed→타 typed 회귀 0(확인 완료).
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('classifyEventType — DAR-338 OTHER 재누적분 확대', () => {
+  const noDocType = (): ParsedJson => makeParsedJson({ docType: '' });
+  const classify = (reportName: string) =>
+    classifyEventType(reportName, noDocType());
+
+  // ── 신규 EventType 4종 ──────────────────────────────────────────────────────
+  it('기업가치제고계획(자율공시) → VALUE_UP_PLAN (POSITIVE, 밸류업 시그널)', () => {
+    const result = classify('기업가치제고계획(자율공시)');
+    expect(result.eventType).toBe(EventType.VALUE_UP_PLAN);
+    expect(result.polarity).toBe('POSITIVE');
+    expect(result.confidence).toBeGreaterThanOrEqual(0.85);
+  });
+
+  it.each(['결산실적공시예고(안내공시)', '결산실적공시예고'])(
+    '%s → EARNINGS_PREANNOUNCEMENT (실적 확정 전 예고)',
+    (reportName) => {
+      const result = classify(reportName);
+      expect(result.eventType).toBe(EventType.EARNINGS_PREANNOUNCEMENT);
+      expect(result.polarity).toBe('UNKNOWN');
+    },
+  );
+
+  it.each(['기타경영사항(자율공시)', '지속가능경영보고서등관련사항(자율공시)'])(
+    '%s → VOLUNTARY_MANAGEMENT_DISCLOSURE',
+    (reportName) => {
+      const result = classify(reportName);
+      expect(result.eventType).toBe(EventType.VOLUNTARY_MANAGEMENT_DISCLOSURE);
+    },
+  );
+
+  it.each([
+    '지급수단별ㆍ지급기간별지급금액및분쟁조정기구에관한사항', // 라이브 최대 OTHER 단일유형(5228건)
+    '소속부변경',
+    '본점소재지변경',
+    '상호변경안내',
+    '공정거래자율준수프로그램운영현황(안내공시)',
+    '계열금융회사의약관에의한금융거래-[유가증권-채권]',
+    '약관에의한금융거래시계열금융회사의거래상대방의공시',
+    '기업인수목적회사의예치ㆍ신탁계약내용변경',
+  ])('%s → REGULATORY_ADMIN_NOTICE (행정·규제 절차, 비재료성)', (reportName) => {
+    const result = classify(reportName);
+    expect(result.eventType).toBe(EventType.REGULATORY_ADMIN_NOTICE);
+    expect(result.confidence).toBe(0.80);
+  });
+
+  // ── 기존 룰 근접실패(표기 변형) 보강 ─────────────────────────────────────────
+  it('매출액또는손익구조30%(대규모법인은15%)이상변경 → EARNINGS_SURPRISE ("변동"이 아닌 "변경" 표기 보강)', () => {
+    const result = classify('매출액또는손익구조30%(대규모법인은15%)이상변경');
+    expect(result.eventType).toBe(EventType.EARNINGS_SURPRISE);
+  });
+
+  it('파생상품거래손실발생 → EARNINGS_SHOCK', () => {
+    const result = classify('파생상품거래손실발생');
+    expect(result.eventType).toBe(EventType.EARNINGS_SHOCK);
+    expect(result.polarity).toBe('NEGATIVE');
+  });
+
+  it('소송등의판결ㆍ결정 → LAWSUIT ("제기" 없이 "판결/결정"만 있어도 회수)', () => {
+    const result = classify('소송등의판결ㆍ결정');
+    expect(result.eventType).toBe(EventType.LAWSUIT);
+  });
+
+  it('반기검토(감사)의견부적정등사실확인(...) → AUDIT_OPINION_RISK (괄호로 끊긴 "감사)의견" 보강)', () => {
+    const result = classify(
+      '반기검토(감사)의견부적정등사실확인(자본잠식률100분의50이상또는자기자본10억원미만포함)',
+    );
+    expect(result.eventType).toBe(EventType.AUDIT_OPINION_RISK);
+  });
+
+  it.each(['전환청구권ㆍ신주인수권ㆍ교환청구권행사', '교환청구권행사'])(
+    '%s → CONVERTIBLE_EXERCISE ("전환청구권 행사" 인접 요구 완화)',
+    (reportName) => {
+      const result = classify(reportName);
+      expect(result.eventType).toBe(EventType.CONVERTIBLE_EXERCISE);
+    },
+  );
+
+  it('비유동자산처분결정 → INVESTMENT_DECISION ("취득/양수"뿐 아닌 "처분" 보강)', () => {
+    const result = classify('비유동자산처분결정');
+    expect(result.eventType).toBe(EventType.INVESTMENT_DECISION);
+  });
+
+  it.each([
+    '소액공모공시서류(지분증권)',
+    '소액공모실적보고서',
+    '호가중개시스템을통한소액매출공시서류',
+    '주요사항보고서(자본으로인정되는채무증권발행결정)',
+  ])('%s → SECURITIES_OFFERING (소액공모ㆍ소액매출ㆍ채무증권발행 보강)', (reportName) => {
+    const result = classify(reportName);
+    expect(result.eventType).toBe(EventType.SECURITIES_OFFERING);
+  });
+
+  it.each(['회생절차개시결정', '주요사항보고서(해산사유발생)', '불성실공시법인지정예고'])(
+    '%s → DELISTING_RISK (회생절차ㆍ해산사유ㆍ불성실공시법인 보강)',
+    (reportName) => {
+      const result = classify(reportName);
+      expect(result.eventType).toBe(EventType.DELISTING_RISK);
+    },
+  );
+
+  it('단일판매ㆍ공급계약해지 → CONTRACT_CANCELLATION ("해제/취소"뿐 아닌 "해지" 보강)', () => {
+    const result = classify('단일판매ㆍ공급계약해지');
+    expect(result.eventType).toBe(EventType.CONTRACT_CANCELLATION);
+  });
+
+  // ── 우선순위(직렬) 회귀 방지: 신규/보강 룰은 항상 기존 특화 룰보다 아래 ──────────
+  // (DAR-338 구현 중 전체 89694종 reportName diff로 실제 발견된 4가지 충돌 케이스)
+  it('소송등의판결ㆍ결정(주주총회소집허가) 은 LAWSUIT 이 아닌 SHAREHOLDER_MEETING 우선', () => {
+    const result = classify('소송등의판결ㆍ결정(주주총회소집허가)');
+    expect(result.eventType).toBe(EventType.SHAREHOLDER_MEETING);
+  });
+
+  it('소송등의판결ㆍ결정(자율공시:합병ㆍ분할등관련무효ㆍ취소) 은 LAWSUIT 이 아닌 MERGER_SPLIT 우선', () => {
+    const result = classify('소송등의판결ㆍ결정(자율공시:합병ㆍ분할등관련무효ㆍ취소)');
+    expect(result.eventType).toBe(EventType.MERGER_SPLIT);
+  });
+
+  it('피보증(담보제공포함)법인의회생절차및파산절차관련사실등발생 은 DELISTING_RISK 가 아닌 DEBT_GUARANTEE 우선', () => {
+    const result = classify('피보증(담보제공포함)법인의회생절차및파산절차관련사실등발생');
+    expect(result.eventType).toBe(EventType.DEBT_GUARANTEE);
+  });
+
+  it('기타시장안내(회생절차 개시신청 관련 시장안내) 는 DELISTING_RISK 가 아닌 MARKET_NOTICE 우선', () => {
+    const result = classify('기타시장안내(회생절차 개시신청 관련 시장안내)');
+    expect(result.eventType).toBe(EventType.MARKET_NOTICE);
+  });
+
+  it('주권매매거래정지기간변경(감사 의견 거절) 은 AUDIT_OPINION_RISK 가 아닌 TRADING_SUSPENSION 우선', () => {
+    const result = classify('주권매매거래정지기간변경              (감사 의견 거절)');
+    expect(result.eventType).toBe(EventType.TRADING_SUSPENSION);
+  });
+
+  it('조회공시요구(풍문또는보도)(거래처와의 거래중단설) 는 CONTRACT_CANCELLATION 이 아닌 INQUIRY_DISCLOSURE 우선', () => {
+    const result = classify('조회공시요구(풍문또는보도)              (거래처와의 거래중단설)');
+    expect(result.eventType).toBe(EventType.INQUIRY_DISCLOSURE);
+  });
+
+  // ── 음성 대조: 여전히 미상인 장문의 임의 보고서명은 OTHER 유지 ────────────────
+  it('완전 미상 보고서명은 여전히 OTHER — 무차별 회수 아님', () => {
+    const result = classify('전혀 모델링되지 않은 임의의 신규 보고서 제목 QWERTY');
+    expect(result.eventType).toBe(EventType.OTHER);
+    expect(result.confidence).toBe(0.40);
+  });
+});

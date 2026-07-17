@@ -296,7 +296,7 @@ export interface NotifyPriceMoveJobData {
   title: string;
   /** 완성된 알림 본문(당일 공시 유무·무공시 팩트체크 근거 병기). */
   body: string;
-  /** 인앱 딥링크 — 종목 상세(`/company/<corpCode>`). */
+  /** 인앱 딥링크 — DAR-526: '왜 움직였나' 카드(`/price-move/<refId>`)로 재타겟. */
   deepLink: string;
   /** 네이버금융 종목 뉴스 링크아웃 URL(외부 브라우저 전용 — 수집·저장 0). */
   newsUrl?: string;

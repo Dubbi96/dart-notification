@@ -8,10 +8,7 @@ import { LoadingState, EmptyState, ErrorState } from '@components/common/StateVi
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { useCompanyInsiderHoldings } from '@hooks/useInsiderHoldings';
 
-import type {
-  InsiderHoldingChange,
-  InsiderTradeType,
-} from '@app-types/insider-holding.types';
+import type { InsiderHoldingChange, InsiderTradeType } from '@app-types/insider-holding.types';
 
 // 종목 상세 '내부자/대량보유 동향' 섹션 — DAR-88.
 // DAR-87 이 적재한 InsiderHoldingChange 를 조회 API(GET /insider-holdings)로 노출한다.
@@ -65,9 +62,7 @@ const InsiderRow = React.memo(function InsiderRow({ item }: { item: InsiderHoldi
     ts.tone === 'buy' ? colors.success : ts.tone === 'sell' ? colors.error : colors.textSecondary;
 
   const ratioBefore =
-    item.ratioAfter != null && item.ratioChange != null
-      ? item.ratioAfter - item.ratioChange
-      : null;
+    item.ratioAfter != null && item.ratioChange != null ? item.ratioAfter - item.ratioChange : null;
 
   return (
     <Card variant="elevated" style={styles.card}>
@@ -77,9 +72,13 @@ const InsiderRow = React.memo(function InsiderRow({ item }: { item: InsiderHoldi
           accessibilityLabel={`출처: ${SOURCE_LABEL[item.source] ?? item.source}`}
         >
           <Text
-            style={[typo.small, { color: colors.textSecondary, fontWeight: '600' }]}
+            style={[
+              typo.small,
+              { color: colors.textSecondary, fontWeight: '600', flexShrink: 1, minWidth: 0 },
+            ]}
             numberOfLines={1}
             maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+            ellipsizeMode="tail"
           >
             {SOURCE_LABEL[item.source] ?? item.source}
           </Text>
@@ -90,15 +89,23 @@ const InsiderRow = React.memo(function InsiderRow({ item }: { item: InsiderHoldi
       </View>
 
       <View style={styles.reporterRow}>
-        <Text style={[typo.body, { color: colors.text, fontWeight: '600', flex: 1 }]} numberOfLines={1}>
+        <Text
+          style={[typo.body, { color: colors.text, fontWeight: '600', flex: 1, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {item.reporter}
         </Text>
         <View style={styles.tradeTag} accessibilityLabel={`매매 방향: ${ts.label}`}>
           <Feather name={ts.icon} size={14} color={toneColor} />
           <Text
-            style={[typo.captionMedium, { color: toneColor, marginLeft: spacing.xs }]}
+            style={[
+              typo.captionMedium,
+              { color: toneColor, marginLeft: spacing.xs, flexShrink: 1, minWidth: 0 },
+            ]}
             numberOfLines={1}
             maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+            ellipsizeMode="tail"
           >
             {ts.label}
           </Text>
@@ -106,7 +113,14 @@ const InsiderRow = React.memo(function InsiderRow({ item }: { item: InsiderHoldi
       </View>
 
       {item.relation ? (
-        <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]} numberOfLines={1}>
+        <Text
+          style={[
+            typo.small,
+            { color: colors.textSecondary, marginTop: spacing.xs, flexShrink: 1, minWidth: 0 },
+          ]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {item.relation}
         </Text>
       ) : null}
@@ -118,7 +132,12 @@ const InsiderRow = React.memo(function InsiderRow({ item }: { item: InsiderHoldi
           <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>
             {formatRatio(ratioBefore)}
           </Text>
-          <Feather name="arrow-right" size={12} color={colors.textTertiary} style={styles.ratioArrow} />
+          <Feather
+            name="arrow-right"
+            size={12}
+            color={colors.textTertiary}
+            style={styles.ratioArrow}
+          />
           <Text style={[typo.captionMedium, { color: colors.text, fontWeight: '700' }]}>
             {formatRatio(item.ratioAfter)}
           </Text>
@@ -131,7 +150,10 @@ const InsiderRow = React.memo(function InsiderRow({ item }: { item: InsiderHoldi
       </View>
 
       {item.reportReason ? (
-        <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]} numberOfLines={2}>
+        <Text
+          style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}
+          numberOfLines={2}
+        >
           사유: {item.reportReason}
         </Text>
       ) : null}
@@ -182,7 +204,9 @@ export function InsiderHoldingsTab({ corpCode }: InsiderHoldingsTabProps) {
       refreshing={isRefetching}
       onRefresh={handleRefresh}
       ListHeaderComponent={
-        <Text style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.sm }]}>
+        <Text
+          style={[typo.captionMedium, { color: colors.textSecondary, marginBottom: spacing.sm }]}
+        >
           최근 지분변동 {data.length}건 · 보고일 최신순
         </Text>
       }

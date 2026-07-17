@@ -82,8 +82,7 @@ const CATEGORY_LABEL: Record<NotificationCategory, string> = {
   // DAR-473(P01): 운영 버킷.
   system: '운영',
 };
-const getCategoryLabel = (category: NotificationCategory): string =>
-  CATEGORY_LABEL[category];
+const getCategoryLabel = (category: NotificationCategory): string => CATEGORY_LABEL[category];
 
 // UXR-16(D-2): '모두 읽음' 실패 카피 — snackbarCopy 정본은 이 이슈의 파일 경계 밖이라 로컬 상수로 유지.
 const MARK_ALL_READ_FAILED_COPY = '모두 읽음 처리에 실패했어요. 다시 시도해 주세요.';
@@ -124,8 +123,13 @@ function TypeSegmentChipBase({ segment, active, unread, onSelect }: TypeSegmentC
         maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
         style={[
           typo.captionMedium,
-          { color: active ? colors.primaryForeground : colors.textSecondary },
+          {
+            color: active ? colors.primaryForeground : colors.textSecondary,
+            flexShrink: 1,
+            minWidth: 0,
+          },
         ]}
+        ellipsizeMode="tail"
       >
         {segment.label}
       </Text>
@@ -181,8 +185,7 @@ function NotificationRowBase({ item, onPress }: NotificationRowProps) {
 
   // 갭분석 W7·W6(d): 급변동(PRICE_MOVE) 행에 네이버금융 종목 뉴스 링크아웃(외부 브라우저 전용,
   // 수집·저장 0). refId(`<종목코드>-<YYYYMMDD>`)에서 종목코드를 파싱 — 형식 불일치면 미노출.
-  const newsStockCode =
-    item.type === 'PRICE_MOVE' ? stockCodeFromPriceMoveRefId(item.refId) : null;
+  const newsStockCode = item.type === 'PRICE_MOVE' ? stockCodeFromPriceMoveRefId(item.refId) : null;
   const handleOpenNews = useCallback(() => {
     if (!newsStockCode) return;
     void Linking.openURL(naverStockNewsUrl(newsStockCode));
@@ -216,15 +219,24 @@ function NotificationRowBase({ item, onPress }: NotificationRowProps) {
       <View style={[styles.iconWrap, { backgroundColor: colors.surface }]}>
         <Feather name={meta.icon} size={18} color={accent} />
         {!item.isRead && (
-          <View style={[styles.unreadDot, { backgroundColor: accent, borderColor: colors.surface }]} />
+          <View
+            style={[styles.unreadDot, { backgroundColor: accent, borderColor: colors.surface }]}
+          />
         )}
       </View>
       <View style={styles.notificationContent}>
-        <Text style={[typo.captionMedium, { color: colors.text }]} numberOfLines={1}>
+        <Text
+          style={[typo.captionMedium, { color: colors.text, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {primaryText}
         </Text>
         {secondaryText ? (
-          <Text style={[typo.caption, { color: colors.textSecondary, marginTop: 2 }]} numberOfLines={2}>
+          <Text
+            style={[typo.caption, { color: colors.textSecondary, marginTop: 2 }]}
+            numberOfLines={2}
+          >
             {secondaryText}
           </Text>
         ) : null}
@@ -277,10 +289,7 @@ export default function NotificationsScreen() {
   const markAsRead = useMarkAsRead();
   const markAllAsRead = useMarkAllAsRead();
 
-  const notifications = useMemo(
-    () => data?.pages.flatMap((page) => page.data) ?? [],
-    [data],
-  );
+  const notifications = useMemo(() => data?.pages.flatMap((page) => page.data) ?? [], [data]);
 
   const unreadCount = data?.pages[0]?.meta.unreadCount ?? 0;
   // DAR-430: 카테고리별 미읽음 — 세그먼트 점 배지용(전체 기준, 현재 필터와 무관).
@@ -317,8 +326,7 @@ export default function NotificationsScreen() {
         showSnackbar(snackbarCopy.allNotificationsRead(count), {
           duration: SNACKBAR_DURATION.success,
         }),
-      onError: () =>
-        showSnackbar(MARK_ALL_READ_FAILED_COPY, { duration: SNACKBAR_DURATION.error }),
+      onError: () => showSnackbar(MARK_ALL_READ_FAILED_COPY, { duration: SNACKBAR_DURATION.error }),
     });
   }, [unreadCount, markAllAsRead, showSnackbar]);
 
@@ -423,7 +431,10 @@ export default function NotificationsScreen() {
       <View style={styles.subHeader}>
         {unreadCount > 0 && (
           <View style={[styles.unreadBadge, { backgroundColor: colors.primary }]}>
-            <Text style={[typo.small, { color: colors.primaryForeground, fontWeight: '600' }]}>
+            <Text
+              style={[typo.small, { color: colors.primaryForeground, fontWeight: '600' }]}
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+            >
               {unreadCount}개 안 읽음
             </Text>
           </View>
@@ -438,7 +449,10 @@ export default function NotificationsScreen() {
           accessibilityState={{ disabled: unreadCount === 0 }}
         >
           <Text
-            style={[typo.captionMedium, { color: unreadCount === 0 ? colors.textTertiary : colors.primary }]}
+            style={[
+              typo.captionMedium,
+              { color: unreadCount === 0 ? colors.textTertiary : colors.primary },
+            ]}
           >
             모두 읽음
           </Text>
@@ -527,7 +541,7 @@ const styles = StyleSheet.create({
   },
   segmentBadge: {
     minWidth: 18,
-    height: 18,
+    minHeight: 18,
     borderRadius: 9,
     justifyContent: 'center',
     alignItems: 'center',
@@ -544,7 +558,7 @@ const styles = StyleSheet.create({
   },
   unreadBadge: {
     minWidth: 22,
-    height: 22,
+    minHeight: 22,
     borderRadius: 11,
     justifyContent: 'center',
     alignItems: 'center',

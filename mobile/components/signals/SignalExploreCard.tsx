@@ -71,7 +71,11 @@ function SignalExploreCardBase({ signal, onPress }: SignalExploreCardProps) {
         style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
       >
         <View style={styles.headerRow}>
-          <Text style={[typo.bodyMedium, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+          <Text
+            style={[typo.bodyMedium, { color: colors.text, flex: 1, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {signal.corpName}
           </Text>
           <Chip

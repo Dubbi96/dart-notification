@@ -7,11 +7,7 @@ import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy } from '@components/common/snackbarCopy';
-import {
-  useWatchlist,
-  useAddToWatchlist,
-  useRemoveFromWatchlist,
-} from '@hooks/useWatchlist';
+import { useWatchlist, useAddToWatchlist, useRemoveFromWatchlist } from '@hooks/useWatchlist';
 
 import type { WatchlistItem } from '@app-types/user.types';
 
@@ -64,8 +60,7 @@ export function CompanyHubLink({
       { corpCode, corpName },
       {
         onError: (error) => {
-          const status = (error as { response?: { status?: number } })?.response
-            ?.status;
+          const status = (error as { response?: { status?: number } })?.response?.status;
           // 422(한도 초과)는 훅에서 안내 다이얼로그 처리 — 그 외만 스낵바.
           if (status !== 422) {
             showSnackbar('관심 등록에 실패했어요. 다시 시도해 주세요.', {
@@ -92,10 +87,7 @@ export function CompanyHubLink({
   return (
     <Surface
       elevation={0}
-      style={[
-        styles.card,
-        { backgroundColor: colors.surface, borderColor: colors.primary },
-      ]}
+      style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.primary }]}
     >
       <TouchableOpacity
         onPress={handleOpenHub}
@@ -106,12 +98,11 @@ export function CompanyHubLink({
       >
         <Feather name="briefcase" size={18} color={colors.primary} />
         <View style={styles.hubTextWrap}>
-          <Text style={[typo.captionMedium, { color: colors.primary }]}>
-            기업 허브 보기
-          </Text>
+          <Text style={[typo.captionMedium, { color: colors.primary }]}>기업 허브 보기</Text>
           <Text
-            style={[typo.small, { color: colors.textSecondary }]}
+            style={[typo.small, { color: colors.textSecondary, minWidth: 0 }]}
             numberOfLines={1}
+            ellipsizeMode="tail"
           >
             {corpName}
             {ticker ? ` · ${ticker}` : ''} 종합 정보
@@ -128,9 +119,7 @@ export function CompanyHubLink({
           accessibilityRole="button"
           accessibilityState={{ selected: isWatched }}
           accessibilityLabel={
-            isWatched
-              ? `${corpName} 관심 등록 해제`
-              : `${corpName} 관심 기업 추가`
+            isWatched ? `${corpName} 관심 등록 해제` : `${corpName} 관심 기업 추가`
           }
         >
           <Feather
@@ -138,12 +127,7 @@ export function CompanyHubLink({
             size={16}
             color={isWatched ? colors.success : colors.primary}
           />
-          <Text
-            style={[
-              typo.small,
-              { color: isWatched ? colors.success : colors.primary },
-            ]}
-          >
+          <Text style={[typo.small, { color: isWatched ? colors.success : colors.primary }]}>
             {isWatched ? '관심 등록됨' : '관심 추가'}
           </Text>
         </TouchableOpacity>

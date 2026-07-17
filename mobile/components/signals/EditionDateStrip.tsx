@@ -133,13 +133,25 @@ function EditionDateStripBase({
           {/* DAR-527: '놓친 호' 뱃지 — 칩 우상단 코너 dot(건수 dot 과 위치로 구분). 링으로 칩 배경과 분리. */}
           {isUnread ? (
             <View
-              style={[styles.unreadBadge, { backgroundColor: colors.primary, borderColor: colors.surface }]}
+              style={[
+                styles.unreadBadge,
+                { backgroundColor: colors.primary, borderColor: colors.surface },
+              ]}
             />
           ) : null}
           <Text
-            style={[typo.captionMedium, { color: labelColor, fontWeight: isSelected ? '700' : '500' }]}
+            style={[
+              typo.captionMedium,
+              {
+                color: labelColor,
+                fontWeight: isSelected ? '700' : '500',
+                flexShrink: 1,
+                minWidth: 0,
+              },
+            ]}
             numberOfLines={1}
             maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+            ellipsizeMode="tail"
           >
             {label.primary}
           </Text>
@@ -183,7 +195,10 @@ function EditionDateStripBase({
   return (
     <View
       testID="edition-date-strip"
-      style={[styles.container, { borderBottomColor: colors.border, backgroundColor: colors.background }]}
+      style={[
+        styles.container,
+        { borderBottomColor: colors.border, backgroundColor: colors.background },
+      ]}
     >
       <FlatList
         ref={listRef}
@@ -246,7 +261,7 @@ const styles = StyleSheet.create({
     top: 4,
     right: 4,
     width: 8,
-    height: 8,
+    minHeight: 8,
     borderRadius: 4,
     borderWidth: 1.5,
   },

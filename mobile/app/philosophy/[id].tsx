@@ -174,7 +174,12 @@ function PhilosophyHeader({
       <View style={styles.tagRow}>
         {philosophy.styleTags.map((tag) => (
           <View key={tag} style={[styles.tag, { backgroundColor: colors.primaryLight }]}>
-            <Text style={[typo.small, { color: colors.primaryDark }, styles.tagText]}>{getStyleTagLabel(tag)}</Text>
+            <Text
+              style={[typo.small, { color: colors.primaryDark }, styles.tagText]}
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+            >
+              {getStyleTagLabel(tag)}
+            </Text>
           </View>
         ))}
       </View>
@@ -220,7 +225,9 @@ function PhilosophyHeader({
         {philosophy.scoreFormula ? (
           <View style={styles.subSection}>
             <SectionTitle icon="sliders" label="점수 산식(참고)" colors={colors} typo={typo} />
-            <Text style={[typo.small, { color: colors.textSecondary }]}>{philosophy.scoreFormula}</Text>
+            <Text style={[typo.small, { color: colors.textSecondary }]}>
+              {philosophy.scoreFormula}
+            </Text>
           </View>
         ) : null}
 
@@ -231,7 +238,12 @@ function PhilosophyHeader({
             const hasUrl = !!s.url;
             const Row = (
               <View style={styles.sourceRow}>
-                <Feather name="file-text" size={14} color={colors.textTertiary} style={styles.sourceIcon} />
+                <Feather
+                  name="file-text"
+                  size={14}
+                  color={colors.textTertiary}
+                  style={styles.sourceIcon}
+                />
                 <View style={styles.sourceBody}>
                   <Text
                     style={[
@@ -268,8 +280,8 @@ function PhilosophyHeader({
       <View style={styles.fitHeader}>
         <Text style={[typo.h3, { color: colors.text }]}>이 철학으로 본 {universeLabel}</Text>
         <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
-          최신 재무 스냅샷을 {philosophy.investorName} 기준으로 평가한 적합도입니다. 통과/미달 지표를 함께
-          확인하세요.
+          최신 재무 스냅샷을 {philosophy.investorName} 기준으로 평가한 적합도입니다. 통과/미달
+          지표를 함께 확인하세요.
         </Text>
       </View>
     </View>
@@ -310,7 +322,11 @@ const FitRow = React.memo(function FitRow({
     >
       <Card variant="elevated" style={styles.fitCard}>
         <View style={styles.fitCardHeader}>
-          <Text style={[typo.bodyMedium, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+          <Text
+            style={[typo.bodyMedium, { color: colors.text, flex: 1, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {corpName}
           </Text>
           <Feather name="chevron-right" size={16} color={colors.textTertiary} />
@@ -328,7 +344,9 @@ const FitRow = React.memo(function FitRow({
         ) : data?.noFinancials || !data?.fit ? (
           <View style={[styles.noFin, { backgroundColor: colors.surfaceSecondary }]}>
             <Feather name="alert-circle" size={13} color={colors.textTertiary} />
-            <Text style={[typo.small, { color: colors.textSecondary, marginLeft: spacing.xs, flex: 1 }]}>
+            <Text
+              style={[typo.small, { color: colors.textSecondary, marginLeft: spacing.xs, flex: 1 }]}
+            >
               재무 데이터가 없어 평가할 수 없습니다.
             </Text>
           </View>
@@ -355,7 +373,10 @@ function Shell({
   children: React.ReactNode;
 }) {
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -365,7 +386,11 @@ function Shell({
         >
           <Ionicons name="chevron-back" size={26} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[typo.h3, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+        <Text
+          style={[typo.h3, { color: colors.text, flex: 1, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {title}
         </Text>
         <View style={{ width: 26 }} />
@@ -389,7 +414,9 @@ function SectionTitle({
   return (
     <View style={styles.sectionTitle}>
       <Feather name={icon} size={15} color={colors.primary} />
-      <Text style={[typo.captionMedium, { color: colors.text, marginLeft: spacing.xs }]}>{label}</Text>
+      <Text style={[typo.captionMedium, { color: colors.text, marginLeft: spacing.xs }]}>
+        {label}
+      </Text>
     </View>
   );
 }

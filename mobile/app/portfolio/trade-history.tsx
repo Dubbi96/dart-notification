@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { ApiErrorState, EmptyState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
@@ -81,7 +81,12 @@ function StatusBadge({ status }: { status: 'OPEN' | 'CLOSED' }) {
       style={[styles.statusBadge, { backgroundColor: colors.surfaceSecondary }]}
       accessibilityLabel={isOpen ? '보유 중' : '청산 완료'}
     >
-      <Text style={[typo.small, { color, fontWeight: '600' }]}>{isOpen ? '보유 중' : '청산 완료'}</Text>
+      <Text
+        style={[typo.small, { color, fontWeight: '600' }]}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+      >
+        {isOpen ? '보유 중' : '청산 완료'}
+      </Text>
     </View>
   );
 }
@@ -89,8 +94,18 @@ function StatusBadge({ status }: { status: 'OPEN' | 'CLOSED' }) {
 function Chip({ label }: { label: string }) {
   const { colors, typography: typo } = useTheme();
   return (
-    <View style={[styles.chip, { backgroundColor: colors.surfaceSecondary, borderColor: colors.borderLight }]}>
-      <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+    <View
+      style={[
+        styles.chip,
+        { backgroundColor: colors.surfaceSecondary, borderColor: colors.borderLight },
+      ]}
+    >
+      <Text
+        style={[typo.small, { color: colors.textSecondary, flexShrink: 1, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+      >
         {label}
       </Text>
     </View>
@@ -110,13 +125,22 @@ function HeroScorecard({ scorecard }: { scorecard: TradeScorecard }) {
   const cumColor = returnColor(scorecard.cumulativeReturnPct, colors);
 
   return (
-    <Surface elevation={1} style={[styles.hero, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <Surface
+      elevation={1}
+      style={[styles.hero, { backgroundColor: colors.surface, borderColor: colors.border }]}
+    >
       <View style={styles.heroHeader}>
         <Text style={[typo.captionMedium, { color: colors.text }]}>매매 성적표</Text>
         {scorecard.lowSample ? (
           <View style={[styles.warnBadge, { backgroundColor: colors.surfaceSecondary }]}>
             <Feather name="alert-triangle" size={11} color={colors.warning} />
-            <Text style={[typo.small, { color: colors.warning, marginLeft: spacing.xs, fontWeight: '600' }]}>
+            <Text
+              style={[
+                typo.small,
+                { color: colors.warning, marginLeft: spacing.xs, fontWeight: '600' },
+              ]}
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+            >
               데이터 한계 (표본 {scorecard.sampleSize})
             </Text>
           </View>
@@ -143,8 +167,12 @@ function HeroScorecard({ scorecard }: { scorecard: TradeScorecard }) {
           accessibilityLabel={`누적 수익률 ${formatReturnPct(scorecard.cumulativeReturnPct)}`}
         >
           <Text style={[typo.small, { color: colors.textSecondary }]}>누적 수익률</Text>
-          <Text style={[typo.h2, { color: cumColor }]}>{formatReturnPct(scorecard.cumulativeReturnPct)}</Text>
-          <Text style={[typo.small, { color: colors.textTertiary }]}>실현 기준 · 청산 손익만 반영</Text>
+          <Text style={[typo.h2, { color: cumColor }]}>
+            {formatReturnPct(scorecard.cumulativeReturnPct)}
+          </Text>
+          <Text style={[typo.small, { color: colors.textTertiary }]}>
+            실현 기준 · 청산 손익만 반영
+          </Text>
         </View>
       </View>
 
@@ -161,13 +189,7 @@ function HeroScorecard({ scorecard }: { scorecard: TradeScorecard }) {
 }
 
 /** 추이 보조맥락(세컨더리) — 기간 수익률 스파크라인. 히어로 카드 아래 보조로. */
-function SummaryRow({
-  returnSeries,
-  onPress,
-}: {
-  returnSeries: number[];
-  onPress: () => void;
-}) {
+function SummaryRow({ returnSeries, onPress }: { returnSeries: number[]; onPress: () => void }) {
   const { colors, typography: typo } = useTheme();
   const hasTrend = returnSeries.length >= 2;
 
@@ -178,7 +200,10 @@ function SummaryRow({
       accessibilityRole="button"
       accessibilityLabel="수익률 추이. 성과 탭에서 매매 내역 전체 보기"
     >
-      <Surface elevation={1} style={[styles.summaryRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <Surface
+        elevation={1}
+        style={[styles.summaryRow, { backgroundColor: colors.surface, borderColor: colors.border }]}
+      >
         <View style={styles.summaryLeft}>
           <Text style={[typo.small, { color: colors.textSecondary }]}>수익률 추이</Text>
         </View>
@@ -225,10 +250,18 @@ function UrgentCalibrationBanner({ onPress }: { onPress: () => void }) {
       accessibilityRole="button"
       accessibilityLabel={`가장 시급한 보정 권고: ${label} 기준점수 ${deltaText} 조정 검토. 보정 권고 탭에서 전체 보기. 자동 반영 없음.`}
     >
-      <Surface elevation={1} style={[styles.urgentBanner, { backgroundColor: colors.surfaceSecondary, borderColor: colors.warning }]}>
+      <Surface
+        elevation={1}
+        style={[
+          styles.urgentBanner,
+          { backgroundColor: colors.surfaceSecondary, borderColor: colors.warning },
+        ]}
+      >
         <Feather name="alert-circle" size={sizing.icon.sm} color={colors.warning} />
         <View style={styles.urgentBody}>
-          <Text style={[typo.small, { color: colors.textSecondary }]}>가장 시급한 보정 권고 · 사람 검토용</Text>
+          <Text style={[typo.small, { color: colors.textSecondary }]}>
+            가장 시급한 보정 권고 · 사람 검토용
+          </Text>
           <Text style={[typo.caption, { color: colors.text, marginTop: 2 }]} numberOfLines={2}>
             {label} 기준점수 {deltaText} 조정 검토 (자동 반영 없음)
           </Text>
@@ -271,9 +304,17 @@ function Metric({
 }) {
   const { colors, typography: typo } = useTheme();
   return (
-    <View style={styles.metric} accessibilityRole="text" accessibilityLabel={`${label} ${value}${sub ? ` ${sub}` : ''}`}>
+    <View
+      style={styles.metric}
+      accessibilityRole="text"
+      accessibilityLabel={`${label} ${value}${sub ? ` ${sub}` : ''}`}
+    >
       <Text style={[typo.small, { color: colors.textSecondary }]}>{label}</Text>
-      <Text style={[typo.captionMedium, { color: valueColor ?? colors.text, marginTop: spacing.xs }]}>{value}</Text>
+      <Text
+        style={[typo.captionMedium, { color: valueColor ?? colors.text, marginTop: spacing.xs }]}
+      >
+        {value}
+      </Text>
       {sub ? <Text style={[typo.small, { color: colors.textTertiary }]}>{sub}</Text> : null}
     </View>
   );
@@ -291,7 +332,11 @@ function TradeCard({ item }: { item: TradeRationale }) {
       <View style={styles.tradeTop}>
         <View style={styles.tradeNameBox}>
           <View style={styles.tradeNameRow}>
-            <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
+            <Text
+              style={[typo.bodyMedium, { color: colors.text, flexShrink: 1, minWidth: 0 }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
               {name}
             </Text>
             <StatusBadge status={item.status} />
@@ -308,7 +353,9 @@ function TradeCard({ item }: { item: TradeRationale }) {
 
       {/* 진입 사유 */}
       <View style={[styles.section, { borderTopColor: colors.borderLight }]}>
-        <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.xs }]}>진입 사유</Text>
+        <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.xs }]}>
+          진입 사유
+        </Text>
         <Text style={[typo.caption, { color: colors.text }]}>
           {item.entryReason ?? '근거 기록 없음 (룰 기반 진입)'}
         </Text>
@@ -324,9 +371,11 @@ function TradeCard({ item }: { item: TradeRationale }) {
       {/* 청산 사유 (CLOSED 만) */}
       {item.status === 'CLOSED' ? (
         <View style={[styles.section, { borderTopColor: colors.borderLight }]}>
-          <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.xs }]}>청산 사유</Text>
+          <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.xs }]}>
+            청산 사유
+          </Text>
           <Text style={[typo.caption, { color: colors.text }]}>
-            {item.exitAction ? ACTION_LABEL[item.exitAction] ?? item.exitAction : '청산 완료'}
+            {item.exitAction ? (ACTION_LABEL[item.exitAction] ?? item.exitAction) : '청산 완료'}
           </Text>
           {item.exitTriggers.length > 0 ? (
             <View style={styles.chipWrap}>
@@ -377,8 +426,17 @@ function TabBar({
           >
             <View style={styles.tabContent}>
               <Text
-                style={[typo.small, { color: selected ? colors.text : colors.textSecondary, fontWeight: selected ? '600' : '400' }]}
+                style={[
+                  typo.small,
+                  {
+                    color: selected ? colors.text : colors.textSecondary,
+                    fontWeight: selected ? '600' : '400',
+                    flexShrink: 1,
+                    minWidth: 0,
+                  },
+                ]}
                 numberOfLines={1}
+                ellipsizeMode="tail"
               >
                 {t.label}
               </Text>
@@ -387,7 +445,12 @@ function TabBar({
                 // 안 보임 → 솔리드 error 배경 + onColor(흰) 텍스트(PortfolioRiskBadge 경보와
                 // 동일한 정본 onColor 패턴)로 대비를 끌어올린다.
                 <View style={[styles.tabBadge, { backgroundColor: colors.error }]}>
-                  <Text style={[typo.small, { color: colors.onColor, fontWeight: '700' }]}>{badge}</Text>
+                  <Text
+                    style={[typo.small, { color: colors.onColor, fontWeight: '700' }]}
+                    maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                  >
+                    {badge}
+                  </Text>
                 </View>
               ) : null}
             </View>
@@ -438,13 +501,12 @@ export default function TradeHistoryScreen() {
   const urgentCalibrationCount = useMemo(() => {
     const cal = calibrationQuery.data;
     if (!cal) return 0;
-    return cal.eventScoreCalibrationsD20.filter(
-      (e) => e.status === 'CALIBRATE' && !e.lowSample,
-    ).length;
+    return cal.eventScoreCalibrationsD20.filter((e) => e.status === 'CALIBRATE' && !e.lowSample)
+      .length;
   }, [calibrationQuery.data]);
 
   // 탭별 FlatList data — 성과 탭만 매매내역 리스트, 나머지는 헤더 섹션만.
-  const listData = activeTab === 'performance' ? data?.trades ?? [] : [];
+  const listData = activeTab === 'performance' ? (data?.trades ?? []) : [];
 
   const header = (
     <View style={styles.headerBox}>
@@ -464,12 +526,18 @@ export default function TradeHistoryScreen() {
       <SummaryRow returnSeries={returnSeries} onPress={() => setActiveTab('performance')} />
       <UrgentCalibrationBanner onPress={() => setActiveTab('calibration')} />
 
-      <TabBar active={activeTab} onChange={setActiveTab} badges={{ calibration: urgentCalibrationCount }} />
+      <TabBar
+        active={activeTab}
+        onChange={setActiveTab}
+        badges={{ calibration: urgentCalibrationCount }}
+      />
 
       {/* 탭 본문 상단(헤더에 실어 단일 FlatList 유지 — 중첩 가상리스트 경고 회피) */}
       {activeTab === 'performance' ? (
         <View style={styles.tabBody}>
-          <Text style={[typo.captionMedium, { color: colors.text, marginTop: spacing.sm }]}>매매 내역</Text>
+          <Text style={[typo.captionMedium, { color: colors.text, marginTop: spacing.sm }]}>
+            매매 내역
+          </Text>
         </View>
       ) : activeTab === 'precision' ? (
         <View style={styles.tabBody}>
@@ -485,7 +553,10 @@ export default function TradeHistoryScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <ScreenHeader title="성과 리포트" onBack={() => router.back()} />
 
       {query.isLoading ? (
@@ -570,7 +641,7 @@ const styles = StyleSheet.create({
   },
   tabBadge: {
     minWidth: 16,
-    height: 16,
+    minHeight: 16,
     borderRadius: radius.full,
     paddingHorizontal: spacing.xs,
     alignItems: 'center',

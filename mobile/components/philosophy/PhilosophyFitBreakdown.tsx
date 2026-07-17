@@ -40,7 +40,9 @@ function PhilosophyFitBreakdownBase({ fit, showBreakdown = true }: PhilosophyFit
           accessibilityLabel={`${fit.investorName} — 현재 재무로 평가 불가`}
         >
           <Feather name="help-circle" size={14} color={colors.textTertiary} />
-          <Text style={[typo.small, { color: colors.textSecondary, marginLeft: spacing.xs, flex: 1 }]}>
+          <Text
+            style={[typo.small, { color: colors.textSecondary, marginLeft: spacing.xs, flex: 1 }]}
+          >
             현재 재무 데이터만으로는 평가할 수 없는 철학입니다(성장·모멘텀·수급 지표 필요).
           </Text>
         </View>
@@ -115,7 +117,6 @@ function PhilosophyFitBreakdownBase({ fit, showBreakdown = true }: PhilosophyFit
           })}
         </View>
       ) : null}
-
     </View>
   );
 }
@@ -134,7 +135,12 @@ function SummaryChip({
   return (
     <View style={styles.summaryChip}>
       <Feather name={icon} size={13} color={color} />
-      <Text numberOfLines={1} maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE} style={[typo.small, { color }]}>
+      <Text
+        numberOfLines={1}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        style={[typo.small, { color, flexShrink: 1, minWidth: 0 }]}
+        ellipsizeMode="tail"
+      >
         {label}
       </Text>
     </View>

@@ -53,16 +53,18 @@ export function ScreenHeader({
       </View>
       <View style={styles.titleBox}>
         <Text
-          style={[typo.h3, styles.title, { color: colors.text }]}
+          style={[typo.h3, styles.title, { color: colors.text, minWidth: 0 }]}
           numberOfLines={1}
           accessibilityRole="header"
+          ellipsizeMode="tail"
         >
           {title}
         </Text>
         {subtitle ? (
           <Text
-            style={[typo.small, styles.subtitle, { color: colors.textSecondary }]}
+            style={[typo.small, styles.subtitle, { color: colors.textSecondary, minWidth: 0 }]}
             numberOfLines={1}
+            ellipsizeMode="tail"
           >
             {subtitle}
           </Text>

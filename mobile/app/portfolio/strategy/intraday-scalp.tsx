@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
 import { ApiErrorState, EmptyState } from '@components/common/StateView';
@@ -70,10 +70,7 @@ function grossPctText(value: number | null): string {
  * 청산 사유별 색조 — 익절(success)·손절(error)·장마감(중립)·보유중(중립).
  * 색 단독 의미 금지 원칙은 라벨(평문)+태그로 병행하므로, 여기선 수익률 텍스트 색조로만 사용.
  */
-function returnTone(
-  trade: ScalpTrade,
-  colors: ReturnType<typeof useTheme>['colors'],
-): string {
+function returnTone(trade: ScalpTrade, colors: ReturnType<typeof useTheme>['colors']): string {
   if (trade.status === 'OPEN') return colors.textSecondary;
   if (trade.exitReason === 'TAKE_PROFIT') return colors.success;
   if (trade.exitReason === 'STOP_LOSS') return colors.error;
@@ -89,7 +86,9 @@ function TradeRow({ trade }: { trade: ScalpTrade }) {
   const isOpen = trade.status === 'OPEN';
   const tone = returnTone(trade, colors);
   // ★DAR-418 메인 수익률 = 순수익(수수료 후) net.
-  const returnText = isOpen ? '보유 중' : formatReturnPct(trade.netReturnPct ?? trade.returnPct, { digits: 2 });
+  const returnText = isOpen
+    ? '보유 중'
+    : formatReturnPct(trade.netReturnPct ?? trade.returnPct, { digits: 2 });
 
   return (
     <Surface
@@ -99,15 +98,26 @@ function TradeRow({ trade }: { trade: ScalpTrade }) {
       {/* 상단: 종목명 + 수익률(색조) */}
       <View style={styles.tradeTopRow}>
         <View style={styles.tradeTitleCol}>
-          <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
+          <Text
+            style={[typo.bodyMedium, { color: colors.text, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {trade.corpName}
           </Text>
-          <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={1}>
+          <Text
+            style={[typo.small, { color: colors.textTertiary, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {trade.stockCode} · {shortDate(trade.tradeDate)}
           </Text>
         </View>
         <View style={styles.returnCol}>
-          <Text style={[typo.bodyMedium, { color: tone }]} accessibilityLabel={`순수익률 ${returnText}`}>
+          <Text
+            style={[typo.bodyMedium, { color: tone }]}
+            accessibilityLabel={`순수익률 ${returnText}`}
+          >
             {returnText}
           </Text>
           {!isOpen ? (
@@ -120,13 +130,17 @@ function TradeRow({ trade }: { trade: ScalpTrade }) {
       <View style={styles.tradeFlowRow}>
         <View style={styles.tradeFlowCol}>
           <Text style={[typo.small, { color: colors.textSecondary }]}>진입</Text>
-          <Text style={[typo.captionMedium, { color: colors.text }]}>{priceText(trade.entryPrice)}</Text>
+          <Text style={[typo.captionMedium, { color: colors.text }]}>
+            {priceText(trade.entryPrice)}
+          </Text>
           <Text style={[typo.small, { color: colors.textTertiary }]}>{hhmmKst(trade.entryTs)}</Text>
         </View>
         <Feather name="arrow-right" size={16} color={colors.textTertiary} />
         <View style={styles.tradeFlowCol}>
           <Text style={[typo.small, { color: colors.textSecondary }]}>청산</Text>
-          <Text style={[typo.captionMedium, { color: colors.text }]}>{priceText(trade.exitPrice)}</Text>
+          <Text style={[typo.captionMedium, { color: colors.text }]}>
+            {priceText(trade.exitPrice)}
+          </Text>
           <Text style={[typo.small, { color: colors.textTertiary }]}>{hhmmKst(trade.exitTs)}</Text>
         </View>
       </View>
@@ -135,11 +149,21 @@ function TradeRow({ trade }: { trade: ScalpTrade }) {
       <View style={styles.tradeMetaRow}>
         <View style={[styles.tag, { backgroundColor: colors.surfaceSecondary }]}>
           <Feather name="log-in" size={12} color={colors.textSecondary} />
-          <Text style={[typo.small, { color: colors.textSecondary }]}>{trade.entryReason}</Text>
+          <Text
+            style={[typo.small, { color: colors.textSecondary }]}
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          >
+            {trade.entryReason}
+          </Text>
         </View>
         <View style={[styles.tag, { backgroundColor: colors.surfaceSecondary }]}>
           <Feather name="log-out" size={12} color={colors.textSecondary} />
-          <Text style={[typo.small, { color: colors.textSecondary }]}>{exitReasonLabel(trade.exitReason)}</Text>
+          <Text
+            style={[typo.small, { color: colors.textSecondary }]}
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          >
+            {exitReasonLabel(trade.exitReason)}
+          </Text>
         </View>
       </View>
 
@@ -166,7 +190,10 @@ export default function IntradayScalpTimelineScreen() {
   const query = useIntradayScalpTrades();
   const history = query.data;
 
-  const renderTrade = useCallback(({ item }: { item: ScalpTrade }) => <TradeRow trade={item} />, []);
+  const renderTrade = useCallback(
+    ({ item }: { item: ScalpTrade }) => <TradeRow trade={item} />,
+    [],
+  );
 
   const listHeader = useMemo(
     () =>
@@ -176,8 +203,8 @@ export default function IntradayScalpTimelineScreen() {
           <View style={[styles.notice, { backgroundColor: colors.surfaceSecondary }]}>
             <Feather name="zap" size={14} color={colors.info} />
             <Text style={[typo.small, { color: colors.info, marginLeft: spacing.xs, flex: 1 }]}>
-              분봉 단타 — 실시간 모의 · 당일청산(오버나잇 금지) · 실제 주문이 아닙니다. 손익도 그대로
-              표시해요.
+              분봉 단타 — 실시간 모의 · 당일청산(오버나잇 금지) · 실제 주문이 아닙니다. 손익도
+              그대로 표시해요.
             </Text>
           </View>
           <Surface
@@ -187,7 +214,8 @@ export default function IntradayScalpTimelineScreen() {
             <Text style={[typo.small, { color: colors.textTertiary }]}>{history.tagline}</Text>
             {/* ★DAR-418 비용 인지 고지 — 수익률은 순(수수료 후), 왕복비용율 명시. */}
             <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
-              수익률은 순수익(수수료 후) 기준 · 왕복 거래비용 약 {history.roundTripCostPct.toFixed(2)}%(수수료·세금·슬리피지)
+              수익률은 순수익(수수료 후) 기준 · 왕복 거래비용 약{' '}
+              {history.roundTripCostPct.toFixed(2)}%(수수료·세금·슬리피지)
             </Text>
           </Surface>
           <Text style={[typo.captionMedium, { color: colors.text, marginTop: spacing.xs }]}>
@@ -199,7 +227,10 @@ export default function IntradayScalpTimelineScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <ScreenHeader title="단타 (분봉)" onBack={() => router.back()} />
 
       {query.isLoading ? (

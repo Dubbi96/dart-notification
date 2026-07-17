@@ -138,10 +138,17 @@ function SignalPreviewCard({ signal, onPress, cardWidth }: SignalPreviewCardProp
       <Surface
         elevation={2}
         importantForAccessibility="no-hide-descendants"
-        style={[styles.card, { width: cardWidth, backgroundColor: colors.surface, borderColor: colors.border }]}
+        style={[
+          styles.card,
+          { width: cardWidth, backgroundColor: colors.surface, borderColor: colors.border },
+        ]}
       >
         <View style={styles.cardHeader}>
-          <Text style={[typo.bodyMedium, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+          <Text
+            style={[typo.bodyMedium, { color: colors.text, flex: 1, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {signal.corpName}
           </Text>
           <Chip
@@ -185,7 +192,9 @@ function SignalPreviewCard({ signal, onPress, cardWidth }: SignalPreviewCardProp
         {/* 표본 행 슬롯 상시 렌더(균일 높이): 표본이 없으면 같은 지오메트리의 정직 결측 행
             '표본 통계 없음'(EvidenceMeta 규약)으로 대체 — 행 유무에 따른 ≈24px 편차 제거. */}
         <EvidenceMeta
-          sample={evidence ? { n: evidence.n, unit: '건', scopeLabel: evidence.scopeLabel } : undefined}
+          sample={
+            evidence ? { n: evidence.n, unit: '건', scopeLabel: evidence.scopeLabel } : undefined
+          }
           sampleFallback="표본 통계 없음"
           style={styles.evidence}
         />
@@ -338,7 +347,12 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
         accessibilityLabel={`${SIGNAL_TERMS.card} 전체보기`}
       >
         {/* DAR-305: '전체보기' 액션 라벨 — 큰 글꼴서 단어 중간 줄바꿈 방지(한 줄 보장 + 보조 캡). */}
-        <Text style={[typo.captionMedium, { color: colors.primary }]} numberOfLines={1} maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}>
+        <Text
+          style={[typo.captionMedium, { color: colors.primary, flexShrink: 1, minWidth: 0 }]}
+          numberOfLines={1}
+          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          ellipsizeMode="tail"
+        >
           전체보기
         </Text>
       </TouchableOpacity>
@@ -387,18 +401,19 @@ export function HomeSignalPreview({ isAuthenticated }: HomeSignalPreviewProps) {
       emptyStateCopy[reason ? EDITION_EMPTY_KEY[reason] : 'homeEditionColdStart'];
     const prevDate = edition.data?.meta.prevEditionDate;
     const prevLabel = ymdToMonthDay(prevDate);
-    const ctaLabel = prevDate && prevLabel ? `직전 거래일 ${prevLabel} 판단 보기` : '전체 신호 보기';
+    const ctaLabel =
+      prevDate && prevLabel ? `직전 거래일 ${prevLabel} 판단 보기` : '전체 신호 보기';
     body = (
       <Surface
         elevation={0}
         style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
       >
         <Feather name={copy.icon} size={28} color={colors.textTertiary} />
-        <Text style={[styles.emptyTitle, typo.bodyMedium, { color: colors.text }]}>{copy.title}</Text>
+        <Text style={[styles.emptyTitle, typo.bodyMedium, { color: colors.text }]}>
+          {copy.title}
+        </Text>
         {copy.description ? (
-          <Text
-            style={[styles.emptyDesc, typo.small, { color: colors.textSecondary }]}
-          >
+          <Text style={[styles.emptyDesc, typo.small, { color: colors.textSecondary }]}>
             {copy.description}
           </Text>
         ) : null}

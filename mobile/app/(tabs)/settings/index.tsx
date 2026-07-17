@@ -1,11 +1,5 @@
 import React, { useCallback } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-} from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -73,9 +67,7 @@ function MenuItem({
       </View>
       <View style={styles.menuContent}>
         <Text style={[typo.bodyMedium, { color: colors.text }]}>{title}</Text>
-        {subtitle && (
-          <Text style={[typo.small, { color: colors.textSecondary }]}>{subtitle}</Text>
-        )}
+        {subtitle && <Text style={[typo.small, { color: colors.textSecondary }]}>{subtitle}</Text>}
       </View>
       <View style={styles.menuRight}>
         {badgeCount != null && badgeCount > 0 && (
@@ -93,9 +85,14 @@ function MenuItem({
           // D8: 현재값 칩 + 순환 아이콘으로 cycle affordance 제공(chevron 대체).
           <View style={[styles.valueChip, { backgroundColor: colors.primaryLight }]}>
             <Text
-              style={[typo.small, styles.valueChipText, { color: colors.primary }]}
+              style={[
+                typo.small,
+                styles.valueChipText,
+                { color: colors.primary, flexShrink: 1, minWidth: 0 },
+              ]}
               maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
               numberOfLines={1}
+              ellipsizeMode="tail"
             >
               {valueChip}
             </Text>
@@ -150,7 +147,12 @@ export default function SettingsScreen() {
     }, [refetchMe, isAuthenticated]),
   );
 
-  const themeLabel = colorSchemeOverride === 'system' ? '시스템' : colorSchemeOverride === 'dark' ? '다크' : '라이트';
+  const themeLabel =
+    colorSchemeOverride === 'system'
+      ? '시스템'
+      : colorSchemeOverride === 'dark'
+        ? '다크'
+        : '라이트';
   const cycleTheme = () => {
     const order: (ColorScheme | 'system')[] = ['system', 'light', 'dark'];
     const idx = order.indexOf(colorSchemeOverride);
@@ -184,7 +186,10 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]} testID="settings-screen">
+    <View
+      style={[styles.container, { backgroundColor: colors.background }]}
+      testID="settings-screen"
+    >
       {/* Profile Header - 고정 영역 */}
       <LinearGradient
         colors={[colors.cardGradientStart, colors.cardGradientEnd]}
@@ -249,7 +254,12 @@ export default function SettingsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="로그인하기"
               >
-                <Text style={[typo.caption, { color: colors.onColorStrong, textDecorationLine: 'underline' }]}>
+                <Text
+                  style={[
+                    typo.caption,
+                    { color: colors.onColorStrong, textDecorationLine: 'underline' },
+                  ]}
+                >
                   로그인하기
                 </Text>
               </TouchableOpacity>
@@ -260,10 +270,15 @@ export default function SettingsScreen() {
 
       {/* Content area - 스크롤 영역 */}
       <View style={[styles.contentArea, { backgroundColor: colors.background }]}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
           {isAuthenticated && (
             <View style={styles.section}>
-              <Text style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}>
+              <Text
+                style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}
+              >
                 계정 관리
               </Text>
               <View style={[styles.menuCard, { backgroundColor: colors.surface }]}>
@@ -301,7 +316,9 @@ export default function SettingsScreen() {
           )}
 
           <View style={styles.section}>
-            <Text style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}>
+            <Text
+              style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}
+            >
               일반
             </Text>
             <View style={[styles.menuCard, { backgroundColor: colors.surface }]}>
@@ -377,11 +394,7 @@ export default function SettingsScreen() {
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
               {isAuthenticated ? (
-                <MenuItem
-                  icon="log-out"
-                  title="로그아웃"
-                  onPress={handleLogout}
-                />
+                <MenuItem icon="log-out" title="로그아웃" onPress={handleLogout} />
               ) : (
                 <MenuItem
                   icon="log-in"
@@ -398,7 +411,9 @@ export default function SettingsScreen() {
           {/* 개발용 연결 진단(DAR-43 §4) — 프로덕션 빌드에는 노출되지 않음 */}
           {__DEV__ && (
             <View style={styles.section}>
-              <Text style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}>
+              <Text
+                style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}
+              >
                 개발자
               </Text>
               <DevConnectionStatus />
@@ -408,7 +423,6 @@ export default function SettingsScreen() {
           <View style={{ height: spacing['2xl'] }} />
         </ScrollView>
       </View>
-
     </View>
   );
 }
@@ -497,7 +511,7 @@ const styles = StyleSheet.create({
   },
   badge: {
     minWidth: 22,
-    height: 22,
+    minHeight: 22,
     borderRadius: 11,
     justifyContent: 'center',
     alignItems: 'center',

@@ -15,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { useDebounce, SEARCH_DEBOUNCE_MS } from '@hooks/useDebounce';
 import { useHaptics } from '@hooks/useHaptics';
@@ -68,7 +68,13 @@ export function SearchOverlay({ visible, onClose }: Props) {
   const searching = shouldSearch(term);
 
   const { data: watchlist } = useWatchlist({ enabled: visible });
-  const { data: results, isLoading, isError, error, refetch } = useCompanySearch(searching ? term : '');
+  const {
+    data: results,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useCompanySearch(searching ? term : '');
   const { data: popular } = usePopularCompanies();
   const { recent, addRecent, removeRecent } = useRecentSearches();
   const addToWatchlist = useAddToWatchlist();
@@ -211,7 +217,11 @@ export function SearchOverlay({ visible, onClose }: Props) {
             accessibilityLabel={detailA11y}
             accessibilityHint="기업 상세 화면으로 이동합니다"
           >
-            <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
+            <Text
+              style={[typo.bodyMedium, { color: colors.text, minWidth: 0 }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
               {item.corpName}
             </Text>
             {item.stockCode ? (
@@ -316,7 +326,12 @@ export function SearchOverlay({ visible, onClose }: Props) {
                       accessibilityRole="button"
                       accessibilityLabel={`${c.corpName} 다시 검색`}
                     >
-                      <Text style={[typo.small, { color: colors.text }]}>{c.corpName}</Text>
+                      <Text
+                        style={[typo.small, { color: colors.text }]}
+                        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                      >
+                        {c.corpName}
+                      </Text>
                       <TouchableOpacity
                         onPress={() => removeRecent(c.corpCode)}
                         hitSlop={RECENT_DELETE_HIT_SLOP}
@@ -348,7 +363,10 @@ export function SearchOverlay({ visible, onClose }: Props) {
       presentationStyle="pageSheet"
       onRequestClose={handleClose}
     >
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        edges={['top']}
+      >
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}

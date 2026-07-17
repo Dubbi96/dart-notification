@@ -47,7 +47,11 @@ export function ScoreProgressRow({
       accessibilityRole="text"
       accessibilityLabel={`${label}${sampleText}, ${isPenalty ? '리스크 패널티' : '가산'} ${signed}점`}
     >
-      <Text style={[typo.small, { color: colors.textSecondary }, styles.label]} numberOfLines={1}>
+      <Text
+        style={[typo.small, { color: colors.textSecondary }, styles.label, { minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {label}
         {showSample ? (
           <Text style={[typo.small, { color: colors.textTertiary }]}>{sampleText}</Text>

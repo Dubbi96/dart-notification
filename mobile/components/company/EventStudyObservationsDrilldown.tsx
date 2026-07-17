@@ -1,5 +1,12 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+} from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
@@ -83,10 +90,16 @@ export function EventStudyObservationsDrilldown({ bucketKey, sampleCount }: Prop
           accessibilityLabel={`${title}, 이벤트일 ${formatYmdDots(item.d0Date)}, D+5 초과수익 ${formatReturnPct(item.carD5)}`}
         >
           <View style={styles.obsMain}>
-            <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
+            <Text
+              style={[typo.bodyMedium, { color: colors.text, minWidth: 0 }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
               {title}
             </Text>
-            <Text style={[typo.small, { color: colors.textTertiary }]}>{formatYmdDots(item.d0Date)}</Text>
+            <Text style={[typo.small, { color: colors.textTertiary }]}>
+              {formatYmdDots(item.d0Date)}
+            </Text>
           </View>
           <View style={styles.obsCar}>
             <Text style={[typo.small, { color: colors.textTertiary }]}>D+5 초과</Text>
@@ -114,13 +127,21 @@ export function EventStudyObservationsDrilldown({ bucketKey, sampleCount }: Prop
       >
         <Feather name="list" size={16} color={colors.primary} />
         <Text
-          style={[typo.bodyMedium, { color: colors.primary, flex: 1, marginLeft: spacing.sm }]}
+          style={[
+            typo.bodyMedium,
+            { color: colors.primary, flex: 1, marginLeft: spacing.sm, minWidth: 0 },
+          ]}
           numberOfLines={1}
           maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          ellipsizeMode="tail"
         >
           표본 {total.toLocaleString('ko-KR')}건 보기
         </Text>
-        <Feather name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textSecondary} />
+        <Feather
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={colors.textSecondary}
+        />
       </TouchableOpacity>
 
       {expanded && (

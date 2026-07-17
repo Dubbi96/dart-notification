@@ -12,10 +12,7 @@ import { getEventTypeLabel } from '@utils/disclosureType';
 import { formatReturnPct, formatWinRate, returnColor } from '@utils/numberFormat';
 import { formatYmdDots } from '@utils/datetime';
 
-import type {
-  DisclosureReactionResult,
-  ReactionStats,
-} from '@app-types/disclosure.types';
+import type { DisclosureReactionResult, ReactionStats } from '@app-types/disclosure.types';
 
 // 공시 상세 '과거 유사공시 반응' 표준 섹션 (DAR-512, 정본 Wave A).
 //  - useDisclosureReactionStats(GET /disclosures/:rcpNo/event-stats, DAR-511 BE)로 같은 이벤트
@@ -96,6 +93,7 @@ function MetricCell({ label, value, valueColor }: MetricCellProps) {
         numberOfLines={1}
         adjustsFontSizeToFit
         minimumFontScale={0.85}
+        ellipsizeMode="tail"
       >
         {label}
       </Text>
@@ -104,6 +102,7 @@ function MetricCell({ label, value, valueColor }: MetricCellProps) {
         numberOfLines={1}
         adjustsFontSizeToFit
         minimumFontScale={0.85}
+        ellipsizeMode="tail"
       >
         {value}
       </Text>
@@ -133,7 +132,8 @@ function InsufficientSample({
         표본 {sampleCount.toLocaleString('ko-KR')}건 (최소 {minSampleSize}건 필요)
       </Text>
       <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
-        유사공시가 {minSampleSize}건 이상 쌓이면 평균 반응·승률을 보여드려요. 소표본 통계는 허수라 표시하지 않습니다.
+        유사공시가 {minSampleSize}건 이상 쌓이면 평균 반응·승률을 보여드려요. 소표본 통계는 허수라
+        표시하지 않습니다.
       </Text>
     </View>
   );
@@ -182,9 +182,17 @@ function ReactionStatsBody({
 
       {/* D+1/D+5/D+20 실제 주가 반응(종목 단순수익률 누적 평균) — 이벤트 통계 화면과 동일 셀 규약. */}
       <View style={styles.metricsRow}>
-        <MetricCell label="D+1 평균" value={d1} valueColor={returnColor(stats.d1.avgReturn, colors)} />
+        <MetricCell
+          label="D+1 평균"
+          value={d1}
+          valueColor={returnColor(stats.d1.avgReturn, colors)}
+        />
         <MetricCell label="D+5 평균" value={d5Return} valueColor={d5Color} />
-        <MetricCell label="D+20 평균" value={d20} valueColor={returnColor(stats.d20.avgReturn, colors)} />
+        <MetricCell
+          label="D+20 평균"
+          value={d20}
+          valueColor={returnColor(stats.d20.avgReturn, colors)}
+        />
       </View>
 
       {/* 시장 대비 초과수익(AR) — 결측 아닐 때만. 시장 등락과 분리한 정직 지표. */}

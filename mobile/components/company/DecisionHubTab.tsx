@@ -1,12 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  RefreshControl,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -87,11 +80,19 @@ function CollapsibleSection({
       >
         <Feather name={icon} size={16} color={colors.primary} />
         <View style={styles.sectionTitleWrap}>
-          <Text style={[typo.bodyMedium, { color: colors.text }]} numberOfLines={1}>
+          <Text
+            style={[typo.bodyMedium, { color: colors.text, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {title}
           </Text>
           {summary && !expanded ? (
-            <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+            <Text
+              style={[typo.small, { color: colors.textSecondary, minWidth: 0 }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
               {summary}
             </Text>
           ) : null}
@@ -125,13 +126,7 @@ interface DecisionHubTabProps {
 export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
   const { colors, typography: typo } = useTheme();
 
-  const {
-    data: company,
-    isLoading,
-    isError,
-    refetch,
-    isRefetching,
-  } = useCompanyDetail(corpCode);
+  const { data: company, isLoading, isError, refetch, isRefetching } = useCompanyDetail(corpCode);
   const latestDisclosure = company?.recentDisclosures?.[0];
   const latestRcpNo = latestDisclosure?.rcpNo ?? '';
 
@@ -167,8 +162,7 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
     void Promise.all(tasks);
   }, [refetch, refetchBuySignal, refetchFit, refetchFusion, refetchEvent, latestRcpNo]);
 
-  const refreshing =
-    isRefetching || isRefetchingBuySignal || isRefetchingFit || isRefetchingFusion;
+  const refreshing = isRefetching || isRefetchingBuySignal || isRefetchingFit || isRefetchingFusion;
 
   const keyFigures = useMemo(
     () => extractKeyFigures(disclosureEvent?.extractedData),
@@ -267,7 +261,10 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
                 {formatYmdDots(latestDisclosure.rcpDt)}
               </Text>
             </View>
-            <Text style={[typo.body, { color: colors.text, marginTop: spacing.sm }]} numberOfLines={2}>
+            <Text
+              style={[typo.body, { color: colors.text, marginTop: spacing.sm }]}
+              numberOfLines={2}
+            >
               {latestDisclosure.reportName}
             </Text>
 
@@ -290,7 +287,10 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
                     <Text
                       style={[
                         typo.captionMedium,
-                        { color: polarityColor(disclosureEvent.polarity, colors), marginLeft: spacing.xs },
+                        {
+                          color: polarityColor(disclosureEvent.polarity, colors),
+                          marginLeft: spacing.xs,
+                        },
                       ]}
                     >
                       {getPolarityLabel(disclosureEvent.polarity)}
@@ -321,7 +321,9 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
               {disclosureEvent.extractedAt ? (
                 <ProvenanceBar
                   items={
-                    [{ icon: 'clock', label: `분석 ${relativeTime(disclosureEvent.extractedAt)}` }] as ProvenanceItem[]
+                    [
+                      { icon: 'clock', label: `분석 ${relativeTime(disclosureEvent.extractedAt)}` },
+                    ] as ProvenanceItem[]
                   }
                 />
               ) : null}
@@ -343,7 +345,10 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
             {/* DAR-56 신뢰도 — 맨퍼센트 금지: 3단계 평문 + 'AI 자기보고 한계' 주석 */}
             <EvidenceMeta
               style={styles.evidence}
-              ai={{ confidence: disclosureEvent.confidence, isAiAssisted: disclosureEvent.isAiAssisted }}
+              ai={{
+                confidence: disclosureEvent.confidence,
+                isAiAssisted: disclosureEvent.isAiAssisted,
+              }}
             />
           </>
         ) : (
@@ -355,7 +360,9 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
       <CollapsibleSection
         icon="activity"
         title="Buy Score"
-        summary={buySignal ? `${buySignal.buyScore}점 · ${gradeLabel(buySignal.grade)}` : '신호 없음'}
+        summary={
+          buySignal ? `${buySignal.buyScore}점 · ${gradeLabel(buySignal.grade)}` : '신호 없음'
+        }
         defaultExpanded={!!buySignal}
       >
         {buySignal ? (
@@ -372,12 +379,18 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
 
             {topBreakdown.length > 0 ? (
               <View style={styles.breakdown}>
-                <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.xs }]}>
+                <Text
+                  style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.xs }]}
+                >
                   점수 기여 상위 {topBreakdown.length}
                 </Text>
                 {topBreakdown.map((c) => (
                   <View key={c.key} style={styles.rowBetween}>
-                    <Text style={[typo.small, { color: colors.textSecondary, flex: 1 }]} numberOfLines={1}>
+                    <Text
+                      style={[typo.small, { color: colors.textSecondary, flex: 1, minWidth: 0 }]}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
                       {c.label}
                     </Text>
                     <Text style={[typo.captionMedium, { color: colors.text }]}>
@@ -495,7 +508,12 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
           모의 매수 검토
         </Text>
       </TouchableOpacity>
-      <Text style={[typo.small, { color: colors.textTertiary, textAlign: 'center', marginTop: spacing.xs }]}>
+      <Text
+        style={[
+          typo.small,
+          { color: colors.textTertiary, textAlign: 'center', marginTop: spacing.xs },
+        ]}
+      >
         모의운용으로 이동합니다 — 실제 주문이 아닙니다.
       </Text>
 

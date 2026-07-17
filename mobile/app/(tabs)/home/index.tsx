@@ -208,7 +208,11 @@ export default function HomeScreen() {
                 styles.segmentTab,
                 feedTab === 'all'
                   ? { backgroundColor: colors.primary }
-                  : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
+                  : {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.borderLight,
+                      borderWidth: 1,
+                    },
               ]}
               onPress={selectAllTab}
               activeOpacity={0.7}
@@ -226,6 +230,7 @@ export default function HomeScreen() {
                 // DAR-305: 큰 글꼴서 세그먼트 라벨 단어 중간 줄바꿈·행 오버플로 방지(한 줄 보장 + 보조 캡).
                 numberOfLines={1}
                 maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                ellipsizeMode="tail"
               >
                 전체 공시
               </Text>
@@ -236,7 +241,11 @@ export default function HomeScreen() {
                   styles.segmentTab,
                   feedTab === 'watchlist'
                     ? { backgroundColor: colors.primary }
-                    : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
+                    : {
+                        backgroundColor: colors.surface,
+                        borderColor: colors.borderLight,
+                        borderWidth: 1,
+                      },
                 ]}
                 onPress={selectWatchlistTab}
                 activeOpacity={0.7}
@@ -253,11 +262,15 @@ export default function HomeScreen() {
                 <Text
                   style={[
                     typo.captionMedium,
-                    { color: feedTab === 'watchlist' ? colors.primaryForeground : colors.textSecondary },
+                    {
+                      color:
+                        feedTab === 'watchlist' ? colors.primaryForeground : colors.textSecondary,
+                    },
                   ]}
                   // DAR-305: 큰 글꼴서 세그먼트 라벨 단어 중간 줄바꿈·행 오버플로 방지(한 줄 보장 + 보조 캡).
                   numberOfLines={1}
                   maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                  ellipsizeMode="tail"
                 >
                   관심 기업
                 </Text>
@@ -266,20 +279,32 @@ export default function HomeScreen() {
           </View>
           {/* DAR-106: 공시 목록(13종 이벤트 필터) 발견성 승격 — 명확한 라벨·Feather 아이콘 진입 버튼. */}
           <TouchableOpacity
-            style={[styles.browseButton, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
-            onPress={() => router.push(
-              isWatchlistFeed
-                ? { pathname: '/disclosures', params: { watchlistOnly: 'true' } }
-                : '/disclosures'
-            )}
+            style={[
+              styles.browseButton,
+              { backgroundColor: colors.surface, borderColor: colors.borderLight },
+            ]}
+            onPress={() =>
+              router.push(
+                isWatchlistFeed
+                  ? { pathname: '/disclosures', params: { watchlistOnly: 'true' } }
+                  : '/disclosures',
+              )
+            }
             activeOpacity={0.7}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
-            accessibilityLabel={isWatchlistFeed ? '관심 기업 공시 전체보기 (필터)' : '공시 전체보기 (필터)'}
+            accessibilityLabel={
+              isWatchlistFeed ? '관심 기업 공시 전체보기 (필터)' : '공시 전체보기 (필터)'
+            }
           >
             <Feather name="sliders" size={13} color={colors.primary} style={{ marginRight: 4 }} />
             {/* DAR-305: '전체보기' 액션 라벨 — 큰 글꼴서 단어 중간 줄바꿈 방지(한 줄 보장 + 보조 캡). */}
-            <Text style={[typo.captionMedium, { color: colors.primary }]} numberOfLines={1} maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}>
+            <Text
+              style={[typo.captionMedium, { color: colors.primary, minWidth: 0 }]}
+              numberOfLines={1}
+              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+              ellipsizeMode="tail"
+            >
               전체보기
             </Text>
           </TouchableOpacity>
@@ -369,15 +394,22 @@ export default function HomeScreen() {
       >
         <View style={styles.headerTop}>
           <View>
-            <Text style={[typo.small, { color: colors.onColorFaint }]}>실시간 DART 공시 알리미</Text>
-            <Text style={[typo.h2, { color: colors.onColor, marginTop: 2 }]}>{userName ? `${userName} 님` : '공시온'}</Text>
+            <Text style={[typo.small, { color: colors.onColorFaint }]}>
+              실시간 DART 공시 알리미
+            </Text>
+            <Text style={[typo.h2, { color: colors.onColor, marginTop: 2 }]}>
+              {userName ? `${userName} 님` : '공시온'}
+            </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-              {(() => { const { text, Icon } = getGreeting(); return (
-                <>
-                  <Text style={[typo.caption, { color: colors.onColorSubtle }]}>{text}</Text>
-                  <Icon size={16} color={colors.onColorSubtle} weight="duotone" />
-                </>
-              ); })()}
+              {(() => {
+                const { text, Icon } = getGreeting();
+                return (
+                  <>
+                    <Text style={[typo.caption, { color: colors.onColorSubtle }]}>{text}</Text>
+                    <Icon size={16} color={colors.onColorSubtle} weight="duotone" />
+                  </>
+                );
+              })()}
             </View>
           </View>
           <View style={styles.headerActions}>
@@ -434,7 +466,9 @@ export default function HomeScreen() {
               }
             >
               {/* DAR-446(A-HOME-5): 핵심 수치를 amount 토큰으로 강조 — 이름(h2)보다 큰 위계. */}
-              <Text style={[typo.amount, { color: colors.onColor }]}>{disclosuresCountDisplay}</Text>
+              <Text style={[typo.amount, { color: colors.onColor }]}>
+                {disclosuresCountDisplay}
+              </Text>
               <Text style={[typo.small, { color: colors.onColorMuted }]}>
                 {todayDateLabel ? `최신 공시 (${todayDateLabel})` : '최신 공시'}
               </Text>
@@ -630,7 +664,7 @@ const styles = StyleSheet.create({
     top: -4,
     right: -4,
     minWidth: 20,
-    height: 20,
+    minHeight: 20,
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',

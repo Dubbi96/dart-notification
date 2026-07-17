@@ -4,10 +4,14 @@ import { Surface, Button } from 'react-native-paper';
 import { BlurView } from 'expo-blur';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { guestPromptCopy } from '@components/common/guestPromptCopy';
-import { guestPreviewCards, GUEST_PREVIEW_COPY, type GuestPreviewCard } from '@utils/guestSignalPreview';
+import {
+  guestPreviewCards,
+  GUEST_PREVIEW_COPY,
+  type GuestPreviewCard,
+} from '@utils/guestSignalPreview';
 
 // DAR-213: 게스트 신호 탭 read-only 미리보기.
 // 신호 엔드포인트는 401(인증 필요)이라 게스트는 실데이터를 받을 수 없다. 기존엔
@@ -36,27 +40,46 @@ function LockedPreviewCard({ card }: { card: GuestPreviewCard }) {
     >
       {/* 실루엣(블러 아래) — 신호 카드 구조: 종목명 + 등급칩 + 점수 게이지바. */}
       <View style={styles.cardHeader}>
-        <Text style={[typo.bodyMedium, styles.flex1, { color: colors.text }]} numberOfLines={1}>
+        <Text
+          style={[typo.bodyMedium, styles.flex1, { color: colors.text, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {card.maskedName}
         </Text>
         <View style={[styles.gradeChip, { backgroundColor: colors.surfaceSecondary }]}>
-          <View style={[styles.maskBar, styles.maskBarChip, { backgroundColor: colors.textTertiary }]} />
+          <View
+            style={[styles.maskBar, styles.maskBarChip, { backgroundColor: colors.textTertiary }]}
+          />
         </View>
       </View>
       <View style={[styles.gaugeTrack, { backgroundColor: colors.surfaceSecondary }]}>
-        <View style={[styles.gaugeFill, { backgroundColor: colors.primary, width: `${card.fill * 100}%` }]} />
+        <View
+          style={[
+            styles.gaugeFill,
+            { backgroundColor: colors.primary, width: `${card.fill * 100}%` },
+          ]}
+        />
       </View>
       <View style={[styles.maskBar, styles.maskBarLine, { backgroundColor: colors.borderLight }]} />
 
       {/* 블러 + 잠금 오버레이 — 수치를 읽을 수 없게 덮고 로그인 유도. */}
       <BlurView intensity={18} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
       <View style={[styles.exampleBadge, { backgroundColor: colors.overlay }]}>
-        <Text style={[typo.small, { color: colors.textInverse }]}>{GUEST_PREVIEW_COPY.exampleBadge}</Text>
+        <Text
+          style={[typo.small, { color: colors.textInverse }]}
+          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        >
+          {GUEST_PREVIEW_COPY.exampleBadge}
+        </Text>
       </View>
       <View style={styles.lockBadge} pointerEvents="none">
         <View style={[styles.lockPill, { backgroundColor: colors.overlay }]}>
           <Feather name="lock" size={14} color={colors.textInverse} />
-          <Text style={[typo.captionMedium, { color: colors.textInverse }]}>
+          <Text
+            style={[typo.captionMedium, { color: colors.textInverse }]}
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          >
             {GUEST_PREVIEW_COPY.lockBadge}
           </Text>
         </View>
@@ -170,7 +193,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   gradeChip: {
-    height: 26,
+    minHeight: 26,
     minWidth: 56,
     borderRadius: radius.full,
     alignItems: 'center',
@@ -192,7 +215,7 @@ const styles = StyleSheet.create({
   },
   maskBarChip: {
     width: 36,
-    height: 8,
+    minHeight: 8,
     opacity: 0.5,
   },
   maskBarLine: {

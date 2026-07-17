@@ -34,7 +34,8 @@ function TrackTypeBadge({ label }: { label: string }) {
       <Text
         numberOfLines={1}
         maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-        style={[typo.small, { color: colors.primary }]}
+        style={[typo.small, { color: colors.primary, flexShrink: 1, minWidth: 0 }]}
+        ellipsizeMode="tail"
       >
         {label}
       </Text>
@@ -51,14 +52,29 @@ function PrimaryStat({ label, value, sub }: { label: string; value: string; sub?
       accessibilityRole="text"
       accessibilityLabel={`${label} ${value}${sub ? ` ${sub}` : ''}`}
     >
-      <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+      <Text
+        style={[typo.small, { color: colors.textSecondary, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {label}
       </Text>
-      <Text style={[typo.body, styles.primaryValue, { color: colors.text }]} numberOfLines={1}>
+      {/* R-4: 누적수익 등 숫자값은 말줄임 대신 배율 축소로 온전히 표시(DAR-451 헤드라인 패턴). */}
+      <Text
+        style={[typo.body, styles.primaryValue, { color: colors.text, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}
+      >
         {value}
       </Text>
       {sub ? (
-        <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={1}>
+        <Text
+          style={[typo.small, { color: colors.textTertiary, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {sub}
         </Text>
       ) : null}
@@ -80,13 +96,22 @@ function RebalanceRow({ row }: { row: CoreRebalanceRow }) {
         isClosed && row.returnPct !== null ? ` 수익률 ${formatReturnPct(row.returnPct)}` : ''
       }`}
     >
-      <Text style={[typo.small, { color: colors.textTertiary, width: 84 }]} numberOfLines={1}>
+      <Text
+        style={[typo.small, { color: colors.textTertiary, width: 84, flexShrink: 1, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {formatYmdDots(row.decisionDate)}
       </Text>
-      <Text style={[typo.small, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+      <Text
+        style={[typo.small, { color: colors.text, flex: 1, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {name}
       </Text>
-      <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+      {/* R-4: 수익률 숫자는 말줄임 금지 — flexShrink:0으로 보호(name 컬럼이 대신 양보). */}
+      <Text style={[typo.small, { color: colors.textSecondary, flexShrink: 0 }]}>
         {isClosed && row.returnPct !== null ? formatReturnPct(row.returnPct) : statusLabel}
       </Text>
     </View>
@@ -106,7 +131,11 @@ function CoreTrackCard({ data }: { data: CoreTrackScorecard }) {
       elevation={1}
       style={[
         styles.card,
-        { backgroundColor: colors.surface, borderColor: colors.border, borderLeftColor: colors.primary },
+        {
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          borderLeftColor: colors.primary,
+        },
       ]}
     >
       <View style={styles.cardHead}>
@@ -137,7 +166,10 @@ function CoreTrackCard({ data }: { data: CoreTrackScorecard }) {
       {/* ★월 1회 리밸런싱 특성 — 다음 판정 예정일 표기. */}
       <View style={[styles.rebalanceNote, { backgroundColor: colors.surfaceSecondary }]}>
         <Feather name="calendar" size={12} color={colors.textSecondary} />
-        <Text style={[typo.small, styles.rebalanceNoteText, { color: colors.textSecondary }]} numberOfLines={2}>
+        <Text
+          style={[typo.small, styles.rebalanceNoteText, { color: colors.textSecondary }]}
+          numberOfLines={2}
+        >
           월 1회 리밸런싱 · 다음 판정 예정 {formatYmdDots(data.nextDecisionDate)}
         </Text>
       </View>
@@ -187,10 +219,13 @@ export function CoreTrackSection() {
     <View style={styles.section}>
       <View style={styles.sectionHead}>
         <Feather name="layers" size={14} color={colors.primary} />
-        <Text style={[typo.captionMedium, { color: colors.text }]}>자산배분 트랙 (코어·월단위)</Text>
+        <Text style={[typo.captionMedium, { color: colors.text }]}>
+          자산배분 트랙 (코어·월단위)
+        </Text>
       </View>
       <Text style={[typo.small, { color: colors.textTertiary, marginBottom: spacing.sm }]}>
-        월말 모멘텀 판정으로 ETF·채권을 배분하는 자산배분 트랙 — 아래 백테스트·단타와 유형이 다릅니다.
+        월말 모멘텀 판정으로 ETF·채권을 배분하는 자산배분 트랙 — 아래 백테스트·단타와 유형이
+        다릅니다.
       </Text>
 
       {query.isLoading ? (
@@ -198,7 +233,14 @@ export function CoreTrackSection() {
       ) : query.isError || !query.data ? (
         <Surface
           elevation={1}
-          style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, borderLeftColor: colors.primary }]}
+          style={[
+            styles.card,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              borderLeftColor: colors.primary,
+            },
+          ]}
         >
           <Text style={[typo.small, { color: colors.textTertiary }]}>
             자산배분 트랙을 불러오지 못했습니다.

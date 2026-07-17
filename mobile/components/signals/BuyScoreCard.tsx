@@ -72,7 +72,11 @@ function BuyScoreCardBase({ signal, onPress }: BuyScoreCardProps) {
         ]}
       >
         <View style={styles.headerRow}>
-          <Text style={[typo.bodyMedium, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+          <Text
+            style={[typo.bodyMedium, { color: colors.text, flex: 1, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {signal.corpName}
           </Text>
           <Chip
@@ -112,7 +116,12 @@ function BuyScoreCardBase({ signal, onPress }: BuyScoreCardProps) {
         <RiskStatusBadges status={riskStatus} compact style={styles.riskBadges} />
 
         {isBlocked ? (
-          <View style={[styles.blockedBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View
+            style={[
+              styles.blockedBox,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
+          >
             <Feather name="slash" size={14} color={colors.textTertiary} />
             <Text style={[typo.small, { color: colors.textTertiary, flex: 1 }]} numberOfLines={2}>
               {signal.blockedReason ?? '조건 미충족으로 차단된 신호입니다.'}

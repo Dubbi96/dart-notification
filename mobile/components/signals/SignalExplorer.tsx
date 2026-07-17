@@ -68,7 +68,11 @@ function FilterChipRow<T extends string | undefined>({
                 styles.chip,
                 isActive
                   ? { backgroundColor: colors.primary }
-                  : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
+                  : {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.borderLight,
+                      borderWidth: 1,
+                    },
               ]}
               onPress={() => onSelect(opt.value)}
               activeOpacity={0.7}
@@ -86,8 +90,11 @@ function FilterChipRow<T extends string | undefined>({
                   {
                     color: isActive ? colors.primaryForeground : colors.text,
                     fontWeight: isActive ? '600' : '400',
+                    flexShrink: 1,
+                    minWidth: 0,
                   },
                 ]}
+                ellipsizeMode="tail"
               >
                 {opt.label}
               </Text>
@@ -238,14 +245,20 @@ export function SignalExplorer({
                 {
                   color: activeFilterCount > 0 ? colors.primaryDark : colors.textSecondary,
                   fontWeight: activeFilterCount > 0 ? '600' : '400',
+                  flexShrink: 1,
+                  minWidth: 0,
                 },
               ]}
+              ellipsizeMode="tail"
             >
               필터
             </Text>
             {activeFilterCount > 0 ? (
               <View style={[styles.filterBadge, { backgroundColor: colors.primary }]}>
-                <Text style={[typo.small, styles.filterBadgeText, { color: colors.primaryForeground }]}>
+                <Text
+                  style={[typo.small, styles.filterBadgeText, { color: colors.primaryForeground }]}
+                  maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                >
                   {activeFilterCount}
                 </Text>
               </View>
@@ -269,8 +282,16 @@ export function SignalExplorer({
                 style={[
                   styles.sortChip,
                   isActive
-                    ? { backgroundColor: colors.primaryLight, borderColor: colors.primary, borderWidth: 1 }
-                    : { backgroundColor: colors.surface, borderColor: colors.borderLight, borderWidth: 1 },
+                    ? {
+                        backgroundColor: colors.primaryLight,
+                        borderColor: colors.primary,
+                        borderWidth: 1,
+                      }
+                    : {
+                        backgroundColor: colors.surface,
+                        borderColor: colors.borderLight,
+                        borderWidth: 1,
+                      },
                 ]}
                 onPress={() => setSort(opt.value)}
                 activeOpacity={0.7}
@@ -293,8 +314,11 @@ export function SignalExplorer({
                     {
                       color: isActive ? colors.primaryDark : colors.textSecondary,
                       fontWeight: isActive ? '600' : '400',
+                      flexShrink: 1,
+                      minWidth: 0,
                     },
                   ]}
+                  ellipsizeMode="tail"
                 >
                   {opt.label}
                 </Text>
@@ -307,7 +331,12 @@ export function SignalExplorer({
       {/* opt-in 시에만 공간 차지 — 펼침 상태에서 3행 필터칩 노출(+ 활성 시 초기화). */}
       {filtersExpanded ? (
         <View style={styles.filterPanel}>
-          <FilterChipRow label="등급" options={GRADE_FILTER_OPTIONS} selected={grade} onSelect={setGrade} />
+          <FilterChipRow
+            label="등급"
+            options={GRADE_FILTER_OPTIONS}
+            selected={grade}
+            onSelect={setGrade}
+          />
           <FilterChipRow
             label="투자성향"
             options={PERSONA_FILTER_OPTIONS}
@@ -370,7 +399,9 @@ export function SignalExplorer({
           <View>
             <InfiniteListFooter
               isFetchingNextPage={query.isFetchingNextPage}
-              hasNextPage={isSearching ? !!query.hasNextPage && !searchAutoloadCapped : !!query.hasNextPage}
+              hasNextPage={
+                isSearching ? !!query.hasNextPage && !searchAutoloadCapped : !!query.hasNextPage
+              }
               itemCount={items.length}
               endLabel={
                 isSearching
@@ -456,7 +487,7 @@ const styles = StyleSheet.create({
   },
   filterBadge: {
     minWidth: 18,
-    height: 18,
+    minHeight: 18,
     borderRadius: radius.full,
     paddingHorizontal: spacing.xs,
     alignItems: 'center',

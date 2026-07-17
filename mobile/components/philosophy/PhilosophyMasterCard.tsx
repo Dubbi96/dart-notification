@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 import { ProvenanceBar, type ProvenanceItem } from '@components/common/ProvenanceBar';
@@ -22,7 +22,10 @@ interface PhilosophyMasterCardProps {
 function PhilosophyMasterCardBase({ philosophy, onPress }: PhilosophyMasterCardProps) {
   const { colors, typography: typo } = useTheme();
 
-  const handlePress = useCallback(() => onPress(philosophy.philosophyId), [onPress, philosophy.philosophyId]);
+  const handlePress = useCallback(
+    () => onPress(philosophy.philosophyId),
+    [onPress, philosophy.philosophyId],
+  );
 
   // 출처를 ProvenanceBar 항목으로(유형·연도) — 상시 노출로 "무엇 기준" 데이터인지 표시.
   const provenance: ProvenanceItem[] = philosophy.sources.slice(0, 2).map((s) => ({
@@ -43,7 +46,11 @@ function PhilosophyMasterCardBase({ philosophy, onPress }: PhilosophyMasterCardP
       <Card variant="elevated" style={styles.card}>
         {/* 헤더: 이름 + 스타일 태그 */}
         <View style={styles.header}>
-          <Text style={[typo.h3, { color: colors.text }, styles.flex1]} numberOfLines={1}>
+          <Text
+            style={[typo.h3, { color: colors.text }, styles.flex1, { minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {philosophy.investorName}
           </Text>
           <Feather name="chevron-right" size={18} color={colors.textTertiary} />
@@ -52,7 +59,12 @@ function PhilosophyMasterCardBase({ philosophy, onPress }: PhilosophyMasterCardP
         <View style={styles.tagRow}>
           {philosophy.styleTags.map((tag) => (
             <View key={tag} style={[styles.tag, { backgroundColor: colors.primaryLight }]}>
-              <Text style={[typo.small, { color: colors.primaryDark }, styles.tagText]}>{getStyleTagLabel(tag)}</Text>
+              <Text
+                style={[typo.small, { color: colors.primaryDark }, styles.tagText]}
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+              >
+                {getStyleTagLabel(tag)}
+              </Text>
             </View>
           ))}
         </View>
@@ -61,7 +73,11 @@ function PhilosophyMasterCardBase({ philosophy, onPress }: PhilosophyMasterCardP
         {headline ? (
           <View style={styles.headlineRow}>
             <Feather name="bookmark" size={13} color={colors.primary} style={styles.headlineIcon} />
-            <Text style={[typo.caption, { color: colors.textSecondary }, styles.flex1]} numberOfLines={1}>
+            <Text
+              style={[typo.caption, { color: colors.textSecondary }, styles.flex1, { minWidth: 0 }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
               {headline}
             </Text>
           </View>

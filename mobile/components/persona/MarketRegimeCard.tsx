@@ -8,11 +8,7 @@ import { DataLimitBadge } from '@components/common/DataLimitBadge';
 
 import type { MarketRegime, PersonaOverviewRow } from '@app-types/persona.types';
 
-import {
-  TREND_LABEL,
-  VOLATILITY_LABEL,
-  EVENT_SKEW_LABEL,
-} from './personaDisplay';
+import { TREND_LABEL, VOLATILITY_LABEL, EVENT_SKEW_LABEL } from './personaDisplay';
 
 // 현재 장(시장 레짐) + 현재 장 적합 persona 추천 카드 — DAR-131 (P-D).
 // 추천우선→비교 패턴의 '추천' 헤드: 추세·변동성·이벤트분포를 칩으로, 추천 persona를 근거와 함께 노출.
@@ -28,11 +24,17 @@ interface MarketRegimeCardProps {
 function RegimeChip({ label }: { label: string }) {
   const { colors, typography: typo } = useTheme();
   return (
-    <View style={[styles.chip, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+    <View
+      style={[
+        styles.chip,
+        { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+      ]}
+    >
       <Text
         numberOfLines={1}
         maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-        style={[typo.small, { color: colors.textSecondary }]}
+        style={[typo.small, { color: colors.textSecondary, flexShrink: 1, minWidth: 0 }]}
+        ellipsizeMode="tail"
       >
         {label}
       </Text>
@@ -43,10 +45,7 @@ function RegimeChip({ label }: { label: string }) {
 export function MarketRegimeCard({ regime, personas, dataLimited }: MarketRegimeCardProps) {
   const { colors, typography: typo } = useTheme();
 
-  const recommended = useMemo(
-    () => personas.filter((p) => p.recommended),
-    [personas],
-  );
+  const recommended = useMemo(() => personas.filter((p) => p.recommended), [personas]);
 
   return (
     <Surface

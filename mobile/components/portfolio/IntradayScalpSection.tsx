@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { InlineDisclosure } from '@components/common/InlineDisclosure';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
@@ -43,14 +43,26 @@ function PrimaryStat({ label, value, sub }: { label: string; value: string; sub?
       accessibilityRole="text"
       accessibilityLabel={`${label} ${value}${sub ? ` ${sub}` : ''}`}
     >
-      <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+      <Text
+        style={[typo.small, { color: colors.textSecondary, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {label}
       </Text>
-      <Text style={[typo.body, styles.primaryValue, { color: colors.text }]} numberOfLines={1}>
+      <Text
+        style={[typo.body, styles.primaryValue, { color: colors.text, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {value}
       </Text>
       {sub ? (
-        <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={1}>
+        <Text
+          style={[typo.small, { color: colors.textTertiary, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {sub}
         </Text>
       ) : null}
@@ -68,7 +80,12 @@ function LiveSimBadge() {
       accessibilityLabel="실시간 모의 트랙, 백테스트 불가"
     >
       <Feather name="zap" size={12} color={colors.info} />
-      <Text style={[typo.small, { color: colors.info }]}>실시간 모의</Text>
+      <Text
+        style={[typo.small, { color: colors.info }]}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+      >
+        실시간 모의
+      </Text>
     </View>
   );
 }
@@ -85,7 +102,11 @@ function ScalpCard({ status }: { status: ScalpStatus }) {
       elevation={1}
       style={[
         styles.card,
-        { backgroundColor: colors.surface, borderColor: colors.border, borderLeftColor: colors.info },
+        {
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          borderLeftColor: colors.info,
+        },
       ]}
     >
       <TouchableOpacity
@@ -108,7 +129,8 @@ function ScalpCard({ status }: { status: ScalpStatus }) {
 
         {/* ★백테스트 불가 고지 — 일봉 4종과 성격이 다름(forward-only·당일청산). */}
         <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={2}>
-          실시간 모의 · 당일청산(오버나잇 금지) · 백테스트 불가 — 과거 검증이 아닌 장중 누적 성과입니다.
+          실시간 모의 · 당일청산(오버나잇 금지) · 백테스트 불가 — 과거 검증이 아닌 장중 누적
+          성과입니다.
         </Text>
 
         {/* 1차 핵심 3수치 — 누적수익·승률·거래. */}
@@ -129,9 +151,14 @@ function ScalpCard({ status }: { status: ScalpStatus }) {
         {/* ★DAR-418 fee-aware 고지 — 누적수익은 순수익(수수료 후) 기준임을 명시 + 총수수료·왕복비용. */}
         <View style={[styles.feeNote, { backgroundColor: colors.surfaceSecondary }]}>
           <Feather name="info" size={11} color={colors.textTertiary} />
-          <Text style={[typo.small, styles.feeNoteText, { color: colors.textTertiary }]} numberOfLines={2}>
+          <Text
+            style={[typo.small, styles.feeNoteText, { color: colors.textTertiary }]}
+            numberOfLines={2}
+          >
             순수익(수수료 후) 기준 · 왕복비용 {status.roundTripCostPct.toFixed(2)}%
-            {status.totalFees > 0 ? ` · 누적 수수료 ${Math.round(status.totalFees).toLocaleString('ko-KR')}원` : ''}
+            {status.totalFees > 0
+              ? ` · 누적 수수료 ${Math.round(status.totalFees).toLocaleString('ko-KR')}원`
+              : ''}
           </Text>
         </View>
       </TouchableOpacity>
@@ -157,7 +184,9 @@ function ScalpCard({ status }: { status: ScalpStatus }) {
         accessibilityLabel="분봉 단타 오늘 거래 타임라인 보기"
       >
         <Feather name="list" size={14} color={colors.primary} />
-        <Text style={[typo.small, { color: colors.primary, flex: 1 }]}>오늘 거래 타임라인 보기</Text>
+        <Text style={[typo.small, { color: colors.primary, flex: 1 }]}>
+          오늘 거래 타임라인 보기
+        </Text>
         <Feather name="chevron-right" size={sizing.icon.sm} color={colors.primary} />
       </TouchableOpacity>
     </Surface>
@@ -177,7 +206,9 @@ export function IntradayScalpSection() {
     <View style={styles.section}>
       <View style={styles.sectionHead}>
         <Feather name="zap" size={14} color={colors.info} />
-        <Text style={[typo.captionMedium, { color: colors.text }]}>단타 트랙 (분봉·실시간 모의)</Text>
+        <Text style={[typo.captionMedium, { color: colors.text }]}>
+          단타 트랙 (분봉·실시간 모의)
+        </Text>
       </View>
       <Text style={[typo.small, { color: colors.textTertiary, marginBottom: spacing.sm }]}>
         위 단타는 장중 forward 누적, 아래 4종은 과거 백테스트 비교라 성격이 다릅니다.
@@ -188,7 +219,14 @@ export function IntradayScalpSection() {
       ) : query.isError || !query.data ? (
         <Surface
           elevation={1}
-          style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, borderLeftColor: colors.info }]}
+          style={[
+            styles.card,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              borderLeftColor: colors.info,
+            },
+          ]}
         >
           <Text style={[typo.small, { color: colors.textTertiary }]}>
             단타 트랙을 불러오지 못했습니다.

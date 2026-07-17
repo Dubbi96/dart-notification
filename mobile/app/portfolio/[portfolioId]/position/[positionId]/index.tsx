@@ -1,12 +1,5 @@
 import React, { useCallback } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  RefreshControl,
-} from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Chip } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
@@ -59,7 +52,10 @@ export default function PositionDetailScreen() {
   if (positionQuery.isLoading) {
     // 헤더 유지 + 포지션 카드/Thesis 골격 스켈레톤으로 로딩→콘텐츠 점프 제거(DAR-147).
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        edges={['top']}
+      >
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -79,7 +75,10 @@ export default function PositionDetailScreen() {
 
   if (positionQuery.isError) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        edges={['top']}
+      >
         <ErrorState title="포지션을 불러오지 못했습니다." onRetry={positionQuery.refetch} />
       </SafeAreaView>
     );
@@ -114,7 +113,10 @@ export default function PositionDetailScreen() {
         : 'Thesis 없음';
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -149,10 +151,17 @@ export default function PositionDetailScreen() {
           }
         >
           {/* 헤더 */}
-          <Surface elevation={1} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Surface
+            elevation={1}
+            style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          >
             <View style={styles.titleRow}>
               {/* DAR-305: 큰 글꼴서 기업명이 다중 줄로 팽창해 상태칩을 밀지 않도록 한 줄 말줄임. */}
-              <Text style={[typo.h2, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+              <Text
+                style={[typo.h2, { color: colors.text, flex: 1, minWidth: 0 }]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
                 {position.corpName}
               </Text>
               {action ? (
@@ -163,7 +172,8 @@ export default function PositionDetailScreen() {
                   maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                   // DAR-368: 자동 매도(하드룰 손절·청산)만 솔리드 경고색 강조, 그 외는 보조 표면.
                   style={{
-                    backgroundColor: action.tone === 'auto-sell' ? colors.error : colors.surfaceSecondary,
+                    backgroundColor:
+                      action.tone === 'auto-sell' ? colors.error : colors.surfaceSecondary,
                   }}
                   textStyle={[
                     typo.small,
@@ -204,19 +214,32 @@ export default function PositionDetailScreen() {
             >
               <View style={styles.pnlHeadline}>
                 <Feather name={pnlArrow} size={28} color={pnlTextColor} />
-                <Text style={[typo.amount, { color: pnlTextColor }]} numberOfLines={1}>
+                <Text
+                  style={[typo.amount, { color: pnlTextColor, flexShrink: 1, minWidth: 0 }]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
+                >
                   {formatPnlPercent(position.pnlPercent)}
                 </Text>
               </View>
               {position.currentPrice != null ? (
-                <Text style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+                <Text
+                  style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}
+                >
                   현재가 {position.currentPrice.toLocaleString()}원
                 </Text>
               ) : null}
             </View>
             {/* 입력값 메타 — 작은 폰트·낮은 불투명도로 손익 결과와 시각 위계 분리. */}
             {position.quantity != null && position.avgPrice != null ? (
-              <View style={[styles.metaSection, { borderTopColor: colors.border, marginTop: spacing.md }]}>
+              <View
+                style={[
+                  styles.metaSection,
+                  { borderTopColor: colors.border, marginTop: spacing.md },
+                ]}
+              >
                 <Text style={[typo.small, { color: colors.textTertiary, opacity: 0.75 }]}>
                   {position.quantity}주 · 평균 {position.avgPrice.toLocaleString()}원
                 </Text>
@@ -235,7 +258,9 @@ export default function PositionDetailScreen() {
               >
                 <Feather name="bar-chart-2" size={16} color={colors.primary} />
                 <View style={styles.chartLinkText}>
-                  <Text style={[typo.captionMedium, { color: colors.primary }]}>실시간 차트 보기</Text>
+                  <Text style={[typo.captionMedium, { color: colors.primary }]}>
+                    실시간 차트 보기
+                  </Text>
                   <Text style={[typo.small, { color: colors.textTertiary }]}>
                     실시간 시장가 · 환경시계와 괴리
                   </Text>
@@ -247,13 +272,17 @@ export default function PositionDetailScreen() {
                 포지션이 목록/상세에 보이면 미체결 = 예정. 체결되면 거래내역으로 이동한다. */}
             {action?.tone === 'auto-sell' ? (
               <View
-                style={[styles.autoSellNotice, { backgroundColor: colors.error, marginTop: spacing.sm }]}
+                style={[
+                  styles.autoSellNotice,
+                  { backgroundColor: colors.error, marginTop: spacing.sm },
+                ]}
                 accessibilityRole="summary"
                 accessibilityLabel={action.a11yLabel}
               >
                 <Feather name="zap" size={16} color={colors.onColor} />
                 <Text style={[typo.small, { color: colors.onColor, flex: 1 }]}>
-                  하드룰 손절 — 시스템이 다음 평가 시 자동 매도합니다. 사용자 조치는 필요하지 않습니다.
+                  하드룰 손절 — 시스템이 다음 평가 시 자동 매도합니다. 사용자 조치는 필요하지
+                  않습니다.
                 </Text>
               </View>
             ) : null}
@@ -273,13 +302,18 @@ export default function PositionDetailScreen() {
             accessibilityRole="button"
             accessibilityLabel="Thesis 상세 보기"
           >
-            <Surface elevation={0} style={[styles.card, styles.thesisLink, { backgroundColor: colors.surface, borderColor: colors.primary }]}>
+            <Surface
+              elevation={0}
+              style={[
+                styles.card,
+                styles.thesisLink,
+                { backgroundColor: colors.surface, borderColor: colors.primary },
+              ]}
+            >
               <View style={styles.rowBetween}>
                 <View style={{ gap: spacing.xs }}>
                   <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>Thesis</Text>
-                  <Text style={[typo.bodyMedium, { color: colors.text }]}>
-                    {thesisSummary}
-                  </Text>
+                  <Text style={[typo.bodyMedium, { color: colors.text }]}>{thesisSummary}</Text>
                 </View>
                 <Feather name="chevron-right" size={20} color={colors.primary} />
               </View>

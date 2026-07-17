@@ -4,7 +4,7 @@ import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native
 import { Surface, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router, useScrollToTop } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { InlineDisclosure } from '@components/common/InlineDisclosure';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
@@ -19,10 +19,7 @@ import { useStrategyComparison } from '@hooks/useStrategyComparison';
 import { CORE_TRACK_QUERY_KEY } from '@hooks/useCoreTrackScorecard';
 import { formatReturnPct, formatWinRate } from '@utils/numberFormat';
 
-import type {
-  StrategyComparison,
-  StrategyPerformance,
-} from '@app-types/strategy-comparison.types';
+import type { StrategyComparison, StrategyPerformance } from '@app-types/strategy-comparison.types';
 
 // 시스템 트레이딩 전략 변형 4종 비교 — DAR-405 (BE: DAR-404).
 // 진입/청산/사이징 룰이 다른 4개 백테스트 트랙을 한눈에 비교하고, 탭하면 각 전략의 과거
@@ -49,7 +46,12 @@ function BestBadge() {
       accessibilityLabel="현재 최고 수익 전략"
     >
       <Feather name="award" size={12} color={colors.success} />
-      <Text style={[typo.small, { color: colors.success }]}>최고 수익</Text>
+      <Text
+        style={[typo.small, { color: colors.success }]}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+      >
+        최고 수익
+      </Text>
     </View>
   );
 }
@@ -82,14 +84,26 @@ function PrimaryStat({ label, value, sub }: { label: string; value: string; sub?
       accessibilityRole="text"
       accessibilityLabel={`${label} ${value}${sub ? ` ${sub}` : ''}`}
     >
-      <Text style={[typo.small, { color: colors.textSecondary }]} numberOfLines={1}>
+      <Text
+        style={[typo.small, { color: colors.textSecondary, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {label}
       </Text>
-      <Text style={[typo.body, styles.primaryValue, { color: colors.text }]} numberOfLines={1}>
+      <Text
+        style={[typo.body, styles.primaryValue, { color: colors.text, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {value}
       </Text>
       {sub ? (
-        <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={1}>
+        <Text
+          style={[typo.small, { color: colors.textTertiary, minWidth: 0 }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {sub}
         </Text>
       ) : null}
@@ -184,7 +198,9 @@ function StrategyCard({ perf, isBest }: { perf: StrategyPerformance; isBest: boo
         accessibilityLabel={`${perf.label} 매수/매도 타임라인 보기`}
       >
         <Feather name="list" size={14} color={colors.primary} />
-        <Text style={[typo.small, { color: colors.primary, flex: 1 }]}>매수/매도 타임라인 보기</Text>
+        <Text style={[typo.small, { color: colors.primary, flex: 1 }]}>
+          매수/매도 타임라인 보기
+        </Text>
         <Feather name="chevron-right" size={sizing.icon.sm} color={colors.primary} />
       </TouchableOpacity>
     </Surface>
@@ -246,9 +262,7 @@ function ComparisonHeader({ data }: { data: StrategyComparison }) {
         </Text>
         <View style={styles.headerDisclosure}>
           <InlineDisclosure
-            label={
-              data.ranking.allLowSample ? '표본 적음 · 비교 방법 보기' : '비교 방법 보기'
-            }
+            label={data.ranking.allLowSample ? '표본 적음 · 비교 방법 보기' : '비교 방법 보기'}
             icon={data.ranking.allLowSample ? 'alert-triangle' : 'info'}
           >
             <View style={styles.headerDiscRows}>
@@ -259,8 +273,8 @@ function ComparisonHeader({ data }: { data: StrategyComparison }) {
               ) : null}
               <Text style={[typo.small, { color: colors.textTertiary }]}>
                 동일 초기자본 {data.initialCapital.toLocaleString('ko-KR')}원으로 진입/청산/사이징
-                룰만 달리한 4개 백테스트 트랙을 누적수익률 내림차순으로 비교합니다. 카드를 탭하면
-                각 전략의 과거 매수/매도 타임라인을 볼 수 있어요.
+                룰만 달리한 4개 백테스트 트랙을 누적수익률 내림차순으로 비교합니다. 카드를 탭하면 각
+                전략의 과거 매수/매도 타임라인을 볼 수 있어요.
               </Text>
             </View>
           </InlineDisclosure>
@@ -297,7 +311,9 @@ export function StrategyComparisonSection() {
     setIsRefreshing(true);
     try {
       await Promise.all(
-        STRATEGY_REFRESH_KEYS.map((queryKey) => queryClient.refetchQueries({ queryKey, exact: true })),
+        STRATEGY_REFRESH_KEYS.map((queryKey) =>
+          queryClient.refetchQueries({ queryKey, exact: true }),
+        ),
       );
     } finally {
       setIsRefreshing(false);

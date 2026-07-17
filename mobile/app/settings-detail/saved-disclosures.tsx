@@ -1,16 +1,9 @@
 import React, { useCallback, useMemo } from 'react';
-import {
-  View,
-  Text,
-  FlatList,
-  StyleSheet,
-  TouchableOpacity,
-  RefreshControl,
-} from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
 import { Card } from '@components/common/Card';
@@ -78,56 +71,57 @@ export default function SavedDisclosuresScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: SavedDisclosure }) => {
-    const typeStyle = getTypeStyle(item.disclosureType, isDark);
-    // UXR-17(A-8): notifications 행 패턴 이식 — 행 전체를 단일 버튼으로 읽는 합성 라벨(유형·제목·기업명·날짜).
-    const rowA11yLabel = [
-      getTypeLabel(item.disclosureType),
-      item.reportName,
-      item.corpName,
-      formatYmdDots(item.rcpDt),
-    ]
-      .filter(Boolean)
-      .join(', ');
-    return (
-      <TouchableOpacity
-        activeOpacity={0.7}
-        onPress={() => router.push(`/disclosure/${item.rcpNo}`)}
-        accessibilityRole="button"
-        accessibilityLabel={rowA11yLabel}
-      >
-        <Card style={styles.card} variant="elevated">
-          <View style={styles.cardHeader}>
-            <View style={[styles.typeBadge, { backgroundColor: typeStyle.bg }]}>
-              <Text style={[typo.small, { color: typeStyle.text, fontWeight: '600' }]}>
-                {getTypeLabel(item.disclosureType)}
+      const typeStyle = getTypeStyle(item.disclosureType, isDark);
+      // UXR-17(A-8): notifications 행 패턴 이식 — 행 전체를 단일 버튼으로 읽는 합성 라벨(유형·제목·기업명·날짜).
+      const rowA11yLabel = [
+        getTypeLabel(item.disclosureType),
+        item.reportName,
+        item.corpName,
+        formatYmdDots(item.rcpDt),
+      ]
+        .filter(Boolean)
+        .join(', ');
+      return (
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => router.push(`/disclosure/${item.rcpNo}`)}
+          accessibilityRole="button"
+          accessibilityLabel={rowA11yLabel}
+        >
+          <Card style={styles.card} variant="elevated">
+            <View style={styles.cardHeader}>
+              <View style={[styles.typeBadge, { backgroundColor: typeStyle.bg }]}>
+                <Text
+                  style={[typo.small, { color: typeStyle.text, fontWeight: '600' }]}
+                  maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                >
+                  {getTypeLabel(item.disclosureType)}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.removeButton}
+                onPress={() => handleRemove(item.id, item.rcpNo)}
+                accessibilityRole="button"
+                accessibilityLabel="저장 해제"
+              >
+                <Ionicons name="bookmark" size={20} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+            <Text
+              style={[typo.bodyMedium, { color: colors.text, marginTop: spacing.sm }]}
+              numberOfLines={2}
+            >
+              {item.reportName}
+            </Text>
+            <View style={styles.cardFooter}>
+              <Text style={[typo.caption, { color: colors.textSecondary }]}>{item.corpName}</Text>
+              <Text style={[typo.caption, { color: colors.textTertiary }]}>
+                {formatYmdDots(item.rcpDt)}
               </Text>
             </View>
-            <TouchableOpacity
-              style={styles.removeButton}
-              onPress={() => handleRemove(item.id, item.rcpNo)}
-              accessibilityRole="button"
-              accessibilityLabel="저장 해제"
-            >
-              <Ionicons name="bookmark" size={20} color={colors.primary} />
-            </TouchableOpacity>
-          </View>
-          <Text
-            style={[typo.bodyMedium, { color: colors.text, marginTop: spacing.sm }]}
-            numberOfLines={2}
-          >
-            {item.reportName}
-          </Text>
-          <View style={styles.cardFooter}>
-            <Text style={[typo.caption, { color: colors.textSecondary }]}>
-              {item.corpName}
-            </Text>
-            <Text style={[typo.caption, { color: colors.textTertiary }]}>
-              {formatYmdDots(item.rcpDt)}
-            </Text>
-          </View>
-        </Card>
-      </TouchableOpacity>
-    );
+          </Card>
+        </TouchableOpacity>
+      );
     },
     [colors, typo, isDark, handleRemove],
   );

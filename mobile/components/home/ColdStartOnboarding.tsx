@@ -149,10 +149,15 @@ export function ColdStartOnboarding({
                 <Text
                   style={[
                     typo.captionMedium,
-                    { color: isSelected ? colors.primary : colors.text },
+                    {
+                      color: isSelected ? colors.primary : colors.text,
+                      flexShrink: 1,
+                      minWidth: 0,
+                    },
                   ]}
                   numberOfLines={1}
                   maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                  ellipsizeMode="tail"
                 >
                   {s.corpName}
                 </Text>
@@ -178,7 +183,10 @@ export function ColdStartOnboarding({
             <>
               <Ionicons name="star" size={16} color={colors.primaryForeground} />
               <Text
-                style={[typo.captionMedium, { color: colors.primaryForeground, marginLeft: spacing.xs }]}
+                style={[
+                  typo.captionMedium,
+                  { color: colors.primaryForeground, marginLeft: spacing.xs },
+                ]}
               >
                 {selected.length}개 등록하기
               </Text>
@@ -187,7 +195,10 @@ export function ColdStartOnboarding({
         </TouchableOpacity>
       ) : (
         <Text
-          style={[typo.small, { color: colors.textTertiary, marginTop: spacing.md, textAlign: 'center' }]}
+          style={[
+            typo.small,
+            { color: colors.textTertiary, marginTop: spacing.md, textAlign: 'center' },
+          ]}
         >
           지금 선택하지 않아도 언제든 추가할 수 있어요
         </Text>

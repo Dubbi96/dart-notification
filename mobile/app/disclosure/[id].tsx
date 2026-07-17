@@ -1,12 +1,5 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  Share,
-} from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Share } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Chip } from 'react-native-paper';
 import { Feather, Ionicons } from '@expo/vector-icons';
@@ -48,7 +41,10 @@ import { formatYmdDots } from '@utils/datetime';
 /** 공시 상세 정보 행 — onPress 없는 행도 허용(종목코드/고유번호 등 비대화형 행). */
 type InfoRow = { label: string; value: string; onPress?: () => void };
 
-function polarityColor(polarity: string, colors: { success: string; error: string; textSecondary: string }): string {
+function polarityColor(
+  polarity: string,
+  colors: { success: string; error: string; textSecondary: string },
+): string {
   if (polarity === 'POSITIVE') return colors.success;
   if (polarity === 'NEGATIVE') return colors.error;
   return colors.textSecondary;
@@ -118,7 +114,10 @@ export default function DisclosureDetailScreen() {
         haptics.success();
         showSnackbar(snackbarCopy.disclosureSaved, {
           duration: SNACKBAR_DURATION.success,
-          action: { label: '보관함에서 보기', onPress: () => router.push('/settings-detail/saved-disclosures') },
+          action: {
+            label: '보관함에서 보기',
+            onPress: () => router.push('/settings-detail/saved-disclosures'),
+          },
         });
       }
       refetchSaved();
@@ -181,7 +180,11 @@ export default function DisclosureDetailScreen() {
     ? { label: '종목코드', value: disclosure.stockCode }
     : { label: '고유번호', value: disclosure.corpCode };
   const infoRows: InfoRow[] = [
-    { label: '기업명', value: disclosure.corpName, onPress: () => router.push(`/company/${disclosure.corpCode}`) },
+    {
+      label: '기업명',
+      value: disclosure.corpName,
+      onPress: () => router.push(`/company/${disclosure.corpCode}`),
+    },
     stockCodeRow,
     { label: '공시유형', value: getTypeLabel(disclosure.disclosureType) },
     { label: '접수번호', value: disclosure.rcpNo },
@@ -248,8 +251,19 @@ export default function DisclosureDetailScreen() {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* Type Badge */}
-        <View style={[styles.typeBadge, { backgroundColor: getTypeStyle(disclosure.disclosureType, isDark).bg }]}>
-          <Text style={[typo.captionMedium, { color: getTypeStyle(disclosure.disclosureType, isDark).text }]}>
+        <View
+          style={[
+            styles.typeBadge,
+            { backgroundColor: getTypeStyle(disclosure.disclosureType, isDark).bg },
+          ]}
+        >
+          <Text
+            style={[
+              typo.captionMedium,
+              { color: getTypeStyle(disclosure.disclosureType, isDark).text },
+            ]}
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          >
             {getTypeLabel(disclosure.disclosureType)}
           </Text>
         </View>
@@ -275,24 +289,40 @@ export default function DisclosureDetailScreen() {
             ];
             const rowBody = (
               <>
-                <Text style={[typo.caption, styles.infoLabel, { color: colors.textSecondary }]}>{row.label}</Text>
+                <Text style={[typo.caption, styles.infoLabel, { color: colors.textSecondary }]}>
+                  {row.label}
+                </Text>
                 {/* DAR-305: 큰 글꼴서 긴 값(기업명 등)이 우측 ›를 화면 밖으로 밀지 않도록 값만 한 줄 말줄임, ›는 분리해 유지. */}
                 <View style={styles.infoValueWrap}>
                   <Text
-                    style={[typo.captionMedium, styles.infoValue, { color: row.onPress ? colors.primary : colors.text }]}
+                    style={[
+                      typo.captionMedium,
+                      styles.infoValue,
+                      { color: row.onPress ? colors.primary : colors.text, minWidth: 0 },
+                    ]}
                     numberOfLines={1}
+                    ellipsizeMode="tail"
                   >
                     {row.value}
                   </Text>
                   {row.onPress ? (
-                    <Text style={[typo.captionMedium, styles.infoChevron, { color: colors.primary }]}>{' ›'}</Text>
+                    <Text
+                      style={[typo.captionMedium, styles.infoChevron, { color: colors.primary }]}
+                    >
+                      {' ›'}
+                    </Text>
                   ) : null}
                 </View>
               </>
             );
             if (!row.onPress) {
               return (
-                <View key={row.label} style={rowStyle} accessible accessibilityLabel={`${row.label} ${row.value}`}>
+                <View
+                  key={row.label}
+                  style={rowStyle}
+                  accessible
+                  accessibilityLabel={`${row.label} ${row.value}`}
+                >
                   {rowBody}
                 </View>
               );
@@ -321,7 +351,10 @@ export default function DisclosureDetailScreen() {
         {disclosureEvent ? (
           <Surface
             elevation={0}
-            style={[styles.aiSection, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            style={[
+              styles.aiSection,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
           >
             {/* 섹션 헤더 — 탭하여 접기/펼치기(밀도 완화). 'AI 심층 분석'(cpu)과 다른 tag 아이콘으로 구분. */}
             <TouchableOpacity
@@ -351,78 +384,104 @@ export default function DisclosureDetailScreen() {
 
             {eventExpanded ? (
               <>
-            {/* 출처·시점 바(§7) — AI 분석이 언제 생성됐는지 상시 노출 */}
-            {disclosureEvent.extractedAt ? (
-              <ProvenanceBar
-                items={
-                  [
-                    { icon: 'clock', label: `분석 ${relativeTime(disclosureEvent.extractedAt)}` },
-                  ] as ProvenanceItem[]
-                }
-              />
-            ) : null}
+                {/* 출처·시점 바(§7) — AI 분석이 언제 생성됐는지 상시 노출 */}
+                {disclosureEvent.extractedAt ? (
+                  <ProvenanceBar
+                    items={
+                      [
+                        {
+                          icon: 'clock',
+                          label: `분석 ${relativeTime(disclosureEvent.extractedAt)}`,
+                        },
+                      ] as ProvenanceItem[]
+                    }
+                  />
+                ) : null}
 
-            {/* 이벤트 분류 */}
-            <View style={[styles.aiRow, { marginTop: spacing.sm }]}>
-              <Text style={[typo.small, { color: colors.textSecondary }]}>이벤트 유형</Text>
-              <Chip
-                compact
-                mode="flat"
-                // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
-                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-                style={[styles.aiChip, { backgroundColor: colors.surfaceSecondary }]}
-                textStyle={[typo.small, { color: colors.text }]}
-              >
-                {getEventTypeLabel(disclosureEvent.eventType)}
-              </Chip>
-            </View>
+                {/* 이벤트 분류 */}
+                <View style={[styles.aiRow, { marginTop: spacing.sm }]}>
+                  <Text style={[typo.small, { color: colors.textSecondary }]}>이벤트 유형</Text>
+                  <Chip
+                    compact
+                    mode="flat"
+                    // DAR-305: 고정 높이 칩 — OS 글꼴 확대 시 한글 받침 세로 클리핑 방지 배율 상한(DAR-174 정본).
+                    maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                    style={[styles.aiChip, { backgroundColor: colors.surfaceSecondary }]}
+                    textStyle={[typo.small, { color: colors.text }]}
+                  >
+                    {getEventTypeLabel(disclosureEvent.eventType)}
+                  </Chip>
+                </View>
 
-            {/* 이벤트 방향 (긍/부정) */}
-            <View style={styles.aiRow}>
-              <Text style={[typo.small, { color: colors.textSecondary }]}>이벤트 극성</Text>
-              <View style={styles.polarityRow}>
-                <Feather
-                  name={disclosureEvent.polarity === 'POSITIVE' ? 'trending-up' : disclosureEvent.polarity === 'NEGATIVE' ? 'trending-down' : 'minus'}
-                  size={14}
-                  color={polarityColor(disclosureEvent.polarity, colors)}
-                />
-                <Text style={[typo.captionMedium, { color: polarityColor(disclosureEvent.polarity, colors), marginLeft: spacing.xs }]}>
-                  {getPolarityLabel(disclosureEvent.polarity)}
-                </Text>
-              </View>
-            </View>
-
-            {/* 신뢰도(DAR-56) — 맨퍼센트 금지: 3단계 평문 + 'AI 자기보고 한계' 주석.
-                isAiAssisted=false면 '규칙 분류'로 표기(과신 차단). */}
-            <View style={styles.aiRowTop}>
-              <Text style={[typo.small, { color: colors.textSecondary }]}>신뢰도</Text>
-              <EvidenceMeta
-                ai={{
-                  confidence: disclosureEvent.confidence,
-                  isAiAssisted: disclosureEvent.isAiAssisted,
-                }}
-              />
-            </View>
-
-            {/* 핵심 수치(DAR-46 §3) — 추출된 이벤트 수치를 평문 라벨·단위로 통합 표시 */}
-            {keyFigures.length > 0 ? (
-              <View style={styles.keyFigures}>
-                <Text style={[typo.small, { color: colors.textSecondary, marginBottom: spacing.xs }]}>
-                  핵심 수치
-                </Text>
-                {keyFigures.map((fig) => (
-                  <View key={fig.key} style={styles.aiRow}>
-                    <Text style={[typo.small, { color: colors.textSecondary }]}>{fig.label}</Text>
-                    <Text style={[typo.captionMedium, { color: colors.text }]}>{fig.display}</Text>
+                {/* 이벤트 방향 (긍/부정) */}
+                <View style={styles.aiRow}>
+                  <Text style={[typo.small, { color: colors.textSecondary }]}>이벤트 극성</Text>
+                  <View style={styles.polarityRow}>
+                    <Feather
+                      name={
+                        disclosureEvent.polarity === 'POSITIVE'
+                          ? 'trending-up'
+                          : disclosureEvent.polarity === 'NEGATIVE'
+                            ? 'trending-down'
+                            : 'minus'
+                      }
+                      size={14}
+                      color={polarityColor(disclosureEvent.polarity, colors)}
+                    />
+                    <Text
+                      style={[
+                        typo.captionMedium,
+                        {
+                          color: polarityColor(disclosureEvent.polarity, colors),
+                          marginLeft: spacing.xs,
+                        },
+                      ]}
+                    >
+                      {getPolarityLabel(disclosureEvent.polarity)}
+                    </Text>
                   </View>
-                ))}
-              </View>
-            ) : null}
+                </View>
 
-            {/* 면책 문구 (인라인) — 기획 §5 공시 상세 AI 섹션 위치 */}
-            <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.sm }]}>
-              AI 분석은 참고 정보이며 투자 결정의 책임은 투자자 본인에게 있습니다.
-            </Text>
+                {/* 신뢰도(DAR-56) — 맨퍼센트 금지: 3단계 평문 + 'AI 자기보고 한계' 주석.
+                isAiAssisted=false면 '규칙 분류'로 표기(과신 차단). */}
+                <View style={styles.aiRowTop}>
+                  <Text style={[typo.small, { color: colors.textSecondary }]}>신뢰도</Text>
+                  <EvidenceMeta
+                    ai={{
+                      confidence: disclosureEvent.confidence,
+                      isAiAssisted: disclosureEvent.isAiAssisted,
+                    }}
+                  />
+                </View>
+
+                {/* 핵심 수치(DAR-46 §3) — 추출된 이벤트 수치를 평문 라벨·단위로 통합 표시 */}
+                {keyFigures.length > 0 ? (
+                  <View style={styles.keyFigures}>
+                    <Text
+                      style={[
+                        typo.small,
+                        { color: colors.textSecondary, marginBottom: spacing.xs },
+                      ]}
+                    >
+                      핵심 수치
+                    </Text>
+                    {keyFigures.map((fig) => (
+                      <View key={fig.key} style={styles.aiRow}>
+                        <Text style={[typo.small, { color: colors.textSecondary }]}>
+                          {fig.label}
+                        </Text>
+                        <Text style={[typo.captionMedium, { color: colors.text }]}>
+                          {fig.display}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+
+                {/* 면책 문구 (인라인) — 기획 §5 공시 상세 AI 섹션 위치 */}
+                <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.sm }]}>
+                  AI 분석은 참고 정보이며 투자 결정의 책임은 투자자 본인에게 있습니다.
+                </Text>
               </>
             ) : null}
           </Surface>

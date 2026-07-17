@@ -3,16 +3,13 @@ import { View, Text, ScrollView, RefreshControl, StyleSheet } from 'react-native
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
 import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
 import { useCollectionStatus } from '@hooks/useCollectionStatus';
 import { relativeTimeOrFallback, formatYmdDots } from '@utils/datetime';
-import type {
-  CollectionMaturity,
-  CollectionRunStatus,
-} from '@app-types/collection-status.types';
+import type { CollectionMaturity, CollectionRunStatus } from '@app-types/collection-status.types';
 
 // 수집 현황 화면 — DAR-63. 공시·재무·지표·모의 4개 카드로 커버리지·최근수집·성숙도 노출.
 // read-only 집계 소비. 테마토큰만 사용(하드코딩 색상 0), 빈/로딩/에러/접근성 처리.
@@ -53,7 +50,10 @@ function MaturityBadge({ maturity }: { maturity: CollectionMaturity }) {
       accessibilityLabel={`수집 성숙도: ${MATURITY_LABEL[maturity]}`}
     >
       <View style={[styles.badgeDot, { backgroundColor: color }]} />
-      <Text style={[typo.small, { color, fontWeight: '600' }]}>
+      <Text
+        style={[typo.small, { color, fontWeight: '600' }]}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+      >
         {MATURITY_LABEL[maturity]}
       </Text>
     </View>
@@ -65,7 +65,14 @@ function StatRow({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.statRow}>
       <Text style={[typo.caption, { color: colors.textSecondary }]}>{label}</Text>
-      <Text style={[typo.caption, { color: colors.text, fontWeight: '600' }]} numberOfLines={1}>
+      <Text
+        style={[
+          typo.caption,
+          { color: colors.text, fontWeight: '600', flexShrink: 1, minWidth: 0 },
+        ]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {value}
       </Text>
     </View>
@@ -81,7 +88,14 @@ interface CoverageCardProps {
   rows: { label: string; value: string }[];
 }
 
-function CoverageCard({ icon, title, metricLabel, metricValue, maturity, rows }: CoverageCardProps) {
+function CoverageCard({
+  icon,
+  title,
+  metricLabel,
+  metricValue,
+  maturity,
+  rows,
+}: CoverageCardProps) {
   const { colors, typography: typo } = useTheme();
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -115,7 +129,10 @@ export default function CollectionStatusScreen() {
   const { data, isLoading, isError, error, refetch, isRefetching } = useCollectionStatus();
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <ScreenHeader title="수집 현황" onBack={() => router.back()} />
 
       {isLoading ? (
@@ -147,7 +164,8 @@ export default function CollectionStatusScreen() {
           }
         >
           <Text style={[typo.caption, { color: colors.textSecondary, marginBottom: spacing.md }]}>
-            정보가 실제로 모이고 있는지 한눈에 확인하세요. 집계 {relativeTimeOrFallback(data.generatedAt)}.
+            정보가 실제로 모이고 있는지 한눈에 확인하세요. 집계{' '}
+            {relativeTimeOrFallback(data.generatedAt)}.
           </Text>
 
           <CoverageCard
@@ -157,8 +175,14 @@ export default function CollectionStatusScreen() {
             metricLabel="누적 공시"
             maturity={data.disclosure.maturity}
             rows={[
-              { label: '최근 신규', value: `${data.disclosure.lastNewCount.toLocaleString('ko-KR')}건` },
-              { label: '최근 수집', value: relativeTimeOrFallback(data.disclosure.lastCollectedAt) },
+              {
+                label: '최근 신규',
+                value: `${data.disclosure.lastNewCount.toLocaleString('ko-KR')}건`,
+              },
+              {
+                label: '최근 수집',
+                value: relativeTimeOrFallback(data.disclosure.lastCollectedAt),
+              },
               { label: '수집 상태', value: formatStatus(data.disclosure.lastStatus) },
             ]}
           />
@@ -196,7 +220,10 @@ export default function CollectionStatusScreen() {
             metricLabel="보유 포지션"
             maturity={data.simulation.maturity}
             rows={[
-              { label: '누적 체결', value: `${data.simulation.totalTrades.toLocaleString('ko-KR')}건` },
+              {
+                label: '누적 체결',
+                value: `${data.simulation.totalTrades.toLocaleString('ko-KR')}건`,
+              },
               { label: '최근 체결', value: relativeTimeOrFallback(data.simulation.lastTradeAt) },
             ]}
           />
@@ -275,7 +302,7 @@ const styles = StyleSheet.create({
   },
   badgeDot: {
     width: 6,
-    height: 6,
+    minHeight: 6,
     borderRadius: radius.full,
     marginRight: spacing.xs,
   },

@@ -32,7 +32,11 @@ import {
 import { pnlColor, formatPnlPercent } from '@utils/signalDisplay';
 import { currentPortfolioBasisLabel } from '@utils/marketQuoteDisplay';
 import { dedupeByStock } from '@utils/dedupe';
-import { groupedPortfolioTabs, pickLiveEmptyState, resolveInitialSubTab } from '@utils/portfolioTabs';
+import {
+  groupedPortfolioTabs,
+  pickLiveEmptyState,
+  resolveInitialSubTab,
+} from '@utils/portfolioTabs';
 
 import type { Position } from '@app-types/portfolio.types';
 import type { SortKey } from '@components/portfolio/PositionSearchBar';
@@ -76,7 +80,13 @@ function PnlHeadlineRow(summary: PnlHeadlineRowProps) {
         size={sizing.icon.sm}
         color={pnlColor(summary.totalPnlPercent, colors)}
       />
-      <Text style={[typo.bodyMedium, styles.headlinePnl, { color: pnlColor(summary.totalPnlPercent, colors) }]}>
+      <Text
+        style={[
+          typo.bodyMedium,
+          styles.headlinePnl,
+          { color: pnlColor(summary.totalPnlPercent, colors) },
+        ]}
+      >
         {formatSignedKrw(summary.totalPnl)} ({formatPnlPercent(summary.totalPnlPercent)})
       </Text>
     </View>
@@ -191,14 +201,16 @@ export default function PortfolioScreen() {
         return (b.weight ?? 0) - (a.weight ?? 0);
       }
       return (
-        (STATUS_ORDER[a.thesisStatus] - STATUS_ORDER[b.thesisStatus]) ||
-        ((b.exitScore ?? 0) - (a.exitScore ?? 0))
+        STATUS_ORDER[a.thesisStatus] - STATUS_ORDER[b.thesisStatus] ||
+        (b.exitScore ?? 0) - (a.exitScore ?? 0)
       );
     });
   }, [sortedPositions, searchQuery, sortKey]);
 
   const renderPosition = useCallback(
-    ({ item }: { item: Position }) => <PositionCard position={item} onPress={handlePositionPress} />,
+    ({ item }: { item: Position }) => (
+      <PositionCard position={item} onPress={handlePositionPress} />
+    ),
     [handlePositionPress],
   );
 
@@ -207,9 +219,7 @@ export default function PortfolioScreen() {
     const data = positionsQuery.data ?? [];
     return data.filter(
       (p) =>
-        p.exitScore !== undefined ||
-        p.thesisStatus === 'VIOLATED' ||
-        p.thesisStatus === 'EXPIRED',
+        p.exitScore !== undefined || p.thesisStatus === 'VIOLATED' || p.thesisStatus === 'EXPIRED',
     ).length;
   }, [positionsQuery.data]);
 
@@ -221,7 +231,13 @@ export default function PortfolioScreen() {
   const renderLive = () => {
     if (positionsQuery.isLoading) return <SkeletonList variant="buyScore" />;
     if (positionsQuery.isError) {
-      return <ApiErrorState error={positionsQuery.error} title="포지션을 불러오지 못했습니다." onRetry={positionsQuery.refetch} />;
+      return (
+        <ApiErrorState
+          error={positionsQuery.error}
+          title="포지션을 불러오지 못했습니다."
+          onRetry={positionsQuery.refetch}
+        />
+      );
     }
 
     const summary = summaryQuery.data;
@@ -260,129 +276,168 @@ export default function PortfolioScreen() {
             briefingQuery.refetch();
           }}
           ListHeaderComponent={
-          <View style={styles.liveHeader}>
-            {/* UXR-13 C-3: 요약 쿼리 상태를 명시 처리 — 실패 시 헤드라인 무음 소실 금지.
+            <View style={styles.liveHeader}>
+              {/* UXR-13 C-3: 요약 쿼리 상태를 명시 처리 — 실패 시 헤드라인 무음 소실 금지.
                 로딩은 자리 유지 스켈레톤(팝인 점프 제거), 캐시가 있으면 데이터 우선(리프레시
                 실패로 화면을 비우지 않음), 캐시 없는 실패만 컴팩트 인라인 에러+재시도
                 (EquityCurveCard '불러오지 못했습니다 · 다시 시도' 패턴 재사용). */}
-            {summaryQuery.isLoading ? (
-              <SummaryHeadlineSkeleton />
-            ) : summary ? (
-              <Surface elevation={1} style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                {/* DAR-356 GROUND-1: 총평가금액(대형) 1줄 + 손익 색조 1줄 = 2줄 헤드라인.
-                    무스크롤 최상단에서 '내 상태 어때?'를 2초 내 글랜스로 파악. */}
-                <View style={styles.summaryTopRow}>
-                  <Text style={[typo.small, { color: colors.textSecondary }]}>총 평가금액</Text>
-                  {/* DAR-356 GROUND-2: 신선도 정직 표기('기준: 실시간' | '기준: 장 마감'). */}
-                  <Text style={[typo.small, { color: colors.textTertiary }]}>{basisLabel}</Text>
-                </View>
-                {/* DAR-451 C2: 세 탭(실전·내 모의·시스템 모의) 총평가금액 헤드라인을 동일
-                    토큰(typo.h1 — DAR-356 글랜스 헤드라인)으로 통일. 실전 탭 기준 유지. */}
-                <Text
-                  style={[typo.h1, styles.headlineValue, { color: colors.text }]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
+              {summaryQuery.isLoading ? (
+                <SummaryHeadlineSkeleton />
+              ) : summary ? (
+                <Surface
+                  elevation={1}
+                  style={[
+                    styles.summary,
+                    { backgroundColor: colors.surface, borderColor: colors.border },
+                  ]}
                 >
-                  {summary.totalValue.toLocaleString()}원
-                </Text>
-                {/* UXR-13 C-6: 손익 행은 내 모의 탭과 공용 렌더(아이콘+bodyMedium 700+부호 정본). */}
-                <PnlHeadlineRow totalPnl={summary.totalPnl} totalPnlPercent={summary.totalPnlPercent} />
-                {/* DAR-163/356: 리스크 스냅샷(하드룰 위반 전폭 배너 우선 → 일손익·집중도 1줄). 없으면 미표시.
+                  {/* DAR-356 GROUND-1: 총평가금액(대형) 1줄 + 손익 색조 1줄 = 2줄 헤드라인.
+                    무스크롤 최상단에서 '내 상태 어때?'를 2초 내 글랜스로 파악. */}
+                  <View style={styles.summaryTopRow}>
+                    <Text style={[typo.small, { color: colors.textSecondary }]}>총 평가금액</Text>
+                    {/* DAR-356 GROUND-2: 신선도 정직 표기('기준: 실시간' | '기준: 장 마감'). */}
+                    <Text style={[typo.small, { color: colors.textTertiary }]}>{basisLabel}</Text>
+                  </View>
+                  {/* DAR-451 C2: 세 탭(실전·내 모의·시스템 모의) 총평가금액 헤드라인을 동일
+                    토큰(typo.h1 — DAR-356 글랜스 헤드라인)으로 통일. 실전 탭 기준 유지. */}
+                  <Text
+                    style={[
+                      typo.h1,
+                      styles.headlineValue,
+                      { color: colors.text, flexShrink: 1, minWidth: 0 },
+                    ]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                    ellipsizeMode="tail"
+                  >
+                    {summary.totalValue.toLocaleString()}원
+                  </Text>
+                  {/* UXR-13 C-6: 손익 행은 내 모의 탭과 공용 렌더(아이콘+bodyMedium 700+부호 정본). */}
+                  <PnlHeadlineRow
+                    totalPnl={summary.totalPnl}
+                    totalPnlPercent={summary.totalPnlPercent}
+                  />
+                  {/* DAR-163/356: 리스크 스냅샷(하드룰 위반 전폭 배너 우선 → 일손익·집중도 1줄). 없으면 미표시.
                     UXR-13 C-3: 캐시 우선(리프레시 실패가 하드룰 경보를 지우지 않도록) —
                     캐시 없는 실패만 '스냅샷 없음'과 구분해 1줄 고지+재시도(무음 소실 방지). */}
-                {riskQuery.data ? (
-                  <PortfolioRiskBadge snapshot={riskQuery.data} style={styles.riskBadge} />
-                ) : riskQuery.isError ? (
+                  {riskQuery.data ? (
+                    <PortfolioRiskBadge snapshot={riskQuery.data} style={styles.riskBadge} />
+                  ) : riskQuery.isError ? (
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={handleRetryRisk}
+                      accessibilityRole="button"
+                      accessibilityLabel="리스크 정보를 불러오지 못했습니다. 다시 시도"
+                      style={[styles.inlineRetry, styles.riskBadge]}
+                    >
+                      <Feather name="refresh-cw" size={14} color={colors.primary} />
+                      <Text
+                        style={[typo.small, { color: colors.primary }]}
+                        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+                      >
+                        리스크 정보를 불러오지 못했습니다 · 다시 시도
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {summary.mddBreached ? (
+                    <Banner
+                      visible
+                      actions={[]}
+                      style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}
+                    >
+                      <Text style={[typo.small, { color: colors.error }]}>
+                        포트폴리오 손실 한도 초과 위험 — 포지션 점검이 필요합니다.
+                      </Text>
+                    </Banner>
+                  ) : null}
+                </Surface>
+              ) : summaryQuery.isError ? (
+                <Surface
+                  elevation={1}
+                  style={[
+                    styles.summary,
+                    { backgroundColor: colors.surface, borderColor: colors.border },
+                  ]}
+                >
+                  <Text style={[typo.small, { color: colors.textSecondary }]}>총 평가금액</Text>
                   <TouchableOpacity
                     activeOpacity={0.7}
-                    onPress={handleRetryRisk}
+                    onPress={handleRetryHeadline}
                     accessibilityRole="button"
-                    accessibilityLabel="리스크 정보를 불러오지 못했습니다. 다시 시도"
-                    style={[styles.inlineRetry, styles.riskBadge]}
+                    accessibilityLabel="요약을 불러오지 못했습니다. 다시 시도"
+                    style={styles.inlineRetry}
                   >
                     <Feather name="refresh-cw" size={14} color={colors.primary} />
                     <Text style={[typo.small, { color: colors.primary }]}>
-                      리스크 정보를 불러오지 못했습니다 · 다시 시도
+                      요약을 불러오지 못했습니다 · 다시 시도
                     </Text>
                   </TouchableOpacity>
-                ) : null}
-                {summary.mddBreached ? (
-                  <Banner visible actions={[]} style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}>
-                    <Text style={[typo.small, { color: colors.error }]}>
-                      포트폴리오 손실 한도 초과 위험 — 포지션 점검이 필요합니다.
-                    </Text>
-                  </Banner>
-                ) : null}
-              </Surface>
-            ) : summaryQuery.isError ? (
-              <Surface elevation={1} style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Text style={[typo.small, { color: colors.textSecondary }]}>총 평가금액</Text>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={handleRetryHeadline}
-                  accessibilityRole="button"
-                  accessibilityLabel="요약을 불러오지 못했습니다. 다시 시도"
-                  style={styles.inlineRetry}
-                >
-                  <Feather name="refresh-cw" size={14} color={colors.primary} />
-                  <Text style={[typo.small, { color: colors.primary }]}>
-                    요약을 불러오지 못했습니다 · 다시 시도
-                  </Text>
-                </TouchableOpacity>
-              </Surface>
-            ) : null}
+                </Surface>
+              ) : null}
 
-            {/* W14 오늘의 브리핑 — 요약(글랜스 존, DAR-356) 바로 아래 상단 배치.
+              {/* W14 오늘의 브리핑 — 요약(글랜스 존, DAR-356) 바로 아래 상단 배치.
                 내 종목 당일 이벤트·일간 손익·점검 포지션 결합 표면(각 항목 딥링크).
                 섹션 0건·브리핑 null·로딩·에러는 전부 무렌더(0건 억제 — 소음 0). */}
-            <TodayBriefingSection briefing={briefingQuery.data} />
+              <TodayBriefingSection briefing={briefingQuery.data} />
 
-            {/* DAR-356: '오늘 점검할 포지션'은 요약 아래 세컨더리 + 기본 접힘. 글랜스 존을 덮지 않는다.
+              {/* DAR-356: '오늘 점검할 포지션'은 요약 아래 세컨더리 + 기본 접힘. 글랜스 존을 덮지 않는다.
                 W14: 브리핑이 점검 섹션(같은 소스)을 그리는 동안은 숨김 — 점검 표면 이중 노출 방지. */}
-            {todayCheckCount > 0 && !briefingCoversChecks ? (
-              <View>
-                <TouchableOpacity
-                  style={[styles.collapseToggle, { borderColor: colors.borderLight, backgroundColor: colors.surface }]}
-                  onPress={() => setShowTodayCheck((v) => !v)}
-                  activeOpacity={0.7}
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: showTodayCheck }}
-                  accessibilityLabel={`오늘 점검할 포지션 ${todayCheckCount}건 ${showTodayCheck ? '접기' : '펼치기'}`}
-                >
-                  <Feather name="check-circle" size={14} color={colors.textSecondary} />
-                  <Text style={[typo.captionMedium, styles.collapseLabel, { color: colors.text }]}>
-                    오늘 점검할 포지션 {todayCheckCount}건
-                  </Text>
-                  <Feather name={showTodayCheck ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textSecondary} />
-                </TouchableOpacity>
-                {showTodayCheck ? (
-                  <TodayCheckSlot positions={positionsQuery.data ?? []} onPress={handlePositionPress} />
-                ) : null}
-              </View>
-            ) : null}
-          </View>
-        }
-        ListEmptyComponent={
-          // DAR-212: 실전은 실제 주문 엔드포인트가 없어(Engine5 게이트) 항상 빈 상태일 수 있다.
-          // 매수 유도 CTA 대신 '준비 중'을 정직하게 안내하고, 지금 쓸 수 있는 '내 모의'로 보낸다.
-          pickLiveEmptyState(positionsQuery.data?.length ?? 0) === 'preparing' ? (
-            <EmptyState
-              icon="clock"
-              title="실전 거래는 준비 중이에요"
-              description="실제 주문 기능은 아직 제공되지 않아요. 지금은 '내 모의' 탭에서 전략을 미리 확인해 보세요."
-              actionLabel="내 모의 보기"
-              onAction={() => setSubTab('paper')}
-            />
-          ) : (
-            <EmptyState
-              icon="search"
-              title="검색 결과가 없어요"
-              actionLabel="초기화"
-              onAction={() => setSearchQuery('')}
-            />
-          )
-        }
+              {todayCheckCount > 0 && !briefingCoversChecks ? (
+                <View>
+                  <TouchableOpacity
+                    style={[
+                      styles.collapseToggle,
+                      { borderColor: colors.borderLight, backgroundColor: colors.surface },
+                    ]}
+                    onPress={() => setShowTodayCheck((v) => !v)}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: showTodayCheck }}
+                    accessibilityLabel={`오늘 점검할 포지션 ${todayCheckCount}건 ${showTodayCheck ? '접기' : '펼치기'}`}
+                  >
+                    <Feather name="check-circle" size={14} color={colors.textSecondary} />
+                    <Text
+                      style={[typo.captionMedium, styles.collapseLabel, { color: colors.text }]}
+                    >
+                      오늘 점검할 포지션 {todayCheckCount}건
+                    </Text>
+                    <Feather
+                      name={showTodayCheck ? 'chevron-up' : 'chevron-down'}
+                      size={16}
+                      color={colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+                  {showTodayCheck ? (
+                    <TodayCheckSlot
+                      positions={positionsQuery.data ?? []}
+                      onPress={handlePositionPress}
+                    />
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          }
+          ListEmptyComponent={
+            // DAR-212: 실전은 실제 주문 엔드포인트가 없어(Engine5 게이트) 항상 빈 상태일 수 있다.
+            // 매수 유도 CTA 대신 '준비 중'을 정직하게 안내하고, 지금 쓸 수 있는 '내 모의'로 보낸다.
+            pickLiveEmptyState(positionsQuery.data?.length ?? 0) === 'preparing' ? (
+              <EmptyState
+                icon="clock"
+                title="실전 거래는 준비 중이에요"
+                description="실제 주문 기능은 아직 제공되지 않아요. 지금은 '내 모의' 탭에서 전략을 미리 확인해 보세요."
+                actionLabel="내 모의 보기"
+                onAction={() => setSubTab('paper')}
+              />
+            ) : (
+              <EmptyState
+                icon="search"
+                title="검색 결과가 없어요"
+                actionLabel="초기화"
+                onAction={() => setSearchQuery('')}
+              />
+            )
+          }
         />
       </View>
     );
@@ -391,7 +446,13 @@ export default function PortfolioScreen() {
   const renderPaper = () => {
     if (paperQuery.isLoading) return <SkeletonList variant="buyScore" />;
     if (paperQuery.isError) {
-      return <ApiErrorState error={paperQuery.error} title="모의투자 정보를 불러오지 못했습니다." onRetry={paperQuery.refetch} />;
+      return (
+        <ApiErrorState
+          error={paperQuery.error}
+          title="모의투자 정보를 불러오지 못했습니다."
+          onRetry={paperQuery.refetch}
+        />
+      );
     }
 
     const paper = paperQuery.data;
@@ -412,21 +473,36 @@ export default function PortfolioScreen() {
         onRefresh={paperQuery.refetch}
         ListHeaderComponent={
           <View style={styles.paperHeader}>
-            <Banner visible actions={[]} icon="information" style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}>
+            <Banner
+              visible
+              actions={[]}
+              icon="information"
+              style={[styles.banner, { backgroundColor: colors.surfaceSecondary }]}
+            >
               <Text style={[typo.small, { color: colors.info }]}>
                 모의투자 중 — 실제 돈이 투입되지 않습니다.
               </Text>
             </Banner>
             {paper?.started ? (
-              <Surface elevation={1} style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Surface
+                elevation={1}
+                style={[
+                  styles.summary,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}
+              >
                 <Text style={[typo.small, { color: colors.textSecondary }]}>가상 총자산</Text>
                 {/* DAR-451 C2: 실전 탭과 동일 토큰(typo.h1)으로 통일. 실전 헤드라인과 같은
                     overflow 안전장치(adjustsFontSizeToFit)도 정합으로 동반. */}
                 <Text
-                  style={[typo.h1, { color: colors.text, marginTop: spacing.xs }]}
+                  style={[
+                    typo.h1,
+                    { color: colors.text, marginTop: spacing.xs, flexShrink: 1, minWidth: 0 },
+                  ]}
                   numberOfLines={1}
                   adjustsFontSizeToFit
                   minimumFontScale={0.7}
+                  ellipsizeMode="tail"
                 >
                   {paper.totalAsset.toLocaleString()}원
                 </Text>
@@ -434,7 +510,9 @@ export default function PortfolioScreen() {
                     아이콘·bodyMedium 700·양수 '+' 부호 병기(같은 지표=같은 시각 문법). */}
                 <PnlHeadlineRow totalPnl={paper.totalPnl} totalPnlPercent={paper.totalPnlPercent} />
                 {typeof paper.signalHitRate === 'number' ? (
-                  <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.sm }]}>
+                  <Text
+                    style={[typo.small, { color: colors.textSecondary, marginTop: spacing.sm }]}
+                  >
                     신호 적중률 {Math.round(paper.signalHitRate * 100)}%
                   </Text>
                 ) : null}
@@ -458,7 +536,10 @@ export default function PortfolioScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <Text style={[typo.h2, { color: colors.text }]}>포트폴리오</Text>
         {/* DAR-372: 자동매매 상태(읽기전용 투명성) 진입을 헤더 상단에 항상 노출.
@@ -524,8 +605,13 @@ export default function PortfolioScreen() {
                           maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
                           style={[
                             typo.captionMedium,
-                            { color: isActive ? colors.primaryForeground : colors.textSecondary },
+                            {
+                              color: isActive ? colors.primaryForeground : colors.textSecondary,
+                              flexShrink: 1,
+                              minWidth: 0,
+                            },
                           ]}
+                          ellipsizeMode="tail"
                         >
                           {tab.label}
                         </Text>
@@ -538,17 +624,19 @@ export default function PortfolioScreen() {
           </View>
 
           <View style={styles.body}>
-            {subTab === 'live'
-              ? renderLive()
-              : subTab === 'paper'
-                ? renderPaper()
-                : subTab === 'sim'
-                  ? <SimulationStatusSection />
-                  : subTab === 'strategy'
-                    ? <StrategyComparisonSection />
-                    : subTab === 'persona'
-                      ? <PersonaTrackSection />
-                      : <StyleComparisonSection />}
+            {subTab === 'live' ? (
+              renderLive()
+            ) : subTab === 'paper' ? (
+              renderPaper()
+            ) : subTab === 'sim' ? (
+              <SimulationStatusSection />
+            ) : subTab === 'strategy' ? (
+              <StrategyComparisonSection />
+            ) : subTab === 'persona' ? (
+              <PersonaTrackSection />
+            ) : (
+              <StyleComparisonSection />
+            )}
           </View>
         </>
       )}

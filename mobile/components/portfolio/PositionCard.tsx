@@ -5,11 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { PriceChangeChip } from '@components/common/PriceChangeChip';
-import {
-  thesisStatusColor,
-  positionSystemAction,
-  formatPnlPercent,
-} from '@utils/signalDisplay';
+import { thesisStatusColor, positionSystemAction, formatPnlPercent } from '@utils/signalDisplay';
 
 import type { Position } from '@app-types/portfolio.types';
 
@@ -50,11 +46,7 @@ function PositionCardBase({ position, onPress }: PositionCardProps) {
 
   // DAR-357 + DAR-368: 좌측 엣지 컬러바 — 자동 매도 예정(하드룰 손절)은 경고색으로 도드라지게,
   // 그 외 비정상 상태(훼손/만료/관찰)도 상태색, 정상(ACTIVE)은 중립 헤어라인(거짓 경보 방지).
-  const barColor = isAutoSell
-    ? colors.error
-    : status === 'ACTIVE'
-      ? colors.border
-      : statusColor;
+  const barColor = isAutoSell ? colors.error : status === 'ACTIVE' ? colors.border : statusColor;
 
   // DAR-368: 자동 매도(하드룰 손절·청산)만 솔리드 경고색 강조 — 시스템이 실제로 체결을 예정함을 우선 노출.
   const chipBg = isAutoSell ? colors.error : colors.surfaceSecondary;
@@ -87,7 +79,11 @@ function PositionCardBase({ position, onPress }: PositionCardProps) {
         <View style={[styles.accentBar, { backgroundColor: barColor }]} />
 
         <View style={styles.header}>
-          <Text style={[typo.bodyMedium, styles.name, { color: colors.text }]} numberOfLines={1}>
+          <Text
+            style={[typo.bodyMedium, styles.name, { color: colors.text, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {position.corpName}
           </Text>
           <Chip
@@ -116,7 +112,11 @@ function PositionCardBase({ position, onPress }: PositionCardProps) {
         <PriceChangeChip value={position.pnlPercent} context="pnl" style={styles.pnlChip} />
 
         {metaText ? (
-          <Text style={[typo.small, { color: colors.textTertiary }]} numberOfLines={1}>
+          <Text
+            style={[typo.small, { color: colors.textTertiary, flexShrink: 1, minWidth: 0 }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {metaText}
           </Text>
         ) : null}

@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import Svg, { Line, Rect, Circle, Polyline, Polygon } from 'react-native-svg';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing } from '@theme/spacing';
 import { returnColor } from '@utils/numberFormat';
 import { useCandleScrub } from '@hooks/useCandleScrub';
@@ -177,7 +177,10 @@ function OverlayChip({ label, color, selected, disabled, onToggle }: OverlayChip
       ]}
     >
       <View style={[styles.overlayDot, { backgroundColor: color }]} />
-      <Text style={[typo.small, { color: selected ? colors.text : colors.textSecondary }]}>
+      <Text
+        style={[typo.small, { color: selected ? colors.text : colors.textSecondary }]}
+        maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+      >
         {label}
       </Text>
     </Pressable>
@@ -484,7 +487,10 @@ export function DailyCandleChart({
       <View style={[styles.stateBox, { height: PRICE_HEIGHT + VOLUME_HEIGHT }]}>
         <Feather name="bar-chart-2" size={28} color={colors.textTertiary} />
         <Text
-          style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.sm, textAlign: 'center' }]}
+          style={[
+            typo.caption,
+            { color: colors.textSecondary, marginTop: spacing.sm, textAlign: 'center' },
+          ]}
         >
           일봉 데이터가 아직 없어요{'\n'}이 종목의 KRX 일봉이 적재되면 표시됩니다
         </Text>
@@ -568,6 +574,7 @@ export function DailyCandleChart({
                   typo.small,
                   { color: indicatorStale ? colors.warning : colors.textTertiary },
                 ]}
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
               >
                 지표 기준일 {tradeDateLabel(indicatorBaseDate)}
                 {indicatorStale ? ' · 최신 캔들보다 이전(지연)' : ''}
@@ -635,7 +642,12 @@ export function DailyCandleChart({
                 strokeWidth={1}
                 strokeDasharray="3 3"
               />
-              <Circle cx={xCenter(activeIndex)} cy={yPrice(active.close)} r={3} fill={colors.text} />
+              <Circle
+                cx={xCenter(activeIndex)}
+                cy={yPrice(active.close)}
+                r={3}
+                fill={colors.text}
+              />
             </Svg>
             {/* 가로 스크럽 오버레이(E6) — 전폭·전체 높이(≥44pt) 터치영역. 좌우로 문질러 캔들 선택. */}
             <View

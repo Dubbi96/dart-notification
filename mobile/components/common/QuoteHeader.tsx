@@ -74,10 +74,15 @@ export function QuoteHeader({ quote, updatedAt, style }: QuoteHeaderProps) {
             style={[
               typo.small,
               styles.sourceText,
-              { color: src.isRealtime ? colors.success : colors.textSecondary },
+              {
+                color: src.isRealtime ? colors.success : colors.textSecondary,
+                flexShrink: 1,
+                minWidth: 0,
+              },
             ]}
             numberOfLines={1}
             maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+            ellipsizeMode="tail"
           >
             {src.label}
           </Text>

@@ -51,12 +51,15 @@ export class DartQuotaReservedError extends Error {
  *   일 500~600건 라이브 공시 + 재시도 여유 → 3,000 예약.
  * - LIVE_PARSE_CEILING = DAILY_BUDGET - LIVE_RESERVE: 라이브 문서 fetch 누적 상한(17,000).
  * - BULK_CEILING = LIVE_PARSE_CEILING - LIVE_PARSE_RESERVE: 벌크(문서/백필/재무) 누적 상한(14,000).
+ *
+ * DAR-536: /ops/dart-quota-forensics 가 야간 소비 정량을 이 예산 계층과 대조 판정하므로
+ *   export 한다(수치 SSOT — ops 쪽 사본 금지).
  */
-const DART_DAILY_BUDGET = 19_000;
-const DART_LIVE_RESERVE = 2_000;
-const DART_LIVE_PARSE_RESERVE = 3_000;
-const DART_LIVE_PARSE_CEILING = DART_DAILY_BUDGET - DART_LIVE_RESERVE;
-const DART_BULK_CEILING = DART_LIVE_PARSE_CEILING - DART_LIVE_PARSE_RESERVE;
+export const DART_DAILY_BUDGET = 19_000;
+export const DART_LIVE_RESERVE = 2_000;
+export const DART_LIVE_PARSE_RESERVE = 3_000;
+export const DART_LIVE_PARSE_CEILING = DART_DAILY_BUDGET - DART_LIVE_RESERVE;
+export const DART_BULK_CEILING = DART_LIVE_PARSE_CEILING - DART_LIVE_PARSE_RESERVE;
 
 /**
  * W5 리얼타임성 ④: 라이브 목록수집 예약분(LIVE_RESERVE) 소진 임계 알람.
@@ -75,7 +78,7 @@ const DART_LIVE_RESERVE_ALERT_REMAINING = Math.floor(
  * 최소화한다(실제 020 관측 시엔 스로틀 무시하고 즉시 영속). 재기동 시 최대 이 스텝만큼만
  * 저평가(항상 실소비 이하 → 예약분을 더 보호하는 안전 방향)될 수 있다.
  */
-const DART_QUOTA_PERSIST_STEP = 200;
+export const DART_QUOTA_PERSIST_STEP = 200;
 
 export interface DartDisclosureItem {
   corp_code: string;

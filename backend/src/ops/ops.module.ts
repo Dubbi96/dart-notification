@@ -19,6 +19,9 @@ import { TesterEventService } from './tester-event.service';
 // DAR-513(Wave A/A3): 에디션 밀도 실측 — 최근 60거래일 신호 분포 진단(read-only, 기존 테이블만).
 import { EditionDensityController } from './edition-density.controller';
 import { EditionDensityService } from './edition-density.service';
+// DAR-536: DART 야간 쿼터 소진 포렌식 — 소비 경로 정량 분해 + DAR-532 가설 판정(read-only).
+import { DartQuotaForensicsController } from './dart-quota-forensics.controller';
+import { DartQuotaForensicsService } from './dart-quota-forensics.service';
 import { OpsDailyReportService } from './ops-daily-report.service';
 import { OpsDailyReportScheduler } from './ops-daily-report.scheduler';
 import { BiweeklyTrackReviewService } from './biweekly-track-review.service';
@@ -78,6 +81,8 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
     TesterEventController,
     // DAR-513: GET /ops/edition-density — 최근 N거래일 에디션 신호 분포 + 밀도 판정.
     EditionDensityController,
+    // DAR-536: GET /ops/dart-quota-forensics — 야간 쿼터 소비 경로 정량 + 재기동 가설 판정.
+    DartQuotaForensicsController,
   ],
   providers: [
     OpsMetricsService,
@@ -89,6 +94,8 @@ import { ExternalKeysHealthIndicator } from './indicators/external-keys-health.i
     TesterEventService,
     // DAR-513: 에디션 밀도 실측 서비스(trading_signals·stock_daily_prices read-only 집계).
     EditionDensityService,
+    // DAR-536: 쿼터 포렌식 서비스(수집/문서/재무/지분/크론 로그 read-only 집계).
+    DartQuotaForensicsService,
     // DAR-477(견고화 W0·P05): 일일 운영 리포트 생성 서비스 + 20:30 KST 발송 스케줄러.
     OpsDailyReportService,
     OpsDailyReportScheduler,

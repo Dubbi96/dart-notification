@@ -66,6 +66,10 @@ export interface ParsedJson {
   existingShares?: number;
   /** 희석률 = newShares / (newShares + existingShares) */
   dilutionRate?: number;
+  /** 청약(예정)일 YYYY-MM-DD — 기간 표기(시작~종료)는 시작일 (DAR-538) */
+  subscriptionDate?: string;
+  /** 신주 상장 예정일 YYYY-MM-DD (DAR-538) */
+  listingDate?: string;
 
   // ── 전환사채·신주인수권부사채 (CB_BW_ISSUANCE) ───────────
   /** 발행 금액 (원) */

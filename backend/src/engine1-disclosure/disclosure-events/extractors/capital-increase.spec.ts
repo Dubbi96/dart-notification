@@ -155,4 +155,48 @@ describe('capital-increase extract', () => {
       expect(result.partialFieldsPresent).toBe(false);
     });
   });
+
+  describe('청약일·상장예정일 (DAR-538 예정 이벤트 캘린더)', () => {
+    it('parsedJson의 정규화 날짜를 그대로 전달한다', () => {
+      const parsed = makeParsedJson({
+        subscriptionDate: '2026-08-03',
+        listingDate: '2026-08-21',
+      });
+      const result = extract(parsed, '');
+      expect(result.subscriptionDate).toBe('2026-08-03');
+      expect(result.listingDate).toBe('2026-08-21');
+    });
+
+    it('YYYY.MM.DD·YYYYMMDD 표기도 YYYY-MM-DD로 정규화한다', () => {
+      const parsed = makeParsedJson({
+        subscriptionDate: '2026.08.03',
+        listingDate: '20260821',
+      });
+      const result = extract(parsed, '');
+      expect(result.subscriptionDate).toBe('2026-08-03');
+      expect(result.listingDate).toBe('2026-08-21');
+    });
+
+    it('결측·형식 불일치는 null — 날짜 발명 금지', () => {
+      const missing = extract(makeParsedJson({}), '');
+      expect(missing.subscriptionDate).toBeNull();
+      expect(missing.listingDate).toBeNull();
+
+      const invalid = extract(
+        makeParsedJson({ subscriptionDate: '미정', listingDate: '2026년 중' }),
+        '',
+      );
+      expect(invalid.subscriptionDate).toBeNull();
+      expect(invalid.listingDate).toBeNull();
+    });
+
+    it('날짜만 추출돼도 유상증자 단서로 회수한다 (partialFieldsPresent=true)', () => {
+      const parsed = makeParsedJson({
+        docType: 'OTHER',
+        subscriptionDate: '2026-08-03',
+      });
+      const result = extract(parsed, '');
+      expect(result.partialFieldsPresent).toBe(true);
+    });
+  });
 });

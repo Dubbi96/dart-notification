@@ -66,6 +66,10 @@ export function extract(parsedJson: ParsedJson, reportName: string): CapitalIncr
     // derivedDataMissing: dilutionRate 계산 불가 시 true
     const derivedDataMissing = dilutionRate === null;
 
+    // DAR-538: 예정 이벤트 캘린더 — 청약일·신주 상장예정일. 형식 불일치는 null(발명 금지).
+    const subscriptionDate = normalizeDate(parsedJson.subscriptionDate ?? null);
+    const listingDate = normalizeDate(parsedJson.listingDate ?? null);
+
     // DAR-340: 부분 단서 존재 여부 — 필수 수치(newShares·fundingAmount)가 모두 비어도
     //   ①파서가 유상증자 문서로 식별(docType) ②발행방식 분류 가능(issueType≠UNKNOWN,
     //   "발행주식수+모집금액" 표 헤더 등에서 발행방식 단서) ③부수 수치(할인율·기존주식수·
@@ -78,7 +82,10 @@ export function extract(parsedJson: ParsedJson, reportName: string): CapitalIncr
       existingShares !== null ||
       dilutionRate !== null ||
       newShares !== null ||
-      fundingAmount !== null;
+      fundingAmount !== null ||
+      // DAR-538: 청약일·상장예정일도 유상증자 문서 단서다(날짜만 추출돼도 회수 대상).
+      subscriptionDate !== null ||
+      listingDate !== null;
 
     return {
       issueType,
@@ -91,8 +98,8 @@ export function extract(parsedJson: ParsedJson, reportName: string): CapitalIncr
       referencePrice: null,   // 표에서 추출 — 고도화 단계
       discountRate,
       thirdPartyName: null,   // 표에서 추출 — 고도화 단계
-      subscriptionDate: null,
-      listingDate: null,
+      subscriptionDate,
+      listingDate,
       derivedDataMissing,
       partialFieldsPresent,
     };
@@ -119,6 +126,22 @@ function inferIssueType(
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+// DAR-538: dividend.ts normalizeDate와 동일 규약 — YYYY.MM.DD / YYYY/MM/DD /
+//   YYYYMMDD / YYYY-MM-DD만 수용, 그 외 null (날짜 발명 금지).
+function normalizeDate(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const dotSlash = raw.match(/^(\d{4})[./](\d{2})[./](\d{2})$/);
+    if (dotSlash) return `${dotSlash[1]}-${dotSlash[2]}-${dotSlash[3]}`;
+    const compact = raw.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function emptyResult(): CapitalIncreaseData {

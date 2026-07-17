@@ -22,6 +22,7 @@ import { DartApiModule } from './engine1-disclosure/dart-api/dart-api.module';
 import { ExpoPushModule } from './expo-push/expo-push.module';
 import { DisclosureDocumentsModule } from './engine1-disclosure/disclosure-documents/disclosure-documents.module';
 import { DisclosureEventsModule } from './engine1-disclosure/disclosure-events/disclosure-events.module';
+import { UpcomingEventsModule } from './engine1-disclosure/upcoming-events/upcoming-events.module';
 import { PipelineModule } from './engine1-disclosure/pipeline/pipeline.module';
 import { FinancialsModule } from './engine1-disclosure/financials/financials.module';
 import { InsiderHoldingsModule } from './engine1-disclosure/insider-holdings/insider-holdings.module';
@@ -106,6 +107,8 @@ import {
     ExpoPushModule,
     DisclosureDocumentsModule,
     DisclosureEventsModule,
+    // 공시발 예정 이벤트 캘린더 v1 — 관심기업 D-day (DAR-538, 읽기 전용)
+    UpcomingEventsModule,
     // 수집→파싱→이벤트→AI 폐루프 견고화 + 누락 backfill·관측 (DAR-126)
     PipelineModule,
     FinancialsModule,

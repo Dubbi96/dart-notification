@@ -58,12 +58,15 @@ cd backend
 
 ```env
 DATABASE_URL="postgresql://user:password@localhost:5432/dart_notification"
-JWT_SECRET="your-secret-key"
-JWT_REFRESH_SECRET="your-refresh-secret-key"
+JWT_SECRET="your-jwt-secret-key"
+JWT_REFRESH_SECRET="your-jwt-refresh-secret-key"
 DART_API_KEY="your-dart-api-key"
-KAKAO_CLIENT_ID="your-kakao-rest-api-key"
-KAKAO_REDIRECT_URI="http://localhost:3000/auth/kakao/callback"
+EXPO_PUSH_ACCESS_TOKEN="your-expo-push-access-token"
+KAKAO_REST_API_KEY="your-kakao-rest-api-key"   # 모바일 EXPO_PUBLIC_KAKAO_REST_API_KEY 와 동일 앱의 REST API 키
+KAKAO_CLIENT_SECRET=""                          # 카카오 로그인 > 보안 > Client Secret 사용 시에만 (미사용 시 빈 값)
 ```
+
+> Redirect URI(`http://localhost:3000/auth/kakao/callback`)는 백엔드 `.env`가 아니라 2단계의 **카카오 개발자 콘솔**에 등록한다. 전체 예시는 `backend/.env.example` 참조.
 
 ### 4.2 의존성 설치 및 DB 마이그레이션
 
@@ -183,4 +186,4 @@ npx expo start --tunnel   # 방화벽 문제 시
 
 ---
 
-**마지막 업데이트**: 2026-07-02
+**마지막 업데이트**: 2026-07-17 (DAR-548 정본 동기화 감사 — 백엔드 `.env` 카카오 키 이름 실코드 정합: `KAKAO_CLIENT_ID`/`KAKAO_REDIRECT_URI` → `KAKAO_REST_API_KEY`/`KAKAO_CLIENT_SECRET`, `EXPO_PUSH_ACCESS_TOKEN` 추가) / 이전: 2026-07-02

@@ -146,6 +146,61 @@ describe('mapKeyValues - PAID_IN_CAPITAL_INCREASE', () => {
       expect(result.dilutionRate).toBeCloseTo(expected, 2);
     }
   });
+
+  // DAR-538: 예정 이벤트 캘린더 — 청약일·신주 상장예정일 추출
+  const dateTable = (rows: string[][]) => [
+    {
+      tableIndex: 0,
+      headers: [],
+      rows,
+      hasColspan: false,
+      hasRowspan: false,
+    },
+  ];
+
+  it('청약예정일·상장예정일 라벨에서 날짜를 추출해야 한다 (DAR-538)', () => {
+    const result = mapKeyValues(
+      dateTable([
+        ['청약예정일', '2026.08.03'],
+        ['신주의 상장 예정일', '2026.08.21'],
+      ]),
+      'PAID_IN_CAPITAL_INCREASE',
+    );
+    expect(result.subscriptionDate).toBe('2026-08-03');
+    expect(result.listingDate).toBe('2026-08-21');
+  });
+
+  it('청약 기간 표기(시작~종료)는 시작일을 채택해야 한다 (DAR-538)', () => {
+    const result = mapKeyValues(
+      dateTable([['청약일', '2026.08.03 ~ 2026.08.04']]),
+      'PAID_IN_CAPITAL_INCREASE',
+    );
+    expect(result.subscriptionDate).toBe('2026-08-03');
+  });
+
+  it('날짜 라벨이 없거나 파싱 불가면 undefined를 유지해야 한다 — 발명 금지 (DAR-538)', () => {
+    const noLabel = mapKeyValues(
+      dateTable([['발행 금액', '10,000,000,000원']]),
+      'PAID_IN_CAPITAL_INCREASE',
+    );
+    expect(noLabel.subscriptionDate).toBeUndefined();
+    expect(noLabel.listingDate).toBeUndefined();
+
+    const unparsable = mapKeyValues(
+      dateTable([['청약예정일', '미정']]),
+      'PAID_IN_CAPITAL_INCREASE',
+    );
+    expect(unparsable.subscriptionDate).toBeUndefined();
+  });
+
+  it('청약가격 할인 라벨은 청약일로 오추출되지 않아야 한다 (DAR-538)', () => {
+    const result = mapKeyValues(
+      dateTable([['청약가격 할인율', '25%']]),
+      'PAID_IN_CAPITAL_INCREASE',
+    );
+    expect(result.subscriptionDate).toBeUndefined();
+    expect(result.discountRate).toBe(25);
+  });
 });
 
 // ─── CB_BW_ISSUANCE 매핑 ────────────────────────────────────────────────────

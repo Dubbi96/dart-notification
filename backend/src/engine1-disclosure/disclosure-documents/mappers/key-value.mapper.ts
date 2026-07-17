@@ -57,6 +57,10 @@ const PAID_IN_CAPITAL_PATTERNS: Record<string, RegExp[]> = {
   fundingAmount: [/발행\s*금액/, /증자\s*금액/, /조달\s*금액/],
   discountRate: [/할인율/, /청약\s*가격\s*할인/],
   existingShares: [/기존\s*발행\s*주식\s*수/, /현재\s*발행\s*총\s*주식\s*수/],
+  // DAR-538: 예정 이벤트 캘린더 — 청약일·신주 상장예정일. 라벨 미존재/파싱 실패 시
+  //   undefined 유지(하류 D-day 미표시 — 날짜 발명 금지).
+  subscriptionDate: [/청약\s*(예정)?\s*일/, /청약\s*기일/],
+  listingDate: [/상장\s*예정\s*일/],
 };
 
 const CB_BW_PATTERNS: Record<string, RegExp[]> = {
@@ -409,6 +413,13 @@ function mapPaidInCapital(
         break;
       case 'existingShares':
         result.existingShares = parseNumber(found.value);
+        break;
+      case 'subscriptionDate':
+        // "YYYY.MM.DD ~ YYYY.MM.DD" 기간 표기(구주주·일반공모 청약기간)는 시작일 채택
+        result.subscriptionDate = parseDate(found.value.split(/[~～]/)[0].trim());
+        break;
+      case 'listingDate':
+        result.listingDate = parseDate(found.value);
         break;
     }
   }

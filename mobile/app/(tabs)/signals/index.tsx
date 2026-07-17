@@ -3,7 +3,7 @@ import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SegmentedButtons } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
-import { router, useScrollToTop } from 'expo-router';
+import { router, useScrollToTop, useLocalSearchParams } from 'expo-router';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ExitScoreCard } from '@components/signals/ExitScoreCard';
@@ -29,10 +29,27 @@ type BuyMode = 'edition' | 'archive';
 
 export default function SignalsScreen() {
   const { colors, typography: typo } = useTheme();
+  // DAR-527: 에디션 발행 딥링크(`/signals?date=YYYYMMDD`) 진입 — 해당 호로 직행한다.
+  const { date: dateParam } = useLocalSearchParams<{ date?: string }>();
+  const editionDate =
+    typeof dateParam === 'string' && /^\d{8}$/.test(dateParam) ? dateParam : undefined;
   const [feedTab, setFeedTab] = useState<FeedTab>('buy');
   const [buyMode, setBuyMode] = useState<BuyMode>('edition');
   const [search, setSearch] = useState('');
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  // 에디션 딥링크(`?date=…`)로 진입하면 매수·에디션 모드로 고정(다른 탭/모드에 있었어도 해당 호 노출).
+  //   렌더 단계에서 직전 파라미터와 비교해 동기화(React 권장 'derive-from-props' 패턴 — useEffect+
+  //   setState 의 추가 커밋/캐스케이드 렌더 회피, 포트폴리오 `?tab=` 동일 사상). 유효 날짜가 새로
+  //   올 때만 반응해 사용자의 수동 탭 전환을 덮어쓰지 않는다(파라미터 부재·불변=무동작).
+  const [seenEditionDate, setSeenEditionDate] = useState(editionDate);
+  if (editionDate !== seenEditionDate) {
+    setSeenEditionDate(editionDate);
+    if (editionDate) {
+      setFeedTab('buy');
+      setBuyMode('edition');
+    }
+  }
 
   // DAR-181: 탭 재탭 시 최상단 복귀. 매수(에디션 리스트 또는 SignalExplorer)·매도 FlatList는
   // 상호배타로 동시에 하나만 마운트되므로 비활성 ref는 null → useScrollToTop이 no-op.
@@ -227,7 +244,8 @@ export default function SignalsScreen() {
           {buyModeToggle}
           {buyMode === 'edition' ? (
             // 기본: 뉴스형 에디션 브라우징(고정 날짜 스트립 + 선택일 세로 리스트).
-            <BuyEditionView listRef={buyListRef} />
+            // DAR-527: 에디션 딥링크 진입 시 focusDate 로 해당 호 직행.
+            <BuyEditionView listRef={buyListRef} focusDate={editionDate} />
           ) : (
             // 보조: 무한스크롤 아카이브 탐색(교차일 — 모든 카드 SignalDateBadge). 검색·필터 유지.
             <SignalExplorer

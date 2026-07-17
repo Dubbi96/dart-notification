@@ -35,6 +35,11 @@ interface EditionDateStripProps {
   selectedDate: string | undefined;
   /** 칩 탭 시 선택 변경 콜백. */
   onSelect: (date: string) => void;
+  /**
+   * DAR-527: '놓친 호'(미열람) 날짜 집합(YYYYMMDD). 이 집합에 든 칩에 뱃지를 표시한다.
+   * 열람 기록·기준선·알림계열 OFF 게이팅은 상위(BuyEditionView)가 판정해 넘긴다(스트립은 표시만).
+   */
+  unreadDates?: ReadonlySet<string>;
 }
 
 function EditionDateStripBase({
@@ -42,6 +47,7 @@ function EditionDateStripBase({
   todayDate,
   selectedDate,
   onSelect,
+  unreadDates,
 }: EditionDateStripProps) {
   const { colors, typography: typo } = useTheme();
   const listRef = useRef<FlatList<StripChip>>(null);
@@ -94,6 +100,9 @@ function EditionDateStripBase({
       const isSelected = item.date === selectedDate;
       const hasCount = item.hasEdition && item.count > 0;
       const dotColor = item.strongBuyCount > 0 ? colors.primary : colors.textSecondary;
+      // DAR-527: '놓친 호' 뱃지 — 미열람 판정은 상위에서 넘어온 집합 멤버십으로만 결정(count>0·기준선·
+      // 알림계열 게이팅은 이미 상위에서 반영됨). 선택(열람 중)된 칩은 곧 열람 처리되므로 뱃지 미표시.
+      const isUnread = !isSelected && !!unreadDates?.has(item.date);
 
       // 라벨 색: 선택=강조, 빈 날=딤(textTertiary), 그 외=text.
       const labelColor = isSelected
@@ -116,8 +125,14 @@ function EditionDateStripBase({
           accessibilityState={{ selected: isSelected }}
           accessibilityLabel={`${label.a11y} 에디션${
             hasCount ? `, 매수 신호 ${item.count}건` : ', 판단 없음'
-          }${isSelected ? ', 선택됨' : ''}`}
+          }${isUnread ? ', 안 읽음' : ''}${isSelected ? ', 선택됨' : ''}`}
         >
+          {/* DAR-527: '놓친 호' 뱃지 — 칩 우상단 코너 dot(건수 dot 과 위치로 구분). 링으로 칩 배경과 분리. */}
+          {isUnread ? (
+            <View
+              style={[styles.unreadBadge, { backgroundColor: colors.primary, borderColor: colors.surface }]}
+            />
+          ) : null}
           <Text
             style={[typo.captionMedium, { color: labelColor, fontWeight: isSelected ? '700' : '500' }]}
             numberOfLines={1}
@@ -157,7 +172,7 @@ function EditionDateStripBase({
         </TouchableOpacity>
       );
     },
-    [colors, typo, todayDate, selectedDate, onSelect],
+    [colors, typo, todayDate, selectedDate, onSelect, unreadDates],
   );
 
   if (chips.length === 0) return null;
@@ -218,5 +233,15 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
+  },
+  // DAR-527: '놓친 호' 미열람 뱃지 — 칩 우상단 코너. 링(borderColor=surface)으로 칩 배경과 분리.
+  unreadBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 1.5,
   },
 });

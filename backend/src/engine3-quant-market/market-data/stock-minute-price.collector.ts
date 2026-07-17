@@ -47,6 +47,12 @@ export interface MinuteCollectCoverage {
   empty: number;
   /** 신규로 적재된 분봉 행 수(멱등 — 이미 있던 행 제외). */
   candlesSaved: number;
+  /**
+   * ★DAR-531: 봉의 실영업일(stck_bsop_date)이 요청 거래일과 달라 적재 거부한 봉 수(정직 고지).
+   *   개장 직후 KIS 가 반환한 전일 분봉이 당일 tradeDate 로 오라벨되는 유령봉 함정을 표면화한다.
+   *   >0 이면 개장 직후 '당일치 미형성' 상태에서 전일 응답을 받았다는 강한 신호.
+   */
+  rejectedByDate: number;
   message?: string;
 }
 
@@ -135,6 +141,7 @@ export class StockMinutePriceCollector {
         covered: 0,
         empty: 0,
         candlesSaved: 0,
+        rejectedByDate: 0,
         message: 'KIS API 미설정 — 분봉 수집 비활성',
       };
     }
@@ -147,6 +154,7 @@ export class StockMinutePriceCollector {
     let covered = 0;
     let empty = 0;
     let candlesSaved = 0;
+    let rejectedByDate = 0;
 
     this.logger.log(
       `[분봉] 수집 시작 tradeDate=${tradeDate} 후보=${totalCandidates} 수집대상=${universe.length} ` +
@@ -159,8 +167,16 @@ export class StockMinutePriceCollector {
         pageDelayMs,
         sleep,
       });
-      const saved = await this.persistCandles(corpCode, stockCode, tradeDate, candles);
-      if (candles.length > 0) {
+      const { saved, rejectedByDate: rejected } = await this.persistCandles(
+        corpCode,
+        stockCode,
+        tradeDate,
+        candles,
+      );
+      rejectedByDate += rejected;
+      // ★DAR-531: '커버'는 요청 거래일 실봉을 실제 적재(또는 멱등 중복)한 종목만. 전일 오라벨 응답만
+      //   받아 전량 거부(saved 0·rejected>0)한 종목은 covered 로 세지 않는다(오늘치 미형성 = empty).
+      if (candles.length > 0 && !(saved === 0 && rejected > 0)) {
         covered++;
         candlesSaved += saved;
       } else {
@@ -169,10 +185,13 @@ export class StockMinutePriceCollector {
       if (i < universe.length - 1 && stockDelayMs > 0) await sleep(stockDelayMs);
     }
 
-    // ★커버리지 정직 로그 — 몇 종목 수집/누락(쿼터)했는지 명시.
+    // ★커버리지 정직 로그 — 몇 종목 수집/누락(쿼터)했는지 + DAR-531 실데이터일 불일치 거부 봉 수 명시.
     this.logger.log(
       `[분봉] 수집 완료 tradeDate=${tradeDate} 커버=${covered}/${universe.length} ` +
-        `(빈종목=${empty}) 신규적재=${candlesSaved}행 쿼터미수집=${skippedByQuota}종목`,
+        `(빈종목=${empty}) 신규적재=${candlesSaved}행 쿼터미수집=${skippedByQuota}종목` +
+        (rejectedByDate > 0
+          ? ` ★실데이터일불일치 거부=${rejectedByDate}봉(개장직후 전일응답 오라벨 차단 — DAR-531)`
+          : ''),
     );
 
     return {
@@ -183,6 +202,7 @@ export class StockMinutePriceCollector {
       covered,
       empty,
       candlesSaved,
+      rejectedByDate,
     };
   }
 
@@ -197,13 +217,23 @@ export class StockMinutePriceCollector {
     stockCode: string,
     tradeDate: string,
     candles: KisMinuteCandle[],
-  ): Promise<number> {
+  ): Promise<{ saved: number; rejectedByDate: number }> {
     const data: import('@prisma/client').Prisma.StockMinutePriceCreateManyInput[] = [];
+    let rejectedByDate = 0;
     for (const c of candles) {
       // KIS time 은 HHMMSS — 분 단위(HHMM)로 절사. 형식 불량은 스킵.
       const hhmm = (c.time ?? '').slice(0, 4);
       if (!/^\d{4}$/.test(hhmm)) continue;
       if (c.close <= 0) continue;
+      // ★DAR-531 유령봉 봉인: 봉의 실영업일(c.tradeDate=stck_bsop_date)이 요청 거래일과 다르면
+      //   적재 거부. 개장 직후(당일 분봉 미형성) KIS 가 전일 세션 전체를 반환할 때, 그 봉을
+      //   tradeDate=오늘 로 라벨하면 09:00~15:30 이 '오늘 미래 시각'으로 둔갑해 스캐너가 미래봉
+      //   기반 유령 진입을 한다(2026-07-17 prod). 봉 자신의 날짜만이 실데이터일의 진실 —
+      //   요청일과 어긋나면 절대 적재하지 않는다(DAR-414/444 가드의 커버리지 구멍 봉인).
+      if (c.tradeDate && /^\d{8}$/.test(c.tradeDate) && c.tradeDate !== tradeDate) {
+        rejectedByDate++;
+        continue;
+      }
       const ts = minuteTimestamp(tradeDate, hhmm);
       if (!ts) continue; // tradeDate/HHMM 조합이 유효 시각이 아니면 스킵.
       data.push({
@@ -218,9 +248,9 @@ export class StockMinutePriceCollector {
         volume: BigInt(Math.max(0, Math.round(c.volume))),
       });
     }
-    if (data.length === 0) return 0;
+    if (data.length === 0) return { saved: 0, rejectedByDate };
     const result = await this.prisma.stockMinutePrice.createMany({ data, skipDuplicates: true });
-    return result.count;
+    return { saved: result.count, rejectedByDate };
   }
 
   /**

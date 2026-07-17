@@ -184,3 +184,62 @@ describe('scanEntrySignals — 윈도우 스캔', () => {
     expect(scan.decision.volumeRatio).toBeCloseTo(3, 6); // 미래 거래량 폭발에 오염되지 않음
   });
 });
+
+describe('scanEntrySignals — DAR-531 미래봉 하드가드(nowMs)', () => {
+  // 개장 직후 전일 분봉이 당일로 오라벨되면 09:00~15:30 봉이 '오늘 미래 시각' 충족봉으로 둔갑한다.
+  //   nowMs(KST 벽시계 naive) 이후 봉을 평가 대상에서 제외해 미래봉 기반 유령 진입을 원천 차단한다.
+  //   ts(i) = Date.UTC(2026,5,22,0,i) — 분 인덱스 = KST 벽시계 분(테스트 TZ 무관·결정론).
+  function seriesWithTriggersAt(triggerIdx: Set<number>, total = 40): ScalpCandle[] {
+    const out: ScalpCandle[] = [];
+    for (let i = 0; i < total; i++) {
+      if (triggerIdx.has(i)) {
+        out.push({ ts: ts(i), open: 105, high: 106, low: 99, close: 105, volume: 300 });
+      } else {
+        out.push({ ts: ts(i), open: 100, high: 100, low: 100, close: 100, volume: 100 });
+      }
+    }
+    return out;
+  }
+
+  it('충족봉 ts > now 이면 신호로 쓰지 않는다(진입 0) — 미래봉 제외', () => {
+    const candles = seriesWithTriggersAt(new Set([25])); // 충족봉 = ts 00:25
+    // nowMs 없이는(=하위호환) 충족봉 25 를 잡는다.
+    expect(scanEntrySignals(candles).index).toBe(25);
+    // now = 00:24(충족봉 직전) → 25 는 미래 → 제외 → 미충족(index -1).
+    const guarded = scanEntrySignals(candles, 0, DEFAULT_SCALP_ENTRY_PARAMS, ts(24).getTime());
+    expect(guarded.index).toBe(-1);
+    expect(guarded.candle).toBeNull();
+    expect(guarded.decision.triggered).toBe(false);
+  });
+
+  it('충족봉 ts ≤ now 이면 정상 충족(과잉 차단 아님) — 경계 포함', () => {
+    const candles = seriesWithTriggersAt(new Set([25]));
+    // now = 00:25(충족봉과 동일 시각) → 경계 포함(>, not ≥) → 충족.
+    const scan = scanEntrySignals(candles, 0, DEFAULT_SCALP_ENTRY_PARAMS, ts(25).getTime());
+    expect(scan.index).toBe(25);
+    expect(scan.candle!.ts).toEqual(ts(25));
+    expect(scan.decision.triggered).toBe(true);
+  });
+
+  it('미래봉은 VWAP·평균거래량 계산에서도 배제(prefix 절단) — 오염 0', () => {
+    // 미래 구간(now 이후)에 거래량 폭발 봉을 심어도, now 이하 유효 충족봉 판정에 섞이지 않는다.
+    const candles = seriesWithTriggersAt(new Set([25]));
+    candles[30] = { ts: ts(30), open: 200, high: 300, low: 100, close: 200, volume: 9000 };
+    const scan = scanEntrySignals(candles, 0, DEFAULT_SCALP_ENTRY_PARAMS, ts(25).getTime());
+    expect(scan.index).toBe(25);
+    expect(scan.decision.volumeRatio).toBeCloseTo(3, 6); // 미래 거래량 9000 에 오염 안 됨
+  });
+
+  it('전 구간이 미래(개장 직후 전일치 응답)면 평가 봉 0 → 미충족', () => {
+    const candles = seriesWithTriggersAt(new Set([25])); // 전부 00:00~00:39
+    // now = 전날 자정 직전(모든 봉이 미래) → eligible 0 → index -1·scanned 0.
+    const scan = scanEntrySignals(
+      candles,
+      0,
+      DEFAULT_SCALP_ENTRY_PARAMS,
+      new Date(Date.UTC(2026, 5, 21, 23, 59)).getTime(),
+    );
+    expect(scan.index).toBe(-1);
+    expect(scan.scanned).toBe(0);
+  });
+});

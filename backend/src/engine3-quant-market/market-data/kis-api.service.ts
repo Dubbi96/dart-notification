@@ -92,6 +92,10 @@ export interface KisIndexPrice {
 /** 분봉 1캔들. */
 export interface KisMinuteCandle {
   time: string; // 체결시각 HHMMSS (stck_cntg_hour)
+  // ★DAR-531: 봉 자체의 영업일 YYYYMMDD (stck_bsop_date). 개장 직후 KIS 가 '전일 분봉'을
+  //   반환할 때 요청 거래일과 다른 실데이터일이 드러나는 유일한 신호 — 수집기가 오라벨 적재를
+  //   거부(적재 거부)하는 근거다. 응답에 결측이면 undefined(레거시/테스트 graceful).
+  tradeDate?: string;
   open: number;
   high: number;
   low: number;
@@ -285,6 +289,8 @@ export class KisApiService {
       const rows: Array<Record<string, string>> = data?.output2 ?? [];
       const candles = rows.map((r) => ({
         time: r['stck_cntg_hour'] ?? '',
+        // ★DAR-531: 봉의 실영업일(stck_bsop_date) 보존 — 수집기가 요청 거래일과 대조해 오라벨 적재 거부.
+        tradeDate: (r['stck_bsop_date'] ?? '').trim() || undefined,
         open: this.parseNum(r['stck_oprc']),
         high: this.parseNum(r['stck_hgpr']),
         low: this.parseNum(r['stck_lwpr']),

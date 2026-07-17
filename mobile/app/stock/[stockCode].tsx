@@ -9,6 +9,7 @@ import { Card } from '@components/common/Card';
 import { ScreenHeader } from '@components/common/ScreenHeader';
 import { QuoteHeader } from '@components/common/QuoteHeader';
 import { SourceAttribution } from '@components/common/SourceAttribution';
+import { BrokerHandoffButton } from '@components/common/BrokerHandoffButton';
 import { MinuteCandleChart } from '@components/company/MinuteCandleChart';
 import { DailyCandleChart } from '@components/company/DailyCandleChart';
 import { SupplyDemandCard } from '@components/company/SupplyDemandCard';
@@ -191,6 +192,11 @@ export default function StockChartScreen() {
         {/* 수급 요약(W16) — 외국인·기관 5/20일 누적 순매수 + 공매도 지표 + 데이터 기준일 배지.
             데이터 없으면 컴포넌트가 스스로 억제(null)한다 — 화면 조립부는 무조건 배치. */}
         <SupplyDemandCard stockCode={code} />
+
+        {/* DAR-545: 브로커 앱 핸드오프 — 종목 상세에서 대표 증권사 앱으로 1탭 링크아웃(매매 실행 공백 메움).
+            설치 미탐지 시 스토어 폴백·특정사 추천 아님(정직 고지는 시트 내부). 제목이 '기업명 (코드)'라
+            컨텍스트 라벨로 재사용. */}
+        <BrokerHandoffButton contextLabel={displayName || code} />
         {/* W2 컴플라이언스(M0 정책 §4): 출처 귀속 — 화면당 1회. 분봉·현재가=KIS, 일봉=KRX.
             시점·신선도 고지는 QuoteHeader 배지·각 차트 정직 라벨이 담당(역할 분리). */}
         <SourceAttribution sources={['KRX', 'KIS']} />

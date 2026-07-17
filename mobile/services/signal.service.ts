@@ -2,7 +2,6 @@ import type { ApiResponse, PaginationMeta } from '@app-types/api.types';
 import type {
   TradingSignal,
   ExitSignal,
-  SignalFilters,
   SignalExploreFilters,
   CompanySignalBadge,
   DailyEditionSummary,
@@ -15,25 +14,6 @@ import type {
 import { api } from './api';
 
 export const signalService = {
-  getBuySignals: (filters?: SignalFilters) =>
-    api
-      .get<ApiResponse<TradingSignal[]>>('/signals', {
-        params: {
-          ...(filters?.personaType && { personaType: filters.personaType }),
-          // 다중 등급은 콤마 직렬화('STRONG_BUY,BUY') — 백엔드가 signal.in 으로 해석(DAR-193).
-          ...(filters?.grade && {
-            grade: Array.isArray(filters.grade)
-              ? filters.grade.join(',')
-              : filters.grade,
-          }),
-          ...(filters?.sort && { sort: filters.sort }),
-          ...(filters?.entryReady && { entryReady: true }),
-          // 최신성 윈도우(일) — 0(해제)도 유효값이므로 falsy 체크 대신 undefined 체크로 전달.
-          ...(filters?.sinceDays !== undefined && { sinceDays: filters.sinceDays }),
-        },
-      })
-      .then((r) => r.data.data),
-
   /**
    * 등급무관 전체 시그널 탐색(DAR-46) — 페이지네이션 + 등급/페르소나/이벤트유형 필터 + 정렬.
    * 무한스크롤을 위해 meta(page/totalPages)를 함께 반환한다.

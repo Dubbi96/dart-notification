@@ -82,7 +82,7 @@ console.log('\n— 소스 바인딩 —');
 
 const home = read('components/home/HomeSignalPreview.tsx');
 const curatedCard = read('components/signals/CuratedSignalCard.tsx');
-const curationSlot = read('components/signals/CurationSlot.tsx');
+// DAR-535: 구 CurationSlot 카루셀은 신호탭 에디션 축 전환으로 폐기 — 홈 카루셀만 검증한다.
 
 // 고정 px 상수 제거.
 check('Home: 고정 CARD_WIDTH 상수 제거', !/const\s+CARD_WIDTH\s*=\s*\d+/.test(home));
@@ -91,22 +91,18 @@ check('CuratedCard: CURATED_CARD_WIDTH 고정 export 제거', !/export const CUR
 
 // 반응형 훅 사용.
 check('Home: useCarouselCardWidth 사용', /useCarouselCardWidth\(\)/.test(home));
-check('CurationSlot: useCarouselCardWidth 사용', /useCarouselCardWidth\(\)/.test(curationSlot));
 
 // 카드 폭을 인라인으로 주입.
 check('Home: 카드에 width: cardWidth 인라인 주입', /width:\s*cardWidth/.test(home));
 check('CuratedCard: 카드에 width: cardWidth 인라인 주입', /width:\s*cardWidth/.test(curatedCard));
 
-// FlatList 스냅 적용(두 카루셀).
+// FlatList 스냅 적용(홈 카루셀).
 check('Home: snapToInterval 적용', /snapToInterval=\{snapToInterval\}/.test(home));
 check('Home: snapToAlignment start + decelerationRate fast', /snapToAlignment="start"/.test(home) && /decelerationRate="fast"/.test(home));
-check('CurationSlot: snapToInterval 적용', /snapToInterval=\{snapToInterval\}/.test(curationSlot));
-check('CurationSlot: snapToAlignment start + decelerationRate fast', /snapToAlignment="start"/.test(curationSlot) && /decelerationRate="fast"/.test(curationSlot));
 
 // 카루셀 레이아웃 계약(좌측 정렬 기준 좌우 패딩 lg) 유지 — 정렬 일관.
 // DAR-319: 카드 간격은 contentContainer gap 이 아니라 카드 marginRight 로 적용(아래 별도 체크).
 check('Home: carousel paddingHorizontal lg 유지', /carousel:\s*\{[^}]*paddingHorizontal:\s*spacing\.lg/s.test(home));
-check('CurationSlot: carousel paddingHorizontal lg 유지', /carousel:\s*\{[^}]*paddingHorizontal:\s*spacing\.lg/s.test(curationSlot));
 
 console.log(`\n결과: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

@@ -240,22 +240,6 @@ export interface DailyEdition {
   meta: DailyEditionMeta;
 }
 
-/** 신호 피드 필터 */
-export interface SignalFilters {
-  personaType?: string;
-  /** 단일 등급 또는 다중 등급(콤마 직렬화) — 홈 큐레이션은 매수등급 다중 지정(DAR-193). */
-  grade?: SignalGrade | SignalGrade[];
-  entryReady?: boolean;
-  /** 정렬(DAR-193) — 'score'로 점수 내림차순 큐레이션. 미지정 시 백엔드 기본(latest). */
-  sort?: SignalSort;
-  /**
-   * 최신성 윈도우(일) — createdAt ≥ now−N일 신호만. 0=해제(전체 이력).
-   * 미지정 시 백엔드 기본 규칙(sort=score 는 14일, latest 는 무윈도우).
-   * 점수순 큐레이션이 과거 고득점 신호에 영원히 고정되는 정체 방지(홈 '오늘의 투자판단').
-   */
-  sinceDays?: number;
-}
-
 /** 등급무관 탐색 필터(DAR-46) — 등급/페르소나/이벤트유형 미지정 시 전체. */
 export interface SignalExploreFilters {
   grade?: SignalGrade;

@@ -88,13 +88,12 @@ for (const w of widths) {
 console.log('\n— 소스 바인딩 —');
 
 const home = read('components/home/HomeSignalPreview.tsx');
-const curationSlot = read('components/signals/CurationSlot.tsx');
 const curatedCard = read('components/signals/CuratedSignalCard.tsx');
+// DAR-535: 구 CurationSlot 카루셀은 신호탭 에디션 축 전환으로 폐기 — 홈 카루셀만 검증한다.
 
 // carousel contentContainer 에서 gap 제거(미적용 위험 회피). carousel 블록 안에 gap: 없음.
 const carouselBlock = (src: string) => (src.match(/carousel:\s*\{[^}]*\}/s) ?? [''])[0];
 check('Home: carousel contentContainer 에 gap 없음', !/gap:/.test(carouselBlock(home)));
-check('CurationSlot: carousel contentContainer 에 gap 없음', !/gap:/.test(carouselBlock(curationSlot)));
 
 // 카드 컴포넌트는 marginRight: CAROUSEL_GAP 로 간격(스켈레톤과 동일 방식).
 check('CuratedSignalCard: CAROUSEL_GAP import', /import\s*\{\s*CAROUSEL_GAP\s*\}\s*from\s*'@utils\/carouselMetrics'/.test(curatedCard));
@@ -106,11 +105,9 @@ check('Home: 카드 TouchableOpacity 에 cardTouchable 적용', /style=\{styles\
 
 // 스켈레톤은 기존대로 marginRight 로 간격 → 실제 카드와 동일 방식(일관).
 check('Home: skeletonCard marginRight 유지(실제 카드와 동일 방식)', /skeletonCard:\s*\{[^}]*marginRight:\s*spacing\.md/s.test(home));
-check('CurationSlot: skeletonCard marginRight 유지(실제 카드와 동일 방식)', /skeletonCard:\s*\{[^}]*marginRight:\s*spacing\.md/s.test(curationSlot));
 
 // 카드 단위 스냅 유지(회귀 가드).
 check('Home: snapToInterval 유지', /snapToInterval=\{snapToInterval\}/.test(home));
-check('CurationSlot: snapToInterval 유지', /snapToInterval=\{snapToInterval\}/.test(curationSlot));
 
 // CAROUSEL_GAP === spacing.md(=12) — marginRight 와 스켈레톤(spacing.md)이 같은 값.
 check('CAROUSEL_GAP === 12 (spacing.md 와 동일 — 스켈레톤/카드 간격 동값)', CAROUSEL_GAP === 12);

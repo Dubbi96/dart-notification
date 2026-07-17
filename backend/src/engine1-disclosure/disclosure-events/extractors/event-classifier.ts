@@ -142,7 +142,7 @@ export const REPORT_NAME_RULES: ReportNameRule[] = [
   // W9 주의: EARNINGS_SURPRISE/SHOCK 판정 기준은 전년동기(YoY) 대비다(earnings.ts).
   //          시장 기대치 대비 판정이 아니므로 소비 표면 카피도 그 기준을 명시해야 한다.
   {
-    pattern: /적자\s*전환|영업\s*손실|순\s*손실|실적\s*(쇼크|악화)|손익구조.*(악화|감소)/,
+    pattern: /적자\s*전환|영업\s*손실|순\s*손실|실적\s*(쇼크|악화)|손익구조.*(악화|감소)|파생상품.*손실/,
     eventType: EventType.EARNINGS_SHOCK,
     polarity: 'NEGATIVE',
     confidence: 0.88,
@@ -155,7 +155,7 @@ export const REPORT_NAME_RULES: ReportNameRule[] = [
   },
   {
     // 방향 미상 일반 실적공시 — 0.72(<0.85) → NEEDS_REVIEW→AI L1이 방향 확정
-    pattern: /영업[\s(]*잠정[\s)]*실적|연결[\s(]*잠정[\s)]*실적|잠정\s*실적|매출액.*손익구조.*변동|손익구조\s*변동/,
+    pattern: /영업[\s(]*잠정[\s)]*실적|연결[\s(]*잠정[\s)]*실적|잠정\s*실적|매출액.*손익구조.*(변동|변경)|손익구조\s*(변동|변경)/,
     eventType: EventType.EARNINGS_SURPRISE,
     polarity: 'MIXED',
     confidence: 0.72,
@@ -171,7 +171,7 @@ export const REPORT_NAME_RULES: ReportNameRule[] = [
 
   // ── 감사의견 리스크 ───────────────────────────────────────────────────────
   {
-    pattern: /감사의견.*(거절|한정|부적정)|강조사항/,
+    pattern: /감사\)?의견.*(거절|한정|부적정)|강조사항/,
     eventType: EventType.AUDIT_OPINION_RISK,
     polarity: 'NEGATIVE',
     confidence: 0.95,
@@ -234,7 +234,7 @@ export const REPORT_NAME_RULES: ReportNameRule[] = [
 
   // ── 전환청구권 행사·전환/행사/교환가액 조정 ───────────────────────────────
   {
-    pattern: /전환청구권\s*행사|(전환가액|행사가액|교환가액).*조정|신주인수권행사가액/,
+    pattern: /(전환청구권|교환청구권).*행사|(전환가액|행사가액|교환가액).*조정|신주인수권행사가액/,
     eventType: EventType.CONVERTIBLE_EXERCISE,
     polarity: 'UNKNOWN',
     confidence: 0.85,
@@ -275,7 +275,7 @@ export const REPORT_NAME_RULES: ReportNameRule[] = [
 
   // ── 투자 결정(타법인주식 취득·시설투자·유형/비유동자산 양수도) ────────────
   {
-    pattern: /타법인\s*주식|신규\s*시설\s*투자|유형자산\s*(양수|양도|취득)|비유동자산\s*(취득|양수)|투자판단\s*관련/,
+    pattern: /타법인\s*주식|신규\s*시설\s*투자|유형자산\s*(양수|양도|취득)|비유동자산\s*(취득|양수|처분)|투자판단\s*관련/,
     eventType: EventType.INVESTMENT_DECISION,
     polarity: 'MIXED',
     confidence: 0.85,
@@ -365,7 +365,7 @@ export const REPORT_NAME_RULES: ReportNameRule[] = [
 
   // ── 증권 발행/모집 서류 (증권신고서·투자설명서·발행실적·일괄신고·발행결과·자산유동화·파생결합) ──
   {
-    pattern: /증권신고서|투자설명서|증권발행\s*실적|일괄신고|증권발행\s*결과|자산유동화|파생결합/,
+    pattern: /증권신고서|투자설명서|증권발행\s*실적|일괄신고|증권발행\s*결과|자산유동화|파생결합|소액공모|소액매출|채무증권\s*발행/,
     eventType: EventType.SECURITIES_OFFERING,
     polarity: 'UNKNOWN',
     confidence: 0.80,
@@ -376,6 +376,76 @@ export const REPORT_NAME_RULES: ReportNameRule[] = [
   {
     pattern: /기타\s*시장안내|시장조치|기타\s*안내사항/,
     eventType: EventType.MARKET_NOTICE,
+    polarity: 'UNKNOWN',
+    confidence: 0.80,
+  },
+
+  // ════════════════════════════════════════════════════════════════════════
+  // DAR-338: DAR-346 후속 — OTHER 재누적분(15530) reportName 재조사 기반 확대
+  // 라이브 DB(2026-07-17) OTHER NEEDS_REVIEW reportName 재집계: 기존 룰 커버 3503건(486종,
+  // 백로그·reprocess로 해소) 제외 미커버 12027건(701종) 상위 유형. 모두 기존 룰보다
+  // *아래(낮은 우선순위)*에 둔다 — 특정 시그널 룰이 항상 우선.
+  // confidence 정책은 DAR-346과 동일: 0.85=재료성(AI L1 라우팅) / 0.80 이하=절차성(FAILED, AI 미라우팅).
+  // ════════════════════════════════════════════════════════════════════════
+
+  // ── 소송등의 판결ㆍ결정 (제기 명시 없는 잔여) — SHAREHOLDER_MEETING/MERGER_SPLIT
+  //    등 위 DAR-346 룰이 "(주주총회…)"·"(합병…)" 부기를 먼저 채가므로 반드시 그 아래에 위치 ──
+  {
+    pattern: /소송.*(판결|결정)/,
+    eventType: EventType.LAWSUIT,
+    polarity: 'NEGATIVE',
+    confidence: 0.85,
+  },
+
+  // ── 회생절차ㆍ해산사유ㆍ불성실공시법인 지정 — DEBT_GUARANTEE/MARKET_NOTICE 등
+  //    위 DAR-346 룰이 "담보제공"·"기타시장안내" 부기를 먼저 채가므로 반드시 그 아래에 위치 ──
+  {
+    pattern: /회생절차|해산사유|불성실공시법인/,
+    eventType: EventType.DELISTING_RISK,
+    polarity: 'NEGATIVE',
+    confidence: 0.85,
+  },
+
+  // ── 단일판매ㆍ공급계약 해지("해제/취소"만 잡던 기존 룰의 표기 변형 보강) ·
+  //    거래처와의 거래중단 — INQUIRY_DISCLOSURE(조회공시·풍문) 룰이 "~설" 풍문
+  //    래핑을 먼저 채가므로 반드시 그 아래에 위치 ──
+  {
+    pattern: /공급계약.*해지|거래처.*거래\s*중단/,
+    eventType: EventType.CONTRACT_CANCELLATION,
+    polarity: 'NEGATIVE',
+    confidence: 0.85,
+  },
+
+  // ── 기업가치제고계획(자율공시) — 밸류업 프로그램, 주주가치 제고 시그널 ──────
+  {
+    pattern: /기업가치제고계획/,
+    eventType: EventType.VALUE_UP_PLAN,
+    polarity: 'POSITIVE',
+    confidence: 0.85,
+  },
+
+  // ── 결산실적공시예고 — 실적 확정 전 예고(안내), 방향 미상(잠정실적 룰보다 아래) ──
+  {
+    pattern: /결산실적공시예고/,
+    eventType: EventType.EARNINGS_PREANNOUNCEMENT,
+    polarity: 'UNKNOWN',
+    confidence: 0.75,
+  },
+
+  // ── 기타경영사항(자율공시)ㆍ지속가능경영보고서 — 자율 경영사항 공시 ─────────
+  {
+    pattern: /기타경영사항\s*\(자율공시\)|지속가능경영보고서/,
+    eventType: EventType.VOLUNTARY_MANAGEMENT_DISCLOSURE,
+    polarity: 'MIXED',
+    confidence: 0.75,
+  },
+
+  // ── 행정ㆍ규제 절차 공시(비재료성) — 지급수단/기간/금액 공시, 계열금융회사
+  //    약관거래, 소속부/본점/상호 변경, 공정거래자율준수, SPAC 신탁계약 변경 등 ─────
+  // (불성실공시법인 지정 계열은 위 DELISTING_RISK 룰이 먼저 잡는다)
+  {
+    pattern: /지급수단.*지급기간.*지급금액|약관에\s*의한\s*금융거래|계열금융회사|소속부\s*변경|본점\s*소재지\s*변경|상호\s*변경|공정거래\s*자율준수|기업인수목적회사.*신탁계약/,
+    eventType: EventType.REGULATORY_ADMIN_NOTICE,
     polarity: 'UNKNOWN',
     confidence: 0.80,
   },

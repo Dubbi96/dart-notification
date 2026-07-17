@@ -540,6 +540,14 @@ enum EventType {
   MARKET_NOTICE // 거래소 기타 시장안내
   CONVERTIBLE_EXERCISE // 전환청구권 행사·전환/행사가액 조정
 
+  // ── DAR-338: DAR-346 후속 — OTHER 재누적분(15530) reportName 재조사 기반 확대 ──────────────
+  // 라이브 DB(2026-07-17) OTHER NEEDS_REVIEW reportName 빈도 재집계: 기존 룰 커버(3503, 486종·백로그)
+  // 제외 미커버 12027건(701종) 상위 유형 4종 신규 + 기존 룰 8종 정규식 보강(근접실패·표기변형).
+  REGULATORY_ADMIN_NOTICE // 행정·규제 절차 공시(비재료성): 지급수단·소속부/본점/상호 변경, 계열금융회사 약관거래, 불성실공시법인 지정 등
+  VALUE_UP_PLAN // 기업가치제고계획(자율공시) — 밸류업 프로그램
+  EARNINGS_PREANNOUNCEMENT // 결산실적공시예고(안내공시) — 실적 확정 전 예고
+  VOLUNTARY_MANAGEMENT_DISCLOSURE // 기타경영사항(자율공시)·지속가능경영보고서등관련사항(자율공시)
+
   OTHER // 분류 불가 (NEEDS_REVIEW 대상)
 }
 

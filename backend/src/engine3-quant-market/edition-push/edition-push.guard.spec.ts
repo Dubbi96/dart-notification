@@ -112,11 +112,11 @@ describe('buildEditionPushContent — 정직 카피(DAR-523)', () => {
     headlineCorpName: '삼성전자',
   };
 
-  it('제목 고정·본문 팩트(헤드라인+후보수+적극매수)·딥링크 /signals', () => {
+  it('제목 고정·본문 팩트(헤드라인+후보수+적극매수)·딥링크 /signals?date=<editionDate>(DAR-533 해당 호 직행)', () => {
     const c = buildEditionPushContent(base);
     expect(c.title).toBe('오늘의 투자판단 에디션');
     expect(c.body).toBe('삼성전자 외 2곳 · 매수 후보 3곳 (적극매수 1)');
-    expect(c.deepLink).toBe('/signals');
+    expect(c.deepLink).toBe('/signals?date=20260717');
   });
 
   it('단일 후보는 "외 N곳" 없음·적극매수 0 이면 괄호 없음', () => {

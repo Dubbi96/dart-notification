@@ -326,7 +326,7 @@ export interface NotifyEditionJobData {
   title: string;
   /** 완성된 푸시 본문(매수 후보 수·헤드라인 — 정직 팩트, 권고 문구 아님). */
   body: string;
-  /** 인앱 딥링크 — 신호탭 에디션 브라우징(`/signals`). */
+  /** 인앱 딥링크 — 해당 호(거래일) 직행(`/signals?date=<editionDate>` — DAR-533). */
   deepLink: string;
 }
 

@@ -840,7 +840,7 @@ describe('NotifyConsumer (DAR-85)', () => {
       headlineCorpName: '삼성전자',
       title: '오늘의 투자판단 에디션',
       body: '삼성전자 외 2곳 · 매수 후보 3곳 (적극매수 1)',
-      deepLink: '/signals',
+      deepLink: '/signals?date=20260717', // DAR-533: 해당 호 직행 — consumer 는 무변경 전파.
     };
 
     it('★하드 가드: count<=0(빈 에디션)은 발송 금지 — 수신자 조회조차 안 함', async () => {
@@ -898,7 +898,7 @@ describe('NotifyConsumer (DAR-85)', () => {
           refId: '20260717', // editionDate = 멱등 자연키
           title: editionJob.title,
           body: editionJob.body,
-          deepLink: '/signals',
+          deepLink: '/signals?date=20260717',
         }),
       );
       expect(expoPush.sendPushNotifications).toHaveBeenCalledTimes(1);

@@ -162,6 +162,20 @@ export const emptyStateCopy = {
     icon: 'book-open',
     title: '해당 거장 철학을 찾을 수 없어요',
   },
+  // 예정 이벤트 캘린더 (관심기업 공시 파생 일정 없음, DAR-541) — 정직 규약:
+  // 서버가 추출 확실 날짜만 내려주므로 '없음'은 발명 대신 정직한 빈 상태다.
+  upcomingEventsEmpty: {
+    icon: 'calendar',
+    title: '예정된 이벤트가 없어요',
+    description: '관심기업 공시에서 확인된 일정만 표시해요. 새 공시가 들어오면 여기에 쌓여요',
+  },
+  // 예정 이벤트 캘린더 (게스트 — 관심기업 기반이라 로그인 필요)
+  upcomingEventsGuest: {
+    icon: 'calendar',
+    title: '로그인하고 예정 일정을 확인하세요',
+    description: '관심기업 공시에서 확인된 배당·청약·상장 일정을 D-day로 모아드려요',
+    actionLabel: '로그인',
+  },
 } satisfies Record<string, EmptyStateCopy>;
 
 export type EmptyStateKey = keyof typeof emptyStateCopy;

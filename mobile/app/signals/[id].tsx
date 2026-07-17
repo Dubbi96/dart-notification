@@ -22,6 +22,7 @@ import { ScoreBreakdownSection } from '@components/signals/ScoreBreakdownSection
 import { EvidenceIndicatorsSection } from '@components/signals/EvidenceIndicatorsSection';
 import { SignalFreshnessBadge } from '@components/signals/SignalFreshnessBadge';
 import { CompanyHubLink } from '@components/company/CompanyHubLink';
+import { BrokerHandoffButton } from '@components/common/BrokerHandoffButton';
 import { EvidenceMeta } from '@components/common/EvidenceMeta';
 import { isDataLimited } from '@utils/dataLimit';
 import { ApiErrorState } from '@components/common/StateView';
@@ -288,6 +289,10 @@ export default function SignalDetailScreen() {
             <Feather name="chevron-right" size={18} color={colors.textTertiary} />
           </TouchableOpacity>
         ) : null}
+
+        {/* DAR-545: 브로커 앱 핸드오프 — 매매 불가 앱의 실행 공백을 대표 증권사 앱 링크아웃으로 메운다.
+            설치 미탐지 시 스토어 폴백·특정사 추천 아님(정직 고지는 시트 내부). 종목명은 접근성 라벨 컨텍스트. */}
+        <BrokerHandoffButton contextLabel={signal.corpName} />
 
         {/* DAR-323: 억제 사유 배지 — Score 근거 섹션 상단. BUY 이상·BLOCKED 는 백엔드가
             suppressionReason 을 미제공(undefined)하므로 자동 미표시. */}

@@ -3055,6 +3055,60 @@ GET /api/ops/edition-density?days=60
 
 > ★위 예시 수치는 **dev/데모 DB**(신호 8일치, 2026-06 한정) 실행 결과다. 권위 판정(수용기준 (1)(2))은 **prod 읽기 전용** 실행값으로 산출한다.
 
+### 31.6.2 DART 야간 쿼터 소진 포렌식 (DAR-536) — 인증 불요(운영/내부용)
+
+```
+GET /api/ops/dart-quota-forensics?date=YYYYMMDD
+```
+
+해당 KST 일자(기본 오늘)의 **DART API 소비를 경로별로 정량 분해**하고, DAR-532 가 세운 **'야간 다중 재기동 예산 재개방' 가설을 판정 필드로 답한다**(read-only — 신규 테이블·수집·외부호출·체결·AI 개입·마이그레이션 0, 기존 로그/메타 테이블 집계만). prod DB 직접 접근 없이 배포된 앱이 자기 DB 를 읽으므로 PM 이 prod 에서 조회해 판정한다(DAR-536 PM 재정의).
+
+- **소비 경로 7종(고정)**: `LIST_FORWARD`(라이브/오프아워/델타 목록, `disclosure_collection_logs` triggeredBy≠`BACKFILL_EXTEND`) · `LIST_BACKFILL_EXTEND`(고대 백필 목록 확장) · `DOC_FETCH_LIVE`/`DOC_FETCH_BACKFILL`(문서 원문 fetch, `disclosure_documents.fetchedAt` × `disclosures.isBackfill`) · `FINANCIALS`(재무 재수화, `company_financials.updatedAt` 터치) · `INSIDER_HOLDINGS`(지분·내부자, `insider_holding_changes.updatedAt` 터치 — 약한 프록시) · `TABLES_LAZY_FETCH`(**구조적 0** — DAR-399 tables 는 S3 lazy fetch 라 DART 재호출 없음).
+- **추정 규칙(정직성 계약)**: 모든 수치는 **저장 흔적 기준 하한** — list 콜 = `max(1, ceil(fetchedCount/100))`(1페이지=1콜), 문서 fetch = 1건=1콜, 재무/지분 = 창 내 터치 행수. HTTP 재시도·무저장 응답(013/오류) 콜은 미관측. 경로별 `evidence` 에 산출 규칙, `caveats` 에 한계를 그대로 동봉한다.
+- **야간 창**: 00:00~08:29 KST(자정 쿼터 리셋 직후 ~ 08:30 프리플라이트 직전) — `night` 요약(상위 경로 3건 포함) + 24시간 `hourly` 컨텍스트.
+- **재기동 마커**: 당일 시작 후 종료시각 없이 `RUNNING` 고착된 실행(수집/크론/재무 로그, 유예 30분) = 실행 중 프로세스 사망의 영구 흔적(재기동 횟수 하한).
+- **가설 판정** `hypothesis.verdict`: `SUPPORTED`(야간 추정 하한 > 단일 프로세스 벌크 상한 14,000 — 재개방/멀티 인스턴스 없이 설명 불가 · 또는 마커 2건 이상 + 상한 50% 이상 소비) / `REFUTED`(상한 내 + 마커 0건, **조회 일자 한정**) / `INCONCLUSIVE`(소비 흔적 0건 등). 판정 근거는 `reasons[]` 정량 문장으로 동봉.
+- **쿼터 상태 스냅샷**: `dart_quota_state`(DAR-532, PR #513) 당일 행 — `callsToday`(200콜 스텝 flush 하한)·`quotaExhausted`(실제 020/021 관측). 배포 전 일자는 행 없음(`found:false`).
+
+| 쿼리 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `date` | string | 선택 | 감사 대상 KST 일자(YYYYMMDD, 기본 오늘). 형식/실존 위반 시 400 `INVALID_DATE_PARAM`. **사건 발생 일자를 지정해야 판정이 유의미** |
+
+**Response** (`data`: `DartQuotaForensicsReport`):
+```jsonc
+{
+  "metric": "dart-quota-forensics",
+  "date": "20260715",
+  "nightWindow": { "startKst": "00:00", "endKst": "08:29" },
+  "budget": { "dailyBudget": 19000, "liveReserve": 2000, "liveParseReserve": 3000,
+              "liveParseCeiling": 17000, "bulkCeiling": 14000, "persistStep": 200 },
+  "quotaState": { "found": true, "callsToday": 18800, "quotaExhausted": true,
+                  "updatedAtKst": "2026-07-15 08:10:00", "note": "…" },
+  "night": {
+    "totalEstimatedCalls": 14973,
+    "paths": [ { "path": "DOC_FETCH_BACKFILL", "label": "문서 파싱 fetch — 백필",
+                 "estimatedCalls": 14000, "evidence": "disclosure_documents.fetchedAt …" } /* 7종 고정 */ ],
+    "topPaths": [ /* 상위 3경로(0 제외) — DoD '상위 경로 3건 정량' */ ]
+  },
+  "hourly": [ { "hour": "03", "total": 14120, "byPath": { "DOC_FETCH_BACKFILL": 14000, /* … */ } } /* 24행 */ ],
+  "cronTimeline": [ { "jobKey": "event.backfill-drain", "startedAtKst": "2026-07-15 03:00:00",
+                      "finishedAtKst": "2026-07-15 03:09:00", "status": "SUCCESS",
+                      "itemCount": 200, "dartRelevant": true } ],
+  "collectionRuns": [ /* disclosure_collection_logs 당일 원자료 + estimatedListCalls(감사 추적) */ ],
+  "restartMarkers": { "count": 1, "markers": [ { "source": "cron_run_logs", "key": "event.backfill-drain",
+                      "startedAtKst": "2026-07-15 03:20:00", "note": "…" } ], "note": "…" },
+  "hypothesis": {
+    "hypothesis": "DAR-532 가설: 야간 다중 프로세스 재기동이 …",
+    "verdict": "SUPPORTED",            // SUPPORTED | REFUTED | INCONCLUSIVE
+    "nightEstimatedCalls": 14973, "bulkCeiling": 14000, "budgetOverrunFactor": 1.07,
+    "restartMarkerCount": 1, "reasons": [ "…정량 근거 문장…" ], "note": "판정은 조회 일자 1일 한정 …"
+  },
+  "caveats": [ "모든 경로 추정치는 저장 흔적 기준 하한 …", "tables lazy fetch 는 S3 전용(DART 소비 0) …" ]
+}
+```
+
+> ★DAR-532(PR #513) 배포 이후에는 재기동 시 `callsToday` 가 복원되어 예산 재개방 자체가 차단된다 — 본 엔드포인트는 **배포 전 사건 일자의 소급 감사**(가설 검증/반증)와 **배포 후 가드 검증**을 겸한다.
+
 ### 31.7 온보딩 퍼널 이벤트 기록 (갭분석 W15) — **비인증**
 
 ```

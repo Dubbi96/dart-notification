@@ -17,6 +17,8 @@ import { ParameterSweepController } from './strategies/parameter-sweep.controlle
 import { TwoTierBacktestService } from '../two-tier-backtest/two-tier-backtest.service';
 import { TwoTierBacktestController } from '../two-tier-backtest/two-tier-backtest.controller';
 import { EventStudyModule } from '../event-study/event-study.module';
+import { DataCoverageService } from './data-coverage/data-coverage.service';
+import { ExtendedWindowReplayService } from './replay/extended-window-replay.service';
 
 // BacktestRunnerService는 PriceDataPort 구현체 주입이 필요하므로 이 모듈에서 제공/내보내지 않는다.
 // 사용 측(백테스트 실행 컨텍스트)에서 port 구현체와 함께 provider로 등록한다.
@@ -45,6 +47,8 @@ import { EventStudyModule } from '../event-study/event-study.module';
     EventEdgeSelectorService,
     ParameterSweepService,
     TwoTierBacktestService,
+    DataCoverageService,
+    ExtendedWindowReplayService,
   ],
   exports: [
     MarketCalendarService,
@@ -55,6 +59,8 @@ import { EventStudyModule } from '../event-study/event-study.module';
     BacktestSignalAssemblyService,
     BacktestReplayService,
     StrategyTrackService,
+    DataCoverageService,
+    ExtendedWindowReplayService,
   ],
 })
 export class BacktestModule {}

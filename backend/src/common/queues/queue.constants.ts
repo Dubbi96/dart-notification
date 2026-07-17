@@ -296,7 +296,7 @@ export interface NotifyPriceMoveJobData {
   title: string;
   /** 완성된 알림 본문(당일 공시 유무·무공시 팩트체크 근거 병기). */
   body: string;
-  /** 인앱 딥링크 — 종목 상세(`/company/<corpCode>`). */
+  /** 인앱 딥링크 — DAR-526: '왜 움직였나' 카드(`/price-move/<refId>`)로 재타겟. */
   deepLink: string;
   /** 네이버금융 종목 뉴스 링크아웃 URL(외부 브라우저 전용 — 수집·저장 0). */
   newsUrl?: string;
@@ -326,7 +326,7 @@ export interface NotifyEditionJobData {
   title: string;
   /** 완성된 푸시 본문(매수 후보 수·헤드라인 — 정직 팩트, 권고 문구 아님). */
   body: string;
-  /** 인앱 딥링크 — 신호탭 에디션 브라우징(`/signals`). */
+  /** 인앱 딥링크 — 해당 호(거래일) 직행(`/signals?date=<editionDate>` — DAR-533). */
   deepLink: string;
 }
 

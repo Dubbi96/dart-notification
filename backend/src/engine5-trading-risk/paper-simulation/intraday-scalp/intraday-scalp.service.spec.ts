@@ -710,6 +710,60 @@ describe('IntradayScalpService — DAR-415 윈도우 스캔 진입', () => {
   });
 });
 
+describe('IntradayScalpService — DAR-531 미래봉 유령 진입 봉인', () => {
+  // 개장 직후(09:02) 전일 분봉이 tradeDate=오늘 로 오라벨돼 DB 에 미래 시각(11:xx) 충족봉으로 남아도,
+  //   진입 스캐너가 now(KST) 이후 봉을 신호로 못 쓰게 하드가드 → 진입 0(수집 거부의 이중 방어).
+  //   재현: 충족 시계열을 '미래 시각(11:00~11:25)'에 두고 사이클을 09:02 에 돌린다.
+
+  /** 지정 시각(hour) 대역에 트리거 시계열(평탄 25분 + 충족 1분)을 만든다. ts=KST 벽시계 naive. */
+  function seriesAtHour(hour: number) {
+    const rows: ReturnType<typeof triggerCandles> = [];
+    for (let i = 0; i < 25; i++) {
+      rows.push({
+        ts: new Date(Date.UTC(2026, 5, 22, hour, i)),
+        openPrice: 100,
+        highPrice: 100,
+        lowPrice: 100,
+        closePrice: 100,
+        volume: 100,
+      });
+    }
+    rows.push({
+      ts: new Date(Date.UTC(2026, 5, 22, hour, 25)),
+      openPrice: 105,
+      highPrice: 106,
+      lowPrice: 99,
+      closePrice: 105,
+      volume: 300,
+    });
+    return rows;
+  }
+
+  it('미래 시각(11:xx) 충족봉만 있는 개장 직후(09:02) 사이클 → 진입 0', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': seriesAtHour(11) }, // 충족봉 ts=11:25 (미래)
+    });
+    const svc = new IntradayScalpService(mock.prisma);
+    const r = await svc.runEntryCycle(kstMonday('0902')); // now=09:02 KST
+    expect(r.entered).toBe(0); // ★유령 진입 0
+    expect(mock.trades).toHaveLength(0);
+  });
+
+  it('과잉 차단 아님: 봉 ts ≤ now 이면 정상 진입(09:25 충족봉·now=09:30)', async () => {
+    const mock = buildPrismaMock({
+      universe: [{ stockCode: '000001', corpCode: 'C1' }],
+      signals: [{ corpCode: 'C1', stockCode: '000001' }],
+      candlesByStock: { '000001': seriesAtHour(9) }, // 충족봉 ts=09:25
+    });
+    const svc = new IntradayScalpService(mock.prisma);
+    const r = await svc.runEntryCycle(kstMonday('0930')); // now=09:30 KST
+    expect(r.entered).toBe(1); // 유효 과거 충족봉은 정상 진입
+    expect(mock.trades[0].entryTs).toEqual(new Date(Date.UTC(2026, 5, 22, 9, 25)));
+  });
+});
+
 // DAR-416 — 거래 타임라인(getTradeHistory): 모바일 '전략' 탭 단타 드릴다운 표면화.
 //   최신 진입순·종목별 1행·종목명 결합(Company.corpName)·OPEN 청산필드 null.
 describe('IntradayScalpService — DAR-416 거래 타임라인(getTradeHistory)', () => {

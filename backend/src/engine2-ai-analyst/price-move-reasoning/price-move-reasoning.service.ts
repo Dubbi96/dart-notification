@@ -29,6 +29,7 @@ import {
   PRICE_MOVE_REASONING_LOOKBACK_HOURS,
   PRICE_MOVE_REASONING_TASK,
 } from './price-move-reasoning.constants';
+import { ANNUAL_REPRT_CODE, buildFinancialContext } from './price-move-financial-context';
 
 /** AIUsageLog.task Prisma enum 값(역방향 리즈닝). */
 const PRISMA_TASK = 'price_move_reasoning';
@@ -152,21 +153,31 @@ export class PriceMoveReasoningService {
         return this.capSkipped(event, primary.rcpNo, '전역 AI 비용 한도 — 원인 해석 보류', now);
       }
 
-      // 6) 입력 충실화: 이벤트 유형·원문 핵심 단락·EventStudy 유사사례 통계.
-      const [eventRow, doc, statsResp] = await Promise.all([
+      // 6) 입력 충실화: 이벤트 유형·추출수치·원문 핵심 단락·EventStudy 유사사례 통계·연매출(재무 맥락).
+      const [eventRow, doc, statsResp, annualFin] = await Promise.all([
         this.prisma.disclosureEvent.findUnique({
           where: { rcpNo: primary.rcpNo },
-          select: { eventType: true },
+          select: { eventType: true, extractedData: true },
         }),
         this.prisma.disclosureDocument.findUnique({
           where: { rcpNo: primary.rcpNo },
           select: { rawText: true },
         }),
         this.reactionStats.getReactionStatsByRcpNo(primary.rcpNo),
+        this.latestAnnualRevenue(corpCode),
       ]);
       const eventType = eventRow?.eventType ?? 'UNKNOWN';
       const excerpt = doc?.rawText ? buildExcerpt(doc.rawText) : '';
       const reactionStats = this.toStatSummary(statsResp);
+
+      // DAR-528 — 재무 맥락 한 줄(규칙 기반·AI 무접점). 분자(공시 규모)·분모(연매출)
+      // 중 하나라도 결측/불확실이면 null → 표시 생략(수치 발명 금지).
+      const financialContext = buildFinancialContext({
+        eventType,
+        extractedData: eventRow?.extractedData ?? null,
+        annualRevenueWon: annualFin.revenueWon,
+        annualRevenueYear: annualFin.year,
+      });
 
       // 7) AI Task 실행(설명층 한정). 파싱 실패 시에도 usage 를 먼저 기록(누락 0)한다.
       const { result, usage } = await this.runTaskPreservingUsage(primary.rcpNo, level, () =>
@@ -207,13 +218,32 @@ export class PriceMoveReasoningService {
           rcpNo: primary.rcpNo,
           status: 'ANALYZED',
           level,
-          resultJson: { status: 'ANALYZED', eventType, ...result },
+          resultJson: { status: 'ANALYZED', eventType, ...result, financialContext },
         },
         now,
       );
     } finally {
       reservation.settle(); // DAR-242 — 인플라이트 예약 항상 해제.
     }
+  }
+
+  /**
+   * DAR-528 — 재무 맥락 분모(연매출) 조회. 연간 보고서(reprtCode=11011)의 매출만 인정한다
+   * (분기/반기 누적 부분치는 '연매출' 분모로 불확실 → 배제). 연결(CFS) 우선, 없으면 별도(OFS).
+   * 결측 시 revenueWon=null → 재무 맥락 표시 생략(분모 불확실, 수치 발명 금지).
+   * ★DB 경유 읽기(엔진 간 통신 규약) — AI·비용게이트·AIUsageLog 무접점.
+   */
+  private async latestAnnualRevenue(
+    corpCode: string,
+  ): Promise<{ revenueWon: number | null; year: string | null }> {
+    const row = await this.prisma.companyFinancial.findFirst({
+      where: { corpCode, reprtCode: ANNUAL_REPRT_CODE, revenue: { not: null } },
+      orderBy: [{ bsnsYear: 'desc' }, { fsDiv: 'asc' }], // fsDiv asc → 'CFS' < 'OFS'(연결 우선)
+      select: { revenue: true, bsnsYear: true },
+    });
+    if (!row || row.revenue === null) return { revenueWon: null, year: null };
+    // revenue 는 BigInt(원). 조 단위(≤~10^13)로 Number.MAX_SAFE_INTEGER(9×10^15) 내 안전 변환.
+    return { revenueWon: Number(row.revenue), year: row.bsnsYear };
   }
 
   /** 오늘(KST) 이 태스크 누적 실호출 비용(USD) — cacheHit 제외. */

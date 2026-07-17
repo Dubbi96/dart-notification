@@ -185,25 +185,46 @@ export interface ScalpScanResult {
  * 순수 함수 — 상태·부수효과 0. 커서 관리(미평가 구간)·dedup(종목당 1라운드트립)·체결·리스크·청산은
  * engine5 가 강제한다.
  *
+ * ★DAR-531 미래봉 하드가드: `nowMs`(KST 벽시계를 UTC 컴포넌트에 담은 naive 현재 instant, ms)를
+ *   주면 `ts > nowMs`(=현재보다 미래) 분봉은 평가 대상에서 제외한다. 개장 직후 KIS 가 반환한 전일
+ *   분봉이 당일로 오라벨되면 09:00~15:30 봉이 '오늘 미래 시각'이 되는데, 그런 유령봉을 진입 근거로
+ *   삼는 것을 차단한다(수집 계층 적재 거부의 이중 방어 — 오염이 이미 DB 에 있어도 진입 0). 봉은 시간
+ *   오름차순이라 첫 미래봉 이후는 전부 미래 → prefix 로 잘라 원 인덱스(커서)를 보존한다.
+ *
  * @param candles  당일 분봉(시간 오름차순).
  * @param fromIndex 평가 시작 인덱스(직전 사이클까지 평가해 비충족 확정된 구간은 건너뛴다). 기본 0.
  * @param params    진입 파라미터(미지정 시 DEFAULT_SCALP_ENTRY_PARAMS).
+ * @param nowMs     현재 KST 벽시계 naive instant(ms). 주면 미래봉 제외(미지정 시 전체 평가 — 하위호환).
  */
 export function scanEntrySignals(
   candles: readonly ScalpCandle[],
   fromIndex = 0,
   params: ScalpEntryParams = DEFAULT_SCALP_ENTRY_PARAMS,
+  nowMs?: number,
 ): ScalpScanResult {
+  // ★DAR-531: 미래봉(ts > now)을 평가 대상에서 제외. 오름차순 가정 → 첫 미래봉 인덱스까지만 유효.
+  //   prefix 절단이라 유효 구간의 원 인덱스가 그대로 보존돼 engine5 스캔 커서와 정합한다.
+  let cutoff = candles.length;
+  if (nowMs !== undefined) {
+    for (let i = 0; i < candles.length; i++) {
+      if (candles[i].ts.getTime() > nowMs) {
+        cutoff = i;
+        break;
+      }
+    }
+  }
+  const eligible = cutoff === candles.length ? candles : candles.slice(0, cutoff);
+
   const start = Math.max(0, fromIndex);
-  // 평가 봉이 하나도 없을 때를 위한 폴백 판정(전체 기준 = 최신 상태, 미충족 사유 표면화용).
-  let lastDecision = evaluateScalpEntry(candles, params);
+  // 평가 봉이 하나도 없을 때를 위한 폴백 판정(유효 구간 기준 = 최신 상태, 미충족 사유 표면화용).
+  let lastDecision = evaluateScalpEntry(eligible, params);
   let scanned = 0;
-  for (let i = start; i < candles.length; i++) {
+  for (let i = start; i < eligible.length; i++) {
     scanned++;
-    const decision = evaluateScalpEntry(candles.slice(0, i + 1), params);
+    const decision = evaluateScalpEntry(eligible.slice(0, i + 1), params);
     lastDecision = decision;
     if (decision.triggered && decision.currentPrice !== null) {
-      return { index: i, candle: candles[i], decision, scanned };
+      return { index: i, candle: eligible[i], decision, scanned };
     }
   }
   return { index: -1, candle: null, decision: lastDecision, scanned };

@@ -182,6 +182,81 @@ describe('StockMinutePriceCollector.collectOnce — 수집·커버리지 (DAR-37
   });
 });
 
+describe('StockMinutePriceCollector — DAR-531 유령 분봉 봉인(실데이터일 불일치 적재 거부)', () => {
+  // 개장 직후(당일 분봉 미형성) KIS 가 반환한 '전일(7/16) 하루치 분봉'이 tradeDate=오늘(7/17)로
+  //   오라벨돼 미래 시각 봉으로 둔갑하던 함정(2026-07-17 prod). 봉 자신의 영업일(stck_bsop_date)이
+  //   요청 거래일과 다르면 적재 거부한다 — 재현: 전일치 응답 → 적재 0.
+
+  it('전일 오라벨 응답(봉 tradeDate=전일) 전량 → 적재 0·거부 카운트·빈종목 처리', async () => {
+    const { prisma, createMany } = makePrisma({
+      positions: [{ corpCode: 'C1', stockCode: '000001' }],
+    });
+    // 요청 거래일 20260717 이지만 KIS 는 전일(20260716) 세션 전체를 반환.
+    const prevDayCandles: KisMinuteCandle[] = [
+      { time: '114900', tradeDate: '20260716', open: 100, high: 102, low: 99, close: 101, volume: 500 },
+      { time: '141500', tradeDate: '20260716', open: 101, high: 103, low: 100, close: 102, volume: 600 },
+    ];
+    const fetchMinuteCandlesFullDay = jest.fn().mockResolvedValue(prevDayCandles);
+    const kis = { isConfigured: true, fetchMinuteCandlesFullDay } as unknown as KisApiService;
+    const collector = new StockMinutePriceCollector(prisma, kis, makeScheduler('20260717'));
+
+    const res = await collector.collectOnce({ sleep: noSleep });
+
+    expect(res.candlesSaved).toBe(0); // ★적재 0 — 미래봉 유령 진입 원천 차단
+    expect(res.rejectedByDate).toBe(2); // 2봉 전부 거부(실데이터일 20260716 ≠ 요청 20260717)
+    expect(res.covered).toBe(0); // 오늘치 실봉 0 → 커버 아님
+    expect(res.empty).toBe(1);
+    expect(createMany).not.toHaveBeenCalled(); // DB 적재 시도 자체가 없음
+  });
+
+  it('혼재 응답(당일봉+전일 오라벨봉) → 당일봉만 적재, 전일봉 거부 카운트', async () => {
+    const { prisma, createMany } = makePrisma({
+      positions: [{ corpCode: 'C1', stockCode: '000001' }],
+      createCount: 1,
+    });
+    const mixed: KisMinuteCandle[] = [
+      { time: '090100', tradeDate: '20260717', open: 100, high: 102, low: 99, close: 101, volume: 500 }, // 당일 — 적재
+      { time: '114900', tradeDate: '20260716', open: 101, high: 103, low: 100, close: 102, volume: 600 }, // 전일 오라벨 — 거부
+    ];
+    const fetchMinuteCandlesFullDay = jest.fn().mockResolvedValue(mixed);
+    const kis = { isConfigured: true, fetchMinuteCandlesFullDay } as unknown as KisApiService;
+    const collector = new StockMinutePriceCollector(prisma, kis, makeScheduler('20260717'));
+
+    const res = await collector.collectOnce({ sleep: noSleep });
+
+    expect(res.rejectedByDate).toBe(1);
+    expect(res.candlesSaved).toBe(1);
+    expect(res.covered).toBe(1);
+    const arg = createMany.mock.calls[0][0];
+    expect(arg.data).toHaveLength(1); // 당일봉 1건만 적재 대상
+    expect(arg.data[0]).toMatchObject({
+      tradeDate: '20260717',
+      ts: new Date(Date.UTC(2026, 6, 17, 9, 1)), // 09:01 당일봉
+    });
+  });
+
+  it('봉에 실영업일 결측(레거시/미제공) → 하위호환: 요청 거래일로 적재(거부 0)', async () => {
+    const { prisma, createMany } = makePrisma({
+      positions: [{ corpCode: 'C1', stockCode: '000001' }],
+      createCount: 2,
+    });
+    // tradeDate 필드 없는 캔들(기존 sampleCandles 형태) — 결측이면 거부하지 않고 요청일로 적재.
+    const fetchMinuteCandlesFullDay = jest.fn().mockResolvedValue([
+      { time: '090100', open: 100, high: 102, low: 99, close: 101, volume: 500 },
+      { time: '090200', open: 101, high: 103, low: 100, close: 102, volume: 600 },
+    ]);
+    const kis = { isConfigured: true, fetchMinuteCandlesFullDay } as unknown as KisApiService;
+    const collector = new StockMinutePriceCollector(prisma, kis, makeScheduler('20260717'));
+
+    const res = await collector.collectOnce({ sleep: noSleep });
+
+    expect(res.rejectedByDate).toBe(0);
+    expect(res.candlesSaved).toBe(2);
+    expect(res.covered).toBe(1);
+    expect(createMany).toHaveBeenCalled();
+  });
+});
+
 describe('StockMinutePriceCollector.collectMinutePricesCron — 게이트 (DAR-377)', () => {
   const IN_HOURS = new Date('2026-06-19T03:00:00Z'); // 금 12:00 KST = 정규장
   const OUT_HOURS = new Date('2026-06-19T10:30:00Z'); // 금 19:30 KST = 장외

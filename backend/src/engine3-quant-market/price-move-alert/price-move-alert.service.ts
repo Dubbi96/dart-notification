@@ -205,7 +205,10 @@ export class PriceMoveAlertService {
         prevClose,
         title,
         body,
-        deepLink: `/company/${company.corpCode}`,
+        // DAR-526: '왜 움직였나' 카드(`/price-move/<refId>`)로 재타겟 — 기업상세가 아닌 카드 진입.
+        //   refId 는 이미 위에서 산출됨. FE 딥링크 해석기(mobile utils/deeplink.ts)는 이 경로를
+        //   화이트리스트(`/price-move`)로 통과시키고, 미충전 시 type=PRICE_MOVE·refId 폴백도 카드로 도달.
+        deepLink: `/price-move/${refId}`,
         newsUrl: naverStockNewsUrl(stockCode),
       });
       this.firedKeys.add(refId);

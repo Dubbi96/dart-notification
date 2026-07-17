@@ -1383,9 +1383,11 @@ GET /api/ai-cost/coverage?days=7
 
 ---
 
-### 10.8 PRICE_MOVE 역방향 리즈닝 — '왜 움직였나' (DAR-522, Wave C1·P0)
+### 10.8 PRICE_MOVE 역방향 리즈닝 — '왜 움직였나' (DAR-522 C1 생성 / DAR-526 C2 조회, Wave C·P0)
 
-> **HTTP 엔드포인트 없음(내부 AI Task).** engine3 `price-move-alert`가 관심종목 급변동(±5%)을 발화하면 BullMQ 큐(`price-move-reason`)로 등락 이벤트가 전달되고, engine2 `PriceMoveReasoningService`(5번째 AI Task)가 소비한다. 산출물은 `price_move_reasonings` 테이블(§37, `database-schema.md`)에 refId(등락 이벤트) 멱등으로 저장된다 — FE '3상태 카드'(Wave C 후속)가 이를 조회 소비.
+> **생성(write)은 HTTP 엔드포인트 없음(내부 AI Task).** engine3 `price-move-alert`가 관심종목 급변동(±5%)을 발화하면 BullMQ 큐(`price-move-reason`)로 등락 이벤트가 전달되고, engine2 `PriceMoveReasoningService`(5번째 AI Task)가 소비한다. 산출물은 `price_move_reasonings` 테이블(§37, `database-schema.md`)에 refId(등락 이벤트) 멱등으로 저장된다.
+>
+> **조회(read)는 `GET /api/price-move-reasonings/:refId`(DAR-526 신설, 아래).** FE '3상태 카드'(DAR-524)가 이 읽기 전용 엔드포인트로 적재 결과 1건을 소비한다 — 생성 경로와 분리된 조회 표면(AI 호출·비용게이트·AIUsageLog 무접점, 마이그레이션 0).
 
 **흐름 (등락 이벤트 1건)**
 1. **멱등 캐시** — `refId=<stockCode>-<YYYYMMDD>` 기존 결과가 있으면 AI 재호출 0.
@@ -1394,7 +1396,8 @@ GET /api/ai-cost/coverage?days=7
 4. **일일 비용 상한(env) 초과 → AI 호출 0** — `status=CAP_SKIPPED`.
 5. **비용게이트 L0~L3 편입 + 전역 한도가드** — L0 강등 시 AI 스킵(`CAP_SKIPPED`).
 6. **AI 원인 해석(설명층 한정)** — 프롬프트 주입: 공시 이벤트 유형 + 등락 방향/폭 + **EventStudy 유사사례 통계**(D+1/D+5/D+20, n≥30 게이트). 출력 JSON: `{ cause, evidence[], eventLinkage: STRONG|MODERATE|WEAK|UNCLEAR, caveat }`.
-7. **AIUsageLog 기록(누락 0)** — task=`price-move-reasoning` · `refId` 멱등 저장(`status=ANALYZED`).
+7. **재무 맥락 한 줄(DAR-528)** — `CompanyFinancial` 최신 연간 매출(분모)을 조회해 인과 공시 규모(분자) 대비 비율을 `resultJson.financialContext`에 산출·적재. **규칙 기반·AI 호출 0**. 분자/분모 결측·불확실이면 `null`(§10.8.1 참조, 수치 발명 금지).
+8. **AIUsageLog 기록(누락 0)** — task=`price-move-reasoning` · `refId` 멱등 저장(`status=ANALYZED`).
 
 **비용 상한 (env)**
 
@@ -1403,6 +1406,43 @@ GET /api/ai-cost/coverage?days=7
 | `PRICE_MOVE_REASONING_DAILY_USD_LIMIT` | `0.5` | 이 태스크 전용 일일 예산(USD). 초과 시 AI 호출 0(`CAP_SKIPPED`). 전역 `AI_DAILY_LIMIT_USD`($1)·`AI_MONTHLY_LIMIT_USD`($31) 하드백스톱과 **중첩** 강제. |
 
 **AI 금지영역 무침범**: 산출 스키마는 **설명(원인 해석·근거)뿐** — 매수/매도/보유 권고·목표가·투자의견·점수·주문 필드가 없다(화이트리스트 검증이 위장 필드도 제거). Engine5 Risk·주문·하드룰 경로와 무접점.
+
+#### 10.8.1 조회 — `GET /api/price-move-reasonings/:refId` (DAR-526, Wave C/C2·P0, 읽기 전용)
+
+FE '왜 움직였나' 카드(DAR-524)가 적재된 리즈닝 1건을 조회 소비한다. 인증 불필요·마이그레이션 0·AI 무접점.
+
+- **path param** `refId` — 등락 이벤트 자연키 `<stockCode>-<YYYYMMDD>`(`PriceMoveReasoning.refId @unique`).
+- **200** — `{ success: true, data }`. `data`는 `price_move_reasonings` 행 1건(정본 계약: mobile `types/priceMove.types.ts`):
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "refId": "005930-20260717",
+    "stockCode": "005930",
+    "corpCode": "00126380",
+    "corpName": "삼성전자",        // Company 조인(표시용). 미존재 시 null → FE 는 stockCode 폴백
+    "tradeDate": "20260717",
+    "changePct": 6.3,
+    "rcpNo": "20260717000123",      // causal 공시 접수번호(무공시 케이스는 null)
+    "status": "ANALYZED",           // ANALYZED | NO_DISCLOSURE | CAP_SKIPPED
+    "resultJson": { /* status 판별 유니온 */ },
+    "createdAt": "2026-07-17T05:30:00.000Z"
+  }
+}
+```
+
+  - `resultJson` — `status`로 판별하는 유니온:
+    - `ANALYZED`: `{ status:'ANALYZED', eventType, cause, evidence[], eventLinkage:'STRONG'|'MODERATE'|'WEAK'|'UNCLEAR', caveat, financialContext }`
+    - `NO_DISCLOSURE`: `{ status:'NO_DISCLOSURE', label, message }`
+    - `CAP_SKIPPED`: `{ status:'CAP_SKIPPED', message }`
+  - `financialContext`(DAR-528, ANALYZED만) — **재무 맥락 한 줄**(`string|null`). 인과 공시의 규모(분자, 예: 공급계약 계약금액)를 **최신 연간 매출(분모, `CompanyFinancial` reprtCode=11011)** 대비 비율로 표기(예: `"이번 계약 규모는 2025 연매출의 약 12.3% (1230억 / 연매출 1조)"`). ★분자·분모 중 하나라도 결측/불확실(분기·반기 누적 매출 등)이면 **`null`**(표시 생략) — 수치 발명 금지(정직 원칙). 규칙 기반 산출·**AI 호출 0**(비용게이트/AIUsageLog 무영향). 구 APK 무해(옵셔널). 생성 시점 스냅샷(생성 경로에서 `resultJson`에 적재, 조회는 그대로 노출).
+  - 내부 전용 `level`(비용 등급)은 응답에서 제외한다.
+- **404** — 미존재 refId → `{ success:false, error:{ code:'PRICE_MOVE_REASONING_NOT_FOUND', message } }`(FE 는 '로딩실패' 상태로 정직 degrade).
+
+#### 10.8.2 PRICE_MOVE 푸시 딥링크 재타겟 (DAR-526)
+
+engine3 `price-move-alert.service`의 PRICE_MOVE 발화 페이로드 `deepLink`를 `/company/<corpCode>`(기업상세)에서 **`/price-move/<refId>`('왜 움직였나' 카드)**로 재타겟한다. FE 딥링크 해석기(mobile `utils/deeplink.ts`)는 이 경로를 화이트리스트(`/price-move`)로 통과시키며, `deepLink` 미충전 시에도 `type:'PRICE_MOVE'`·`refId` 폴백이 동일 카드로 라우팅한다.
 
 ---
 
@@ -3259,4 +3299,4 @@ Play Console 스토어 리스팅에 게시할 공개 웹 URL. API가 아닌 정�
 
 ---
 
-**최종 수정일**: 2026-07-17 (DAR-527 Wave B/B3·P1: §12.5 보강 — 에디션 발행 푸시 딥링크(신호탭 '해당 호' 직행 `/signals?date=<editionDate>`·`/signals` prefix 쿼리 규칙으로 화이트리스트 통과·새 prefix/라우트 불요·`type=EDITION·refId` 타입별 폴백[3경로·DAR-90/154 재사용]·백엔드 `deepLink` 재타겟 선행[BE 소유·자식 이슈 위임·DAR-524→526 동형]) + '놓친 호' 뱃지(전적으로 클라이언트 로컬 zustand persist·expo-secure-store·**서버 스키마 0**·`editionPushEnabled` ON 시에만 노출[단일 토글 정합]). 모바일 전용·M10 무오염·마이그레이션 0, 버전 1.45) / 이전: 2026-07-17 (DAR-522 Wave C1·P0: §10.8 PRICE_MOVE 역방향 리즈닝 신설 — engine3 급변동(±5%) 발화→48h 공시 원인 역추적 AI Task(5번째). HTTP 엔드포인트 없음(engine3→engine2 큐 `price-move-reason` 트리거), 무공시 시 AI 호출 0·`'관련 공시 없음(48h)'` 포맷, 비용게이트 L0~L3 편입·일일 상한 env `PRICE_MOVE_REASONING_DAILY_USD_LIMIT`($0.5)·AIUsageLog `price-move-reasoning` 편입·refId 멱등(§43 database-schema)·AI 금지영역 무침범(출력=설명층). 마이그레이션 20260717130000_dar522_price_move_reasoning, 버전 1.44) / 이전: 2026-07-17 (DAR-516 Wave A/A6: §31.8 테스터 코호트 계측 2종 신설 — `POST /ops/tester-event`(인증·화이트리스트 8종·202 흡수·120req/min)·`GET /ops/tester-metrics`(오픈율·재방문 집계, days 1~90). PII 무수집(userId·event·ts만)·M10 무오염, 마이그레이션 20260717120000_dar516_tester_event(tester_events 단일 테이블). SSOT: 모바일 `utils/testerEvents.ts`↔`dto/record-tester-event.dto.ts`, 정본 `docs/analytics/tester-cohort-instrumentation.md`, 버전 1.43) / 이전: 2026-07-17 (§7.9 유사공시 반응 통계 `GET /disclosures/:rcpNo/event-stats` 신설 — 유형별 D+1/D+5/D+20 누적 평균수익률(실제 주가 반응)·초과수익·상승비율·표본수 n, `EventStudyObservation` 관측치 직접 집계, n<30→`stats=null`+`INSUFFICIENT_SAMPLE` 정직 규약, KST 일1회 캐시, 읽기 전용·마이그레이션 0; Wave A·A1, DAR-511, 버전 1.42) / 이전: 2026-07-17 (DAR-510 [문서] 일일 에디션 API 동기화 — §12.4·§12.5 를 구현(DAR-505)과 드리프트 0 재검증 + 에러 응답(400 BadRequest)·응답 봉투 `{ success, data, meta }`·라우트 선언 순서(`:id` catch-all 위)·PENDING↔QUIET 19:15 경계를 명시, 버전 1.41) / 이전: 2026-07-16 (갭분석 퀵윈 웨이브 신규 엔드포인트 전수 반영 — §2.3~2.6 Pro 사전신청 3종·계정 삭제(W1/W3), §7.8 미국 주식 수요 기록 + GET /search OptionalJwt(W8), §10.7 AI 커버리지 계기판(W10), §22.1 오늘의 브리핑(W14), §27.2 제목 이벤트 백필 2종(W4), §28.1 수급·공매도 수동 수집(W16), §31.6 알림 지연 계측(W5)·§31.7 온보딩 퍼널 비인증 기록(W15), §33 기술지표·수급·공매도 조회(W13/W16), §34 공개 웹 표면 — 랜딩·공유·/status·법적 고지(W3/W3b/W11), 버전 1.40) / 이전: 2026-07-07 (§12.3 신호 목록 `sinceDays` 최신성 윈도우 파라미터 문서화 — 홈 '오늘의 투자판단' 정체 해소, 버전 1.39) / 이전: 2026-07-06 (개장 체결 정렬 — §21.2·§21.3 철학·전략 forward 진입을 "저녁 예약(PENDING)→익일 개장 당일 시가 체결"로 통일: 사이클 응답 `reserved` 추가·`bought` 의미 재정의·철학 entryReady 폴백·체결 알림 출처 SSOT 16종(철학 4종 추가·`strategy:` 접두사 정규화); 같은 날 §31.5 신설 — 격주 트랙 성과 순위 리포트 `GET /api/ops/track-review` + 발송 잡 `ops.biweekly-track-review`; 같은 날 알림 이모지 제거 개정 — §8.1·§20·§20.1·부록 B 템플릿 갱신) / 이전: 2026-07-03
+**최종 수정일**: 2026-07-17 (DAR-527 Wave B/B3·P1: §12.5 보강 — 에디션 발행 푸시 딥링크(신호탭 '해당 호' 직행 `/signals?date=<editionDate>`·`/signals` prefix 쿼리 규칙으로 화이트리스트 통과·새 prefix/라우트 불요·`type=EDITION·refId` 타입별 폴백[3경로·DAR-90/154 재사용]·백엔드 `deepLink` 재타겟 선행[BE 소유·자식 이슈 위임·DAR-524→526 동형]) + '놓친 호' 뱃지(전적으로 클라이언트 로컬 zustand persist·expo-secure-store·**서버 스키마 0**·`editionPushEnabled` ON 시에만 노출[단일 토글 정합]). 모바일 전용·M10 무오염·마이그레이션 0, 버전 1.45) / 이전: 2026-07-17 (DAR-528 Wave C/C3·P1: §10.8 리즈닝 `resultJson.financialContext`(ANALYZED만) 신설 — '왜 움직였나' 카드 재무 맥락 한 줄. 인과 공시 규모(분자)를 `CompanyFinancial` 최신 연간 매출(분모, reprtCode=11011) 대비 비율로 규칙 기반 산출(생성 경로에서 `resultJson`에 적재, 조회 그대로 노출). 분자·분모 중 하나라도 결측/불확실(분기·반기 누적 매출 등)이면 `null`(표시 생략·수치 발명 금지). **AI 호출 0**(비용게이트/AIUsageLog 무영향)·스키마 변경 0(마이그레이션 불요)·구 APK 무해(옵셔널)·M10 무오염. 버전 1.46) / 이전: 2026-07-17 (DAR-526 Wave C/C2·P0: §10.8.1 조회 엔드포인트 `GET /api/price-move-reasonings/:refId` 신설(FE '왜 움직였나' 카드 배선) — refId(등락 이벤트) 1건 응답 `{ success, data }`, `corpName` Company 조인(미존재 null), `resultJson` status 판별 유니온, 내부 `level` 제외, 미존재 refId→404 `PRICE_MOVE_REASONING_NOT_FOUND`; 읽기 전용·마이그레이션 0·AI 무접점(비용게이트/AIUsageLog 무영향). §10.8.2 PRICE_MOVE 푸시 `deepLink` 재타겟 `/company/<corpCode>`→`/price-move/<refId>`(카드 진입). 버전 1.45) / 이전: 2026-07-17 (DAR-522 Wave C1·P0: §10.8 PRICE_MOVE 역방향 리즈닝 신설 — engine3 급변동(±5%) 발화→48h 공시 원인 역추적 AI Task(5번째). HTTP 엔드포인트 없음(engine3→engine2 큐 `price-move-reason` 트리거), 무공시 시 AI 호출 0·`'관련 공시 없음(48h)'` 포맷, 비용게이트 L0~L3 편입·일일 상한 env `PRICE_MOVE_REASONING_DAILY_USD_LIMIT`($0.5)·AIUsageLog `price-move-reasoning` 편입·refId 멱등(§43 database-schema)·AI 금지영역 무침범(출력=설명층). 마이그레이션 20260717130000_dar522_price_move_reasoning, 버전 1.44) / 이전: 2026-07-17 (DAR-516 Wave A/A6: §31.8 테스터 코호트 계측 2종 신설 — `POST /ops/tester-event`(인증·화이트리스트 8종·202 흡수·120req/min)·`GET /ops/tester-metrics`(오픈율·재방문 집계, days 1~90). PII 무수집(userId·event·ts만)·M10 무오염, 마이그레이션 20260717120000_dar516_tester_event(tester_events 단일 테이블). SSOT: 모바일 `utils/testerEvents.ts`↔`dto/record-tester-event.dto.ts`, 정본 `docs/analytics/tester-cohort-instrumentation.md`, 버전 1.43) / 이전: 2026-07-17 (§7.9 유사공시 반응 통계 `GET /disclosures/:rcpNo/event-stats` 신설 — 유형별 D+1/D+5/D+20 누적 평균수익률(실제 주가 반응)·초과수익·상승비율·표본수 n, `EventStudyObservation` 관측치 직접 집계, n<30→`stats=null`+`INSUFFICIENT_SAMPLE` 정직 규약, KST 일1회 캐시, 읽기 전용·마이그레이션 0; Wave A·A1, DAR-511, 버전 1.42) / 이전: 2026-07-17 (DAR-510 [문서] 일일 에디션 API 동기화 — §12.4·§12.5 를 구현(DAR-505)과 드리프트 0 재검증 + 에러 응답(400 BadRequest)·응답 봉투 `{ success, data, meta }`·라우트 선언 순서(`:id` catch-all 위)·PENDING↔QUIET 19:15 경계를 명시, 버전 1.41) / 이전: 2026-07-16 (갭분석 퀵윈 웨이브 신규 엔드포인트 전수 반영 — §2.3~2.6 Pro 사전신청 3종·계정 삭제(W1/W3), §7.8 미국 주식 수요 기록 + GET /search OptionalJwt(W8), §10.7 AI 커버리지 계기판(W10), §22.1 오늘의 브리핑(W14), §27.2 제목 이벤트 백필 2종(W4), §28.1 수급·공매도 수동 수집(W16), §31.6 알림 지연 계측(W5)·§31.7 온보딩 퍼널 비인증 기록(W15), §33 기술지표·수급·공매도 조회(W13/W16), §34 공개 웹 표면 — 랜딩·공유·/status·법적 고지(W3/W3b/W11), 버전 1.40) / 이전: 2026-07-07 (§12.3 신호 목록 `sinceDays` 최신성 윈도우 파라미터 문서화 — 홈 '오늘의 투자판단' 정체 해소, 버전 1.39) / 이전: 2026-07-06 (개장 체결 정렬 — §21.2·§21.3 철학·전략 forward 진입을 "저녁 예약(PENDING)→익일 개장 당일 시가 체결"로 통일: 사이클 응답 `reserved` 추가·`bought` 의미 재정의·철학 entryReady 폴백·체결 알림 출처 SSOT 16종(철학 4종 추가·`strategy:` 접두사 정규화); 같은 날 §31.5 신설 — 격주 트랙 성과 순위 리포트 `GET /api/ops/track-review` + 발송 잡 `ops.biweekly-track-review`; 같은 날 알림 이모지 제거 개정 — §8.1·§20·§20.1·부록 B 템플릿 갱신) / 이전: 2026-07-03

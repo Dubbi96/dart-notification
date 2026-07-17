@@ -14,6 +14,10 @@ import { channelIdForType } from '../../notifications/notification-category';
 import { truncateForTitle } from '../../notifications/notification-source';
 import { DisclosureDocumentsService } from '../disclosure-documents/disclosure-documents.service';
 import { KST_TIMEZONE, formatKstDateCompact } from '../../common/time/kst';
+import {
+  nextTradingDay,
+  prevTradingDay,
+} from '../../common/time/market-calendar';
 import { CronRunRecorderService } from '../../cron-health/cron-run-recorder.service';
 import { CRON_JOB_KEYS } from '../../cron-health/cron-health.jobs';
 
@@ -35,6 +39,17 @@ export const DISCLOSURE_DELTA_CRON =
  * 378틱/일 × 1콜 + 페이지 초과분 여유 ≈ 400콜(장중 6.5h 1분 카덴스 여유분).
  */
 export const DISCLOSURE_DELTA_DAILY_CALL_BUDGET = 400;
+
+/**
+ * DAR-434 ① 최근 갭 복구 상한: 1회 forward 사이클이 소급 질의할 최대 거래일 수.
+ *
+ * 수집기가 며칠 오프라인이면 그 사이 거래일이 영구 누락됐다(복구돼도 10분 크론은 '오늘'만
+ * 다시 물어 6/22·6/23·7/17 처럼 갭이 방치). forward 사이클이 max(rcpDt)+1~today 범위를
+ * 질의해 자동으로 메우되, 1회 윈도가 과도해지지 않도록 최근 N거래일로 클램프한다(그보다 깊은
+ * 갭은 수동 백필/OPS 트리거에 위임 — 경고 로그로 표면화). 10거래일 ≈ 2주로, 과거 실측 갭
+ * (6/24 5일·7/17 1일)을 모두 포괄한다.
+ */
+export const FORWARD_GAP_MAX_TRADING_DAYS = 10;
 
 /** 델타 폴링 1회 실행 결과(관측·테스트용). */
 export interface DeltaCollectResult {
@@ -93,7 +108,67 @@ export class SchedulerService {
   @Cron('*/10 8-17 * * 1-5', { timeZone: KST_TIMEZONE })
   async collectDisclosures() {
     const today = this.formatDate(new Date());
-    return this.collectByDate(today, today, 'CRON');
+    // DAR-434 ①: '오늘' 단일일이 아니라 max(rcpDt)+1~today 범위로 질의해 최근 갭을 복구한다.
+    const bgnDe = await this.resolveForwardCollectionStart(today);
+    return this.collectByDate(bgnDe, today, 'CRON');
+  }
+
+  /**
+   * DAR-434 ① 최근 갭 복구(forward 우선): 이번 forward 사이클의 수집 시작일(bgnDe)을 결정한다.
+   *
+   * DB `max(rcpDt)`(8자리 최신 접수일)와 오늘(KST)을 비교한다:
+   *  - DB가 비었거나 max(rcpDt) ≥ today → 오늘만 수집(갭 없음/연속). 종전 거동과 동일.
+   *  - 갭이 있으면 max(rcpDt) 다음 거래일부터 오늘까지 범위로 수집한다. `getAllDisclosures`는
+   *    이미 범위 페이지네이션을 지원하고 `filterNewDisclosures`가 dedup 하므로 반복 실행에 멱등이다
+   *    (수집기가 며칠 오프라인이었어도 복구 시 놓친 거래일을 자동으로 메운다).
+   *  - 1회 윈도가 과도하지 않도록 최근 N거래일(FORWARD_GAP_MAX_TRADING_DAYS)로 클램프한다.
+   *    클램프를 넘는 깊은 갭은 forward 로 다 메우지 않고 수동 백필/OPS 트리거에 위임하되,
+   *    경고 로그로 표면화한다.
+   *
+   * ★백필(isBackfill=true)은 과거(2016~) rcpDt 를 채우므로 max(rcpDt)에 영향을 주지 않는다
+   *   — max(rcpDt)는 라이브 수집 프런티어를 반영한다(별도 필터 불필요).
+   */
+  private async resolveForwardCollectionStart(today: string): Promise<string> {
+    const latest = await this.prisma.disclosure.aggregate({
+      _max: { rcpDt: true },
+    });
+    const maxRcpDt = latest._max.rcpDt ?? null;
+
+    // DB가 비었거나 최신 접수일이 오늘 이상 → 갭 없음, 오늘만.
+    if (!maxRcpDt || maxRcpDt >= today) {
+      return today;
+    }
+
+    // 갭 시작 = max(rcpDt) 다음 거래일. gapStart 가 today 면 실질적 갭 없음(오늘만).
+    const gapStart = nextTradingDay(maxRcpDt);
+    if (gapStart >= today) {
+      return today;
+    }
+
+    // 클램프 하한 = 오늘로부터 N거래일 전. 그보다 깊은 갭은 이번 사이클로 다 메우지 않는다.
+    const clampFloor = this.nthPrevTradingDay(today, FORWARD_GAP_MAX_TRADING_DAYS);
+    if (gapStart < clampFloor) {
+      this.logger.warn(
+        `공시 forward 갭이 클램프(${FORWARD_GAP_MAX_TRADING_DAYS}거래일)를 초과 — ` +
+          `max(rcpDt)=${maxRcpDt}, today=${today}. 이번 사이클은 ${clampFloor}부터 복구하며, ` +
+          `${gapStart}~${clampFloor} 이전 갭은 수동 백필 필요.`,
+      );
+      return clampFloor;
+    }
+
+    this.logger.log(
+      `공시 forward 갭 복구: max(rcpDt)=${maxRcpDt} → ${gapStart}~${today} 범위 수집(멱등).`,
+    );
+    return gapStart;
+  }
+
+  /** today 로부터 n거래일 전(YYYYMMDD) — 갭 복구 윈도 클램프 하한 계산용. */
+  private nthPrevTradingDay(today: string, n: number): string {
+    let d = today;
+    for (let i = 0; i < n; i += 1) {
+      d = prevTradingDay(d);
+    }
+    return d;
   }
 
   /**
@@ -284,6 +359,35 @@ export class SchedulerService {
       fetchedCount = disclosures.length;
 
       if (disclosures.length === 0) {
+        // DAR-434 ④ 020 관측성: 진짜 '새 공시 없음'과 '쿼터 소진으로 0건'을 구분한다.
+        //   쿼터가 소진된 상태의 0건은 신뢰할 수 없다(라이브 목록 콜이 020 을 맞아 조기 종료됐을
+        //   뿐, 실제 공시 유무를 확인하지 못함). 종전엔 이를 SUCCESS fetched=0 으로 삼켜 정체가
+        //   조용히 진행됐다(6/24·7/15·7/17 장애의 관측 공백) → PARTIAL 로 마감해 수집상태·신선도
+        //   안전망에 표면화한다. 실제 쿼터 소진(020/021) 관측 여부는 dart-api 의 하드스톱 플래그로 판단.
+        const quota = this.dartApiService.getQuotaBudgetStatus();
+        if (quota.quotaExhausted) {
+          this.logger.warn(
+            `DART 일일 쿼터 소진(020/021) 관측 상태에서 fetched=0 — '새 공시 없음'이 아니라 ` +
+              `수집 조기 차단으로 판단(PARTIAL, 다음 리셋 후 재개). ` +
+              `callsToday=${quota.callsToday}/${quota.dailyBudget}`,
+          );
+          await this.prisma.disclosureCollectionLog.update({
+            where: { id: log.id },
+            data: {
+              endedAt: new Date(),
+              fetchedCount: 0,
+              newCount: 0,
+              skippedCount: 0,
+              failedCount: 0,
+              status: 'PARTIAL',
+              errorMessage:
+                `DART 일일 쿼터 소진(020/021) 추정 — fetched=0, ` +
+                `callsToday=${quota.callsToday}/${quota.dailyBudget}. 다음 리셋(KST 자정) 후 재수집.`,
+            },
+          });
+          return { saved: 0, total: 0, message: 'DART 일일 쿼터 소진 추정(PARTIAL)' };
+        }
+
         this.logger.log('새로운 공시가 없습니다.');
         // ③-a 결과 없음도 정상 완료 → SUCCESS
         await this.prisma.disclosureCollectionLog.update({

@@ -15,6 +15,7 @@
 | 지분변동(insider) | `insider-holdings/` | 임원·주요주주 소유보고 + 5% 대량보유 수집 → `InsiderHoldingChange`, INSIDER_BUY/SELL·MAJOR_HOLDER_5PCT 이벤트 (DAR-87/88) |
 | 파이프라인 무결성 | `pipeline/` | 수집→파싱→이벤트→AI 폐루프 무결성 점검·드레인(체이닝 누락 회수), 이벤트 백필(rcpDt 시간순), rawText/tables **S3 오프로드**(DB 경량화) — DAR-126/391/395/399 |
 | 조회 | `disclosures/` | `GET /disclosures` 등 HTTP 조회, 공시 7유형 분류 상수, 검색 유틸 |
+| 예정 이벤트 캘린더 | `upcoming-events/` | `DisclosureEvent.extractedData` 날짜 필드 파생 → 관심기업 D-day 조회(`GET /upcoming-events`, 읽기 전용·스키마 0). 정직 규약: 유효 YYYY-MM-DD만 파생(발명 금지), 정정공시 supersede (DAR-538) |
 
 > SSOT의 목표 구조는 `collection/`·`parsing/`·`event-extraction/` 하위 폴더 + `DisclosureIntelligenceModule` 집약이다.
 > 현재는 기능 모듈을 도메인 폴더로 **물리 통합**한 형태로 운용 중이며, 하위 폴더 재명명·집약 모듈은 후속(선택).
@@ -41,4 +42,4 @@
 `npx tsc --noEmit` 0 · `npm test` 그린(M1·M2 extractor 스펙 포함) · 자연키 FK 정합 · 문서 동기화.
 
 ---
-*최종 수정: 2026-07-15*
+*최종 수정: 2026-07-17 (DAR-538 upcoming-events 모듈 추가)*

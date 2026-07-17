@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import axiosRetry from 'axios-retry';
@@ -6,6 +6,7 @@ import * as AdmZip from 'adm-zip';
 import { DISCLOSURE_TYPE_IDS } from '../disclosures/constants/disclosure-types.constant';
 import { formatKstDateCompact } from '../../common/time/kst';
 import { NotificationProducerService } from '../../notifications/notification-producer.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
 /**
  * DART API 키 미설정 또는 오프라인 환경에서 downloadDocument 호출 시 throw되는 에러
@@ -68,6 +69,13 @@ const DART_LIVE_RESERVE_ALERT_RATIO = 0.2;
 const DART_LIVE_RESERVE_ALERT_REMAINING = Math.floor(
   DART_LIVE_RESERVE * DART_LIVE_RESERVE_ALERT_RATIO,
 ); // 400
+
+/**
+ * DAR-532: 쿼터 소비 상태 DB 영속화 스로틀 — N콜마다 최대 1회만 flush 해 핫패스 DB 쓰기를
+ * 최소화한다(실제 020 관측 시엔 스로틀 무시하고 즉시 영속). 재기동 시 최대 이 스텝만큼만
+ * 저평가(항상 실소비 이하 → 예약분을 더 보호하는 안전 방향)될 수 있다.
+ */
+const DART_QUOTA_PERSIST_STEP = 200;
 
 export interface DartDisclosureItem {
   corp_code: string;
@@ -215,19 +223,21 @@ export interface DartCompanyOverview {
 }
 
 @Injectable()
-export class DartApiService {
+export class DartApiService implements OnModuleInit {
   private readonly logger = new Logger(DartApiService.name);
   private readonly httpClient: AxiosInstance;
   private readonly apiKey: string;
 
-  /** DAR-445: 일일 콜 예산 상태(KST 자정 리셋). 프로세스 메모리 — 재시작 시 0 으로 시작하되,
-   *  실제 020 관측 시 quotaExhaustedDay 가 하드스톱을 다시 건다(백스톱). */
+  /** DAR-445: 일일 콜 예산 상태(KST 자정 리셋). 프로세스 메모리 — 단, DAR-532 로 당일 소비/소진을
+   *  DB(dart_quota_state)에 영속화해 재기동 후 onModuleInit 에서 복원한다(재시작 0 리셋 결함 차단). */
   private callDayKey = '';
   private callsToday = 0;
   /** 실제 DART 020/021(쿼터 소진) 을 관측한 KST 일자. 그 날은 벌크 호출을 하드스톱. */
   private quotaExhaustedDay = '';
   /** W5 ④: 라이브 예약분 소진 임계 OPS_ALERT 를 발행한 KST 일자(1회/일 dedupe). */
   private reserveAlertDay = '';
+  /** DAR-532: 마지막으로 DB 에 flush 한 callsToday(스로틀 기준). -1 = 미영속(당일 첫 flush 전). */
+  private lastPersistedCalls = -1;
 
   constructor(
     private readonly configService: ConfigService,
@@ -237,6 +247,12 @@ export class DartApiService {
      */
     @Optional()
     private readonly notificationProducer?: NotificationProducerService,
+    /**
+     * @Optional: DAR-532 쿼터 상태 영속화(재기동 복원)용 Prisma. 미주입 시(단위 테스트 등)엔
+     * in-memory 만으로 기존 가드가 동작하고 영속화·복원은 no-op 으로 자연 강등된다.
+     */
+    @Optional()
+    private readonly prisma?: PrismaService,
   ) {
     this.apiKey = this.configService.get<string>('DART_API_KEY', '');
 
@@ -249,6 +265,76 @@ export class DartApiService {
       retries: 3,
       retryDelay: axiosRetry.exponentialDelay,
     });
+  }
+
+  /**
+   * DAR-532: 재기동 직후 당일(KST) 쿼터 상태를 DB 에서 복원한다(핫패스 진입 전 1회).
+   *
+   * ★근본원인: DAR-445 3단 예산 상한은 in-memory callsToday/quotaExhaustedDay 에만 걸려 있어
+   *   프로세스 재기동 시 0/'' 로 리셋됐다 — 상한이 '한 프로세스 소비'만 묶고 '당일 실 DART 쿼터'는
+   *   못 묶어, 야간 다중 재기동이 매번 신규 벌크 예산(14,000)을 다시 열어 라이브 예약분까지 소진했다
+   *   (2026-07-17 08:29 재기동 첫 콜 020). 복원으로 상한이 '당일 실소비'를 묶게 만든다.
+   *
+   * 복원값은 항상 실소비 이하(스로틀 저평가)라 예약분을 더 보호하는 단조·안전 방향이다.
+   * prisma 미주입/조회 실패는 무시(in-memory 기본값 유지) — 발송/수집 본업을 막지 않는다.
+   */
+  async onModuleInit(): Promise<void> {
+    if (!this.prisma) return;
+    const day = this.currentDayKey();
+    try {
+      const row = await this.prisma.dartQuotaState.findUnique({ where: { day } });
+      if (!row) return;
+      this.callDayKey = day;
+      this.callsToday = Math.max(this.callsToday, row.callsToday ?? 0);
+      this.lastPersistedCalls = this.callsToday;
+      if (row.quotaExhausted) {
+        this.quotaExhaustedDay = day;
+        this.logger.warn(
+          `DART 쿼터 상태 복원(재기동): ${day} callsToday=${this.callsToday} quotaExhausted=true — ` +
+            `벌크 하드스톱 재적용(자정 KST 리셋까지 라이브 예약분 보호).`,
+        );
+      } else {
+        this.logger.log(
+          `DART 쿼터 상태 복원(재기동): ${day} callsToday=${this.callsToday}(상한 대비 실소비 반영).`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `DART 쿼터 상태 복원 실패(무시·in-memory 기본값 유지): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  /**
+   * DAR-532: 당일 쿼터 상태를 dart_quota_state 에 upsert(1행/KST일). fire-and-forget —
+   * 실패해도 throw 없이 삼켜 핫패스를 막지 않는다. `force=true`(실제 020 관측)면 스로틀 무시.
+   * quotaExhausted 는 true 로만 승격(false 로 되돌리지 않음) — 관측된 하드스톱을 후퇴시키지 않는다.
+   */
+  private async persistQuotaState(force: boolean): Promise<void> {
+    if (!this.prisma) return;
+    if (!force && this.callsToday - this.lastPersistedCalls < DART_QUOTA_PERSIST_STEP) return;
+    const day = this.callDayKey || this.currentDayKey();
+    const callsToday = this.callsToday;
+    const exhausted = this.quotaExhaustedDay === day;
+    this.lastPersistedCalls = callsToday;
+    try {
+      await this.prisma.dartQuotaState.upsert({
+        where: { day },
+        create: { day, callsToday, quotaExhausted: exhausted },
+        update: {
+          callsToday,
+          ...(exhausted ? { quotaExhausted: true } : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `DART 쿼터 상태 영속화 실패(무시): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   /** 현재 KST 일자(YYYYMMDD). 테스트 결정론을 위해 분리(spyOn 대체 가능). */
@@ -267,6 +353,8 @@ export class DartApiService {
       }
       this.callDayKey = day;
       this.callsToday = 0;
+      // DAR-532: 새 KST일 → 영속 스로틀 기준도 리셋(새 날 첫 flush 부터 다시 적재).
+      this.lastPersistedCalls = -1;
     }
   }
 
@@ -275,6 +363,8 @@ export class DartApiService {
     this.rollDayIfNeeded();
     this.callsToday += 1;
     this.maybeAlertLiveReserveLow();
+    // DAR-532: 스로틀된 상태 영속화(N콜마다 1회) — 재기동에도 당일 실소비를 잃지 않는다.
+    void this.persistQuotaState(false);
   }
 
   /**
@@ -321,6 +411,8 @@ export class DartApiService {
         `DART 일일 쿼터 소진 관측(${this.callDayKey}) — 벌크(문서/백필/재무) 호출 하드스톱. ` +
           `라이브 목록수집만 시도, 자정(KST) 리셋 후 자동 재개.`,
       );
+      // DAR-532: 소진 관측을 즉시 영속화(스로틀 무시) — 재기동해도 하드스톱이 유지된다.
+      void this.persistQuotaState(true);
     }
   }
 

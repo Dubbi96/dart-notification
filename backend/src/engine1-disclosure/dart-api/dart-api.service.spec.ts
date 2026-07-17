@@ -384,3 +384,104 @@ describe('DartApiService 라이브 예약분 소진 임계 OPS_ALERT (W5 ④)', 
     expect(res.status).toBe('000');
   });
 });
+
+describe('DartApiService 쿼터 상태 재기동 영속화·복원 (DAR-532)', () => {
+  type QuotaMock = { findUnique: jest.Mock; upsert: jest.Mock };
+
+  function makePrisma(row: unknown): QuotaMock {
+    return {
+      findUnique: jest.fn().mockResolvedValue(row),
+      upsert: jest.fn().mockResolvedValue({}),
+    };
+  }
+
+  function makeService(prismaInner: QuotaMock | null): DartApiService {
+    const config = { get: jest.fn().mockReturnValue('TEST_KEY') } as unknown as ConfigService;
+    const prisma = prismaInner
+      ? ({ dartQuotaState: prismaInner } as unknown as import('../../prisma/prisma.service').PrismaService)
+      : undefined;
+    return new DartApiService(config, undefined, prisma);
+  }
+
+  function mock020(service: DartApiService): void {
+    jest
+      .spyOn((service as unknown as { httpClient: { get: jest.Mock } }).httpClient, 'get')
+      .mockResolvedValue({ status: 200, data: listResponse({ status: '020' }) });
+  }
+
+  it('★재기동 복원: 당일 quotaExhausted=true → 상한(14,000) 전이라도 벌크·라이브 하드스톱 재적용', async () => {
+    // 야간 소진 관측 후 08:29 재기동 시나리오: in-memory 는 0/미소진으로 리셋되지만 DB 가 진실.
+    const prisma = makePrisma({ day: 'ignored-by-mock', callsToday: 5_000, quotaExhausted: true });
+    const service = makeService(prisma);
+
+    await service.onModuleInit();
+    const status = service.getQuotaBudgetStatus();
+
+    expect(prisma.findUnique).toHaveBeenCalledTimes(1);
+    expect(status.callsToday).toBe(5_000); // 상한 미만인데도
+    expect(status.quotaExhausted).toBe(true);
+    expect(status.bulkAllowed).toBe(false); // 소진 플래그 복원으로 하드스톱
+    expect(status.liveParseAllowed).toBe(false); // 실쿼터 소진은 라이브 문서 fetch 도 못 살림
+  });
+
+  it('재기동 복원: 미소진 행 → callsToday 만 실소비로 복원(하드스톱 아님)', async () => {
+    const prisma = makePrisma({ day: 'x', callsToday: 5_000, quotaExhausted: false });
+    const service = makeService(prisma);
+
+    await service.onModuleInit();
+    const status = service.getQuotaBudgetStatus();
+
+    expect(status.callsToday).toBe(5_000);
+    expect(status.quotaExhausted).toBe(false);
+    expect(status.bulkAllowed).toBe(true); // 5,000 < 14,000 이고 미소진 → 벌크 허용
+  });
+
+  it('재기동 복원: 당일 행 없음 → 프레시(callsToday 0·미소진)로 자연 강등', async () => {
+    const prisma = makePrisma(null);
+    const service = makeService(prisma);
+
+    await service.onModuleInit();
+    const status = service.getQuotaBudgetStatus();
+
+    expect(status.callsToday).toBe(0);
+    expect(status.quotaExhausted).toBe(false);
+  });
+
+  it('★실제 020 관측 → dart_quota_state 즉시 upsert(quotaExhausted:true, 스로틀 무시)', async () => {
+    const prisma = makePrisma(null);
+    const service = makeService(prisma);
+    mock020(service);
+
+    await service.getDisclosureList({ bgn_de: '20260716', end_de: '20260716' });
+    await Promise.resolve(); // fire-and-forget 마이크로태스크 플러시
+
+    expect(prisma.upsert).toHaveBeenCalledTimes(1);
+    const arg = prisma.upsert.mock.calls[0][0];
+    expect(arg.where.day).toMatch(/^\d{8}$/); // KST 당일 키
+    expect(arg.create.quotaExhausted).toBe(true);
+    expect(arg.update.quotaExhausted).toBe(true);
+  });
+
+  it('prisma 미주입(@Optional): onModuleInit no-op·in-memory 020 하드스톱은 그대로 동작', async () => {
+    const service = makeService(null);
+
+    await expect(service.onModuleInit()).resolves.toBeUndefined();
+    mock020(service);
+    await service.getDisclosureList({ bgn_de: '20260716', end_de: '20260716' });
+
+    expect(service.getQuotaBudgetStatus().quotaExhausted).toBe(true);
+  });
+
+  it('복원 조회 실패 → 삼키고 in-memory 기본값 유지(예외 전파 없음)', async () => {
+    const prisma: QuotaMock = {
+      findUnique: jest.fn().mockRejectedValue(new Error('db down')),
+      upsert: jest.fn().mockResolvedValue({}),
+    };
+    const service = makeService(prisma);
+
+    await expect(service.onModuleInit()).resolves.toBeUndefined();
+    const status = service.getQuotaBudgetStatus();
+    expect(status.callsToday).toBe(0);
+    expect(status.quotaExhausted).toBe(false);
+  });
+});

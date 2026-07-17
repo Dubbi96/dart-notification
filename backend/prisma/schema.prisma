@@ -677,6 +677,19 @@ model DisclosureCollectionLog {
   @@map("disclosure_collection_logs")
 }
 
+// DAR-532: DART 일일 콜 예산 상태를 KST 일자별로 영속화(1행/일). 프로세스 재기동에도
+// 당일 실소비(callsToday)·쿼터 소진(quotaExhausted)을 잃지 않아, DAR-445 3단 예산 상한이
+// '한 프로세스 소비'가 아닌 '당일 실 DART 쿼터'를 묶게 만든다 — 야간 다중 재기동 시 신규
+// 벌크 예산 재개방으로 라이브 예약분이 소진되던 결함을 차단. 읽기/발송 무관·Engine1 수집 계층.
+model DartQuotaState {
+  day            String   @id // KST YYYYMMDD (1일 1행)
+  callsToday     Int      @default(0) // 당일 누적 DART API 콜 수(스로틀 flush, 항상 실소비 이하)
+  quotaExhausted Boolean  @default(false) // 실제 020/021 관측 → 그 날 벌크 하드스톱(재기동 유지)
+  updatedAt      DateTime @updatedAt
+
+  @@map("dart_quota_state")
+}
+
 // ====================================
 // AI 분석 태스크 식별자 enum (M3 신규)
 // ====================================

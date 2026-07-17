@@ -33,15 +33,27 @@ interface EmptyStateProps {
   description?: string;
   actionLabel?: string;
   onAction?: () => void;
+  /**
+   * true면 화면 중앙 전체 대신 상단 정렬(콤팩트) — 아래에 다른 섹션이 이어질 때 사용
+   * (DAR-552 빈 에디션 폴백 브리핑: 정직 카피가 상위, 브리핑 섹션이 그 아래).
+   */
+  compact?: boolean;
 }
 
-export function EmptyState({ icon = 'inbox', title, description, actionLabel, onAction }: EmptyStateProps) {
+export function EmptyState({
+  icon = 'inbox',
+  title,
+  description,
+  actionLabel,
+  onAction,
+  compact = false,
+}: EmptyStateProps) {
   const { colors, typography: typo } = useTheme();
   // 기획 §2-2 빈 상태 구성 표준: 아이콘 48dp(textTertiary) · 메인(bodyMedium, text) ·
   // 보조(caption) · 액션(outlined, primary).
   // 보조 문구는 '읽어야 하는 텍스트' → textSecondary(다크 AA 6.1:1, DAR-31 P0-A §2).
   return (
-    <View style={styles.centered}>
+    <View style={compact ? styles.compact : styles.centered}>
       <Feather name={icon} size={48} color={colors.textTertiary} />
       <Text style={[typo.bodyMedium, { color: colors.text, marginTop: spacing.md, textAlign: 'center' }]}>
         {title}
@@ -161,6 +173,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.xl,
     paddingTop: 80,
+  },
+  compact: {
+    alignItems: 'center',
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
   },
   action: {
     marginTop: spacing.lg,

@@ -55,9 +55,17 @@ function build(overrides: Partial<Record<keyof Mocks, any>> = {}): {
   const m: Mocks = {
     prisma: {
       disclosure: { findFirst: jest.fn().mockResolvedValue(null) },
-      disclosureEvent: { findUnique: jest.fn().mockResolvedValue({ eventType: 'SUPPLY_CONTRACT' }) },
+      disclosureEvent: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ eventType: 'SUPPLY_CONTRACT', extractedData: { contractAmount: 123_000_000_000 } }),
+      },
       disclosureDocument: { findUnique: jest.fn().mockResolvedValue({ rawText: '공급계약 체결' }) },
       aIUsageLog: { aggregate: jest.fn().mockResolvedValue({ _sum: { costUsd: 0 } }) },
+      // DAR-528 — 재무 맥락 분모(연간 매출). 기본: 2025 연매출 1조.
+      companyFinancial: {
+        findFirst: jest.fn().mockResolvedValue({ revenue: BigInt('1000000000000'), bsnsYear: '2025' }),
+      },
     },
     gate: { evaluateGate: jest.fn().mockReturnValue(AiCostLevel.L2) },
     limitGuard: { enforceLimit: jest.fn().mockResolvedValue({ level: AiCostLevel.L2, settle }) },
@@ -139,8 +147,52 @@ describe('PriceMoveReasoningService (DAR-522)', () => {
     );
     expect(rec.status).toBe('ANALYZED');
     expect((rec.resultJson as any).eventLinkage).toBe('STRONG');
+    // DAR-528 — 재무 맥락 한 줄(계약 규모 123,000,000,000 / 연매출 1조 = 12.3%).
+    expect((rec.resultJson as any).financialContext).toBe(
+      '이번 계약 규모는 2025 연매출의 약 12.3% (1230억 / 연매출 1조)',
+    );
     expect(m.repo.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'ANALYZED', rcpNo: '20260717000001' }));
     expect(m.settle).toHaveBeenCalled();
+  });
+
+  describe('DAR-528 — 재무 맥락 한 줄(CompanyFinancial 주입)', () => {
+    it('★수용기준 — 연매출(분모) 결측이면 financialContext=null(표시 생략), AI 비용 증가 0', async () => {
+      const { service, m } = build();
+      m.prisma.disclosure.findFirst.mockResolvedValue({ rcpNo: '20260717000001', reportName: '공급계약' });
+      m.prisma.companyFinancial.findFirst.mockResolvedValue(null); // 연간 재무 없음 → 분모 불확실
+
+      const rec = await service.reason(event, NOW);
+
+      expect(rec.status).toBe('ANALYZED');
+      expect((rec.resultJson as any).financialContext).toBeNull();
+      // ★AI 비용 증가 0 — 재무 맥락은 순수 DB 읽기 + 순수 함수. AI 태스크는 정확히 1회(재무맥락 무영향).
+      expect(m.task.run).toHaveBeenCalledTimes(1);
+      expect(m.usageLog.logUsage).toHaveBeenCalledTimes(1);
+    });
+
+    it('분자(계약금액) 결측이면 financialContext=null (분모 충분해도 수치 발명 금지)', async () => {
+      const { service, m } = build();
+      m.prisma.disclosure.findFirst.mockResolvedValue({ rcpNo: '20260717000001', reportName: '공급계약' });
+      m.prisma.disclosureEvent.findUnique.mockResolvedValue({
+        eventType: 'SUPPLY_CONTRACT',
+        extractedData: { contractAmount: null },
+      });
+
+      const rec = await service.reason(event, NOW);
+
+      expect((rec.resultJson as any).financialContext).toBeNull();
+    });
+
+    it('연간 재무 조회는 reprtCode=11011(연간)로 한정한다(분기/반기 누적치 배제)', async () => {
+      const { service, m } = build();
+      m.prisma.disclosure.findFirst.mockResolvedValue({ rcpNo: '20260717000001', reportName: '공급계약' });
+
+      await service.reason(event, NOW);
+
+      expect(m.prisma.companyFinancial.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ reprtCode: '11011' }) }),
+      );
+    });
   });
 
   it('수용기준2 — 일일 비용 상한(env) 초과면 AI 호출 0(CAP_SKIPPED)', async () => {

@@ -48,6 +48,8 @@ const makePrismaMock = () => ({
   disclosure: {
     findMany: jest.fn().mockResolvedValue([]),
     createMany: jest.fn().mockResolvedValue({ count: 0 }),
+    // DAR-434 ①: max(rcpDt) 갭 복구 — 기본은 빈 DB(null) → 오늘만. 테스트에서 오버라이드.
+    aggregate: jest.fn().mockResolvedValue({ _max: { rcpDt: null } }),
   },
   company: {
     findMany: jest.fn().mockResolvedValue([]),
@@ -69,6 +71,18 @@ const makePrismaMock = () => ({
 const makeDartApiMock = () => ({
   getAllDisclosures: jest.fn().mockResolvedValue([]),
   classifyDisclosureType: jest.fn().mockReturnValue('OTHER'),
+  // DAR-434 ④: 쿼터 관측성 — 기본은 소진 아님(SUCCESS 경로 보존). 테스트에서 오버라이드.
+  getQuotaBudgetStatus: jest.fn().mockReturnValue({
+    day: '20260101',
+    callsToday: 0,
+    dailyBudget: 19000,
+    liveReserve: 2000,
+    bulkCeiling: 14000,
+    bulkAllowed: true,
+    liveParseCeiling: 17000,
+    liveParseAllowed: true,
+    quotaExhausted: false,
+  }),
 });
 
 const makeExpoPushMock = () => ({
@@ -1041,5 +1055,150 @@ describe('matchAndNotify — DAR-514 일일 푸시 캡', () => {
     await run([makeItem('RCP-A')]);
 
     expect(expoPushMock.sendPushNotifications).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ════════════════════════════════════════════
+// describe: collectDisclosures — DAR-434 ① 최근 갭 복구 (forward 우선)
+// ════════════════════════════════════════════
+describe('collectDisclosures — DAR-434 ① 최근 갭 복구', () => {
+  let service: SchedulerService;
+  let prismaMock: ReturnType<typeof makePrismaMock>;
+  let dartApiMock: ReturnType<typeof makeDartApiMock>;
+
+  beforeEach(async () => {
+    prismaMock = makePrismaMock();
+    dartApiMock = makeDartApiMock();
+    service = await buildModule(prismaMock, dartApiMock, makeExpoPushMock());
+  });
+
+  /** collectDisclosures 가 실제로 어떤 (bgnDe,endDe) 로 collectByDate 를 호출하는지 캡처. */
+  const runForwardWith = async (today: string, maxRcpDt: string | null) => {
+    jest.spyOn(service as unknown as { formatDate: () => string }, 'formatDate')
+      .mockReturnValue(today);
+    prismaMock.disclosure.aggregate.mockResolvedValue({ _max: { rcpDt: maxRcpDt } });
+    const collectSpy = jest
+      .spyOn(service, 'collectByDate')
+      .mockResolvedValue({ saved: 0, total: 0 });
+    await service.collectDisclosures();
+    return collectSpy;
+  };
+
+  it('갭이 있으면 max(rcpDt) 다음 거래일~오늘 범위로 수집한다', async () => {
+    // max=20260715(수), today=20260717(금) → 20260716(목)이 누락 → 20260716~20260717 범위.
+    const spy = await runForwardWith('20260717', '20260715');
+    expect(spy).toHaveBeenCalledWith('20260716', '20260717', 'CRON');
+  });
+
+  it('갭이 없으면(max=직전 거래일) 오늘만 수집한다', async () => {
+    // max=20260716(목), today=20260717(금) → 다음 거래일=오늘 → 갭 없음, 오늘만.
+    const spy = await runForwardWith('20260717', '20260716');
+    expect(spy).toHaveBeenCalledWith('20260717', '20260717', 'CRON');
+  });
+
+  it('DB가 비어있으면(max=null) 오늘만 수집한다', async () => {
+    const spy = await runForwardWith('20260717', null);
+    expect(spy).toHaveBeenCalledWith('20260717', '20260717', 'CRON');
+  });
+
+  it('max(rcpDt) ≥ 오늘이면 오늘만 수집한다(전진 없음)', async () => {
+    const spy = await runForwardWith('20260717', '20260717');
+    expect(spy).toHaveBeenCalledWith('20260717', '20260717', 'CRON');
+  });
+
+  it('깊은 갭은 최근 N거래일로 클램프하고 경고를 남긴다', async () => {
+    // max=20260101, today=20260717 → gapStart=20260102 이지만 클램프 하한(20260703,
+    // = 20260717로부터 10거래일 전)까지만 소급. 그 이전 갭은 수동 백필 위임.
+    const warnSpy = jest
+      .spyOn(service['logger'], 'warn')
+      .mockImplementation(() => undefined);
+    const spy = await runForwardWith('20260717', '20260101');
+    expect(spy).toHaveBeenCalledWith('20260703', '20260717', 'CRON');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('클램프'),
+    );
+  });
+
+  it('멱등: 갭 범위 재수집 시 이미 저장된 공시는 중복 저장하지 않는다', async () => {
+    jest.spyOn(service as unknown as { formatDate: () => string }, 'formatDate')
+      .mockReturnValue('20260717');
+    prismaMock.disclosure.aggregate.mockResolvedValue({ _max: { rcpDt: '20260715' } });
+    const fetched = {
+      corp_code: 'CORP001',
+      corp_name: '테스트기업',
+      stock_code: '000001',
+      corp_cls: 'Y',
+      report_nm: '사업보고서',
+      rcept_no: 'RCP-GAP-1',
+      flr_nm: '테스트기업',
+      rcept_dt: '20260716',
+      rm: '',
+    };
+    dartApiMock.getAllDisclosures.mockResolvedValue([fetched]);
+    // 이미 DB에 존재(filterNewDisclosures 가 findMany 로 확인) → 신규 0건.
+    prismaMock.disclosure.findMany.mockResolvedValue([{ rcpNo: 'RCP-GAP-1' }]);
+
+    await service.collectDisclosures();
+
+    // 갭 범위(20260716~20260717)로 질의했는지 + 중복 저장 0(createMany 미호출).
+    expect(dartApiMock.getAllDisclosures).toHaveBeenCalledWith('20260716', '20260717');
+    expect(prismaMock.disclosure.createMany).not.toHaveBeenCalled();
+  });
+});
+
+// ════════════════════════════════════════════
+// describe: collectByDate — DAR-434 ④ 020 쿼터 소진 관측성
+// ════════════════════════════════════════════
+describe('collectByDate — DAR-434 ④ 쿼터 소진 관측성', () => {
+  let service: SchedulerService;
+  let prismaMock: ReturnType<typeof makePrismaMock>;
+  let dartApiMock: ReturnType<typeof makeDartApiMock>;
+
+  beforeEach(async () => {
+    prismaMock = makePrismaMock();
+    dartApiMock = makeDartApiMock();
+    service = await buildModule(prismaMock, dartApiMock, makeExpoPushMock());
+  });
+
+  it("쿼터 소진 상태에서 fetched=0 이면 SUCCESS 가 아니라 PARTIAL 로 마감한다", async () => {
+    dartApiMock.getAllDisclosures.mockResolvedValue([]);
+    dartApiMock.getQuotaBudgetStatus.mockReturnValue({
+      day: '20260717',
+      callsToday: 19000,
+      dailyBudget: 19000,
+      liveReserve: 2000,
+      bulkCeiling: 14000,
+      bulkAllowed: false,
+      liveParseCeiling: 17000,
+      liveParseAllowed: false,
+      quotaExhausted: true,
+    });
+
+    const result = await service.collectByDate('20260717', '20260717', 'CRON');
+
+    expect(result.saved).toBe(0);
+    expect(prismaMock.disclosureCollectionLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'PARTIAL',
+          fetchedCount: 0,
+          errorMessage: expect.stringContaining('쿼터 소진'),
+        }),
+      }),
+    );
+  });
+
+  it("쿼터 정상 상태에서 fetched=0 이면 종전대로 SUCCESS 로 마감한다", async () => {
+    dartApiMock.getAllDisclosures.mockResolvedValue([]);
+    // 기본 mock: quotaExhausted=false
+
+    const result = await service.collectByDate('20260717', '20260717', 'CRON');
+
+    expect(result).toEqual({ saved: 0, total: 0 });
+    expect(prismaMock.disclosureCollectionLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'SUCCESS' }),
+      }),
+    );
   });
 });

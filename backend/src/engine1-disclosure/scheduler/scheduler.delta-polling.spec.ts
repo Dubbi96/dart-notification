@@ -120,6 +120,8 @@ function makeDartApiMock() {
     getAllDisclosures: jest.fn().mockResolvedValue([]),
     getDisclosureList: jest.fn().mockResolvedValue(listResponse({ status: '013' })),
     classifyDisclosureType: jest.fn().mockReturnValue('MATERIAL'),
+    // DAR-434 ④: 풀스캔 경로(collectByDate)의 쿼터 관측성 — 기본 소진 아님.
+    getQuotaBudgetStatus: jest.fn().mockReturnValue({ quotaExhausted: false, callsToday: 0, dailyBudget: 19000 }),
   };
 }
 

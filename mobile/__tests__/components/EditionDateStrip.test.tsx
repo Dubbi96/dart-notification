@@ -59,4 +59,47 @@ describe('components/signals/EditionDateStrip', () => {
     );
     expect(toJSON()).toBeNull();
   });
+
+  // DAR-527: '놓친 호'(미열람) 뱃지 — unreadDates 멤버십으로만 표시(a11y '안 읽음').
+  it('놓친 호(미열람) 날짜는 안읽음 뱃지를 표시한다', () => {
+    const { getByLabelText, queryByLabelText } = render(
+      <EditionDateStrip
+        editions={editions}
+        todayDate="20260717"
+        selectedDate="20260717"
+        onSelect={jest.fn()}
+        unreadDates={new Set(['20260716'])}
+      />,
+    );
+    // 어제(20260716) 칩 = 미열람 → '안 읽음' 라벨(스트립에서 유일 매칭).
+    expect(getByLabelText(/안 읽음/)).toBeTruthy();
+    // 오늘(선택·열람 중)은 뱃지 미표시.
+    expect(queryByLabelText(/오늘 에디션.*안 읽음/)).toBeNull();
+  });
+
+  it('선택(열람 중)된 호는 unreadDates 에 있어도 뱃지를 표시하지 않는다', () => {
+    const { queryByLabelText } = render(
+      <EditionDateStrip
+        editions={editions}
+        todayDate="20260717"
+        selectedDate="20260717"
+        onSelect={jest.fn()}
+        unreadDates={new Set(['20260717'])}
+      />,
+    );
+    expect(queryByLabelText(/안 읽음/)).toBeNull();
+  });
+
+  it('unreadDates 가 비면(계열 OFF 정합) 어떤 칩도 안읽음 뱃지를 표시하지 않는다', () => {
+    const { queryByLabelText } = render(
+      <EditionDateStrip
+        editions={editions}
+        todayDate="20260717"
+        selectedDate="20260717"
+        onSelect={jest.fn()}
+        unreadDates={new Set()}
+      />,
+    );
+    expect(queryByLabelText(/안 읽음/)).toBeNull();
+  });
 });

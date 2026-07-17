@@ -21,6 +21,16 @@
  *   `/price-move/<refId>` 로 충전하거나, type=PRICE_MOVE·refId 만 실어도 타입별 폴백으로 카드에
  *   도달한다(둘 다 화이트리스트 재검증). ★현재 engine3 발화는 deepLink=`/company/<corpCode>`
  *   이므로, 카드 진입은 백엔드 deepLink 재타겟(BE 소유)이 선행돼야 실동작한다.
+ *
+ * DAR-527: 에디션 발행 푸시(19:05, DAR-523)는 '해당 호(거래일)' 직행이 목표다. 신호탭 에디션
+ *   브라우징은 `/signals?date=<YYYYMMDD>` 쿼리로 특정 호를 연다(`/signals` prefix 의 쿼리(`?`)
+ *   규칙으로 통과 — 새 prefix 불요). refId=editionDate(YYYYMMDD) 이므로 백엔드가 deepLink 를
+ *   미충전(누락)해도 타입별 폴백(EDITION)이 날짜 쿼리를 도출해 직행한다(둘 다 화이트리스트 재검증).
+ *   ★단, PRICE_MOVE 와 동일 계약(‘deepLink 필드 우선’)을 지킨다 — 현재 DAR-523 발화는 범용
+ *   deepLink=`/signals`(날짜 없음)를 실으므로, '해당 호 직행'은 백엔드 deepLink 재타겟
+ *   (`/signals?date=<editionDate>`, BE 소유·자식 이슈 위임)이 선행돼야 실동작한다. 구버전 payload
+ *   (`/signals`) 수신 시엔 신호탭(최신 호)로 무해 폴백하고, 구 APK 가 신 payload(`/signals?date=…`)를
+ *   받아도 화이트리스트가 `/signals` 로 통과시켜 크래시 0.
  */
 
 /** 라우팅 허용 prefix — 이 목록 밖 경로는 무시(임의 라우팅·신뢰 경계 방지) */
@@ -72,6 +82,12 @@ function resolveTypedFallback(type: unknown, refId: unknown): string | null {
       // refId 없으면 대상 카드를 특정할 수 없어 라우팅하지 않는다(오도 방지).
       const path = ref ? `/price-move/${encodeURIComponent(ref)}` : null;
       return path && isAllowedDeepLink(path) ? path : null;
+    }
+    case 'EDITION': {
+      // DAR-527: refId = editionDate(YYYYMMDD) → 신호탭 '해당 호' 직행(`/signals?date=<date>`).
+      // refId 가 없거나 형식이 아니면 신호탭(최신 호)로 무해 폴백('놓친 호'만 못 열 뿐 dead tap 아님).
+      const path = ref && /^\d{8}$/.test(ref) ? `/signals?date=${ref}` : '/signals';
+      return isAllowedDeepLink(path) ? path : null;
     }
     default:
       return null;

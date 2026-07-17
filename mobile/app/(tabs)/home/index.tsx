@@ -23,6 +23,7 @@ import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { HomeSignalPreview } from '@components/home/HomeSignalPreview';
+import { UpcomingEventsSection } from '@components/home/UpcomingEventsSection';
 import { MarketIndexBadge } from '@components/home/MarketIndexBadge';
 import { GraduationTracker } from '@components/home/GraduationTracker';
 import { FirstWatchCoachmark } from '@components/home/FirstWatchCoachmark';
@@ -183,6 +184,9 @@ export default function HomeScreen() {
 
         {/* 오늘의 투자판단 프리뷰(DAR-61) — summaryCard 아래 최상단. 공시→투자판단 1순위 동선. */}
         <HomeSignalPreview isAuthenticated={isAuthenticated} />
+
+        {/* 예정 이벤트 캘린더(DAR-538) — 관심기업 공시 파생 D-day. 이벤트 없으면 스스로 미표시. */}
+        <UpcomingEventsSection isAuthenticated={isAuthenticated} />
 
         {/* DAR-446(A-HOME-2): 헤더 섹션을 시장배지·신호프리뷰·세그먼트 3개로 축소.
             '운용 성과'(GraduationTracker+퍼널)는 핵심 콘텐츠(공시 피드)를 묻지 않도록 피드 아래

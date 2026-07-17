@@ -42,7 +42,7 @@ function TabLabel({
 }) {
   return (
     <Text
-      style={{ color, fontSize, fontWeight: '500' }}
+      style={{ color, fontSize, fontWeight: '500', flexShrink: 1, minWidth: 0 }}
       numberOfLines={1}
       ellipsizeMode="tail"
       adjustsFontSizeToFit

@@ -1,12 +1,18 @@
-# [W15 ② 스모크 1] 콜드스타트 → 게스트 피드 렌더
-# Android FlatList 전체 백지 회귀(2026-06-07 refreshControl 사고)를 직격하는 최소 앵커:
-# 홈 피드 리스트가 실제로 그려지는지 확인한다.
+# [DAR-542 스모크 ① / W15 ②] 콜드스타트 → 게스트 홈 렌더(피드 + 에디션 요약 슬롯)
+# 목적: (a) Android FlatList 전체 백지 회귀(2026-06-07 refreshControl 사고)를 직격하는 홈 피드 렌더 +
+#       (b) 홈 '최신 에디션 요약' 슬롯(HomeSignalPreview, DAR-517)이 함께 노출되는지 확인.
+# 게스트/로그인/로딩/빈 상태 무관하게 두 앵커 모두 마운트되므로 백엔드 데이터 타이밍에 견고.
 appId: com.gongsion.app
 tags:
   - smoke
+  - core
 ---
 - runFlow: subflows/guest-entry.yaml
-# 홈 탭 도달 + 피드 리스트 렌더(guest-entry 가 이미 대기) 재확인.
+# 홈 피드 리스트 렌더(백지 회귀 앵커).
 - assertVisible:
     id: "home-feed-list"
+# DAR-542 ①: 홈 '최신 에디션 요약' 슬롯이 피드와 함께 렌더되는지.
+- assertVisible:
+    id: "home-edition-summary"
+# 홈 탭 라벨(하단 탭) 노출 재확인.
 - assertVisible: "홈"

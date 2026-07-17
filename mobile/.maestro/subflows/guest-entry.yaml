@@ -1,25 +1,28 @@
-# [서브플로우] 콜드스타트 → 게스트 진입 (W15 ②)
+# [서브플로우] 콜드스타트 → 게스트 진입 (W15 ② / DAR-542)
 # clearState 후 인트로(건너뛰기) → 로그인 화면(로그인 없이 둘러보기) → 홈 피드.
 # 상위 플로우에서 runFlow 로만 사용한다(maestro test .maestro/ 는 최상위 파일만 실행).
+#
+# ★콜드스타트 레이스 주의(DAR-542): launchApp(clearState) 직후엔 JS 번들 로드 전이라 인트로가 아직
+#   안 떠 있다. 조건부 `when: visible` 는 그 순간 1회만 평가돼 스킵을 놓친다 → 인트로에 갇혀 실패.
+#   따라서 인트로 '건너뛰기' 노출을 extendedWaitUntil 로 명시적으로 기다린 뒤 탭한다(clearState 라 항상 노출).
 appId: com.gongsion.app
 ---
 - launchApp:
     clearState: true
-# 첫 실행이면 인트로 캐러셀 — '건너뛰기'로 로그인 화면 이동(이미 본 상태면 스킵).
-- runFlow:
-    when:
-      visible: "건너뛰기"
-    commands:
-      - tapOn: "건너뛰기"
+# 콜드스타트 번들 로드 대기 — 인트로 캐러셀 '건너뛰기'가 뜰 때까지 기다렸다가 로그인 화면으로 이동.
+- extendedWaitUntil:
+    visible: "건너뛰기"
+    timeout: 40000
+- tapOn: "건너뛰기"
 # 로그인 화면 → 게스트 둘러보기.
 - extendedWaitUntil:
     visible:
       id: "guest-browse-button"
-    timeout: 15000
+    timeout: 20000
 - tapOn:
     id: "guest-browse-button"
 # 홈 피드 렌더 확인(백지 회귀 직격 앵커).
 - extendedWaitUntil:
     visible:
       id: "home-feed-list"
-    timeout: 15000
+    timeout: 20000

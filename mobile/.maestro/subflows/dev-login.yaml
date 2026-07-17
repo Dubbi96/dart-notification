@@ -11,9 +11,14 @@ env:
 ---
 - launchApp:
     clearState: true
+# 콜드스타트 번들 로드 대기(DAR-542): clearState 직후 JS 미로딩 상태에서 openLink 가 유실되지 않도록
+# 첫 화면(인트로 '건너뛰기')이 뜬 뒤 dev-login 딥링크를 주입한다.
+- extendedWaitUntil:
+    visible: "건너뛰기"
+    timeout: 40000
 - openLink: "gongsion://dev-login?access=${DEV_ACCESS}&refresh=${DEV_REFRESH}&id=${DEV_USER_ID}"
-# 로그인 성공 시 온보딩 완료 처리 후 홈으로 진입한다.
+# 로그인 성공(setAuth+completeOnboarding) → 홈 진입. 인증·useMe fetch·홈 로드까지 넉넉히 대기.
 - extendedWaitUntil:
     visible:
       id: "home-feed-list"
-    timeout: 15000
+    timeout: 30000

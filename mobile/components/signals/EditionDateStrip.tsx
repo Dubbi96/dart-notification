@@ -115,6 +115,9 @@ function EditionDateStripBase({
         <TouchableOpacity
           activeOpacity={0.8}
           onPress={() => onSelect(item.date)}
+          // testID: 날짜 스트립 칩 앵커(DAR-542 스모크 ② — 에디션 날짜 스트립 탭). 개별 칩은
+          // index 로 구분(Maestro tapOn id+index). 선택 상태는 accessibilityState.selected 로 노출.
+          testID="edition-date-chip"
           style={[
             styles.chip,
             isSelected
@@ -178,7 +181,10 @@ function EditionDateStripBase({
   if (chips.length === 0) return null;
 
   return (
-    <View style={[styles.container, { borderBottomColor: colors.border, backgroundColor: colors.background }]}>
+    <View
+      testID="edition-date-strip"
+      style={[styles.container, { borderBottomColor: colors.border, backgroundColor: colors.background }]}
+    >
       <FlatList
         ref={listRef}
         horizontal

@@ -1,18 +1,48 @@
-# [W15 ② 스모크 3] 공시 상세 진입
-# 게스트 피드에서 첫 공시 카드를 탭해 상세 화면 도달을 확인한다.
+# [DAR-542 스모크 ③ / W15 ②] 공시 상세 → 과거 유사공시 통계 섹션 노출
+# 'DisclosureReactionSection'(DAR-512)이 노출되는지 확인한다 — 같은 이벤트 유형 공시의
+# D+1/D+5/D+20 실제 주가 반응·승률·표본수(과거 사실 통계).
+#
+# ★결정론: 이 섹션은 '이벤트가 추출된 공시'에만 마운트된다(유형 없으면 비교 표본 부재 → 미렌더, 설계).
+#   따라서 이벤트 보유 rcpNo 를 주입해 해당 공시로 직행하는 경로가 결정론적이다:
+#     maestro test -e DISCLOSURE_RCP_NO=<rcpNo> .maestro/03-disclosure-detail.yaml
+#   (scripts/maestro-smoke.sh 는 백엔드 /disclosures/:rcpNo/event-stats 로 이벤트 보유 rcpNo 를 자동 탐색.)
+#   미주입 시 폴백: 게스트 피드 첫 카드 탭 → 그 공시에 이벤트가 있으면 통과, 없으면 실패(결함 이슈로 분리).
 appId: com.gongsion.app
+env:
+  DISCLOSURE_RCP_NO: ""
 tags:
   - smoke
+  - core
 ---
 - runFlow: subflows/guest-entry.yaml
-- extendedWaitUntil:
-    visible:
-      id: "disclosure-feed-card"
-    timeout: 15000
-- tapOn:
-    id: "disclosure-feed-card"
-    index: 0
+# rcpNo 주입 시 해당 공시 상세로 직행(결정론 경로).
+- runFlow:
+    when:
+      true: ${DISCLOSURE_RCP_NO}
+    commands:
+      - openLink: "gongsion://disclosure/${DISCLOSURE_RCP_NO}"
+# 미주입 시 피드 첫 카드 탭(폴백 경로).
+- runFlow:
+    when:
+      true: ${!DISCLOSURE_RCP_NO}
+    commands:
+      - extendedWaitUntil:
+          visible:
+            id: "disclosure-feed-card"
+          timeout: 15000
+      - tapOn:
+          id: "disclosure-feed-card"
+          index: 0
+# 공시 상세 화면 도달.
 - extendedWaitUntil:
     visible:
       id: "disclosure-detail-screen"
     timeout: 15000
+# 상세 하단으로 스크롤해 '과거 유사공시 반응' 통계 섹션을 뷰포트로 가져온다.
+- scrollUntilVisible:
+    element:
+      id: "disclosure-reaction-section"
+    direction: DOWN
+    timeout: 20000
+- assertVisible:
+    id: "disclosure-reaction-section"

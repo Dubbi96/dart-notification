@@ -2,45 +2,11 @@ import { useEffect } from 'react';
 import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { signalService } from '@services/signal.service';
 import { eventStudyService } from '@services/event-study.service';
-import { CURATION_BUY_GRADES } from '@utils/signalCuration';
 import { isTodayEditionDate } from '@utils/signalTerms';
 
-import type {
-  SignalFilters,
-  SignalExploreFilters,
-} from '@app-types/signal.types';
+import type { SignalExploreFilters } from '@app-types/signal.types';
 
-/**
- * 홈/신호탭 '상위 매수 신호' 큐레이션 기본 필터(DAR-193).
- * 매수등급(STRONG_BUY/BUY)만 점수 내림차순으로 받아 "최근성에 가려진 빈상태"를 해소한다.
- * (기존: grade 필터 없이 latest-20 → 대부분 NEUTRAL이라 매수등급 0건 위장 빈상태)
- * 빈상태는 시스템에 매수등급 신호가 진짜 0건일 때만 발생.
- * sinceDays=14: 최신성 윈도우 — 점수순이 전체 이력 고득점(과거 신호)에 영원히 고정되지 않게
- * 최근 14일 신호만 받는다(백엔드 sort=score 기본값과 동일 계약을 명시). 빈 결과면 기존 빈상태 UI.
- */
-const CURATION_FILTERS: SignalFilters = {
-  grade: [...CURATION_BUY_GRADES],
-  sort: 'score',
-  sinceDays: 14,
-};
-
-/**
- * 매수 신호 피드 queryKey 빌더(UXR-23 P-2) — 피드(useBuySignals)와 종목 1건
- * select(useCompanyBuySignal)가 문자 그대로 같은 캐시 엔트리를 공유하도록 단일화한다.
- */
-function buySignalsFeedKey(filters: SignalFilters) {
-  return [
-    'signals',
-    'buy',
-    filters.personaType,
-    filters.grade,
-    filters.entryReady,
-    filters.sort,
-    filters.sinceDays,
-  ];
-}
-
-/** 피드 공유 staleTime — 피드·종목 관찰자가 같은 신선도 기준을 써 중복 refetch를 막는다(UXR-23 P-2). */
+/** 종목 최신 신호 staleTime — 홈·신호탭이 에디션 축으로 전환된 뒤 종목 드릴다운(useCompanyBuySignal)이 쓴다. */
 const BUY_FEED_STALE_TIME_MS = 60 * 1000;
 
 /** 에디션 날짜 목록 staleTime(DAR-507) — 하루 1호라 자주 변하지 않음(5분). */
@@ -55,22 +21,11 @@ function editionStaleTime(date: string | undefined): number {
   return isTodayEditionDate(date) ? EDITION_TODAY_STALE_TIME_MS : EDITION_PAST_STALE_TIME_MS;
 }
 
-export function useBuySignals(filters?: SignalFilters) {
-  // 인자 미지정 시 점수순 매수등급 큐레이션을 기본으로 사용(홈 프리뷰·신호탭 L1 공통).
-  const effective = filters ?? CURATION_FILTERS;
-  return useQuery({
-    queryKey: buySignalsFeedKey(effective),
-    queryFn: () => signalService.getBuySignals(effective),
-    retry: 1,
-    staleTime: BUY_FEED_STALE_TIME_MS,
-  });
-}
-
 /**
  * 종목 의사결정 허브(DAR-59) — 특정 corpCode의 최신 매수 신호 1건(scoreBreakdown 포함).
- * DAR-507: 홈이 에디션 훅으로 전환되면 공유하던 `buySignalsFeedKey`(UXR-23)가 더는
- * 채워지지 않아 종목 드릴다운이 캐시 미스로 14일 큐레이션 피드 전량을 재다운로드하게 된다.
- * → 홈 피드키 의존을 끊고 종목 전용 엔드포인트 조합으로 이관한다:
+ * DAR-507: 홈·신호탭이 에디션 축으로 전환된 뒤(구 홈 큐레이션 피드 폐기, DAR-535) 종목 전용
+ * 엔드포인트 조합으로 조회한다 — 공유 피드키가 없어도 캐시 미스로 큐레이션 피드 전량을
+ * 재다운로드하지 않는다:
  *   1) GET /signals/by-corp/:corpCode(findLatestByCorpCode) 로 그 종목 최신 신호 id/배지 확보,
  *   2) id 로 GET /signals/:id(findOne) 상세를 받아 scoreBreakdown 을 보존한다.
  * (배지 엔드포인트는 scoreBreakdown 을 싣지 않으므로 상세 단계 없이는 '점수 기여 상위' 회귀.)

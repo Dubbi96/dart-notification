@@ -72,12 +72,8 @@ for (const file of [
   assert('B8 매도 피드: 푸터 DisclaimerSection 1회 유지(AI 참고 고지)', /ListFooterComponent=\{[^}]*DisclaimerSection/.test(feed));
 }
 
-// ── B14: 빈상태 '점수순 전체 탐색' CTA 유효 터치 영역 44pt 보정 ──────────────────
-{
-  const slot = read('components/signals/CurationSlot.tsx');
-  assert('B14 CurationSlot: 빈상태 CTA hitSlop verticalHitSlopForHeight(36)', /hitSlop=\{verticalHitSlopForHeight\(36\)\}/.test(slot));
-  assert('B14 CurationSlot: touchTarget 헬퍼 import', /from '@utils\/touchTarget'/.test(slot));
-}
+// ── B14(폐기): 빈상태 '점수순 전체 탐색' CTA 는 구 CurationSlot 소속이었고,
+//    신호탭 에디션 축 전환(DAR-535)으로 CurationSlot 과 함께 제거됐다 — 해당 가드 폐기.
 
 // ── 결과 ────────────────────────────────────────────────────────────────────────
 let failures = 0;

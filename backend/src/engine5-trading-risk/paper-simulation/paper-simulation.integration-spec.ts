@@ -17,11 +17,42 @@ import { PaperTradeService } from '../services/paper-trade.service';
 import { PrismaPaperTradeRepository } from '../repositories/prisma-paper-trade.repository';
 import { PrismaService } from '../../prisma/prisma.service';
 import { withRollback } from '../../../test/integration/with-rollback';
+import { entryEligibleGrades, ENTRY_FALLBACK_MIN_BUY_SCORE } from './simulation-entry';
 
 const prisma = new PrismaService();
 const TAG = 'DAR40_SIM';
 const TRADE_DATE = '20260515'; // 금 — 신호일(D0, 예약)
 const FILL_DATE = '20260518'; // 월 — 다음 거래일(D+1, 당일 시가 체결)
+
+/**
+ * DAR-539: 공유 데모 DB 격리. 이 스펙은 'tx 안에 seed 한 후보만 존재'를 가정하지만,
+ *   ① runDailyCycle 의 후보 선정(openNewPositions)은 tradeDate 필터가 없어 DB 전역의
+ *      적격(entryReady 또는 buyScore≥fallback) BUY-급 신호를 모두 집고,
+ *   ② sim 포트폴리오(SIM_USER_EMAIL + SIM_PORTFOLIO_NAME 규약키)에도 데모 사이클이 남긴
+ *      보유·예약이 누적돼 있어, 예약/체결/보유 건수가 데모 데이터 양에 따라 오염된다
+ *      (관측: reserved 9 — 코드 회귀 아님, 환경 의존 flake).
+ *   withRollback tx 안에서 (a) 기존 sim 포트폴리오를 다른 이름으로 '주차'시켜
+ *   getOrCreateSimPortfolio 가 빈 포트폴리오를 새로 만들게 하고, (b) 선정 가능한 기존 적격
+ *   신호를 진입 부적격 등급(BLOCKED)으로 눌러 후보 pool 을 seed 로 한정한다. 두 변경 모두
+ *   ROLLBACK 센티넬로 전량 롤백되어 데모 DB 는 무손상(afterAll 잔여 0 불변식 유지).
+ *   ※ 후보 쿼리에 날짜 창이 없으므로 'seed 를 원거리 미래일로 이동'만으로는 격리 불가 —
+ *     전역 pool 무력화가 필요하다.
+ */
+async function isolateFromDemoData(tx: any): Promise<void> {
+  // (a) 데모 sim 포트폴리오 주차 → 서비스가 빈 포트폴리오를 신규 생성하도록 유도.
+  await tx.portfolio.updateMany({
+    where: { name: PaperSimulationService.SIM_PORTFOLIO_NAME },
+    data: { name: `__DAR539_PARKED__${PaperSimulationService.SIM_PORTFOLIO_NAME}` },
+  });
+  // (b) 선정 가능한(primary: entryReady / fallback: buyScore≥50) 적격 신호를 등급 강등해 후보 pool 무력화.
+  await tx.tradingSignal.updateMany({
+    where: {
+      signal: { in: entryEligibleGrades() as never[] },
+      OR: [{ entryReady: true }, { buyScore: { gte: ENTRY_FALLBACK_MIN_BUY_SCORE } }],
+    },
+    data: { signal: 'BLOCKED' },
+  });
+}
 
 async function seedBuyCandidate(tx: any): Promise<{ corpCode: string }> {
   const corpCode = `${TAG}_CORP`;
@@ -96,6 +127,7 @@ describe('PaperSimulationService.runDailyCycle (실 Postgres 통합)', () => {
 
   it('BUY 후보 1건 → D0 예약(PENDING) → D+1 당일 시가 체결·스냅샷·ExitSignal·지표', async () => {
     const out = await withRollback(prisma, async (tx) => {
+      await isolateFromDemoData(tx); // DAR-539: 공유 데모 DB 오염 차단(seed 전에 pool·포트폴리오 격리)
       await seedBuyCandidate(tx);
       const svc = buildService(tx);
       // D0: 예약만(즉시 체결 금지 — 장외 체결 의미론).
@@ -169,6 +201,7 @@ describe('PaperSimulationService.runDailyCycle (실 Postgres 통합)', () => {
 
   it('BUY 후보 없으면 예약·매수 0 — 빈 사이클도 안전', async () => {
     const result = await withRollback(prisma, async (tx) => {
+      await isolateFromDemoData(tx); // DAR-539: 후보 seed 없음 — 데모 pool 격리로 진짜 '빈 사이클' 재현
       const svc = buildService(tx);
       return svc.runDailyCycle(TRADE_DATE);
     });

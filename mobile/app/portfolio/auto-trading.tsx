@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { withTradingGuard } from '@components/common/withTradingGuard';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
@@ -209,7 +210,7 @@ function TrackRecordEntryCard() {
   );
 }
 
-export default function AutoTradingStatusScreen() {
+function AutoTradingStatusScreen() {
   const { colors, typography: typo } = useTheme();
   const query = useAutoTradingStatus();
   const data = query.data;
@@ -283,6 +284,9 @@ export default function AutoTradingStatusScreen() {
     </SafeAreaView>
   );
 }
+
+// DAR-549: 첫 게시(Play) 빌드에서 트레이딩 라우트 진입 시 홈으로 리다이렉트(가드).
+export default withTradingGuard(AutoTradingStatusScreen);
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

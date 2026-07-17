@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Surface, Banner } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { withTradingGuard } from '@components/common/withTradingGuard';
 import { useTheme } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { ApiErrorState, EmptyState } from '@components/common/StateView';
@@ -398,7 +399,7 @@ function TabBar({
   );
 }
 
-export default function TradeHistoryScreen() {
+function TradeHistoryScreen() {
   const { colors, typography: typo } = useTheme();
   const queryClient = useQueryClient();
   const query = useTradeHistory();
@@ -522,6 +523,9 @@ export default function TradeHistoryScreen() {
     </SafeAreaView>
   );
 }
+
+// DAR-549: 첫 게시(Play) 빌드에서 트레이딩 라우트 진입 시 홈으로 리다이렉트(가드).
+export default withTradingGuard(TradeHistoryScreen);
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

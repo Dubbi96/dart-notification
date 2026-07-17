@@ -3,6 +3,12 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SignalGrade, ExitAction, Prisma } from '@prisma/client';
 import { tradeDateFromMs } from '../market-data/candle-query';
 import { isTradingDay } from '../../common/time/market-calendar';
+import {
+  FALLBACK_BRIEFING_LIMIT,
+  FallbackBriefingItem,
+  FallbackBriefingRow,
+  buildFallbackBriefingItems,
+} from './fallback-briefing';
 
 // 등급무관 탐색(DAR-46): 백엔드 6단계 enum을 모바일에 1:1로 노출한다.
 // 기존엔 NEUTRAL/AVOID/WATCH를 'WATCH'로 합쳐 등급 칩·필터가 무의미해졌으므로,
@@ -880,6 +886,14 @@ export class SignalsService {
     const prevEditionDate = prevSig ? tradeDateFromMs(prevSig.createdAt.getTime()) : undefined;
     const nextEditionDate = nextSig ? tradeDateFromMs(nextSig.createdAt.getTime()) : undefined;
 
+    // DAR-551: 빈 에디션 폴백 브리핑. 판단(items)이 없는 거래일에만, '그 KST 거래일 주요 공시'를
+    //   meta.fallbackBriefing 으로 분리 노출한다(판단 count 무변경 — 정직 불변식).
+    //   휴장(CLOSED)·미래(FUTURE)는 브리핑 대상이 아니므로 조회 자체를 생략한다(불필요 쿼리 0).
+    const fallbackBriefing =
+      isEmpty && emptyReason !== 'CLOSED' && emptyReason !== 'FUTURE'
+        ? await this.buildFallbackBriefing(date)
+        : undefined;
+
     return {
       items,
       meta: {
@@ -889,8 +903,60 @@ export class SignalsService {
         emptyReason,
         prevEditionDate,
         nextEditionDate,
+        fallbackBriefing,
       },
     };
+  }
+
+  /**
+   * DAR-551: 그 KST 거래일(rcpDt) 주요 공시 top N 을 중요도 순으로 뽑아 브리핑 항목으로 매핑한다.
+   *
+   * 중요도 정렬(이슈 명세 순): ①이벤트성(분류된 DisclosureEvent 존재, OTHER 제외)
+   *   → ②시총(스키마 미보유 — KOSPI 본판을 대용 프록시로 사용) → ③AI 요약 존재
+   *   → ④최신·결정론 tiebreak(rcpNo desc). 랭킹·LIMIT 은 SQL 이 수행(전일 로드 회피).
+   *
+   * 신규 AI 호출 0: 기존 DisclosureAnalysis(summary task) 캐시(`resultJson->>'summary'`)만 읽는다.
+   * 백필 공시(isBackfill=true) 는 라이브 표면 불가침 원칙에 따라 제외한다.
+   * rcpDt 범위는 인덱스 친화적 [date, nextYmd) 문자열 범위로 조회한다(prefix LIKE 회피).
+   */
+  private async buildFallbackBriefing(date: string): Promise<FallbackBriefingItem[]> {
+    const nextYmd = this.nextYmd(date);
+    const rows = await this.prisma.$queryRaw<FallbackBriefingRow[]>(Prisma.sql`
+      SELECT
+        d."rcpNo"                    AS "rcpNo",
+        d."corpName"                 AS "corpName",
+        d."reportName"               AS "reportName",
+        e."eventType"::text          AS "eventType",
+        a."resultJson"->>'summary'   AS "summaryText"
+      FROM disclosures d
+      JOIN companies c              ON c."corpCode" = d."corpCode"
+      LEFT JOIN disclosure_events e ON e."rcpNo"   = d."rcpNo"
+      -- summary task 는 (rcpNo, task) UNIQUE 이므로 rcpNo 당 ≤1행(중복 없음)
+      LEFT JOIN disclosure_analyses a
+        ON a."rcpNo" = d."rcpNo" AND a."task"::text = 'summary'
+      WHERE d."isBackfill" = false
+        AND d."rcpDt" >= ${date}
+        AND d."rcpDt" <  ${nextYmd}
+      ORDER BY
+        (e."eventType" IS NOT NULL AND e."eventType"::text <> 'OTHER') DESC, -- ①이벤트성
+        (c."market" = 'KOSPI') DESC,                                        -- ②시총(대용 프록시)
+        ((a."resultJson"->>'summary') IS NOT NULL) DESC,                    -- ③AI 요약 존재
+        d."rcpNo" DESC                                                      -- ④최신·결정론 tiebreak
+      LIMIT ${FALLBACK_BRIEFING_LIMIT}
+    `);
+    return buildFallbackBriefingItems(rows);
+  }
+
+  /** YYYYMMDD 의 다음 날(YYYYMMDD). rcpDt 문자열 상한(반개구간 [date, nextYmd)) 산출용. */
+  private nextYmd(ymd: string): string {
+    const y = Number(ymd.slice(0, 4));
+    const m = Number(ymd.slice(4, 6));
+    const d = Number(ymd.slice(6, 8));
+    const next = new Date(Date.UTC(y, m - 1, d + 1));
+    const yy = next.getUTCFullYear();
+    const mm = String(next.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(next.getUTCDate()).padStart(2, '0');
+    return `${yy}${mm}${dd}`;
   }
 
   async findExitSignals() {

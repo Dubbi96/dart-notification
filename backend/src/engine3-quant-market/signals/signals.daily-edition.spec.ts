@@ -373,6 +373,81 @@ describe('SignalsService — findDailyEdition', () => {
       lt: new Date('2026-07-16T15:00:00.000Z'),
     });
   });
+
+  // ─── DAR-551: 빈 에디션 폴백 브리핑(meta.fallbackBriefing) ──────────────────
+
+  const BRIEFING_ROWS = [
+    {
+      rcpNo: '20260716000009',
+      corpName: '카카오',
+      reportName: '단일판매·공급계약 체결',
+      eventType: 'SUPPLY_CONTRACT',
+      summaryText: '1,200억 규모 공급계약을 체결했다.',
+    },
+    {
+      rcpNo: '20260716000003',
+      corpName: '네이버',
+      reportName: '주주총회 소집결의',
+      eventType: null,
+      summaryText: null,
+    },
+  ];
+
+  it('빈 에디션(QUIET) + 주요 공시 존재 → meta.fallbackBriefing 매핑 노출(판단 count 불변)', async () => {
+    prisma.$queryRaw.mockResolvedValue(BRIEFING_ROWS);
+    const result = await service.findDailyEdition(TODAY_KST);
+    expect(result.meta.isEmpty).toBe(true);
+    expect(result.meta.emptyReason).toBe('QUIET');
+    // ★정직 불변식: 판단(items) 은 여전히 0 — 브리핑은 판단이 아니다.
+    expect(result.items).toHaveLength(0);
+    // 브리핑은 meta 로 분리 노출.
+    expect(result.meta.fallbackBriefing).toHaveLength(2);
+    expect(result.meta.fallbackBriefing?.[0]).toEqual({
+      rcpNo: '20260716000009',
+      corpName: '카카오',
+      eventLabel: '공급계약',
+      summaryLine: '1,200억 규모 공급계약을 체결했다.',
+      summarySource: 'AI',
+    });
+    expect(result.meta.fallbackBriefing?.[1]).toEqual({
+      rcpNo: '20260716000003',
+      corpName: '네이버',
+      eventLabel: '기타 공시',
+      summaryLine: '주주총회 소집결의',
+      summarySource: 'TITLE',
+    });
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('빈 에디션 + 주요 공시 없음 → meta.fallbackBriefing=[] (빈 배열)', async () => {
+    prisma.$queryRaw.mockResolvedValue([]);
+    const result = await service.findDailyEdition(TODAY_KST);
+    expect(result.meta.isEmpty).toBe(true);
+    expect(result.meta.fallbackBriefing).toEqual([]);
+  });
+
+  it('비빈 에디션(판단 존재) → fallbackBriefing 없음 + 브리핑 쿼리 미호출', async () => {
+    prisma.tradingSignal.findMany.mockResolvedValue([BASE_SIGNAL]);
+    prisma.eventStudyResult.findMany.mockResolvedValue([]);
+    const result = await service.findDailyEdition(TODAY_KST);
+    expect(result.meta.isEmpty).toBe(false);
+    expect(result.meta.fallbackBriefing).toBeUndefined();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('FUTURE → 브리핑 미조회(fallbackBriefing undefined)', async () => {
+    const result = await service.findDailyEdition('20260901');
+    expect(result.meta.emptyReason).toBe('FUTURE');
+    expect(result.meta.fallbackBriefing).toBeUndefined();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('CLOSED(주말) → 브리핑 미조회(fallbackBriefing undefined)', async () => {
+    const result = await service.findDailyEdition('20260718'); // 토요일
+    expect(result.meta.emptyReason).toBe('CLOSED');
+    expect(result.meta.fallbackBriefing).toBeUndefined();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
 });
 
 // ─── findDailyEditions: bigint COUNT → number 파싱 ──────────────────────────

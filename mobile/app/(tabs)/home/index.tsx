@@ -18,6 +18,7 @@ import { spacing, radius } from '@theme/spacing';
 import { typography } from '@theme/typography';
 import { verticalHitSlopForHeight } from '@utils/touchTarget';
 import { formatUnreadBadge } from '@utils/unreadBadge';
+import { deriveActiveCompanies } from '@utils/coldStartSuggestions';
 import { GlassCard } from '@components/common/GlassCard';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
@@ -26,8 +27,10 @@ import { HomeSignalPreview } from '@components/home/HomeSignalPreview';
 import { MarketIndexBadge } from '@components/home/MarketIndexBadge';
 import { GraduationTracker } from '@components/home/GraduationTracker';
 import { FirstWatchCoachmark } from '@components/home/FirstWatchCoachmark';
+import { ColdStartOnboarding } from '@components/home/ColdStartOnboarding';
 import { DisclosureFeedCard } from '@components/home/DisclosureFeedCard';
 import { useDisclosures, useTodayDisclosureCount } from '@hooks/useDisclosures';
+import { useColdStartOnboarding } from '@hooks/useColdStartOnboarding';
 import { useWatchlist } from '@hooks/useWatchlist';
 import { useSavedDisclosures } from '@hooks/useSavedDisclosures';
 import { useUnreadCount } from '@hooks/useNotifications';
@@ -107,6 +110,11 @@ export default function HomeScreen() {
       return true;
     });
   }, [data]);
+
+  // DAR-537: 콜드스타트 온보딩 — 관심 0 상태에서 코치마크를 선택형 카드로 승격(해제 상태는 독립 키).
+  const coldStart = useColdStartOnboarding();
+  // '최근 공시 활발 종목' 풀 — 이미 로드된 전체 피드에서 빈도 상위 도출(추가 요청 없음).
+  const activeCompanies = useMemo(() => deriveActiveCompanies(disclosures), [disclosures]);
 
   // DAR-420: 전체 누적(meta.total=137만)이 아니라 최신 가용 공시일 건수.
   //   별도 today-count 쿼리로 분리(피드 무한쿼리의 total과 무관).
@@ -273,8 +281,19 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* 콜드스타트 온보딩(DAR-537) — 관심 0이면 코치마크(DAR-65)를 선택형 카드로 승격.
+            건너뛰기(해제) 후에만 기존 코치마크가 자기 규약(독립 1회성 키)대로 폴백 —
+            로딩(null) 포함 어떤 상태에서도 두 유도가 동시에 노출되지 않는다(중복 유도 금지). */}
+        {isAuthenticated && watchlistCount === 0 && coldStart.dismissed === false && (
+          <ColdStartOnboarding
+            activeCompanies={activeCompanies}
+            onSearch={handleSearchOpen}
+            onSkip={coldStart.dismiss}
+            onComplete={coldStart.dismiss}
+          />
+        )}
         {/* 첫 관심기업 코치마크(DAR-65) — 관심목록 비었을 때 1회성·dismiss 가능. 수집 시드 등록 유도. */}
-        {isAuthenticated && watchlistCount === 0 && (
+        {isAuthenticated && watchlistCount === 0 && coldStart.dismissed === true && (
           <FirstWatchCoachmark onAdd={handleSearchOpen} />
         )}
       </View>
@@ -285,6 +304,9 @@ export default function HomeScreen() {
       hasWatchlist,
       isWatchlistFeed,
       watchlistCount,
+      coldStart.dismissed,
+      coldStart.dismiss,
+      activeCompanies,
       colors,
       typo,
       handleSearchOpen,

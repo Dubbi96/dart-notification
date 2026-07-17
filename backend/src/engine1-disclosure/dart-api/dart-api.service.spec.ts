@@ -6,6 +6,8 @@ import {
   DartApiService,
   DartListResponse,
   DartQuotaReservedError,
+  DART_BULK_CEILING,
+  DART_QUOTA_PERSIST_STEP,
 } from './dart-api.service';
 
 function listResponse(over: Partial<DartListResponse>): DartListResponse {
@@ -483,5 +485,100 @@ describe('DartApiService 쿼터 상태 재기동 영속화·복원 (DAR-532)', (
     const status = service.getQuotaBudgetStatus();
     expect(status.callsToday).toBe(0);
     expect(status.quotaExhausted).toBe(false);
+  });
+});
+
+describe('DartApiService 지분공시(INSIDER_HOLDINGS) 영속 카운터·야간 벌크 게이트 (DAR-540)', () => {
+  // 포렌식(/ops/dart-quota-forensics 20260717) 야간 62,928콜 중 INSIDER_HOLDINGS
+  // (majorstock/elestock) 24,851콜 후속. 이 경로가 DAR-532 영속 카운터를 경유하는지 회귀 고정:
+  //  (1) majorstock/elestock 소비가 recordCall→callsToday(=dart_quota_state 로 영속되는 값)를 증가,
+  //  (2) 영속 스텝 경계 통과 시 지분공시 소비도 dart_quota_state 에 flush,
+  //  (3) 야간 벌크 상한(BULK_CEILING) 도달 시 HTTP 없이 사전 차단(상한 초과 소비 원천 불가).
+  // → DAR-532 재기동 영속화는 recordCall/persistQuotaState 계층에 걸려 있고 지분공시가 그 계층을
+  //   그대로 사용하므로, 별도 편입 없이 영속 카운터·게이트가 자동 커버됨을 증명한다.
+
+  type QuotaMock = { findUnique: jest.Mock; upsert: jest.Mock };
+
+  function makeService(): {
+    service: DartApiService;
+    httpGet: jest.SpyInstance;
+    prisma: QuotaMock;
+  } {
+    const config = { get: jest.fn().mockReturnValue('TEST_KEY') } as unknown as ConfigService;
+    const prisma: QuotaMock = {
+      findUnique: jest.fn().mockResolvedValue(null),
+      upsert: jest.fn().mockResolvedValue({}),
+    };
+    const service = new DartApiService(
+      config,
+      undefined,
+      { dartQuotaState: prisma } as unknown as import('../../prisma/prisma.service').PrismaService,
+    );
+    const httpGet = jest
+      .spyOn((service as unknown as { httpClient: { get: jest.Mock } }).httpClient, 'get')
+      .mockResolvedValue({ status: 200, data: { status: '000', message: '정상', list: [] } });
+    return { service, httpGet, prisma };
+  }
+
+  /** 당일 누적 콜/마지막 flush 기준을 직접 세팅(경계·상한 시나리오 결정론). */
+  function setInternal(service: DartApiService, callsToday: number, lastPersisted: number): void {
+    const internal = service as unknown as {
+      callDayKey: string;
+      callsToday: number;
+      lastPersistedCalls: number;
+      currentDayKey: () => string;
+    };
+    internal.callDayKey = internal.currentDayKey();
+    internal.callsToday = callsToday;
+    internal.lastPersistedCalls = lastPersisted;
+  }
+
+  it('majorstock/elestock 소비가 영속 카운터(recordCall)를 경유해 callsToday 를 증가시킨다', async () => {
+    const { service, httpGet } = makeService();
+    const before = service.getQuotaBudgetStatus().callsToday;
+
+    await service.fetchMajorStockHoldings('00126380');
+    await service.fetchExecutiveStockHoldings('00126380');
+
+    expect(httpGet).toHaveBeenCalledTimes(2); // 엔드포인트 2종 실제 2콜
+    expect(service.getQuotaBudgetStatus().callsToday).toBe(before + 2); // 영속 카운터 +2
+  });
+
+  it('영속 스텝 경계 통과 시 지분공시 소비도 dart_quota_state 에 flush 된다', async () => {
+    const { service, prisma } = makeService();
+    // 다음 1콜이 영속 스텝 경계를 넘도록 세팅 → recordCall→persistQuotaState upsert 발화.
+    setInternal(service, DART_QUOTA_PERSIST_STEP - 1, 0);
+
+    await service.fetchMajorStockHoldings('00126380');
+    await Promise.resolve(); // fire-and-forget 마이크로태스크 플러시
+
+    expect(prisma.upsert).toHaveBeenCalledTimes(1);
+    const arg = prisma.upsert.mock.calls[0][0];
+    expect(arg.where.day).toMatch(/^\d{8}$/); // KST 당일 키
+    expect(arg.update.callsToday).toBe(DART_QUOTA_PERSIST_STEP); // 실소비 반영(영속)
+  });
+
+  it('★야간 벌크 상한(BULK_CEILING) 도달 시 majorstock/elestock 은 HTTP 없이 예약분 보호 차단', async () => {
+    const { service, httpGet } = makeService();
+    setInternal(service, DART_BULK_CEILING, DART_BULK_CEILING);
+    expect(service.getQuotaBudgetStatus().bulkAllowed).toBe(false);
+
+    await expect(service.fetchMajorStockHoldings('00126380')).rejects.toBeInstanceOf(
+      DartQuotaReservedError,
+    );
+    await expect(service.fetchExecutiveStockHoldings('00126380')).rejects.toBeInstanceOf(
+      DartQuotaReservedError,
+    );
+
+    expect(httpGet).not.toHaveBeenCalled(); // 사전 차단 = 쿼터 비소모(상한 초과 소비 원천 불가)
+    expect(service.getQuotaBudgetStatus().callsToday).toBe(DART_BULK_CEILING); // 카운터 불변
+  });
+
+  it('차단 에러 메시지에 dartStatus=020 마커 포함(classifyFetchError QUOTA 분류 계약)', async () => {
+    const { service } = makeService();
+    setInternal(service, DART_BULK_CEILING, DART_BULK_CEILING);
+
+    await expect(service.fetchMajorStockHoldings('00126380')).rejects.toThrow(/dartStatus=020/);
+    await expect(service.fetchExecutiveStockHoldings('00126380')).rejects.toThrow(/dartStatus=020/);
   });
 });

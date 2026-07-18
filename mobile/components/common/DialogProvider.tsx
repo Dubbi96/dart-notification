@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { Dialog, Portal, Button } from 'react-native-paper';
+import { View, Text, StyleSheet, Modal, Pressable } from 'react-native';
+import { Button } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
@@ -70,56 +70,76 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
   return (
     <DialogContext.Provider value={{ showDialog }}>
       {children}
-      <Portal>
-        <Dialog
-          visible={visible}
-          onDismiss={handleDismiss}
-          style={[styles.dialog, { backgroundColor: colors.surface }]}
+      {/* R-22: 풀스크린 백드롭은 RN 코어 Modal만 — Paper Portal+Dialog(JS 절대배치)는 Fabric에서
+          네이티브 elevation(탭바·헤더)이 백드롭 z-order를 역전시켜 부분 커버된다(DAR-558 트리아지). */}
+      <Modal
+        visible={visible}
+        transparent
+        statusBarTranslucent
+        navigationBarTranslucent
+        animationType="fade"
+        onRequestClose={handleDismiss}
+      >
+        <Pressable
+          style={[StyleSheet.absoluteFill, styles.backdrop, { backgroundColor: colors.overlay }]}
+          onPress={handleDismiss}
         >
-          {options.icon && (
-            <View style={styles.iconContainer}>
-              <Feather
-                name={options.icon.name}
-                size={32}
-                color={options.icon.color ?? colors.primary}
-              />
+          {/* 카드 탭이 백드롭으로 전파돼 즉시 닫히지 않도록 내부 Pressable로 흡수 */}
+          <Pressable
+            style={[styles.dialog, { backgroundColor: colors.surface }]}
+            onPress={() => {}}
+          >
+            {options.icon && (
+              <View style={styles.iconContainer}>
+                <Feather
+                  name={options.icon.name}
+                  size={32}
+                  color={options.icon.color ?? colors.primary}
+                />
+              </View>
+            )}
+            <Text style={[typo.h3, styles.title, { color: colors.text }]}>{options.title}</Text>
+            <View style={styles.content}>
+              <Text style={[typo.body, styles.message, { color: colors.textSecondary }]}>
+                {options.message}
+              </Text>
             </View>
-          )}
-          <Dialog.Title style={[typo.h3, styles.title, { color: colors.text }]}>
-            {options.title}
-          </Dialog.Title>
-          <Dialog.Content style={{ justifyContent: 'center', alignItems: 'center' }}>
-            <Text style={[typo.body, { color: colors.textSecondary }]}>
-              {options.message}
-            </Text>
-          </Dialog.Content>
-          <Dialog.Actions style={styles.actions}>
-            {buttons.map((button, index) => (
-              <Button
-                key={index}
-                onPress={() => handleButtonPress(button)}
-                textColor={
-                  button.style === 'destructive'
-                    ? colors.error
-                    : button.style === 'cancel'
-                      ? colors.textSecondary
-                      : colors.primary
-                }
-                style={styles.button}
-              >
-                {button.text}
-              </Button>
-            ))}
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
+            <View style={styles.actions}>
+              {buttons.map((button, index) => (
+                <Button
+                  key={index}
+                  onPress={() => handleButtonPress(button)}
+                  textColor={
+                    button.style === 'destructive'
+                      ? colors.error
+                      : button.style === 'cancel'
+                        ? colors.textSecondary
+                        : colors.primary
+                  }
+                  style={styles.button}
+                >
+                  {button.text}
+                </Button>
+              ))}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </DialogContext.Provider>
   );
 }
 
 const styles = StyleSheet.create({
+  backdrop: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
   dialog: {
+    width: '100%',
+    maxWidth: 400,
     borderRadius: radius.lg,
+    overflow: 'hidden',
   },
   iconContainer: {
     alignItems: 'center',
@@ -127,8 +147,21 @@ const styles = StyleSheet.create({
   },
   title: {
     textAlign: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
+  content: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.lg,
+    alignItems: 'center',
+  },
+  message: {
+    textAlign: 'center',
   },
   actions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.md,
   },

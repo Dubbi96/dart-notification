@@ -57,6 +57,18 @@
     ],
     "no-console": ["warn", { "allow": ["warn", "error"] }],
     "react-native/sort-styles": "off",
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "react-native-paper",
+            "importNames": ["Dialog", "Portal"],
+            "message": "Paper Dialog/Portal 직접 사용 금지(R-22): JS 절대배치 오버레이는 Fabric(Android)에서 네이티브 elevation(탭바·헤더)에 백드롭 z-order가 역전됩니다(DAR-561). components/common/DialogProvider.tsx의 useDialog()를 쓰세요."
+          }
+        ]
+      }
+    ],
     "no-restricted-syntax": [
       "error",
       {
@@ -71,6 +83,12 @@
       "env": {
         "jest": true,
         "node": true
+      }
+    },
+    {
+      "files": ["components/survey/IosGateSurvey.tsx"],
+      "rules": {
+        "no-restricted-imports": "off"
       }
     }
   ],

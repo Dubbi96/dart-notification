@@ -80,3 +80,22 @@ describe('SignalsController — sinceDays 쿼리 파싱·클램프', () => {
     expect(args.sinceDays).toBe(30);
   });
 });
+
+/**
+ * DAR-559: findExitSignals가 이전엔 인자 없이(사용자 스코프 무) 호출됐다.
+ * 컨트롤러가 @CurrentUser('id')로 얻은 요청자 userId를 서비스에 그대로 넘기는지만 검증한다
+ * (스코프·distinct·take 로직 자체는 signals.exit-signals.integration-spec.ts 가 실DB로 담당).
+ */
+describe('SignalsController — GET /signals/exit 사용자 스코프 배선', () => {
+  it('@CurrentUser로 얻은 userId를 findExitSignals에 그대로 전달한다', async () => {
+    const findExitSignals = jest.fn().mockResolvedValue([]);
+    const controller = new SignalsController({
+      findExitSignals,
+    } as unknown as SignalsService);
+
+    const result = await controller.findExitSignals('user_123');
+
+    expect(findExitSignals).toHaveBeenCalledWith('user_123');
+    expect(result).toEqual({ success: true, data: [] });
+  });
+});

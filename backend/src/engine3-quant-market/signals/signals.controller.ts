@@ -8,6 +8,7 @@ import {
 } from '@nestjs/swagger';
 import { SignalsService, SignalSort } from './signals.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { parsePaginationInt } from '../../common/pagination/parse-pagination';
 
 @ApiTags('signals')
@@ -62,9 +63,9 @@ export class SignalsController {
   }
 
   @Get('exit')
-  @ApiOperation({ summary: '청산 신호 목록 조회' })
-  async findExitSignals() {
-    const data = await this.signalsService.findExitSignals();
+  @ApiOperation({ summary: '청산 신호 목록 조회 (요청자 소유 OPEN 포지션·최신순 최대 50건)' })
+  async findExitSignals(@CurrentUser('id') userId: string) {
+    const data = await this.signalsService.findExitSignals(userId);
     return { success: true, data };
   }
 

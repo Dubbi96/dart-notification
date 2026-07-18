@@ -959,9 +959,21 @@ export class SignalsService {
     return `${yy}${mm}${dd}`;
   }
 
-  async findExitSignals() {
+  // DAR-559: where·take·사용자 스코프 없는 전량조회가 axios 10s를 넘겨 매도 탭이
+  //   "백엔드 연결 실패"로 낙하했다(모의매매 5+트랙이 청산당 1행 상시 적재). OPEN 포지션·
+  //   요청자 소유로 한정하고 positionId당 최신 1건(distinct는 orderBy 적용 후 첫 행을 취하므로
+  //   createdAt desc 정렬 뒤 dedupe = 최신행 보존)만 take 50 상한으로 반환한다.
+  async findExitSignals(userId: string) {
     const exitSignals = await this.prisma.exitSignal.findMany({
+      where: {
+        position: {
+          status: 'OPEN',
+          portfolio: { userId },
+        },
+      },
+      distinct: ['positionId'],
       orderBy: { createdAt: 'desc' },
+      take: 50,
       include: {
         position: {
           select: {

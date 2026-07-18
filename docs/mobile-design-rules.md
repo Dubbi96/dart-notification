@@ -42,6 +42,7 @@
 - **R-19**: `keyExtractor` 전역 고유(복수 축 데이터는 복합키/id) · 신규 리스트는 iOS+Android 교차 렌더 확인.
 - **R-20**: 가로 스냅 캐러셀은 `snapToInterval=카드폭+gap`+`decelerationRate="fast"`+`getItemLayout`(고정폭일 때) 세트.
 - **R-21 (스켈레톤은 에러·pause 폴백 의무)**: `DetailSkeleton`/`onRetry`가 있는 `SkeletonList`는 10초 워치독을 내장한다 — 콘텐츠가 계속 안 오면(무기한 로딩·RQ pause 포함) 자동으로 "지연되고 있어요" 재시도 오버레이로 전환한다. 상세 화면에서 `DetailSkeleton`을 쓰면 `onRetry`는 **필수**(재시도 없는 무피드백 데드엔드 금지, DAR-560).
+- **R-22 (풀스크린 백드롭은 RN 코어 Modal만)**: 화면 전체를 덮는 백드롭(확인 다이얼로그·전역 오버레이)은 RN 코어 `<Modal transparent>`만 쓴다 — Paper `<Portal><Dialog>` 같은 JS 절대배치 오버레이는 금지. Fabric(Android)에서 네이티브 elevation(탭바·헤더)이 JS 오버레이의 z-order를 역전시켜 백드롭이 부분적으로만 덮인다(DAR-561, `DialogProvider` 실증). Paper `Dialog`/`Portal` 임포트는 ESLint로 전면 차단.
 
 ## 강제 수단
 
@@ -53,5 +54,6 @@
 | R-11 | `check-home-preview-card-uniform-height` |
 | R-18 | ESLint `no-restricted-syntax` |
 | R-21 | `check-skeleton-error-fallback` |
+| R-22 | ESLint `no-restricted-imports`(Paper `Dialog`/`Portal` 차단) |
 
 신규 PR DoD: 텍스트를 추가·수정하면 해당 룰 번호를 PR 본문에 명시(예: "R-1/R-2 적용").

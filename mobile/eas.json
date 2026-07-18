@@ -41,7 +41,9 @@
       "channel": "play",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://168.138.198.152.nip.io/api",
-        "EXPO_PUBLIC_SHOW_TRADING": "false"
+        "EXPO_PUBLIC_SHOW_TRADING": "false",
+        "EXPO_PUBLIC_SHOW_PRO_UPSELL": "false",
+        "EXPO_PUBLIC_SHOW_OPS": "false"
       },
       "android": {
         "buildType": "app-bundle"
@@ -51,7 +53,9 @@
       "channel": "play",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://168.138.198.152.nip.io/api",
-        "EXPO_PUBLIC_SHOW_TRADING": "false"
+        "EXPO_PUBLIC_SHOW_TRADING": "false",
+        "EXPO_PUBLIC_SHOW_PRO_UPSELL": "false",
+        "EXPO_PUBLIC_SHOW_OPS": "false"
       },
       "distribution": "internal",
       "android": {

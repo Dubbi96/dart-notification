@@ -6,6 +6,7 @@ import { router } from 'expo-router';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
+import { withOpsGuard } from '@components/common/withOpsGuard';
 import { LoadingState, ErrorState, EmptyState } from '@components/common/StateView';
 import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { formatYmdDots } from '@utils/datetime';
@@ -491,7 +492,7 @@ function TermGuide() {
   );
 }
 
-export default function AiCostScreen() {
+function AiCostScreen() {
   const { colors, typography: typo } = useTheme();
   const { data, isLoading, isError, refetch } = useAiCostMetrics();
   const { data: health, refetch: refetchHealth } = useAiCostHealth();
@@ -735,6 +736,9 @@ export default function AiCostScreen() {
     </SafeAreaView>
   );
 }
+
+// DAR-558: 첫 게시(Play) 빌드에서 ops(AI 비용) 라우트 진입 시 설정 탭으로 리다이렉트(가드).
+export default withOpsGuard(AiCostScreen);
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

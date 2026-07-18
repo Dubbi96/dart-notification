@@ -6,6 +6,7 @@ import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
+import { withProGuard } from '@components/common/withProGuard';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { useSettingsStore } from '@stores/settingsStore';
 import { useAuthStore } from '@stores/authStore';
@@ -31,26 +32,14 @@ interface Benefit {
   description: string;
 }
 
+// DAR-558/D2: 실구현과 일치하는 혜택만 노출(PRO=200종목, backend watchlist.util.ts).
+// 미구현 나머지 혜택 카피는 삭제 — 판단층 분석 관련 혜택은 유사투자자문업 신고 전까지
+// 재도입 금지(policy-non-advisory.md).
 const BENEFITS: Benefit[] = [
   {
     icon: 'star',
-    title: '무제한 관심기업',
-    description: '30종목 한도 없이 추적하고 싶은 모든 기업을 등록하세요.',
-  },
-  {
-    icon: 'filter',
-    title: '고급 필터',
-    description: '신호 등급·이벤트 유형·재무 조건을 조합한 정밀 필터를 제공합니다.',
-  },
-  {
-    icon: 'bell',
-    title: '우선 알림',
-    description: '관심 종목의 핵심 공시를 더 빠르게 받아보세요.',
-  },
-  {
-    icon: 'trending-up',
-    title: '심화 분석',
-    description: 'AI 분석·이벤트 스터디 표본을 더 깊게 들여다볼 수 있습니다.',
+    title: '관심기업 한도 확대',
+    description: '30종목 한도를 200종목까지 늘려 더 많은 기업을 추적하세요.',
   },
 ];
 
@@ -79,7 +68,7 @@ function BenefitRow({ icon, title, description, isLast }: Benefit & { isLast: bo
   );
 }
 
-export default function ProScreen() {
+function ProScreen() {
   const { colors, typography: typo } = useTheme();
   const { showSnackbar } = useSnackbar();
   const haptics = useHaptics();
@@ -152,7 +141,7 @@ export default function ProScreen() {
           </Text>
           {/* D1(L-4): '놓치지 마세요' FOMO 패턴 제거 — copy.ts 톤 규약(과신·긴박 금지) 준수. */}
           <Text style={[typo.caption, styles.heroSubtitle, { color: colors.textSecondary }]}>
-            더 많은 관심기업과 정밀한 분석으로 중요한 공시를 빠짐없이 받아보세요.
+            더 많은 관심기업을 등록하고 중요한 공시를 빠짐없이 받아보세요.
           </Text>
         </View>
 
@@ -211,6 +200,9 @@ export default function ProScreen() {
     </SafeAreaView>
   );
 }
+
+// DAR-558: 첫 게시(Play) 빌드에서 Pro 라우트 진입 시 설정 탭으로 리다이렉트(가드).
+export default withProGuard(ProScreen);
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

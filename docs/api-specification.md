@@ -1674,7 +1674,27 @@ GET /api/signals   (JWT 필수)
 | `meta.total` | number | 필터 조건 전체 신호 수 |
 | `meta.totalPages` | number | `ceil(total / limit)` |
 
-> 동일 컨트롤러에는 청산 신호 목록 `GET /api/signals/exit`(JWT 필수)와 신호 상세 `GET /api/signals/:id`(JWT 필수)도 있다.
+> 동일 컨트롤러에는 청산 신호 목록 `GET /api/signals/exit`(JWT 필수, 아래 12.3.1)와 신호 상세 `GET /api/signals/:id`(JWT 필수)도 있다.
+
+#### 12.3.1 청산 신호 목록 (DAR-559)
+
+```
+GET /api/signals/exit   (JWT 필수)
+```
+
+요청자(JWT) 소유 포트폴리오의 **OPEN 포지션**에 한정된 청산 신호만 반환한다. 포지션(`positionId`)당
+최신 1건만 포함(과거 청산 이력 신호는 dedupe)하며, 최신순 최대 **50건** 상한이다. 응답 shape은
+DAR-559 이전과 동일(하위 호환, 스코프·상한만 축소).
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `data[].corpCode` / `corpName` / `ticker` | string | 종목 식별자 |
+| `data[].exitScore` | number | 청산 점수 |
+| `data[].action` | string | `ExitAction` enum |
+| `data[].reasons[]` | object | 청산 사유 분해 |
+| `data[].pnlPercent` | number\|undefined | 포지션 미실현 손익률 |
+| `data[].blockRebuy` | boolean | 재진입 차단 여부(`action === BLOCK_REBUY`) |
+| `data[].createdAt` | string | ISO8601 |
 
 ### 12.4 일일 투자판단 에디션 날짜 목록 (DAR-505)
 

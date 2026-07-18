@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Post,
   Patch,
   Delete,
   Param,
@@ -27,6 +28,13 @@ export class NotificationsController {
   async findAll(@CurrentUser('id') userId: string, @Query() query: QueryNotificationDto) {
     const result = await this.notificationsService.findAll(userId, query);
     return { success: true, data: result.items, meta: result.meta };
+  }
+
+  @Post('seen')
+  @ApiOperation({ summary: '알림 탭 seen 처리 (뱃지 기준점 갱신, 행 읽음과 별개)' })
+  async markSeen(@CurrentUser('id') userId: string) {
+    const data = await this.notificationsService.markSeen(userId);
+    return { success: true, data };
   }
 
   @Patch('read-all')

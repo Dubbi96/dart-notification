@@ -24,6 +24,9 @@ export interface CreateNotificationInput {
   disclosureRcpNo?: string;
 }
 
+/** DAR-563: notificationsLastSeenAt 미방문(null) 사용자 — 전체 이력을 신규로 취급하는 기준점. */
+const NEVER_SEEN = new Date(0);
+
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
@@ -125,6 +128,14 @@ export class NotificationsService {
       where.type = type;
     }
 
+    // DAR-563: 뱃지 기준을 isRead(행별 읽음)에서 seen 마커로 분리 — '탭 방문 이후 신규 생성분'만
+    // 뱃지로 센다. isRead 는 그대로 findAll 필터·markAsRead/markAllAsRead 하이라이트 용도로 남는다.
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { notificationsLastSeenAt: true },
+    });
+    const unseenSince = user?.notificationsLastSeenAt ?? NEVER_SEEN;
+
     const [items, total, unreadCount, unreadByTypeRows] = await Promise.all([
       this.prisma.notificationHistory.findMany({
         where,
@@ -146,13 +157,13 @@ export class NotificationsService {
       }),
       this.prisma.notificationHistory.count({ where }),
       this.prisma.notificationHistory.count({
-        where: { userId, isRead: false },
+        where: { userId, sentAt: { gt: unseenSince } },
       }),
-      // DAR-161: 타입별 미읽음 카운트 — 타입 필터와 무관하게 사용자 전체 기준으로 집계
+      // DAR-161: 타입별 뱃지 카운트 — 타입 필터와 무관하게 사용자 전체 기준으로 집계
       // (세그먼트 칩의 타입별 배지가 현재 선택 필터에 영향받지 않도록).
       this.prisma.notificationHistory.groupBy({
         by: ['type'],
-        where: { userId, isRead: false },
+        where: { userId, sentAt: { gt: unseenSince } },
         _count: { _all: true },
       }),
     ]);
@@ -201,6 +212,19 @@ export class NotificationsService {
         unreadByCategory,
       },
     };
+  }
+
+  /**
+   * DAR-563: 알림탭 seen 마커 갱신 — findAll 뱃지(sentAt > notificationsLastSeenAt) 계산의 기준점.
+   * isRead(행별 읽음)는 별개 — 하이라이트는 markAsRead/markAllAsRead 로만 바뀐다.
+   */
+  async markSeen(userId: string): Promise<{ notificationsLastSeenAt: string }> {
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { notificationsLastSeenAt: new Date() },
+      select: { notificationsLastSeenAt: true },
+    });
+    return { notificationsLastSeenAt: updated.notificationsLastSeenAt!.toISOString() };
   }
 
   async markAsRead(userId: string, id: string) {

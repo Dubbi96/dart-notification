@@ -62,7 +62,9 @@ console.log('B. 소스 정합');
   const proPath = join(mobileRoot, 'app/settings-detail/pro.tsx');
   assert('Pro 화면 라우트 파일 존재', existsSync(proPath));
   const pro = readFileSync(proPath, 'utf8');
-  assert('Pro 화면이 혜택 항목을 정적 노출', pro.includes('무제한 관심기업') && pro.includes('고급 필터'));
+  // DAR-558/D2: 실구현과 불일치하는 '무제한 관심기업/고급 필터' 카피는 정직화로 삭제됨.
+  assert('Pro 화면이 혜택 항목을 정적 노출', pro.includes('관심기업 한도 확대') && pro.includes('200종목'));
+  assert('Pro 화면이 미구현 혜택 카피를 재도입하지 않음', !pro.includes('고급 필터') && !pro.includes('심화 분석') && !pro.includes('우선 알림'));
   assert('Pro 화면이 사전 신청 토글 로직 사용', pro.includes('toggleWaitlist'));
   assert('Pro 화면이 결제 준비중을 솔직하게 안내', pro.includes('결제는 아직 준비 중'));
 }

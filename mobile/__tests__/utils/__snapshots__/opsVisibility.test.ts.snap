@@ -1,0 +1,12 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`utils/opsVisibility resolveShowOps 진리표: 오직 "false" 만 숨긴다 1`] = `
+{
+  "False": true,
+  "empty": true,
+  "false": false,
+  "true": true,
+  "undefined": true,
+  "zero": true,
+}
+`;

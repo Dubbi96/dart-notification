@@ -17,6 +17,8 @@ import { useSettingsStore } from '@stores/settingsStore';
 import { useLogout, useMe } from '@hooks/useAuth';
 import { useWatchlist } from '@hooks/useWatchlist';
 import { verticalHitSlopForHeight } from '@utils/touchTarget';
+import { SHOW_PRO_UPSELL } from '@utils/proVisibility';
+import { SHOW_OPS } from '@utils/opsVisibility';
 import type { ColorScheme } from '@theme';
 
 // DAR-470: 현재값 칩 최대 폭(긴 옵션 라벨 줄임 기준). 매직넘버 금지 → 명명 상수.
@@ -216,26 +218,28 @@ export default function SettingsScreen() {
               </View>
             </View>
 
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => router.push('/settings-detail/pro')}
-              accessibilityRole="button"
-              accessibilityLabel="Pro 혜택 보기"
-            >
-              <GlassCard style={styles.promoBanner} intensity={25} variant="iridescent">
-                <View style={styles.promoContent}>
-                  <View>
-                    <Text style={[typo.captionMedium, { color: palette.white }]}>
-                      Pro로 업그레이드
-                    </Text>
-                    <Text style={[typo.small, { color: colors.onColorMuted }]}>
-                      무제한 관심기업 & 고급 필터
-                    </Text>
+            {SHOW_PRO_UPSELL && (
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => router.push('/settings-detail/pro')}
+                accessibilityRole="button"
+                accessibilityLabel="Pro 혜택 보기"
+              >
+                <GlassCard style={styles.promoBanner} intensity={25} variant="iridescent">
+                  <View style={styles.promoContent}>
+                    <View>
+                      <Text style={[typo.captionMedium, { color: palette.white }]}>
+                        Pro로 업그레이드
+                      </Text>
+                      <Text style={[typo.small, { color: colors.onColorMuted }]}>
+                        관심기업 한도 확대 — 30 → 200종목
+                      </Text>
+                    </View>
+                    <Feather name="arrow-right-circle" size={28} color={colors.onColorStrong} />
                   </View>
-                  <Feather name="arrow-right-circle" size={28} color={colors.onColorStrong} />
-                </View>
-              </GlassCard>
-            </TouchableOpacity>
+                </GlassCard>
+              </TouchableOpacity>
+            )}
           </>
         ) : (
           <View style={styles.profileInfo}>
@@ -341,20 +345,24 @@ export default function SettingsScreen() {
                 onPress={cycleTextScale}
                 showChevron={false}
               />
-              <Divider style={{ backgroundColor: colors.borderLight }} />
-              <MenuItem
-                icon="activity"
-                title="수집 현황"
-                subtitle="공시·재무·지표·모의 커버리지"
-                onPress={() => router.push('/settings-detail/collection-status')}
-              />
-              <Divider style={{ backgroundColor: colors.borderLight }} />
-              <MenuItem
-                icon="bar-chart-2"
-                title="AI 비용/거버넌스"
-                subtitle="AI 분석 비용·한도 소진율"
-                onPress={() => router.push('/settings-detail/ai-cost')}
-              />
+              {SHOW_OPS && (
+                <>
+                  <Divider style={{ backgroundColor: colors.borderLight }} />
+                  <MenuItem
+                    icon="activity"
+                    title="수집 현황"
+                    subtitle="공시·재무·지표·모의 커버리지"
+                    onPress={() => router.push('/settings-detail/collection-status')}
+                  />
+                  <Divider style={{ backgroundColor: colors.borderLight }} />
+                  <MenuItem
+                    icon="bar-chart-2"
+                    title="AI 비용/거버넌스"
+                    subtitle="AI 분석 비용·한도 소진율"
+                    onPress={() => router.push('/settings-detail/ai-cost')}
+                  />
+                </>
+              )}
               <Divider style={{ backgroundColor: colors.borderLight }} />
               <MenuItem
                 icon="file-text"

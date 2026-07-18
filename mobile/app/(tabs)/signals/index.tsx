@@ -20,6 +20,7 @@ import { useAuthStore } from '@stores/authStore';
 import { useExitSignals } from '@hooks/useSignals';
 import { usePositions } from '@hooks/usePortfolio';
 import { SIGNALS_HEADER_SUBTITLE } from '@utils/copy';
+import { SHOW_TRADING } from '@utils/tradingVisibility';
 
 import type { ExitSignal, TradingSignal } from '@app-types/signal.types';
 
@@ -331,7 +332,8 @@ export default function SignalsScreen() {
       {/* 신호 탭 첫 진입 코치마크 — 게스트는 미리보기 상태라 미노출(1회성 소모 방지). */}
       {isAuthenticated && <SignalsCoachmark />}
       {/* 매수/매도 토글 — 화면 상단 고정(에디션 스트립·리스트와 제스처 축 분리). */}
-      {isAuthenticated && feedToggle}
+      {/* DAR-558/D4: Play 빌드는 포트폴리오 표면이 없어 매도=상시 빈 탭 — 토글 자체를 숨겨 매수 단독 렌더. */}
+      {isAuthenticated && SHOW_TRADING && feedToggle}
       {renderBody()}
     </SafeAreaView>
   );

@@ -6,6 +6,7 @@ import { router } from 'expo-router';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { ScreenHeader } from '@components/common/ScreenHeader';
+import { withOpsGuard } from '@components/common/withOpsGuard';
 import { LoadingState, ApiErrorState, EmptyState } from '@components/common/StateView';
 import { useCollectionStatus } from '@hooks/useCollectionStatus';
 import { relativeTimeOrFallback, formatYmdDots } from '@utils/datetime';
@@ -124,7 +125,7 @@ function CoverageCard({
   );
 }
 
-export default function CollectionStatusScreen() {
+function CollectionStatusScreen() {
   const { colors, typography: typo } = useTheme();
   const { data, isLoading, isError, error, refetch, isRefetching } = useCollectionStatus();
 
@@ -240,6 +241,9 @@ export default function CollectionStatusScreen() {
     </SafeAreaView>
   );
 }
+
+// DAR-558: 첫 게시(Play) 빌드에서 ops(수집 현황) 라우트 진입 시 설정 탭으로 리다이렉트(가드).
+export default withOpsGuard(CollectionStatusScreen);
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

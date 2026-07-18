@@ -19,4 +19,10 @@ export const notificationService = {
 
   remove: (id: string) =>
     api.delete<ApiResponse<void>>(`/notifications/${id}`).then((r) => r.data),
+
+  // DAR-563/568: 알림 탭 seen 마커 갱신(뱃지 기준점) — 행별 isRead 는 별개.
+  markSeen: () =>
+    api
+      .post<ApiResponse<{ notificationsLastSeenAt: string }>>('/notifications/seen')
+      .then((r) => r.data.data),
 };

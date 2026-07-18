@@ -142,13 +142,16 @@ export function ApiErrorState({
   onSecondary,
 }: ApiErrorStateProps) {
   if (isConnectionError(error)) {
-    // 연결 차단·타임아웃: 인프라 원인 안내 + dev에서 현재 API 주소 표기(진단성).
-    const base = '같은 Wi-Fi에 연결돼 있는지, 서버가 켜져 있는지 확인해 주세요.';
+    // DAR-560: 프로덕션 사용자에겐 정직한 일반 안내만 노출 — "같은 Wi-Fi/서버 확인" 문구와
+    // API 주소는 개발자 진단용이라 __DEV__ 블록으로 한정한다(원문은 사용자에게 무의미·오해 소지).
+    const description = __DEV__
+      ? `같은 Wi-Fi에 연결돼 있는지, 서버가 켜져 있는지 확인해 주세요.\n\nAPI: ${API_BASE_URL}`
+      : '네트워크 상태를 확인한 뒤 다시 시도해 주세요.';
     return (
       <ErrorState
         icon="wifi-off"
-        title="백엔드 연결 실패"
-        description={__DEV__ ? `${base}\n\nAPI: ${API_BASE_URL}` : base}
+        title="일시적으로 연결할 수 없어요"
+        description={description}
         onRetry={onRetry}
         secondaryLabel={secondaryLabel}
         onSecondary={onSecondary}

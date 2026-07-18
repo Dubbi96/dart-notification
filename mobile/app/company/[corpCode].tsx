@@ -363,6 +363,41 @@ function StatRow({
   );
 }
 
+// DAR-560/R-21: 로딩·pause·에러·미존재 분기 전부에서 헤더 뒤로가기+타이틀을 동일하게 렌더.
+// 콘텐츠 로드 전엔 corpName 을 모르므로 placeholder 타이틀('종목 상세')을 쓴다.
+function CompanyHeader({
+  title,
+  colors,
+  typo,
+}: {
+  title: string;
+  colors: ReturnType<typeof useTheme>['colors'];
+  typo: ReturnType<typeof useTheme>['typography'];
+}) {
+  return (
+    <View style={styles.header}>
+      <TouchableOpacity
+        onPress={() => router.back()}
+        style={styles.backButton}
+        accessibilityLabel="뒤로 가기"
+        accessibilityRole="button"
+      >
+        <Ionicons name="chevron-back" size={BACK_ICON_SIZE} color={colors.text} />
+      </TouchableOpacity>
+      <Text
+        style={[typo.h3, styles.headerTitle, { color: colors.text, minWidth: 0 }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
+        {title}
+      </Text>
+      <View style={styles.headerSpacer} />
+    </View>
+  );
+}
+
+const COMPANY_DETAIL_PLACEHOLDER_TITLE = '종목 상세';
+
 export default function CompanyDetailScreen() {
   const { corpCode } = useLocalSearchParams<{ corpCode: string }>();
   const { colors, typography: typo, isDark } = useTheme();
@@ -370,6 +405,7 @@ export default function CompanyDetailScreen() {
   const {
     data: company,
     isLoading,
+    isPaused: isCompanyPaused,
     isError: isCompanyError,
     error: companyError,
     refetch: refetchCompany,
@@ -509,19 +545,34 @@ export default function CompanyDetailScreen() {
 
   if (isLoading) {
     // 헤더(뒤로가기) 유지 + 기업 카드/탭 콘텐츠 골격 스켈레톤으로 로딩→콘텐츠 점프 제거(DAR-147).
+    // DetailSkeleton 자체 워치독(10s)이 무피드백 정체를 재시도 오버레이로 자동 전환한다(DAR-560/R-21).
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backButton}
-            accessibilityLabel="뒤로 가기"
-            accessibilityRole="button"
-          >
-            <Ionicons name="chevron-back" size={BACK_ICON_SIZE} color={colors.text} />
-          </TouchableOpacity>
+        <CompanyHeader title={COMPANY_DETAIL_PLACEHOLDER_TITLE} colors={colors} typo={typo} />
+        <DetailSkeleton
+          cards={[{ chip: true, lines: 2 }, { lines: 3 }, { lines: 2 }]}
+          onRetry={refetchCompany}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  // DAR-560: RQ v5 networkMode 'online' + 거짓 offline NetInfo 판정 시 쿼리가 isFetching=false 로
+  // 무기한 pause 된다(isLoading 은 이미 false) — 이 분기가 없으면 아래 !company 로 낙하해
+  // 재시도 없는 "기업 정보를 찾을 수 없습니다" 데드엔드가 된다.
+  if (isCompanyPaused && !company) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <CompanyHeader title={COMPANY_DETAIL_PLACEHOLDER_TITLE} colors={colors} typo={typo} />
+        <View style={styles.loadingContainer}>
+          <ErrorState
+            icon="wifi-off"
+            title="네트워크 대기 중"
+            description="연결이 복구되면 자동으로 다시 시도해요. 지금 다시 시도할 수도 있어요."
+            onRetry={refetchCompany}
+            retryLabel="다시 시도"
+          />
         </View>
-        <DetailSkeleton cards={[{ chip: true, lines: 2 }, { lines: 3 }, { lines: 2 }]} />
       </SafeAreaView>
     );
   }
@@ -531,16 +582,7 @@ export default function CompanyDetailScreen() {
   if (isCompanyError && !isNotFoundError(companyError)) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backButton}
-            accessibilityLabel="뒤로 가기"
-            accessibilityRole="button"
-          >
-            <Ionicons name="chevron-back" size={BACK_ICON_SIZE} color={colors.text} />
-          </TouchableOpacity>
-        </View>
+        <CompanyHeader title={COMPANY_DETAIL_PLACEHOLDER_TITLE} colors={colors} typo={typo} />
         <View style={styles.loadingContainer}>
           <ApiErrorState
             error={companyError}
@@ -554,22 +596,25 @@ export default function CompanyDetailScreen() {
   }
 
   if (!company) {
+    // DAR-560: '미존재' 문구는 서버 404 확정 시에만 — 그 외(예: 아직 분류 안 된 에러·엣지 상태)는
+    // 데드엔드 문구 대신 재시도 가능한 ApiErrorState 로 흡수한다.
+    const isConfirmedNotFound = isNotFoundError(companyError);
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backButton}
-            accessibilityLabel="뒤로 가기"
-            accessibilityRole="button"
-          >
-            <Ionicons name="chevron-back" size={BACK_ICON_SIZE} color={colors.text} />
-          </TouchableOpacity>
-        </View>
+        <CompanyHeader title={COMPANY_DETAIL_PLACEHOLDER_TITLE} colors={colors} typo={typo} />
         <View style={styles.loadingContainer}>
-          <Text style={[typo.body, { color: colors.textSecondary }]}>
-            기업 정보를 찾을 수 없습니다
-          </Text>
+          {isConfirmedNotFound ? (
+            <Text style={[typo.body, { color: colors.textSecondary }]}>
+              기업 정보를 찾을 수 없습니다
+            </Text>
+          ) : (
+            <ApiErrorState
+              error={companyError}
+              title="기업 정보를 불러오지 못했습니다"
+              description="잠시 후 다시 시도해 주세요."
+              onRetry={refetchCompany}
+            />
+          )}
         </View>
       </SafeAreaView>
     );
@@ -581,24 +626,7 @@ export default function CompanyDetailScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButton}
-          accessibilityLabel="뒤로 가기"
-          accessibilityRole="button"
-        >
-          <Ionicons name="chevron-back" size={BACK_ICON_SIZE} color={colors.text} />
-        </TouchableOpacity>
-        <Text
-          style={[typo.h3, styles.headerTitle, { color: colors.text, minWidth: 0 }]}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
-          {company.corpName}
-        </Text>
-        <View style={styles.headerSpacer} />
-      </View>
+      <CompanyHeader title={company.corpName} colors={colors} typo={typo} />
 
       {/* Company Header Card */}
       <View style={styles.companyCardWrap}>

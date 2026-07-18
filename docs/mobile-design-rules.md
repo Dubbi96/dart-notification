@@ -41,6 +41,7 @@
 - **R-18**: `refreshControl` 커스텀 래퍼 금지(ESLint 강제) — FlatList는 `refreshing`/`onRefresh`.
 - **R-19**: `keyExtractor` 전역 고유(복수 축 데이터는 복합키/id) · 신규 리스트는 iOS+Android 교차 렌더 확인.
 - **R-20**: 가로 스냅 캐러셀은 `snapToInterval=카드폭+gap`+`decelerationRate="fast"`+`getItemLayout`(고정폭일 때) 세트.
+- **R-21 (스켈레톤은 에러·pause 폴백 의무)**: `DetailSkeleton`/`onRetry`가 있는 `SkeletonList`는 10초 워치독을 내장한다 — 콘텐츠가 계속 안 오면(무기한 로딩·RQ pause 포함) 자동으로 "지연되고 있어요" 재시도 오버레이로 전환한다. 상세 화면에서 `DetailSkeleton`을 쓰면 `onRetry`는 **필수**(재시도 없는 무피드백 데드엔드 금지, DAR-560).
 
 ## 강제 수단
 
@@ -51,5 +52,6 @@
 | R-9/R-16 | lint + `check-contrast` |
 | R-11 | `check-home-preview-card-uniform-height` |
 | R-18 | ESLint `no-restricted-syntax` |
+| R-21 | `check-skeleton-error-fallback` |
 
 신규 PR DoD: 텍스트를 추가·수정하면 해당 룰 번호를 PR 본문에 명시(예: "R-1/R-2 적용").

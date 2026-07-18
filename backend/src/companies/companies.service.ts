@@ -23,6 +23,9 @@ export class CompaniesService {
   private popularCache: { data: any[]; timestamp: number } | null = null;
   private readonly CACHE_TTL = 1000 * 60 * 60; // 1시간
 
+  // DAR-560: 기업개황 백그라운드 갱신 in-flight 가드 — corpCode당 동시 DART 호출 1개로 제한(썬더링 허드 방지).
+  private readonly refreshingOverviewCorpCodes = new Set<string>();
+
   async getPopularCompanies(limit = 20) {
     if (this.popularCache && Date.now() - this.popularCache.timestamp < this.CACHE_TTL) {
       return this.popularCache.data;
@@ -174,61 +177,69 @@ export class CompaniesService {
     return { ...company, overview, recentDisclosures };
   }
 
+  // DAR-560: 요청 경로에서 DART 동기 호출 금지(서버 30s > 클라 10s 역전 — 모바일 타임아웃 확정 발생).
+  // 캐시가 있으면(만료 포함) stale 이라도 즉답, 없으면 overview:null 즉답 — 화면은 optional chaining이라 null 안전.
+  // 만료/미스일 때만 백그라운드에서 fire-and-forget 갱신(응답을 기다리지 않음).
   private async getOverview(corpCode: string) {
-    // 캐시 확인
     const cached = await this.prisma.companyOverview.findUnique({
       where: { corpCode },
     });
 
-    if (cached && Date.now() - cached.fetchedAt.getTime() < OVERVIEW_CACHE_TTL) {
-      const { fetchedAt, ...data } = cached;
-      return data;
+    const isStale = !cached || Date.now() - cached.fetchedAt.getTime() >= OVERVIEW_CACHE_TTL;
+    if (isStale) {
+      this.refreshOverviewInBackground(corpCode);
     }
 
-    // DART API 호출
-    const dartData = await this.dartApiService.getCompanyOverview(corpCode);
-
-    if (!dartData) {
-      // API 실패 시 stale 캐시 반환
-      if (cached) {
-        const { fetchedAt, ...data } = cached;
-        return data;
-      }
-      return null;
-    }
-
-    // DB 캐시 upsert
-    const overview = await this.prisma.companyOverview.upsert({
-      where: { corpCode },
-      update: {
-        corpName: dartData.corp_name,
-        corpNameEng: dartData.corp_name_eng || null,
-        stockName: dartData.stock_name || null,
-        ceoName: dartData.ceo_nm || null,
-        corpCls: dartData.corp_cls || null,
-        address: dartData.adres || null,
-        homepageUrl: dartData.hm_url || null,
-        industryCode: dartData.induty_code || null,
-        estDate: dartData.est_dt || null,
-        accMonth: dartData.acc_mt || null,
-        fetchedAt: new Date(),
-      },
-      create: {
-        corpCode,
-        corpName: dartData.corp_name,
-        corpNameEng: dartData.corp_name_eng || null,
-        stockName: dartData.stock_name || null,
-        ceoName: dartData.ceo_nm || null,
-        corpCls: dartData.corp_cls || null,
-        address: dartData.adres || null,
-        homepageUrl: dartData.hm_url || null,
-        industryCode: dartData.induty_code || null,
-        estDate: dartData.est_dt || null,
-        accMonth: dartData.acc_mt || null,
-      },
-    });
-
-    const { fetchedAt, ...data } = overview;
+    if (!cached) return null;
+    const { fetchedAt, ...data } = cached;
     return data;
+  }
+
+  private refreshOverviewInBackground(corpCode: string): void {
+    if (this.refreshingOverviewCorpCodes.has(corpCode)) return;
+    this.refreshingOverviewCorpCodes.add(corpCode);
+
+    this.dartApiService
+      .getCompanyOverview(corpCode)
+      .then(async (dartData) => {
+        if (!dartData) return;
+        await this.prisma.companyOverview.upsert({
+          where: { corpCode },
+          update: {
+            corpName: dartData.corp_name,
+            corpNameEng: dartData.corp_name_eng || null,
+            stockName: dartData.stock_name || null,
+            ceoName: dartData.ceo_nm || null,
+            corpCls: dartData.corp_cls || null,
+            address: dartData.adres || null,
+            homepageUrl: dartData.hm_url || null,
+            industryCode: dartData.induty_code || null,
+            estDate: dartData.est_dt || null,
+            accMonth: dartData.acc_mt || null,
+            fetchedAt: new Date(),
+          },
+          create: {
+            corpCode,
+            corpName: dartData.corp_name,
+            corpNameEng: dartData.corp_name_eng || null,
+            stockName: dartData.stock_name || null,
+            ceoName: dartData.ceo_nm || null,
+            corpCls: dartData.corp_cls || null,
+            address: dartData.adres || null,
+            homepageUrl: dartData.hm_url || null,
+            industryCode: dartData.induty_code || null,
+            estDate: dartData.est_dt || null,
+            accMonth: dartData.acc_mt || null,
+          },
+        });
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `기업개황 백그라운드 갱신 실패: ${corpCode} — ${err instanceof Error ? err.message : String(err)}`,
+        );
+      })
+      .finally(() => {
+        this.refreshingOverviewCorpCodes.delete(corpCode);
+      });
   }
 }

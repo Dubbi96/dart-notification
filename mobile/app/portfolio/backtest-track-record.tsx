@@ -297,7 +297,10 @@ function BacktestTrackRecordScreen() {
       {query.isLoading ? (
         // C7: 드릴다운 로딩을 탭 섹션·포지션 상세와 동일한 스켈레톤(DAR-147 패턴)으로 통일 —
         // 콘텐츠 골격(헤더 요약·자산곡선·핵심 지표)을 미리 그려 로딩→콘텐츠 점프 제거.
-        <DetailSkeleton cards={[{ lines: 2 }, { gauge: true, lines: 1 }, { lines: 4 }]} />
+        <DetailSkeleton
+          cards={[{ lines: 2 }, { gauge: true, lines: 1 }, { lines: 4 }]}
+          onRetry={query.refetch}
+        />
       ) : query.isError ? (
         <ApiErrorState
           error={query.error}

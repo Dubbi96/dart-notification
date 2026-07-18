@@ -548,10 +548,14 @@ GET /companies/search?query=삼성&limit=5
     "corpCode": "00126380",
     "corpName": "삼성전자",
     "stockCode": "005930",
-    "market": "KOSPI"
+    "market": "KOSPI",
+    "overview": { "ceoName": "...", "address": "...", "...": "..." },
+    "recentDisclosures": [ { "rcpNo": "...", "reportName": "...", "...": "..." } ]
   }
 }
 ```
+
+> **DAR-560**: `overview`는 캐시 우선 즉답 — 미스/만료(TTL 24h) 시 stale 값(캐시 자체가 없으면 `null`)을 그대로 반환하고, DART 재조회는 요청을 막지 않는 백그라운드 작업으로 분리된다(다음 조회부터 최신 반영). 요청 경로에서 DART를 동기 대기하지 않는다(서버 DART 타임아웃 30s > 클라 axios 타임아웃 10s 역전 방지).
 
 **Errors**:
 - `404 Not Found`: 존재하지 않는 기업

@@ -246,7 +246,7 @@ export function FundamentalsTab({ corpCode, corpName }: FundamentalsTabProps) {
   // 콘텐츠 점프를 제거(E17·DAR-467). 카드 골격은 FundamentalContent의 3개 SectionCard
   // (손익계산서 3행·재무비율 5행·주당지표 5행)을 흉내 내 로딩→콘텐츠 레이아웃을 정렬한다.
   if (isLoading)
-    return <DetailSkeleton cards={[{ lines: 3 }, { lines: 5 }, { lines: 5 }]} />;
+    return <DetailSkeleton cards={[{ lines: 3 }, { lines: 5 }, { lines: 5 }]} onRetry={refetch} />;
   if (isError)
     return (
       <ErrorState

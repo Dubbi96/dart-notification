@@ -187,6 +187,7 @@ export function DecisionHubTab({ corpCode }: DecisionHubTabProps) {
           { lines: 2 },
           { lines: 2 },
         ]}
+        onRetry={refetch}
       />
     );
   if (isError)

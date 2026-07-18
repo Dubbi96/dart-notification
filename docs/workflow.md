@@ -974,6 +974,23 @@ datasource db {
 
 ---
 
+### 3.4 기업개황 캐시 미스/만료 — 요청 경로 비동기 분리 (DAR-560)
+
+**문제**: `GET /companies/:corpCode` 가 기업개황(`CompanyOverview`) 캐시 미스/만료(TTL 24h) 시
+요청 경로에서 DART API를 동기 호출했다. 서버 측 DART 응답이 최대 30s 걸릴 수 있는데 모바일
+axios 타임아웃은 10s라 역전이 발생 — 클라이언트가 항상 먼저 타임아웃하고 화면은
+"기업 정보를 찾을 수 없습니다" 데드엔드로 낙하했다.
+
+**해결**: `CompaniesService.getOverview`가 요청 경로에서 DART를 **await 하지 않는다**.
+
+1. 캐시 존재(만료 포함) → 그 값을 즉답. 캐시 없음 → `overview: null` 즉답(FE는 optional chaining으로 안전).
+2. 캐시가 없거나 만료됐으면 `refreshOverviewInBackground`가 fire-and-forget으로 DART를 호출해
+   `CompanyOverview`를 upsert — 응답을 기다리지 않으므로 다음 요청부터 최신값이 반영된다.
+3. corpCode당 동시 백그라운드 갱신은 in-flight `Set`(`refreshingOverviewCorpCodes`)으로 1개로 제한(썬더링 허드 방지).
+4. 백그라운드 갱신 실패는 예외를 삼키고 로거 경고만 남긴다 — 요청 응답에는 영향 없음.
+
+---
+
 ## 4. 로깅 및 모니터링 포인트
 
 ### 4.1 주요 로깅 포인트

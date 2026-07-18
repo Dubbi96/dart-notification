@@ -21,6 +21,11 @@ const makePrismaMock = () => ({
     delete: jest.fn(),
     findFirst: jest.fn(),
   },
+  // DAR-563: 뱃지 seen 마커(User.notificationsLastSeenAt) 조회/갱신.
+  user: {
+    findUnique: jest.fn().mockResolvedValue(null),
+    update: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: 'u1', ...data })),
+  },
 });
 
 const buildService = () => {
@@ -271,9 +276,10 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
 
       const result = await service.findAll('u1', {});
 
-      // 타입별 미읽음 집계는 항상 사용자 전체(미읽음) 기준 — 현재 선택 필터와 무관.
+      // 타입별 뱃지 집계는 항상 사용자 전체(seen 마커 이후) 기준 — 현재 선택 필터와 무관.
+      // DAR-563: isRead 가 아니라 sentAt > notificationsLastSeenAt(미방문=epoch) 기준.
       const groupByArg = prisma.notificationHistory.groupBy.mock.calls[0][0];
-      expect(groupByArg.where).toEqual({ userId: 'u1', isRead: false });
+      expect(groupByArg.where).toEqual({ userId: 'u1', sentAt: { gt: new Date(0) } });
 
       expect(result.meta.unreadByType).toEqual({
         DISCLOSURE: 3,
@@ -291,6 +297,71 @@ describe('NotificationsService (DAR-84 통합 인박스)', () => {
         // DAR-523: 일일 에디션 발행 알림 타입 키.
         EDITION: 0,
       });
+    });
+  });
+
+  // ─── DAR-563: 뱃지 seen 기준 분리(isRead 와 별개) ───────────────────────────
+  describe('findAll — DAR-563 뱃지는 seen 마커(notificationsLastSeenAt) 기준', () => {
+    it('lastSeenAt 지정 시 unreadCount·타입별 집계 where 에 sentAt:{gt:lastSeenAt} 반영(isRead 무관)', async () => {
+      const { service, prisma } = buildService();
+      const lastSeenAt = new Date('2026-07-10T00:00:00.000Z');
+      prisma.user.findUnique.mockResolvedValueOnce({ notificationsLastSeenAt: lastSeenAt });
+
+      await service.findAll('u1', {});
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        select: { notificationsLastSeenAt: true },
+      });
+      const unreadCountArg = prisma.notificationHistory.count.mock.calls[1][0];
+      expect(unreadCountArg.where).toEqual({ userId: 'u1', sentAt: { gt: lastSeenAt } });
+      const groupByArg = prisma.notificationHistory.groupBy.mock.calls[0][0];
+      expect(groupByArg.where).toEqual({ userId: 'u1', sentAt: { gt: lastSeenAt } });
+    });
+
+    it('미방문(lastSeenAt null) 사용자는 전체 이력을 신규 취급(epoch 기준)', async () => {
+      const { service, prisma } = buildService();
+      prisma.user.findUnique.mockResolvedValueOnce({ notificationsLastSeenAt: null });
+
+      await service.findAll('u1', {});
+
+      const unreadCountArg = prisma.notificationHistory.count.mock.calls[1][0];
+      expect(unreadCountArg.where).toEqual({ userId: 'u1', sentAt: { gt: new Date(0) } });
+    });
+
+    it('isRead:false 로 남은 과거 행이라도 lastSeenAt 이전 생성이면 뱃지에서 제외된다', async () => {
+      const { service, prisma } = buildService();
+      // isRead=false 인 행 3건이 실제 DB에 있어도, 이 셋과 무관하게 서비스는
+      // sentAt 기준 where 만 count/groupBy 에 전달한다 — isRead 는 findAll 응답 items 필터에만 쓰인다.
+      prisma.user.findUnique.mockResolvedValueOnce({
+        notificationsLastSeenAt: new Date('2026-07-15T00:00:00.000Z'),
+      });
+      prisma.notificationHistory.count.mockResolvedValueOnce(10).mockResolvedValueOnce(0); // total=10, badge=0
+
+      const result = await service.findAll('u1', {});
+
+      expect(result.meta.unreadCount).toBe(0);
+      const unreadCountArg = prisma.notificationHistory.count.mock.calls[1][0];
+      expect(unreadCountArg.where.isRead).toBeUndefined();
+    });
+  });
+
+  // ─── DAR-563: POST /notifications/seen — 뱃지 기준점 갱신 ────────────────────
+  describe('markSeen — 뱃지 seen 마커 갱신', () => {
+    it('User.notificationsLastSeenAt 을 현재 시각으로 갱신하고 ISO 문자열로 반환', async () => {
+      const { service, prisma } = buildService();
+      const now = new Date('2026-07-18T06:00:00.000Z');
+      jest.useFakeTimers().setSystemTime(now);
+
+      const result = await service.markSeen('u1');
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        data: { notificationsLastSeenAt: now },
+        select: { notificationsLastSeenAt: true },
+      });
+      expect(result).toEqual({ notificationsLastSeenAt: now.toISOString() });
+      jest.useRealTimers();
     });
   });
 

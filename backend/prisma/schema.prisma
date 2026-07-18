@@ -24,6 +24,10 @@ model User {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  // DAR-563: 알림 탭 seen 마커. null = 미방문(전체 이력 미확인 취급). isRead(행별 읽음)와 별개 —
+  // 뱃지는 이 값 기준 sentAt(NotificationHistory 생성 시각) 비교로 산출하고, isRead는 행 하이라이트 전용으로 계속 쓰인다.
+  notificationsLastSeenAt DateTime?
+
   // Relations
   devices              UserDevice[]
   watchLists           WatchList[]

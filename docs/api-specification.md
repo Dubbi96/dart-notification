@@ -1129,11 +1129,38 @@ GET /notifications?category=trade&page=1&limit=20
 }
 ```
 
-> `unreadByType` (DAR-161): 타입별 미읽음 카운트. **타입 필터와 무관하게 사용자 전체(미읽음) 기준**으로 집계되어, 모바일 세그먼트 칩의 타입별 unread 배지가 현재 선택과 독립적으로 동작한다. 모든 타입 키는 항상 존재(미읽음 없으면 0).
+> `unreadByType` (DAR-161): 타입별 뱃지 카운트. **타입 필터와 무관하게 사용자 전체 기준**으로 집계되어, 모바일 세그먼트 칩의 타입별 배지가 현재 선택과 독립적으로 동작한다. 모든 타입 키는 항상 존재(0 포함).
 >
-> `unreadByCategory` (DAR-430): 카테고리(3 버킷)별 미읽음 카운트 — `unreadByType` 를 `disclosure`/`signal`/`trade` 로 합산. 모바일 알림탭 카테고리 필터 칩의 unread 배지에 사용. 세 키 항상 존재(0 포함).
+> `unreadByCategory` (DAR-430): 카테고리(3 버킷)별 뱃지 카운트 — `unreadByType` 를 `disclosure`/`signal`/`trade` 로 합산. 모바일 알림탭 카테고리 필터 칩의 배지에 사용. 세 키 항상 존재(0 포함).
+>
+> **뱃지(seen) vs 행 읽음(isRead) 이원화 (DAR-563)**: `unreadCount`/`unreadByType`/`unreadByCategory`는 `isRead`가 **아니라** `sentAt > User.notificationsLastSeenAt`(§8.1.1의 seen 마커, 미방문 사용자는 전체 이력을 신규로 취급) 기준으로 산출된다. 즉 "안 읽음"이 아니라 "마지막 알림탭 방문 이후 신규 도착"을 뜻한다. 행별 `isRead`/`readAt`(위 §8.1 응답 예시)과 `isRead` 쿼리 필터는 완전히 별개로 유지되며(하이라이트·개별/전체 읽음 API 용), 탭을 벗어나도 미읽음 하이라이트는 사라지지 않는다.
 
 > **Android 알림 채널화 (DAR-430)**: 푸시 발송 시 NotificationType → 카테고리 → 채널 ID(`disclosure`/`signal`/`trade`)를 산출해 Expo Push 메시지의 `channelId` 와 `data.channelId` 에 실어 보낸다. 모바일은 앱 시작 시 `setNotificationChannelAsync` 로 동일 ID 의 채널 3개를 등록(공시=DEFAULT 중요도, 신호·체결=HIGH·소리) → OS 가 채널별로 묶어 표시·누적·중요도를 분리한다. iOS 는 채널 개념이 없어 `channelId` 가 무시되며, 카테고리 구분은 인앱 아이콘·필터가 담당한다(크로스플랫폼 폴백). 체결 알림 제목의 `[전략]` 대괄호 프리픽스는 제거됐고, 출처는 **출처명 텍스트**(예: `단타 · 삼성전자 매수` — 2026-07-06 이모지 제거 개정)로 제목 앞에 표기된다(DAR-432 §20.1)·`data.source`/`data.strategyKey` 동봉.
+
+---
+
+### 8.1.1 알림 탭 seen 처리 (뱃지 기준점 갱신, DAR-563)
+
+**Endpoint**: `POST /notifications/seen`
+
+**Headers**: `Authorization: Bearer {accessToken}`
+
+**Body**: 없음
+
+**Response**: `200 OK`
+```json
+{
+  "success": true,
+  "data": {
+    "notificationsLastSeenAt": "2026-07-18T06:00:00.000Z"
+  }
+}
+```
+
+`User.notificationsLastSeenAt`을 현재 시각으로 갱신한다. 알림 탭 진입 시(모바일 `useFocusEffect`) 호출하면
+이후 `GET /notifications` 응답의 `meta.unreadCount`/`unreadByType`/`unreadByCategory`(뱃지)가 즉시 갱신된
+시각 이전 알림은 신규로 세지 않는다. **행별 `isRead`/`readAt`은 이 호출로 바뀌지 않는다** — 미읽음 하이라이트는
+개별(§8.2)·전체(§8.3) 읽음 API로만 사라진다.
 
 ---
 

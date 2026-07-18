@@ -4,7 +4,7 @@
  * 실행: node scripts/check-connection-error.ts  (실패 시 exit 1)
  *
  * 잘못된 API_BASE_URL 로 호출하면 axios 가 ERR_NETWORK/ECONNABORTED/response 없음 에러를 던지고,
- * 이때 isConnectionError === true → 화면이 "백엔드 연결 실패" 안내(ApiErrorState)를 렌더한다(크래시 없음).
+ * 이때 isConnectionError === true → 화면이 "일시적으로 연결할 수 없어요" 안내(ApiErrorState)를 렌더한다(크래시 없음).
  */
 import { AxiosError } from 'axios';
 import { isConnectionError } from '../services/connectionError.ts';

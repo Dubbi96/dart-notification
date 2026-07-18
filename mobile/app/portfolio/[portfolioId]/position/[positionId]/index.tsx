@@ -68,7 +68,10 @@ export default function PositionDetailScreen() {
             포지션 상세
           </Text>
         </View>
-        <DetailSkeleton cards={[{ chip: true, lines: 2 }, { lines: 2 }, { lines: 1 }]} />
+        <DetailSkeleton
+          cards={[{ chip: true, lines: 2 }, { lines: 2 }, { lines: 1 }]}
+          onRetry={positionQuery.refetch}
+        />
       </SafeAreaView>
     );
   }

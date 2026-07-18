@@ -153,6 +153,7 @@ export default function DisclosureDetailScreen() {
           // DAR-147 정렬: 중앙 스피너 대신 상세 레이아웃 매칭 스켈레톤(배지·제목 / 정보 카드 / AI 분석).
           <DetailSkeleton
             cards={[{ chip: true, lines: 2 }, { lines: 5 }, { chip: true, lines: 4 }]}
+            onRetry={refetch}
           />
         ) : isError ? (
           <ApiErrorState

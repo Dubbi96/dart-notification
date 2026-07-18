@@ -3,6 +3,7 @@ import { View, StyleSheet, Animated, type DimensionValue } from 'react-native';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { useReducedMotion } from '@hooks/useReducedMotion';
+import { ErrorState } from './StateView';
 
 // 스켈레톤 공통 컴포넌트 — 기획 ux-detail-plan.md §2-1, §2-3.
 // 레이아웃 구조가 예측 가능한 리스트·카드(공시 피드/신호 피드/포트폴리오)에 사용.
@@ -13,6 +14,37 @@ type SkeletonVariant = 'disclosure' | 'buyScore';
 const PULSE_DURATION = 750; // 0.4→1, 1→0.4 각 750ms = 1.5s 1사이클
 // reduce-motion 시 펄스 루프를 멈추고 고정하는 정적 표면 불투명도(ScoreGauge 가드 패턴 정렬).
 const STATIC_OPACITY = 1;
+
+// DAR-560/R-21: 스켈레톤이 이 시간을 넘겨도 콘텐츠가 안 오면 무피드백 대기 대신
+// 지연 안내+재시도로 자동 전환한다(무기한 로딩·pause 데드엔드 방지).
+const SKELETON_WATCHDOG_MS = 10000;
+
+// DetailSkeleton·SkeletonList 공유 워치독. onRetry 미제공 시 비활성(레거시 콜사이트 회귀 없음).
+// hasRetry(boolean)에만 의존해 onRetry 가 매 렌더 새 함수 참조로 넘어와도 타이머가 재시작되지 않는다.
+export function useSkeletonWatchdog(onRetry?: () => void): boolean {
+  // 초기값이 이미 false 라 mount 시 리셋이 불필요 — effect 안에서 동기 setState 를 피한다(cascading render 린트).
+  const [timedOut, setTimedOut] = useState(false);
+  const hasRetry = !!onRetry;
+  useEffect(() => {
+    if (!hasRetry) return;
+    const timer = setTimeout(() => setTimedOut(true), SKELETON_WATCHDOG_MS);
+    return () => clearTimeout(timer);
+  }, [hasRetry]);
+  return timedOut;
+}
+
+// 워치독 만료 시 공통 지연 안내 오버레이(스켈레톤 대체).
+export function SkeletonWatchdogFallback({ onRetry }: { onRetry: () => void }) {
+  return (
+    <ErrorState
+      icon="clock"
+      title="지연되고 있어요"
+      description="네트워크가 느리거나 응답이 지연되고 있어요."
+      onRetry={onRetry}
+      retryLabel="다시 시도"
+    />
+  );
+}
 
 // 단일 pulse Animated.Value를 제공하는 공통 훅.
 // 상세 화면 스켈레톤(DetailSkeleton)이 동일한 펄스 타이밍을 재사용하도록 export.
@@ -126,10 +158,18 @@ export function SkeletonCard({ variant }: { variant: SkeletonVariant }) {
 interface SkeletonListProps {
   variant: SkeletonVariant;
   count?: number;
+  // DAR-560/R-21: 제공 시 10초 워치독 활성화(지연 안내+재시도로 자동 전환).
+  // ponytail: 기존 리스트 콜사이트 전체(15+) 소급 적용은 이 이슈 스코프 밖 — 각 화면이 실제
+  // 무피드백 정체를 겪을 때 onRetry 를 넘겨 활성화한다(예: company/[corpCode].tsx 의 DetailSkeleton).
+  onRetry?: () => void;
 }
 
 // 리스트 자리 스켈레톤. 컨테이너에 progressbar 접근성 부여(§2-3).
-export function SkeletonList({ variant, count = 5 }: SkeletonListProps) {
+export function SkeletonList({ variant, count = 5, onRetry }: SkeletonListProps) {
+  const timedOut = useSkeletonWatchdog(onRetry);
+  if (timedOut && onRetry) {
+    return <SkeletonWatchdogFallback onRetry={onRetry} />;
+  }
   return (
     <View
       style={styles.list}

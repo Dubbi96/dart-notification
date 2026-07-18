@@ -33,9 +33,13 @@ api.interceptors.request.use((config) => {
 const refreshAccessToken = createSingleFlight<string>();
 
 async function performTokenRefresh(refreshToken: string): Promise<string> {
-  const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-    refreshToken,
-  });
+  // DAR-560: timeout 없는 전역 axios.post + singleFlight 미결 Promise 캐시가 서버 무응답 시
+  // 앱 전체를 행 상태로 묶는 벡터였다 — 기본 axios 인스턴스(api)와 동일한 10s 상한을 명시한다.
+  const { data } = await axios.post(
+    `${API_BASE_URL}/auth/refresh`,
+    { refreshToken },
+    { timeout: 10000 },
+  );
   const refreshData = data.data;
   // 인터셉터 실행 시점의 최신 store 액션을 사용(클로저 캡처 stale 회피).
   // 토큰 회전은 같은 사용자 세션이므로 updateTokens(캐시 보존). setAuth 는 로그인 전용(캐시 비움, DAR-262).

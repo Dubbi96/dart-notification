@@ -245,6 +245,7 @@ function AutoTradingStatusScreen() {
         // 콘텐츠 골격(킬스위치·트랙레코드 진입·리스크게이트·감사 트레일)을 미리 그려 점프 제거.
         <DetailSkeleton
           cards={[{ chip: true, lines: 2 }, { lines: 2 }, { lines: 2 }, { lines: 3 }]}
+          onRetry={query.refetch}
         />
       ) : query.isError ? (
         <ApiErrorState

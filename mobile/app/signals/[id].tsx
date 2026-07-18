@@ -125,7 +125,10 @@ export default function SignalDetailScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
         <ScreenHeader title="매수 후보 상세" onBack={handleBack} />
-        <DetailSkeleton cards={[{ chip: true, gauge: true, lines: 1 }, { lines: 3 }, { lines: 2 }]} />
+        <DetailSkeleton
+          cards={[{ chip: true, gauge: true, lines: 1 }, { lines: 3 }, { lines: 2 }]}
+          onRetry={refetch}
+        />
       </SafeAreaView>
     );
   }

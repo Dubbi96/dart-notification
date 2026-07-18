@@ -44,7 +44,7 @@ export default function PriceMoveReasoningScreen() {
 
     if (isLoading) {
       return (
-        <DetailSkeleton cards={[{ chip: true, lines: 3 }, { lines: 2 }]} />
+        <DetailSkeleton cards={[{ chip: true, lines: 3 }, { lines: 2 }]} onRetry={refetch} />
       );
     }
 

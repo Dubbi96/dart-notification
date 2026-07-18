@@ -207,6 +207,7 @@ export default function EventStatsScreen() {
       return (
         <DetailSkeleton
           cards={[{ lines: 2 }, { lines: 2 }, { lines: 2 }, { lines: 2 }, { lines: 2 }]}
+          onRetry={query.refetch}
         />
       );
     }

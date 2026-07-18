@@ -2,7 +2,7 @@ import React from 'react';
 import { View, StyleSheet, type ViewStyle, type DimensionValue } from 'react-native';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
-import { SkeletonBar, useSkeletonPulse } from './SkeletonCard';
+import { SkeletonBar, useSkeletonPulse, useSkeletonWatchdog, SkeletonWatchdogFallback } from './SkeletonCard';
 
 // 상세/탭 화면 로딩 스켈레톤(DAR-147) — 중앙 ActivityIndicator(LoadingState) 대체.
 // 콘텐츠와 동일한 카드 골격을 미리 그려 로딩→콘텐츠 전환 시 레이아웃 점프를 제거한다.
@@ -69,11 +69,20 @@ interface DetailSkeletonProps {
   cards: SkeletonCardSpec[];
   // 컨테이너 패딩/간격 override(예: 리스트 본문에 삽입 시).
   style?: ViewStyle;
+  // DAR-560/R-21: 10초 워치독 만료 시 호출할 재시도. 상세 화면은 무피드백 무기한 로딩이 실사용자
+  // 이탈로 이어진 실사고(company/[corpCode].tsx)라 필수 prop으로 강제한다.
+  onRetry: () => void;
 }
 
 // 상세 화면 스켈레톤 셸. 단일 펄스를 모든 막대에 공유하고 progressbar 접근성을 부여(§2-3).
-export function DetailSkeleton({ cards, style }: DetailSkeletonProps) {
+export function DetailSkeleton({ cards, style, onRetry }: DetailSkeletonProps) {
   const opacity = useSkeletonPulse();
+  const timedOut = useSkeletonWatchdog(onRetry);
+
+  if (timedOut) {
+    return <SkeletonWatchdogFallback onRetry={onRetry} />;
+  }
+
   return (
     <View
       style={[styles.container, style]}

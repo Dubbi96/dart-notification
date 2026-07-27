@@ -107,6 +107,10 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   INQUIRY_DISCLOSURE: '조회공시',
   MARKET_NOTICE: '시장 안내·조치',
   CONVERTIBLE_EXERCISE: '전환권·신주인수권 행사',
+  REGULATORY_ADMIN_NOTICE: '행정·규제 절차 안내',
+  VALUE_UP_PLAN: '기업가치 제고 계획',
+  EARNINGS_PREANNOUNCEMENT: '결산실적 발표 예고',
+  VOLUNTARY_MANAGEMENT_DISCLOSURE: '자율 경영공시',
   OTHER: '기타',
 };
 

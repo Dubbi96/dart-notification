@@ -4,6 +4,12 @@
 > 게이트: `scripts/audit-gate.mjs` — allowlist(`.audit-allowlist.json`) 밖의 **high/critical** advisory만 CI 실패.
 > 원칙: `npm audit fix` / `--force` **금지**(Expo/RN peer-deps 파손 위험, `--legacy-peer-deps` 운용). 해소는 별도 의존성 업그레이드 PR로.
 
+## 2026-07-27 모바일 재실측 (DAR-569)
+
+- Expo SDK 56 호환 패치와 Axios 1.18.1을 반영한 뒤 `npm audit --omit=dev` 결과는 **critical 0 / high 0 / moderate 11 / low 0**이다.
+- 기존 모바일 allowlist의 axios·form-data workspace 표기를 제거했고, picomatch·shell-quote·ws 항목은 완전 삭제했다. 백엔드 axios·form-data 수용은 그대로 유지한다.
+- `node scripts/audit-gate.mjs mobile`은 허용 항목 없이 high/critical 0건으로 통과한다.
+
 ## 실측 요약
 
 | 워크스페이스 | critical | high | moderate | low | 게이트 대상(고유 advisory) |

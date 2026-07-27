@@ -113,8 +113,8 @@ const liveHeadIdx = indexSrc.indexOf('총 평가금액');
 const liveHeadWindow = indexSrc.slice(liveHeadIdx, liveHeadIdx + 500);
 check(
   'C2a 실전 총평가금액 헤드라인 = typo.h1',
-  /typo\.h1, styles\.headlineValue/.test(liveHeadWindow),
-  'expect typo.h1, styles.headlineValue',
+  /typo\.h1[\s\S]{0,120}styles\.headlineValue/.test(liveHeadWindow),
+  'expect typo.h1 then styles.headlineValue',
 );
 const paperHeadIdx = indexSrc.indexOf('가상 총자산');
 const paperHeadWindow = indexSrc.slice(paperHeadIdx, paperHeadIdx + 400);

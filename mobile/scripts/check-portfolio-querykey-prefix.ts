@@ -19,12 +19,13 @@
  *   요약  ['portfolio', 'summary']
  *   리스크 ['portfolio', 'risk', 'latest']
  *   페이퍼 ['portfolio', 'paper']
+ *   브리핑 ['portfolio', 'briefing', 'today']
  *
  * 이 스크립트는 두 가지를 결정론적으로 증명한다.
  *  A) 소스 바인딩: hooks/usePortfolio.ts 가 정의한 실제 키를 읽어, 모든 키가
  *     ['portfolio'] 접두사이고 옛 분산 키가 사라졌음을 단언(파일과 결합).
- *  B) react-query 시맨틱: 실제 QueryClient 에 6개 쿼리를 적재 후
- *     invalidateQueries(['portfolio']) 가 6개 전부(요약+리스트 동시) 무효화하고,
+ *  B) react-query 시맨틱: 실제 QueryClient 에 7개 쿼리를 적재 후
+ *     invalidateQueries(['portfolio']) 가 7개 전부(요약+리스트 동시) 무효화하고,
  *     부분 키 ['portfolio','position',id] 가 해당 단건+논지만 무효화함을 단언.
  *
  * 실행: npx tsx scripts/check-portfolio-querykey-prefix.ts  (실패 시 exit 1)
@@ -49,10 +50,10 @@ const src = readFileSync(join(here, '..', 'hooks', 'usePortfolio.ts'), 'utf8');
 for (const stale of ["['positions']", "['position',", "['paper-portfolio']"]) {
   check(`옛 분산 키 제거: ${stale}`, !src.includes(stale));
 }
-// 모든 키 빌더가 PORTFOLIO_KEY 접두사를 전개해야 한다(6종: positions/summary/risk/
-// position/thesis/paper). 줄바꿈에 무관하게 전체 소스에서 전개 횟수를 센다.
+// 모든 키 빌더가 PORTFOLIO_KEY 접두사를 전개해야 한다(7종: positions/summary/risk/
+// position/thesis/paper/briefing). 줄바꿈에 무관하게 전체 소스에서 전개 횟수를 센다.
 const spreadCount = (src.match(/\[\.\.\.PORTFOLIO_KEY/g) ?? []).length;
-check('키 빌더 6종 모두 PORTFOLIO_KEY 전개', spreadCount === 6, `count=${spreadCount}`);
+check('키 빌더 7종 모두 PORTFOLIO_KEY 전개', spreadCount === 7, `count=${spreadCount}`);
 // 모든 useQuery 가 portfolioKeys 빌더를 사용(원시 배열 리터럴 직접 사용 금지).
 // 주석 줄(//, *)은 제외 — 실제 코드의 queryKey: 만 검사.
 const rawQueryKeys = src
@@ -75,6 +76,7 @@ const portfolioKeys = {
   position: (id: string) => [...PORTFOLIO_KEY, 'position', id] as const,
   thesis: (id: string) => [...PORTFOLIO_KEY, 'position', id, 'thesis'] as const,
   paper: () => [...PORTFOLIO_KEY, 'paper'] as const,
+  briefing: () => [...PORTFOLIO_KEY, 'briefing', 'today'] as const,
 };
 
 const POS_ID = 'pos-1';
@@ -85,6 +87,7 @@ const allKeys = {
   position: portfolioKeys.position(POS_ID),
   thesis: portfolioKeys.thesis(POS_ID),
   paper: portfolioKeys.paper(),
+  briefing: portfolioKeys.briefing(),
 };
 
 function freshClient(): QueryClient {
@@ -105,14 +108,14 @@ function staleNames(qc: QueryClient): Set<string> {
   return stale;
 }
 
-// B1) 전체 무효화: invalidateQueries(['portfolio']) → 6개 전부 무효화(요약+리스트 동시).
+// B1) 전체 무효화: invalidateQueries(['portfolio']) → 7개 전부 무효화(요약+리스트 동시).
 {
   const qc = freshClient();
   void qc.invalidateQueries({ queryKey: PORTFOLIO_KEY as unknown as readonly unknown[] });
   const stale = staleNames(qc);
   check(
-    "invalidate ['portfolio'] → 6개 전부 무효화(요약+리스트 동시)",
-    stale.size === 6,
+    "invalidate ['portfolio'] → 7개 전부 무효화(요약+리스트 동시)",
+    stale.size === 7,
     `stale=${[...stale].sort().join(',')}`,
   );
   // DoD 핵심: 포지션(단건) 변경 시 목록과 요약이 함께 갱신.

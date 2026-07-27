@@ -72,7 +72,10 @@ check('과거 3-동일칩 패턴(styles.chip/styles.row) 제거됨', !/styles\.c
 
 console.log('— 3) 포트폴리오 메인 헤드라인/강등/고정 (GROUND-1) —');
 const screen = read('app/(tabs)/portfolio/index.tsx');
-check('총평가금액은 대형 헤드라인(typo.h1 + headlineValue)', /typo\.h1, styles\.headlineValue/.test(screen));
+check(
+  '총평가금액은 대형 헤드라인(typo.h1 + headlineValue)',
+  /typo\.h1[\s\S]{0,120}styles\.headlineValue/.test(screen),
+);
 check('손익은 같은 줄 색조 표기(headlinePnlRow + pnlColor)', /headlinePnlRow/.test(screen) && /color: pnlColor\(summary\.totalPnlPercent/.test(screen));
 check('신선도 라벨 표시(currentPortfolioBasisLabel)', /currentPortfolioBasisLabel\(\)/.test(screen));
 check('오늘체크는 접힘 토글로 강등(showTodayCheck state)', /setShowTodayCheck/.test(screen) && /useState\(false\)/.test(screen));

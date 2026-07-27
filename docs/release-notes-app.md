@@ -40,14 +40,23 @@
 | **이벤트 라벨** | 행정·규제 절차, 기업가치 제고 계획, 결산실적 발표 예고, 자율 경영공시 4종을 구체적인 한국어 라벨로 추가 | 해당 유형의 공시/통계 카드에서 영문 enum이나 뭉뚱그린 “기타” 대신 한국어 라벨 확인 |
 | **런타임 안정성** | Expo SDK 56 호환 패치 11종 반영, standalone 필수 `expo-font` 추가, Axios 1.18.1 보안 패치 | `expo-doctor` 21/21 및 Android 번들 통과 |
 | **릴리스 식별** | 앱 버전 `1.0.0(1)` → `1.0.1(2)`, runtimeVersion도 `1.0.1` 경계로 분리 | 설치 후 앱 정보에서 버전 확인 |
+| **릴리스 CI 공급망** | 당일 새로 탐지된 백엔드 ZIP·tar·YAML·glob DoS 경로를 실제 의존성 패치로 제거. API/DB 코드는 변경하지 않음 | 백엔드 build + 343 suites/4,615 tests, 보안 게이트 critical 0 통과 |
 
 **품질 기법**
 
 - 기존 `mobile/scripts/check-*.ts` 134개를 일괄 실행하는 `npm run quality:checks`를 추가하고 PR CI 하드 게이트에 편입했다.
 - 코드 형태가 개선된 뒤 낡은 정규식 때문에 실패하던 검사 5개를 현재 구조와 동기화했다.
 - 테스트 QueryClient의 GC 타이머와 Expo 아이콘 비동기 폰트 로드를 테스트 더블로 격리하고 CI 테스트에 종료 상한을 둬, 결과 출력 뒤 잡이 멈추는 문제를 차단했다.
+- 보안 게이트 재실측 중 새로 차단된 `adm-zip`, `brace-expansion`, `js-yaml`, `tar` advisory는 allowlist에 추가하지 않고 `adm-zip 0.6.0`, `bcrypt 6.0.0`, 호환 override로 제거했다. Axios·`fast-xml-parser`도 함께 패치했다.
 
-**범위 경계**: 백엔드·OCI 프로덕션·DB 마이그레이션은 변경/실행하지 않았다. 알림탭 seen 배선은 별도 PR #548(DAR-568)이며 이 APK 소스에는 포함하지 않는다.
+**범위 경계**: 백엔드는 의존성/lockfile만 변경했고 API·도메인·DB 코드는 바꾸지 않았다. OCI 프로덕션 배포와 DB 마이그레이션은 실행하지 않았다. 알림탭 seen 배선은 별도 PR #548(DAR-568)이며 이 APK 소스에는 포함하지 않는다.
+
+**APK 산출물**
+
+- EAS build: `d4df8e05-6bda-4d83-a53c-b5f44164d2f2` — `FINISHED`, profile `play-apk`, channel `play`, source commit `b49c07220`
+- 다운로드: <https://expo.dev/artifacts/eas/VihT3m8bjhsLya9VkZgzQQRSLj0QYm2l5Zy0IHSCy7E.apk>
+- 크기: `118,886,472 bytes` · SHA-256: `ba24da118e2d497cccd93c23e0bbf4b7c9e16023a9a8e5017d29458febe096d0`
+- ZIP/APK 무결성: 1,406 entries 전수 `unzip -t` 통과 · ABI `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`
 
 ---
 

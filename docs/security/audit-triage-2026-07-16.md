@@ -4,6 +4,20 @@
 > 게이트: `scripts/audit-gate.mjs` — allowlist(`.audit-allowlist.json`) 밖의 **high/critical** advisory만 CI 실패.
 > 원칙: `npm audit fix` / `--force` **금지**(Expo/RN peer-deps 파손 위험, `--legacy-peer-deps` 운용). 해소는 별도 의존성 업그레이드 PR로.
 
+## 2026-07-27 모바일 재실측 (DAR-569)
+
+- Expo SDK 56 호환 패치와 Axios 1.18.1을 반영한 뒤 `npm audit --omit=dev` 결과는 **critical 0 / high 0 / moderate 11 / low 0**이다.
+- 기존 모바일 allowlist의 picomatch·shell-quote·ws 항목을 삭제했다. 이후 같은 릴리스 감사에서 백엔드 Axios/form-data까지 패치해 두 항목도 allowlist에서 완전히 제거했다.
+- `node scripts/audit-gate.mjs mobile`은 허용 항목 없이 high/critical 0건으로 통과한다.
+
+## 2026-07-27 백엔드 신규 advisory 대응 (DAR-569)
+
+- 릴리스 PR 게이트 재실측에서 새로 차단된 `adm-zip`, `brace-expansion`, `js-yaml`, `tar` high/critical 6건을 allowlist에 넣지 않고 실제 의존성을 패치했다.
+- 직접/런타임 의존성은 `adm-zip 0.6.0`, Axios 1.18.1, `bcrypt 6.0.0`, `fast-xml-parser 5.10.1`로 올렸다. `bcrypt 6` 전환으로 `@mapbox/node-pre-gyp → tar` 체인이 제거됐다.
+- NestJS 10을 유지하면서 전이 호환 가능한 `brace-expansion 1.1.16`, `js-yaml 4.3.0`을 npm override로 고정했고, `form-data 4.0.6`을 lockfile에 반영했다.
+- `npm audit --omit=dev` 결과는 **critical 0 / high 4 / moderate 12 / low 0**이다. 남은 high는 기존 NestJS 메이저 전환 대상(`multer`, lodash, `path-to-regexp`)이며 기존 사유로만 허용된다.
+- 백엔드 `npm run build`와 전체 **343 suites / 4,615 tests**가 통과했다.
+
 ## 실측 요약
 
 | 워크스페이스 | critical | high | moderate | low | 게이트 대상(고유 advisory) |

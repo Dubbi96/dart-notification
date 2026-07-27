@@ -20,6 +20,7 @@
 | 릴리스 | `1.0.0 / versionCode 1` 고정 | `1.0.1 / versionCode 2`로 올리고 runtimeVersion 경계 분리 |
 | 안정성 | Expo 호환 패치 11종 지연, `expo-font` peer dependency 누락 | SDK 56 권장 버전 정렬, standalone 필수 모듈 추가 |
 | 보안 | Axios 직접 의존성에 high advisory | 1.18.1로 갱신. 프로덕션 high/critical 0으로 정리 |
+| 보안/CI | 감사 중 백엔드 ZIP·tar·YAML·glob 신규 high/critical 6건이 차단됨 | `adm-zip`·`bcrypt`·Axios·XML 파서 패치와 최소 호환 override로 실제 해소; API/DB 코드 변경 없음 |
 | 검증 기법 | 134개 결정론 검사가 CI에서 실행되지 않음 | 일괄 runner와 `quality:checks` 추가, PR CI 하드 게이트 편입 |
 | 검증 기법 | 5개 검사기가 리팩터링 전 코드 모양만 찾아 거짓 실패 | 현재 JSX 줄바꿈·wrapper·신규 query key 계약으로 동기화 |
 | 테스트 | React Query GC 타이머와 Expo 아이콘 비동기 폰트 로드가 Jest open handle/`act` 경고로 남음 | `gcTime: Infinity` + 아이콘 테스트 더블 + CI `forceExit` 종료 상한 적용 |
@@ -33,12 +34,16 @@
 - `npm test -- --runInBand`
 - `npm run quality:checks` (134/134)
 - `npm run bundle:android` (`play` 환경 플래그)
-- EAS `play-apk` remote build 및 APK 다운로드/무결성 확인
+- 백엔드 `npm run build`
+- 백엔드 `npm test -- --runInBand --forceExit` (343 suites / 4,615 tests)
+- 백엔드·모바일 `node scripts/audit-gate.mjs <workspace>`
+- EAS `play-apk` remote build `d4df8e05-6bda-4d83-a53c-b5f44164d2f2` (`FINISHED`, source `b49c07220`)
+- APK `118,886,472 bytes`, SHA-256 `ba24da118e2d497cccd93c23e0bbf4b7c9e16023a9a8e5017d29458febe096d0`, ZIP 1,406 entries 전수 무결성 통과
 
 ## 4. 의도적으로 남긴 항목
 
 - 로컬 Android emulator/ADB 기기가 없어 설치 후 실화면 Maestro 검증은 APK를 실기기에 설치하는 단계로 남긴다.
 - Expo Web은 `react-native-web`이 설치되지 않은 비대상 플랫폼이라 브라우저 시각 검증에 사용하지 않았다. 이번 산출물은 Android APK다.
-- 전체 npm audit의 잔여 high는 Jest/ESLint 등 개발 도구 체인이다. `--omit=dev` 프로덕션 감사에는 moderate Expo config-plugin 체인만 남고 high/critical은 0이다.
+- 모바일 `--omit=dev` 감사에는 moderate Expo config-plugin 체인만 남고 high/critical은 0이다. 백엔드는 critical 0이며, 잔여 high 4개는 기존 NestJS 10 프레임워크 전이 의존성으로 allowlist 사유와 노출면이 기록돼 있다.
 - Play Console 제출용 `submit.play` 자동화와 서비스 계정 키는 APK 생성 범위 밖이며, `cc-play-submission-checklist.md`의 오너 액션으로 유지한다.
 - OCI 프로덕션 배포와 `prisma migrate deploy`는 수행하지 않는다.

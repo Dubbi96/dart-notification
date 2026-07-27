@@ -41,15 +41,15 @@
     "@nestjs/terminus": "^10.3.0",
     "@nestjs/throttler": "^5.0.0",
     "@prisma/client": "^5.0.0",
-    "adm-zip": "^0.5.16",
-    "axios": "^1.6.0",
+    "adm-zip": "^0.6.0",
+    "axios": "^1.18.1",
     "axios-retry": "^4.0.0",
-    "bcrypt": "^5.1.0",
+    "bcrypt": "^6.0.0",
     "bullmq": "^5.78.0",
     "class-transformer": "^0.5.0",
     "class-validator": "^0.14.0",
     "expo-server-sdk": "^3.7.0",
-    "fast-xml-parser": "^5.4.2",
+    "fast-xml-parser": "^5.10.1",
     "helmet": "^7.0.0",
     "joi": "^18.2.1",
     "passport": "^0.7.0",
@@ -57,6 +57,10 @@
     "prisma": "^5.22.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0"
+  },
+  "overrides": {
+    "brace-expansion": "1.1.16",
+    "js-yaml": "4.3.0"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

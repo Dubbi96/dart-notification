@@ -46,7 +46,8 @@ const ACTIVE = [
 
 function renderCard(props?: Partial<React.ComponentProps<typeof ColdStartOnboarding>>) {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    // 기본 5분 Query GC 타이머가 Jest open handle로 남지 않게 한다.
+    defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
   });
   // 콜드스타트 전제: 관심기업 0 (홈 노출 게이트 watchlistCount === 0 과 동일 상태)
   queryClient.setQueryData(WATCHLIST_KEY, { data: [], meta: { total: 0 } });

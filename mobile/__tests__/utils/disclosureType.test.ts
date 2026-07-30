@@ -45,6 +45,13 @@ describe('utils/disclosureType', () => {
     expect(getEventTypeLabel('BRAND_NEW_EVENT')).toBe(EVENT_TYPE_LABEL.OTHER);
   });
 
+  it('행정·밸류업·실적예고·자율공시 신규 이벤트를 구체적인 한국어로 표시한다', () => {
+    expect(getEventTypeLabel('REGULATORY_ADMIN_NOTICE')).toBe('행정·규제 절차 안내');
+    expect(getEventTypeLabel('VALUE_UP_PLAN')).toBe('기업가치 제고 계획');
+    expect(getEventTypeLabel('EARNINGS_PREANNOUNCEMENT')).toBe('결산실적 발표 예고');
+    expect(getEventTypeLabel('VOLUNTARY_MANAGEMENT_DISCLOSURE')).toBe('자율 경영공시');
+  });
+
   it("극성 라벨: 전수가 '(참고)' 꼬리표를 포함하고, 미매핑은 미분류 폴백", () => {
     for (const label of Object.values(POLARITY_LABEL)) {
       expect(label).toContain('(참고)');

@@ -1,7 +1,7 @@
 # 회귀 안전망 CI (DAR-127 / DAR-132)
 # 로드맵 핵심 원칙: 누적 회귀 — "앞이 무너지면 뒤는 의미 없다".
 # PR·main push마다 백엔드 핵심 도메인(신호·포트폴리오·페이퍼심·dedup) 스위트 +
-# 전체 jest + tsc, 모바일 타입체크/lint/Android 번들을 하드 게이트로 강제한다.
+# 전체 jest + tsc, 모바일 타입체크/lint/결정론 품질검사/Android 번들을 하드 게이트로 강제한다.
 #
 # W17 보안 잡 2종:
 #  - security-audit: backend/mobile npm audit(--omit=dev, high/critical)를
@@ -55,7 +55,7 @@ jobs:
         run: npm test
 
   mobile-regression:
-    name: 모바일 회귀(tsc + lint + Android 번들)
+    name: 모바일 회귀(tsc + lint + 품질검사 + Android 번들)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -73,6 +73,10 @@ jobs:
         run: npm run typecheck
       - name: Lint (errors 0)
         run: npm run lint
+      - name: 모바일 유닛 테스트
+        run: npm test -- --runInBand
+      - name: 결정론 품질검사 (디자인·접근성·기획 계약)
+        run: npm run quality:checks
       - name: Android 번들 (expo export)
         run: npm run bundle:android
 

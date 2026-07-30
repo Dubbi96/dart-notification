@@ -4,7 +4,8 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
-import { SignalExploreCard } from '@components/signals/SignalExploreCard';
+import { EditionDecisionCard } from '@components/signals/EditionDecisionCard';
+import { EditionDecisionSummary } from '@components/signals/EditionDecisionSummary';
 import { EditionFallbackBriefing } from '@components/signals/EditionFallbackBriefing';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
@@ -62,10 +63,15 @@ function EditionSignalListBase({
   }, []);
 
   const renderItem = useCallback(
-    ({ item }: { item: TradingSignal }) => (
-      <SignalExploreCard signal={item} onPress={handlePress} />
+    ({ item, index }: { item: TradingSignal; index: number }) => (
+      <EditionDecisionCard
+        signal={item}
+        rank={index + 1}
+        historical={isPast}
+        onPress={handlePress}
+      />
     ),
-    [handlePress],
+    [handlePress, isPast],
   );
 
   // pull-to-refresh — 에디션 상세 + 스트립(날짜 목록) 동시 갱신.
@@ -108,7 +114,12 @@ function EditionSignalListBase({
     // testID: 선택 에디션(날짜)의 매수 신호 세로 리스트 앵커(DAR-542 스모크 ② — 날짜 스트립 탭 후 갱신 확인).
     <View style={styles.container} testID="edition-signal-list">
       {showBanner ? (
-        <View style={[styles.banner, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+        <View
+          style={[
+            styles.banner,
+            { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+          ]}
+        >
           <Feather name="clock" size={16} color={colors.textSecondary} />
           <Text style={[typo.small, styles.bannerText, { color: colors.textSecondary }]}>
             지난 판단 · 현재 시세와 다를 수 있어요
@@ -120,7 +131,7 @@ function EditionSignalListBase({
               accessibilityRole="button"
               accessibilityLabel="오늘 에디션으로 이동"
             >
-              <Text style={[typo.small, { color: colors.primary, fontWeight: '600' }]}>오늘로</Text>
+              <Text style={[typo.small, styles.resetText, { color: colors.primary }]}>오늘로</Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -139,6 +150,9 @@ function EditionSignalListBase({
         windowSize={7}
         refreshing={query.isRefetching}
         onRefresh={handleRefresh}
+        ListHeaderComponent={
+          items.length > 0 ? <EditionDecisionSummary signals={items} historical={isPast} /> : null
+        }
         ListEmptyComponent={
           <View>
             <EmptyState
@@ -152,7 +166,16 @@ function EditionSignalListBase({
             {hasFallbackBriefing ? <EditionFallbackBriefing items={fallbackBriefing} /> : null}
           </View>
         }
-        ListFooterComponent={items.length > 0 ? <DisclaimerSection style={styles.disclaimer} /> : null}
+        ListFooterComponent={
+          items.length > 0 ? (
+            <DisclaimerSection
+              style={styles.disclaimer}
+              contextNotes={[
+                '단기 시나리오는 실제 체결가 기준의 참고 규칙이며, 조건이 깨지면 적용하지 않습니다.',
+              ]}
+            />
+          ) : null
+        }
       />
     </View>
   );
@@ -183,6 +206,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: radius.full,
     borderWidth: 1,
+  },
+  resetText: {
+    fontWeight: '600',
   },
   listContent: {
     padding: spacing.lg,

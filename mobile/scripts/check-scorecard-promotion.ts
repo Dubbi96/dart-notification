@@ -88,7 +88,7 @@ check('배지가 styles.tabBadge 토큰 사용', /styles\.tabBadge/.test(tabbar)
 check('배지 접근성에 긴급 건수 노출', /긴급 \$\{badge\}건/.test(tabbar));
 
 console.log('— ⑥ 긴급 보정 건수: CALIBRATE & 표본충분만, 공유 쿼리 —');
-const screen = src.slice(src.indexOf('export default function'));
+const screen = src.slice(src.indexOf('function TradeHistoryScreen'));
 check('useCalibration 공유 쿼리로 건수 산출', /calibrationQuery = useCalibration\(\)/.test(screen));
 check("urgentCalibrationCount = CALIBRATE && !lowSample 필터", /status === 'CALIBRATE' && !e\.lowSample/.test(screen));
 check('TabBar에 calibration 배지 전달', /badges=\{\{ calibration: urgentCalibrationCount \}\}/.test(screen));

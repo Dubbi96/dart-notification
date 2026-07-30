@@ -307,7 +307,9 @@ dart-notification/
 │   │   │   ├── SignalDateBadge.tsx     # 에디션 날짜/신선도 배지 SSOT (절대 MM/DD 상시 + 만료/지연 톤) [DAR-506]
 │   │   │   ├── BuyEditionView.tsx      # 신호탭 매수 에디션 뷰 (날짜 스트립 + 그날 리스트 게이팅) [DAR-509]
 │   │   │   ├── EditionDateStrip.tsx    # 고정 가로 날짜 스트립 (건수 dot·auto-center·합성 today) [DAR-509]
-│   │   │   ├── EditionSignalList.tsx   # 선택일 세로 리스트 (과거/만료 배너·빈 4분기·refreshing) [DAR-509]
+│   │   │   ├── EditionSignalList.tsx   # 선택일 세로 리스트 (종합 의견→판단 플랜→면책, 과거/빈 상태) [DAR-509·DAR-570]
+│   │   │   ├── EditionDecisionSummary.tsx # 오늘/당시 종합 의견·준비/리스크 수·1순위 판단 [DAR-570]
+│   │   │   ├── EditionDecisionCard.tsx # 판단→근거→진입/중단 조건→단기 참고 시나리오 카드 [DAR-570]
 │   │   │   └── SignalExploreCard.tsx   # 탐색(아카이브) 카드 — SignalDateBadge 이관 [DAR-509]
 │   │   ├── company/                  # 기업/종목 상세 (탭·차트) — DecisionHubTab, Fundamentals/InsiderHoldingsTab, Daily/MinuteCandleChart(MA/볼린저 오버레이 [W13]), SupplyDemandCard(수급 요약 [W16]) 등 9종
 │   │   ├── disclosure/               # 공시 상세 섹션 — DisclosureAiAnalysisSection, DisclosureFiledFactsSection, DisclosureSignalLink
@@ -393,8 +395,10 @@ dart-notification/
 │   │   ├── signalFreshness.ts       # 신호 신선도/에디션 날짜 상태 SSOT(getSignalDateStatus — 정상/지연/만료) [DAR-506]
 │   │   ├── editionDisplay.ts        # 에디션 칩 라벨·빈 4분기 카피 순수 유틸 [DAR-509]
 │   │   ├── editionSummary.ts        # 에디션 날짜 간극(editionDayGap)·MM/DD 포맷(ymdToMonthDay) 순수 유틸 [DAR-508]
+│   │   ├── editionDecision.ts       # 에디션 종합 의견·종목 플랜 파생 + short-momentum 표시 규칙 [DAR-570]
 │   │   └── brokerHandoff.ts         # 증권사 앱 핸드오프 딥링크 빌더('증권사 앱에서 열기') [DAR-545]
 │   ├── __tests__/             # jest-expo 유닛 테스트 (components·stores·utils [갭분석 W15])
+│   ├── scripts/               # 모바일 결정론 검사 + run-quality-checks.ts(134개 일괄 CI 게이트 [DAR-569])
 │   ├── .maestro/              # Maestro E2E 스모크 플로우 6종 + subflows(dev-login·guest-entry) [갭분석 W15]
 │   ├── assets/                # 정적 자산
 │   │   ├── android-icon-background.png
@@ -406,9 +410,10 @@ dart-notification/
 │   ├── .env.example
 │   ├── .eslintrc.json
 │   ├── .gitignore
-│   ├── app.json               # expo-updates(runtimeVersion policy=appVersion) 설정 포함 [갭분석 W3]
+│   ├── app.json               # expo-updates runtimeVersion + SDK56 splash/adaptive icon + 버전 설정 [갭분석 W3·DAR-569]
 │   ├── babel.config.js
 │   ├── jest.config.js         # jest-expo preset (npm test) [갭분석 W15]
+│   ├── jest.setup.js          # Expo 아이콘 테스트 더블(open handle 방지 [DAR-569])
 │   ├── package.json
 │   ├── package-lock.json
 │   ├── tsconfig.json
@@ -431,7 +436,7 @@ dart-notification/
 ├── harness/                    # paperclip 하네스 증거 문서 (VERIFICATION·KNOWN_FAILURES·ENTROPY_CHECK·tools)
 ├── infra/                      # Terraform IaC (AWS ECS/RDS 초안 — 현 prod는 OCI compose 배포)
 ├── scripts/                    # 운영 스크립트 (oci-arm-a1-retry.sh · audit-gate.mjs — npm audit allowlist 게이트 [W17] · edgar-poc.ts — SEC EDGAR PoC 스파이크 [W8])
-├── .github/                    # CI — workflows/regression-ci.yml(회귀 + 보안 잡 security-audit·secret-scan [W17]) · dependabot.yml
+├── .github/                    # CI — workflows/regression-ci.yml(회귀 + 모바일 134개 품질검사 + 보안 잡 [W17·DAR-569]) · dependabot.yml
 │
 ├── .audit-allowlist.json      # npm audit 수용 advisory 원장 (사유 동반 — audit-gate.mjs 소비 [W17])
 ├── .env.example
@@ -705,4 +710,4 @@ EXPO_PUBLIC_APP_ENV=development
 
 **작성일**: 2026-03-07
 **최종 수정일**: 2026-07-17 (DAR-548 [docs·부채] — 정본 전수 동기화 감사: 트리 누락분 정정 — prisma/migrations 64개 실상 반영(구 init 1개 표기), engine1 `financials/`·`insider-holdings/`·`common/`, engine2 `philosophy/`, engine3 `intraday-scalp/`·`signal-generation/`·event-study 유사공시 반응통계[DAR-511], engine5 `simulation/`·paper-simulation 확장, 모바일 app `price-move/`·`upcoming-events/`, components `priceMove/`·`upcomingEvents/`, home 8종, 서비스/훅/유틸/타입 today 추가분(priceMove·brokerHandoff·usePriceMoveReasoning·useColdStartOnboarding·priceMove.types)) / 이전: 2026-07-17 (DAR-538 [cross·고도화] — 공시발 예정 이벤트 캘린더 v1 트리 반영: 백엔드 engine1 `upcoming-events/`(deriver·service·controller·module — extractedData 날짜 파생 D-day 읽기 전용), 모바일 components/home/UpcomingEventsSection.tsx·hooks/useUpcomingEvents.ts·services/upcomingEvents.service.ts·types/upcomingEvent.types.ts·utils/dday.ts) / 이전: 2026-07-17 (DAR-525 Wave B/B4·P1 — 푸시 본문 '한 줄 판단' 표준: `notifications/push-body-template.ts` 신규(순수 — 유형별 리드 템플릿·유사공시 반응통계 문구 n<30 생략·길이 트렁케이션), 에디션 발행 푸시(DAR-523) 본문에 헤드라인 종목 eventType+D+5 반응통계 주입 적용, 문서 `docs/notifications/push-body-one-line-judgment.md`) / 이전: 2026-07-17 (DAR-523 Wave B/B2·P0 — engine3 `edition-push/` 신규 모듈 트리 반영: 일일 에디션 발행 푸시 19:05(edition-push.guard 순수 하드 가드·service·scheduler·module), 조회 API 재사용·빈 에디션 발송 금지·editionPushEnabled 게이트·멱등·캡, NotificationType EDITION 가산) / 이전: 2026-07-17 (DAR-510 — 일일 투자판단 에디션 트리 반영: 모바일 signals/(SignalDateBadge·BuyEditionView·EditionDateStrip·EditionSignalList·SignalExploreCard)·home/HomeSignalPreview 에디션 슬롯·utils(signalTerms·signalFreshness·editionDisplay·editionSummary)·useSignals(useDailyEditions·useEdition·useCompanyBuySignal)·signal.service/signal.types 에디션 계약; 백엔드 engine3 signals/(daily-editions·daily/:date 읽기 파생))
-**버전**: 2.5 (DAR-548 전수 동기화 감사 — 7/17 웨이브 누락 디렉터리/모듈·마이그레이션 실상 정정) / 이전 2.4 (테스터 코호트 계측 반영 [DAR-516 Wave A/A6] — BE ops/tester-event.*·모바일 services/testerEvents.service.ts·utils/testerEvents.ts·components/survey/IosGateSurvey.tsx·docs/analytics/) / 이전 2.3 (일일 에디션 컴포넌트/훅/유틸 트리 반영 [DAR-505~509]) / 이전 2.2 (갭분석 퀵윈 웨이브 반영 — 백엔드: legal/·web-surface/·status/ 횡단 모듈 신설, ops/ funnel·notification-latency, engine1 pipeline/ 제목 이벤트 백필, engine3 market-data 수급·공매도/지표 조회 + price-move-alert/, engine4 briefing; 모바일: .maestro/·jest.config.js·__tests__/·dev-login.tsx·legal/data-sources.tsx·settings-detail/support.tsx + 신규 서비스/훅/타입; 루트: docs/compliance/·docs/security/·scripts/audit-gate.mjs·edgar-poc.ts·.audit-allowlist.json·.github CI 보안 잡) / 이전 2.1 (2026-07-02): 횡단 모듈 8종·모바일 신규 라우트/컴포넌트 디렉터리·루트 harness/infra/scripts·브랜치 전략(feat+squash)·prod env 관리 현행화
+**버전**: 2.6 (DAR-569 모바일 품질검사 runner·SDK56 릴리스 설정 반영) / 이전 2.5 (DAR-548 전수 동기화 감사 — 7/17 웨이브 누락 디렉터리/모듈·마이그레이션 실상 정정) / 이전 2.4 (테스터 코호트 계측 반영 [DAR-516 Wave A/A6] — BE ops/tester-event.*·모바일 services/testerEvents.service.ts·utils/testerEvents.ts·components/survey/IosGateSurvey.tsx·docs/analytics/) / 이전 2.3 (일일 에디션 컴포넌트/훅/유틸 트리 반영 [DAR-505~509]) / 이전 2.2 (갭분석 퀵윈 웨이브 반영 — 백엔드: legal/·web-surface/·status/ 횡단 모듈 신설, ops/ funnel·notification-latency, engine1 pipeline/ 제목 이벤트 백필, engine3 market-data 수급·공매도/지표 조회 + price-move-alert/, engine4 briefing; 모바일: .maestro/·jest.config.js·__tests__/·dev-login.tsx·legal/data-sources.tsx·settings-detail/support.tsx + 신규 서비스/훅/타입; 루트: docs/compliance/·docs/security/·scripts/audit-gate.mjs·edgar-poc.ts·.audit-allowlist.json·.github CI 보안 잡) / 이전 2.1 (2026-07-02): 횡단 모듈 8종·모바일 신규 라우트/컴포넌트 디렉터리·루트 harness/infra/scripts·브랜치 전략(feat+squash)·prod env 관리 현행화

@@ -2,7 +2,7 @@
   "expo": {
     "name": "공시온",
     "slug": "dart-alert",
-    "version": "1.0.0",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -12,11 +12,6 @@
     },
     "runtimeVersion": {
       "policy": "appVersion"
-    },
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#14B8A6"
     },
     "ios": {
       "supportsTablet": true,
@@ -28,13 +23,11 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#14B8A6",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/android-icon-foreground.png"
       },
       "package": "com.gongsion.app",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 1,
+      "versionCode": 4,
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -48,6 +41,20 @@
         {
           "icon": "./assets/icon.png",
           "color": "#14B8A6"
+        }
+      ],
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#14B8A6",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 280,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#060A18",
+            "image": "./assets/splash-icon.png"
+          }
         }
       ],
       "expo-secure-store",

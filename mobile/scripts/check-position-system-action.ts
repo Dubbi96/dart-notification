@@ -129,7 +129,7 @@ async function main() {
   check('상세: 자동 매도 고지 배너(autoSellNotice)', /autoSellNotice/.test(detailSrc));
   check(
     "상세: 배너 평문 '자동 매도'·'조치는 필요하지 않'",
-    /자동 매도/.test(detailSrc) && /조치는 필요하지 않/.test(detailSrc),
+    /자동 매도/.test(detailSrc) && /조치는 필요하지\s+않/.test(detailSrc),
   );
 
   console.log(`\n${pass} passed, ${fail} failed`);

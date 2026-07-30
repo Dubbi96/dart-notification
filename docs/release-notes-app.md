@@ -29,6 +29,15 @@
 
 **백엔드·DB**: 무변경. OCI 프로덕션 배포와 DB 마이그레이션도 실행하지 않음.
 
+**APK 산출물**
+
+- EAS build: `2bf2ff5b-9976-455d-8f4f-dc79a1625d14` — `FINISHED`, profile `play-apk`, channel `play`, source commit `fdedee3b2`
+- 다운로드: <https://expo.dev/artifacts/eas/2-ljMnNM8SXnKt_zLIpUc2bspAu6nHvh2KqQuplqijY.apk>
+- 로컬: `/Users/gangjong-won/Dubbi/releases/gongsion-v1.0.3-build4.apk`
+- 크기: `118,912,572 bytes` · SHA-256: `613373791a92bdc375a9bafb7f836e7b2aec0134d7f6d80e89012ac32655a040`
+- ZIP/APK 무결성: 1,406 entries 전수 `unzip -t` 통과 · ABI `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`
+- EAS 메타데이터: app version `1.0.3`, build version `4`, runtime version `1.0.3`
+
 ---
 
 ## 2026-07-30 (목) 배치 #18 — 19시 에디션 종합 의견·조건부 투자 플랜 (DAR-570)

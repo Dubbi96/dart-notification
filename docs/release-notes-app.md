@@ -25,6 +25,15 @@
 
 **백엔드·DB**: 무변경(기존 일일 에디션 응답과 전략 룰북을 모바일 표시층에서 정직하게 조합, 마이그레이션 0).
 
+**APK 산출물**
+
+- EAS build: `dfa547e5-3498-4863-8dee-fc2f4113d530` — `FINISHED`, profile `play-apk`, channel `play`, source commit `f83c87ce6`
+- 다운로드: <https://expo.dev/artifacts/eas/Tuol2KdoiF7H_GxoLM_LvXmAcXRjIgpT4rrnQci3_YM.apk>
+- 로컬: `/Users/gangjong-won/Dubbi/releases/gongsion-v1.0.2-build3.apk`
+- 크기: `118,909,408 bytes` · SHA-256: `afc63ae271a00c681ad8737c5bd692aa99f59bbfa2a25743343de009a0a54404`
+- ZIP/APK 무결성: 1,406 entries 전수 `unzip -t` 통과 · ABI `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`
+- EAS 메타데이터: app version `1.0.2`, build version `3`
+
 ---
 
 ## 2026-07-27 (일) 배치 #17 — v1.0.1 릴리스 견고화·Android 브랜드 자산 수정 (DAR-569)

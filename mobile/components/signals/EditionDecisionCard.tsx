@@ -28,6 +28,19 @@ function toneColor(tone: SignalPlanTone, colors: ThemeColors) {
   return colors.textSecondary;
 }
 
+function toneIcon(tone: SignalPlanTone): keyof typeof Feather.glyphMap {
+  if (tone === 'ready') return 'check-circle';
+  if (tone === 'risk') return 'alert-triangle';
+  if (tone === 'check') return 'clock';
+  return 'search';
+}
+
+function pausedGuide(tone: SignalPlanTone) {
+  if (tone === 'risk') return '리스크가 해소되기 전에는 진입하지 않아요.';
+  if (tone === 'check') return '필수 조건이 충족되기 전에는 진입하지 않아요.';
+  return '상세 근거를 확인한 뒤 판단하세요.';
+}
+
 function EditionDecisionCardBase({
   signal,
   rank,
@@ -38,11 +51,10 @@ function EditionDecisionCardBase({
   const plan = useMemo(() => buildEditionSignalPlan(signal), [signal]);
   const accent = toneColor(plan.tone, colors);
   const handlePress = useCallback(() => onPress?.(signal), [onPress, signal]);
-  const displayConditions =
-    plan.unmetConditions.length > 0 ? plan.unmetConditions : plan.metConditions;
 
   return (
     <TouchableOpacity
+      testID={`edition-decision-card-${signal.id}`}
       activeOpacity={0.8}
       onPress={handlePress}
       accessibilityRole="button"
@@ -62,128 +74,114 @@ function EditionDecisionCardBase({
           <View style={styles.titleWrap}>
             <Text
               style={[typo.bodyMedium, styles.corpName, { color: colors.text }]}
-              numberOfLines={1}
+              numberOfLines={2}
               ellipsizeMode="tail"
             >
               {signal.corpName}
             </Text>
-            <Text style={[typo.small, { color: colors.textSecondary }]}>
-              {plan.eventLabel} · {gradeLabel(signal.grade)} {signal.buyScore}점
-            </Text>
+            <View style={styles.metaRow}>
+              <Text
+                style={[typo.small, styles.metaText, { color: colors.textSecondary }]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+              >
+                {plan.eventLabel} · {gradeLabel(signal.grade)}
+              </Text>
+              <Text
+                style={[typo.small, styles.metaScore, { color: colors.textSecondary }]}
+                maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+              >
+                · {signal.buyScore}점
+              </Text>
+            </View>
           </View>
-          <View style={[styles.verdictBadge, { backgroundColor: colors.surfaceSecondary }]}>
-            <Text
-              style={[typo.small, styles.verdictText, { color: accent }]}
-              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-            >
-              {plan.verdict}
-            </Text>
-          </View>
+          <Feather name="chevron-right" size={sizing.icon.sm} color={colors.textTertiary} />
         </View>
 
-        <SectionLabel icon="message-circle" label="한 줄 판단" color={accent} />
-        <Text style={[typo.caption, styles.rationale, { color: colors.text }]}>
+        <View style={[styles.verdictRow, { backgroundColor: colors.surfaceSecondary }]}>
+          <Feather name={toneIcon(plan.tone)} size={sizing.icon.sm} color={accent} />
+          <Text
+            style={[typo.small, styles.verdictText, { color: accent }]}
+            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+          >
+            {plan.verdict}
+          </Text>
+        </View>
+
+        <Text
+          style={[typo.caption, styles.rationale, { color: colors.text }]}
+          numberOfLines={2}
+          ellipsizeMode="tail"
+        >
           {plan.rationale}
         </Text>
 
-        <View style={[styles.planBox, { backgroundColor: colors.surfaceSecondary }]}>
-          <SectionLabel icon="check-square" label="진입 전 확인" color={colors.primary} />
-          {displayConditions.length > 0 ? (
-            displayConditions
-              .slice(0, 2)
-              .map((condition) => (
-                <GuideRow
-                  key={condition.id}
-                  icon={condition.met ? 'check-circle' : 'circle'}
-                  text={condition.label}
-                  color={condition.met ? colors.success : colors.warning}
-                />
-              ))
-          ) : (
-            <GuideRow icon="search" text={plan.entryGuide} color={colors.textSecondary} />
-          )}
-
-          <View style={[styles.rule, { backgroundColor: colors.borderLight }]} />
-          <SectionLabel icon="slash" label="계획 중단 기준" color={colors.error} />
-          <GuideRow icon="alert-circle" text={plan.invalidationGuide} color={colors.error} />
-        </View>
-
-        {plan.hasShortMomentumScenario ? (
-          <View style={[styles.scenario, { borderColor: colors.borderLight }]}>
-            <View style={styles.scenarioHeader}>
-              <View style={styles.scenarioTitleRow}>
-                <Feather name="activity" size={sizing.icon.sm} color={colors.primary} />
-                <Text style={[typo.captionMedium, styles.scenarioTitle, { color: colors.text }]}>
-                  {historical ? '당시 ' : ''}단기 참고 시나리오
-                </Text>
-              </View>
-              <Text style={[typo.small, { color: colors.textTertiary }]}>조건 충족 시에만</Text>
-            </View>
-            <Text style={[typo.small, styles.scenarioNote, { color: colors.textSecondary }]}>
-              실제 매수가는 아직 정해지지 않았어요. 다음 진입 가능일 체결가를 기준으로 계산합니다.
+        <View style={[styles.actionBox, { backgroundColor: colors.surfaceSecondary }]}>
+          <View style={styles.actionLabelRow}>
+            <Feather name="crosshair" size={14} color={accent} />
+            <Text style={[typo.small, styles.actionLabel, { color: accent }]}>
+              {plan.hasShortMomentumScenario ? '지금 확인할 것' : '먼저 확인할 것'}
             </Text>
-            <View style={styles.scenarioGrid}>
-              <ScenarioCell label="진입" value="진입 가능일 시가" />
-              <ScenarioCell
-                label="청산 참고"
-                value={`체결가 +${SHORT_MOMENTUM_RULE.takeProfitPct}%`}
-              />
-              <ScenarioCell label="중단" value={`체결가 ${SHORT_MOMENTUM_RULE.stopLossPct}%`} />
-              <ScenarioCell label="기한" value={`${SHORT_MOMENTUM_RULE.maxHoldDays}거래일`} />
-            </View>
           </View>
-        ) : null}
+          <Text
+            style={[typo.captionMedium, styles.entryGuide, { color: colors.text }]}
+            numberOfLines={2}
+            ellipsizeMode="tail"
+          >
+            {plan.entryGuide}
+          </Text>
+
+          {plan.hasShortMomentumScenario ? (
+            <View style={[styles.plan, { borderColor: colors.borderLight }]}>
+              <View style={styles.planTitleRow}>
+                <Text style={[typo.small, styles.planTitle, { color: colors.textSecondary }]}>
+                  {historical ? '당시 ' : ''}조건 유지 시 단기 기준
+                </Text>
+                <Text style={[typo.small, { color: colors.textTertiary }]}>실제 체결가 기준</Text>
+              </View>
+              <View style={styles.planMetrics}>
+                <PlanMetric label="청산 참고" value={`+${SHORT_MOMENTUM_RULE.takeProfitPct}%`} />
+                <PlanMetric label="중단" value={`${SHORT_MOMENTUM_RULE.stopLossPct}%`} />
+                <PlanMetric label="최대" value={`${SHORT_MOMENTUM_RULE.maxHoldDays}거래일`} />
+              </View>
+              <Text style={[typo.small, styles.planNote, { color: colors.textSecondary }]}>
+                필수 조건이 깨지면 이 기준을 적용하지 않아요.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.pauseRow}>
+              <Feather name="pause-circle" size={14} color={colors.textSecondary} />
+              <Text style={[typo.small, styles.pauseText, { color: colors.textSecondary }]}>
+                {pausedGuide(plan.tone)}
+              </Text>
+            </View>
+          )}
+        </View>
 
         <View style={styles.detailRow}>
           <Text style={[typo.small, styles.detailText, { color: colors.primary }]}>
-            공시·점수 근거 자세히 보기
+            공시·점수 근거 보기
           </Text>
-          <Feather name="chevron-right" size={sizing.icon.sm} color={colors.primary} />
+          <Feather name="arrow-right" size={sizing.icon.sm} color={colors.primary} />
         </View>
       </View>
     </TouchableOpacity>
   );
 
-  function SectionLabel({
-    icon,
-    label,
-    color,
-  }: {
-    icon: keyof typeof Feather.glyphMap;
-    label: string;
-    color: string;
-  }) {
+  function PlanMetric({ label, value }: { label: string; value: string }) {
     return (
-      <View style={styles.sectionLabel}>
-        <Feather name={icon} size={14} color={color} />
-        <Text style={[typo.small, styles.sectionLabelText, { color }]}>{label}</Text>
-      </View>
-    );
-  }
-
-  function GuideRow({
-    icon,
-    text,
-    color,
-  }: {
-    icon: keyof typeof Feather.glyphMap;
-    text: string;
-    color: string;
-  }) {
-    return (
-      <View style={styles.guideRow}>
-        <Feather name={icon} size={14} color={color} />
-        <Text style={[typo.small, styles.guideText, { color: colors.textSecondary }]}>{text}</Text>
-      </View>
-    );
-  }
-
-  function ScenarioCell({ label, value }: { label: string; value: string }) {
-    return (
-      <View style={[styles.scenarioCell, { backgroundColor: colors.surfaceSecondary }]}>
-        <Text style={[typo.small, { color: colors.textTertiary }]}>{label}</Text>
+      <View style={[styles.planMetric, { borderColor: colors.borderLight }]}>
         <Text
-          style={[typo.small, styles.scenarioValue, { color: colors.text }]}
+          style={[typo.small, { color: colors.textTertiary }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        >
+          {label}
+        </Text>
+        <Text
+          style={[typo.small, styles.planValue, { color: colors.text }]}
           maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
         >
           {value}
@@ -203,7 +201,7 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: spacing.sm,
   },
   rankBox: {
@@ -223,92 +221,102 @@ const styles = StyleSheet.create({
   corpName: {
     fontWeight: '700',
   },
-  verdictBadge: {
-    maxWidth: '38%',
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  metaText: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  metaScore: {
+    flexShrink: 0,
+  },
+  verdictRow: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.md,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
   },
   verdictText: {
     fontWeight: '700',
-    textAlign: 'center',
-  },
-  sectionLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginTop: spacing.md,
-  },
-  sectionLabelText: {
-    fontWeight: '700',
   },
   rationale: {
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
   },
-  planBox: {
+  actionBox: {
     marginTop: spacing.md,
     padding: spacing.md,
     borderRadius: radius.md,
   },
-  guideRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  guideText: {
-    flex: 1,
-  },
-  rule: {
-    height: 1,
-    marginTop: spacing.md,
-  },
-  scenario: {
-    marginTop: spacing.md,
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-  },
-  scenarioHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  scenarioTitleRow: {
+  actionLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    flexShrink: 1,
   },
-  scenarioTitle: {
+  actionLabel: {
     fontWeight: '700',
   },
-  scenarioNote: {
+  entryGuide: {
     marginTop: spacing.xs,
+    fontWeight: '600',
   },
-  scenarioGrid: {
+  pauseRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
+    alignItems: 'flex-start',
+    gap: spacing.xs,
     marginTop: spacing.sm,
   },
-  scenarioCell: {
-    width: '48%',
-    flexGrow: 1,
-    minWidth: 120,
-    padding: spacing.sm,
-    borderRadius: radius.sm,
+  pauseText: {
+    flex: 1,
   },
-  scenarioValue: {
+  plan: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+  },
+  planTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  planTitle: {
     fontWeight: '700',
-    marginTop: 2,
+  },
+  planMetrics: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  planMetric: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+  },
+  planValue: {
+    fontWeight: '700',
+  },
+  planNote: {
+    marginTop: spacing.sm,
   },
   detailRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
     gap: spacing.xs,
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
     minHeight: 32,
   },
   detailText: {

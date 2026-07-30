@@ -58,7 +58,7 @@ describe('editionDecision', () => {
     });
   });
 
-  it('미충족 조건이 있으면 조건 확인을 우선하고 해당 조건을 중단 기준으로 쓴다', () => {
+  it('미충족 조건이 있으면 조건 확인을 우선하고 단기 시나리오는 숨긴다', () => {
     const plan = buildEditionSignalPlan(
       signal({
         entryConditions: [
@@ -69,10 +69,11 @@ describe('editionDecision', () => {
     expect(plan.tone).toBe('check');
     expect(plan.verdict).toBe('조건 확인 전 대기');
     expect(plan.entryGuide).toBe('현재가가 20일 이동평균선 위');
-    expect(plan.invalidationGuide).toBe('현재가가 20일 이동평균선 위');
+    expect(plan.invalidationGuide).toBe('위 조건이 충족되지 않으면 진입 보류');
+    expect(plan.hasShortMomentumScenario).toBe(false);
   });
 
-  it('리스크가 있으면 충족 조건보다 리스크 확인을 우선한다', () => {
+  it('리스크가 있으면 충족 조건보다 리스크 확인을 우선하고 단기 시나리오는 숨긴다', () => {
     const plan = buildEditionSignalPlan(
       signal({
         riskFlags: [{ id: 'risk-1', label: '선행급등', severity: 'medium' }],
@@ -80,7 +81,9 @@ describe('editionDecision', () => {
     );
     expect(plan.tone).toBe('risk');
     expect(plan.verdict).toBe('리스크 확인 전 대기');
+    expect(plan.entryGuide).toBe('선행급등');
     expect(plan.invalidationGuide).toBe('선행급등');
+    expect(plan.hasShortMomentumScenario).toBe(false);
   });
 
   it('에디션 전체를 준비·확인·리스크 수와 우선순위로 요약한다', () => {
@@ -96,7 +99,7 @@ describe('editionDecision', () => {
     });
 
     const decision = buildEditionDecision([signal(), waiting, risky]);
-    expect(decision.headline).toBe('1개는 조건부 검토, 2개는 확인이 먼저예요');
+    expect(decision.headline).toBe('1개만 조건부 진입 검토');
     expect(decision.readyCount).toBe(1);
     expect(decision.checkCount).toBe(2);
     expect(decision.riskCount).toBe(1);

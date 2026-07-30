@@ -164,9 +164,9 @@ describe('components/signals/EditionSignalList', () => {
     expect(getByText('오늘로')).toBeTruthy();
     expect(getByText('당시의 종합 의견')).toBeTruthy();
     expect(getByLabelText(/1순위 삼성전자, 조건부 진입 검토/)).toBeTruthy();
-    expect(getByText('당시 단기 참고 시나리오', { includeHiddenElements: true })).toBeTruthy();
-    expect(getByText('체결가 +10%', { includeHiddenElements: true })).toBeTruthy();
-    expect(getByText('체결가 -5%', { includeHiddenElements: true })).toBeTruthy();
+    expect(getByText('당시 조건 유지 시 단기 기준', { includeHiddenElements: true })).toBeTruthy();
+    expect(getByText('+10%', { includeHiddenElements: true })).toBeTruthy();
+    expect(getByText('-5%', { includeHiddenElements: true })).toBeTruthy();
   });
 
   it('오늘 에디션에는 지난 판단 배너를 노출하지 않는다', () => {
@@ -190,13 +190,14 @@ describe('components/signals/EditionSignalList', () => {
         },
       }),
     );
-    const { getByText, getByLabelText, getAllByText, queryByText } = render(
+    const { getByText, getByLabelText, queryByText } = render(
       <EditionSignalList date="20260717" todayDate="20260717" onSelectDate={jest.fn()} />,
     );
     expect(queryByText('지난 판단 · 현재 시세와 다를 수 있어요')).toBeNull();
     expect(getByText('오늘의 종합 의견')).toBeTruthy();
-    expect(getByText('매수 등급 신호는 있지만, 진입보다 확인이 먼저예요')).toBeTruthy();
+    expect(getByText('지금은 진입보다 확인이 먼저예요')).toBeTruthy();
     expect(getByLabelText(/1순위 삼성전자, 조건 확인 전 대기/)).toBeTruthy();
-    expect(getAllByText('RSI 70 미만', { includeHiddenElements: true })).toHaveLength(2);
+    expect(getByText('RSI 70 미만', { includeHiddenElements: true })).toBeTruthy();
+    expect(queryByText('+10%', { includeHiddenElements: true })).toBeNull();
   });
 });

@@ -86,17 +86,17 @@ export function buildEditionSignalPlan(signal: TradingSignal): EditionSignalPlan
       signal.grade,
     )})을 함께 본 판단입니다.`;
 
-  const entryGuide =
-    ready && !hasRisk
+  const entryGuide = hasRisk
+    ? riskFlags[0].label
+    : ready
       ? '다음 진입 가능 거래일 시가에서 조건이 유지되는지 다시 확인'
-      : (unmetConditions[0]?.label ??
-        riskFlags[0]?.label ??
-        '공시와 차트 근거를 상세 화면에서 먼저 확인');
+      : (unmetConditions[0]?.label ?? '공시와 차트 근거를 상세 화면에서 먼저 확인');
 
   const invalidationGuide =
     riskFlags[0]?.label ??
-    unmetConditions[0]?.label ??
-    '필수 진입 조건이 하나라도 깨지면 계획 중단';
+    (unmetConditions.length > 0
+      ? '위 조건이 충족되지 않으면 진입 보류'
+      : '필수 진입 조건이 하나라도 깨지면 계획 중단');
 
   return {
     tone,
@@ -108,7 +108,8 @@ export function buildEditionSignalPlan(signal: TradingSignal): EditionSignalPlan
     riskFlags,
     entryGuide,
     invalidationGuide,
-    hasShortMomentumScenario: signal.buyScore >= SHORT_MOMENTUM_RULE.minBuyScore,
+    hasShortMomentumScenario:
+      ready && !hasRisk && signal.buyScore >= SHORT_MOMENTUM_RULE.minBuyScore,
   };
 }
 
@@ -133,10 +134,10 @@ export function buildEditionDecision(
         : `${signals[0].corpName} 등 ${readyCount}개를 조건부로 살펴볼 만해요`;
   } else if (readyCount > 0) {
     tone = 'mixed';
-    headline = `${readyCount}개는 조건부 검토, ${checkCount}개는 확인이 먼저예요`;
+    headline = `${readyCount}개만 조건부 진입 검토`;
   } else {
     tone = 'wait';
-    headline = '매수 등급 신호는 있지만, 진입보다 확인이 먼저예요';
+    headline = '지금은 진입보다 확인이 먼저예요';
   }
 
   const firstReadyIndex = plans.findIndex((plan) => plan.tone === 'ready');
@@ -152,7 +153,12 @@ export function buildEditionDecision(
     tone,
     eyebrow: `${prefix}의 종합 의견`,
     headline,
-    description: `매수 등급 ${signals.length}개를 진입 조건과 리스크까지 함께 정리했어요.`,
+    description:
+      readyCount === signals.length && readyCount > 0
+        ? `매수 등급 ${signals.length}개 모두 필수 조건을 충족했어요.`
+        : readyCount > 0
+          ? `${checkCount}개는 조건이나 리스크 확인이 먼저예요.`
+          : `매수 등급 ${signals.length}개 모두 조건이나 리스크 확인이 남아 있어요.`,
     readyCount,
     checkCount,
     riskCount,

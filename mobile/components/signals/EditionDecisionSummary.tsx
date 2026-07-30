@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useTheme } from '@theme';
+import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { buildEditionDecision } from '@utils/editionDecision';
 
@@ -36,39 +36,62 @@ function EditionDecisionSummaryBase({ signals, historical = false }: EditionDeci
     >
       <View style={styles.eyebrowRow}>
         <View style={[styles.iconBox, { backgroundColor: colors.surfaceSecondary }]}>
-          <Feather name="compass" size={sizing.icon.md} color={accent} />
+          <Feather name="compass" size={sizing.icon.sm} color={accent} />
         </View>
         <Text style={[typo.small, styles.eyebrow, { color: accent }]}>{decision.eyebrow}</Text>
       </View>
 
-      <Text style={[typo.h3, styles.headline, { color: colors.text }]}>{decision.headline}</Text>
-      <Text style={[typo.caption, styles.description, { color: colors.textSecondary }]}>
+      <Text
+        style={[typo.h3, styles.headline, { color: colors.text }]}
+        numberOfLines={2}
+        ellipsizeMode="tail"
+      >
+        {decision.headline}
+      </Text>
+      <Text
+        style={[typo.caption, styles.description, { color: colors.textSecondary }]}
+        numberOfLines={2}
+        ellipsizeMode="tail"
+      >
         {decision.description}
       </Text>
 
-      <View style={[styles.stats, { borderColor: colors.borderLight }]}>
-        <Stat value={signals.length} label="전체 판단" />
-        <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
-        <Stat value={decision.readyCount} label="조건 준비" />
-        <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
-        <Stat value={decision.riskCount} label="리스크 있음" />
+      <View style={styles.metrics}>
+        <Metric label="전체" value={signals.length} color={colors.textSecondary} />
+        <Metric label="조건부 검토" value={decision.readyCount} color={accent} />
+        {decision.checkCount > 0 ? (
+          <Metric label="대기" value={decision.checkCount} color={colors.warning} />
+        ) : null}
+        {decision.riskCount > 0 ? (
+          <Metric label="리스크" value={decision.riskCount} color={colors.error} />
+        ) : null}
       </View>
 
       <View style={[styles.priority, { backgroundColor: colors.surfaceSecondary }]}>
         <Feather name="arrow-right-circle" size={sizing.icon.sm} color={accent} />
         <View style={styles.priorityCopy}>
           <Text style={[typo.small, { color: colors.textSecondary }]}>먼저 볼 판단</Text>
-          <Text style={[typo.captionMedium, { color: colors.text }]}>{decision.topPriority}</Text>
+          <Text
+            style={[typo.captionMedium, { color: colors.text }]}
+            numberOfLines={3}
+            ellipsizeMode="tail"
+          >
+            {decision.topPriority}
+          </Text>
         </View>
       </View>
     </View>
   );
 
-  function Stat({ value, label }: { value: number; label: string }) {
+  function Metric({ value, label, color }: { value: number; label: string; color: string }) {
     return (
-      <View style={styles.stat}>
-        <Text style={[typo.h3, { color: colors.text }]}>{value}</Text>
-        <Text style={[typo.small, { color: colors.textSecondary }]}>{label}</Text>
+      <View style={[styles.metric, { borderColor: colors.borderLight }]}>
+        <Text
+          style={[typo.small, styles.metricText, { color }]}
+          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+        >
+          {label} {value}
+        </Text>
       </View>
     );
   }
@@ -80,7 +103,7 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: radius.xl,
     borderWidth: 1,
-    padding: spacing.lg,
+    padding: spacing.base,
   },
   eyebrowRow: {
     flexDirection: 'row',
@@ -88,8 +111,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   iconBox: {
-    width: 36,
-    height: 36,
+    width: 32,
+    height: 32,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -98,33 +121,33 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   headline: {
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
   },
   description: {
     marginTop: spacing.xs,
   },
-  stats: {
+  metrics: {
     flexDirection: 'row',
-    alignItems: 'stretch',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    marginTop: spacing.base,
-    paddingVertical: spacing.md,
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.md,
   },
-  stat: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 2,
+  metric: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    borderWidth: 1,
   },
-  divider: {
-    width: 1,
+  metricText: {
+    fontWeight: '700',
   },
   priority: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    marginTop: spacing.md,
-    padding: spacing.md,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     borderRadius: radius.md,
   },
   priorityCopy: {

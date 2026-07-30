@@ -6,7 +6,7 @@ import { router } from 'expo-router';
 
 // DAR-509: 에디션 세로 리스트 — 빈 4분기 카피 / 과거 배너·오늘로 / 오늘 배너 미노출을 검증.
 // DAR-552: 빈 에디션 폴백 '오늘의 주요 공시 브리핑'(meta.fallbackBriefing) 유/무 2상태를 추가 검증.
-// useEdition(react-query)·expo-router 만 모킹하고 SignalExploreCard 는 실제 렌더(corpName 노출).
+// useEdition(react-query)·expo-router 만 모킹하고 종합 의견·판단 플랜 카드는 실제 렌더한다.
 jest.mock('@hooks/useSignals', () => ({ useEdition: jest.fn() }));
 jest.mock('expo-router', () => ({ router: { push: jest.fn() } }));
 
@@ -127,7 +127,9 @@ describe('components/signals/EditionSignalList', () => {
     expect(getByText('SK하이닉스')).toBeTruthy();
 
     // 탭 → 공시 상세(rcpNo 기반 딥링크)로 이동.
-    fireEvent.press(getByLabelText('삼성전자 공급계약. 반도체 장비 공급계약 체결 — 계약금액 1,200억원 규모.'));
+    fireEvent.press(
+      getByLabelText('삼성전자 공급계약. 반도체 장비 공급계약 체결 — 계약금액 1,200억원 규모.'),
+    );
     expect(mockRouterPush).toHaveBeenCalledWith('/disclosure/20260716000123');
   });
 
@@ -142,6 +144,11 @@ describe('components/signals/EditionSignalList', () => {
               corpName: '삼성전자',
               buyScore: 80,
               grade: 'BUY',
+              eventType: 'SUPPLY_CONTRACT',
+              summary: '공급계약 규모와 거래량을 함께 확인한 판단입니다.',
+              entryConditions: [
+                { id: 'ma20', label: '현재가가 20일 이동평균선 위', required: true, met: true },
+              ],
               riskFlags: [],
               createdAt: '2026-07-16T10:00:00Z',
             },
@@ -155,9 +162,11 @@ describe('components/signals/EditionSignalList', () => {
     );
     expect(getByText('지난 판단 · 현재 시세와 다를 수 있어요')).toBeTruthy();
     expect(getByText('오늘로')).toBeTruthy();
-    // 카드는 Surface no-hide-descendants 라 내부 Text 는 a11y 트리에서 숨김 → 카드 단위 합성
-    // 라벨(기업명 포함)로 렌더 여부를 검증한다.
-    expect(getByLabelText(/삼성전자/)).toBeTruthy();
+    expect(getByText('당시의 종합 의견')).toBeTruthy();
+    expect(getByLabelText(/1순위 삼성전자, 조건부 진입 검토/)).toBeTruthy();
+    expect(getByText('당시 단기 참고 시나리오', { includeHiddenElements: true })).toBeTruthy();
+    expect(getByText('체결가 +10%', { includeHiddenElements: true })).toBeTruthy();
+    expect(getByText('체결가 -5%', { includeHiddenElements: true })).toBeTruthy();
   });
 
   it('오늘 에디션에는 지난 판단 배너를 노출하지 않는다', () => {
@@ -171,6 +180,8 @@ describe('components/signals/EditionSignalList', () => {
               corpName: '삼성전자',
               buyScore: 80,
               grade: 'BUY',
+              eventType: 'SUPPLY_CONTRACT',
+              entryConditions: [{ id: 'rsi', label: 'RSI 70 미만', required: true, met: false }],
               riskFlags: [],
               createdAt: '2026-07-17T10:00:00Z',
             },
@@ -179,9 +190,13 @@ describe('components/signals/EditionSignalList', () => {
         },
       }),
     );
-    const { queryByText } = render(
+    const { getByText, getByLabelText, getAllByText, queryByText } = render(
       <EditionSignalList date="20260717" todayDate="20260717" onSelectDate={jest.fn()} />,
     );
     expect(queryByText('지난 판단 · 현재 시세와 다를 수 있어요')).toBeNull();
+    expect(getByText('오늘의 종합 의견')).toBeTruthy();
+    expect(getByText('매수 등급 신호는 있지만, 진입보다 확인이 먼저예요')).toBeTruthy();
+    expect(getByLabelText(/1순위 삼성전자, 조건 확인 전 대기/)).toBeTruthy();
+    expect(getAllByText('RSI 70 미만', { includeHiddenElements: true })).toHaveLength(2);
   });
 });

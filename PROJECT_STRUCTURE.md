@@ -307,7 +307,9 @@ dart-notification/
 │   │   │   ├── SignalDateBadge.tsx     # 에디션 날짜/신선도 배지 SSOT (절대 MM/DD 상시 + 만료/지연 톤) [DAR-506]
 │   │   │   ├── BuyEditionView.tsx      # 신호탭 매수 에디션 뷰 (날짜 스트립 + 그날 리스트 게이팅) [DAR-509]
 │   │   │   ├── EditionDateStrip.tsx    # 고정 가로 날짜 스트립 (건수 dot·auto-center·합성 today) [DAR-509]
-│   │   │   ├── EditionSignalList.tsx   # 선택일 세로 리스트 (과거/만료 배너·빈 4분기·refreshing) [DAR-509]
+│   │   │   ├── EditionSignalList.tsx   # 선택일 세로 리스트 (종합 의견→판단 플랜→면책, 과거/빈 상태) [DAR-509·DAR-570]
+│   │   │   ├── EditionDecisionSummary.tsx # 오늘/당시 종합 의견·준비/리스크 수·1순위 판단 [DAR-570]
+│   │   │   ├── EditionDecisionCard.tsx # 판단→근거→진입/중단 조건→단기 참고 시나리오 카드 [DAR-570]
 │   │   │   └── SignalExploreCard.tsx   # 탐색(아카이브) 카드 — SignalDateBadge 이관 [DAR-509]
 │   │   ├── company/                  # 기업/종목 상세 (탭·차트) — DecisionHubTab, Fundamentals/InsiderHoldingsTab, Daily/MinuteCandleChart(MA/볼린저 오버레이 [W13]), SupplyDemandCard(수급 요약 [W16]) 등 9종
 │   │   ├── disclosure/               # 공시 상세 섹션 — DisclosureAiAnalysisSection, DisclosureFiledFactsSection, DisclosureSignalLink
@@ -393,6 +395,7 @@ dart-notification/
 │   │   ├── signalFreshness.ts       # 신호 신선도/에디션 날짜 상태 SSOT(getSignalDateStatus — 정상/지연/만료) [DAR-506]
 │   │   ├── editionDisplay.ts        # 에디션 칩 라벨·빈 4분기 카피 순수 유틸 [DAR-509]
 │   │   ├── editionSummary.ts        # 에디션 날짜 간극(editionDayGap)·MM/DD 포맷(ymdToMonthDay) 순수 유틸 [DAR-508]
+│   │   ├── editionDecision.ts       # 에디션 종합 의견·종목 플랜 파생 + short-momentum 표시 규칙 [DAR-570]
 │   │   └── brokerHandoff.ts         # 증권사 앱 핸드오프 딥링크 빌더('증권사 앱에서 열기') [DAR-545]
 │   ├── __tests__/             # jest-expo 유닛 테스트 (components·stores·utils [갭분석 W15])
 │   ├── scripts/               # 모바일 결정론 검사 + run-quality-checks.ts(134개 일괄 CI 게이트 [DAR-569])

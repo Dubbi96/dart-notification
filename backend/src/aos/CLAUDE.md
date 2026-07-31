@@ -12,6 +12,7 @@
 ## 변경 규율
 
 - Rule·Weight·Strategy Version의 설정 본문은 `DRAFT`에서만 변경한다.
+- Hard Risk 한도 역시 독립된 `RiskPolicyVersion`으로 관리하며 `DRAFT`에서만 변경한다.
 - 활성화는 검증·백테스트·승인·종가 이후 예약 단계를 모두 통과해야 한다.
 - 장중에는 이미 승인된 주문, 손절, 추적손절, 비상 규칙만 실행할 수 있다.
 - 활성 버전은 수정하지 않고 새 버전을 생성한다. 모든 결정은 사용한 버전과 입력 스냅샷을 추적할 수 있어야 한다.
@@ -21,4 +22,4 @@
 - 기존 엔진을 한 번에 교체하지 않는다. Backtest → Shadow Trading → 제한적 운영 순으로 진행한다.
 - 기존 신호/모의운용 경로에 연결할 때는 dual-write와 reconciliation을 먼저 마련한다.
 - 새로운 런타임 배선은 별도 Issue와 회귀 테스트 없이는 추가하지 않는다.
-
+- `strategy-management`와 `risk-policy`는 현재 저장·승격 제어평면이며 기존 Engine5 실행 경로의 설정 원본이 아니다.

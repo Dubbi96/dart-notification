@@ -19,6 +19,7 @@
 
 ## 다음 단계 경계
 
-- `ApprovalRecord`, `RiskPolicyVersion`, actor 권한/RBAC는 후속 A2 Issue에서 추가한다.
+- `RiskPolicyVersion` 저장 기반은 Issue #557의 별도 `aos/risk-policy` 컨텍스트가 소유한다.
+- `ApprovalRecord`, actor 권한/RBAC, ConfigAudit는 후속 A2 Issue에서 추가한다.
 - Feature Snapshot, Backtest, Shadow Trading 연결은 각각 별도 버전 계약이 마련된 뒤 진행한다.
 - Rule 평가 코어는 A3에서 서버 전용으로 묶지 않고 디바이스에서도 실행 가능한 순수 TypeScript 계약으로 분리한다.

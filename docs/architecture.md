@@ -132,6 +132,13 @@ External APIs:
 - **디바이스 계산 경계**: 이번 서버 코드는 버전 저장·활성화 제어평면이다. A3 평가 코어는 서버 전용 DI 서비스가 아니라 모바일에서도 동일 입력+버전으로 재생 가능한 순수 TypeScript 계약으로 분리한다.
 - **AI 경계**: AI 산출물은 향후 feature 입력만 제공하며 주문·수량·Hard Risk Gate를 결정하거나 우회하지 않는다.
 
+#### AOS 제어평면 — Risk Policy (`aos/risk-policy/`)
+- **현재 책임(Phase A2)**: Hard Risk 한도를 전략 설정과 독립된 `RiskPolicyVersion`으로 버전화하고, strict schema·canonical SHA-256 hash·불변 수명주기를 제공한다.
+- **구조적 금지**: `KR_STOCK`·`LONG_ONLY`, 공매도/레버리지 비허용, 장기투자 자산의 트레이딩 손실 자동보전 금지를 애플리케이션과 DB 양쪽에서 강제한다.
+- **값 결정 경계**: 이번 기반은 정책 값이나 기본값을 선택·seed하지 않는다. 실제 한도는 후속 ApprovalRecord/RBAC와 Backtest·Shadow 검증을 통과한 사람 승인 입력만 사용할 수 있다.
+- **현재 비배선**: 기존 Engine5 상수·`RiskCheck`·Signal/Paper/Order 경로를 읽거나 교체하지 않고, API·Cron·Queue·`AppModule`에도 등록하지 않았다.
+- **후속 활성화**: Risk policy 활성화는 승인 원장과 actor 권한을 마련한 뒤 Strategy activation과 같은 종가 후 단일-`ACTIVE` 원칙으로 결합한다.
+
 #### 횡단 모듈 (독립 유지)
 - `auth` · `users` · `companies` · `watchlist` · `notifications` · `notification-settings` · `expo-push` · `devices` · `saved-disclosures` · `prisma` · `common`
 - 모든 엔진이 공유하는 인증·알림·기업 마스터 등을 담당한다.
@@ -541,5 +548,5 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
 ---
 
 **작성일**: 2026-04-18
-**최종 수정일**: 2026-07-31 (AOS Phase A2 Strategy Management 제어평면·디바이스 실행 경계 반영) / 이전: 2026-07-17
-**버전**: 2.2 (AOS 점진 전환 제어평면 추가) / 이전: 2.1 (일일 에디션 읽기 파생 흐름 §3.4 추가)
+**최종 수정일**: 2026-07-31 (AOS Phase A2 Risk Policy 불변 제어평면 반영) / 이전: AOS Strategy Management·디바이스 실행 경계
+**버전**: 2.3 (AOS RiskPolicyVersion 제어평면 추가) / 이전: 2.2 (AOS 점진 전환 제어평면 추가)

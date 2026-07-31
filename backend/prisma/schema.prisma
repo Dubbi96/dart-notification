@@ -41,6 +41,7 @@ model User {
   createdRuleDefinitions      RuleDefinition[]      @relation("RuleDefinitionCreatedBy")
   createdStrategyVersions     StrategyVersion[]     @relation("StrategyVersionCreatedBy")
   requestedVersionActivations VersionActivation[]   @relation("VersionActivationRequestedBy")
+  createdRiskPolicyVersions   RiskPolicyVersion[]   @relation("RiskPolicyVersionCreatedBy")
 
   @@unique([provider, providerId])
   @@index([email])
@@ -2463,6 +2464,21 @@ enum VersionActivationStatus {
   ROLLED_BACK
 }
 
+// Hard Risk 정책은 전략 설정과 독립적으로 동일 승격 절차를 거친다.
+enum RiskPolicyVersionStatus {
+  DRAFT
+  VALIDATED
+  BACKTESTED
+  APPROVAL_PENDING
+  APPROVED
+  SCHEDULED
+  ACTIVE
+  REJECTED
+  SUPERSEDED
+  ROLLED_BACK
+  RETIRED
+}
+
 model Strategy {
   id             String                   @id @default(cuid())
   key            String                   @unique
@@ -2558,6 +2574,32 @@ model VersionActivation {
   @@index([status, scheduledFor])
   @@index([strategyVersionId, createdAt])
   @@map("aos_version_activations")
+}
+
+model RiskPolicyVersion {
+  id         String                  @id @default(cuid())
+  version    Int                     @unique
+  status     RiskPolicyVersionStatus @default(DRAFT)
+  limitsJson Json
+  configHash String
+
+  parentVersionId String?
+  createdByUserId String?
+  validatedAt     DateTime?
+  approvedAt      DateTime?
+  effectiveFrom   DateTime?
+  retiredAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  parent    RiskPolicyVersion?  @relation("RiskPolicyVersionParent", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  children  RiskPolicyVersion[] @relation("RiskPolicyVersionParent")
+  createdBy User?               @relation("RiskPolicyVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, effectiveFrom])
+  @@index([configHash])
+  @@index([parentVersionId])
+  @@map("aos_risk_policy_versions")
 }
 
 model StrategyVersionRule {

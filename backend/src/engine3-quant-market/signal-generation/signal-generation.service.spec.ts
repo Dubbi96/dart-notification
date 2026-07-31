@@ -49,9 +49,7 @@ describe('SignalGenerationService (DAR-41)', () => {
       });
     const prisma = {
       stockDailyPrice: {
-        findMany: jest.fn(async () =>
-          opts.pricedStockCodes.map((stockCode) => ({ stockCode })),
-        ),
+        findMany: jest.fn(async () => opts.pricedStockCodes.map((stockCode) => ({ stockCode }))),
         findFirst: jest.fn(async ({ where }: any) => ({
           stockCode: where.stockCode,
           closePrice: 10000,
@@ -121,9 +119,81 @@ describe('SignalGenerationService (DAR-41)', () => {
       expect(row.rcpNo).toBe('20260101000001');
     }
     // persona 4종 모두
-    expect(created.map((r) => r.persona).sort()).toEqual(
-      ['EVENT_DRIVEN', 'GROWTH', 'MOMENTUM', 'VALUE'],
+    expect(created.map((r) => r.persona).sort()).toEqual([
+      'EVENT_DRIVEN',
+      'GROWTH',
+      'MOMENTUM',
+      'VALUE',
+    ]);
+  });
+
+  it('AOS A3-2: flag-enabled writer에 실제 BuyScore 입력을 persona별 snapshot으로 전달한다', async () => {
+    const { prisma, created } = buildPrisma({
+      events: [makeEvent()],
+      pricedStockCodes: ['000100'],
+    });
+    const snapshotWriter = {
+      isEnabled: jest.fn().mockReturnValue(true),
+      tryFreeze: jest.fn().mockResolvedValue({ status: 'WRITTEN', contentHash: 'a'.repeat(64) }),
+    };
+    const service = new SignalGenerationService(
+      prisma as any,
+      new BuySignalService(),
+      undefined,
+      undefined,
+      snapshotWriter as any,
     );
+
+    const result = await service.generateMissingSignals('MANUAL');
+
+    expect(result.created).toBe(4);
+    expect(created).toHaveLength(4);
+    expect(snapshotWriter.tryFreeze).toHaveBeenCalledTimes(4);
+    const snapshots = snapshotWriter.tryFreeze.mock.calls.map(([value]) => value);
+    expect(new Set(snapshots.map((value) => value.asOf.toISOString())).size).toBe(1);
+    expect(snapshots.map((value) => value.features.persona).sort()).toEqual([
+      'EVENT_DRIVEN',
+      'GROWTH',
+      'MOMENTUM',
+      'VALUE',
+    ]);
+    for (const value of snapshots) {
+      expect(value).toEqual(
+        expect.objectContaining({
+          corpCode: '00100000',
+          stockCode: '000100',
+          marketSessionDate: '20260104',
+          schemaVersion: 'legacy-buy-score.v1',
+        }),
+      );
+      expect(value.sourceRefs.disclosureEvent.rcpNo).toBe('20260101000001');
+      expect(value.sourceRefs.stock.price).toEqual(
+        expect.objectContaining({ stockCode: '000100', tradeDate: '20260104' }),
+      );
+    }
+  });
+
+  it('AOS A3-2: snapshot adapter 예외가 legacy TradingSignal 생성 결과를 중단하지 않는다', async () => {
+    const { prisma, created } = buildPrisma({
+      events: [makeEvent()],
+      pricedStockCodes: ['000100'],
+    });
+    const snapshotWriter = {
+      isEnabled: jest.fn().mockReturnValue(true),
+      tryFreeze: jest.fn().mockRejectedValue(new Error('snapshot unavailable')),
+    };
+    const service = new SignalGenerationService(
+      prisma as any,
+      new BuySignalService(),
+      undefined,
+      undefined,
+      snapshotWriter as any,
+    );
+
+    await expect(service.generateMissingSignals('MANUAL')).resolves.toEqual(
+      expect.objectContaining({ created: 4 }),
+    );
+    expect(created).toHaveLength(4);
   });
 
   // ★DAR-129: 라이브 신호 생성은 백필(과거 분석 baseline) 공시를 절대 후보로 삼지 않는다.
@@ -175,8 +245,7 @@ describe('SignalGenerationService (DAR-41)', () => {
     const whereArg = (high.prisma.companyFinancial.findMany as jest.Mock).mock.calls[0][0].where;
     expect(whereArg.corpCode.in).toContain('00100000');
 
-    const valueScore = (rows: any[]) =>
-      rows.find((r) => r.persona === 'VALUE')?.buyScore as number;
+    const valueScore = (rows: any[]) => rows.find((r) => r.persona === 'VALUE')?.buyScore as number;
     // 규모가 유의한 쪽(high)의 VALUE persona-fit 이 더 우호적 → buyScore 가 더 높다
     expect(valueScore(high.created)).toBeGreaterThan(valueScore(low.created));
   });
@@ -202,16 +271,13 @@ describe('SignalGenerationService (DAR-41)', () => {
           epsGrowthYoY: 20,
         },
       ],
-      filedFacts: [
-        { rcpNo: 'F1', factKey: 'CONTRACT_TO_SALES_RATIO', numericValue: 40 },
-      ],
+      filedFacts: [{ rcpNo: 'F1', factKey: 'CONTRACT_TO_SALES_RATIO', numericValue: 40 }],
     });
     await makeService(prisma).generateMissingSignals('MANUAL');
 
     // 성장률 맵(loadGrowthMap)·본문 정량값 맵(loadFiledFactMap)을 실제 조회 (연결 증거)
     expect(prisma.dartFiledFact.findMany).toHaveBeenCalledTimes(1);
-    const factWhere = (prisma.dartFiledFact.findMany as jest.Mock).mock.calls[0][0]
-      .where;
+    const factWhere = (prisma.dartFiledFact.findMany as jest.Mock).mock.calls[0][0].where;
     expect(factWhere.rcpNo.in).toContain('F1');
     expect(factWhere.factKey.in).toEqual(
       expect.arrayContaining(['CONTRACT_TO_SALES_RATIO', 'DILUTION_RATE']),
@@ -315,7 +381,7 @@ describe('SignalGenerationService (DAR-41)', () => {
     const result = await service.generateMissingSignals('MANUAL');
 
     // create() 는 호출되지 않고 upsert() 로만 영속 (4 Persona)
-    expect((prisma.tradingSignal.create as jest.Mock)).not.toHaveBeenCalled();
+    expect(prisma.tradingSignal.create as jest.Mock).not.toHaveBeenCalled();
     expect(upsertCalls).toHaveLength(4);
     expect(result.created).toBe(4);
     // where 키가 자연키 전체 그레인인지
@@ -355,9 +421,24 @@ describe('SignalGenerationService (DAR-41)', () => {
   it('grade 분포: 전부 BUY 쏠림이 아니라 NEUTRAL 위주(데이터 빈약 시)', async () => {
     // 시세 1스냅샷(지표 없음)·ESR 없음 → 대부분 NEUTRAL
     const events = [
-      makeEvent({ rcpNo: '1', eventType: 'SHARE_BUYBACK', polarity: 'POSITIVE', company: { stockCode: '000100', market: 'KOSPI' } }),
-      makeEvent({ rcpNo: '2', eventType: 'CB_ISSUANCE', polarity: 'NEGATIVE', company: { stockCode: '000100', market: 'KOSPI' } }),
-      makeEvent({ rcpNo: '3', eventType: 'PAID_IN_CAPITAL_INCREASE', polarity: 'NEGATIVE', company: { stockCode: '000100', market: 'KOSPI' } }),
+      makeEvent({
+        rcpNo: '1',
+        eventType: 'SHARE_BUYBACK',
+        polarity: 'POSITIVE',
+        company: { stockCode: '000100', market: 'KOSPI' },
+      }),
+      makeEvent({
+        rcpNo: '2',
+        eventType: 'CB_ISSUANCE',
+        polarity: 'NEGATIVE',
+        company: { stockCode: '000100', market: 'KOSPI' },
+      }),
+      makeEvent({
+        rcpNo: '3',
+        eventType: 'PAID_IN_CAPITAL_INCREASE',
+        polarity: 'NEGATIVE',
+        company: { stockCode: '000100', market: 'KOSPI' },
+      }),
     ];
     const { prisma } = buildPrisma({ events, pricedStockCodes: ['000100'] });
     const service = makeService(prisma);
@@ -367,8 +448,7 @@ describe('SignalGenerationService (DAR-41)', () => {
     const total = Object.values(result.gradeDist).reduce((a, b) => a + b, 0);
     expect(total).toBe(result.created);
     const buyish =
-      (result.gradeDist['STRONG_BUY_CANDIDATE'] ?? 0) +
-      (result.gradeDist['BUY_CANDIDATE'] ?? 0);
+      (result.gradeDist['STRONG_BUY_CANDIDATE'] ?? 0) + (result.gradeDist['BUY_CANDIDATE'] ?? 0);
     // BUY 등급 쏠림 없어야 함 (절반 미만)
     expect(buyish).toBeLessThan(total / 2);
     // NEUTRAL 이 존재
@@ -429,9 +509,7 @@ describe('SignalGenerationService (DAR-41)', () => {
       const { prisma, created } = buildPrisma({
         events: [makeEvent()],
         pricedStockCodes: ['000100'],
-        esrRows: [
-          esr({ avgArD5: 5, crashProbD5: 0.35, isSignificant: false, sampleCount: 100 }),
-        ],
+        esrRows: [esr({ avgArD5: 5, crashProbD5: 0.35, isSignificant: false, sampleCount: 100 })],
       });
       await makeService(prisma).generateMissingSignals('MANUAL');
       expect(created[0].scoreBreakdown.historicalEvent).toBe(8);
@@ -445,8 +523,22 @@ describe('SignalGenerationService (DAR-41)', () => {
         events: [makeEvent()],
         pricedStockCodes: ['000100'],
         esrRows: [
-          esr({ bucketKey: 'SHARE_BUYBACK__ratio_gte3', avgArD5: 10, upProbD5: 0.6, crashProbD5: 0.1, sampleCount: 90, isSignificant: true }),
-          esr({ bucketKey: 'SHARE_BUYBACK__ratio_1to3', avgArD5: 0, upProbD5: 0.4, crashProbD5: 0.5, sampleCount: 10, isSignificant: false }),
+          esr({
+            bucketKey: 'SHARE_BUYBACK__ratio_gte3',
+            avgArD5: 10,
+            upProbD5: 0.6,
+            crashProbD5: 0.1,
+            sampleCount: 90,
+            isSignificant: true,
+          }),
+          esr({
+            bucketKey: 'SHARE_BUYBACK__ratio_1to3',
+            avgArD5: 0,
+            upProbD5: 0.4,
+            crashProbD5: 0.5,
+            sampleCount: 10,
+            isSignificant: false,
+          }),
         ],
       });
       await makeService(prisma).generateMissingSignals('MANUAL');
@@ -494,10 +586,7 @@ describe('SignalGenerationService (DAR-41)', () => {
       };
     }
 
-    function resolve(
-      bucketEntries: [string, any][],
-      aggEntries: [string, any][] = [],
-    ) {
+    function resolve(bucketEntries: [string, any][], aggEntries: [string, any][] = []) {
       const { prisma } = buildPrisma({ events: [], pricedStockCodes: [] });
       const service: any = makeService(prisma);
       const maps = { bucket: new Map(bucketEntries), agg: new Map(aggEntries) };
@@ -649,7 +738,9 @@ describe('SignalGenerationService (DAR-41)', () => {
         pricedStockCodes: ['000100'],
       });
       const accuracy = fakeAccuracy(0.5);
-      const result = await makeServiceWithAccuracy(prisma, accuracy).generateMissingSignals('MANUAL');
+      const result = await makeServiceWithAccuracy(prisma, accuracy).generateMissingSignals(
+        'MANUAL',
+      );
 
       expect(result.created).toBe(4);
       // getCalibration 이 실제로 1회 호출되어 환류 배선됨(연결 증거)
@@ -750,8 +841,7 @@ describe('SignalGenerationService (DAR-41)', () => {
     // 등급을 rcpNo 단위로 통제(scoring 임계 변경과 무관하게 결정론적 검증)
     function fakeBuySignal(gradeByRcp: Record<string, string>): any {
       return {
-        computeBuyScore: (params: any) =>
-          fakeResult(params, gradeByRcp[params.rcpNo] ?? 'NEUTRAL'),
+        computeBuyScore: (params: any) => fakeResult(params, gradeByRcp[params.rcpNo] ?? 'NEUTRAL'),
       };
     }
     function serviceWithNotify(prisma: any, buySignal: any, notify: any) {

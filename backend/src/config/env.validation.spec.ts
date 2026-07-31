@@ -10,8 +10,7 @@ import { envValidationSchema, envValidationOptions } from './env.validation';
 describe('envValidationSchema (DAR-253)', () => {
   // 부팅을 통과해야 하는 최소 정상 env.
   const validEnv = {
-    DATABASE_URL:
-      'postgresql://postgres:password@localhost:5432/dart_notification?schema=public',
+    DATABASE_URL: 'postgresql://postgres:password@localhost:5432/dart_notification?schema=public',
     JWT_SECRET: 'a-sufficiently-long-jwt-secret',
     JWT_REFRESH_SECRET: 'a-sufficiently-long-refresh-secret',
     DART_API_KEY: 'dart-key',
@@ -33,19 +32,16 @@ describe('envValidationSchema (DAR-253)', () => {
     expect(error).toBeUndefined();
   });
 
-  it.each(REQUIRED_KEYS)(
-    '필수 env %s 누락 시 검증 실패(부팅 차단)',
-    (missingKey) => {
-      const env: Record<string, string> = { ...validEnv };
-      delete env[missingKey];
+  it.each(REQUIRED_KEYS)('필수 env %s 누락 시 검증 실패(부팅 차단)', (missingKey) => {
+    const env: Record<string, string> = { ...validEnv };
+    delete env[missingKey];
 
-      const { error } = envValidationSchema.validate(env, envValidationOptions);
+    const { error } = envValidationSchema.validate(env, envValidationOptions);
 
-      expect(error).toBeDefined();
-      // 명확한 에러: 어느 키가 required 인지 메시지에 드러난다.
-      expect(error?.message).toContain(missingKey);
-    },
-  );
+    expect(error).toBeDefined();
+    // 명확한 에러: 어느 키가 required 인지 메시지에 드러난다.
+    expect(error?.message).toContain(missingKey);
+  });
 
   it('abortEarly:false → 여러 필수 env 누락을 한 번에 모두 보고한다', () => {
     const env = { ...validEnv };
@@ -68,10 +64,7 @@ describe('envValidationSchema (DAR-253)', () => {
   });
 
   it('선택 env 는 누락해도 통과하고 기본값이 채워진다', () => {
-    const { error, value } = envValidationSchema.validate(
-      validEnv,
-      envValidationOptions,
-    );
+    const { error, value } = envValidationSchema.validate(validEnv, envValidationOptions);
     expect(error).toBeUndefined();
     // 코드 폴백과 동일한 기본값이 검증 결과에 주입된다.
     expect(value.REDIS_HOST).toBe('localhost');
@@ -79,6 +72,7 @@ describe('envValidationSchema (DAR-253)', () => {
     expect(value.NODE_ENV).toBe('development');
     expect(value.PORT).toBe(3000);
     expect(value.STORAGE_DRIVER).toBe('local');
+    expect(value.AOS_FEATURE_SNAPSHOT_DUAL_WRITE_ENABLED).toBe('false');
   });
 
   it('allowUnknown → 스키마 미선언 env(KIS_*/PAPER_SIM_* 등)는 통과시킨다', () => {
@@ -97,5 +91,20 @@ describe('envValidationSchema (DAR-253)', () => {
     const { error } = envValidationSchema.validate(env, envValidationOptions);
     expect(error).toBeDefined();
     expect(error?.message).toContain('PORT');
+  });
+
+  it('FeatureSnapshot dual-write 플래그는 명시적 true/false만 허용한다', () => {
+    expect(
+      envValidationSchema.validate(
+        { ...validEnv, AOS_FEATURE_SNAPSHOT_DUAL_WRITE_ENABLED: 'true' },
+        envValidationOptions,
+      ).error,
+    ).toBeUndefined();
+    expect(
+      envValidationSchema.validate(
+        { ...validEnv, AOS_FEATURE_SNAPSHOT_DUAL_WRITE_ENABLED: '1' },
+        envValidationOptions,
+      ).error?.message,
+    ).toContain('AOS_FEATURE_SNAPSHOT_DUAL_WRITE_ENABLED');
   });
 });

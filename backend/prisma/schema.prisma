@@ -2700,3 +2700,31 @@ model StrategyVersionRule {
   @@index([ruleDefinitionId])
   @@map("aos_strategy_version_rules")
 }
+
+// ====================================
+// AOS Phase A3 — 결정 입력 스냅샷
+// ====================================
+
+// Rule 평가가 실제로 소비한 입력을 point-in-time 기준으로 동결한다.
+// 기존 TradingSignal은 전환 기간 동안 정본으로 유지하며, 이 원장은 append-only다.
+model FeatureSnapshot {
+  id                String   @id @default(cuid())
+  instrumentType    String   @default("KR_STOCK")
+  corpCode          String
+  stockCode         String
+  asOf              DateTime
+  marketSessionDate String
+  schemaVersion     String
+  featuresJson      Json
+  sourceRefsJson    Json
+  qualityJson       Json
+  contentHash       String
+  createdAt         DateTime @default(now())
+
+  @@unique([instrumentType, corpCode, stockCode, asOf, schemaVersion, contentHash], map: "aos_feature_snapshots_idempotency_key")
+  @@index([stockCode, asOf])
+  @@index([corpCode, asOf])
+  @@index([marketSessionDate])
+  @@index([contentHash])
+  @@map("aos_feature_snapshots")
+}

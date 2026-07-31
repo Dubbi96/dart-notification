@@ -2083,6 +2083,32 @@ Issue #559는 실제 승인·역할 seed나 상태 전이 배선 없이 불변 �
 
 ---
 
+## §52. AOS FeatureSnapshot (`aos_feature_snapshots`) — Issue #564
+
+**목적**: Rule 평가가 실제로 소비한 입력을 관측 cutoff 기준으로 동결해 Backtest·Shadow·향후 Live와 디바이스 evaluator가 같은 입력을 재생할 수 있게 한다. 기존 `TradingSignal`은 전환 기간 동안 정본으로 유지하며, 환경 플래그가 OFF이면 신규 기록과 payload 조립을 하지 않는다.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| `id` | String PK | cuid |
+| `instrumentType` | String | `KR_STOCK` 고정 |
+| `corpCode`, `stockCode` | String | DART 8자리·KRX 6자리 대상 식별자 |
+| `asOf` | DateTime | 해당 평가 입력 read 이후 고정한 UTC 관측 cutoff |
+| `marketSessionDate` | String | 실제 사용한 가격 row의 거래일 `YYYYMMDD` |
+| `schemaVersion` | String | feature contract 버전 |
+| `featuresJson` | Json | evaluator/legacy scorer가 실제 소비한 전체 입력 |
+| `sourceRefsJson` | Json | 공시·가격·기술지표·시장지수·통계/재무 lookup 자연키 |
+| `qualityJson` | Json | `missingFeatureKeys`, `staleFeatureKeys`, `validationErrors` |
+| `contentHash` | String | 시점·대상·schema·입력·출처·품질 전체의 canonical SHA-256 |
+| `createdAt` | DateTime | 동결 행 생성 시각 |
+
+`(instrumentType, corpCode, stockCode, asOf, schemaVersion, contentHash)` unique index로 재시도를 멱등 처리한다. UPDATE·DELETE·TRUNCATE는 DB trigger가 차단하며 정정은 새 snapshot으로만 남긴다. `AOS_FEATURE_SNAPSHOT_DUAL_WRITE_ENABLED=false`가 기본값이고, ON 상태의 기록 실패도 기존 신호 생성·알림을 중단하지 않는다. 과거 일괄 backfill, `SignalDecision`, `RuleEvaluationTrace`, 정본 전환은 이 마이그레이션 범위가 아니다.
+
+마이그레이션 `20260731050000_aos_feature_snapshot`은 신규 테이블·인덱스·append-only trigger만 추가한다. 운영 반영과 플래그 활성화는 별도 승인 전 실행하지 않는다.
+
+---
+
+**AOS 최신 갱신**: 2026-07-31 (A3-2 FeatureSnapshot PIT/canonical hash/append-only 원장과 기본 OFF legacy dual-write, Issue #564)
+
 **작성일**: 2026-03-07
 **최종 수정일**: 2026-07-18 (DAR-563 APK트리아지·BE: User.notificationsLastSeenAt DateTime? 가산(마이그레이션 20260718070000_dar563_notifications_last_seen, nullable·기본값 없음·기존 행 전부 NULL 무손실) — 알림 뱃지를 isRead(행별 읽음) 전건수에서 sentAt > notificationsLastSeenAt(seen 마커, 미방문=전체 신규 취급) 기준으로 재정의해 '탭 열람=확인' 개념 부재로 인한 99+ 영구누적을 해소. POST /notifications/seen 신규(탭 방문 시 마커 갱신). isRead/markAsRead/markAllAsRead(행 하이라이트)는 완전 무변경·분리 유지. 알림층 전용·트레이딩 경로 무접촉(M10 무오염)) · 2026-07-17 (DAR-338 DAR-346 후속·P1: EventType 에 4종 가산(REGULATORY_ADMIN_NOTICE·VALUE_UP_PLAN·EARNINGS_PREANNOUNCEMENT·VOLUNTARY_MANAGEMENT_DISCLOSURE) — 라이브 OTHER NEEDS_REVIEW 재누적분(15530건) reportName 재조사 기반. classifier 룰 4종 신규 + 근접실패(표기변형) 8종 보강. 마이그레이션 20260717191750_dar338_event_type_expansion(ADD VALUE, 비파괴), 전부 additive·엔진1 분류층 전용·트레이딩 경로 무접촉(M10 무오염). dry-run 재분류 시 OTHER 15530→약 1357(-91.3%), 기존 typed 회귀 0(전체 89694종 reportName diff 확인)) · 2026-07-17 (DAR-550 BE·P1·오너결정: notification_settings.tradePushEnabled 컬럼 기본값 ON→★OFF(마이그레이션 20260718010000_dar550_trade_push_default_off, SET DEFAULT 만·백필 UPDATE 없음) — 공개(Play) 코호트에 체결(TRADE_ENTRY/TRADE_EXIT) 푸시 기본 미발송 가드. 신규 가입자 기본 OFF(가입 경로 auth.service 도 명시)·기존 row 무손실·알림층 전용·트레이딩 경로 무접촉(M10 무오염). 리스크(RISK_ALERT) 계열·SHOW_TRADING 표면 결합은 오너 판정 회부) · 2026-07-17 (DAR-523 Wave B/B2·P0: NotificationType 에 EDITION 가산(additive 마이그레이션 20260717140000_dar523_edition_notification_type) — 일일 에디션 발행 푸시(평일 19:05·빈 에디션 발송 금지 하드 가드) 타입. 신규 테이블·컬럼 0(발송 상태는 기존 push_delivery_log·notification_history 재사용), editionPushEnabled(DAR-514 기본 OFF) 게이트·'signal' 카테고리(기존 채널 재사용)·멱등 (userId,EDITION,editionDate). 알림층 전용·트레이딩 경로 무접촉(M10 무오염)) · 2026-07-17 (DAR-522 Wave C1·P0: §43 PriceMoveReasoning(price_move_reasonings) 신규 — PRICE_MOVE(±5%) 역방향 리즈닝 원인 해석 결과의 refId 멱등 캐시 + AiTaskName enum 값 price-move-reasoning 가산(AIUsageLog 비용 귀속·4종과 동일 집계). status ANALYZED|NO_DISCLOSURE(48h 무공시→AI 호출 0)|CAP_SKIPPED·rcpNo nullable 논리 FK·일일 상한 env PRICE_MOVE_REASONING_DAILY_USD_LIMIT(기본 $0.5). 마이그레이션 20260717130000_dar522_price_move_reasoning(enum ADD VALUE + 테이블 create)·additive·설명층 전용·AI 금지영역 무침범·트레이딩 경로 무접촉(M10 무오염)) · 2026-07-17 (DAR-516 Wave A/A6: §42 TesterEvent(`tester_events`) 신규 — 테스터 코호트 로그인 후 인앱 행동 계측(FunnelEvent 인증판 형제·FK 없는 forward-only). userId·event·createdAt 3필드만(PII 무수집·수용기준 1)·event 화이트리스트 8종·인덱스 `(userId,createdAt)`+`(event,createdAt)`. 마이그레이션 20260717120000_dar516_tester_event(단일 테이블 create-only)·additive·계측층 전용·트레이딩 경로 무접촉(M10 무오염)) · 2026-07-17 (DAR-514 Wave A/cross·P0: 알림 설정 센터 v2 — notification_settings 에 editionPushEnabled·digestPushEnabled(신규 2계열 예약·기본 OFF)·dailyPushCap(일일 푸시 상한·기본 30) 가산 + PushDeliveryLog 신규 테이블·PushDeliveryStatus enum(SENT|SUPPRESSED_CAP — 캡 계산 SSOT·억제 로그, FK 없음). 마이그레이션 20260717010000_dar514_notification_settings_v2, 전부 additive·기존 설정 무손실·알림층 전용·트레이딩 경로 무접촉(M10 무오염). 캡 면제 계열: RISK_ALERT/OPS_ALERT) · 2026-07-15 (갭분석 W0 토대: User.tier(UserTier FREE|PRO 엔티틀먼트 소켓)·ProWaitlistEntry(Pro 사전신청 서버 영속화)·§7.4.2 InvestorFlowDaily·§7.4.3 ShortSellingDaily(수급/공매도 EOD, publishedDate as-of)·SearchMissLog(W8 검색 제로결과 계측)·FunnelEvent(W15 온보딩 퍼널 계측)·notification_settings.priceMovePushEnabled(기본 OFF)·NotificationType 에 PRICE_MOVE 가산·EventType 에 EARNINGS_GUIDANCE 가산 — 마이그레이션 20260715230700_gap_analysis_foundation, 전부 additive·트레이딩 경로 무접촉) · 2026-07-04 (DAR-502 P20: §40 RiskDecisionLog 재사용 — 자동 킬스위치 SHADOW 계측이 `meta.kind='AUTO_KILL_ADVICE'` 로 기록[track+tradeDate 1행 멱등·raw 입력 보존·activate() 미호출], **스키마·마이그레이션 무변경**) · 2026-07-04 (DAR-497 P19: §41 AccountHighWaterMark 신규 — 계좌 고점 forward-only 추적(FK 없음·포트폴리오 단위) + 드로다운 컷 −15% REDUCE_ONLY 발동 근거, 마이그레이션 20260704120000_dar497_account_high_water_mark, 관측·발동층 전용) · 2026-07-04 (DAR-496 P18: §40 RiskDecisionLog 신규 — RiskGuard 공용 진입 게이트(일일손실·현금) 판정 이력(FK 없음·측정 트랙 SHADOW·코어 forward ENFORCE), 마이그레이션 20260704090000_dar496_risk_decision_log, 관측층 전용) · 2026-07-04 (DAR-494 P13: §39 DualMomentumForwardTrade 신규 — 듀얼모멘텀 코어 forward 트랙 ETF 월말 리밸런싱 이력(FK 없음·PENDING→OPEN→CLOSED), 마이그레이션 20260703160000_dar494_dual_momentum_forward_trade, 모의·데이터층 전용) · 2026-07-03 (DAR-486 P25: §7.4.1 StockStatusDaily 신규 — 종목상태 일별 이력(forward-only, 백테스트 생존편향) + ExitReason 에 DELISTED 가산) · 2026-07-03 (DAR-479 P04: §38 BacktestForwardDivergenceSnapshot 추가 — 백테스트 vs forward 괴리 일일 스냅샷, read-only 측정) · 2026-07-03 (DAR-473 P01: NotificationType 에 RISK_ALERT/OPS_ALERT 가산 + notification_settings.opsPushEnabled 추가 — 리스크·운영 알림 채널 신설)
 **이전 수정일**: 2026-07-02 (전수 현행화 — 미문서 모델 15종 전용 섹션 추가(§23~§37: CompanyOverview·SavedDisclosure·CronRunLog·DisclosureCollectionLog·DisclosureEvent·DartFiledFact·CompanyFinancial·FinancialCollectionLog·DisclosureAnalysis·PersonaAnalysis·InvestorPhilosophy·PhilosophyMetric·PhilosophySource·SignalEntryFunnelDaily·IntradayScalpTrade), User 카카오 OAuth(password nullable·provider/providerId·(provider,providerId) unique) 반영, NotificationHistory 통합 인박스(type/refId 멱등키) 반영, §17 절 번호 충돌 정리, SSOT 관계(schema.prisma=SSOT·본 문서=해설·총 50개 모델) 헤더 명시)

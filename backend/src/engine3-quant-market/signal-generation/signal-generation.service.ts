@@ -29,6 +29,9 @@ import {
 import { derivePersonaViews, ImpactMagnitude } from './persona-view.rule';
 import { deriveBucketKeyForEvent, COARSE_BUCKET_KEY } from '../event-study/utils/bucket-classifier';
 import { SignalAccuracyService } from '../backtest/signal-accuracy.service';
+import { collectMissingFeatureKeys } from '../../aos/feature-engine/domain/feature-snapshot';
+import { FeatureSnapshotDualWriteService } from '../../aos/feature-engine/services/feature-snapshot-dual-write.service';
+import { formatKstDateCompact } from '../../common/time/kst';
 import {
   gradeCoefficientMap,
   applyConfidenceCoefficient,
@@ -194,11 +197,26 @@ interface StockContext {
   isManagement: boolean;
   isInvestmentCaution: boolean;
   isAbnormalSurge: boolean;
+  sourceRefs: {
+    price: { id: string | null; stockCode: string; tradeDate: string } | null;
+    technicalIndicator: { id: string | null; stockCode: string; tradeDate: string } | null;
+    stockStatus: {
+      stockCode: string;
+      tradeDate: string;
+      updatedAt: string | null;
+    } | null;
+  };
 }
 
 interface MarketContext {
   kospiChange1d: number | null;
   kosdaqChange1d: number | null;
+  sourceRefs: {
+    marketIndices: readonly {
+      indexCode: string;
+      tradeDates: readonly string[];
+    }[];
+  };
 }
 
 const KOSPI_CODE = '0001';
@@ -236,6 +254,9 @@ export class SignalGenerationService {
     // @Optional — 미주입 환경(일부 단위 테스트)에서는 무보정(계수 1.0)으로 graceful.
     @Optional()
     private readonly accuracy?: SignalAccuracyService,
+    // AOS A3-2: 기본 OFF인 fail-open FeatureSnapshot dual-write.
+    @Optional()
+    private readonly featureSnapshotDualWrite?: FeatureSnapshotDualWriteService,
   ) {}
 
   /**
@@ -284,13 +305,16 @@ export class SignalGenerationService {
       const events = await this.prisma.disclosureEvent.findMany({
         where: { disclosure: { isBackfill: false } },
         select: {
+          id: true,
           rcpNo: true,
           corpCode: true,
           eventType: true,
           polarity: true,
           isAmendment: true,
           extractedData: true,
+          extractedAt: true,
           company: { select: { stockCode: true, market: true } },
+          disclosure: { select: { rcpDt: true } },
         },
       });
       const candidates = events.filter(
@@ -308,32 +332,20 @@ export class SignalGenerationService {
       const existing = await this.prisma.tradingSignal.findMany({
         select: { rcpNo: true, persona: true },
       });
-      const existingSet = new Set(
-        existing.map((s) => `${s.rcpNo}::${s.persona}`),
-      );
+      const existingSet = new Set(existing.map((s) => `${s.rcpNo}::${s.persona}`));
 
       // 4. 시장·이벤트스터디·요약 컨텍스트 (배치 로드)
       const marketCtx = await this.loadMarketContext();
       const esrMaps = await this.loadEventStudyMap();
-      const summaryMap = await this.loadSummaryMap(
-        candidates.map((c) => c.rcpNo),
-      );
+      const summaryMap = await this.loadSummaryMap(candidates.map((c) => c.rcpNo));
       // DAR-79: 취득금액 매출 대비 정규화용 corpCode→매출 맵 (기존 CompanyFinancial 활용, 신규 수집 0)
-      const revenueMap = await this.loadRevenueMap(
-        candidates.map((c) => c.corpCode),
-      );
+      const revenueMap = await this.loadRevenueMap(candidates.map((c) => c.corpCode));
       // DAR-88: corpCode→내부자/대량보유 동향 맵 (DAR-87 적재분 종단 연결, 신규 수집 0)
-      const insiderMap = await this.loadInsiderMap(
-        candidates.map((c) => c.corpCode),
-      );
+      const insiderMap = await this.loadInsiderMap(candidates.map((c) => c.corpCode));
       // DAR-100: corpCode→재무 성장률 맵 (DAR-93 산출분), rcpNo→본문 정량값 맵 (DAR-95 적재분).
       //   사장되던 두 자산을 신호 입력 피처로 활성화. 신규 수집·AI 개입 0(기존 적재 read-only).
-      const growthMap = await this.loadGrowthMap(
-        candidates.map((c) => c.corpCode),
-      );
-      const filedFactMap = await this.loadFiledFactMap(
-        candidates.map((c) => c.rcpNo),
-      );
+      const growthMap = await this.loadGrowthMap(candidates.map((c) => c.corpCode));
+      const filedFactMap = await this.loadFiledFactMap(candidates.map((c) => c.rcpNo));
       // DAR-91: calibration 등급별 confidence 보정계수 맵 (백테스트 실현 적중률 환류).
       // 1회 로드해 배치 전체에 재사용. 미주입/실패/표본부족 시 빈 맵 → 무보정(계수 1.0).
       const gradeCoeff = await this.loadGradeCoefficients();
@@ -353,6 +365,8 @@ export class SignalGenerationService {
 
         const marketType = ev.company?.market ?? 'ALL';
         const esrStats = this.resolveEventStudy(esrMaps, ev, marketType);
+        // 해당 이벤트의 모든 source read 이후 cutoff를 고정하고, 4 persona가 공유한다.
+        const snapshotAsOf = new Date();
 
         for (const persona of personas) {
           const key = `${ev.rcpNo}::${persona}`;
@@ -383,10 +397,7 @@ export class SignalGenerationService {
           // DAR-91: 등급 보정계수 적용 → calibratedConfidence (원본 buyScore 보존).
           //   계수 결측(미보정/표본부족/비매수 등급)은 1.0 → calibratedConfidence = buyScore.
           const coefficient = gradeCoeff.get(result.signal) ?? NO_DISCOUNT_COEFFICIENT;
-          const calibratedConfidence = applyConfidenceCoefficient(
-            result.buyScore,
-            coefficient,
-          );
+          const calibratedConfidence = applyConfidenceCoefficient(result.buyScore, coefficient);
 
           try {
             // DAR-125: 원천 멱등 upsert. 자연키 (corpCode, rcpNo, eventType, persona)
@@ -403,6 +414,15 @@ export class SignalGenerationService {
               create: this.toCreateData(result, calibratedConfidence),
               update: this.toUpdateData(result, calibratedConfidence),
               select: { id: true },
+            });
+            await this.maybeFreezeFeatureSnapshot({
+              event: ev,
+              params,
+              stockContext: stockCtx,
+              marketContext: marketCtx,
+              eventStudy: esrStats,
+              marketType,
+              asOf: snapshotAsOf,
             });
             if (exists) {
               updated++;
@@ -422,10 +442,7 @@ export class SignalGenerationService {
           } catch (err) {
             // 동시 생성 레이스 등으로 유니크 충돌(P2002) → 이미 존재 = 멱등 스킵.
             //   (upsert 도 동시 insert 레이스에서 P2002 가능 — 방어적 처리 유지.)
-            if (
-              err instanceof Prisma.PrismaClientKnownRequestError &&
-              err.code === 'P2002'
-            ) {
+            if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
               skipped++;
               continue;
             }
@@ -593,20 +610,17 @@ export class SignalGenerationService {
           const batchCorpCodes = batchEvents.map((e) => e.corpCode);
 
           // 배치별 입력 맵 (라이브와 동일 피처 — 신규 수집·AI 0).
-          const [existing, revenueMap, insiderMap, growthMap, filedFactMap] =
-            await Promise.all([
-              this.prisma.tradingSignal.findMany({
-                where: { rcpNo: { in: batchRcpNos } },
-                select: { rcpNo: true, persona: true },
-              }),
-              this.loadRevenueMap(batchCorpCodes),
-              this.loadInsiderMap(batchCorpCodes),
-              this.loadGrowthMap(batchCorpCodes),
-              this.loadFiledFactMap(batchRcpNos),
-            ]);
-          const existingSet = new Set(
-            existing.map((s) => `${s.rcpNo}::${s.persona}`),
-          );
+          const [existing, revenueMap, insiderMap, growthMap, filedFactMap] = await Promise.all([
+            this.prisma.tradingSignal.findMany({
+              where: { rcpNo: { in: batchRcpNos } },
+              select: { rcpNo: true, persona: true },
+            }),
+            this.loadRevenueMap(batchCorpCodes),
+            this.loadInsiderMap(batchCorpCodes),
+            this.loadGrowthMap(batchCorpCodes),
+            this.loadFiledFactMap(batchRcpNos),
+          ]);
+          const existingSet = new Set(existing.map((s) => `${s.rcpNo}::${s.persona}`));
 
           for (const ev of batchEvents) {
             const stockCode = ev.company!.stockCode!;
@@ -682,10 +696,7 @@ export class SignalGenerationService {
                 }
                 gradeDist[result.signal] = (gradeDist[result.signal] ?? 0) + 1;
               } catch (err) {
-                if (
-                  err instanceof Prisma.PrismaClientKnownRequestError &&
-                  err.code === 'P2002'
-                ) {
+                if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
                   skipped++;
                   continue;
                 }
@@ -758,16 +769,9 @@ export class SignalGenerationService {
    *   (AUDIT_OPINION_RISK/TRADING_SUSPENSION/DELISTING_RISK, risk-penalty.scorer)은 공시
    *   자신(rcpDt 시점 정보)에서 파생돼 PIT 안전 → 백필에도 유지.
    */
-  private async loadStockContextAsOf(
-    stockCode: string,
-    asOf?: string,
-  ): Promise<StockContext> {
-    const priceWhere = asOf
-      ? { stockCode, tradeDate: { lte: asOf } }
-      : { stockCode };
-    const tiWhere = asOf
-      ? { stockCode, tradeDate: { lte: asOf } }
-      : { stockCode };
+  private async loadStockContextAsOf(stockCode: string, asOf?: string): Promise<StockContext> {
+    const priceWhere = asOf ? { stockCode, tradeDate: { lte: asOf } } : { stockCode };
+    const tiWhere = asOf ? { stockCode, tradeDate: { lte: asOf } } : { stockCode };
     const [price, ti, status] = await Promise.all([
       this.prisma.stockDailyPrice.findFirst({
         where: priceWhere,
@@ -778,9 +782,7 @@ export class SignalGenerationService {
         orderBy: { tradeDate: 'desc' },
       }),
       // ★TB-1: 백필(asOf 지정)은 현재 상태 스냅샷을 조회·적용하지 않는다(등급 lookahead 차단).
-      asOf
-        ? Promise.resolve(null)
-        : this.prisma.stockStatus.findUnique({ where: { stockCode } }),
+      asOf ? Promise.resolve(null) : this.prisma.stockStatus.findUnique({ where: { stockCode } }),
     ]);
 
     return {
@@ -805,6 +807,21 @@ export class SignalGenerationService {
       isManagement: status?.isManagement ?? false,
       isInvestmentCaution: status?.isInvestmentCaution ?? false,
       isAbnormalSurge: status?.isAbnormalSurge ?? false,
+      sourceRefs: {
+        price: price
+          ? { id: price.id ?? null, stockCode: price.stockCode, tradeDate: price.tradeDate }
+          : null,
+        technicalIndicator: ti
+          ? { id: ti.id ?? null, stockCode: ti.stockCode, tradeDate: ti.tradeDate }
+          : null,
+        stockStatus: status
+          ? {
+              stockCode: status.stockCode,
+              tradeDate: status.tradeDate,
+              updatedAt: status.updatedAt instanceof Date ? status.updatedAt.toISOString() : null,
+            }
+          : null,
+      },
     };
   }
 
@@ -819,22 +836,32 @@ export class SignalGenerationService {
    * 미참조). asOf 생략 시 라이브 '최신' 동작(회귀 0).
    */
   private async loadMarketContextAsOf(asOf?: string): Promise<MarketContext> {
-    const change = async (code: string): Promise<number | null> => {
+    const change = async (
+      code: string,
+    ): Promise<{ value: number | null; tradeDates: readonly string[] }> => {
       const rows = await this.prisma.marketIndex.findMany({
-        where: asOf
-          ? { indexCode: code, tradeDate: { lte: asOf } }
-          : { indexCode: code },
+        where: asOf ? { indexCode: code, tradeDate: { lte: asOf } } : { indexCode: code },
         orderBy: { tradeDate: 'desc' },
         take: 2,
       });
-      if (rows.length < 2 || rows[1].closeIndex === 0) return null;
-      return ((rows[0].closeIndex - rows[1].closeIndex) / rows[1].closeIndex) * 100;
+      const tradeDates = rows.map((row) => row.tradeDate);
+      if (rows.length < 2 || rows[1].closeIndex === 0) return { value: null, tradeDates };
+      return {
+        value: ((rows[0].closeIndex - rows[1].closeIndex) / rows[1].closeIndex) * 100,
+        tradeDates,
+      };
     };
-    const [kospiChange1d, kosdaqChange1d] = await Promise.all([
-      change(KOSPI_CODE),
-      change(KOSDAQ_CODE),
-    ]);
-    return { kospiChange1d, kosdaqChange1d };
+    const [kospi, kosdaq] = await Promise.all([change(KOSPI_CODE), change(KOSDAQ_CODE)]);
+    return {
+      kospiChange1d: kospi.value,
+      kosdaqChange1d: kosdaq.value,
+      sourceRefs: {
+        marketIndices: [
+          { indexCode: KOSPI_CODE, tradeDates: kospi.tradeDates },
+          { indexCode: KOSDAQ_CODE, tradeDates: kosdaq.tradeDates },
+        ],
+      },
+    };
   }
 
   /**
@@ -986,9 +1013,7 @@ export class SignalGenerationService {
   }
 
   /** 기존 캐시된 AI 요약(task=summary) → rcpNo → summary 텍스트 (새 AI 호출 없음) */
-  private async loadSummaryMap(
-    rcpNos: string[],
-  ): Promise<Map<string, string>> {
+  private async loadSummaryMap(rcpNos: string[]): Promise<Map<string, string>> {
     const rows = await this.prisma.disclosureAnalysis.findMany({
       where: { rcpNo: { in: rcpNos }, task: 'summary' },
       select: { rcpNo: true, resultJson: true },
@@ -1010,9 +1035,7 @@ export class SignalGenerationService {
    * 연간 보고서(reprtCode=11011)·연결(CFS) 우선, 가장 최근 사업연도(bsnsYear) 값을 채택.
    * 재무 미적재·revenue null·조회 오류는 graceful 폴백(맵 미수록 → 절대금액 폴백).
    */
-  private async loadRevenueMap(
-    corpCodes: string[],
-  ): Promise<Map<string, number>> {
+  private async loadRevenueMap(corpCodes: string[]): Promise<Map<string, number>> {
     const map = new Map<string, number>();
     const uniq = Array.from(new Set(corpCodes));
     if (uniq.length === 0) return map;
@@ -1032,9 +1055,7 @@ export class SignalGenerationService {
       }
     } catch (err) {
       // 재무 테이블 부재/조회 실패 시 정규화 비율 없이 절대금액 폴백 (회귀 없이 graceful)
-      this.logger.warn(
-        `[SignalGen] 매출 맵 로드 실패 — 절대금액 폴백: ${(err as Error).message}`,
-      );
+      this.logger.warn(`[SignalGen] 매출 맵 로드 실패 — 절대금액 폴백: ${(err as Error).message}`);
     }
     return map;
   }
@@ -1044,9 +1065,7 @@ export class SignalGenerationService {
    * DAR-87 이 적재한 InsiderHoldingChange 를 최근 윈도우(기본 90일)로 묶어 insider scorer 입력으로 연결.
    * 조회 실패/부재 시 빈 맵 → insider 버킷 결측(재정규화 제외, 회귀 0). 신규 수집 없음.
    */
-  private async loadInsiderMap(
-    corpCodes: string[],
-  ): Promise<Map<string, InsiderInput>> {
+  private async loadInsiderMap(corpCodes: string[]): Promise<Map<string, InsiderInput>> {
     const map = new Map<string, InsiderInput>();
     const uniq = Array.from(new Set(corpCodes));
     if (uniq.length === 0) return map;
@@ -1092,9 +1111,7 @@ export class SignalGenerationService {
    * 성장률 필드가 하나라도 있는 가장 최근 보고서를 corpCode 단위로 채택.
    * 조회 실패/부재·전필드 null → 맵 미수록 → fundamental 버킷 결측(재정규화 제외, 회귀 0). 신규 수집 없음.
    */
-  private async loadGrowthMap(
-    corpCodes: string[],
-  ): Promise<Map<string, FundamentalGrowthInput>> {
+  private async loadGrowthMap(corpCodes: string[]): Promise<Map<string, FundamentalGrowthInput>> {
     const map = new Map<string, FundamentalGrowthInput>();
     const uniq = Array.from(new Set(corpCodes));
     if (uniq.length === 0) return map;
@@ -1110,8 +1127,7 @@ export class SignalGenerationService {
         // 연간(11011) → 최신 사업연도 우선. corpCode당 성장률 보유 첫 행 채택.
         orderBy: [{ bsnsYear: 'desc' }, { reprtCode: 'asc' }],
       });
-      const numOrNull = (v: number | null): number | null =>
-        v != null && isFinite(v) ? v : null;
+      const numOrNull = (v: number | null): number | null => (v != null && isFinite(v) ? v : null);
       for (const r of rows) {
         if (map.has(r.corpCode)) continue; // corpCode당 최신·우선 보고서만
         const growth: FundamentalGrowthInput = {
@@ -1162,8 +1178,7 @@ export class SignalGenerationService {
       for (const r of rows) {
         const v = r.numericValue;
         if (v == null || !isFinite(v)) continue;
-        const entry =
-          map.get(r.rcpNo) ?? { contractToSalesRatio: null, dilutionRate: null };
+        const entry = map.get(r.rcpNo) ?? { contractToSalesRatio: null, dilutionRate: null };
         if (r.factKey === 'CONTRACT_TO_SALES_RATIO') {
           entry.contractToSalesRatio = v;
         } else if (r.factKey === 'DILUTION_RATE') {
@@ -1283,6 +1298,105 @@ export class SignalGenerationService {
       },
       signalSummary,
     };
+  }
+
+  /**
+   * AOS A3-2 legacy adapter: 실제 BuyScoreParams를 그대로 point-in-time snapshot으로 동결한다.
+   * 플래그 OFF에서는 payload 조립조차 하지 않아 기존 런타임 비용을 보존한다.
+   */
+  private async maybeFreezeFeatureSnapshot(input: {
+    event: {
+      id?: string;
+      rcpNo: string;
+      corpCode: string;
+      eventType: string;
+      polarity: string;
+      isAmendment: boolean;
+      extractedData: Prisma.JsonValue;
+      extractedAt?: Date;
+      disclosure?: { rcpDt: string };
+      company: { stockCode: string | null; market: string | null } | null;
+    };
+    params: BuyScoreParams;
+    stockContext: StockContext;
+    marketContext: MarketContext;
+    eventStudy: EventStudyStats | null;
+    marketType: string;
+    asOf: Date;
+  }): Promise<void> {
+    const writer = this.featureSnapshotDualWrite;
+    if (!writer?.isEnabled()) return;
+
+    const features = {
+      ...input.params,
+      // JSON 계약은 undefined/Date를 허용하지 않는다. 선택 필드도 명시적으로 고정한다.
+      subCategory: input.params.subCategory ?? null,
+      signalSummary: input.params.signalSummary ?? null,
+      validUntil: input.params.validUntil?.toISOString() ?? null,
+    };
+    const eventStudyBucket = this.deriveBucketKey(input.event);
+    const sourceRefs = {
+      adapter: 'LEGACY_TRADING_SIGNAL_V1',
+      disclosureEvent: {
+        id: input.event.id ?? null,
+        rcpNo: input.event.rcpNo,
+        rcpDt: input.event.disclosure?.rcpDt ?? null,
+        extractedAt:
+          input.event.extractedAt instanceof Date ? input.event.extractedAt.toISOString() : null,
+      },
+      stock: input.stockContext.sourceRefs,
+      market: input.marketContext.sourceRefs,
+      eventStudy: input.eventStudy
+        ? {
+            eventType: input.event.eventType,
+            marketType: input.marketType,
+            requestedBucketKey: eventStudyBucket,
+            tier: input.eventStudy.esrTier ?? null,
+          }
+        : null,
+      lookupKeys: {
+        disclosureAnalysis: { rcpNo: input.event.rcpNo, task: 'summary' },
+        companyFinancial: {
+          corpCode: input.event.corpCode,
+          selectionPolicy: 'LATEST_BSNS_YEAR_REPRT_CODE_ASC',
+        },
+        insiderHoldingChanges: {
+          corpCode: input.event.corpCode,
+          lookbackDays: 90,
+        },
+        dartFiledFacts: {
+          rcpNo: input.event.rcpNo,
+          factKeys: ['CONTRACT_TO_SALES_RATIO', 'DILUTION_RATE'],
+        },
+      },
+    };
+
+    try {
+      await writer.tryFreeze({
+        corpCode: input.event.corpCode,
+        stockCode: input.params.stockCode,
+        asOf: input.asOf,
+        marketSessionDate:
+          input.stockContext.sourceRefs.price?.tradeDate ?? formatKstDateCompact(input.asOf),
+        schemaVersion: 'legacy-buy-score.v1',
+        features,
+        sourceRefs,
+        quality: {
+          missingFeatureKeys: collectMissingFeatureKeys(features).filter(
+            (key) => key !== 'subCategory' && key !== 'signalSummary' && key !== 'validUntil',
+          ),
+          // stale 기준은 승인된 feature contract가 생길 때까지 추정하지 않는다.
+          staleFeatureKeys: [],
+          validationErrors: [],
+        },
+      });
+    } catch (error) {
+      // 실제 writer도 fail-open이지만 mock/향후 adapter 오류까지 이중 격리한다.
+      const name = error instanceof Error && error.name ? error.name : 'UnknownError';
+      this.logger.warn(
+        `[SignalGen] FeatureSnapshot dual-write 예외 격리 — legacy signal 유지: ${name}`,
+      );
+    }
   }
 
   /**

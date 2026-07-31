@@ -146,6 +146,14 @@ External APIs:
 - **정책 미확정 경계**: 승인자 수, 실제 role key, 권한 매트릭스는 선택하지 않는다. 동일 actor 허용 여부도 기본값 없이 호출자가 명시한 separation policy만 판정한다.
 - **현재 비배선**: 기존 Strategy/Risk 상태 전이와 activation 서비스에는 아직 연결하지 않았으며 API·UI·Cron·Queue 등록도 없다.
 
+#### AOS 실행 코어 — Shared Rule Evaluator (`packages/aos-rule-engine/`)
+- **현재 책임(Phase A3-1)**: Android/iOS 디바이스와 백엔드 replay가 같은 버전·Feature Snapshot으로 같은 평가 trace와 canonical receipt를 만드는 동기식 순수 TypeScript 코어다.
+- **결정론 경계**: 실행 순서는 `priority → ruleKey`로 고정하고 object key·reason code를 정규화한다. 시스템 시계·난수·비동기·전역 mutable state는 사용하지 않는다.
+- **Fail-safe**: Hard Risk 비활성화·입력 누락·FAIL·ABSTAIN·구현 오류는 모두 `BLOCKED`다. AI는 검증된 feature 입력만 제공할 수 있으며 Hard Risk를 우회할 수 없다.
+- **플랫폼 경계**: 런타임 dependency 0이며 Node·React Native·Expo·NestJS·Prisma·DB·네트워크·저장소 import를 CI에서 차단한다.
+- **현재 비배선**: Feature Snapshot 생성·영속화, 모바일 background 실행, SignalDecision, 주문 계획은 아직 연결하지 않았다. 기존 Signal/Paper/Order 행동에는 영향이 없다.
+- **상세 계약**: `docs/roadmap/aos-rule-evaluator-core.md`
+
 #### 횡단 모듈 (독립 유지)
 - `auth` · `users` · `companies` · `watchlist` · `notifications` · `notification-settings` · `expo-push` · `devices` · `saved-disclosures` · `prisma` · `common`
 - 모든 엔진이 공유하는 인증·알림·기업 마스터 등을 담당한다.
@@ -555,5 +563,5 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
 ---
 
 **작성일**: 2026-04-18
-**최종 수정일**: 2026-07-31 (AOS Phase A2 Governance 불변 원장 제어평면 반영) / 이전: AOS Risk Policy
-**버전**: 2.4 (AOS Approval/ConfigAudit 제어평면 추가) / 이전: 2.3 (AOS RiskPolicyVersion 제어평면 추가)
+**최종 수정일**: 2026-07-31 (AOS Phase A3-1 디바이스 실행 가능 공유 Rule Evaluator 반영) / 이전: AOS Governance
+**버전**: 2.5 (AOS Shared Rule Evaluator 실행 코어 추가) / 이전: 2.4 (AOS Approval/ConfigAudit 제어평면 추가)

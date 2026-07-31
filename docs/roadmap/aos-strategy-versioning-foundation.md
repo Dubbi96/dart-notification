@@ -43,6 +43,6 @@ AOS 전환의 첫 런타임 변경은 기존 매매 경로를 교체하는 작�
 1. KRX 거래일·종가 이후 창을 사용하는 활성화 오케스트레이터
 2. 전략당 단일 `ACTIVE` 보장과 트랜잭션/동시성 제어
 3. 활성화·반려·롤백 감사 원장 및 운영자 권한
-4. Feature Snapshot과 공유 평가기 계약
+4. ~~Feature Snapshot과 공유 평가기 계약~~ — A3-1에서 플랫폼 독립 평가기 계약 구현. Snapshot 생성·영속화와 SignalDecision 연결은 A3-2 이후.
 
 후속 연결도 Backtest → Shadow Trading → 제한적 운영 순서를 지키며, 기존 매매 경로와의 dual-write/reconciliation이 준비되기 전에는 실행 권한을 넘기지 않는다.

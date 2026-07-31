@@ -29,6 +29,7 @@
     "backtest:two-tier": "ts-node -r dotenv/config src/engine3-quant-market/two-tier-backtest/two-tier-backtest.manual.ts"
   },
   "dependencies": {
+    "@dart-notification/aos-rule-engine": "file:../packages/aos-rule-engine",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.0.0",

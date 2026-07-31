@@ -8,7 +8,7 @@ export const FEATURE_SNAPSHOT_DUAL_WRITE_FLAG = 'AOS_FEATURE_SNAPSHOT_DUAL_WRITE
 
 export type FeatureSnapshotDualWriteResult =
   | { readonly status: 'DISABLED' }
-  | { readonly status: 'WRITTEN'; readonly contentHash: string }
+  | { readonly status: 'WRITTEN'; readonly snapshotId: string; readonly contentHash: string }
   | { readonly status: 'FAILED' };
 
 /**
@@ -33,8 +33,8 @@ export class FeatureSnapshotDualWriteService {
     if (!this.isEnabled()) return { status: 'DISABLED' };
 
     try {
-      const snapshot = await this.freezer.freeze(input);
-      return { status: 'WRITTEN', contentHash: snapshot.contentHash };
+      const snapshot = await this.freezer.freezeWithId(input);
+      return { status: 'WRITTEN', snapshotId: snapshot.id, contentHash: snapshot.contentHash };
     } catch (error) {
       this.logger.warn(
         `[AOS:FeatureSnapshot] dual-write 실패 — legacy signal 유지: ${safeErrorName(error)}`,

@@ -1348,10 +1348,11 @@ model TradingSignal {
   updatedAt DateTime @updatedAt
 
   // Relations
-  disclosure     Disclosure      @relation(fields: [rcpNo], references: [rcpNo])
-  company        Company         @relation(fields: [corpCode], references: [corpCode])
+  disclosure     Disclosure       @relation(fields: [rcpNo], references: [rcpNo])
+  company        Company          @relation(fields: [corpCode], references: [corpCode])
   positionThesis PositionThesis?
   paperTrades    PaperTrade[]
+  aosDecisions   SignalDecision[]
 
   // DAR-125: 원천 멱등 자연키. corpCode+rcpNo+eventType(이슈 요청 키) + persona.
   //   DisclosureEvent.rcpNo 가 @unique(공시:이벤트 1:1)라 corpCode·eventType 은
@@ -2574,12 +2575,13 @@ model StrategyVersion {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  strategy    Strategy              @relation(fields: [strategyId], references: [id], onDelete: Restrict)
-  parent      StrategyVersion?      @relation("StrategyVersionParent", fields: [parentVersionId], references: [id], onDelete: SetNull)
-  children    StrategyVersion[]     @relation("StrategyVersionParent")
-  createdBy   User?                 @relation("StrategyVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  rules       StrategyVersionRule[]
-  activations VersionActivation[]
+  strategy        Strategy              @relation(fields: [strategyId], references: [id], onDelete: Restrict)
+  parent          StrategyVersion?      @relation("StrategyVersionParent", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  children        StrategyVersion[]     @relation("StrategyVersionParent")
+  createdBy       User?                 @relation("StrategyVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  rules           StrategyVersionRule[]
+  activations     VersionActivation[]
+  signalDecisions SignalDecision[]
 
   @@unique([strategyId, version])
   @@index([strategyId, configHash])
@@ -2624,9 +2626,10 @@ model RiskPolicyVersion {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  parent    RiskPolicyVersion?  @relation("RiskPolicyVersionParent", fields: [parentVersionId], references: [id], onDelete: SetNull)
-  children  RiskPolicyVersion[] @relation("RiskPolicyVersionParent")
-  createdBy User?               @relation("RiskPolicyVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  parent          RiskPolicyVersion?  @relation("RiskPolicyVersionParent", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  children        RiskPolicyVersion[] @relation("RiskPolicyVersionParent")
+  createdBy       User?               @relation("RiskPolicyVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  signalDecisions SignalDecision[]
 
   @@index([status, effectiveFrom])
   @@index([configHash])
@@ -2721,10 +2724,119 @@ model FeatureSnapshot {
   contentHash       String
   createdAt         DateTime @default(now())
 
+  signalDecisions SignalDecision[]
+
   @@unique([instrumentType, corpCode, stockCode, asOf, schemaVersion, contentHash], map: "aos_feature_snapshots_idempotency_key")
   @@index([stockCode, asOf])
   @@index([corpCode, asOf])
   @@index([marketSessionDate])
   @@index([contentHash])
   @@map("aos_feature_snapshots")
+}
+
+// Threshold를 이 테이블이 추정하지 않는다. 승인된 REGIME Rule의 결과와 근거만 동결한다.
+model MarketRegimeSnapshot {
+  id                String   @id @default(cuid())
+  market            String   @default("KR")
+  asOf              DateTime
+  marketSessionDate String
+  schemaVersion     String
+  regimeKey         String
+  confidence        Decimal? @db.Decimal(8, 6)
+  factsJson         Json
+  sourceRefsJson    Json
+  qualityJson       Json
+  contentHash       String
+  createdAt         DateTime @default(now())
+
+  signalDecisions SignalDecision[]
+
+  @@unique([market, asOf, schemaVersion, contentHash], map: "aos_market_regime_snapshots_idempotency_key")
+  @@index([marketSessionDate])
+  @@index([regimeKey, asOf])
+  @@index([contentHash])
+  @@map("aos_market_regime_snapshots")
+}
+
+enum SignalDecisionMode {
+  LEGACY_PARITY
+  BACKTEST
+  SHADOW
+  LIVE
+}
+
+enum SignalDecisionStatus {
+  COMPLETED
+  BLOCKED
+}
+
+enum SignalDecisionParityStatus {
+  MATCH
+  MISMATCH
+  NOT_COMPARED
+}
+
+// Feature + Strategy + Risk 버전을 고정한 Rule 평가 영수증. 전환기에는 legacy 결과와 병행 기록한다.
+model SignalDecision {
+  id                     String                     @id @default(cuid())
+  decisionKey            String                     @unique
+  mode                   SignalDecisionMode
+  featureSnapshotId      String
+  marketRegimeSnapshotId String?
+  strategyVersionId      String
+  riskPolicyVersionId    String
+  legacyTradingSignalId  String?
+  evaluatorVersion       String
+  receiptSchemaVersion   String
+  status                 SignalDecisionStatus
+  score                  Decimal                    @db.Decimal(12, 6)
+  blockReasonCodes       String[]
+  decisionJson           Json
+  receiptHash            String
+  legacyScore            Int?
+  scoreDelta             Decimal?                   @db.Decimal(12, 6)
+  parityStatus           SignalDecisionParityStatus @default(NOT_COMPARED)
+  evaluatedAt            DateTime
+  createdAt              DateTime                   @default(now())
+
+  featureSnapshot      FeatureSnapshot       @relation(fields: [featureSnapshotId], references: [id], onDelete: Restrict)
+  marketRegimeSnapshot MarketRegimeSnapshot? @relation(fields: [marketRegimeSnapshotId], references: [id], onDelete: Restrict)
+  strategyVersion      StrategyVersion       @relation(fields: [strategyVersionId], references: [id], onDelete: Restrict)
+  riskPolicyVersion    RiskPolicyVersion     @relation(fields: [riskPolicyVersionId], references: [id], onDelete: Restrict)
+  legacyTradingSignal  TradingSignal?        @relation(fields: [legacyTradingSignalId], references: [id], onDelete: SetNull)
+  traces               RuleEvaluationTrace[]
+
+  @@unique([featureSnapshotId, strategyVersionId, riskPolicyVersionId, evaluatorVersion, receiptHash], map: "aos_signal_decisions_replay_key")
+  @@index([mode, evaluatedAt])
+  @@index([status, evaluatedAt])
+  @@index([parityStatus, evaluatedAt])
+  @@index([legacyTradingSignalId])
+  @@index([receiptHash])
+  @@map("aos_signal_decisions")
+}
+
+// 공유 evaluator의 실행 순서와 기여도를 그대로 보존하는 append-only trace.
+model RuleEvaluationTrace {
+  id                String   @id @default(cuid())
+  signalDecisionId  String
+  executionOrder    Int
+  ruleKey           String
+  implementationKey String
+  category          String
+  priority          Int
+  parameterHash     String
+  status            String
+  contribution      Decimal  @db.Decimal(12, 6)
+  reasonCodes       String[]
+  factsJson         Json
+  traceHash         String
+  createdAt         DateTime @default(now())
+
+  signalDecision SignalDecision @relation(fields: [signalDecisionId], references: [id], onDelete: Restrict)
+
+  @@unique([signalDecisionId, executionOrder])
+  @@unique([signalDecisionId, ruleKey])
+  @@index([ruleKey, status])
+  @@index([traceHash])
+  @@map("aos_rule_evaluation_traces")
 }

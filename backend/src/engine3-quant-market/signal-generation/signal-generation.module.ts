@@ -7,6 +7,7 @@ import { SignalGenerationController } from './signal-generation.controller';
 import { NotificationProducerModule } from '../../notifications/notification-producer.module';
 import { BacktestModule } from '../backtest/backtest.module';
 import { FeatureEngineModule } from '../../aos/feature-engine/feature-engine.module';
+import { DecisionEngineModule } from '../../aos/decision-engine/decision-engine.module';
 
 /**
  * 런타임 신호 생성 모듈 — DAR-41.
@@ -20,6 +21,7 @@ import { FeatureEngineModule } from '../../aos/feature-engine/feature-engine.mod
     NotificationProducerModule,
     BacktestModule,
     FeatureEngineModule,
+    DecisionEngineModule,
   ],
   controllers: [SignalGenerationController],
   providers: [SignalGenerationService, SignalGenerationScheduler],

@@ -69,6 +69,9 @@ export const envValidationSchema = Joi.object({
   // AOS A3-2: 기존 TradingSignal 입력을 append-only FeatureSnapshot으로 함께 기록.
   // reconciliation 전까지 기본 OFF이며, 실패는 legacy 신호 경로와 격리한다.
   AOS_FEATURE_SNAPSHOT_DUAL_WRITE_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  // AOS A3-3: FeatureSnapshot 성공 후 공유 evaluator decision/trace를 병행 기록.
+  // legacy parity 관찰 전용이며 기존 signal 실패로 전파되지 않는다.
+  AOS_DECISION_DUAL_WRITE_ENABLED: Joi.string().valid('true', 'false').default('false'),
 });
 
 /**

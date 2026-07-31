@@ -15,30 +15,33 @@ const snapshotInput = {
 
 describe('FeatureSnapshotDualWriteService', () => {
   it('flag 기본 OFF이면 DB writer를 호출하지 않는다', async () => {
-    const freezer = { freeze: jest.fn() } as any;
+    const freezer = { freezeWithId: jest.fn() } as any;
     const config = { get: jest.fn().mockReturnValue(false) } as unknown as ConfigService;
     const service = new FeatureSnapshotDualWriteService(config, freezer);
 
     expect(service.isEnabled()).toBe(false);
     await expect(service.tryFreeze(snapshotInput)).resolves.toEqual({ status: 'DISABLED' });
-    expect(freezer.freeze).not.toHaveBeenCalled();
+    expect(freezer.freezeWithId).not.toHaveBeenCalled();
   });
 
   it('flag ON이면 snapshot hash를 반환한다', async () => {
-    const freezer = { freeze: jest.fn().mockResolvedValue({ contentHash: 'a'.repeat(64) }) } as any;
+    const freezer = {
+      freezeWithId: jest.fn().mockResolvedValue({ id: 'feature-1', contentHash: 'a'.repeat(64) }),
+    } as any;
     const config = { get: jest.fn().mockReturnValue('true') } as unknown as ConfigService;
     const service = new FeatureSnapshotDualWriteService(config, freezer);
 
     expect(service.isEnabled()).toBe(true);
     await expect(service.tryFreeze(snapshotInput)).resolves.toEqual({
       status: 'WRITTEN',
+      snapshotId: 'feature-1',
       contentHash: 'a'.repeat(64),
     });
   });
 
   it('writer 실패를 격리해 legacy 경로에 예외를 전파하지 않는다', async () => {
     const freezer = {
-      freeze: jest.fn().mockRejectedValue(new Error('sensitive db detail')),
+      freezeWithId: jest.fn().mockRejectedValue(new Error('sensitive db detail')),
     } as any;
     const config = { get: jest.fn().mockReturnValue(true) } as unknown as ConfigService;
     const service = new FeatureSnapshotDualWriteService(config, freezer);

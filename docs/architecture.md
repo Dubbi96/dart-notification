@@ -565,3 +565,23 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
 **작성일**: 2026-04-18
 **최종 수정일**: 2026-07-31 (AOS Phase A3-1 디바이스 실행 가능 공유 Rule Evaluator 반영) / 이전: AOS Governance
 **버전**: 2.5 (AOS Shared Rule Evaluator 실행 코어 추가) / 이전: 2.4 (AOS Approval/ConfigAudit 제어평면 추가)
+
+## 11. AOS 운영 제어면
+
+`operator-web`은 모바일과 물리적으로 분리된 정적 React 앱이며, NestJS의
+`/api/aos/operator`만 사용한다. 조회와 변경은 같은 화면에 있더라도 서버에서 서로 다른
+가드 경로를 지난다.
+
+```text
+Operator Web
+  ├─ GET ─ JWT ─ Operator membership/RBAC ─ Query Service ─ AOS ledgers
+  └─ CMD ─ JWT ─ RBAC ─ mutation flag ─ single-use Step-up ─ Command Service
+                                                       ├─ domain invariant
+                                                       └─ append-only receipt
+```
+
+기본 상태는 read-only다. 변경은 `AOS_OPERATOR_MUTATIONS_ENABLED=true`일 때만 가능하고,
+역할 권한과 명령 범위가 일치하는 5분 Step-up 토큰을 한 번 소비한다. 전략 작성자와 승인자는
+분리하며, 승인 후에도 활성화는 KRX 종가 후 예약 절차를 거친다. 비상 통제는 발동을 즉시
+기록하지만 해제 요청은 자동 해제로 연결하지 않는다. 이 제어면은 LIVE broker adapter와
+연결되지 않으며 Shadow/Paper 원장만 관측·통제한다.

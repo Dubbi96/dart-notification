@@ -74,6 +74,10 @@ export const envValidationSchema = Joi.object({
   AOS_DECISION_DUAL_WRITE_ENABLED: Joi.string().valid('true', 'false').default('false'),
   // AOS A5: 기존 PaperTrade와 canonical SHADOW/PAPER 원장을 병행 기록. LIVE 기능 없음.
   AOS_CANONICAL_PAPER_LEDGER_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  // AOS A6: Operator Web은 기본 read-only. 명시적으로 켠 경우에도 RBAC+단일 사용 step-up이 필수다.
+  AOS_OPERATOR_MUTATIONS_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  // 최초 operator bootstrap. 쉼표 구분 이메일이며 미설정 기본. secret store에서만 주입한다.
+  AOS_OPERATOR_BOOTSTRAP_EMAILS: Joi.string().allow('').default(''),
 });
 
 /**

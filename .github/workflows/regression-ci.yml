@@ -82,6 +82,28 @@ jobs:
       - name: Android 번들 (expo export)
         run: npm run bundle:android
 
+  operator-web-regression:
+    name: 운영자 웹 회귀(tsc + 테스트 + production build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: operator-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: operator-web/package-lock.json
+      - name: 의존성 설치
+        run: npm ci --legacy-peer-deps
+      - name: 타입체크
+        run: npm run typecheck
+      - name: 단위 테스트
+        run: npm test
+      - name: Production build
+        run: npm run build
+
   # W17: npm audit allowlist 게이트 — allowlist 밖의 high/critical advisory 만 실패.
   # node_modules 설치 불필요(npm audit 은 package-lock.json 기반) → npm ci 생략으로 잡 시간 절약.
   security-audit:
@@ -98,6 +120,8 @@ jobs:
         run: node scripts/audit-gate.mjs backend
       - name: 모바일 npm audit 게이트 (--omit=dev · high/critical · allowlist 외 실패)
         run: node scripts/audit-gate.mjs mobile
+      - name: 운영자 웹 npm audit 게이트 (--omit=dev · high/critical · allowlist 외 실패)
+        run: node scripts/audit-gate.mjs operator-web
 
   # W17: 시크릿 스캔 — gitleaks (개인 소유 리포는 라이선스 키 불필요·무료).
   # fetch-depth: 0 — PR 커밋 히스토리 전체를 스캔 대상으로 확보.

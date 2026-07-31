@@ -1,5 +1,5 @@
 {
-  "$comment": "W17 npm audit 게이트 allowlist — scripts/audit-gate.mjs 가 참조. high/critical advisory 중 '수정 불가 전이 의존성' 또는 '별도 업그레이드 PR 대기' 항목만 사유와 함께 수용한다. 취약점 해소 시 해당 항목을 제거할 것(게이트가 stale 항목을 경고). 트리아지 정본: docs/security/audit-triage-2026-07-16.md · 실측일: 2026-07-16 (npm audit --omit=dev)",
+  "$comment": "W17 npm audit 게이트 allowlist — scripts/audit-gate.mjs 가 참조. high/critical advisory 중 '수정 불가 전이 의존성' 또는 '별도 업그레이드 PR 대기' 항목만 사유와 함께 수용한다. 취약점 해소 시 해당 항목을 제거할 것(게이트가 stale 항목을 경고). 트리아지 정본: docs/security/audit-triage-2026-07-16.md, docs/security/audit-remediation-2026-07-31.md · 최근 실측일: 2026-07-31 (npm audit --omit=dev)",
   "allowlist": [
     {
       "package": "axios",
@@ -17,15 +17,6 @@
       "workspaces": ["backend", "mobile"],
       "severity": "high",
       "reason": "axios 전이 의존성(4.0.0~4.0.5, CRLF 주입). axios 1.16.0 업그레이드 PR 에서 함께 해소 예정. multipart 업로드 경로를 서비스에서 사용하지 않아 노출면 없음.",
-      "addedAt": "2026-07-16"
-    },
-    {
-      "package": "tar",
-      "advisoryIds": [1112659, 1113300, 1113375, 1114200, 1114302, 1114680],
-      "ghsa": ["GHSA-34x7-hfp2-rc4v", "GHSA-8qq5-rm4j-mr97", "GHSA-83g3-92jg-28cx", "GHSA-qffp-2rhf-9h96", "GHSA-9ppj-qmqm-q256", "GHSA-r6q2-hw4h-h46w"],
-      "workspaces": ["backend"],
-      "severity": "high",
-      "reason": "bcrypt → @mapbox/node-pre-gyp → tar 빌드타임 전이 체인(경로 탐색/심링크 계열). tar 는 네이티브 모듈 설치 시점에 신뢰된 아티팩트 압축 해제에만 사용되고 런타임 요청 경로에서 임의 tar 를 다루지 않음. bcrypt 업그레이드 PR 에서 해소 예정.",
       "addedAt": "2026-07-16"
     },
     {

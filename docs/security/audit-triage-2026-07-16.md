@@ -3,6 +3,8 @@
 > 실측 명령: `npm audit --omit=dev --json` (backend·mobile 각각, 2026-07-16)
 > 게이트: `scripts/audit-gate.mjs` — allowlist(`.audit-allowlist.json`) 밖의 **high/critical** advisory만 CI 실패.
 > 원칙: `npm audit fix` / `--force` **금지**(Expo/RN peer-deps 파손 위험, `--legacy-peer-deps` 운용). 해소는 별도 의존성 업그레이드 PR로.
+>
+> **2026-07-31 갱신**: bcrypt 6 전환으로 `@mapbox/node-pre-gyp → tar` 체인을 제거했다. 신규 advisory와 나머지 해소 내역은 `audit-remediation-2026-07-31.md`를 참조한다.
 
 ## 실측 요약
 
@@ -20,7 +22,7 @@
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | BE+MO | axios | high ×10 | 1117576(GHSA-pmwg-cvhr-8vh7) · 1117591(GHSA-pf86-5x62-jrwf) · 1117593(GHSA-6chq-wfr3-2hj9) · 1118607(GHSA-q8qp-cvcw-x6jj) · 1120547(GHSA-hfxv-24rg-xrqf) · 1120643(GHSA-777c-7fjr-54vf) · 1120645(GHSA-p92q-9vqr-4j8v) · 1120647(GHSA-j5f8-grm9-p9fc) · 1120649(GHSA-3g43-6gmg-66jw) · 1120650(GHSA-35jp-ww65-95wh) | 프로토타입 오염 가젯·프록시 자격증명 누출·ReDoS 등 | 직접 의존(backend ^1.6.0 / mobile ^1.13.6) | **1.16.0 — semver 범위 내(non-breaking)** | 수용(단기) — 프록시 미사용, 호출 대상이 자사 API·DART/KRX/KIS 로 한정. **우선순위 1 업그레이드 대상** | axios ≥1.16.0 업그레이드 PR 머지 |
 | 2 | BE+MO | form-data | high | 1120743(GHSA-hmw2-7cc7-3qxx) | multipart 필드명 CRLF 주입 | axios 전이(4.0.0–4.0.5) | 4.0.6 (axios 업그레이드에 동반) | 수용 — multipart 업로드 미사용 | #1과 동시 해소 |
-| 3 | BE | tar | high ×6 | 1112659(GHSA-34x7-hfp2-rc4v) · 1113300(GHSA-8qq5-rm4j-mr97) · 1113375(GHSA-83g3-92jg-28cx) · 1114200(GHSA-qffp-2rhf-9h96) · 1114302(GHSA-9ppj-qmqm-q256) · 1114680(GHSA-r6q2-hw4h-h46w) | 압축 해제 경로 탐색·심링크 | bcrypt → @mapbox/node-pre-gyp → tar (빌드타임) | tar 최신판(전이 갱신) | 수용 — 설치 시점에 신뢰된 아티팩트만 해제, 런타임 표면 아님 | bcrypt/전이 갱신 PR |
+| 3 | BE | tar | high ×6 | 1112659(GHSA-34x7-hfp2-rc4v) · 1113300(GHSA-8qq5-rm4j-mr97) · 1113375(GHSA-83g3-92jg-28cx) · 1114200(GHSA-qffp-2rhf-9h96) · 1114302(GHSA-9ppj-qmqm-q256) · 1114680(GHSA-r6q2-hw4h-h46w) | 압축 해제 경로 탐색·심링크 | bcrypt → @mapbox/node-pre-gyp → tar (빌드타임) | bcrypt 6 전환으로 체인 제거 | **해소(2026-07-31, #553)** — allowlist 항목 제거 | 완료 |
 | 4 | BE | multer | high ×4 | 1113635(GHSA-xf7r-hgr6-v32p) · 1113636(GHSA-v52c-386h-88mc) · 1113996(GHSA-5528-5vmv-3xc2) · 1121089(GHSA-72gw-mp4g-v24j) | 업로드 DoS 계열 | @nestjs/platform-express(^10) 전이 | **NestJS v11 메이저** (semver-major) | 수용 — 파일 업로드 엔드포인트 부재로 노출면 없음. 프레임워크 일괄 업그레이드는 M10 모의운용 무중단 원칙과 충돌 → M10 졸업 후 | NestJS v11 업그레이드 |
 | 5 | BE | lodash | high | 1115806(GHSA-r5fr-rjxr-66jc) | `_.template` 코드 주입 | @nestjs/config·@nestjs/swagger(^7) 전이 | @nestjs/swagger v11 (semver-major) | 수용 — 외부 입력이 템플릿에 닿는 경로 없음 | NestJS v11 업그레이드 |
 | 6 | BE | path-to-regexp | high | 1115527(GHSA-37ch-88jc-xwx2) | 다중 라우트 파라미터 ReDoS | express 4.x 전이 | express 패치(전이 갱신) | 수용 — 라우트 패턴 코드 고정, 해당 패턴 미사용 | express/전이 갱신 PR |

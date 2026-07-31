@@ -29,17 +29,18 @@ model User {
   notificationsLastSeenAt DateTime?
 
   // Relations
-  devices                 UserDevice[]
-  watchLists              WatchList[]
-  savedDisclosures        SavedDisclosure[]
-  notificationSettings    NotificationSettings?
-  notificationHistory     NotificationHistory[]
-  portfolios              Portfolio[]
-  refreshTokens           RefreshToken[]
-  proWaitlistEntry        ProWaitlistEntry?
-  createdStrategies       Strategy[]            @relation("StrategyCreatedBy")
-  createdRuleDefinitions  RuleDefinition[]      @relation("RuleDefinitionCreatedBy")
-  createdStrategyVersions StrategyVersion[]     @relation("StrategyVersionCreatedBy")
+  devices                     UserDevice[]
+  watchLists                  WatchList[]
+  savedDisclosures            SavedDisclosure[]
+  notificationSettings        NotificationSettings?
+  notificationHistory         NotificationHistory[]
+  portfolios                  Portfolio[]
+  refreshTokens               RefreshToken[]
+  proWaitlistEntry            ProWaitlistEntry?
+  createdStrategies           Strategy[]            @relation("StrategyCreatedBy")
+  createdRuleDefinitions      RuleDefinition[]      @relation("RuleDefinitionCreatedBy")
+  createdStrategyVersions     StrategyVersion[]     @relation("StrategyVersionCreatedBy")
+  requestedVersionActivations VersionActivation[]   @relation("VersionActivationRequestedBy")
 
   @@unique([provider, providerId])
   @@index([email])
@@ -2454,6 +2455,14 @@ enum StrategyVersionStatus {
   RETIRED
 }
 
+// 전략 버전의 예약·실제 활성화 원장. ACTIVE 행은 deactivatedAt=null일 때 현재 효력 중이다.
+enum VersionActivationStatus {
+  SCHEDULED
+  ACTIVE
+  CANCELLED
+  ROLLED_BACK
+}
+
 model Strategy {
   id             String                   @id @default(cuid())
   key            String                   @unique
@@ -2517,17 +2526,38 @@ model StrategyVersion {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  strategy  Strategy              @relation(fields: [strategyId], references: [id], onDelete: Restrict)
-  parent    StrategyVersion?      @relation("StrategyVersionParent", fields: [parentVersionId], references: [id], onDelete: SetNull)
-  children  StrategyVersion[]     @relation("StrategyVersionParent")
-  createdBy User?                 @relation("StrategyVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  rules     StrategyVersionRule[]
+  strategy    Strategy              @relation(fields: [strategyId], references: [id], onDelete: Restrict)
+  parent      StrategyVersion?      @relation("StrategyVersionParent", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  children    StrategyVersion[]     @relation("StrategyVersionParent")
+  createdBy   User?                 @relation("StrategyVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  rules       StrategyVersionRule[]
+  activations VersionActivation[]
 
   @@unique([strategyId, version])
   @@index([strategyId, configHash])
   @@index([status, effectiveFrom])
   @@index([parentVersionId])
   @@map("aos_strategy_versions")
+}
+
+model VersionActivation {
+  id                String                  @id @default(cuid())
+  strategyVersionId String
+  scheduledFor      DateTime
+  activatedAt       DateTime?
+  deactivatedAt     DateTime?
+  status            VersionActivationStatus @default(SCHEDULED)
+  requestedByUserId String?
+  correlationId     String                  @unique
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  strategyVersion StrategyVersion @relation(fields: [strategyVersionId], references: [id], onDelete: Restrict)
+  requestedBy     User?           @relation("VersionActivationRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, scheduledFor])
+  @@index([strategyVersionId, createdAt])
+  @@map("aos_version_activations")
 }
 
 model StrategyVersionRule {

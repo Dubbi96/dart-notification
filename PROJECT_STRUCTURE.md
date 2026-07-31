@@ -55,6 +55,12 @@ dart-notification/
 │   │   │   ├── notification-settings.controller.ts
 │   │   │   ├── notification-settings.service.ts
 │   │   │   └── notification-settings.module.ts
+│   │   ├── aos/               # Adaptive Asset Operating System 점진 전환 도메인
+│   │   │   ├── CLAUDE.md      # AI 비주문·Long Only·Backtest→Shadow 가드레일
+│   │   │   └── strategy-management/
+│   │   │       ├── CLAUDE.md  # 버전·활성화 경계
+│   │   │       ├── domain/    # StrategyVersion FSM·canonical hash·KRX 종가 후 활성화 정책
+│   │   │       └── services/  # advisory lock + SERIALIZABLE 활성화 서비스(자동 배선 없음)
 │   │   ├── engine1-disclosure/ # 🟦 Engine1: 공시 인텔리전스 도메인 (DDD Bounded Context)
 │   │   │   ├── CLAUDE.md            # 도메인 규칙 (작업 시 자동 로드)
 │   │   │   ├── common/              # engine1 공통 유틸(수집 공통 헬퍼)
@@ -704,5 +710,5 @@ EXPO_PUBLIC_APP_ENV=development
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-17 (DAR-548 [docs·부채] — 정본 전수 동기화 감사: 트리 누락분 정정 — prisma/migrations 64개 실상 반영(구 init 1개 표기), engine1 `financials/`·`insider-holdings/`·`common/`, engine2 `philosophy/`, engine3 `intraday-scalp/`·`signal-generation/`·event-study 유사공시 반응통계[DAR-511], engine5 `simulation/`·paper-simulation 확장, 모바일 app `price-move/`·`upcoming-events/`, components `priceMove/`·`upcomingEvents/`, home 8종, 서비스/훅/유틸/타입 today 추가분(priceMove·brokerHandoff·usePriceMoveReasoning·useColdStartOnboarding·priceMove.types)) / 이전: 2026-07-17 (DAR-538 [cross·고도화] — 공시발 예정 이벤트 캘린더 v1 트리 반영: 백엔드 engine1 `upcoming-events/`(deriver·service·controller·module — extractedData 날짜 파생 D-day 읽기 전용), 모바일 components/home/UpcomingEventsSection.tsx·hooks/useUpcomingEvents.ts·services/upcomingEvents.service.ts·types/upcomingEvent.types.ts·utils/dday.ts) / 이전: 2026-07-17 (DAR-525 Wave B/B4·P1 — 푸시 본문 '한 줄 판단' 표준: `notifications/push-body-template.ts` 신규(순수 — 유형별 리드 템플릿·유사공시 반응통계 문구 n<30 생략·길이 트렁케이션), 에디션 발행 푸시(DAR-523) 본문에 헤드라인 종목 eventType+D+5 반응통계 주입 적용, 문서 `docs/notifications/push-body-one-line-judgment.md`) / 이전: 2026-07-17 (DAR-523 Wave B/B2·P0 — engine3 `edition-push/` 신규 모듈 트리 반영: 일일 에디션 발행 푸시 19:05(edition-push.guard 순수 하드 가드·service·scheduler·module), 조회 API 재사용·빈 에디션 발송 금지·editionPushEnabled 게이트·멱등·캡, NotificationType EDITION 가산) / 이전: 2026-07-17 (DAR-510 — 일일 투자판단 에디션 트리 반영: 모바일 signals/(SignalDateBadge·BuyEditionView·EditionDateStrip·EditionSignalList·SignalExploreCard)·home/HomeSignalPreview 에디션 슬롯·utils(signalTerms·signalFreshness·editionDisplay·editionSummary)·useSignals(useDailyEditions·useEdition·useCompanyBuySignal)·signal.service/signal.types 에디션 계약; 백엔드 engine3 signals/(daily-editions·daily/:date 읽기 파생))
-**버전**: 2.5 (DAR-548 전수 동기화 감사 — 7/17 웨이브 누락 디렉터리/모듈·마이그레이션 실상 정정) / 이전 2.4 (테스터 코호트 계측 반영 [DAR-516 Wave A/A6] — BE ops/tester-event.*·모바일 services/testerEvents.service.ts·utils/testerEvents.ts·components/survey/IosGateSurvey.tsx·docs/analytics/) / 이전 2.3 (일일 에디션 컴포넌트/훅/유틸 트리 반영 [DAR-505~509]) / 이전 2.2 (갭분석 퀵윈 웨이브 반영 — 백엔드: legal/·web-surface/·status/ 횡단 모듈 신설, ops/ funnel·notification-latency, engine1 pipeline/ 제목 이벤트 백필, engine3 market-data 수급·공매도/지표 조회 + price-move-alert/, engine4 briefing; 모바일: .maestro/·jest.config.js·__tests__/·dev-login.tsx·legal/data-sources.tsx·settings-detail/support.tsx + 신규 서비스/훅/타입; 루트: docs/compliance/·docs/security/·scripts/audit-gate.mjs·edgar-poc.ts·.audit-allowlist.json·.github CI 보안 잡) / 이전 2.1 (2026-07-02): 횡단 모듈 8종·모바일 신규 라우트/컴포넌트 디렉터리·루트 harness/infra/scripts·브랜치 전략(feat+squash)·prod env 관리 현행화
+**최종 수정일**: 2026-07-31 (AOS #551/#555 — `aos/strategy-management` 버전·KRX 종가 후 활성화 토대와 마이그레이션 2종 반영) / 이전: 2026-07-17 (DAR-548 정본 전수 동기화 감사)
+**버전**: 2.6 (AOS Strategy Versioning·VersionActivation 구조 반영) / 이전 2.5 (DAR-548 전수 동기화 감사)

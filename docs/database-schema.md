@@ -2033,7 +2033,7 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 
 ---
 
-## §44–47. AOS Strategy Versioning — Issue #551
+## §44–48. AOS Strategy Versioning & Activation — Issue #551, #555
 
 **목적**: 기존 DART·신호·모의운용 경로를 변경하지 않은 채, AOS Rule Engine이 앞으로 사용할 전략·룰 설정을 명시적으로 버전화한다. 이번 마이그레이션은 저장·불변성 기반만 제공하며 실제 전략 생성, 활성화, 주문 연결은 하지 않는다.
 
@@ -2043,6 +2043,7 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 | `RuleDefinition` | `aos_rule_definitions` | Entry·Exit·Sizing·Regime·Portfolio·Risk 룰 구현 계약과 입출력 스키마 버전 |
 | `StrategyVersion` | `aos_strategy_versions` | 전략별 증가 버전, 정규화 설정 JSON의 SHA-256 `configHash`, 부모 버전과 검증·승인·효력 시각. `(strategyId, version)` 유니크, `(strategyId, configHash)` 조회 인덱스(동일 설정을 새 버전으로 복원 가능) |
 | `StrategyVersionRule` | `aos_strategy_version_rules` | 특정 전략 버전에 포함된 룰, 실행 우선순위·가중치·파라미터와 SHA-256 `parameterHash` |
+| `VersionActivation` | `aos_version_activations` | 종가 후 예약·실제 활성화 원장. `scheduledFor`, `activatedAt`, `deactivatedAt`, 요청자와 멱등 `correlationId`를 보존 |
 
 상태 수명주기는 `DRAFT → VALIDATED → BACKTESTED → APPROVAL_PENDING → APPROVED → SCHEDULED → ACTIVE`를 정상 경로로 사용한다. 반려 버전은 `REJECTED → DRAFT`, 활성 버전은 `SUPERSEDED | ROLLED_BACK | RETIRED`로 종료한다. 상태 전이 행렬은 순수 도메인 함수로 검증하고, DB trigger는 다음 불변식을 별도로 강제한다.
 
@@ -2050,8 +2051,19 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 - 하위 `StrategyVersionRule`의 추가·수정·삭제는 부모 버전이 `DRAFT`일 때만 가능
 - `DRAFT`가 아닌 버전은 삭제 불가
 - 해시 길이 64, 버전/스키마 버전 양수, 룰 우선순위·가중치 범위 검증
+- `effectiveFrom`은 검증된 KRX 거래일 종가 후 시각만 허용하며 예약 후 직접 변경 불가
+- 애플리케이션은 KRX 공휴일·지연개장과 연간 캘린더 검증 범위를 fail-safe로 확인
+- DB는 KST 평일 15:30 이후 최소 경계와 `strategyId WHERE status=ACTIVE` partial unique index를 강제
+- `VersionActivation` identity는 append-only이며 `correlationId` 유니크로 재시도를 멱등 처리
+- 기존 ACTIVE 종료와 신규 ACTIVE 전환은 strategy advisory lock + SERIALIZABLE transaction 안에서 수행
 
-마이그레이션: `20260731010000_aos_strategy_versioning_foundation`(create-only, 운영 반영은 별도 승인 필요).
+마이그레이션:
+
+- `20260731010000_aos_strategy_versioning_foundation` — 전략·룰 버전 저장/불변성 기반
+- `20260731020000_aos_strategy_activation` — 활성화 원장, 단일 ACTIVE, 종가 후 경계
+
+두 마이그레이션 모두 운영 반영은 별도 승인 전 실행하지 않는다. Issue #555 서비스는
+`AppModule`·Cron·Signal·Order 경로에 자동 등록하지 않은 제어평면 토대다.
 
 ---
 

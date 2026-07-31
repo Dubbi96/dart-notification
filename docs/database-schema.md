@@ -2033,7 +2033,7 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 
 ---
 
-## §44–49. AOS Strategy/Risk Versioning & Activation — Issue #551, #555, #557
+## §44–51. AOS Strategy/Risk Versioning, Approval & Activation — Issue #551, #555, #557, #559
 
 **목적**: 기존 DART·신호·모의운용 경로를 변경하지 않은 채, AOS Rule Engine이 앞으로 사용할 전략·룰 설정을 명시적으로 버전화한다. 이번 마이그레이션은 저장·불변성 기반만 제공하며 실제 전략 생성, 활성화, 주문 연결은 하지 않는다.
 
@@ -2045,6 +2045,8 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 | `StrategyVersionRule` | `aos_strategy_version_rules` | 특정 전략 버전에 포함된 룰, 실행 우선순위·가중치·파라미터와 SHA-256 `parameterHash` |
 | `VersionActivation` | `aos_version_activations` | 종가 후 예약·실제 활성화 원장. `scheduledFor`, `activatedAt`, `deactivatedAt`, 요청자와 멱등 `correlationId`를 보존 |
 | `RiskPolicyVersion` | `aos_risk_policy_versions` | Hard Risk 한도의 독립 버전. strict limits JSON과 SHA-256 `configHash`, 부모·검증·승인·효력 시각을 보존하고 전역 ACTIVE는 최대 하나 |
+| `ApprovalRecord` | `aos_approval_records` | Strategy/Risk/Activation 대상 hash와 evidence hash, 결정, actor role snapshot, 사유, correlation/idempotency를 보존하는 승인 원장 |
+| `ConfigAuditEvent` | `aos_config_audit_events` | Strategy/Rule/Version/Risk/Activation의 생성·DRAFT 변경·삭제·상태 전이·활성화 기록. USER/SYSTEM actor와 before/after/event hash를 보존 |
 
 상태 수명주기는 `DRAFT → VALIDATED → BACKTESTED → APPROVAL_PENDING → APPROVED → SCHEDULED → ACTIVE`를 정상 경로로 사용한다. 반려 버전은 `REJECTED → DRAFT`, 활성 버전은 `SUPERSEDED | ROLLED_BACK | RETIRED`로 종료한다. 상태 전이 행렬은 순수 도메인 함수로 검증하고, DB trigger는 다음 불변식을 별도로 강제한다.
 
@@ -2060,16 +2062,24 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 - Risk policy는 clean `DRAFT`로만 최초 삽입할 수 있고, `DRAFT` 이탈 후 limits/hash/버전/부모를 수정하거나 삭제할 수 없음
 - Risk limits는 `KR_STOCK`·`LONG_ONLY`, `allowShort=false`, `allowLeverage=false`, `autoCoverFromLongTermAssets=false`를 DB CHECK로도 강제
 - Risk policy의 비정상 상태 건너뛰기·종가 전 활성화·복수 ACTIVE·64자 소문자 16진수가 아닌 hash를 DB에서 차단
+- 승인·설정 감사 원장은 update/delete/truncate 불가이며 정정은 새 record/event로만 추가
+- 승인·감사 idempotency key는 각각 unique이며 동일 flow+actor+대상(+action/hash)의 정확한 재기록도 복합 unique index로 차단
+- 대상·근거·event hash는 64자 소문자 SHA-256 형식
+- Config audit는 USER actor에만 user FK를 요구하고 SYSTEM actor에는 user FK를 금지하며, action별 before/after hash 형태를 강제
+- 사용자 actor는 insert 시 실제 `User` 존재를 trigger로 검증한 뒤 불변 logical reference로 보존해 계정 삭제가 원장을 cascade/update하지 않게 함
+- 승인자 수·role key 값·동일 actor 허용 정책은 schema/seed로 결정하지 않음
 
 마이그레이션:
 
 - `20260731010000_aos_strategy_versioning_foundation` — 전략·룰 버전 저장/불변성 기반
 - `20260731020000_aos_strategy_activation` — 활성화 원장, 단일 ACTIVE, 종가 후 경계
 - `20260731030000_aos_risk_policy_versioning` — Hard Risk strict schema·불변 수명주기·단일 ACTIVE 기반
+- `20260731040000_aos_approval_config_audit` — 승인·설정 변경 append-only 원장과 actor/hash/idempotency 기반
 
-세 마이그레이션 모두 운영 반영은 별도 승인 전 실행하지 않는다. Issue #555 서비스는
+네 마이그레이션 모두 운영 반영은 별도 승인 전 실행하지 않는다. Issue #555 서비스는
 `AppModule`·Cron·Signal·Order 경로에 자동 등록하지 않은 제어평면 토대다.
 Issue #557은 실제 정책 값·seed·활성화 서비스 없이 저장 계약과 DB 안전장치만 추가한다.
+Issue #559는 실제 승인·역할 seed나 상태 전이 배선 없이 불변 원장 계약만 추가한다.
 
 ---
 

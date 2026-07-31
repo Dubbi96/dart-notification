@@ -26,9 +26,7 @@ export const envValidationSchema = Joi.object({
   KAKAO_REST_API_KEY: Joi.string().required(),
 
   // ── 선택/기본값 보유: 설정 시 타입·형식만 검증 ──────────────────────
-  NODE_ENV: Joi.string()
-    .valid('development', 'production', 'test')
-    .default('development'),
+  NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
   PORT: Joi.number().port().default(3000),
 
   // Redis / BullMQ — 코드 기본값(localhost:6379) 보존.
@@ -46,9 +44,7 @@ export const envValidationSchema = Joi.object({
 
   // KRX (Engine3 시세) — 키는 조건부 할당(DAR-8), 베이스 URL 기본값 보유.
   KRX_API_KEY: Joi.string().allow('').optional(),
-  KRX_BASE_URL: Joi.string()
-    .uri()
-    .default('http://data-dbg.krx.co.kr/svc/apis'),
+  KRX_BASE_URL: Joi.string().uri().default('http://data-dbg.krx.co.kr/svc/apis'),
 
   // Kakao — CLIENT_SECRET 은 사용 시에만(미사용 빈 값 허용).
   KAKAO_CLIENT_SECRET: Joi.string().allow('').optional(),
@@ -69,6 +65,10 @@ export const envValidationSchema = Joi.object({
   S3_ENDPOINT: Joi.string().allow('').optional(),
   S3_PREFIX: Joi.string().allow('').optional(),
   S3_FORCE_PATH_STYLE: Joi.string().valid('true', 'false').optional(),
+
+  // AOS A3-2: 기존 TradingSignal 입력을 append-only FeatureSnapshot으로 함께 기록.
+  // reconciliation 전까지 기본 OFF이며, 실패는 legacy 신호 경로와 격리한다.
+  AOS_FEATURE_SNAPSHOT_DUAL_WRITE_ENABLED: Joi.string().valid('true', 'false').default('false'),
 });
 
 /**

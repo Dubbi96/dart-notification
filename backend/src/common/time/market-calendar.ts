@@ -37,6 +37,15 @@ import {
 } from './kst';
 
 /**
+ * 휴장일·대체공휴일·연말휴장과 세션 override를 공식 일정으로 전수 확인한 연도.
+ *
+ * 기존 조회/백테스트는 과거 재현성 때문에 미검증 연도도 주말 규칙으로 폴백하지만,
+ * 신규 Strategy Version 활성화처럼 자금 의사결정에 영향을 줄 수 있는 소비자는 이 집합 밖을
+ * fail-safe로 거부해야 한다. 연말 공식 KRX 일정 갱신 때 이 값과 아래 목록을 함께 갱신한다.
+ */
+export const KRX_FULLY_VERIFIED_CALENDAR_YEARS: ReadonlySet<number> = new Set([2026]);
+
+/**
  * KRX 공식 휴장일 (YYYYMMDD). 평일이면 거래일 판정에 직접 영향, 주말과 겹치는 항목은
  * 기록·문서 목적(주말은 요일 판정으로 이미 비거래일). 갱신 절차는 파일 상단 주석 참조.
  */

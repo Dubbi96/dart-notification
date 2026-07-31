@@ -125,6 +125,13 @@ External APIs:
 - **구성**: domain/(체결 시뮬·가상 포트·비용지표), repositories/, services/, paper-trading(HTTP)
 - **주요 엔드포인트**: `GET /paper-trading`, `POST /paper-trading/order`
 
+#### AOS 제어평면 — Strategy Management (`aos/strategy-management/`)
+- **현재 책임(Phase A2)**: 국내주식 Long Only 2~20거래일 전략·룰 설정 버전화, 불변 해시, 승인 이후 예약과 종가 후 활성화 원장
+- **활성화 안전성**: 검증된 KRX 거래일·공휴일·지연개장 세션을 KST로 판정하고, strategy advisory lock + SERIALIZABLE transaction + DB partial unique index로 전략별 ACTIVE를 하나 이하로 유지한다.
+- **현재 비배선**: `AppModule`, Cron, Queue, 기존 Signal/Paper/Order에는 연결하지 않았다. 따라서 기존 운영 매매 행동은 바뀌지 않는다.
+- **디바이스 계산 경계**: 이번 서버 코드는 버전 저장·활성화 제어평면이다. A3 평가 코어는 서버 전용 DI 서비스가 아니라 모바일에서도 동일 입력+버전으로 재생 가능한 순수 TypeScript 계약으로 분리한다.
+- **AI 경계**: AI 산출물은 향후 feature 입력만 제공하며 주문·수량·Hard Risk Gate를 결정하거나 우회하지 않는다.
+
 #### 횡단 모듈 (독립 유지)
 - `auth` · `users` · `companies` · `watchlist` · `notifications` · `notification-settings` · `expo-push` · `devices` · `saved-disclosures` · `prisma` · `common`
 - 모든 엔진이 공유하는 인증·알림·기업 마스터 등을 담당한다.
@@ -534,5 +541,5 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
 ---
 
 **작성일**: 2026-04-18
-**최종 수정일**: 2026-07-17 (DAR-510 — §2.2 Engine3 신호 생성 크론(평일 19:00 KST)·에디션 조회 엔드포인트 2종 추가, §3.4 일일 투자판단 에디션 조회 흐름 신설(읽기 파생·마이그레이션 0·KST 이중 환산·정직 규약)) / 이전: 2026-06-05
-**버전**: 2.1 (일일 에디션 읽기 파생 흐름 §3.4 추가) / 이전: 2.0 (5엔진 DDD 구조·헥사고날 포트/어댑터·BullMQ 큐 반영)
+**최종 수정일**: 2026-07-31 (AOS Phase A2 Strategy Management 제어평면·디바이스 실행 경계 반영) / 이전: 2026-07-17
+**버전**: 2.2 (AOS 점진 전환 제어평면 추가) / 이전: 2.1 (일일 에디션 읽기 파생 흐름 §3.4 추가)

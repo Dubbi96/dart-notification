@@ -18,6 +18,7 @@ import {
   ReconcileReport,
   reconcileOrderLedger,
 } from './order-ledger-reconcile';
+import { AosReconciliationService } from '../../aos/execution/services/aos-reconciliation.service';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -29,6 +30,7 @@ export class OrderLedgerReconcileService {
     private readonly prisma: PrismaService,
     // @Optional — 큐 미주입(단위 테스트)에서도 안전. 불일치 통지용.
     @Optional() private readonly notifyProducer?: NotificationProducerService,
+    @Optional() private readonly aosReconcile?: AosReconciliationService,
   ) {}
 
   /**
@@ -91,6 +93,7 @@ export class OrderLedgerReconcileService {
       this.logger.warn(report.summary);
       await this.alert(report);
     }
+    await this.aosReconcile?.reconcileDay(now);
     return report;
   }
 
@@ -123,9 +126,7 @@ export class OrderLedgerReconcileService {
         },
       );
     } catch (e) {
-      this.logger.error(
-        `[원장대조] OPS_ALERT 발행 실패(무시): ${(e as Error).message}`,
-      );
+      this.logger.error(`[원장대조] OPS_ALERT 발행 실패(무시): ${(e as Error).message}`);
     }
   }
 }

@@ -31,14 +31,12 @@ import { NotificationProducerService } from '../notifications/notification-produ
 // DAR-496(견고화 W2·P18): RiskGuard 공용 진입 게이트(일일손실·현금). 측정 트랙은 @Optional 로
 //   주입받아 SHADOW 판정(기록만·차단 0), 듀얼모멘텀 코어 forward 만 ENFORCE. AI 개입 0.
 import { RiskGuardService } from './services/risk-guard.service';
+import { AosExecutionModule } from '../aos/execution/aos-execution.module';
+import { CanonicalPaperLedgerService } from '../aos/execution/services/canonical-paper-ledger.service';
 
 @Module({
-  imports: [PrismaModule, NotificationProducerModule],
-  controllers: [
-    PaperTradingController,
-    AuditLogQueryController,
-    AutoTradingStatusController,
-  ],
+  imports: [PrismaModule, NotificationProducerModule, AosExecutionModule],
+  controllers: [PaperTradingController, AuditLogQueryController, AutoTradingStatusController],
   providers: [
     PaperTradingService,
     AuditLogQueryService,
@@ -91,16 +89,13 @@ import { RiskGuardService } from './services/risk-guard.service';
     },
     {
       provide: PaperTradeService,
-      useFactory: (repo: PrismaPaperTradeRepository) =>
-        new PaperTradeService(repo),
+      useFactory: (repo: PrismaPaperTradeRepository) => new PaperTradeService(repo),
       inject: [PrismaPaperTradeRepository],
     },
     {
       provide: OrderRiskService,
-      useFactory: (
-        auditRepo: PrismaAuditLogRepository,
-        killSwitch: KillSwitchManager,
-      ) => new OrderRiskService(auditRepo, killSwitch),
+      useFactory: (auditRepo: PrismaAuditLogRepository, killSwitch: KillSwitchManager) =>
+        new OrderRiskService(auditRepo, killSwitch),
       inject: [PrismaAuditLogRepository, KillSwitchManager],
     },
     // DAR-496(P18): 공용 진입 게이트 서비스 — PrismaService(RiskDecisionLog 영속) +
@@ -110,9 +105,12 @@ import { RiskGuardService } from './services/risk-guard.service';
     //   첫 실소비). ExecutionPort 는 기본 PaperExecutionAdapter(생성자 기본값·M12 KIS 치환점).
     {
       provide: OrderShadowLedgerService,
-      useFactory: (prisma: PrismaService, orderRisk: OrderRiskService) =>
-        new OrderShadowLedgerService(prisma, orderRisk),
-      inject: [PrismaService, OrderRiskService],
+      useFactory: (
+        prisma: PrismaService,
+        orderRisk: OrderRiskService,
+        canonical: CanonicalPaperLedgerService,
+      ) => new OrderShadowLedgerService(prisma, orderRisk, undefined, canonical),
+      inject: [PrismaService, OrderRiskService, CanonicalPaperLedgerService],
     },
   ],
   exports: [

@@ -23,13 +23,10 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  ExecutionOrder,
-  ExecutionPort,
-  PaperExecutionAdapter,
-} from '../domain/execution-port';
+import { ExecutionOrder, ExecutionPort, PaperExecutionAdapter } from '../domain/execution-port';
 import { DEFAULT_FILL_PARAMS } from '../domain/fill-simulator';
 import { OrderRiskService } from './order-risk.service';
+import { CanonicalPaperLedgerService } from '../../aos/execution/services/canonical-paper-ledger.service';
 
 /** 섀도 원장 OrderRequest 의 idempotencyKey 접두 — M11 실주문 OrderRequest 와 네임스페이스 분리. */
 export const SHADOW_LEDGER_KEY_PREFIX = 'paper-sim-shadow:';
@@ -41,6 +38,7 @@ export function shadowIdempotencyKey(tradingSignalId: string): string {
 
 /** 예약(PENDING) 확정 직후 넘기는 진입 컨텍스트. */
 export interface RecordReservationInput {
+  portfolioId?: string;
   tradingSignalId: string;
   paperTradeId: string;
   corpCode: string;
@@ -52,12 +50,21 @@ export interface RecordReservationInput {
   totalCapital: number;
   /** 당일 실현손익(음수=손실) — 일일손실 한도 판정 입력. */
   dailyRealizedPnl: number;
+  weeklyRealizedPnl?: number;
+  monthlyRealizedPnl?: number;
+  drawdownPct?: number;
   /** 진입 직전 가용현금 — 잔고 관문 스냅샷. */
   availableCash: number;
   /** 미체결 주문 수(중복·과매매 판정 입력·best-effort). */
   openOrderCount: number;
   /** 당일 체결 수(과매매 판정 입력·best-effort). */
   todayTradeCount: number;
+  openPositionCount?: number;
+  validFrom?: Date;
+  expiresAt?: Date;
+  stopPrice?: number;
+  takeProfitPrice?: number;
+  maxHoldDays?: number;
   buyScore?: number;
   killSwitchActive?: boolean;
 }
@@ -74,6 +81,7 @@ export interface RecordFillInput {
   referencePrice: number;
   dayVolume?: number;
   executedAt: Date;
+  killSwitchActive?: boolean;
 }
 
 /** 예약 취소(CANCELLED) 컨텍스트. */
@@ -93,6 +101,8 @@ export class OrderShadowLedgerService {
     @Optional() private readonly orderRisk?: OrderRiskService,
     // 전송·체결확인 포트(기본 모의 어댑터). M12 에서 KisExecutionAdapter 로 치환.
     @Optional() private readonly executionPort: ExecutionPort = new PaperExecutionAdapter(),
+    // AOS A5 canonical ledger. 기본 OFF이며 기존 PaperTrade/OrderRequest 흐름과 격리한다.
+    @Optional() private readonly canonical?: CanonicalPaperLedgerService,
   ) {}
 
   /**
@@ -134,8 +144,7 @@ export class OrderShadowLedgerService {
         : 'PENDING'; // OrderRiskService 미주입 — 판정 없이 예약 기록만.
       const rejectionReason =
         decision && !decision.approved
-          ? decision.result.vetoReason ??
-            `Risk 위반: ${violationCodes.join(', ')}`
+          ? (decision.result.vetoReason ?? `Risk 위반: ${violationCodes.join(', ')}`)
           : null;
 
       const snapshot = {
@@ -172,6 +181,32 @@ export class OrderShadowLedgerService {
           paperTradeId: snapshot.paperTradeId,
         },
       });
+      if (input.portfolioId && input.validFrom && input.expiresAt) {
+        await this.canonical?.tryRecordReservation({
+          portfolioId: input.portfolioId,
+          tradingSignalId: input.tradingSignalId,
+          paperTradeId: input.paperTradeId,
+          corpCode: input.corpCode,
+          stockCode: input.stockCode,
+          orderedShares: input.orderedShares,
+          referencePrice: input.referencePrice,
+          totalCapital: input.totalCapital,
+          availableCash: input.availableCash,
+          dailyRealizedPnl: input.dailyRealizedPnl,
+          weeklyRealizedPnl: input.weeklyRealizedPnl ?? input.dailyRealizedPnl,
+          monthlyRealizedPnl: input.monthlyRealizedPnl ?? input.dailyRealizedPnl,
+          drawdownPct: input.drawdownPct ?? 0,
+          openOrderCount: input.openOrderCount,
+          todayTradeCount: input.todayTradeCount,
+          openPositionCount: input.openPositionCount ?? 0,
+          killSwitchActive: input.killSwitchActive ?? false,
+          validFrom: input.validFrom,
+          expiresAt: input.expiresAt,
+          stopPrice: input.stopPrice,
+          takeProfitPrice: input.takeProfitPrice,
+          maxHoldDays: input.maxHoldDays,
+        });
+      }
     } catch (e) {
       this.logger.error(
         `[ShadowLedger] recordReservation 실패(무시) signal=${input.tradingSignalId}: ${(e as Error).message}`,
@@ -208,10 +243,7 @@ export class OrderShadowLedgerService {
         dayVolume: input.dayVolume,
       };
       // ④전송 ⑤체결확인 — 포트 위임(모의: fill-simulator 결정론적 체결).
-      const outcome = await this.executionPort.submitAndConfirm(
-        order,
-        DEFAULT_FILL_PARAMS,
-      );
+      const outcome = await this.executionPort.submitAndConfirm(order, DEFAULT_FILL_PARAMS);
       if (outcome.filledShares <= 0) return; // 미체결 — OrderExecution 미생성(체결기도 스킵).
 
       const gross = outcome.filledPrice * outcome.filledShares;
@@ -257,6 +289,16 @@ export class OrderShadowLedgerService {
           gross,
         },
       });
+      await this.canonical?.tryRecordFill({
+        paperTradeId: input.paperTradeId,
+        filledShares: outcome.filledShares,
+        filledPrice: outcome.filledPrice,
+        commission: outcome.commission,
+        tax: outcome.tax,
+        slippage: outcome.slippageCost,
+        filledAt: input.executedAt,
+        killSwitchActive: input.killSwitchActive ?? false,
+      });
     } catch (e) {
       this.logger.error(
         `[ShadowLedger] recordFill 실패(무시) signal=${input.tradingSignalId}: ${(e as Error).message}`,
@@ -288,6 +330,7 @@ export class OrderShadowLedgerService {
         orderRequestId: request.id,
         meta: { idempotencyKey, paperTradeId: input.paperTradeId, reason: input.reason },
       });
+      await this.canonical?.tryRecordCancellation(input.paperTradeId);
     } catch (e) {
       this.logger.error(
         `[ShadowLedger] recordCancellation 실패(무시) signal=${input.tradingSignalId}: ${(e as Error).message}`,
@@ -316,9 +359,7 @@ export class OrderShadowLedgerService {
         },
       });
     } catch (e) {
-      this.logger.error(
-        `[ShadowLedger] TradingAuditLog 기록 실패(무시): ${(e as Error).message}`,
-      );
+      this.logger.error(`[ShadowLedger] TradingAuditLog 기록 실패(무시): ${(e as Error).message}`);
     }
   }
 }

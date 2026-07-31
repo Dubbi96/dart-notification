@@ -158,6 +158,19 @@ export function tradingDayDiff(earlierYmd: string, laterYmd: string): number {
   return count;
 }
 
+function weekStartCompact(yyyymmdd: string): string {
+  const dt = new Date(
+    Date.UTC(
+      Number(yyyymmdd.slice(0, 4)),
+      Number(yyyymmdd.slice(4, 6)) - 1,
+      Number(yyyymmdd.slice(6, 8)),
+    ),
+  );
+  const day = dt.getUTCDay();
+  dt.setUTCDate(dt.getUTCDate() - (day === 0 ? 6 : day - 1));
+  return dt.toISOString().slice(0, 10).replaceAll('-', '');
+}
+
 @Injectable()
 export class PaperSimulationService {
   private readonly logger = new Logger(PaperSimulationService.name);
@@ -1059,6 +1072,11 @@ export class PaperSimulationService {
       (s, p) => (p.closedAt && p.closedAt >= monthStartKst ? s + (p.unrealizedPnl ?? 0) : s),
       0,
     );
+    const weekStartKst = this.kstMidnight(weekStartCompact(tradeDate));
+    const weeklyRealizedPnl = closedForCash.reduce(
+      (s, p) => (p.closedAt && p.closedAt >= weekStartKst ? s + (p.unrealizedPnl ?? 0) : s),
+      0,
+    );
     const investedPrincipal = openPositions.reduce((s, p) => s + (p.entryAmount ?? 0), 0);
     // 미체결 예약이 잡아둔 금액(기준가×주문수량)도 차감 — 체결 전이라 SSOT 현금엔 없지만
     //   여기서 빼지 않으면 예약이 이틀 연속 같은 현금을 이중 배분한다(체결 시 재클램프가 최종 방어).
@@ -1068,6 +1086,25 @@ export class PaperSimulationService {
     );
     let availableCash =
       PaperSimulationService.INITIAL_CAPITAL + realizedNetPnl - investedPrincipal - reservedCash;
+    // Canonical Hard Risk에는 직전까지 영속된 HWM과 현재 평가자산으로 계산한 실제 낙폭을 전달한다.
+    // 오늘 사이클 종료 시 RiskGuard가 HWM을 forward-only로 다시 갱신한다.
+    const highWaterMark = await this.prisma.accountHighWaterMark?.findUnique({
+      where: { portfolioId: pf.id },
+      select: { highWaterMark: true },
+    });
+    const currentEquity =
+      PaperSimulationService.INITIAL_CAPITAL +
+      realizedNetPnl +
+      openPositions.reduce(
+        (sum, position) =>
+          sum + (position.currentValue ?? position.entryAmount) - position.entryAmount,
+        0,
+      );
+    const highWaterValue = Number(highWaterMark?.highWaterMark ?? 0);
+    const entryDrawdownPct =
+      highWaterValue > 0
+        ? Math.min(0, ((currentEquity - highWaterValue) / highWaterValue) * 100)
+        : 0;
 
     // DAR-362: 후보 pool 확대 — entryReady=true 만으로는 BUY 희소 시 pool이 인위적으로 협소.
     //   ① entryReady WATCH+ 후보를 우선 채우고(진입품질 우선),
@@ -1223,6 +1260,9 @@ export class PaperSimulationService {
       //   nextTradingDay 순수 함수 재사용). entryPrice=예약 기준가(당일 평가가 — 사이징 근거,
       //   체결가 아님). 체결·Position 생성은 fillPendingEntries 가 '당일 시가'로 수행.
       const entryTradeYmd = nextTradingDay(tradeDate);
+      let planExpiryYmd = entryTradeYmd;
+      for (let i = 0; i < 4; i++) planExpiryYmd = nextTradingDay(planExpiryYmd);
+      const planExpiresAt = new Date(this.kstMidnight(planExpiryYmd).getTime() + 86_400_000);
       const reservation = await this.prisma.paperTrade.create({
         data: {
           corpCode: sig.corpCode,
@@ -1249,6 +1289,7 @@ export class PaperSimulationService {
       //   evaluateOrder 첫 실소비). availableCash 는 선차감 전(잔고 관문 스냅샷). ★섀도 라이트:
       //   실패해도 예약·매매 무영향(서비스 내부 try/catch). PaperTrade 경로·현금·수량 무변경.
       await this.shadowLedger?.recordReservation({
+        portfolioId: pf.id,
         tradingSignalId: sig.id,
         paperTradeId: reservation.id,
         corpCode: sig.corpCode,
@@ -1257,11 +1298,17 @@ export class PaperSimulationService {
         referencePrice: price,
         totalCapital: PaperSimulationService.INITIAL_CAPITAL,
         dailyRealizedPnl,
+        weeklyRealizedPnl,
+        monthlyRealizedPnl,
+        drawdownPct: entryDrawdownPct,
         availableCash,
         openOrderCount: pendingEntries.length + opened,
         todayTradeCount: opened,
+        openPositionCount: openPositions.length,
         buyScore: sig.buyScore ?? undefined,
         killSwitchActive: this.killSwitch?.isActive() ?? false,
+        validFrom: this.kstMidnight(entryTradeYmd),
+        expiresAt: planExpiresAt,
       });
       // DAR-426: 예약 몫(≈ 슬리피지 반영가 × 주문수량 ≤ budget)만큼 가용현금에서 선차감 —
       //   같은 사이클 내 후보 간 이중 배분 방지. SSOT 현금은 체결 시점에만 변한다(체결기 재클램프).
@@ -1522,6 +1569,7 @@ export class PaperSimulationService {
           referencePrice: openPrice,
           dayVolume: dayVol,
           executedAt: new Date(),
+          killSwitchActive: this.killSwitch?.isActive() ?? false,
         });
       }
       // F7: 매수 수수료 포함 실지출 차감 — cash≥0 불변식.

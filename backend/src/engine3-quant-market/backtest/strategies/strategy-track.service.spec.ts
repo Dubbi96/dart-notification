@@ -52,9 +52,18 @@ describe('StrategyTrackService (DAR-404)', () => {
   describe('getComparison', () => {
     it('모바일 계약 — 표본 있는 전략 누적수익 내림차순 ranking.ranking + bestKey + 미산출 후순위', async () => {
       prisma.backtestRun.findMany.mockResolvedValue([
-        runRow({ strategyKey: 'event-edge', summary: { metrics: makeMetrics(12.5, 55, 40), equityCurve: [] } }),
-        runRow({ strategyKey: 'short-momentum', summary: { metrics: makeMetrics(-3.2, 30, 60), equityCurve: [] } }),
-        runRow({ strategyKey: 'conservative-value', summary: { metrics: makeMetrics(8.1, 50, 25), equityCurve: [] } }),
+        runRow({
+          strategyKey: 'event-edge',
+          summary: { metrics: makeMetrics(12.5, 55, 40), equityCurve: [] },
+        }),
+        runRow({
+          strategyKey: 'short-momentum',
+          summary: { metrics: makeMetrics(-3.2, 30, 60), equityCurve: [] },
+        }),
+        runRow({
+          strategyKey: 'conservative-value',
+          summary: { metrics: makeMetrics(8.1, 50, 25), equityCurve: [] },
+        }),
         // aggressive-diversified 없음 → 미산출(표본 0) 후순위
       ]);
 
@@ -93,8 +102,14 @@ describe('StrategyTrackService (DAR-404)', () => {
 
     it('표본 수가 임계 미만이면 lowSample 플래그를 켠다', async () => {
       prisma.backtestRun.findMany.mockResolvedValue([
-        runRow({ strategyKey: 'event-edge', summary: { metrics: makeMetrics(5, 50, LOW_SAMPLE_TRADES - 1), equityCurve: [] } }),
-        runRow({ strategyKey: 'short-momentum', summary: { metrics: makeMetrics(5, 50, LOW_SAMPLE_TRADES), equityCurve: [] } }),
+        runRow({
+          strategyKey: 'event-edge',
+          summary: { metrics: makeMetrics(5, 50, LOW_SAMPLE_TRADES - 1), equityCurve: [] },
+        }),
+        runRow({
+          strategyKey: 'short-momentum',
+          summary: { metrics: makeMetrics(5, 50, LOW_SAMPLE_TRADES), equityCurve: [] },
+        }),
       ]);
       const res = await service.getComparison();
       const ee = res.strategies.find((s) => s.key === 'event-edge')!;
@@ -105,7 +120,10 @@ describe('StrategyTrackService (DAR-404)', () => {
 
     it('표본 있는 전략이 모두 임계 미만이면 ranking.allLowSample 을 켠다', async () => {
       prisma.backtestRun.findMany.mockResolvedValue([
-        runRow({ strategyKey: 'event-edge', summary: { metrics: makeMetrics(5, 50, LOW_SAMPLE_TRADES - 1), equityCurve: [] } }),
+        runRow({
+          strategyKey: 'event-edge',
+          summary: { metrics: makeMetrics(5, 50, LOW_SAMPLE_TRADES - 1), equityCurve: [] },
+        }),
       ]);
       const res = await service.getComparison();
       expect(res.ranking.allLowSample).toBe(true);
@@ -114,8 +132,16 @@ describe('StrategyTrackService (DAR-404)', () => {
 
     it('전략별 가장 최근 완료 run 1개만 사용한다(중복 키 중 첫 값)', async () => {
       prisma.backtestRun.findMany.mockResolvedValue([
-        runRow({ id: 'new', strategyKey: 'event-edge', summary: { metrics: makeMetrics(20, 60, 30), equityCurve: [] } }),
-        runRow({ id: 'old', strategyKey: 'event-edge', summary: { metrics: makeMetrics(1, 10, 30), equityCurve: [] } }),
+        runRow({
+          id: 'new',
+          strategyKey: 'event-edge',
+          summary: { metrics: makeMetrics(20, 60, 30), equityCurve: [] },
+        }),
+        runRow({
+          id: 'old',
+          strategyKey: 'event-edge',
+          summary: { metrics: makeMetrics(1, 10, 30), equityCurve: [] },
+        }),
       ]);
       const res = await service.getComparison();
       const ee = res.strategies.find((s) => s.key === 'event-edge')!;
@@ -134,9 +160,7 @@ describe('StrategyTrackService (DAR-404)', () => {
       ]);
       const res = await service.getComparison();
       const ee = res.strategies.find((s) => s.key === 'event-edge')!;
-      expect(ee.equityCurve).toEqual([
-        { snapshotDate: '2025-06-21', totalValue: 10_000_000, returnPct: 0 },
-      ]);
+      expect(ee.equityCurve).toEqual([{ snapshotDate: '2025-06-21', totalValue: 10_000_000, returnPct: 0 }]);
     });
   });
 
@@ -228,24 +252,27 @@ describe('StrategyTrackService (DAR-404)', () => {
   });
 
   describe('refreshAll', () => {
-    it('4 프리셋을 각각 리플레이 실행하고 직전 트랙을 정리(멱등)', async () => {
-      replay.run.mockImplementation(async (input: any) => ({
-        runId: `run-${input.strategyKey}`,
-        metrics: makeMetrics(5, 50, 30),
-      }) as any);
-      prisma.backtestRun.deleteMany.mockResolvedValue({ count: 1 });
+    it('4 프리셋을 각각 리플레이 실행하고 과거 트랙을 삭제하지 않는다', async () => {
+      replay.run.mockImplementation(
+        async (input: any) =>
+          ({
+            runId: `run-${input.strategyKey}`,
+            metrics: makeMetrics(5, 50, 30),
+          }) as any,
+      );
 
       const res = await service.refreshAll({ startDate: '2025-06-21', endDate: '2026-06-21' });
 
       expect(replay.run).toHaveBeenCalledTimes(4);
       // 전략 키 + 윈도가 그대로 전달되는지
       expect(replay.run).toHaveBeenCalledWith(
-        expect.objectContaining({ strategyKey: 'event-edge', startDate: '2025-06-21', endDate: '2026-06-21' }),
+        expect.objectContaining({
+          strategyKey: 'event-edge',
+          startDate: '2025-06-21',
+          endDate: '2026-06-21',
+        }),
       );
-      // 멱등 정리: 새 run 제외하고 동일 키 삭제
-      expect(prisma.backtestRun.deleteMany).toHaveBeenCalledWith({
-        where: { strategyKey: 'event-edge', id: { not: 'run-event-edge' } },
-      });
+      expect(prisma.backtestRun.deleteMany).not.toHaveBeenCalled();
       expect(res.results).toHaveLength(4);
       expect(res.results.every((r) => r.status === 'COMPLETED')).toBe(true);
     });
@@ -255,10 +282,13 @@ describe('StrategyTrackService (DAR-404)', () => {
         eventTypes: ['EARNINGS_SURPRISE'],
         evaluated: [],
       });
-      replay.run.mockImplementation(async (input: any) => ({
-        runId: `run-${input.strategyKey}`,
-        metrics: makeMetrics(5, 50, 30),
-      }) as any);
+      replay.run.mockImplementation(
+        async (input: any) =>
+          ({
+            runId: `run-${input.strategyKey}`,
+            metrics: makeMetrics(5, 50, 30),
+          }) as any,
+      );
 
       await service.refreshAll({ startDate: '2025-06-21', endDate: '2026-06-21' });
 
@@ -277,16 +307,17 @@ describe('StrategyTrackService (DAR-404)', () => {
 
     it('robust 양-edge 가 없으면 event-edge 는 빈 allowlist 로 진입 0(do-no-harm, DAR-408)', async () => {
       selector.selectPositiveEdgeEventTypes.mockResolvedValue({ eventTypes: [], evaluated: [] });
-      replay.run.mockImplementation(async (input: any) => ({
-        runId: `run-${input.strategyKey}`,
-        metrics: makeMetrics(0, 0, 0),
-      }) as any);
+      replay.run.mockImplementation(
+        async (input: any) =>
+          ({
+            runId: `run-${input.strategyKey}`,
+            metrics: makeMetrics(0, 0, 0),
+          }) as any,
+      );
 
       await service.refreshAll({ startDate: '2025-06-21', endDate: '2026-06-21' });
 
-      const ee = (replay.run.mock.calls.map((c) => c[0] as any)).find(
-        (c) => c.strategyKey === 'event-edge',
-      )!;
+      const ee = replay.run.mock.calls.map((c) => c[0] as any).find((c) => c.strategyKey === 'event-edge')!;
       // 빈 배열 = 허용 0종 → 러너 allowlist 의미상 진입 0(거짓 양 이벤트 매수 0)
       expect(ee.strategy.eventTypes).toEqual([]);
     });

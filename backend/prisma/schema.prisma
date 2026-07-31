@@ -2582,6 +2582,7 @@ model StrategyVersion {
   rules           StrategyVersionRule[]
   activations     VersionActivation[]
   signalDecisions SignalDecision[]
+  aosBacktestRuns AosBacktestRun[]
 
   @@unique([strategyId, version])
   @@index([strategyId, configHash])
@@ -2630,6 +2631,7 @@ model RiskPolicyVersion {
   children        RiskPolicyVersion[] @relation("RiskPolicyVersionParent")
   createdBy       User?               @relation("RiskPolicyVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   signalDecisions SignalDecision[]
+  aosBacktestRuns AosBacktestRun[]
 
   @@index([status, effectiveFrom])
   @@index([configHash])
@@ -2805,6 +2807,7 @@ model SignalDecision {
   riskPolicyVersion    RiskPolicyVersion     @relation(fields: [riskPolicyVersionId], references: [id], onDelete: Restrict)
   legacyTradingSignal  TradingSignal?        @relation(fields: [legacyTradingSignalId], references: [id], onDelete: SetNull)
   traces               RuleEvaluationTrace[]
+  backtestTrades       AosBacktestTrade[]
 
   @@unique([featureSnapshotId, strategyVersionId, riskPolicyVersionId, evaluatorVersion, receiptHash], map: "aos_signal_decisions_replay_key")
   @@index([mode, evaluatedAt])
@@ -2839,4 +2842,151 @@ model RuleEvaluationTrace {
   @@index([ruleKey, status])
   @@index([traceHash])
   @@map("aos_rule_evaluation_traces")
+}
+
+enum AosBacktestRunType {
+  LEGACY_PIT_ADAPTER
+  VERSIONED_EVALUATOR
+}
+
+enum AosBacktestAcceptanceStatus {
+  NOT_EVALUATED
+  PASSED
+  FAILED
+}
+
+enum AosBacktestWindowRole {
+  TRAIN
+  VALIDATION
+  TEST
+}
+
+enum AosBacktestAttributionDimension {
+  RULE
+  REGIME
+  EVENT
+  PERSONA
+}
+
+// AOS A4 결과는 완료 후 한 번만 기록하며 legacy backtest_runs와 분리해 영구 보존한다.
+model AosBacktestRun {
+  id                  String                      @id @default(cuid())
+  replayKey           String                      @unique
+  runType             AosBacktestRunType
+  strategyVersionId   String
+  riskPolicyVersionId String
+  datasetVersion      String
+  datasetHash         String
+  evaluatorVersion    String
+  startDate           DateTime
+  endDate             DateTime
+  initialCapital      Decimal                     @db.Decimal(18, 2)
+  strategyParamsJson  Json
+  costsJson           Json
+  metricsJson         Json
+  sensitivityJson     Json
+  acceptanceStatus    AosBacktestAcceptanceStatus @default(NOT_EVALUATED)
+  receiptHash         String
+  createdAt           DateTime                    @default(now())
+
+  strategyVersion   StrategyVersion                  @relation(fields: [strategyVersionId], references: [id], onDelete: Restrict)
+  riskPolicyVersion RiskPolicyVersion                @relation(fields: [riskPolicyVersionId], references: [id], onDelete: Restrict)
+  windows           AosBacktestWindow[]
+  trades            AosBacktestTrade[]
+  attributions      AosBacktestAttribution[]
+  acceptance        AosBacktestAcceptanceCriterion[]
+
+  @@unique([strategyVersionId, riskPolicyVersionId, datasetHash, receiptHash], map: "aos_backtest_runs_replay_identity")
+  @@index([strategyVersionId, createdAt])
+  @@index([acceptanceStatus, createdAt])
+  @@index([datasetVersion])
+  @@map("aos_backtest_runs")
+}
+
+model AosBacktestWindow {
+  id            String                @id @default(cuid())
+  backtestRunId String
+  sequence      Int
+  role          AosBacktestWindowRole
+  startDate     DateTime
+  endDate       DateTime
+  metricsJson   Json
+  createdAt     DateTime              @default(now())
+
+  backtestRun AosBacktestRun @relation(fields: [backtestRunId], references: [id], onDelete: Restrict)
+
+  @@unique([backtestRunId, sequence])
+  @@index([backtestRunId, role])
+  @@map("aos_backtest_windows")
+}
+
+model AosBacktestTrade {
+  id               String    @id @default(cuid())
+  backtestRunId    String
+  signalDecisionId String?
+  sequence         Int
+  corpCode         String
+  stockCode        String
+  eventType        String
+  persona          String
+  regimeKey        String?
+  entryDate        DateTime
+  entryPrice       Decimal   @db.Decimal(14, 4)
+  entryShares      Int
+  exitDate         DateTime?
+  exitPrice        Decimal?  @db.Decimal(14, 4)
+  exitReason       String?
+  grossPnl         Decimal?  @db.Decimal(18, 2)
+  netPnl           Decimal?  @db.Decimal(18, 2)
+  returnPct        Decimal?  @db.Decimal(12, 6)
+  maePct           Decimal?  @db.Decimal(12, 6)
+  mfePct           Decimal?  @db.Decimal(12, 6)
+  holdDays         Int?
+  commission       Decimal   @db.Decimal(18, 2)
+  tax              Decimal   @db.Decimal(18, 2)
+  slippage         Decimal   @db.Decimal(18, 2)
+  ruleKeys         String[]
+  createdAt        DateTime  @default(now())
+
+  backtestRun    AosBacktestRun  @relation(fields: [backtestRunId], references: [id], onDelete: Restrict)
+  signalDecision SignalDecision? @relation(fields: [signalDecisionId], references: [id], onDelete: Restrict)
+
+  @@unique([backtestRunId, sequence])
+  @@index([stockCode, entryDate])
+  @@index([signalDecisionId])
+  @@index([regimeKey])
+  @@map("aos_backtest_trades")
+}
+
+model AosBacktestAttribution {
+  id            String                          @id @default(cuid())
+  backtestRunId String
+  dimension     AosBacktestAttributionDimension
+  key           String
+  metricsJson   Json
+  createdAt     DateTime                        @default(now())
+
+  backtestRun AosBacktestRun @relation(fields: [backtestRunId], references: [id], onDelete: Restrict)
+
+  @@unique([backtestRunId, dimension, key])
+  @@index([dimension, key])
+  @@map("aos_backtest_attributions")
+}
+
+model AosBacktestAcceptanceCriterion {
+  id            String   @id @default(cuid())
+  backtestRunId String
+  criterionKey  String
+  passed        Boolean
+  actualJson    Json
+  thresholdJson Json
+  evidenceHash  String
+  createdAt     DateTime @default(now())
+
+  backtestRun AosBacktestRun @relation(fields: [backtestRunId], references: [id], onDelete: Restrict)
+
+  @@unique([backtestRunId, criterionKey])
+  @@index([criterionKey, passed])
+  @@index([evidenceHash])
+  @@map("aos_backtest_acceptance_criteria")
 }

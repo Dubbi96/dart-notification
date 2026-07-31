@@ -174,13 +174,8 @@ export class StrategyTrackService {
           strategy: params,
         });
 
-        // 멱등: 직전 동일 전략 run 정리(최신 1개만 유지). 트레이드는 cascade 삭제.
-        const deleted = await this.prisma.backtestRun.deleteMany({
-          where: { strategyKey: preset.key, id: { not: record.runId } },
-        });
-        if (deleted.count > 0) {
-          this.logger.log(`[${preset.key}] 직전 트랙 ${deleted.count}건 정리(최신 유지)`);
-        }
+        // AOS A4: 과거 run/trade는 재현·감사 자산이므로 삭제하지 않는다.
+        // 조회는 기존처럼 최신 완료 run을 선택하고 저장은 append-only로 보존한다.
 
         results.push({
           strategyKey: preset.key,
@@ -235,9 +230,7 @@ export class StrategyTrackService {
     // 카드 표시 순서: 표본 있는 전략 먼저(누적수익 내림차순) → 미산출 전략 후순위.
     const ranking = [...strategies]
       .sort(
-        (a, b) =>
-          Number(b.sampleSize > 0) - Number(a.sampleSize > 0) ||
-          b.cumulativeReturnPct - a.cumulativeReturnPct,
+        (a, b) => Number(b.sampleSize > 0) - Number(a.sampleSize > 0) || b.cumulativeReturnPct - a.cumulativeReturnPct,
       )
       .map((s) => s.key);
 
@@ -363,7 +356,13 @@ export class StrategyTrackService {
 
   private toComparisonEntry(
     preset: StrategyPreset,
-    run?: { id: string; startDate: Date; endDate: Date; summary: unknown; completedAt: Date | null },
+    run?: {
+      id: string;
+      startDate: Date;
+      endDate: Date;
+      summary: unknown;
+      completedAt: Date | null;
+    },
   ): StrategyPerformanceDto {
     const base = {
       key: preset.key,

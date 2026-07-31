@@ -19,7 +19,13 @@ import { MarketCalendarService } from './constraint/market-calendar.service';
 import { PriceConstraintService } from './constraint/price-constraint.service';
 import { InMemoryPriceDataAdapter } from './ports/in-memory-price-data.adapter';
 import { PerformanceCalculatorService } from './metrics/performance-calculator.service';
-import { DisclosureSignal, StrategyParams, BacktestCostParams, DailyPrice, SimulatedTrade } from './ports/backtest.types';
+import {
+  DisclosureSignal,
+  StrategyParams,
+  BacktestCostParams,
+  DailyPrice,
+  SimulatedTrade,
+} from './ports/backtest.types';
 
 // =====================
 // 공통 Fixture 헬퍼
@@ -82,16 +88,19 @@ const REAL_COST: BacktestCostParams = {
 
 // 거래일: 2024-01-08(월)~2024-01-19(금)
 const TRADING_DAYS = [
-  '2024-01-08', '2024-01-09', '2024-01-10',
-  '2024-01-11', '2024-01-12',
-  '2024-01-15', '2024-01-16', '2024-01-17',
-  '2024-01-18', '2024-01-19',
+  '2024-01-08',
+  '2024-01-09',
+  '2024-01-10',
+  '2024-01-11',
+  '2024-01-12',
+  '2024-01-15',
+  '2024-01-16',
+  '2024-01-17',
+  '2024-01-18',
+  '2024-01-19',
 ];
 
-function buildRunner(
-  prices: Record<string, DailyPrice[]>,
-  tradingDays = TRADING_DAYS,
-) {
+function buildRunner(prices: Record<string, DailyPrice[]>, tradingDays = TRADING_DAYS) {
   const calendar = new MarketCalendarService();
   const constraint = new PriceConstraintService();
   const adapter = new InMemoryPriceDataAdapter(prices, tradingDays);
@@ -127,6 +136,8 @@ describe('BacktestRunnerService — 기본 진입/청산', () => {
     const t = trades[0];
     expect(t.entryPrice).toBe(72000);
     expect(t.exitReason).toBe('TAKE_PROFIT');
+    expect(t.maxAdverseExcursionPct).toBeLessThanOrEqual(-1);
+    expect(t.maxFavorableExcursionPct).toBeGreaterThanOrEqual(10);
   });
 
   it('손절 조건(-7%) 도달 시 청산', async () => {
@@ -149,7 +160,10 @@ describe('BacktestRunnerService — 기본 진입/청산', () => {
 
   it('maxHoldDays 초과 시 강제 청산', async () => {
     // maxHoldDays = 3
-    const strategy = { ...DEFAULT_STRATEGY, exitRules: { ...DEFAULT_STRATEGY.exitRules, maxHoldDays: 3 } };
+    const strategy = {
+      ...DEFAULT_STRATEGY,
+      exitRules: { ...DEFAULT_STRATEGY.exitRules, maxHoldDays: 3 },
+    };
     const prices: Record<string, DailyPrice[]> = {
       '005930': [
         makePrice('2024-01-08', 70000, 70000),
@@ -234,9 +248,9 @@ describe('lookahead bias 누수 회귀 테스트', () => {
     adapter.enableLookaheadAudit('2024-01-08');
 
     // 미래 날짜(2024-01-09) 접근 시 에러
-    await expect(
-      adapter.getDailyPrices('005930', '2024-01-08', '2024-01-09'),
-    ).rejects.toThrow(/LOOKAHEAD BIAS DETECTED/);
+    await expect(adapter.getDailyPrices('005930', '2024-01-08', '2024-01-09')).rejects.toThrow(
+      /LOOKAHEAD BIAS DETECTED/,
+    );
   });
 
   it('현재 날짜 데이터 접근은 허용', async () => {
@@ -246,25 +260,18 @@ describe('lookahead bias 누수 회귀 테스트', () => {
     const adapter = new InMemoryPriceDataAdapter(prices, TRADING_DAYS);
     adapter.enableLookaheadAudit('2024-01-08');
 
-    await expect(
-      adapter.getDailyPrices('005930', '2024-01-08', '2024-01-08'),
-    ).resolves.not.toThrow();
+    await expect(adapter.getDailyPrices('005930', '2024-01-08', '2024-01-08')).resolves.not.toThrow();
   });
 
   it('감사 비활성화 시 미래 데이터 접근 허용', async () => {
     const prices: Record<string, DailyPrice[]> = {
-      '005930': [
-        makePrice('2024-01-08', 70000, 70000),
-        makePrice('2024-01-10', 80000, 80000),
-      ],
+      '005930': [makePrice('2024-01-08', 70000, 70000), makePrice('2024-01-10', 80000, 80000)],
     };
     const adapter = new InMemoryPriceDataAdapter(prices, TRADING_DAYS);
     adapter.enableLookaheadAudit('2024-01-08');
     adapter.disableLookaheadAudit();
 
-    await expect(
-      adapter.getDailyPrices('005930', '2024-01-08', '2024-01-10'),
-    ).resolves.toHaveLength(2);
+    await expect(adapter.getDailyPrices('005930', '2024-01-08', '2024-01-10')).resolves.toHaveLength(2);
   });
 });
 
@@ -411,10 +418,7 @@ describe('현실 제약 — 거래정지·상한가', () => {
 
   it('관리종목은 진입하지 않음', async () => {
     const prices: Record<string, DailyPrice[]> = {
-      '005930': [
-        makePrice('2024-01-08', 70000, 70000),
-        makePrice('2024-01-09', 70000, 70000, { isAdminStock: true }),
-      ],
+      '005930': [makePrice('2024-01-08', 70000, 70000), makePrice('2024-01-09', 70000, 70000, { isAdminStock: true })],
     };
 
     const { runner } = buildRunner(prices);
@@ -426,10 +430,7 @@ describe('현실 제약 — 거래정지·상한가', () => {
 
   it('상한가 종목은 진입하지 않음', async () => {
     const prices: Record<string, DailyPrice[]> = {
-      '005930': [
-        makePrice('2024-01-08', 70000, 70000),
-        makePrice('2024-01-09', 70000, 70000, { isLimitUp: true }),
-      ],
+      '005930': [makePrice('2024-01-08', 70000, 70000), makePrice('2024-01-09', 70000, 70000, { isLimitUp: true })],
     };
 
     const { runner } = buildRunner(prices);
@@ -477,10 +478,7 @@ describe('다중 신호 포지션 관리', () => {
 
     const { runner } = buildRunner(prices);
     // 같은 종목 신호 2개
-    const signals: DisclosureSignal[] = [
-      makeSignal({ rcpNo: 'RCP001' }),
-      makeSignal({ rcpNo: 'RCP002' }),
-    ];
+    const signals: DisclosureSignal[] = [makeSignal({ rcpNo: 'RCP001' }), makeSignal({ rcpNo: 'RCP002' })];
 
     const trades = await runner.run(signals, DEFAULT_STRATEGY, ZERO_COST, '2024-01-08', '2024-01-19');
     const corpEntries = trades.filter((t) => t.corpCode === 'A005930');
@@ -566,8 +564,18 @@ describe('PerformanceCalculatorService', () => {
   it('MDD 계산 — 낙폭 반영', () => {
     const trades = [
       makeClosedTrade({ rcpNo: 'RCP001', netPnl: -100000, returnPct: -10 }),
-      makeClosedTrade({ rcpNo: 'RCP002', netPnl: -50000, returnPct: -5, exitDate: new Date('2024-01-15') }),
-      makeClosedTrade({ rcpNo: 'RCP003', netPnl: 200000, returnPct: 20, exitDate: new Date('2024-01-19') }),
+      makeClosedTrade({
+        rcpNo: 'RCP002',
+        netPnl: -50000,
+        returnPct: -5,
+        exitDate: new Date('2024-01-15'),
+      }),
+      makeClosedTrade({
+        rcpNo: 'RCP003',
+        netPnl: 200000,
+        returnPct: 20,
+        exitDate: new Date('2024-01-19'),
+      }),
     ];
 
     const metrics = calc.calculate(trades, 1_000_000, '2024-01-08', '2024-01-19');
@@ -591,9 +599,7 @@ describe('PerformanceCalculatorService', () => {
     );
     const mixedTrades = [
       ...profitTrades.slice(0, 5),
-      ...Array.from({ length: 5 }, (_, i) =>
-        makeClosedTrade({ rcpNo: `LOSS${i}`, netPnl: -50000, returnPct: -5 }),
-      ),
+      ...Array.from({ length: 5 }, (_, i) => makeClosedTrade({ rcpNo: `LOSS${i}`, netPnl: -50000, returnPct: -5 })),
     ];
 
     const stableMetrics = calc.calculate(profitTrades, 1_000_000, '2024-01-08', '2024-06-30');
@@ -710,10 +716,7 @@ describe('실전 투입 기준 6개 판정 (RealWorldGate)', () => {
   });
 
   it('netPositiveAfterCost: 총수익 > 0 통과', () => {
-    const trades = [
-      makeMonthlyTrade('2024-01', 100000, 'A001'),
-      makeMonthlyTrade('2024-02', -20000, 'A002'),
-    ];
+    const trades = [makeMonthlyTrade('2024-01', 100000, 'A001'), makeMonthlyTrade('2024-02', -20000, 'A002')];
     const metrics = calc.calculate(trades, 500_000, '2024-01-01', '2024-02-28');
     expect(metrics.realWorldGate.netPositiveAfterCost).toBe(true);
     expect(metrics.passedGate).toBe(false); // 다른 조건 미충족
@@ -729,26 +732,41 @@ describe('통합 플로우 — 알려진 fixture 시퀀스 → 기대 체결/성
     const prices: Record<string, DailyPrice[]> = {
       '005930': [
         makePrice('2024-01-08', 70000, 70000),
-        makePrice('2024-01-09', 70000, 70000),   // W1 진입
-        makePrice('2024-01-10', 77001, 77001),   // +10% 익절
+        makePrice('2024-01-09', 70000, 70000), // W1 진입
+        makePrice('2024-01-10', 77001, 77001), // +10% 익절
       ],
       '000660': [
         makePrice('2024-01-08', 50000, 50000),
-        makePrice('2024-01-09', 50000, 50000),   // W2 진입
-        makePrice('2024-01-10', 55001, 55001),   // +10% 익절
+        makePrice('2024-01-09', 50000, 50000), // W2 진입
+        makePrice('2024-01-10', 55001, 55001), // +10% 익절
       ],
       '035420': [
         makePrice('2024-01-08', 30000, 30000),
-        makePrice('2024-01-09', 30000, 30000),   // L1 진입
-        makePrice('2024-01-10', 27800, 27800, { low: 27800 }),  // -7.3% 손절
+        makePrice('2024-01-09', 30000, 30000), // L1 진입
+        makePrice('2024-01-10', 27800, 27800, { low: 27800 }), // -7.3% 손절
       ],
     };
 
     const { runner } = buildRunner(prices);
     const signals: DisclosureSignal[] = [
-      makeSignal({ rcpNo: 'W1', corpCode: 'A005930', stockCode: '005930', disclosureAt: new Date('2024-01-08T10:00:00+09:00') }),
-      makeSignal({ rcpNo: 'W2', corpCode: 'A000660', stockCode: '000660', disclosureAt: new Date('2024-01-08T10:00:00+09:00') }),
-      makeSignal({ rcpNo: 'L1', corpCode: 'A035420', stockCode: '035420', disclosureAt: new Date('2024-01-08T10:00:00+09:00') }),
+      makeSignal({
+        rcpNo: 'W1',
+        corpCode: 'A005930',
+        stockCode: '005930',
+        disclosureAt: new Date('2024-01-08T10:00:00+09:00'),
+      }),
+      makeSignal({
+        rcpNo: 'W2',
+        corpCode: 'A000660',
+        stockCode: '000660',
+        disclosureAt: new Date('2024-01-08T10:00:00+09:00'),
+      }),
+      makeSignal({
+        rcpNo: 'L1',
+        corpCode: 'A035420',
+        stockCode: '035420',
+        disclosureAt: new Date('2024-01-08T10:00:00+09:00'),
+      }),
     ];
 
     const strategy = { ...DEFAULT_STRATEGY, maxPositions: 5 };

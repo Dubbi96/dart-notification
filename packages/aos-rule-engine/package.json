@@ -1,0 +1,20 @@
+{
+  "name": "@dart-notification/aos-rule-engine",
+  "version": "0.1.0",
+  "description": "AOS 디바이스·서버 공용 결정적 Rule Evaluator 코어",
+  "private": true,
+  "sideEffects": false,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check:boundaries": "node scripts/check-boundaries.cjs",
+    "test": "node --test test/*.test.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

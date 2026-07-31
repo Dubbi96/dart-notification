@@ -45,6 +45,12 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: 의존성 설치
         run: npm ci --legacy-peer-deps
+      - name: AOS 공유 Rule Evaluator 플랫폼 경계
+        run: node ../packages/aos-rule-engine/scripts/check-boundaries.cjs
+      - name: AOS 공유 Rule Evaluator 빌드·결정론 회귀
+        run: |
+          npx tsc -p ../packages/aos-rule-engine/tsconfig.json
+          node --test ../packages/aos-rule-engine/test/*.test.cjs
       - name: Prisma Client 생성
         run: npx prisma generate
       - name: 타입체크 + 빌드 (tsc 0)

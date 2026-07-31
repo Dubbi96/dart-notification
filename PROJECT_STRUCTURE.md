@@ -4,6 +4,18 @@
 
 ```
 dart-notification/
+├── packages/
+│   └── aos-rule-engine/       # AOS 디바이스·서버 공용 순수 TypeScript Rule Evaluator (runtime dependency 0)
+│       ├── CLAUDE.md          # 플랫폼·AI·Hard Risk 경계
+│       ├── src/
+│       │   ├── canonical-json.ts # byte-stable JSON 정규화·유효성 검사
+│       │   ├── evaluator.ts      # priority/ruleKey 결정 실행·fail-safe trace/receipt
+│       │   ├── index.ts
+│       │   └── types.ts          # Version·FeatureSnapshot·Rule·Receipt 계약
+│       ├── scripts/
+│       │   └── check-boundaries.cjs # 외부 dependency·플랫폼 API·시계·난수 차단
+│       └── test/
+│           └── evaluator.test.cjs   # 결정론·Hard Risk·오류 경계 회귀
 ├── backend/                    # NestJS 백엔드
 │   ├── prisma/
 │   │   ├── migrations/        # DB 마이그레이션 파일 (64개·전부 가산적 — 20260307131416_init ~ 최신 20260717150000_dar532_dart_quota_state. 예: dar514_notification_settings_v2·dar516_tester_event·dar522_price_move_reasoning·dar523_edition_notification_type)
@@ -716,5 +728,5 @@ EXPO_PUBLIC_APP_ENV=development
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-31 (AOS #559 — `aos/governance` 승인·설정 감사 불변 원장 기반 반영) / 이전: AOS #557
-**버전**: 2.8 (AOS ApprovalRecord·ConfigAuditEvent 구조 반영) / 이전 2.7 (AOS RiskPolicyVersion 구조 반영)
+**최종 수정일**: 2026-07-31 (AOS #561 — 디바이스·서버 공용 결정적 Rule Evaluator 구조 반영) / 이전: AOS #559
+**버전**: 2.9 (AOS shared Rule Evaluator 패키지 반영) / 이전 2.8 (AOS ApprovalRecord·ConfigAuditEvent 구조 반영)

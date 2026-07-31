@@ -37,11 +37,14 @@ model User {
   portfolios                  Portfolio[]
   refreshTokens               RefreshToken[]
   proWaitlistEntry            ProWaitlistEntry?
-  createdStrategies           Strategy[]            @relation("StrategyCreatedBy")
-  createdRuleDefinitions      RuleDefinition[]      @relation("RuleDefinitionCreatedBy")
-  createdStrategyVersions     StrategyVersion[]     @relation("StrategyVersionCreatedBy")
-  requestedVersionActivations VersionActivation[]   @relation("VersionActivationRequestedBy")
-  createdRiskPolicyVersions   RiskPolicyVersion[]   @relation("RiskPolicyVersionCreatedBy")
+  createdStrategies           Strategy[]             @relation("StrategyCreatedBy")
+  createdRuleDefinitions      RuleDefinition[]       @relation("RuleDefinitionCreatedBy")
+  createdStrategyVersions     StrategyVersion[]      @relation("StrategyVersionCreatedBy")
+  requestedVersionActivations VersionActivation[]    @relation("VersionActivationRequestedBy")
+  createdRiskPolicyVersions   RiskPolicyVersion[]    @relation("RiskPolicyVersionCreatedBy")
+  aosTradingAccounts          AosTradingAccount[]
+  aosHumanInterventions       AosHumanIntervention[] @relation("AosHumanInterventionActor")
+  aosKillSwitchEvents         AosKillSwitchEvent[]   @relation("AosKillSwitchEventActor")
 
   @@unique([provider, providerId])
   @@index([email])
@@ -2575,14 +2578,16 @@ model StrategyVersion {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  strategy        Strategy              @relation(fields: [strategyId], references: [id], onDelete: Restrict)
-  parent          StrategyVersion?      @relation("StrategyVersionParent", fields: [parentVersionId], references: [id], onDelete: SetNull)
-  children        StrategyVersion[]     @relation("StrategyVersionParent")
-  createdBy       User?                 @relation("StrategyVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  rules           StrategyVersionRule[]
-  activations     VersionActivation[]
-  signalDecisions SignalDecision[]
-  aosBacktestRuns AosBacktestRun[]
+  strategy              Strategy               @relation(fields: [strategyId], references: [id], onDelete: Restrict)
+  parent                StrategyVersion?       @relation("StrategyVersionParent", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  children              StrategyVersion[]      @relation("StrategyVersionParent")
+  createdBy             User?                  @relation("StrategyVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  rules                 StrategyVersionRule[]
+  activations           VersionActivation[]
+  signalDecisions       SignalDecision[]
+  aosBacktestRuns       AosBacktestRun[]
+  aosPortfolioProposals AosPortfolioProposal[]
+  aosOrderPlans         AosOrderPlan[]
 
   @@unique([strategyId, version])
   @@index([strategyId, configHash])
@@ -2627,11 +2632,12 @@ model RiskPolicyVersion {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  parent          RiskPolicyVersion?  @relation("RiskPolicyVersionParent", fields: [parentVersionId], references: [id], onDelete: SetNull)
-  children        RiskPolicyVersion[] @relation("RiskPolicyVersionParent")
-  createdBy       User?               @relation("RiskPolicyVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  signalDecisions SignalDecision[]
-  aosBacktestRuns AosBacktestRun[]
+  parent           RiskPolicyVersion?  @relation("RiskPolicyVersionParent", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  children         RiskPolicyVersion[] @relation("RiskPolicyVersionParent")
+  createdBy        User?               @relation("RiskPolicyVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  signalDecisions  SignalDecision[]
+  aosBacktestRuns  AosBacktestRun[]
+  aosRiskDecisions AosRiskDecision[]
 
   @@index([status, effectiveFrom])
   @@index([configHash])
@@ -2801,13 +2807,16 @@ model SignalDecision {
   evaluatedAt            DateTime
   createdAt              DateTime                   @default(now())
 
-  featureSnapshot      FeatureSnapshot       @relation(fields: [featureSnapshotId], references: [id], onDelete: Restrict)
-  marketRegimeSnapshot MarketRegimeSnapshot? @relation(fields: [marketRegimeSnapshotId], references: [id], onDelete: Restrict)
-  strategyVersion      StrategyVersion       @relation(fields: [strategyVersionId], references: [id], onDelete: Restrict)
-  riskPolicyVersion    RiskPolicyVersion     @relation(fields: [riskPolicyVersionId], references: [id], onDelete: Restrict)
-  legacyTradingSignal  TradingSignal?        @relation(fields: [legacyTradingSignalId], references: [id], onDelete: SetNull)
-  traces               RuleEvaluationTrace[]
-  backtestTrades       AosBacktestTrade[]
+  featureSnapshot       FeatureSnapshot        @relation(fields: [featureSnapshotId], references: [id], onDelete: Restrict)
+  marketRegimeSnapshot  MarketRegimeSnapshot?  @relation(fields: [marketRegimeSnapshotId], references: [id], onDelete: Restrict)
+  strategyVersion       StrategyVersion        @relation(fields: [strategyVersionId], references: [id], onDelete: Restrict)
+  riskPolicyVersion     RiskPolicyVersion      @relation(fields: [riskPolicyVersionId], references: [id], onDelete: Restrict)
+  legacyTradingSignal   TradingSignal?         @relation(fields: [legacyTradingSignalId], references: [id], onDelete: SetNull)
+  traces                RuleEvaluationTrace[]
+  backtestTrades        AosBacktestTrade[]
+  aosPortfolioProposals AosPortfolioProposal[]
+  aosRiskDecisions      AosRiskDecision[]
+  aosOrderPlans         AosOrderPlan[]
 
   @@unique([featureSnapshotId, strategyVersionId, riskPolicyVersionId, evaluatorVersion, receiptHash], map: "aos_signal_decisions_replay_key")
   @@index([mode, evaluatedAt])
@@ -2989,4 +2998,374 @@ model AosBacktestAcceptanceCriterion {
   @@index([criterionKey, passed])
   @@index([evidenceHash])
   @@map("aos_backtest_acceptance_criteria")
+}
+
+// ====================================
+// AOS A5 — Canonical Paper/Shadow execution
+// LIVE는 의도적으로 enum에 존재하지 않는다.
+// ====================================
+
+enum AosTradingAccountType {
+  LONG_TERM
+  SYSTEM_TRADING
+}
+
+enum AosTradingAccountStatus {
+  ACTIVE
+  LOCKED
+  CLOSED
+}
+
+enum AosCapitalBucketType {
+  SPGI
+  VTI
+  SYSTEM_TRADING
+  RESERVE
+}
+
+enum AosExecutionMode {
+  SHADOW
+  PAPER
+}
+
+enum AosRiskAction {
+  ALLOW
+  REDUCE
+  BLOCK
+}
+
+enum AosOrderPlanStatus {
+  PLANNED
+  APPROVED
+  QUEUED
+  EXPIRED
+  CANCELLED
+  EXECUTED
+}
+
+enum AosOrderStatus {
+  NEW
+  SUBMITTED
+  PARTIAL
+  FILLED
+  CANCELLED
+  REJECTED
+}
+
+enum AosOrderSide {
+  BUY
+  SELL
+}
+
+enum AosOrderType {
+  MARKET
+  LIMIT
+  STOP
+  STOP_LIMIT
+}
+
+enum AosReconciliationStatus {
+  MATCHED
+  BROKEN
+}
+
+enum AosReconciliationBreakSeverity {
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+enum AosReconciliationBreakResolution {
+  OPEN
+  EXPLAINED
+  RESOLVED
+}
+
+enum AosHumanInterventionType {
+  APPROVE
+  REJECT
+  PAUSE
+  RESUME
+  BLACKLIST
+  EMERGENCY_EXIT
+  OVERRIDE_REQUEST
+}
+
+enum AosKillSwitchScope {
+  NEW_ENTRY
+  ACCOUNT
+  STRATEGY
+  ALL_ORDERS
+}
+
+enum AosKillSwitchMode {
+  REDUCE_ONLY
+  FULL_HALT
+}
+
+enum AosKillSwitchCommand {
+  ACTIVATE
+  DEACTIVATE_REQUEST
+  ACKNOWLEDGE
+}
+
+model AosTradingAccount {
+  id            String                  @id @default(cuid())
+  userId        String
+  accountType   AosTradingAccountType
+  label         String
+  brokerRefHash String?
+  currency      String                  @default("KRW")
+  status        AosTradingAccountStatus @default(ACTIVE)
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  user               User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  capitalBuckets     AosCapitalBucket[]
+  portfolioProposals AosPortfolioProposal[]
+  orderPlans         AosOrderPlan[]
+  reconciliationRuns AosReconciliationRun[]
+
+  @@unique([userId, accountType, label])
+  @@index([userId, status])
+  @@map("aos_trading_accounts")
+}
+
+model AosCapitalBucket {
+  id                   String               @id @default(cuid())
+  tradingAccountId     String
+  bucketType           AosCapitalBucketType
+  targetWeight         Decimal              @db.Decimal(5, 4)
+  availableAmount      Decimal?             @db.Decimal(18, 2)
+  autoReplenishAllowed Boolean              @default(false)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  tradingAccount AosTradingAccount @relation(fields: [tradingAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([tradingAccountId, bucketType])
+  @@index([bucketType])
+  @@map("aos_capital_buckets")
+}
+
+model AosPortfolioProposal {
+  id                  String           @id @default(cuid())
+  proposalKey         String           @unique
+  signalDecisionId    String
+  strategyVersionId   String
+  tradingAccountId    String
+  mode                AosExecutionMode
+  proposalJson        Json
+  totalExposureBefore Decimal          @db.Decimal(18, 2)
+  totalExposureAfter  Decimal          @db.Decimal(18, 2)
+  resultHash          String
+  createdAt           DateTime         @default(now())
+
+  signalDecision  SignalDecision    @relation(fields: [signalDecisionId], references: [id], onDelete: Restrict)
+  strategyVersion StrategyVersion   @relation(fields: [strategyVersionId], references: [id], onDelete: Restrict)
+  tradingAccount  AosTradingAccount @relation(fields: [tradingAccountId], references: [id], onDelete: Restrict)
+  riskDecisions   AosRiskDecision[]
+  orderPlans      AosOrderPlan[]
+
+  @@index([tradingAccountId, createdAt])
+  @@index([signalDecisionId])
+  @@index([resultHash])
+  @@map("aos_portfolio_proposals")
+}
+
+model AosRiskDecision {
+  id                  String        @id @default(cuid())
+  decisionKey         String        @unique
+  portfolioProposalId String
+  signalDecisionId    String?
+  riskPolicyVersionId String
+  killSwitchEventId   String?
+  action              AosRiskAction
+  violationsJson      Json
+  capitalSnapshotJson Json
+  resultHash          String
+  decidedAt           DateTime
+  createdAt           DateTime      @default(now())
+
+  portfolioProposal AosPortfolioProposal @relation(fields: [portfolioProposalId], references: [id], onDelete: Restrict)
+  signalDecision    SignalDecision?      @relation(fields: [signalDecisionId], references: [id], onDelete: Restrict)
+  riskPolicyVersion RiskPolicyVersion    @relation(fields: [riskPolicyVersionId], references: [id], onDelete: Restrict)
+  killSwitchEvent   AosKillSwitchEvent?  @relation(fields: [killSwitchEventId], references: [id], onDelete: Restrict)
+  orderPlans        AosOrderPlan[]
+
+  @@index([action, decidedAt])
+  @@index([riskPolicyVersionId])
+  @@index([signalDecisionId])
+  @@map("aos_risk_decisions")
+}
+
+model AosOrderPlan {
+  id                  String             @id @default(cuid())
+  portfolioProposalId String
+  signalDecisionId    String
+  riskDecisionId      String
+  strategyVersionId   String
+  tradingAccountId    String
+  mode                AosExecutionMode
+  side                AosOrderSide
+  orderType           AosOrderType
+  plannedQuantity     Int
+  plannedPrice        Decimal?           @db.Decimal(14, 4)
+  stopPrice           Decimal?           @db.Decimal(14, 4)
+  takeProfitPrice     Decimal?           @db.Decimal(14, 4)
+  maxHoldDays         Int?
+  validFrom           DateTime
+  expiresAt           DateTime
+  status              AosOrderPlanStatus @default(PLANNED)
+  idempotencyKey      String             @unique
+  planHash            String
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  portfolioProposal AosPortfolioProposal @relation(fields: [portfolioProposalId], references: [id], onDelete: Restrict)
+  signalDecision    SignalDecision       @relation(fields: [signalDecisionId], references: [id], onDelete: Restrict)
+  riskDecision      AosRiskDecision      @relation(fields: [riskDecisionId], references: [id], onDelete: Restrict)
+  strategyVersion   StrategyVersion      @relation(fields: [strategyVersionId], references: [id], onDelete: Restrict)
+  tradingAccount    AosTradingAccount    @relation(fields: [tradingAccountId], references: [id], onDelete: Restrict)
+  order             AosOrder?
+
+  @@index([tradingAccountId, status, validFrom])
+  @@index([strategyVersionId, status])
+  @@index([expiresAt, status])
+  @@index([planHash])
+  @@map("aos_order_plans")
+}
+
+model AosOrder {
+  id                 String         @id @default(cuid())
+  orderPlanId        String         @unique
+  legacyPaperTradeId String?        @unique
+  status             AosOrderStatus @default(NEW)
+  requestedQuantity  Int
+  brokerOrderId      String?        @unique
+  submittedAt        DateTime?
+  cancelledAt        DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  orderPlan AosOrderPlan   @relation(fields: [orderPlanId], references: [id], onDelete: Restrict)
+  fills     AosOrderFill[]
+
+  @@index([status, createdAt])
+  @@map("aos_orders")
+}
+
+model AosOrderFill {
+  id           String   @id @default(cuid())
+  orderId      String
+  brokerFillId String   @unique
+  quantity     Int
+  price        Decimal  @db.Decimal(14, 4)
+  commission   Decimal  @db.Decimal(18, 2)
+  tax          Decimal  @db.Decimal(18, 2)
+  slippage     Decimal  @db.Decimal(18, 2)
+  filledAt     DateTime
+  receiptHash  String
+  createdAt    DateTime @default(now())
+
+  order AosOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@index([orderId, filledAt])
+  @@index([receiptHash])
+  @@map("aos_order_fills")
+}
+
+model AosReconciliationRun {
+  id                String                  @id @default(cuid())
+  runKey            String                  @unique
+  tradingAccountId  String
+  tradeDate         String
+  status            AosReconciliationStatus
+  expectedJson      Json
+  actualJson        Json
+  unexplainedBreaks Int
+  receiptHash       String
+  completedAt       DateTime
+  createdAt         DateTime                @default(now())
+
+  tradingAccount AosTradingAccount        @relation(fields: [tradingAccountId], references: [id], onDelete: Restrict)
+  breaks         AosReconciliationBreak[]
+
+  @@unique([tradingAccountId, tradeDate])
+  @@index([status, tradeDate])
+  @@index([receiptHash])
+  @@map("aos_reconciliation_runs")
+}
+
+model AosReconciliationBreak {
+  id                       String                           @id @default(cuid())
+  runId                    String
+  breakKey                 String
+  severity                 AosReconciliationBreakSeverity
+  resolution               AosReconciliationBreakResolution @default(OPEN)
+  category                 String
+  expectedJson             Json
+  actualJson               Json
+  explanation              String?
+  resolvedByInterventionId String?
+  evidenceHash             String
+  createdAt                DateTime                         @default(now())
+
+  run                    AosReconciliationRun  @relation(fields: [runId], references: [id], onDelete: Restrict)
+  resolvedByIntervention AosHumanIntervention? @relation(fields: [resolvedByInterventionId], references: [id], onDelete: Restrict)
+
+  @@unique([runId, breakKey])
+  @@index([resolution, severity])
+  @@index([resolvedByInterventionId])
+  @@map("aos_reconciliation_breaks")
+}
+
+model AosHumanIntervention {
+  id            String                   @id @default(cuid())
+  actorUserId   String
+  type          AosHumanInterventionType
+  targetType    String
+  targetId      String
+  reasonCode    String
+  reasonText    String
+  beforeJson    Json
+  afterJson     Json
+  correlationId String                   @unique
+  evidenceHash  String
+  createdAt     DateTime                 @default(now())
+
+  actor          User                     @relation("AosHumanInterventionActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  resolvedBreaks AosReconciliationBreak[]
+
+  @@index([targetType, targetId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@map("aos_human_interventions")
+}
+
+model AosKillSwitchEvent {
+  id                 String               @id @default(cuid())
+  scope              AosKillSwitchScope
+  scopeRefId         String?
+  mode               AosKillSwitchMode
+  command            AosKillSwitchCommand
+  actorUserId        String?
+  actorKind          String
+  reasonCode         String
+  reasonText         String
+  stepUpAuthMethod   String?
+  requestedAt        DateTime
+  acknowledgedAt     DateTime?
+  effectiveAt        DateTime?
+  recoveryPolicyJson Json
+  correlationId      String               @unique
+  receiptHash        String
+  createdAt          DateTime             @default(now())
+
+  actor         User?             @relation("AosKillSwitchEventActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  riskDecisions AosRiskDecision[]
+
+  @@index([scope, mode, effectiveAt])
+  @@index([command, requestedAt])
+  @@index([receiptHash])
+  @@map("aos_kill_switch_events")
 }

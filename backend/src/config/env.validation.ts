@@ -72,6 +72,8 @@ export const envValidationSchema = Joi.object({
   // AOS A3-3: FeatureSnapshot 성공 후 공유 evaluator decision/trace를 병행 기록.
   // legacy parity 관찰 전용이며 기존 signal 실패로 전파되지 않는다.
   AOS_DECISION_DUAL_WRITE_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  // AOS A5: 기존 PaperTrade와 canonical SHADOW/PAPER 원장을 병행 기록. LIVE 기능 없음.
+  AOS_CANONICAL_PAPER_LEDGER_ENABLED: Joi.string().valid('true', 'false').default('false'),
 });
 
 /**

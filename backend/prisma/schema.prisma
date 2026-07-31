@@ -29,14 +29,17 @@ model User {
   notificationsLastSeenAt DateTime?
 
   // Relations
-  devices              UserDevice[]
-  watchLists           WatchList[]
-  savedDisclosures     SavedDisclosure[]
-  notificationSettings NotificationSettings?
-  notificationHistory  NotificationHistory[]
-  portfolios           Portfolio[]
-  refreshTokens        RefreshToken[]
-  proWaitlistEntry     ProWaitlistEntry?
+  devices                 UserDevice[]
+  watchLists              WatchList[]
+  savedDisclosures        SavedDisclosure[]
+  notificationSettings    NotificationSettings?
+  notificationHistory     NotificationHistory[]
+  portfolios              Portfolio[]
+  refreshTokens           RefreshToken[]
+  proWaitlistEntry        ProWaitlistEntry?
+  createdStrategies       Strategy[]            @relation("StrategyCreatedBy")
+  createdRuleDefinitions  RuleDefinition[]      @relation("RuleDefinitionCreatedBy")
+  createdStrategyVersions StrategyVersion[]     @relation("StrategyVersionCreatedBy")
 
   @@unique([provider, providerId])
   @@index([email])
@@ -2412,4 +2415,138 @@ model AccountHighWaterMark {
 
   @@index([track])
   @@map("account_high_water_marks")
+}
+
+// ====================================
+// AOS 전략·룰 버전 관리
+// ====================================
+
+// 전략 정의 자체의 관리 상태. 실제 실행 가능 여부는 StrategyVersion.status가 결정한다.
+enum StrategyDefinitionStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+// 룰이 담당하는 결정 단계. AI 산출물은 입력 특성일 뿐 이 분류의 실행 주체가 아니다.
+enum StrategyRuleCategory {
+  ENTRY
+  EXIT
+  SIZING
+  REGIME
+  PORTFOLIO
+  RISK
+}
+
+// 버전은 검증·백테스트·승인·예약을 거쳐야 ACTIVE가 될 수 있다.
+// DRAFT 이후의 설정 본문은 DB trigger와 도메인 상태 머신 양쪽에서 불변으로 보호한다.
+enum StrategyVersionStatus {
+  DRAFT
+  VALIDATED
+  BACKTESTED
+  APPROVAL_PENDING
+  APPROVED
+  SCHEDULED
+  ACTIVE
+  REJECTED
+  SUPERSEDED
+  ROLLED_BACK
+  RETIRED
+}
+
+model Strategy {
+  id             String                   @id @default(cuid())
+  key            String                   @unique
+  name           String
+  description    String?
+  assetClass     String                   @default("KR_STOCK")
+  direction      String                   @default("LONG_ONLY")
+  horizonMinDays Int                      @default(2)
+  horizonMaxDays Int                      @default(20)
+  status         StrategyDefinitionStatus @default(DRAFT)
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  createdBy User?             @relation("StrategyCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  versions  StrategyVersion[]
+
+  @@index([status])
+  @@index([assetClass])
+  @@map("aos_strategies")
+}
+
+model RuleDefinition {
+  id                  String               @id @default(cuid())
+  key                 String               @unique
+  category            StrategyRuleCategory
+  name                String
+  description         String?
+  implementationKey   String
+  inputSchemaVersion  Int
+  outputSchemaVersion Int
+  isActive            Boolean              @default(true)
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  createdBy    User?                 @relation("RuleDefinitionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  versionRules StrategyVersionRule[]
+
+  @@index([category])
+  @@index([isActive])
+  @@map("aos_rule_definitions")
+}
+
+model StrategyVersion {
+  id         String                @id @default(cuid())
+  strategyId String
+  version    Int
+  status     StrategyVersionStatus @default(DRAFT)
+  configJson Json
+  configHash String
+
+  parentVersionId String?
+  createdByUserId String?
+  validatedAt     DateTime?
+  approvedAt      DateTime?
+  effectiveFrom   DateTime?
+  retiredAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  strategy  Strategy              @relation(fields: [strategyId], references: [id], onDelete: Restrict)
+  parent    StrategyVersion?      @relation("StrategyVersionParent", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  children  StrategyVersion[]     @relation("StrategyVersionParent")
+  createdBy User?                 @relation("StrategyVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  rules     StrategyVersionRule[]
+
+  @@unique([strategyId, version])
+  @@index([strategyId, configHash])
+  @@index([status, effectiveFrom])
+  @@index([parentVersionId])
+  @@map("aos_strategy_versions")
+}
+
+model StrategyVersionRule {
+  id                String   @id @default(cuid())
+  strategyVersionId String
+  ruleDefinitionId  String
+  priority          Int
+  enabled           Boolean  @default(true)
+  weight            Decimal? @db.Decimal(8, 6)
+  parametersJson    Json
+  parameterHash     String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  strategyVersion StrategyVersion @relation(fields: [strategyVersionId], references: [id], onDelete: Cascade)
+  ruleDefinition  RuleDefinition  @relation(fields: [ruleDefinitionId], references: [id], onDelete: Restrict)
+
+  @@unique([strategyVersionId, ruleDefinitionId], map: "aos_version_rules_version_rule_key")
+  @@index([strategyVersionId, priority])
+  @@index([ruleDefinitionId])
+  @@map("aos_strategy_version_rules")
 }

@@ -1,6 +1,6 @@
 # 데이터베이스 스키마 설계
 
-> **SSOT**: 스키마의 단일 진실 원천은 `backend/prisma/schema.prisma`(총 **49개 모델**)이며, **이 문서는 해설**(설계 의도·도메인 맥락·마이그레이션 이력)이다. 필드 정의가 다르면 schema.prisma 가 우선한다.
+> **SSOT**: 스키마의 단일 진실 원천은 `backend/prisma/schema.prisma`(총 **68개 모델**)이며, **이 문서는 해설**(설계 의도·도메인 맥락·마이그레이션 이력)이다. 필드 정의가 다르면 schema.prisma 가 우선한다.
 
 ## 1. ER Diagram
 
@@ -2030,6 +2030,28 @@ rawText 전량 오프로드(§20) 후에도 `disclosure_documents` 가 1.7GB 잔
 | createdAt | DateTime | 생성 시각 |
 
 **인덱스**: `refId`(유니크·멱등) · `corpCode` · `tradeDate` · `rcpNo`. (마이그레이션 `20260717130000_dar522_price_move_reasoning` — AiTaskName enum 값 `price-move-reasoning` 가산 + 테이블 create). **일일 비용 상한 env**: `PRICE_MOVE_REASONING_DAILY_USD_LIMIT`(기본 $0.5) — 전역 `AI_DAILY_LIMIT_USD`/`AI_MONTHLY_LIMIT_USD` 하드백스톱과 중첩. API 해설: `docs/api-specification.md §10.8`.
+
+---
+
+## §44–47. AOS Strategy Versioning — Issue #551
+
+**목적**: 기존 DART·신호·모의운용 경로를 변경하지 않은 채, AOS Rule Engine이 앞으로 사용할 전략·룰 설정을 명시적으로 버전화한다. 이번 마이그레이션은 저장·불변성 기반만 제공하며 실제 전략 생성, 활성화, 주문 연결은 하지 않는다.
+
+| 모델 | 테이블 | 역할과 주요 제약 |
+|---|---|---|
+| `Strategy` | `aos_strategies` | 국내주식 Long Only 전략 정의. `assetClass=KR_STOCK`, `direction=LONG_ONLY`, `2 ≤ horizonMinDays ≤ horizonMaxDays ≤ 20`을 DB CHECK로 강제 |
+| `RuleDefinition` | `aos_rule_definitions` | Entry·Exit·Sizing·Regime·Portfolio·Risk 룰 구현 계약과 입출력 스키마 버전 |
+| `StrategyVersion` | `aos_strategy_versions` | 전략별 증가 버전, 정규화 설정 JSON의 SHA-256 `configHash`, 부모 버전과 검증·승인·효력 시각. `(strategyId, version)` 유니크, `(strategyId, configHash)` 조회 인덱스(동일 설정을 새 버전으로 복원 가능) |
+| `StrategyVersionRule` | `aos_strategy_version_rules` | 특정 전략 버전에 포함된 룰, 실행 우선순위·가중치·파라미터와 SHA-256 `parameterHash` |
+
+상태 수명주기는 `DRAFT → VALIDATED → BACKTESTED → APPROVAL_PENDING → APPROVED → SCHEDULED → ACTIVE`를 정상 경로로 사용한다. 반려 버전은 `REJECTED → DRAFT`, 활성 버전은 `SUPERSEDED | ROLLED_BACK | RETIRED`로 종료한다. 상태 전이 행렬은 순수 도메인 함수로 검증하고, DB trigger는 다음 불변식을 별도로 강제한다.
+
+- 설정 본문(`strategyId`, `version`, `configJson`, `configHash`, `parentVersionId`)은 `DRAFT`를 벗어나면 수정 불가
+- 하위 `StrategyVersionRule`의 추가·수정·삭제는 부모 버전이 `DRAFT`일 때만 가능
+- `DRAFT`가 아닌 버전은 삭제 불가
+- 해시 길이 64, 버전/스키마 버전 양수, 룰 우선순위·가중치 범위 검증
+
+마이그레이션: `20260731010000_aos_strategy_versioning_foundation`(create-only, 운영 반영은 별도 승인 필요).
 
 ---
 

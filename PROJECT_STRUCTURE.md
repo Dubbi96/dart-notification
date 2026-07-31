@@ -57,6 +57,9 @@ dart-notification/
 │   │   │   └── notification-settings.module.ts
 │   │   ├── aos/               # Adaptive Asset Operating System 점진 전환 도메인
 │   │   │   ├── CLAUDE.md      # AI 비주문·Long Only·Backtest→Shadow 가드레일
+│   │   │   ├── risk-policy/
+│   │   │   │   ├── CLAUDE.md  # Hard Risk·Long Only·무레버리지·계좌분리 경계
+│   │   │   │   └── domain/    # RiskPolicyVersion FSM·strict limits schema·canonical hash
 │   │   │   └── strategy-management/
 │   │   │       ├── CLAUDE.md  # 버전·활성화 경계
 │   │   │       ├── domain/    # StrategyVersion FSM·canonical hash·KRX 종가 후 활성화 정책
@@ -710,5 +713,5 @@ EXPO_PUBLIC_APP_ENV=development
 ---
 
 **작성일**: 2026-03-07
-**최종 수정일**: 2026-07-31 (AOS #551/#555 — `aos/strategy-management` 버전·KRX 종가 후 활성화 토대와 마이그레이션 2종 반영) / 이전: 2026-07-17 (DAR-548 정본 전수 동기화 감사)
-**버전**: 2.6 (AOS Strategy Versioning·VersionActivation 구조 반영) / 이전 2.5 (DAR-548 전수 동기화 감사)
+**최종 수정일**: 2026-07-31 (AOS #557 — `aos/risk-policy` 불변 Hard Risk 정책 기반 반영) / 이전: AOS #551/#555
+**버전**: 2.7 (AOS RiskPolicyVersion 구조 반영) / 이전 2.6 (AOS Strategy Versioning·VersionActivation 구조 반영)

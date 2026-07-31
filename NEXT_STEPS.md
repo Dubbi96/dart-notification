@@ -5,8 +5,8 @@
 
 ## 현재 위치
 
-- **AOS Phase A2 진행 중** — #551 Strategy/Rule Versioning 기반 완료, #555 KRX 종가 후 `VersionActivation`·전략별 단일 ACTIVE 구현. 아직 AppModule/Cron/Signal/Order에는 미연결.
-- **다음 A2 순서** — RiskPolicyVersion → ApprovalRecord/RBAC·ConfigAudit → Legacy constants DRAFT snapshot. 이후에만 A3 디바이스 실행 가능 공용 evaluator/Feature Snapshot dual-write로 이동.
+- **AOS Phase A2 진행 중** — #551 Strategy/Rule Versioning, #555 KRX 종가 후 `VersionActivation`·전략별 단일 ACTIVE, #557 `RiskPolicyVersion` 불변 저장 기반까지 구현. 실제 정책 값·seed는 없고 AppModule/Cron/Signal/Risk/Order에는 미연결.
+- **다음 A2 순서** — ApprovalRecord/RBAC·ConfigAudit → Strategy/Risk activation 결합 → Legacy constants DRAFT snapshot. 이후에만 A3 디바이스 실행 가능 공용 evaluator/Feature Snapshot dual-write로 이동.
 - **M0~M9 완료** — 공시 수집(264만건)·파싱·이벤트추출·AI 분석·시세·Event Study·매수신호·포트폴리오/Exit·백테스트, OCI prod 라이브(v0.1.1)
 - **M10 진행 중** — 모의매매 5트랙 운용 누적 중. **졸업 앵커 ≈ 2026-08-05** (구 `≈7/21`은 PM 1주기 계획 §6·게이트 백로그 [DAR-529]로 8/5 대체)
 - **M11 보류 확정** — Track B 재검증 1회차 불합격(BLOCKED 역예측 반전, [baseline §6](./docs/roadmap/buy-logic-validation-baseline.md))
@@ -91,4 +91,4 @@
 - [ ] prod 배포 후 수급 수집 첫 사이클(20:00/21:30/07:40)·델타 폴링 쿼터 소비 실측 관찰
 
 ---
-**마지막 업데이트**: 2026-07-31 (AOS Phase A2 #551/#555 진행 상태·다음 순서 반영) / 이전: 2026-07-17 (DAR-548 정본 전수 동기화 감사)
+**마지막 업데이트**: 2026-07-31 (AOS Phase A2 #557 RiskPolicyVersion 기반·다음 순서 반영) / 이전: AOS #551/#555

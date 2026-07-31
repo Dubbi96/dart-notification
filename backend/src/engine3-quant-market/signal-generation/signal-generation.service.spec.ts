@@ -173,6 +173,48 @@ describe('SignalGenerationService (DAR-41)', () => {
     }
   });
 
+  it('AOS A3-3: snapshot 성공 후 decision parity writer에 동일 입력과 legacy 결과를 전달한다', async () => {
+    const { prisma } = buildPrisma({
+      events: [makeEvent()],
+      pricedStockCodes: ['000100'],
+    });
+    const snapshotWriter = {
+      isEnabled: jest.fn().mockReturnValue(true),
+      tryFreeze: jest.fn().mockImplementation(async (value: any) => ({
+        status: 'WRITTEN',
+        snapshotId: `feature-${value.features.persona}`,
+        contentHash: 'a'.repeat(64),
+      })),
+    };
+    const decisionWriter = {
+      isEnabled: jest.fn().mockReturnValue(true),
+      tryRecord: jest.fn().mockResolvedValue({
+        status: 'WRITTEN',
+        decisionId: 'decision-1',
+        parityStatus: 'MATCH',
+      }),
+    };
+    const service = new SignalGenerationService(
+      prisma as any,
+      new BuySignalService(),
+      undefined,
+      undefined,
+      snapshotWriter as any,
+      decisionWriter as any,
+    );
+
+    await service.generateMissingSignals('MANUAL');
+
+    expect(decisionWriter.tryRecord).toHaveBeenCalledTimes(4);
+    for (const [value] of decisionWriter.tryRecord.mock.calls) {
+      expect(value.featureSnapshotId).toBe(`feature-${value.persona}`);
+      expect(value.featureSnapshotHash).toBe('a'.repeat(64));
+      expect(value.tradingSignalId).toMatch(/^sig_/);
+      expect(value.params.persona).toBe(value.persona);
+      expect(value.legacyResult.persona).toBe(value.persona);
+    }
+  });
+
   it('AOS A3-2: snapshot adapter 예외가 legacy TradingSignal 생성 결과를 중단하지 않는다', async () => {
     const { prisma, created } = buildPrisma({
       events: [makeEvent()],

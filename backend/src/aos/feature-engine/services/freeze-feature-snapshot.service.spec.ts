@@ -8,7 +8,12 @@ describe('FreezeFeatureSnapshotService', () => {
       for (const row of data) rows.add(row.contentHash);
       return { count: 1 };
     });
-    const prisma = { featureSnapshot: { createMany } } as any;
+    const prisma = {
+      featureSnapshot: {
+        createMany,
+        findFirstOrThrow: jest.fn().mockResolvedValue({ id: 'feature-1' }),
+      },
+    } as any;
     const service = new FreezeFeatureSnapshotService(prisma);
     const value = {
       corpCode: '00126380',
@@ -29,5 +34,9 @@ describe('FreezeFeatureSnapshotService', () => {
     expect(createMany).toHaveBeenCalledTimes(2);
     expect((prisma.featureSnapshot as any).update).toBeUndefined();
     expect((prisma.featureSnapshot as any).delete).toBeUndefined();
+
+    await expect(service.freezeWithId(value)).resolves.toEqual(
+      expect.objectContaining({ id: 'feature-1', contentHash: first.contentHash }),
+    );
   });
 });

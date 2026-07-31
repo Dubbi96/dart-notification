@@ -17,6 +17,30 @@ export class FreezeFeatureSnapshotService {
 
   async freeze(input: FeatureSnapshotInput): Promise<CanonicalFeatureSnapshot> {
     const snapshot = buildFeatureSnapshot(input);
+    await this.persist(snapshot);
+    return snapshot;
+  }
+
+  async freezeWithId(
+    input: FeatureSnapshotInput,
+  ): Promise<CanonicalFeatureSnapshot & { readonly id: string }> {
+    const snapshot = buildFeatureSnapshot(input);
+    await this.persist(snapshot);
+    const row = await this.prisma.featureSnapshot.findFirstOrThrow({
+      where: {
+        instrumentType: snapshot.instrumentType,
+        corpCode: snapshot.corpCode,
+        stockCode: snapshot.stockCode,
+        asOf: new Date(snapshot.asOf),
+        schemaVersion: snapshot.schemaVersion,
+        contentHash: snapshot.contentHash,
+      },
+      select: { id: true },
+    });
+    return Object.freeze({ id: row.id, ...snapshot });
+  }
+
+  private async persist(snapshot: CanonicalFeatureSnapshot): Promise<void> {
     await this.prisma.featureSnapshot.createMany({
       data: [
         {
@@ -34,6 +58,5 @@ export class FreezeFeatureSnapshotService {
       ],
       skipDuplicates: true,
     });
-    return snapshot;
   }
 }

@@ -31,6 +31,7 @@ import { deriveBucketKeyForEvent, COARSE_BUCKET_KEY } from '../event-study/utils
 import { SignalAccuracyService } from '../backtest/signal-accuracy.service';
 import { collectMissingFeatureKeys } from '../../aos/feature-engine/domain/feature-snapshot';
 import { FeatureSnapshotDualWriteService } from '../../aos/feature-engine/services/feature-snapshot-dual-write.service';
+import { LegacyDecisionDualWriteService } from '../../aos/decision-engine/services/legacy-decision-dual-write.service';
 import { formatKstDateCompact } from '../../common/time/kst';
 import {
   gradeCoefficientMap,
@@ -257,6 +258,9 @@ export class SignalGenerationService {
     // AOS A3-2: 기본 OFF인 fail-open FeatureSnapshot dual-write.
     @Optional()
     private readonly featureSnapshotDualWrite?: FeatureSnapshotDualWriteService,
+    // AOS A3-3: 공유 evaluator receipt/trace의 기본 OFF, fail-open dual-write.
+    @Optional()
+    private readonly decisionDualWrite?: LegacyDecisionDualWriteService,
   ) {}
 
   /**
@@ -418,6 +422,8 @@ export class SignalGenerationService {
             await this.maybeFreezeFeatureSnapshot({
               event: ev,
               params,
+              result,
+              tradingSignalId: sig.id,
               stockContext: stockCtx,
               marketContext: marketCtx,
               eventStudy: esrStats,
@@ -1318,6 +1324,8 @@ export class SignalGenerationService {
       company: { stockCode: string | null; market: string | null } | null;
     };
     params: BuyScoreParams;
+    result: BuySignalResult;
+    tradingSignalId: string;
     stockContext: StockContext;
     marketContext: MarketContext;
     eventStudy: EventStudyStats | null;
@@ -1372,7 +1380,7 @@ export class SignalGenerationService {
     };
 
     try {
-      await writer.tryFreeze({
+      const frozen = await writer.tryFreeze({
         corpCode: input.event.corpCode,
         stockCode: input.params.stockCode,
         asOf: input.asOf,
@@ -1390,6 +1398,27 @@ export class SignalGenerationService {
           validationErrors: [],
         },
       });
+      if (frozen.status === 'WRITTEN' && this.decisionDualWrite?.isEnabled()) {
+        await this.decisionDualWrite.tryRecord({
+          featureSnapshotId: frozen.snapshotId,
+          featureSnapshotHash: frozen.contentHash,
+          featureSchemaVersion: 'legacy-buy-score.v1',
+          snapshotAsOf: input.asOf,
+          marketSessionDate:
+            input.stockContext.sourceRefs.price?.tradeDate ?? formatKstDateCompact(input.asOf),
+          stockCode: input.params.stockCode,
+          persona: input.params.persona,
+          features: features as any,
+          marketFacts: {
+            kospiChange1d: input.marketContext.kospiChange1d,
+            kosdaqChange1d: input.marketContext.kosdaqChange1d,
+          },
+          marketSourceRefs: input.marketContext.sourceRefs as any,
+          tradingSignalId: input.tradingSignalId,
+          params: input.params,
+          legacyResult: input.result,
+        });
+      }
     } catch (error) {
       // 실제 writer도 fail-open이지만 mock/향후 adapter 오류까지 이중 격리한다.
       const name = error instanceof Error && error.name ? error.name : 'UnknownError';

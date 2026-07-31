@@ -16,6 +16,6 @@
 
 ## 다음 단계 경계
 
-- `ApprovalRecord`와 actor RBAC가 마련된 뒤에만 RiskPolicy activation service를 연결한다.
+- `ApprovalRecord` 불변 원장은 Issue #559에 마련하며, actor RBAC까지 확정된 뒤에만 RiskPolicy activation service를 연결한다.
 - 기존 Engine5 상수는 별도 legacy snapshot Issue에서 DRAFT로 가져오며 자동 ACTIVE로 만들지 않는다.
 - Backtest·Shadow reconciliation 없이 기존 Risk 경로를 새 policy read로 전환하지 않는다.

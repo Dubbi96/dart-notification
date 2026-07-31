@@ -139,6 +139,13 @@ External APIs:
 - **현재 비배선**: 기존 Engine5 상수·`RiskCheck`·Signal/Paper/Order 경로를 읽거나 교체하지 않고, API·Cron·Queue·`AppModule`에도 등록하지 않았다.
 - **후속 활성화**: Risk policy 활성화는 승인 원장과 actor 권한을 마련한 뒤 Strategy activation과 같은 종가 후 단일-`ACTIVE` 원칙으로 결합한다.
 
+#### AOS 제어평면 — Governance (`aos/governance/`)
+- **현재 책임(Phase A2)**: Strategy/Rule/Risk/Activation 설정 변경과 승인 결정을 대상 hash·evidence hash·actor·correlation 기준의 append-only 원장으로 보존한다.
+- **불변 안전성**: 승인·감사 row는 update/delete/truncate할 수 없고, 같은 idempotency key 재시도는 중복 기록하지 않는다.
+- **Actor 보존**: 사용자 actor와 시스템 actor를 명시적으로 구분한다. 사용자 actor는 기록 시 존재를 검증한 뒤 불변 logical reference로 남겨 계정 삭제가 감사 원장을 cascade하거나 수정하지 않게 한다.
+- **정책 미확정 경계**: 승인자 수, 실제 role key, 권한 매트릭스는 선택하지 않는다. 동일 actor 허용 여부도 기본값 없이 호출자가 명시한 separation policy만 판정한다.
+- **현재 비배선**: 기존 Strategy/Risk 상태 전이와 activation 서비스에는 아직 연결하지 않았으며 API·UI·Cron·Queue 등록도 없다.
+
 #### 횡단 모듈 (독립 유지)
 - `auth` · `users` · `companies` · `watchlist` · `notifications` · `notification-settings` · `expo-push` · `devices` · `saved-disclosures` · `prisma` · `common`
 - 모든 엔진이 공유하는 인증·알림·기업 마스터 등을 담당한다.
@@ -548,5 +555,5 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
 ---
 
 **작성일**: 2026-04-18
-**최종 수정일**: 2026-07-31 (AOS Phase A2 Risk Policy 불변 제어평면 반영) / 이전: AOS Strategy Management·디바이스 실행 경계
-**버전**: 2.3 (AOS RiskPolicyVersion 제어평면 추가) / 이전: 2.2 (AOS 점진 전환 제어평면 추가)
+**최종 수정일**: 2026-07-31 (AOS Phase A2 Governance 불변 원장 제어평면 반영) / 이전: AOS Risk Policy
+**버전**: 2.4 (AOS Approval/ConfigAudit 제어평면 추가) / 이전: 2.3 (AOS RiskPolicyVersion 제어평면 추가)

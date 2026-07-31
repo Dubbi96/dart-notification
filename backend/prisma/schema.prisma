@@ -2479,6 +2479,38 @@ enum RiskPolicyVersionStatus {
   RETIRED
 }
 
+enum ApprovalSubjectType {
+  STRATEGY_VERSION
+  RISK_POLICY_VERSION
+  VERSION_ACTIVATION
+}
+
+enum ApprovalDecision {
+  APPROVE
+  REJECT
+}
+
+enum ConfigAuditSubjectType {
+  STRATEGY
+  RULE_DEFINITION
+  STRATEGY_VERSION
+  RISK_POLICY_VERSION
+  VERSION_ACTIVATION
+}
+
+enum ConfigAuditAction {
+  CREATED
+  DRAFT_MUTATED
+  DELETED
+  STATE_TRANSITIONED
+  ACTIVATION_RECORDED
+}
+
+enum ConfigAuditActorType {
+  USER
+  SYSTEM
+}
+
 model Strategy {
   id             String                   @id @default(cuid())
   key            String                   @unique
@@ -2600,6 +2632,52 @@ model RiskPolicyVersion {
   @@index([configHash])
   @@index([parentVersionId])
   @@map("aos_risk_policy_versions")
+}
+
+model ApprovalRecord {
+  id             String              @id @default(cuid())
+  subjectType    ApprovalSubjectType
+  subjectId      String
+  subjectHash    String
+  decision       ApprovalDecision
+  actorUserId    String
+  actorRoleKey   String
+  reason         String
+  evidenceHash   String
+  correlationId  String
+  idempotencyKey String              @unique
+  recordHash     String
+  createdAt      DateTime            @default(now())
+
+  @@unique([correlationId, subjectType, subjectId, subjectHash, actorUserId])
+  @@index([subjectType, subjectId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([correlationId])
+  @@index([recordHash])
+  @@map("aos_approval_records")
+}
+
+model ConfigAuditEvent {
+  id                   String                 @id @default(cuid())
+  subjectType          ConfigAuditSubjectType
+  subjectId            String
+  action               ConfigAuditAction
+  actorType            ConfigAuditActorType
+  actorUserId          String?
+  actorContextSnapshot String
+  reason               String
+  beforeHash           String?
+  afterHash            String?
+  correlationId        String
+  idempotencyKey       String                 @unique
+  eventHash            String
+  createdAt            DateTime               @default(now())
+
+  @@index([subjectType, subjectId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([correlationId])
+  @@index([eventHash])
+  @@map("aos_config_audit_events")
 }
 
 model StrategyVersionRule {

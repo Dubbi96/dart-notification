@@ -23,3 +23,4 @@
 - 기존 신호/모의운용 경로에 연결할 때는 dual-write와 reconciliation을 먼저 마련한다.
 - 새로운 런타임 배선은 별도 Issue와 회귀 테스트 없이는 추가하지 않는다.
 - `strategy-management`와 `risk-policy`는 현재 저장·승격 제어평면이며 기존 Engine5 실행 경로의 설정 원본이 아니다.
+- `governance` 승인·설정 감사 원장은 append-only이며, 승인 인원·역할 정책은 명시적 버전 없이 추정하지 않는다.

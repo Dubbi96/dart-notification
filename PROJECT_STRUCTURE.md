@@ -730,3 +730,22 @@ EXPO_PUBLIC_APP_ENV=development
 **작성일**: 2026-03-07
 **최종 수정일**: 2026-07-31 (AOS #561 — 디바이스·서버 공용 결정적 Rule Evaluator 구조 반영) / 이전: AOS #559
 **버전**: 2.9 (AOS shared Rule Evaluator 패키지 반영) / 이전 2.8 (AOS ApprovalRecord·ConfigAuditEvent 구조 반영)
+
+## AOS Operator Console (Issue #572)
+
+```text
+operator-web/                         # 독립 React/Vite 운영자 웹
+├── src/App.tsx                       # 7개 운영 화면과 Step-up 명령 modal
+├── src/api.ts                        # JWT 조회 + 단일 사용 Step-up 명령 client
+├── src/demo.ts                       # 백엔드 없는 읽기 전용 QA fixture
+└── src/styles.css                    # responsive operator design system
+
+backend/src/aos/operator/
+├── aos-operator.controller.ts        # /api/aos/operator 조회·명령 표면
+├── domain/operator-permissions.ts    # 역할/권한 순수 정책
+├── guards/                           # 운영자 membership + mutation/Step-up gate
+└── services/                         # 조회, command receipt, Step-up 발급·소비
+```
+
+Admin 웹은 모바일 번들에 포함되지 않는다. 모바일은 조회·알림·제한 승인·Kill Switch 중심을
+유지하고, 전략 편집·백테스트 상세·감사 원장은 이 독립 웹이 담당한다.

@@ -7,7 +7,7 @@
  * 하드 게이트로 차단한다.
  *
  * 동작:
- *   1. 대상 워크스페이스(backend|mobile)에서 `npm audit --omit=dev --json` 실행
+ *   1. 대상 워크스페이스(backend|mobile|operator-web)에서 `npm audit --omit=dev --json` 실행
  *   2. 보고서의 advisory(via 객체) 중 severity가 high/critical인 것만 수집(중복 제거)
  *   3. .audit-allowlist.json 의 항목(advisory ID 배열 + 사유)과 대조
  *   4. allowlist 밖의 high/critical advisory가 1건이라도 있으면 exit 1 (CI 실패)
@@ -15,6 +15,7 @@
  * 사용:
  *   node scripts/audit-gate.mjs backend
  *   node scripts/audit-gate.mjs mobile
+ *   node scripts/audit-gate.mjs operator-web
  *   node scripts/audit-gate.mjs backend --json-file <저장된 audit JSON 경로>
  *   node scripts/audit-gate.mjs --self-test
  *
@@ -34,7 +35,7 @@ import assert from 'node:assert/strict';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ALLOWLIST_PATH = join(REPO_ROOT, '.audit-allowlist.json');
 const GATED_SEVERITIES = new Set(['high', 'critical']);
-const WORKSPACES = new Set(['backend', 'mobile']);
+const WORKSPACES = new Set(['backend', 'mobile', 'operator-web']);
 
 /** advisory url(https://github.com/advisories/GHSA-....)에서 GHSA ID를 추출한다. */
 export function ghsaFromUrl(url) {
@@ -338,7 +339,7 @@ function main() {
 
   const workspace = args[0];
   if (!WORKSPACES.has(workspace)) {
-    console.error(`사용법: node scripts/audit-gate.mjs <backend|mobile> [--json-file <path>] | --self-test`);
+    console.error(`사용법: node scripts/audit-gate.mjs <backend|mobile|operator-web> [--json-file <path>] | --self-test`);
     process.exit(2);
   }
   const jsonFileIdx = args.indexOf('--json-file');

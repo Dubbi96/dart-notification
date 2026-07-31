@@ -4,6 +4,9 @@
   "scripts": {
     "db": "docker-compose -f docker-compose.dev.yml up -d",
     "db:down": "docker-compose -f docker-compose.dev.yml down",
-    "db:logs": "docker-compose -f docker-compose.dev.yml logs -f"
+    "db:logs": "docker-compose -f docker-compose.dev.yml logs -f",
+    "operator:dev": "npm --prefix operator-web run dev",
+    "operator:build": "npm --prefix operator-web run build",
+    "operator:test": "npm --prefix operator-web test"
   }
 }

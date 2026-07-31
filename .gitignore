@@ -15,6 +15,7 @@ coverage/
 # Production
 build/
 dist/
+*.tsbuildinfo
 .next/
 out/
 

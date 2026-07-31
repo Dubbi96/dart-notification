@@ -37,14 +37,18 @@ model User {
   portfolios                  Portfolio[]
   refreshTokens               RefreshToken[]
   proWaitlistEntry            ProWaitlistEntry?
-  createdStrategies           Strategy[]             @relation("StrategyCreatedBy")
-  createdRuleDefinitions      RuleDefinition[]       @relation("RuleDefinitionCreatedBy")
-  createdStrategyVersions     StrategyVersion[]      @relation("StrategyVersionCreatedBy")
-  requestedVersionActivations VersionActivation[]    @relation("VersionActivationRequestedBy")
-  createdRiskPolicyVersions   RiskPolicyVersion[]    @relation("RiskPolicyVersionCreatedBy")
+  createdStrategies           Strategy[]                  @relation("StrategyCreatedBy")
+  createdRuleDefinitions      RuleDefinition[]            @relation("RuleDefinitionCreatedBy")
+  createdStrategyVersions     StrategyVersion[]           @relation("StrategyVersionCreatedBy")
+  requestedVersionActivations VersionActivation[]         @relation("VersionActivationRequestedBy")
+  createdRiskPolicyVersions   RiskPolicyVersion[]         @relation("RiskPolicyVersionCreatedBy")
   aosTradingAccounts          AosTradingAccount[]
-  aosHumanInterventions       AosHumanIntervention[] @relation("AosHumanInterventionActor")
-  aosKillSwitchEvents         AosKillSwitchEvent[]   @relation("AosKillSwitchEventActor")
+  aosHumanInterventions       AosHumanIntervention[]      @relation("AosHumanInterventionActor")
+  aosKillSwitchEvents         AosKillSwitchEvent[]        @relation("AosKillSwitchEventActor")
+  aosOperatorMembership       AosOperatorMembership?      @relation("AosOperatorMember")
+  aosOperatorGrants           AosOperatorMembership[]     @relation("AosOperatorGrantedBy")
+  aosStepUpGrants             AosStepUpGrant[]
+  aosOperatorCommands         AosOperatorCommandReceipt[]
 
   @@unique([provider, providerId])
   @@index([email])
@@ -3107,6 +3111,102 @@ enum AosKillSwitchCommand {
   ACTIVATE
   DEACTIVATE_REQUEST
   ACKNOWLEDGE
+}
+
+// ====================================
+// AOS A6 — Operator Web / RBAC / command receipt
+// ====================================
+
+enum AosOperatorRole {
+  VIEWER
+  EDITOR
+  APPROVER
+  RISK_OFFICER
+  ADMIN
+}
+
+enum AosOperatorMembershipStatus {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+
+enum AosStepUpScope {
+  CONFIG_CHANGE
+  APPROVAL
+  EMERGENCY_CONTROL
+  RECONCILIATION
+}
+
+enum AosOperatorCommandStatus {
+  SUCCEEDED
+  REJECTED
+  FAILED
+}
+
+model AosOperatorMembership {
+  id              String                      @id @default(cuid())
+  userId          String                      @unique
+  role            AosOperatorRole
+  status          AosOperatorMembershipStatus @default(ACTIVE)
+  grantedByUserId String?
+  grantedReason   String
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+
+  user      User  @relation("AosOperatorMember", fields: [userId], references: [id], onDelete: Restrict)
+  grantedBy User? @relation("AosOperatorGrantedBy", fields: [grantedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([role, status])
+  @@index([grantedByUserId])
+  @@map("aos_operator_memberships")
+}
+
+// 원문 token/jti는 저장하지 않고 고엔트로피 jti의 SHA-256만 저장한다.
+// 한 grant는 command 한 건에서만 소비되며 DB trigger가 재사용을 차단한다.
+model AosStepUpGrant {
+  id          String         @id @default(cuid())
+  userId      String
+  tokenIdHash String         @unique
+  scope       AosStepUpScope
+  method      String         @default("PASSWORD")
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime       @default(now())
+
+  user    User                       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  command AosOperatorCommandReceipt?
+
+  @@index([userId, expiresAt])
+  @@index([scope, consumedAt])
+  @@map("aos_step_up_grants")
+}
+
+model AosOperatorCommandReceipt {
+  id            String                   @id @default(cuid())
+  actorUserId   String
+  actorRole     AosOperatorRole
+  stepUpGrantId String                   @unique
+  commandType   String
+  targetType    String
+  targetId      String
+  reason        String
+  requestJson   Json
+  resultJson    Json
+  status        AosOperatorCommandStatus
+  correlationId String                   @unique
+  requestHash   String
+  receiptHash   String
+  createdAt     DateTime                 @default(now())
+
+  actor       User           @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+  stepUpGrant AosStepUpGrant @relation(fields: [stepUpGrantId], references: [id], onDelete: Restrict)
+
+  @@index([actorUserId, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([status, createdAt])
+  @@index([receiptHash])
+  @@map("aos_operator_command_receipts")
 }
 
 model AosTradingAccount {

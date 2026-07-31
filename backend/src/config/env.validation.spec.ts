@@ -75,6 +75,8 @@ describe('envValidationSchema (DAR-253)', () => {
     expect(value.AOS_FEATURE_SNAPSHOT_DUAL_WRITE_ENABLED).toBe('false');
     expect(value.AOS_DECISION_DUAL_WRITE_ENABLED).toBe('false');
     expect(value.AOS_CANONICAL_PAPER_LEDGER_ENABLED).toBe('false');
+    expect(value.AOS_OPERATOR_MUTATIONS_ENABLED).toBe('false');
+    expect(value.AOS_OPERATOR_BOOTSTRAP_EMAILS).toBe('');
   });
 
   it('allowUnknown → 스키마 미선언 env(KIS_*/PAPER_SIM_* 등)는 통과시킨다', () => {
@@ -138,5 +140,20 @@ describe('envValidationSchema (DAR-253)', () => {
         envValidationOptions,
       ).error?.message,
     ).toContain('AOS_CANONICAL_PAPER_LEDGER_ENABLED');
+  });
+
+  it('Operator mutation은 기본 OFF이며 명시적 true/false만 허용한다', () => {
+    expect(
+      envValidationSchema.validate(
+        { ...validEnv, AOS_OPERATOR_MUTATIONS_ENABLED: 'true' },
+        envValidationOptions,
+      ).error,
+    ).toBeUndefined();
+    expect(
+      envValidationSchema.validate(
+        { ...validEnv, AOS_OPERATOR_MUTATIONS_ENABLED: 'enabled' },
+        envValidationOptions,
+      ).error?.message,
+    ).toContain('AOS_OPERATOR_MUTATIONS_ENABLED');
   });
 });

@@ -32,6 +32,7 @@ import { PersonaPhilosophyFusionModule } from './engine2-ai-analyst/philosophy/f
 import { QuantMarketModule } from './engine3-quant-market/quant-market.module';
 import { PortfolioExitModule } from './engine4-portfolio-exit/portfolio-exit.module';
 import { TradingRiskModule } from './engine5-trading-risk/trading-risk.module';
+import { AosOperatorModule } from './aos/operator/aos-operator.module';
 import { PaperSimulationModule } from './engine5-trading-risk/paper-simulation/paper-simulation.module';
 import { GraduationModule } from './engine5-trading-risk/simulation/graduation.module';
 import { PhilosophyStyleSimulationModule } from './engine5-trading-risk/paper-simulation/philosophy-style-simulation.module';
@@ -44,10 +45,7 @@ import { StatusModule } from './status/status.module';
 import { OpsModule } from './ops/ops.module';
 import { StorageOpsModule } from './storage-ops/storage-ops.module';
 import { WebSurfaceModule } from './web-surface/web-surface.module';
-import {
-  envValidationSchema,
-  envValidationOptions,
-} from './config/env.validation';
+import { envValidationSchema, envValidationOptions } from './config/env.validation';
 
 @Module({
   imports: [
@@ -131,6 +129,9 @@ import {
     // Engine 5 — Trading Risk / Paper Trade (M10)
     TradingRiskModule,
 
+    // AOS A6 — 별도 Operator Web 전용 RBAC/read model/통제 API. mutation 기본 OFF.
+    AosOperatorModule,
+
     // Engine 5 — 일일 모의운용 오케스트레이터 (M10 모의운용, DAR-40)
     PaperSimulationModule,
 
@@ -161,7 +162,6 @@ import {
     WebSurfaceModule,
     // 횡단 — 공개 시스템 무결성 /status (비인증·운영 사실만, W11/W12)
     StatusModule,
-
   ],
   providers: [
     {

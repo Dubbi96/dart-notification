@@ -29,7 +29,7 @@
 | 7 | BE | fast-xml-parser | high | 1115339(GHSA-8gc5-j5rx-235r) | 숫자 엔티티 폭발 한도 우회 | 직접 의존(^5.4.2, DART/KRX XML 파싱) | 5.5.6+ (semver 범위 내) | 수용(단기) — 입력이 공공 API 응답으로 한정. **우선순위 1 업그레이드 대상** | fxp ≥5.5.7 업그레이드 PR |
 | 8 | BE | fast-xml-builder | high | 1118965(GHSA-5wm8-gmm8-39j9) | 속성값 따옴표 우회 | 전이(≤1.1.6) | 최신판 | 수용 — XML 생성(빌드) 미사용, 파싱만 사용 | 전이 갱신 PR |
 | 9 | MO | picomatch | high | 1115552(GHSA-c2c7-rcm5-vvqj) | extglob ReDoS | Expo/Metro 전이(≤2.3.1) | 2.3.2 (전이) | 수용 — 번들타임 도구, 앱 런타임 번들 미포함 | Expo SDK 업그레이드 |
-| 10 | MO | shell-quote | **critical** | 1120422(GHSA-w7jw-789q-3m8p) | `quote()` 개행 미이스케이프 | RN CLI/Metro 전이(1.1.0–1.8.3) | 1.8.4 (전이) | 수용 — 개발 도구 경로에서만 실행, 입력이 신뢰된 프로젝트 설정으로 한정, 앱 런타임 미포함 | Expo SDK/RN 업그레이드 |
+| 10 | MO | shell-quote | **critical** | 1120422(GHSA-w7jw-789q-3m8p) | `quote()` 개행 미이스케이프 | RN CLI/Metro 전이(1.1.0–1.8.3) | 1.10.0 override | **해소(2026-07-31, #553)** — allowlist 항목 제거, 신규 1123944도 동시 해소 | 완료 |
 | 11 | MO | ws | high | 1123260(GHSA-96hv-2xvq-fx4p) | 단편 프레임 메모리 고갈 DoS | Metro 개발 서버(HMR) 전이(7.0.0–7.5.10) | 7.5.11 (전이) | 수용 — 로컬 개발 서버 전용, 앱 런타임 미포함 | Expo SDK 업그레이드 |
 
 ## 판정 원칙

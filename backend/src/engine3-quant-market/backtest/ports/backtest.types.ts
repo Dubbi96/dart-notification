@@ -4,7 +4,7 @@
  */
 
 export interface DailyPrice {
-  date: string;        // YYYY-MM-DD
+  date: string; // YYYY-MM-DD
   open: number;
   high: number;
   low: number;
@@ -22,8 +22,12 @@ export interface DisclosureSignal {
   stockCode: string;
   eventType: string;
   persona: string;
-  disclosureAt: Date;   // 공시 접수 시각
+  disclosureAt: Date; // 공시 접수 시각
   buyScore: number;
+  /** AOS evaluator 기반 신호일 때 고정된 결정·귀속 정보. Legacy 신호는 생략한다. */
+  signalDecisionId?: string;
+  regimeKey?: string;
+  passedRuleKeys?: string[];
   exitRules?: {
     takeProfitPct?: number;
     stopLossPct?: number;
@@ -36,7 +40,7 @@ export interface StrategyParams {
   eventTypes?: string[];
   personas?: string[];
   minBuyScore: number;
-  entryRule: 'NEXT_OPEN';  // lookahead bias 방지: 다음 거래일 시가 진입만 허용
+  entryRule: 'NEXT_OPEN'; // lookahead bias 방지: 다음 거래일 시가 진입만 허용
   exitRules: {
     takeProfitPct: number;
     stopLossPct: number;
@@ -58,9 +62,9 @@ export interface StrategyParams {
 }
 
 export interface BacktestCostParams {
-  commissionRate: number;  // 매수·매도 각각 적용 (예: 0.00015)
-  taxRate: number;         // 매도 시만 (예: 0.0018)
-  slippagePct: number;     // 진입·청산 각각 (예: 0.003)
+  commissionRate: number; // 매수·매도 각각 적용 (예: 0.00015)
+  taxRate: number; // 매도 시만 (예: 0.0018)
+  slippagePct: number; // 진입·청산 각각 (예: 0.003)
 }
 
 export interface SimulatedTrade {
@@ -70,6 +74,9 @@ export interface SimulatedTrade {
   eventType: string;
   persona: string;
   buyScore: number;
+  signalDecisionId?: string;
+  regimeKey?: string;
+  passedRuleKeys?: string[];
 
   disclosureAt: Date;
   isAfterMarket: boolean;
@@ -92,6 +99,9 @@ export interface SimulatedTrade {
   netPnl?: number;
   returnPct?: number;
   holdDays?: number;
+  /** 진입 이후 일봉 저가/고가 기준 최대 불리·유리 변동률. */
+  maxAdverseExcursionPct?: number;
+  maxFavorableExcursionPct?: number;
 
   wasLimitUp: boolean;
   wasLimitDown: boolean;
@@ -115,17 +125,17 @@ export type ExitReasonType =
   | 'DELISTED';
 
 export interface PerformanceMetrics {
-  totalReturn: number;          // %
-  annualizedReturn: number;     // %
-  winRate: number;              // % — 승률 = 순손익>0 거래 / 전체 청산 거래(본전 0원은 분모에만 포함)
-  avgWin: number;               // %
-  avgLoss: number;              // % — 순손익<0 거래 평균(본전 제외)
+  totalReturn: number; // %
+  annualizedReturn: number; // %
+  winRate: number; // % — 승률 = 순손익>0 거래 / 전체 청산 거래(본전 0원은 분모에만 포함)
+  avgWin: number; // %
+  avgLoss: number; // % — 순손익<0 거래 평균(본전 제외)
   profitFactor: number;
-  mdd: number;                  // % (음수)
+  mdd: number; // % (음수)
   sharpe: number;
   totalTrades: number;
-  wonTrades: number;            // 순손익 > 0
-  lostTrades: number;           // 순손익 < 0 (본전 0원은 승·패 어느 쪽도 아님 — engine5 성적표와 통일)
+  wonTrades: number; // 순손익 > 0
+  lostTrades: number; // 순손익 < 0 (본전 0원은 승·패 어느 쪽도 아님 — engine5 성적표와 통일)
   avgHoldDays: number;
   monthlyReturns: Record<string, number>;
   byEventType: Record<string, EventTypeMetrics>;
@@ -154,10 +164,10 @@ export interface WorstTrade {
 }
 
 export interface RealWorldGate {
-  allMarketConditions: boolean;   // 상승·하락·횡보 3구간 모두 포함
-  netPositiveAfterCost: boolean;  // 비용 반영 후 수익 > 0
-  diversified: boolean;           // 한두 종목 의존 아님
-  sufficientSamples: boolean;     // 이벤트별 표본 충분 (≥10)
-  mddAcceptable: boolean;         // MDD ≤ -15%
+  allMarketConditions: boolean; // 상승·하락·횡보 3구간 모두 포함
+  netPositiveAfterCost: boolean; // 비용 반영 후 수익 > 0
+  diversified: boolean; // 한두 종목 의존 아님
+  sufficientSamples: boolean; // 이벤트별 표본 충분 (≥10)
+  mddAcceptable: boolean; // MDD ≤ -15%
   recentPeriodConsistent: boolean; // 최근 구간도 일관성
 }

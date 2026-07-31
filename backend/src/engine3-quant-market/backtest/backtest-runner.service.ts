@@ -117,9 +117,7 @@ export class BacktestRunnerService {
         // 되어 영속 시 Prisma 가 거부(500)된다 → 신호를 graceful 하게 제외하고 로그만 남긴다.
         const rawEntryPrice = dayPrice.open;
         if (!Number.isFinite(rawEntryPrice) || rawEntryPrice <= 0) {
-          this.logger.debug(
-            `진입 불가 [${signal.stockCode}] ${day}: 시가 결측/이상치(open=${rawEntryPrice})`,
-          );
+          this.logger.debug(`진입 불가 [${signal.stockCode}] ${day}: 시가 결측/이상치(open=${rawEntryPrice})`);
           continue;
         }
 
@@ -131,12 +129,7 @@ export class BacktestRunnerService {
 
         // 포지션 크기 결정 (사이징 룰 반영 — EQUAL_WEIGHT / SCORE_WEIGHT)
         const capital = strategy.initialCapital;
-        const positionSize = resolvePositionBudget(
-          capital,
-          strategy.maxPositions,
-          strategy.sizeRule,
-          signal.buyScore,
-        );
+        const positionSize = resolvePositionBudget(capital, strategy.maxPositions, strategy.sizeRule, signal.buyScore);
         const rawShares = Math.floor(positionSize / entryPrice);
         if (rawShares <= 0) continue;
 
@@ -155,6 +148,9 @@ export class BacktestRunnerService {
           eventType: signal.eventType,
           persona: signal.persona,
           buyScore: signal.buyScore,
+          signalDecisionId: signal.signalDecisionId,
+          regimeKey: signal.regimeKey,
+          passedRuleKeys: signal.passedRuleKeys ? [...signal.passedRuleKeys] : undefined,
 
           disclosureAt: signal.disclosureAt,
           isAfterMarket,
@@ -174,6 +170,8 @@ export class BacktestRunnerService {
           isPartialFill: fillRate < 1,
           fillRate: fillRate < 1 ? fillRate : undefined,
           lowLiquidityFlag: this.constraint.isLowLiquidity(dayPrice),
+          maxAdverseExcursionPct: Math.min(0, ((dayPrice.low - entryPrice) / entryPrice) * 100),
+          maxFavorableExcursionPct: Math.max(0, ((dayPrice.high - entryPrice) / entryPrice) * 100),
         };
 
         activePositions.set(signal.corpCode, trade);
@@ -193,6 +191,18 @@ export class BacktestRunnerService {
         const holdDays = this.calendar.daysBetween(entryDateStr, day);
         const currentPrice = dayPrice.close;
         const returnPct = ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100;
+        if (Number.isFinite(dayPrice.low) && dayPrice.low > 0) {
+          trade.maxAdverseExcursionPct = Math.min(
+            trade.maxAdverseExcursionPct ?? 0,
+            ((dayPrice.low - trade.entryPrice) / trade.entryPrice) * 100,
+          );
+        }
+        if (Number.isFinite(dayPrice.high) && dayPrice.high > 0) {
+          trade.maxFavorableExcursionPct = Math.max(
+            trade.maxFavorableExcursionPct ?? 0,
+            ((dayPrice.high - trade.entryPrice) / trade.entryPrice) * 100,
+          );
+        }
 
         let exitReason: ExitReasonType | undefined;
 
@@ -215,8 +225,7 @@ export class BacktestRunnerService {
         if (!exitReason) continue;
 
         // 청산 처리
-        const exitPriceRaw =
-          exitReason === 'STOP_LOSS' ? dayPrice.low : currentPrice;
+        const exitPriceRaw = exitReason === 'STOP_LOSS' ? dayPrice.low : currentPrice;
         const exitPrice = this.constraint.applySlippage(exitPriceRaw, costs.slippagePct, false);
         const exitShares = trade.entryShares;
         const exitValue = exitShares * exitPrice;
@@ -344,11 +353,7 @@ export class BacktestRunnerService {
   }
 
   /** 트레일링 스탑 판정 — 최고가 대비 하락률 */
-  private isTrailingStopTriggered(
-    trade: SimulatedTrade,
-    currentLow: number,
-    trailingStopPct: number,
-  ): boolean {
+  private isTrailingStopTriggered(trade: SimulatedTrade, currentLow: number, trailingStopPct: number): boolean {
     // 단순 구현: 진입가 대비 하락폭
     const dropFromEntry = ((currentLow - trade.entryPrice) / trade.entryPrice) * 100;
     return dropFromEntry <= trailingStopPct;

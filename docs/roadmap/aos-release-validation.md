@@ -37,11 +37,13 @@ GitHub Release `aos-v1.0.3-build5`에도 같은 APK를 첨부해 EAS 임시 URL 
 
 ## Deployment boundary
 
-이 릴리스는 설치 가능한 내부 검수 APK와 Admin production build를 완성한다. 다음 작업은 포함하지 않았다.
+이 릴리스는 설치 가능한 내부 검수 APK와 Admin production build를 완성한다. 사용자 승인에 따라
+2026-08-01 운영 DB에 AOS migration 10개를 적용했고, 적용 전 S3 전체 백업과 적용 후 Prisma/HTTP health를
+확인했다. 다음 작업은 포함하지 않았다.
 
-- OCI production 배포와 `prisma migrate deploy`
+- OCI Backend 애플리케이션 이미지 배포
 - Admin hosting, 운영 계정/SSO/2FA/CORS/CSP 확정
 - 송금, 환전, 실브로커 주문 또는 A9 LIVE adapter
 
-따라서 A1–A8 구현은 `main`과 APK에 들어가지만, 새 DB migration과 API가 운영 서버에 배포되기 전에는
-운영 APK의 신규 서버 의존 기능이 활성화되지 않는다. 운영 반영은 AGENTS.md의 휴먼 승인 이후에만 수행한다.
+따라서 DB schema는 준비됐지만 A1–A8 Backend API는 아직 운영 컨테이너에 배포되지 않았다. 운영 APK의
+신규 서버 의존 기능은 Backend 이미지 배포 승인을 받아 반영하기 전까지 활성화되지 않는다.

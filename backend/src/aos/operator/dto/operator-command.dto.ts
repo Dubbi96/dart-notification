@@ -5,12 +5,14 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsISO8601,
   IsNotEmpty,
   IsNumber,
   IsObject,
   IsOptional,
   IsString,
   MaxLength,
+  Max,
   Min,
   MinLength,
   ValidateNested,
@@ -119,3 +121,49 @@ export class ResolveBreakDto extends ReasonedCommandDto {
   @MaxLength(64)
   reasonCode!: string;
 }
+
+export class CreateAllocationPolicyDto extends ReasonedCommandDto {
+  @IsObject()
+  profitPeriodPolicyJson!: Record<string, unknown>;
+
+  @IsObject()
+  taxReservePolicyJson!: Record<string, unknown>;
+
+  @IsObject()
+  fxPolicyJson!: Record<string, unknown>;
+
+  @IsObject()
+  minimumAmountPolicyJson!: Record<string, unknown>;
+}
+
+export class CreateAllocationPlanDto extends ReasonedCommandDto {
+  @IsString()
+  @IsNotEmpty()
+  tradingAccountId!: string;
+
+  @IsISO8601({ strict: true })
+  periodStart!: string;
+
+  @IsISO8601({ strict: true })
+  periodEnd!: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(100_000_000_000_000)
+  grossRealizedProfitKrw!: number;
+
+  @IsInt()
+  @Min(0)
+  @Max(100_000_000_000_000)
+  taxReserveKrw!: number;
+
+  @IsInt()
+  @Min(0)
+  @Max(100_000_000_000_000)
+  fxReserveKrw!: number;
+
+  @IsObject()
+  sourceEvidenceJson!: Record<string, unknown>;
+}
+
+export class ReissueAllocationPlanDto extends CreateAllocationPlanDto {}

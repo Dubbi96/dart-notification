@@ -4,10 +4,13 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import {
   ApprovalDecisionDto,
+  CreateAllocationPlanDto,
+  CreateAllocationPolicyDto,
   CreateDraftVersionDto,
   KillSwitchCommandDto,
   ReasonedCommandDto,
   ResolveBreakDto,
+  ReissueAllocationPlanDto,
   ScheduleVersionDto,
   StepUpDto,
   UpdateDraftVersionDto,
@@ -25,6 +28,7 @@ import {
 import { AosOperatorCommandService } from './services/aos-operator-command.service';
 import { AosOperatorQueryService } from './services/aos-operator-query.service';
 import { AosStepUpService } from './services/aos-step-up.service';
+import { AosAllocationService } from '../allocation/services/aos-allocation.service';
 
 interface OperatorRequest {
   user: { id: string; email: string };
@@ -41,6 +45,7 @@ export class AosOperatorController {
     private readonly queryService: AosOperatorQueryService,
     private readonly commandService: AosOperatorCommandService,
     private readonly stepUpService: AosStepUpService,
+    private readonly allocationService: AosAllocationService,
   ) {}
 
   @Get('bootstrap')
@@ -76,6 +81,11 @@ export class AosOperatorController {
   @Get('health')
   async health(@Query('limit') limit?: string) {
     return ok(await this.queryService.health(number(limit)));
+  }
+
+  @Get('allocation')
+  async allocation() {
+    return ok(await this.allocationService.operatorSnapshot());
   }
 
   @Get('replay/decisions/:id')
@@ -212,6 +222,93 @@ export class AosOperatorController {
   ) {
     return ok(
       await this.commandService.resolveBreak(id, dto, request.operator, request.consumedStepUp),
+    );
+  }
+
+  @Post('allocation/policies')
+  @RequireOperatorPermissions('CONFIG_WRITE')
+  @RequireStepUp('CONFIG_CHANGE')
+  @UseGuards(OperatorStepUpGuard)
+  async createAllocationPolicy(
+    @Req() request: OperatorRequest,
+    @Body() dto: CreateAllocationPolicyDto,
+  ) {
+    return ok(
+      await this.allocationService.createPolicy(dto, request.operator, request.consumedStepUp),
+    );
+  }
+
+  @Post('allocation/policies/:id/activate')
+  @RequireOperatorPermissions('CONFIG_APPROVE')
+  @RequireStepUp('APPROVAL')
+  @UseGuards(OperatorStepUpGuard)
+  async activateAllocationPolicy(
+    @Param('id') id: string,
+    @Req() request: OperatorRequest,
+    @Body() dto: ReasonedCommandDto,
+  ) {
+    return ok(
+      await this.allocationService.activatePolicy(
+        id,
+        dto,
+        request.operator,
+        request.consumedStepUp,
+      ),
+    );
+  }
+
+  @Post('allocation/plans')
+  @RequireOperatorPermissions('CONFIG_WRITE')
+  @RequireStepUp('CONFIG_CHANGE')
+  @UseGuards(OperatorStepUpGuard)
+  async createAllocationPlan(
+    @Req() request: OperatorRequest,
+    @Body() dto: CreateAllocationPlanDto,
+  ) {
+    return ok(
+      await this.allocationService.createPlan(dto, request.operator, request.consumedStepUp),
+    );
+  }
+
+  @Post('allocation/plans/:id/approve')
+  @RequireOperatorPermissions('CONFIG_APPROVE')
+  @RequireStepUp('APPROVAL')
+  @UseGuards(OperatorStepUpGuard)
+  async approveAllocationPlan(
+    @Param('id') id: string,
+    @Req() request: OperatorRequest,
+    @Body() dto: ReasonedCommandDto,
+  ) {
+    return ok(
+      await this.allocationService.approvePlan(id, dto, request.operator, request.consumedStepUp),
+    );
+  }
+
+  @Post('allocation/plans/:id/cancel')
+  @RequireOperatorPermissions('CONFIG_APPROVE')
+  @RequireStepUp('APPROVAL')
+  @UseGuards(OperatorStepUpGuard)
+  async cancelAllocationPlan(
+    @Param('id') id: string,
+    @Req() request: OperatorRequest,
+    @Body() dto: ReasonedCommandDto,
+  ) {
+    return ok(
+      await this.allocationService.cancelPlan(id, dto, request.operator, request.consumedStepUp),
+    );
+  }
+
+  @Post('allocation/plans/:id/reissue')
+  @RequireOperatorPermissions('CONFIG_WRITE')
+  @RequireStepUp('CONFIG_CHANGE')
+  @UseGuards(OperatorStepUpGuard)
+  async reissueAllocationPlan(
+    @Param('id') id: string,
+    @Req() request: OperatorRequest,
+    @Body() dto: ReissueAllocationPlanDto,
+  ) {
+    return ok(
+      await this.allocationService.reissuePlan(id, dto, request.operator, request.consumedStepUp),
     );
   }
 }

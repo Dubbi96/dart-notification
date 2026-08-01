@@ -1,6 +1,7 @@
 # API 명세서
 
 ## 목차
+
 1. [인증 (Auth)](#1-인증-auth) — 카카오 OAuth(정식) + 이메일(dev/test)
 2. [사용자 (Users)](#2-사용자-users)
 3. [디바이스 (Devices)](#3-디바이스-devices)
@@ -35,6 +36,7 @@
 32. [운영·리스크 감지점 알림 배선 (Ops/Risk Alert Wiring, DAR-476 P02)](#32-운영리스크-감지점-알림-배선-opsrisk-alert-wiring-dar-476-p02)
 33. [시장 파생 데이터 — 기술지표·수급·공매도 조회 (Market Data, 갭분석 W13·W16)](#33-시장-파생-데이터--기술지표수급공매도-조회-market-data-갭분석-w13w16)
 34. [공개 웹 표면 — 랜딩·공유 페이지·시스템 상태·법적 고지 (비인증)](#34-공개-웹-표면--랜딩공유-페이지시스템-상태법적-고지-비인증)
+
 - [부록 A. Rate Limiting](#부록-a-rate-limiting) / [부록 B. 푸시 알림 Payload](#부록-b-푸시-알림-payload)
 
 ---
@@ -42,6 +44,7 @@
 ## 공통 사항
 
 ### Base URL
+
 ```
 Development: http://localhost:3000/api
 Production:  https://168.138.198.152.nip.io/api
@@ -51,6 +54,7 @@ Production:  https://168.138.198.152.nip.io/api
 - Swagger 문서: `{BaseURL 호스트}/api/docs`
 
 ### 인증 방식
+
 - **JWT Bearer Token** (쓰기·개인화 API)
 - Authorization Header: `Bearer {accessToken}`
 - 정식 로그인 수단은 **카카오 OAuth**(§1.5~1.7). 이메일 회원가입/로그인(§1.1~1.2)은 dev/test 전용.
@@ -59,6 +63,7 @@ Production:  https://168.138.198.152.nip.io/api
 ### 공통 Response Format
 
 **성공 응답**:
+
 ```json
 {
   "success": true,
@@ -68,6 +73,7 @@ Production:  https://168.138.198.152.nip.io/api
 ```
 
 **에러 응답**:
+
 ```json
 {
   "success": false,
@@ -80,6 +86,7 @@ Production:  https://168.138.198.152.nip.io/api
 ```
 
 ### HTTP Status Codes
+
 - `200 OK`: 성공
 - `201 Created`: 생성 성공
 - `204 No Content`: 성공 (응답 본문 없음)
@@ -103,6 +110,7 @@ Production:  https://168.138.198.152.nip.io/api
 **Endpoint**: `POST /auth/signup`
 
 **Request Body**:
+
 ```json
 {
   "email": "user@example.com",
@@ -112,11 +120,13 @@ Production:  https://168.138.198.152.nip.io/api
 ```
 
 **Validation**:
+
 - `email`: 이메일 형식, 필수
 - `password`: 최소 8자, 영문/숫자/특수문자 포함, 필수
 - `name`: 최소 2자, 선택
 
 **Response**: `201 Created`
+
 ```json
 {
   "success": true,
@@ -137,6 +147,7 @@ Production:  https://168.138.198.152.nip.io/api
 ```
 
 **Errors**:
+
 - `409 Conflict`: 이미 존재하는 이메일
 - `422 Unprocessable Entity`: 유효성 검증 실패
 
@@ -147,6 +158,7 @@ Production:  https://168.138.198.152.nip.io/api
 **Endpoint**: `POST /auth/login`
 
 **Request Body**:
+
 ```json
 {
   "email": "user@example.com",
@@ -155,6 +167,7 @@ Production:  https://168.138.198.152.nip.io/api
 ```
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -174,6 +187,7 @@ Production:  https://168.138.198.152.nip.io/api
 ```
 
 **Errors**:
+
 - `401 Unauthorized`: 잘못된 이메일 또는 비밀번호
 
 ---
@@ -183,6 +197,7 @@ Production:  https://168.138.198.152.nip.io/api
 **Endpoint**: `POST /auth/refresh`
 
 **Request Body**:
+
 ```json
 {
   "refreshToken": "eyJ..."
@@ -190,6 +205,7 @@ Production:  https://168.138.198.152.nip.io/api
 ```
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -202,6 +218,7 @@ Production:  https://168.138.198.152.nip.io/api
 ```
 
 **Errors**:
+
 - `401 Unauthorized`: 유효하지 않거나 만료된 Refresh Token
 
 ---
@@ -213,13 +230,15 @@ Production:  https://168.138.198.152.nip.io/api
 **Headers**: `Authorization: Bearer {accessToken}`
 
 **Request Body**:
+
 ```json
 {
-  "deviceToken": "ExponentPushToken[...]"  // optional
+  "deviceToken": "ExponentPushToken[...]" // optional
 }
 ```
 
 **특징**:
+
 - `deviceToken`을 전달하면 해당 디바이스의 푸시 토큰을 서버에서 삭제하여 로그아웃 후 알림이 오지 않도록 처리
 
 **Response**: `204 No Content`
@@ -233,6 +252,7 @@ Production:  https://168.138.198.152.nip.io/api
 **Rate Limit**: 10 requests / 분 (IP 기준)
 
 **Request Body**:
+
 ```json
 {
   "code": "카카오 인가 코드",
@@ -243,6 +263,7 @@ Production:  https://168.138.198.152.nip.io/api
 **처리 흐름**: 카카오 인가 코드 → 카카오 access token 교환(`kauth.kakao.com/oauth/token`) → 카카오 사용자 조회(`kapi.kakao.com/v2/user/me`) → `provider='kakao'` 사용자 find-or-create → JWT Access/Refresh 토큰 발급.
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -264,11 +285,13 @@ Production:  https://168.138.198.152.nip.io/api
 ```
 
 **특징**:
+
 - 카카오가 이메일을 제공하지 않으면 `kakao_{kakaoId}@kakao.user` 합성 이메일로 생성.
 - 신규 가입 시 알림 설정(`NotificationSettings`)을 기본값으로 자동 생성. 기존 사용자는 카카오 닉네임 변경 시 이름 동기화.
 - `isNewUser`: 신규 생성이거나 **관심 기업이 0개**(온보딩 필요)면 `true`.
 
 **Errors**:
+
 - `401 Unauthorized`: 카카오 인증 실패 (인가 코드 만료·redirectUri 불일치 등)
 
 ---
@@ -296,6 +319,7 @@ Production:  https://168.138.198.152.nip.io/api
 콜백(§1.6)이 `state` 키로 저장해둔 로그인 결과를 앱이 회수한다. **일회성**(조회 즉시 삭제)·TTL 5분.
 
 **Response**: `200 OK` (결과 존재 시 — §1.5와 동일한 `{ user, tokens, isNewUser }`)
+
 ```json
 {
   "success": true,
@@ -308,6 +332,7 @@ Production:  https://168.138.198.152.nip.io/api
 ```
 
 결과 없음(만료·미존재·이미 소비):
+
 ```json
 { "success": false, "data": null }
 ```
@@ -323,6 +348,7 @@ Production:  https://168.138.198.152.nip.io/api
 **Headers**: `Authorization: Bearer {accessToken}`
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -344,6 +370,7 @@ Production:  https://168.138.198.152.nip.io/api
 **Headers**: `Authorization: Bearer {accessToken}`
 
 **Request Body**:
+
 ```json
 {
   "name": "김철수"
@@ -351,6 +378,7 @@ Production:  https://168.138.198.152.nip.io/api
 ```
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -374,6 +402,7 @@ Production:  https://168.138.198.152.nip.io/api
 Pro 출시 알림 사전신청(`ProWaitlistEntry`) 여부를 본인 기준으로 조회한다. 서버 영속화로 수요 계측의 데이터 소스가 된다(구 로컬 저장 방식은 화면 진입 시 서버로 1회 마이그레이션).
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -423,6 +452,7 @@ Pro 출시 알림 사전신청(`ProWaitlistEntry`) 여부를 본인 기준으로
 계정과 모든 개인 데이터(관심기업·알림·저장 공시·포트폴리오·디바이스 토큰 등)를 **즉시 하드 삭제**하고 refresh 토큰을 전부 폐기한다(탈퇴 즉시 토큰 재발급 불가). Google Play 스토어 계정 삭제 하드 요구사항 대응 — 삭제 방법 안내 공개 페이지는 §34.4 참조.
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -445,6 +475,7 @@ Pro 출시 알림 사전신청(`ProWaitlistEntry`) 여부를 본인 기준으로
 **Headers**: `Authorization: Bearer {accessToken}`
 
 **Request Body**:
+
 ```json
 {
   "deviceToken": "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]",
@@ -453,10 +484,12 @@ Pro 출시 알림 사전신청(`ProWaitlistEntry`) 여부를 본인 기준으로
 ```
 
 **Validation**:
+
 - `deviceToken`: Expo Push Token 형식, 필수
 - `platform`: "ios" | "android", 필수
 
 **Response**: `201 Created`
+
 ```json
 {
   "success": true,
@@ -470,6 +503,7 @@ Pro 출시 알림 사전신청(`ProWaitlistEntry`) 여부를 본인 기준으로
 ```
 
 **특징**:
+
 - 같은 deviceToken이 이미 있으면 lastUsedAt만 업데이트
 
 ---
@@ -493,15 +527,18 @@ Pro 출시 알림 사전신청(`ProWaitlistEntry`) 여부를 본인 기준으로
 **인증**: 불요 (게스트 열람 가능)
 
 **Query Parameters**:
+
 - `query` (required): 검색어 (예: "삼성")
 - `limit` (optional): 결과 개수 (기본: 10, 최대: 20)
 
 **Request Example**:
+
 ```
 GET /companies/search?query=삼성&limit=5
 ```
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -540,6 +577,7 @@ GET /companies/search?query=삼성&limit=5
 **인증**: 불요 (게스트 열람 가능)
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -550,7 +588,7 @@ GET /companies/search?query=삼성&limit=5
     "stockCode": "005930",
     "market": "KOSPI",
     "overview": { "ceoName": "...", "address": "...", "...": "..." },
-    "recentDisclosures": [ { "rcpNo": "...", "reportName": "...", "...": "..." } ]
+    "recentDisclosures": [{ "rcpNo": "...", "reportName": "...", "...": "..." }]
   }
 }
 ```
@@ -558,6 +596,7 @@ GET /companies/search?query=삼성&limit=5
 > **DAR-560**: `overview`는 캐시 우선 즉답 — 미스/만료(TTL 24h) 시 stale 값(캐시 자체가 없으면 `null`)을 그대로 반환하고, DART 재조회는 요청을 막지 않는 백그라운드 작업으로 분리된다(다음 조회부터 최신 반영). 요청 경로에서 DART를 동기 대기하지 않는다(서버 DART 타임아웃 30s > 클라 axios 타임아웃 10s 역전 방지).
 
 **Errors**:
+
 - `404 Not Found`: 존재하지 않는 기업
 
 ---
@@ -583,6 +622,7 @@ GET /companies/search?query=삼성&limit=5
 **Headers**: `Authorization: Bearer {accessToken}`
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -626,6 +666,7 @@ GET /companies/search?query=삼성&limit=5
 **Headers**: `Authorization: Bearer {accessToken}`
 
 **Request Body**:
+
 ```json
 {
   "corpCode": "00126380",
@@ -634,10 +675,12 @@ GET /companies/search?query=삼성&limit=5
 ```
 
 **Validation**:
+
 - `corpCode`: 8자리 문자열, 필수
 - `corpName`: 필수
 
 **Response**: `201 Created`
+
 ```json
 {
   "success": true,
@@ -651,6 +694,7 @@ GET /companies/search?query=삼성&limit=5
 ```
 
 **Errors**:
+
 - `409 Conflict`: 이미 등록된 기업
 - `422 Unprocessable Entity`: 최대 30개 초과
 
@@ -665,6 +709,7 @@ GET /companies/search?query=삼성&limit=5
 **Response**: `204 No Content`
 
 **Errors**:
+
 - `404 Not Found`: 존재하지 않는 관심 기업
 
 ---
@@ -678,6 +723,7 @@ GET /companies/search?query=삼성&limit=5
 종목 상세 진입 시 호출. 해당 관심 기업의 `lastViewedAt`을 현재 시각으로 갱신하여 신규 공시 unread 배지를 소거한다. 관심목록에 없는 종목이면 no-op(`updated: 0`).
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -696,6 +742,7 @@ GET /companies/search?query=삼성&limit=5
 **Headers**: `Authorization: Bearer {accessToken}`
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -719,6 +766,7 @@ GET /companies/search?query=삼성&limit=5
 **Headers**: `Authorization: Bearer {accessToken}`
 
 **Request Body**:
+
 ```json
 {
   "disclosureTypes": ["정기공시", "주요사항보고"],
@@ -728,6 +776,7 @@ GET /companies/search?query=삼성&limit=5
 ```
 
 **Validation**:
+
 - `disclosureTypes`: 배열, 5개 유형 중 선택
   - "정기공시", "주요사항보고", "발행공시", "지분공시", "기타공시"
 - `keywords`: 문자열 배열, 최대 10개
@@ -737,6 +786,7 @@ GET /companies/search?query=삼성&limit=5
 - `opsPushEnabled`: Boolean (DAR-473, **기본 ON**) — 운영·리스크 알림(`OPS_ALERT`/`RISK_ALERT`: 킬스위치 발동·크론 신선도 정체·수집/청산 실패·AI 비용 위반). OFF면 인박스·푸시 모두 생략(opt-out)
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -761,17 +811,20 @@ GET /companies/search?query=삼성&limit=5
 **인증**: OptionalJwt (게스트 열람 가능)
 
 **Query Parameters**:
+
 - `page` (optional): 페이지 번호 (기본: 1)
 - `limit` (optional): 페이지당 개수 (기본: 20, 최대: 50)
 - `corpCode` (optional): 기업 필터
 - `disclosureType` (optional): 공시 유형 필터
 
 **Request Example**:
+
 ```
 GET /disclosures?page=1&limit=20&corpCode=00126380
 ```
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -807,6 +860,7 @@ GET /disclosures?page=1&limit=20&corpCode=00126380
 **인증**: 불요 (게스트 열람 가능)
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -826,6 +880,7 @@ GET /disclosures?page=1&limit=20&corpCode=00126380
 ```
 
 **Errors**:
+
 - `404 Not Found`: 존재하지 않는 공시
 
 ---
@@ -837,16 +892,19 @@ GET /disclosures?page=1&limit=20&corpCode=00126380
 **인증**: 불요 (게스트 열람 가능)
 
 **Query Parameters**:
+
 - `q` (required): 검색어 (공시명 또는 기업명)
 - `page` (optional): 페이지 번호 (기본: 1)
 - `limit` (optional): 페이지당 개수 (기본: 20, 최대: 50)
 
 **Request Example**:
+
 ```
 GET /disclosures/search?q=증자&page=1&limit=20
 ```
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -879,16 +937,19 @@ GET /disclosures/search?q=증자&page=1&limit=20
 **Endpoint**: `GET /search`
 
 **Query Parameters**:
+
 - `q` (required): 통합 검색어 (기업명·종목코드·공시명). **2글자 미만이면 DB 조회 없이 빈 카테고리 묶음을 반환**한다.
 - `companyLimit` (optional): 기업 카테고리 최대 건수 (기본: 10, 최대: 20)
 - `disclosureLimit` (optional): 공시 카테고리 최대 건수 (기본: 10, 최대: 20)
 
 **Request Example**:
+
 ```
 GET /search?q=삼성&companyLimit=10&disclosureLimit=10
 ```
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -935,11 +996,13 @@ GET /search?q=삼성&companyLimit=10&disclosureLimit=10
 **Endpoint**: `GET /disclosures/today-count`
 
 **Request Example**:
+
 ```
 GET /disclosures/today-count
 ```
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -984,6 +1047,7 @@ Engine2가 산출한 해당 공시의 AI 분석(`DisclosureAnalysis`) — 요약
 **인증**: OptionalJwt (게스트 호출 가능 — 토큰 있으면 `userId` 동반 기록)
 
 **Request Body**:
+
 ```json
 {
   "q": "애플"
@@ -991,6 +1055,7 @@ Engine2가 산출한 해당 공시의 AI 분석(`DisclosureAnalysis`) — 요약
 ```
 
 **Response**: `201 Created`
+
 ```json
 { "success": true }
 ```
@@ -1012,8 +1077,8 @@ Engine2가 산출한 해당 공시의 AI 분석(`DisclosureAnalysis`) — 요약
 
 **정직 규약(핵심)**: 표본 tier는 계산기가 `n<10 → INSUFFICIENT`, `10≤n<30 → PRELIMINARY`(통계값은 채워짐), `n≥30 → READY`로 판정한다. `PRELIMINARY`는 값이 있어 status만 보면 "승률 100%(n=3)" 같은 소표본 허수가 노출될 수 있으므로, 게이트는 status가 아니라 **표본수 n ≥ 30**(통계 유의 READY 임계 `MIN_SAMPLE_SIZE`와 동일 상수)으로 강제한다 → `n<30`이면 `stats=null` + `reason='INSUFFICIENT_SAMPLE'`(단, `n`·산출기간·기준일은 투명하게 노출).
 
-| 파라미터 | 타입 | 필수 | 설명 |
-|---|---|---|---|
+| 파라미터       | 타입   | 필수 | 설명                              |
+| -------------- | ------ | ---- | --------------------------------- |
 | `rcpNo` (path) | string | 필수 | 공시 접수번호(`Disclosure.rcpNo`) |
 
 **응답** (`200 OK`) — `DisclosureEvent.rcpNo`가 `@unique`(공시 1건=이벤트 1건)라 `results`는 유형 1개(또는 이벤트 미추출 시 빈 배열):
@@ -1024,23 +1089,36 @@ Engine2가 산출한 해당 공시의 AI 분석(`DisclosureAnalysis`) — 요약
   "data": {
     "rcpNo": "20260608900497",
     "minSampleSize": 30,
-    "generatedAt": "2026-07-16T17:31:55.990Z",   // 응답 생성 시각(일1회 캐시 표면)
+    "generatedAt": "2026-07-16T17:31:55.990Z", // 응답 생성 시각(일1회 캐시 표면)
     "results": [
       {
         "eventType": "SUPPLY_CONTRACT",
-        "sampleCount": 1871,                        // n (관측치 수)
-        "stats": {                                  // n<30이면 null
+        "sampleCount": 1871, // n (관측치 수)
+        "stats": {
+          // n<30이면 null
           // avgReturn=실제 주가 반응(단순수익률 누적 %), avgAbnormalReturn=시장대비 초과수익(%, 결측 시 null), winRate=상승비율(0~1)
-          "d1":  { "avgReturn": 0.179, "avgAbnormalReturn": -0.263, "winRate": 0.512 },
-          "d5":  { "avgReturn": 1.204, "avgAbnormalReturn": 0.331,  "winRate": 0.548 },
-          "d20": { "avgReturn": 3.472, "avgAbnormalReturn": 1.088,  "winRate": 0.531 }
+          "d1": {
+            "avgReturn": 0.179,
+            "avgAbnormalReturn": -0.263,
+            "winRate": 0.512,
+          },
+          "d5": {
+            "avgReturn": 1.204,
+            "avgAbnormalReturn": 0.331,
+            "winRate": 0.548,
+          },
+          "d20": {
+            "avgReturn": 3.472,
+            "avgAbnormalReturn": 1.088,
+            "winRate": 0.531,
+          },
         },
-        "reason": null,           // n<30이면 'INSUFFICIENT_SAMPLE'
-        "period": { "fromDate": "20250620", "toDate": "20260511" },  // 산출기간(YYYYMMDD, 관측치 D0 최소~최대)
-        "calculatedAt": "2026-07-02T11:50:27.312Z"                   // 기준일(관측치 최신 영속 시각)
-      }
-    ]
-  }
+        "reason": null, // n<30이면 'INSUFFICIENT_SAMPLE'
+        "period": { "fromDate": "20250620", "toDate": "20260511" }, // 산출기간(YYYYMMDD, 관측치 D0 최소~최대)
+        "calculatedAt": "2026-07-02T11:50:27.312Z", // 기준일(관측치 최신 영속 시각)
+      },
+    ],
+  },
 }
 ```
 
@@ -1054,10 +1132,16 @@ Engine2가 산출한 해당 공시의 AI 분석(`DisclosureAnalysis`) — 요약
     "minSampleSize": 30,
     "generatedAt": "2026-07-16T17:31:55.994Z",
     "results": [
-      { "eventType": "MAJOR_HOLDER_5PCT", "sampleCount": 0, "stats": null,
-        "reason": "INSUFFICIENT_SAMPLE", "period": null, "calculatedAt": null }
-    ]
-  }
+      {
+        "eventType": "MAJOR_HOLDER_5PCT",
+        "sampleCount": 0,
+        "stats": null,
+        "reason": "INSUFFICIENT_SAMPLE",
+        "period": null,
+        "calculatedAt": null,
+      },
+    ],
+  },
 }
 ```
 
@@ -1074,6 +1158,7 @@ Engine2가 산출한 해당 공시의 AI 분석(`DisclosureAnalysis`) — 요약
 **Headers**: `Authorization: Bearer {accessToken}`
 
 **Query Parameters**:
+
 - `page` (optional): 페이지 번호 (기본: 1)
 - `limit` (optional): 페이지당 개수 (기본: 20, 최대: 50)
 - `isRead` (optional): 읽음 필터 (true | false)
@@ -1081,6 +1166,7 @@ Engine2가 산출한 해당 공시의 AI 분석(`DisclosureAnalysis`) — 요약
 - `category` (optional, DAR-430): 알림 카테고리(4 버킷) 필터 — `disclosure`(공시=DISCLOSURE) | `signal`(신호=SIGNAL·EXIT·THESIS_VIOLATED) | `trade`(체결=TRADE_ENTRY·TRADE_EXIT) | `system`(운영·리스크=RISK_ALERT·OPS_ALERT, DAR-473). 미지정 시 전체. **`category` 지정 시 `type` 보다 우선**(버킷의 타입들을 `IN` 으로 묶어 조회).
 
 **Request Example**:
+
 ```
 GET /notifications?isRead=false&page=1&limit=20
 GET /notifications?type=SIGNAL&page=1&limit=20
@@ -1088,6 +1174,7 @@ GET /notifications?category=trade&page=1&limit=20
 ```
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -1148,6 +1235,7 @@ GET /notifications?category=trade&page=1&limit=20
 **Body**: 없음
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -1171,6 +1259,7 @@ GET /notifications?category=trade&page=1&limit=20
 **Headers**: `Authorization: Bearer {accessToken}`
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -1183,6 +1272,7 @@ GET /notifications?category=trade&page=1&limit=20
 ```
 
 **Errors**:
+
 - `404 Not Found`: 존재하지 않는 알림
 
 ---
@@ -1194,6 +1284,7 @@ GET /notifications?category=trade&page=1&limit=20
 **Headers**: `Authorization: Bearer {accessToken}`
 
 **Response**: `200 OK`
+
 ```json
 {
   "success": true,
@@ -1217,20 +1308,20 @@ GET /notifications?category=trade&page=1&limit=20
 
 ## 9. 에러 코드
 
-| 코드 | HTTP Status | 설명 |
-|------|-------------|------|
-| `INVALID_CREDENTIALS` | 401 | 잘못된 이메일 또는 비밀번호 |
-| `UNAUTHORIZED` | 401 | 인증 필요 |
-| `INVALID_TOKEN` | 401 | 유효하지 않은 토큰 |
-| `TOKEN_EXPIRED` | 401 | 만료된 토큰 |
-| `FORBIDDEN` | 403 | 권한 없음 |
-| `NOT_FOUND` | 404 | 리소스 없음 |
-| `EMAIL_ALREADY_EXISTS` | 409 | 이미 존재하는 이메일 |
-| `DUPLICATE_WATCHLIST` | 409 | 이미 등록된 관심 기업 |
-| `VALIDATION_ERROR` | 422 | 입력값 검증 실패 |
-| `WATCHLIST_LIMIT_EXCEEDED` | 422 | 관심 기업 최대 개수 초과 (30개) |
-| `RATE_LIMIT_EXCEEDED` | 429 | Rate Limit 초과 |
-| `INTERNAL_SERVER_ERROR` | 500 | 서버 내부 오류 |
+| 코드                       | HTTP Status | 설명                            |
+| -------------------------- | ----------- | ------------------------------- |
+| `INVALID_CREDENTIALS`      | 401         | 잘못된 이메일 또는 비밀번호     |
+| `UNAUTHORIZED`             | 401         | 인증 필요                       |
+| `INVALID_TOKEN`            | 401         | 유효하지 않은 토큰              |
+| `TOKEN_EXPIRED`            | 401         | 만료된 토큰                     |
+| `FORBIDDEN`                | 403         | 권한 없음                       |
+| `NOT_FOUND`                | 404         | 리소스 없음                     |
+| `EMAIL_ALREADY_EXISTS`     | 409         | 이미 존재하는 이메일            |
+| `DUPLICATE_WATCHLIST`      | 409         | 이미 등록된 관심 기업           |
+| `VALIDATION_ERROR`         | 422         | 입력값 검증 실패                |
+| `WATCHLIST_LIMIT_EXCEEDED` | 422         | 관심 기업 최대 개수 초과 (30개) |
+| `RATE_LIMIT_EXCEEDED`      | 429         | Rate Limit 초과                 |
+| `INTERNAL_SERVER_ERROR`    | 500         | 서버 내부 오류                  |
 
 ---
 
@@ -1244,12 +1335,13 @@ GET /notifications?category=trade&page=1&limit=20
 GET /api/ai-cost/metrics
 ```
 
-| 쿼리 파라미터 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `from` | string (ISO date) | 선택 | 집계 시작일 (기본: 당월 1일) |
-| `to` | string (ISO date) | 선택 | 집계 종료일 (기본: 오늘) |
+| 쿼리 파라미터 | 타입              | 필수 | 설명                         |
+| ------------- | ----------------- | ---- | ---------------------------- |
+| `from`        | string (ISO date) | 선택 | 집계 시작일 (기본: 당월 1일) |
+| `to`          | string (ISO date) | 선택 | 집계 종료일 (기본: 오늘)     |
 
 **응답**:
+
 ```json
 {
   "success": true,
@@ -1273,11 +1365,12 @@ GET /api/ai-cost/metrics
 GET /api/ai-cost/daily
 ```
 
-| 쿼리 파라미터 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `date` | string (ISO date) | 선택 | 조회 날짜 (기본: 오늘) |
+| 쿼리 파라미터 | 타입              | 필수 | 설명                   |
+| ------------- | ----------------- | ---- | ---------------------- |
+| `date`        | string (ISO date) | 선택 | 조회 날짜 (기본: 오늘) |
 
 **응답**:
+
 ```json
 {
   "success": true,
@@ -1312,10 +1405,10 @@ GET /api/ai-cost/daily
 GET /api/ai-cost/monthly
 ```
 
-| 쿼리 파라미터 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `year` | number | 선택 | 연도 (기본: 현재 연도) |
-| `month` | number | 선택 | 월 1~12 (기본: 현재 월) |
+| 쿼리 파라미터 | 타입   | 필수 | 설명                    |
+| ------------- | ------ | ---- | ----------------------- |
+| `year`        | number | 선택 | 연도 (기본: 현재 연도)  |
+| `month`       | number | 선택 | 월 1~12 (기본: 현재 월) |
 
 **응답**: `10.2`와 동일 구조.
 
@@ -1328,6 +1421,7 @@ GET /api/ai-cost/limit-status
 ```
 
 **응답**:
+
 ```json
 {
   "success": true,
@@ -1335,7 +1429,7 @@ GET /api/ai-cost/limit-status
     "dailyCostUsd": 0.42,
     "dailyLimitUsd": 1.0,
     "dailyExceeded": false,
-    "monthlyCostUsd": 8.50,
+    "monthlyCostUsd": 8.5,
     "monthlyLimitUsd": 20.0,
     "monthlyExceeded": false,
     "forcedLevel": null
@@ -1353,12 +1447,13 @@ GET /api/ai-cost/limit-status
 GET /api/ai-cost/cross-engine
 ```
 
-| 쿼리 파라미터 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `from` | string (ISO date) | 선택 | 기본: 당월 1일 |
-| `to` | string (ISO date) | 선택 | 기본: 오늘 |
+| 쿼리 파라미터 | 타입              | 필수 | 설명           |
+| ------------- | ----------------- | ---- | -------------- |
+| `from`        | string (ISO date) | 선택 | 기본: 당월 1일 |
+| `to`          | string (ISO date) | 선택 | 기본: 오늘     |
 
 **응답**:
+
 ```json
 {
   "success": true,
@@ -1393,20 +1488,21 @@ GET /api/ai-cost/coverage?days=7
 
 "AI 카드가 언제 채워질지 보장 못 함"이라는 SLA 공백의 **측정 기반** — 최근 N일 대상 공시(윈도 내 수신 + 이벤트 추출 완료 + 라이브 `isBackfill=false`) 대비 분석 생성률(%)과 수신→생성 지연(P50/P95, 초)을 기존 테이블(`Disclosure`·`DisclosureEvent`·`DisclosureAnalysis`)만으로 집계한다(read-only·AI 신규 호출 0).
 
-| 쿼리 | 타입 | 필수 | 설명 |
-|---|---|---|---|
+| 쿼리   | 타입   | 필수 | 설명                               |
+| ------ | ------ | ---- | ---------------------------------- |
 | `days` | number | 선택 | 조회창(일). 기본 7, 최대 90 클램프 |
 
 **Response** (`data`: `AiCoverageSnapshot`):
+
 ```jsonc
 {
   "windowDays": 7,
   "from": "2026-07-09T00:00:00.000Z",
   "to": "2026-07-16T00:00:00.000Z",
-  "targetCount": 412,        // 대상 공시 수
-  "analyzedCount": 398,      // DisclosureAnalysis 1건 이상 생성된 공시 수
-  "coverageRatePct": 96.6,   // 대상 0건이면 100 (표본 없음 graceful — 제로런 아님)
-  "latency": { "p50Sec": 210, "p95Sec": 1830, "sampleCount": 398 }
+  "targetCount": 412, // 대상 공시 수
+  "analyzedCount": 398, // DisclosureAnalysis 1건 이상 생성된 공시 수
+  "coverageRatePct": 96.6, // 대상 0건이면 100 (표본 없음 graceful — 제로런 아님)
+  "latency": { "p50Sec": 210, "p95Sec": 1830, "sampleCount": 398 },
 }
 ```
 
@@ -1421,6 +1517,7 @@ GET /api/ai-cost/coverage?days=7
 > **조회(read)는 `GET /api/price-move-reasonings/:refId`(DAR-526 신설, 아래).** FE '3상태 카드'(DAR-524)가 이 읽기 전용 엔드포인트로 적재 결과 1건을 소비한다 — 생성 경로와 분리된 조회 표면(AI 호출·비용게이트·AIUsageLog 무접점, 마이그레이션 0).
 
 **흐름 (등락 이벤트 1건)**
+
 1. **멱등 캐시** — `refId=<stockCode>-<YYYYMMDD>` 기존 결과가 있으면 AI 재호출 0.
 2. **48h 공시 조회** — 해당 종목 최근 48시간 공시(백필 제외).
 3. **무공시 → AI 호출 0** — `status=NO_DISCLOSURE`, 포맷 응답 `label="관련 공시 없음(48h)"` 저장(분석 위장 금지).
@@ -1432,9 +1529,9 @@ GET /api/ai-cost/coverage?days=7
 
 **비용 상한 (env)**
 
-| ENV | 기본값 | 설명 |
-|---|---|---|
-| `PRICE_MOVE_REASONING_DAILY_USD_LIMIT` | `0.5` | 이 태스크 전용 일일 예산(USD). 초과 시 AI 호출 0(`CAP_SKIPPED`). 전역 `AI_DAILY_LIMIT_USD`($1)·`AI_MONTHLY_LIMIT_USD`($31) 하드백스톱과 **중첩** 강제. |
+| ENV                                    | 기본값 | 설명                                                                                                                                                   |
+| -------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PRICE_MOVE_REASONING_DAILY_USD_LIMIT` | `0.5`  | 이 태스크 전용 일일 예산(USD). 초과 시 AI 호출 0(`CAP_SKIPPED`). 전역 `AI_DAILY_LIMIT_USD`($1)·`AI_MONTHLY_LIMIT_USD`($31) 하드백스톱과 **중첩** 강제. |
 
 **AI 금지영역 무침범**: 산출 스키마는 **설명(원인 해석·근거)뿐** — 매수/매도/보유 권고·목표가·투자의견·점수·주문 필드가 없다(화이트리스트 검증이 위장 필드도 제거). Engine5 Risk·주문·하드룰 경로와 무접점.
 
@@ -1452,23 +1549,25 @@ FE '왜 움직였나' 카드(DAR-524)가 적재된 리즈닝 1건을 조회 소�
     "refId": "005930-20260717",
     "stockCode": "005930",
     "corpCode": "00126380",
-    "corpName": "삼성전자",        // Company 조인(표시용). 미존재 시 null → FE 는 stockCode 폴백
+    "corpName": "삼성전자", // Company 조인(표시용). 미존재 시 null → FE 는 stockCode 폴백
     "tradeDate": "20260717",
     "changePct": 6.3,
-    "rcpNo": "20260717000123",      // causal 공시 접수번호(무공시 케이스는 null)
-    "status": "ANALYZED",           // ANALYZED | NO_DISCLOSURE | CAP_SKIPPED
-    "resultJson": { /* status 판별 유니온 */ },
-    "createdAt": "2026-07-17T05:30:00.000Z"
-  }
+    "rcpNo": "20260717000123", // causal 공시 접수번호(무공시 케이스는 null)
+    "status": "ANALYZED", // ANALYZED | NO_DISCLOSURE | CAP_SKIPPED
+    "resultJson": {
+      /* status 판별 유니온 */
+    },
+    "createdAt": "2026-07-17T05:30:00.000Z",
+  },
 }
 ```
 
-  - `resultJson` — `status`로 판별하는 유니온:
-    - `ANALYZED`: `{ status:'ANALYZED', eventType, cause, evidence[], eventLinkage:'STRONG'|'MODERATE'|'WEAK'|'UNCLEAR', caveat, financialContext }`
-    - `NO_DISCLOSURE`: `{ status:'NO_DISCLOSURE', label, message }`
-    - `CAP_SKIPPED`: `{ status:'CAP_SKIPPED', message }`
-  - `financialContext`(DAR-528, ANALYZED만) — **재무 맥락 한 줄**(`string|null`). 인과 공시의 규모(분자, 예: 공급계약 계약금액)를 **최신 연간 매출(분모, `CompanyFinancial` reprtCode=11011)** 대비 비율로 표기(예: `"이번 계약 규모는 2025 연매출의 약 12.3% (1230억 / 연매출 1조)"`). ★분자·분모 중 하나라도 결측/불확실(분기·반기 누적 매출 등)이면 **`null`**(표시 생략) — 수치 발명 금지(정직 원칙). 규칙 기반 산출·**AI 호출 0**(비용게이트/AIUsageLog 무영향). 구 APK 무해(옵셔널). 생성 시점 스냅샷(생성 경로에서 `resultJson`에 적재, 조회는 그대로 노출).
-  - 내부 전용 `level`(비용 등급)은 응답에서 제외한다.
+- `resultJson` — `status`로 판별하는 유니온:
+  - `ANALYZED`: `{ status:'ANALYZED', eventType, cause, evidence[], eventLinkage:'STRONG'|'MODERATE'|'WEAK'|'UNCLEAR', caveat, financialContext }`
+  - `NO_DISCLOSURE`: `{ status:'NO_DISCLOSURE', label, message }`
+  - `CAP_SKIPPED`: `{ status:'CAP_SKIPPED', message }`
+- `financialContext`(DAR-528, ANALYZED만) — **재무 맥락 한 줄**(`string|null`). 인과 공시의 규모(분자, 예: 공급계약 계약금액)를 **최신 연간 매출(분모, `CompanyFinancial` reprtCode=11011)** 대비 비율로 표기(예: `"이번 계약 규모는 2025 연매출의 약 12.3% (1230억 / 연매출 1조)"`). ★분자·분모 중 하나라도 결측/불확실(분기·반기 누적 매출 등)이면 **`null`**(표시 생략) — 수치 발명 금지(정직 원칙). 규칙 기반 산출·**AI 호출 0**(비용게이트/AIUsageLog 무영향). 구 APK 무해(옵셔널). 생성 시점 스냅샷(생성 경로에서 `resultJson`에 적재, 조회는 그대로 노출).
+- 내부 전용 `level`(비용 등급)은 응답에서 제외한다.
 - **404** — 미존재 refId → `{ success:false, error:{ code:'PRICE_MOVE_REASONING_NOT_FOUND', message } }`(FE 는 '로딩실패' 상태로 정직 degrade).
 
 #### 10.8.2 PRICE_MOVE 푸시 딥링크 재타겟 (DAR-526)
@@ -1491,22 +1590,37 @@ GET /api/paper-trading/personas       (OptionalJwt — 게스트 데모)
 ```
 
 **응답**:
+
 ```json
 {
   "success": true,
   "data": {
     "initialCapital": 10000000,
     "regime": {
-      "trend": "UPTREND", "volatility": "HIGH", "eventSkew": "OPPORTUNITY",
-      "trendChangePct": 8.4, "dailyVolatilityPct": 1.7,
-      "indexSampleSize": 35, "eventSampleSize": 50,
-      "classifiable": true, "dataLimited": false, "asOf": "20260608"
+      "trend": "UPTREND",
+      "volatility": "HIGH",
+      "eventSkew": "OPPORTUNITY",
+      "trendChangePct": 8.4,
+      "dailyVolatilityPct": 1.7,
+      "indexSampleSize": 35,
+      "eventSampleSize": 50,
+      "classifiable": true,
+      "dataLimited": false,
+      "asOf": "20260608"
     },
     "personas": [
       {
-        "performance": { "style": "DRUCKENMILLER", "label": "드러켄밀러", "scorecard": { "...": "..." }, "graduation": { "...": "..." } },
-        "archetype": "MACRO", "regimeFitScore": 87, "compositeScore": 76.2,
-        "recommended": true, "rationale": "드러켄밀러(MACRO): 현재 장(상승추세·고변동성·호재 우세) 적합도 87점, ..."
+        "performance": {
+          "style": "DRUCKENMILLER",
+          "label": "드러켄밀러",
+          "scorecard": { "...": "..." },
+          "graduation": { "...": "..." }
+        },
+        "archetype": "MACRO",
+        "regimeFitScore": 87,
+        "compositeScore": 76.2,
+        "recommended": true,
+        "rationale": "드러켄밀러(MACRO): 현재 장(상승추세·고변동성·호재 우세) 적합도 87점, ..."
       }
     ],
     "recommended": ["DRUCKENMILLER", "LYNCH"],
@@ -1532,8 +1646,8 @@ GET /api/paper-trading/personas/regime   (OptionalJwt — 게스트 데모)
 POST /api/paper-trading/personas/run-once   (JWT 필수 — 쓰기)
 ```
 
-| 바디 | 타입 | 필수 | 설명 |
-|---|---|---|---|
+| 바디   | 타입              | 필수 | 설명       |
+| ------ | ----------------- | ---- | ---------- |
 | `date` | string (YYYYMMDD) | 선택 | 기본: 오늘 |
 
 persona별 독립 포트폴리오에 1일치 사이클(적합도 진입 → 시가평가 → Exit) 분기 실행. ★모의 전용.
@@ -1544,8 +1658,8 @@ persona별 독립 포트폴리오에 1일치 사이클(적합도 진입 → 시�
 GET /api/trading/auto-status   (OptionalJwt — 게스트 데모)
 ```
 
-| 파라미터 | 타입 | 필수 | 설명 |
-|---|---|---|---|
+| 파라미터      | 타입   | 필수 | 설명                                                             |
+| ------------- | ------ | ---- | ---------------------------------------------------------------- |
 | `recentLimit` | number | 선택 | 최근 주문 건수(기본 3, 상한 20). 비숫자/음수/거대값은 안전 보정. |
 
 자동매매 신뢰=실행상태 가시성. **킬스위치 상태**(발동/대기·사유·시각)·**리스크게이트 차단여부**(정상/주문 차단중·사유)·**최근 주문**(상태·사유·시각, 없으면 빈배열)을 read-only 로 집계해 노출한다. 기존 KillSwitchManager(영속 상태, DAR-350)·OrderRequest 모델만 읽으며 Risk/주문/AI 판정·쓰기는 일절 없다(AI 금지영역 미접촉).
@@ -1558,10 +1672,23 @@ GET /api/trading/auto-status   (OptionalJwt — 게스트 데모)
 {
   "success": true,
   "data": {
-    "killSwitch": { "isActive": false, "reason": null, "triggeredBy": "SYSTEM", "activatedAt": null },
+    "killSwitch": {
+      "isActive": false,
+      "reason": null,
+      "triggeredBy": "SYSTEM",
+      "activatedAt": null
+    },
     "riskGate": { "blocked": false, "status": "NORMAL", "blockedReason": null },
     "recentOrders": [
-      { "id": "ord_x", "stockCode": "005930", "side": "BUY", "requestedShares": 10, "status": "REJECTED", "reason": "SINGLE_BUY_LIMIT", "createdAt": "2026-06-19T01:00:00.000Z" }
+      {
+        "id": "ord_x",
+        "stockCode": "005930",
+        "side": "BUY",
+        "requestedShares": 10,
+        "status": "REJECTED",
+        "reason": "SINGLE_BUY_LIMIT",
+        "createdAt": "2026-06-19T01:00:00.000Z"
+      }
     ],
     "executionEnabled": false,
     "notice": "자동 실행은 준비중 — 현재는 상태 모니터링만 제공합니다.",
@@ -1580,8 +1707,8 @@ GET /api/trading/auto-status   (OptionalJwt — 게스트 데모)
 GET /api/signals/by-corp/:corpCode   (JWT 필수)
 ```
 
-| 파라미터 | 타입 | 필수 | 설명 |
-|---|---|---|---|
+| 파라미터   | 타입   | 필수 | 설명                      |
+| ---------- | ------ | ---- | ------------------------- |
 | `corpCode` | string | 필수 | DART 기업 고유번호(8자리) |
 
 해당 종목의 **최신 매수 신호 1건**(등급·점수·진입준비)을 단건 반환한다. 백필(과거 분석 baseline) 공시 기반 신호는 제외(피드와 동일 방어, DAR-129). 신호가 없는 종목은 `data: null` → 호출측이 빈상태로 흡수. 종목 상세 화면(`company/[corpCode]`) 헤더 신호 배지가 소비한다.
@@ -1616,9 +1743,9 @@ GET /api/signals/by-corp/:corpCode   (JWT 필수)
 GET /api/signals/by-disclosure/:rcpNo   (JWT 필수)
 ```
 
-| 파라미터 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `rcpNo` | string | 필수 | DART 접수번호(14자리) |
+| 파라미터 | 타입   | 필수 | 설명                  |
+| -------- | ------ | ---- | --------------------- |
+| `rcpNo`  | string | 필수 | DART 접수번호(14자리) |
 
 해당 **공시로 생성된 최신 매수 신호 1건**을 단건 반환한다(공시 → 신호 역링크). 기존엔 신호 → 공시 단방향(`relatedDisclosureRcpNo`)만 존재해, 공시 상세에서 그 공시의 매수 신호로 가는 동선이 끊겨 있었다(intro Slide2 "공시→AI 매수점수" 약속 단절). 응답 형태는 `by-corp`(12.1)와 동일하며, 모바일 공시 상세(`disclosure/[id]`) AI섹션 '이 공시의 매수 신호' 진입 카드가 소비한다. 한 공시에 신호가 여러 건이면 최신(createdAt desc) 1건. 백필 공시 기반 신호는 제외(DAR-129). 신호가 없으면 `data: null` → 카드 미표시.
 
@@ -1634,16 +1761,16 @@ GET /api/signals   (JWT 필수)
 백필(과거 분석 baseline) 공시 기반 신호는 항상 제외(피드 방어, DAR-129). 홈 '오늘의 투자판단'·신호 탭이
 `grade=STRONG_BUY,BUY&sort=score&sinceDays=14`로 소비한다(DAR-193 + 최신성 윈도우).
 
-| 쿼리 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `grade` | string | 선택 | 신호 등급 (`STRONG_BUY`\|`BUY`\|`WATCH`\|`NEUTRAL`\|`AVOID`\|`BLOCKED`). 콤마로 다중 지정 가능: `"STRONG_BUY,BUY"` |
-| `personaType` | string | 선택 | 페르소나 유형 (`GROWTH`\|`VALUE`\|`MOMENTUM`\|`EVENT_DRIVEN`) |
-| `eventType` | string | 선택 | 공시 이벤트 유형 (`SUPPLY_CONTRACT` 등) |
-| `entryReady` | boolean | 선택 | 진입 준비 여부 (`true`/`false`) |
-| `sort` | string | 선택 | 정렬 (`score`: 점수 내림차순 \| `latest`: 최신순, 기본 `latest`). `score`는 동점 시 최신순으로 안정화 |
-| `sinceDays` | number | 선택 | **최신성 윈도우(일)** — `createdAt ≥ now−N일` 신호만 반환. 1~90 클램프(음수·초과 보정), `0` 명시 시 윈도우 해제(전체 이력·구 동작). **미지정 기본값 규칙**: `sort=score` 는 **14일**(점수순 큐레이션이 전체 이력 고득점에 영원히 고정되는 정체 방지 — 파라미터를 모르는 구 APK 도 서버 기본값으로 즉시 최신성 획득), `sort=latest` 는 무윈도우(기존 동작 유지). 비숫자 입력은 미지정과 동일 |
-| `page` | number | 선택 | 페이지 번호 (기본 1) |
-| `limit` | number | 선택 | 페이지당 항목 수 (기본 20) |
+| 쿼리          | 타입    | 필수 | 설명                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------- | ------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `grade`       | string  | 선택 | 신호 등급 (`STRONG_BUY`\|`BUY`\|`WATCH`\|`NEUTRAL`\|`AVOID`\|`BLOCKED`). 콤마로 다중 지정 가능: `"STRONG_BUY,BUY"`                                                                                                                                                                                                                                                                          |
+| `personaType` | string  | 선택 | 페르소나 유형 (`GROWTH`\|`VALUE`\|`MOMENTUM`\|`EVENT_DRIVEN`)                                                                                                                                                                                                                                                                                                                               |
+| `eventType`   | string  | 선택 | 공시 이벤트 유형 (`SUPPLY_CONTRACT` 등)                                                                                                                                                                                                                                                                                                                                                     |
+| `entryReady`  | boolean | 선택 | 진입 준비 여부 (`true`/`false`)                                                                                                                                                                                                                                                                                                                                                             |
+| `sort`        | string  | 선택 | 정렬 (`score`: 점수 내림차순 \| `latest`: 최신순, 기본 `latest`). `score`는 동점 시 최신순으로 안정화                                                                                                                                                                                                                                                                                       |
+| `sinceDays`   | number  | 선택 | **최신성 윈도우(일)** — `createdAt ≥ now−N일` 신호만 반환. 1~90 클램프(음수·초과 보정), `0` 명시 시 윈도우 해제(전체 이력·구 동작). **미지정 기본값 규칙**: `sort=score` 는 **14일**(점수순 큐레이션이 전체 이력 고득점에 영원히 고정되는 정체 방지 — 파라미터를 모르는 구 APK 도 서버 기본값으로 즉시 최신성 획득), `sort=latest` 는 무윈도우(기존 동작 유지). 비숫자 입력은 미지정과 동일 |
+| `page`        | number  | 선택 | 페이지 번호 (기본 1)                                                                                                                                                                                                                                                                                                                                                                        |
+| `limit`       | number  | 선택 | 페이지당 항목 수 (기본 20)                                                                                                                                                                                                                                                                                                                                                                  |
 
 **Response 200**
 
@@ -1664,9 +1791,7 @@ GET /api/signals   (JWT 필수)
         { "id": "met_0", "label": "…", "required": true, "met": true },
         { "id": "unmet_0", "label": "…", "required": true, "met": false }
       ],
-      "riskFlags": [
-        { "id": "risk_0", "label": "…", "severity": "medium" }
-      ],
+      "riskFlags": [{ "id": "risk_0", "label": "…", "severity": "medium" }],
       "blockedReason": null,
       "scoreBreakdown": [
         {
@@ -1687,19 +1812,19 @@ GET /api/signals   (JWT 필수)
 }
 ```
 
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `data[]` | object | 신호 목록(각 항목은 12.1 단건과 동일 배지 + 진입조건·리스크·점수분해) |
-| `data[].grade` | string | 모바일 6단계 enum (위 `grade` 쿼리와 동일 값) |
-| `data[].ticker` | string\|undefined | 종목코드(6자리). 없으면 생략 |
-| `data[].entryConditions[]` | object | 진입 조건 (`id`·`label`·`required`·`met`) |
-| `data[].riskFlags[]` | object | 리스크 플래그 (`id`·`label`·`severity`) |
-| `data[].scoreBreakdown[]` | object | 점수 구성 항목별 분해 (`key`·`label`·`score`·`max` + 통계 파생 항목 한정 `sampleN?`·`sampleScope?`) |
-| `data[].scoreBreakdown[].sampleN` | number\|생략 | 통계 파생 항목(`historicalEvent`)의 EventStudy 표본수. 출처는 `EventStudyResult (marketType='ALL', bucketKey='__ALL__', status='READY')` **코어스 버킷 고정**(eventType당 유니크 1행 → 결정적). 집계 부재·비통계 항목은 키 자체 생략 |
-| `data[].scoreBreakdown[].sampleScope` | string\|생략 | 표본 출처 스코프 라벨. `sampleN` 존재 시 항상 `"전체시장"`(코어스 버킷). 모바일이 `이벤트라벨(sampleScope)`로 괄호 병기 — 예: '표본 1,871건 · 대규모 공급계약(전체시장)'. `sampleN` 생략 시 함께 생략(하위호환: 필드 추가만, 기존 필드 불변) |
-| `meta.page` / `meta.limit` | number | 적용된 페이지 파라미터 |
-| `meta.total` | number | 필터 조건 전체 신호 수 |
-| `meta.totalPages` | number | `ceil(total / limit)` |
+| 필드                                  | 타입              | 설명                                                                                                                                                                                                                                         |
+| ------------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data[]`                              | object            | 신호 목록(각 항목은 12.1 단건과 동일 배지 + 진입조건·리스크·점수분해)                                                                                                                                                                        |
+| `data[].grade`                        | string            | 모바일 6단계 enum (위 `grade` 쿼리와 동일 값)                                                                                                                                                                                                |
+| `data[].ticker`                       | string\|undefined | 종목코드(6자리). 없으면 생략                                                                                                                                                                                                                 |
+| `data[].entryConditions[]`            | object            | 진입 조건 (`id`·`label`·`required`·`met`)                                                                                                                                                                                                    |
+| `data[].riskFlags[]`                  | object            | 리스크 플래그 (`id`·`label`·`severity`)                                                                                                                                                                                                      |
+| `data[].scoreBreakdown[]`             | object            | 점수 구성 항목별 분해 (`key`·`label`·`score`·`max` + 통계 파생 항목 한정 `sampleN?`·`sampleScope?`)                                                                                                                                          |
+| `data[].scoreBreakdown[].sampleN`     | number\|생략      | 통계 파생 항목(`historicalEvent`)의 EventStudy 표본수. 출처는 `EventStudyResult (marketType='ALL', bucketKey='__ALL__', status='READY')` **코어스 버킷 고정**(eventType당 유니크 1행 → 결정적). 집계 부재·비통계 항목은 키 자체 생략         |
+| `data[].scoreBreakdown[].sampleScope` | string\|생략      | 표본 출처 스코프 라벨. `sampleN` 존재 시 항상 `"전체시장"`(코어스 버킷). 모바일이 `이벤트라벨(sampleScope)`로 괄호 병기 — 예: '표본 1,871건 · 대규모 공급계약(전체시장)'. `sampleN` 생략 시 함께 생략(하위호환: 필드 추가만, 기존 필드 불변) |
+| `meta.page` / `meta.limit`            | number            | 적용된 페이지 파라미터                                                                                                                                                                                                                       |
+| `meta.total`                          | number            | 필터 조건 전체 신호 수                                                                                                                                                                                                                       |
+| `meta.totalPages`                     | number            | `ceil(total / limit)`                                                                                                                                                                                                                        |
 
 > 동일 컨트롤러에는 청산 신호 목록 `GET /api/signals/exit`(JWT 필수, 아래 12.3.1)와 신호 상세 `GET /api/signals/:id`(JWT 필수)도 있다.
 
@@ -1713,15 +1838,15 @@ GET /api/signals/exit   (JWT 필수)
 최신 1건만 포함(과거 청산 이력 신호는 dedupe)하며, 최신순 최대 **50건** 상한이다. 응답 shape은
 DAR-559 이전과 동일(하위 호환, 스코프·상한만 축소).
 
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `data[].corpCode` / `corpName` / `ticker` | string | 종목 식별자 |
-| `data[].exitScore` | number | 청산 점수 |
-| `data[].action` | string | `ExitAction` enum |
-| `data[].reasons[]` | object | 청산 사유 분해 |
-| `data[].pnlPercent` | number\|undefined | 포지션 미실현 손익률 |
-| `data[].blockRebuy` | boolean | 재진입 차단 여부(`action === BLOCK_REBUY`) |
-| `data[].createdAt` | string | ISO8601 |
+| 필드                                      | 타입              | 설명                                       |
+| ----------------------------------------- | ----------------- | ------------------------------------------ |
+| `data[].corpCode` / `corpName` / `ticker` | string            | 종목 식별자                                |
+| `data[].exitScore`                        | number            | 청산 점수                                  |
+| `data[].action`                           | string            | `ExitAction` enum                          |
+| `data[].reasons[]`                        | object            | 청산 사유 분해                             |
+| `data[].pnlPercent`                       | number\|undefined | 포지션 미실현 손익률                       |
+| `data[].blockRebuy`                       | boolean           | 재진입 차단 여부(`action === BLOCK_REBUY`) |
+| `data[].createdAt`                        | string            | ISO8601                                    |
 
 ### 12.4 일일 투자판단 에디션 날짜 목록 (DAR-505)
 
@@ -1731,37 +1856,37 @@ GET /api/signals/daily-editions   (JWT 필수)
 
 **Query Parameters**
 
-| 파라미터 | 타입 | 설명 |
-|---|---|---|
+| 파라미터 | 타입              | 설명                                       |
+| -------- | ----------------- | ------------------------------------------ |
 | `before` | string (YYYYMMDD) | 페이지 커서 — 이 날짜 미만의 에디션만 반환 |
-| `limit` | number | 페이지 크기 (기본 7, 최대 90) |
+| `limit`  | number            | 페이지 크기 (기본 7, 최대 90)              |
 
 **Response `data[]`** — 판단이 존재한 날짜만 최신순
 
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `date` | string | KST 거래일 (YYYYMMDD — `before`/`nextCursor` 커서와 동일 형식. $queryRaw `to_char(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul', 'YYYYMMDD')` 파생 — created_at 은 UTC 저장 timestamp 라 이중 환산 필수) |
-| `count` | number | 해당일 매수등급(STRONG_BUY+BUY) **유니크 종목(corpCode) 수**(DAR-553) — corpCode당 대표 1건으로 dedup 후 집계 |
-| `strongBuyCount` | number | 그 중 대표 신호가 STRONG_BUY인 종목 수 |
-| `topGrade` | string | 최고점 신호(유니크 종목 대표 중 1위) 등급 (STRONG_BUY \| BUY) |
-| `headlineCorpName` | string | 최고점 신호 종목명 |
+| 필드               | 타입   | 설명                                                                                                                                                                                                               |
+| ------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `date`             | string | KST 거래일 (YYYYMMDD — `before`/`nextCursor` 커서와 동일 형식. $queryRaw `to_char(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul', 'YYYYMMDD')` 파생 — created_at 은 UTC 저장 timestamp 라 이중 환산 필수) |
+| `count`            | number | 해당일 매수등급(STRONG_BUY+BUY) **유니크 종목(corpCode) 수**(DAR-553) — corpCode당 대표 1건으로 dedup 후 집계                                                                                                      |
+| `strongBuyCount`   | number | 그 중 대표 신호가 STRONG_BUY인 종목 수                                                                                                                                                                             |
+| `topGrade`         | string | 최고점 신호(유니크 종목 대표 중 1위) 등급 (STRONG_BUY \| BUY)                                                                                                                                                      |
+| `headlineCorpName` | string | 최고점 신호 종목명                                                                                                                                                                                                 |
 
 > **DAR-553 dedup(2026-07-17).** `TradingSignal` 자연키는 `(corpCode,rcpNo,eventType,persona)` — 공시 1건이 페르소나별로 최대 4장까지 개별 신호를 만들어, 이전에는 같은 종목이 `count`/스트립 dot에 최대 4배까지 부풀려졌다. 이제 `count`/`strongBuyCount`/`headlineCorpName`/`topGrade` 모두 **corpCode당 대표 1건**(최고 `buyScore`, 동점은 `createdAt desc → id desc`) 기준으로 집계한다. 개별 신호 원시 건수(페르소나 포함)가 필요하면 `GET /api/ops/edition-density`의 `buyGrade`(원시)와 `buyGradeUniqueCorp`(dedup, 이 엔드포인트와 1:1)를 대조한다.
 
 **Response `meta`**
 
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `latestDate` | string \| null | 시스템 전체 최신 에디션 날짜 (YYYYMMDD) |
-| `todayDate` | string | 오늘 KST 날짜 (YYYYMMDD) |
-| `todayHasEdition` | boolean | 오늘 에디션 존재 여부 |
-| `nextCursor` | string \| undefined | 다음 페이지 `before` 커서 값 |
-| `hasMore` | boolean | 다음 페이지 존재 여부 |
+| 필드              | 타입                | 설명                                    |
+| ----------------- | ------------------- | --------------------------------------- |
+| `latestDate`      | string \| null      | 시스템 전체 최신 에디션 날짜 (YYYYMMDD) |
+| `todayDate`       | string              | 오늘 KST 날짜 (YYYYMMDD)                |
+| `todayHasEdition` | boolean             | 오늘 에디션 존재 여부                   |
+| `nextCursor`      | string \| undefined | 다음 페이지 `before` 커서 값            |
+| `hasMore`         | boolean             | 다음 페이지 존재 여부                   |
 
 **에러 응답**
 
-| 상태 | 조건 |
-|---|---|
+| 상태            | 조건                                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------------------- |
 | 400 Bad Request | `before` 지정 시 `YYYYMMDD`(8자리 숫자, `/^\d{8}$/`) 형식이 아니면 `"before 파라미터는 YYYYMMDD 형식이어야 합니다"` |
 
 > **응답 봉투·라우트 순서.** 두 에디션 엔드포인트 모두 `{ success: true, data: [...], meta: {...} }` 봉투로 감싼다. 컨트롤러에서 `daily-editions` → `daily/:date` → `by-corp/:corpCode` → `by-disclosure/:rcpNo` → **`:id`(catch-all)** 순으로 선언돼, 정적 경로가 `:id` 매칭에 흡수되는 라우트 충돌을 방지한다. `limit`은 서버에서 `[1, 90]` 클램프(기본 7). 빈 날짜는 목록에 포함하지 않는다(빈 날 발명 금지).
@@ -1778,46 +1903,46 @@ GET /api/signals/daily/:date   (JWT 필수)
 
 각 item은 `GET /api/signals` 응답 item과 동일하며 추가 필드:
 
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `rcpDt` | string \| undefined | 공시 접수일 (Disclosure.rcpDt, YYYYMMDD 또는 YYYYMMDDHHmmss) |
-| `personaCount` | number | DAR-553: 이 카드로 흡수된 페르소나 관점 수(대표 포함, 최소 1) |
-| `otherPersonas` | string[] | DAR-553: 대표를 제외한 나머지 persona 목록(중복 제거). 없으면 `[]` — FE가 `length`로 '외 N개 관점' 표기 가능 |
-| `referencePrice` | object \| null | AOS A7: 에디션 거래일 이하 최신 일봉 기준점. 가격이 없으면 `null`이며 모바일은 숫자 계획을 만들지 않음 |
-| `referencePrice.tradeDate` | string | 기준 일봉 거래일(YYYYMMDD) |
-| `referencePrice.closePrice` / `highPrice` / `lowPrice` | number | 해당 일봉 가격. 진입·손절·목표의 point-in-time 입력 |
-| `referencePrice.source` | `'STOCK_DAILY_PRICE'` | 실시간가가 아닌 적재 일봉임을 나타내는 고정 provenance |
+| 필드                                                   | 타입                  | 설명                                                                                                         |
+| ------------------------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `rcpDt`                                                | string \| undefined   | 공시 접수일 (Disclosure.rcpDt, YYYYMMDD 또는 YYYYMMDDHHmmss)                                                 |
+| `personaCount`                                         | number                | DAR-553: 이 카드로 흡수된 페르소나 관점 수(대표 포함, 최소 1)                                                |
+| `otherPersonas`                                        | string[]              | DAR-553: 대표를 제외한 나머지 persona 목록(중복 제거). 없으면 `[]` — FE가 `length`로 '외 N개 관점' 표기 가능 |
+| `referencePrice`                                       | object \| null        | AOS A7: 에디션 거래일 이하 최신 일봉 기준점. 가격이 없으면 `null`이며 모바일은 숫자 계획을 만들지 않음       |
+| `referencePrice.tradeDate`                             | string                | 기준 일봉 거래일(YYYYMMDD)                                                                                   |
+| `referencePrice.closePrice` / `highPrice` / `lowPrice` | number                | 해당 일봉 가격. 진입·손절·목표의 point-in-time 입력                                                          |
+| `referencePrice.source`                                | `'STOCK_DAILY_PRICE'` | 실시간가가 아닌 적재 일봉임을 나타내는 고정 provenance                                                       |
 
 > **DAR-553 dedup.** 같은 종목(`corpCode`)이 같은 날 여러 페르소나(`GROWTH`\|`VALUE`\|`MOMENTUM`\|`EVENT_DRIVEN`) 신호를 가지면, 그 중 `buyScore` 최고 1건만 카드로 노출하고(동점은 `createdAt desc → id desc`) 나머지는 `personaCount`/`otherPersonas`로 흡수한다. 서로 다른 `corpCode`는 dedup 대상이 아니다(과도 병합 금지).
 
 **Response `meta`**
 
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `date` | string | 요청 KST 날짜 (YYYYMMDD) |
-| `isToday` | boolean | 오늘 여부 |
-| `isEmpty` | boolean | 매수등급 신호 없음 여부 |
-| `emptyReason` | string \| undefined | 빈 이유 (`CLOSED` \| `PENDING` \| `QUIET` \| `COLD_START` \| `FUTURE`). isEmpty=false 이면 undefined |
-| `prevEditionDate` | string \| undefined | 이전 에디션 날짜 (YYYYMMDD) |
-| `nextEditionDate` | string \| undefined | 다음 에디션 날짜 (YYYYMMDD) |
-| `fallbackBriefing` | array \| undefined | **빈 에디션 폴백 '주요 공시 브리핑'**(DAR-551). isEmpty=true 이고 `emptyReason ∉ {CLOSED, FUTURE}` 일 때만 존재(그 외 undefined). 항목 없으면 `[]`. ↓ 아래 표 참조 |
+| 필드               | 타입                | 설명                                                                                                                                                               |
+| ------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `date`             | string              | 요청 KST 날짜 (YYYYMMDD)                                                                                                                                           |
+| `isToday`          | boolean             | 오늘 여부                                                                                                                                                          |
+| `isEmpty`          | boolean             | 매수등급 신호 없음 여부                                                                                                                                            |
+| `emptyReason`      | string \| undefined | 빈 이유 (`CLOSED` \| `PENDING` \| `QUIET` \| `COLD_START` \| `FUTURE`). isEmpty=false 이면 undefined                                                               |
+| `prevEditionDate`  | string \| undefined | 이전 에디션 날짜 (YYYYMMDD)                                                                                                                                        |
+| `nextEditionDate`  | string \| undefined | 다음 에디션 날짜 (YYYYMMDD)                                                                                                                                        |
+| `fallbackBriefing` | array \| undefined  | **빈 에디션 폴백 '주요 공시 브리핑'**(DAR-551). isEmpty=true 이고 `emptyReason ∉ {CLOSED, FUTURE}` 일 때만 존재(그 외 undefined). 항목 없으면 `[]`. ↓ 아래 표 참조 |
 
 **emptyReason 값**
 
-| 값 | 조건 |
-|---|---|
-| `CLOSED` | 주말·공휴일(KRX 휴장일) — `isTradingDay()` false |
-| `FUTURE` | 오늘 KST보다 미래인 거래일 |
-| `PENDING` | 오늘이며 KST 19:15 이전 (engine3 미실행 휴리스틱) |
-| `QUIET` | 과거 거래일, 신호 없음 |
-| `COLD_START` | 시스템 최초 신호 이전 날짜 |
+| 값           | 조건                                              |
+| ------------ | ------------------------------------------------- |
+| `CLOSED`     | 주말·공휴일(KRX 휴장일) — `isTradingDay()` false  |
+| `FUTURE`     | 오늘 KST보다 미래인 거래일                        |
+| `PENDING`    | 오늘이며 KST 19:15 이전 (engine3 미실행 휴리스틱) |
+| `QUIET`      | 과거 거래일, 신호 없음                            |
+| `COLD_START` | 시스템 최초 신호 이전 날짜                        |
 
 > PENDING↔QUIET 경계는 **KST 19:15**(신호 생성 크론 `0 19 * * 1-5` 완료 버퍼, `docs/workflow.md` §5.15).
 
 **에러 응답**
 
-| 상태 | 조건 |
-|---|---|
+| 상태            | 조건                                                                                                      |
+| --------------- | --------------------------------------------------------------------------------------------------------- |
 | 400 Bad Request | `date`가 `YYYYMMDD`(8자리 숫자, `/^\d{8}$/`) 형식이 아니면 `"date 파라미터는 YYYYMMDD 형식이어야 합니다"` |
 
 > 빈 날짜(휴장·미발행·조용·미래·콜드스타트)는 **404가 아니라** `data: []` + `meta.emptyReason`으로 정직하게 응답한다(다른 날 신호로 채우지 않음). 응답 봉투 `{ success: true, data, meta }`.
@@ -1826,13 +1951,13 @@ GET /api/signals/daily/:date   (JWT 필수)
 
 빈 날(매수판단 0)이 실측 85%다. 빈 에디션 상세 응답이 죽은 화면이 되지 않도록, 그 KST 거래일의 **주요 공시 top 5**를 브리핑으로 분리 노출한다. 존재 조건: `isEmpty=true` **그리고** `emptyReason ∈ {PENDING, QUIET, COLD_START}`(휴장 `CLOSED`·미래 `FUTURE`는 브리핑 대상 아님 → `undefined`, 조회 자체 생략). 해당 거래일 주요 공시가 없으면 `[]`.
 
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `rcpNo` | string | DART 접수번호 (공시 딥링크 키) |
-| `corpName` | string | 기업명 |
-| `eventLabel` | string | 이벤트 라벨(한국어). 표기 SSOT: `notifications/push-body-template` `EVENT_PUSH_LEAD_LABEL`. 이벤트 미분류(`OTHER`·이벤트 없음)·미등록 타입 → `기타 공시` |
-| `summaryLine` | string | 주요 내용 한 줄(공백 정규화 + 최대 100자 말줄임) |
-| `summarySource` | `'AI'` \| `'TITLE'` | 한 줄의 출처 — 기존 AI 요약(summary task) 재사용이면 `AI`, 요약 캐시가 없어 공시 제목(reportName)으로 폴백했으면 `TITLE` |
+| 필드            | 타입                | 설명                                                                                                                                                     |
+| --------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rcpNo`         | string              | DART 접수번호 (공시 딥링크 키)                                                                                                                           |
+| `corpName`      | string              | 기업명                                                                                                                                                   |
+| `eventLabel`    | string              | 이벤트 라벨(한국어). 표기 SSOT: `notifications/push-body-template` `EVENT_PUSH_LEAD_LABEL`. 이벤트 미분류(`OTHER`·이벤트 없음)·미등록 타입 → `기타 공시` |
+| `summaryLine`   | string              | 주요 내용 한 줄(공백 정규화 + 최대 100자 말줄임)                                                                                                         |
+| `summarySource` | `'AI'` \| `'TITLE'` | 한 줄의 출처 — 기존 AI 요약(summary task) 재사용이면 `AI`, 요약 캐시가 없어 공시 제목(reportName)으로 폴백했으면 `TITLE`                                 |
 
 **중요도 정렬**(이슈 명세 순): ①이벤트성(분류된 `DisclosureEvent` 존재, `OTHER` 제외) → ②시총(스키마 미보유 — **KOSPI 본판을 대용 프록시**로 사용) → ③AI 요약 존재 → ④최신·결정론 tiebreak(`rcpNo` 내림차순). 랭킹·`LIMIT 5`는 단일 `$queryRaw`가 수행(전일 로드 회피). 대상 공시는 그 거래일 `rcpDt` 범위 `[date, 다음날)` + `isBackfill=false`(백필 제외).
 
@@ -1856,13 +1981,14 @@ GET /api/signals/daily/:date   (JWT 필수)
 GET /api/market-data/quote?stockCodes=005930,000660   (OptionalJwt — 게스트 열람)
 ```
 
-| 쿼리 | 타입 | 필수 | 설명 |
-|---|---|---|---|
+| 쿼리         | 타입   | 필수 | 설명                                                                 |
+| ------------ | ------ | ---- | -------------------------------------------------------------------- |
 | `stockCodes` | string | 필수 | 종목코드 6자리 콤마구분. 6자리 숫자만 정규화·중복 제거, 최대 50종목. |
 
 다건 조회는 단일 `in` 쿼리로 처리(N+1 회피). 응답은 `stockCode → 시세\|null` 맵.
 
 **응답**:
+
 ```json
 {
   "success": true,
@@ -1883,14 +2009,14 @@ GET /api/market-data/quote?stockCodes=005930,000660   (OptionalJwt — 게스트
 }
 ```
 
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `price` | number | 최종가(원) — 실시간 우선, 폴백 최신 일봉 종가 |
-| `previousClose` | number\|null | 직전 기준 종가(실시간이면 최신 일봉 종가, 일봉이면 전일 종가). 없으면 null |
-| `change` / `changePercent` | number\|null | 전일대비 절대 등락(원) / 등락률(%) 소수 2자리. `previousClose` 없으면 null |
-| `tradeDate` | string\|null | 가격 기준 일봉일(YYYYMMDD) |
-| `source` | `REALTIME`\|`DAILY` | 가격 출처(정직 라벨) |
-| `sparkline` | number[] | 최근 종가(오래된→최신, 최대 5) |
+| 필드                       | 타입                | 설명                                                                       |
+| -------------------------- | ------------------- | -------------------------------------------------------------------------- |
+| `price`                    | number              | 최종가(원) — 실시간 우선, 폴백 최신 일봉 종가                              |
+| `previousClose`            | number\|null        | 직전 기준 종가(실시간이면 최신 일봉 종가, 일봉이면 전일 종가). 없으면 null |
+| `change` / `changePercent` | number\|null        | 전일대비 절대 등락(원) / 등락률(%) 소수 2자리. `previousClose` 없으면 null |
+| `tradeDate`                | string\|null        | 가격 기준 일봉일(YYYYMMDD)                                                 |
+| `source`                   | `REALTIME`\|`DAILY` | 가격 출처(정직 라벨)                                                       |
+| `sparkline`                | number[]            | 최근 종가(오래된→최신, 최대 5)                                             |
 
 ### 13.2 분봉 조회 (Minute Candles, DAR-352 → DAR-377 저장분 확장)
 
@@ -1898,9 +2024,9 @@ GET /api/market-data/quote?stockCodes=005930,000660   (OptionalJwt — 게스트
 GET /api/market-data/minute-candles?stockCode=005930[&tradeDate=20260620]   (OptionalJwt — 게스트 열람)
 ```
 
-| 쿼리 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `stockCode` | string | 필수 | 종목코드 6자리. 형식 위반·데이터 없음 시 `candles` 빈 배열. |
+| 쿼리        | 타입   | 필수 | 설명                                                                                                                       |
+| ----------- | ------ | ---- | -------------------------------------------------------------------------------------------------------------------------- |
+| `stockCode` | string | 필수 | 종목코드 6자리. 형식 위반·데이터 없음 시 `candles` 빈 배열.                                                                |
 | `tradeDate` | string | 선택 | 거래일 YYYYMMDD. 지정 시 저장분(`StockMinutePrice`)에서 해당일 분봉 서빙. 미지정 시 당일 KIS 실시간 우선·저장 최근일 폴백. |
 
 서빙 우선순위(거래일 미지정): ① KIS 당일 실시간 분봉(`source=KIS_REALTIME`) → ② 미가용 시 저장된
@@ -1908,6 +2034,7 @@ GET /api/market-data/minute-candles?stockCode=005930[&tradeDate=20260620]   (Opt
 않으므로** `tradeDate` 지정 조회는 수집 시작일부터의 저장분만 존재한다(forward 축적).
 
 **응답**:
+
 ```json
 {
   "success": true,
@@ -1917,18 +2044,25 @@ GET /api/market-data/minute-candles?stockCode=005930[&tradeDate=20260620]   (Opt
     "asOf": "2026-06-20T06:31:00.000Z",
     "tradeDate": "20260619",
     "candles": [
-      { "time": "0901", "open": 100, "high": 102, "low": 99, "close": 101, "volume": 500 }
+      {
+        "time": "0901",
+        "open": 100,
+        "high": 102,
+        "low": 99,
+        "close": 101,
+        "volume": 500
+      }
     ]
   }
 }
 ```
 
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `source` | `KIS_REALTIME`\|`STORED`\|`UNAVAILABLE` | 캔들 출처 정직 라벨 |
-| `asOf` | string | 서버 응답 생성 시각(ISO). 캔들 `time` 은 KIS 시장 시각이라 환경 시계와 괴리 가능 |
-| `tradeDate` | string\|null | 캔들 거래일(YYYYMMDD). `STORED` 는 저장 거래일, `KIS_REALTIME`/미가용은 null |
-| `candles[].time` | string | 분 시각 HHMM(저장분) 또는 HHMMSS(KIS 실시간). 시간 오름차순 |
+| 필드             | 타입                                    | 설명                                                                             |
+| ---------------- | --------------------------------------- | -------------------------------------------------------------------------------- |
+| `source`         | `KIS_REALTIME`\|`STORED`\|`UNAVAILABLE` | 캔들 출처 정직 라벨                                                              |
+| `asOf`           | string                                  | 서버 응답 생성 시각(ISO). 캔들 `time` 은 KIS 시장 시각이라 환경 시계와 괴리 가능 |
+| `tradeDate`      | string\|null                            | 캔들 거래일(YYYYMMDD). `STORED` 는 저장 거래일, `KIS_REALTIME`/미가용은 null     |
+| `candles[].time` | string                                  | 분 시각 HHMM(저장분) 또는 HHMMSS(KIS 실시간). 시간 오름차순                      |
 
 ### 13.3 분봉 수동 수집 (DAR-377, 운영 트리거)
 
@@ -1940,10 +2074,10 @@ POST /api/market-data/collect/minute-prices?cap=100&tradeDate=20260620   (JWT �
 적재하고 커버리지 리포트를 반환한다. cron(평일 09:00~15:30 / 10분 간격) 외 단발 트리거. KIS 일일
 쿼터·레이트리밋 가드(`cap`·스로틀) 내 동작.
 
-| 쿼리 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `cap` | number | 선택 | 수집 상한 종목 수(쿼터 가드). 미지정 시 env `KIS_MINUTE_COLLECT_CAP`→기본 100 |
-| `tradeDate` | string | 선택 | 적재 거래일 YYYYMMDD 강제(미지정 시 KRX 실 가용 거래일로 해석) |
+| 쿼리        | 타입   | 필수 | 설명                                                                          |
+| ----------- | ------ | ---- | ----------------------------------------------------------------------------- |
+| `cap`       | number | 선택 | 수집 상한 종목 수(쿼터 가드). 미지정 시 env `KIS_MINUTE_COLLECT_CAP`→기본 100 |
+| `tradeDate` | string | 선택 | 적재 거래일 YYYYMMDD 강제(미지정 시 KRX 실 가용 거래일로 해석)                |
 
 **응답 데이터**: `{ tradeDate, totalCandidates, requested, skippedByQuota, covered, empty, candlesSaved }`
 — `skippedByQuota`(쿼터로 잘려 미수집한 종목 수)로 커버리지를 정직 보고한다.
@@ -1966,24 +2100,24 @@ GET /api/portfolio/risk/latest   (JWT 필수)
 
 **Response `data` (스냅샷 존재 시):**
 
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `portfolioId` | string | 포트폴리오 ID |
-| `snapshotDate` | string (YYYY-MM-DD) | 스냅샷 기준일 |
-| `totalValue` | number | 총 평가금액 |
-| `cashAmount` | number \| null | 현금 |
-| `unrealizedPnl` | number | 미실현 손익(금액) |
-| `unrealizedPnlPct` | number | 미실현 손익률 % |
-| `topPositionPct` | number | 최대 단일 종목 비중 %(집중도) |
-| `topSectorPct` | number \| null | 최대 섹터 비중 % |
-| `openPositionCount` | number | 보유(OPEN) 포지션 수 |
-| `dailyPnl` | number \| null | 당일 손익(금액) |
-| `dailyPnlPct` | number \| null | 당일 손익률 % |
-| `weeklyPnl` | number \| null | 주간 손익(금액) |
-| `weeklyPnlPct` | number \| null | 주간 손익률 % |
-| `riskLevel` | string | `NORMAL` \| `WARNING` \| `CRITICAL` 등 |
-| `hardRuleBreached` | boolean | 하드룰 위반 여부 |
-| `hardRuleDetail` | string \| null | 위반 상세(없으면 null) |
+| 필드                | 타입                | 설명                                   |
+| ------------------- | ------------------- | -------------------------------------- |
+| `portfolioId`       | string              | 포트폴리오 ID                          |
+| `snapshotDate`      | string (YYYY-MM-DD) | 스냅샷 기준일                          |
+| `totalValue`        | number              | 총 평가금액                            |
+| `cashAmount`        | number \| null      | 현금                                   |
+| `unrealizedPnl`     | number              | 미실현 손익(금액)                      |
+| `unrealizedPnlPct`  | number              | 미실현 손익률 %                        |
+| `topPositionPct`    | number              | 최대 단일 종목 비중 %(집중도)          |
+| `topSectorPct`      | number \| null      | 최대 섹터 비중 %                       |
+| `openPositionCount` | number              | 보유(OPEN) 포지션 수                   |
+| `dailyPnl`          | number \| null      | 당일 손익(금액)                        |
+| `dailyPnlPct`       | number \| null      | 당일 손익률 %                          |
+| `weeklyPnl`         | number \| null      | 주간 손익(금액)                        |
+| `weeklyPnlPct`      | number \| null      | 주간 손익률 %                          |
+| `riskLevel`         | string              | `NORMAL` \| `WARNING` \| `CRITICAL` 등 |
+| `hardRuleBreached`  | boolean             | 하드룰 위반 여부                       |
+| `hardRuleDetail`    | string \| null      | 위반 상세(없으면 null)                 |
 
 ```jsonc
 // 스냅샷 부재 시
@@ -2049,18 +2183,18 @@ KOSPI=0001·KOSDAQ=1001)가 가용하면 그 실가로 구동(`source: 'REALTIME
 }
 ```
 
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `indexCode` | string | 지수코드 (0001=KOSPI, 1001=KOSDAQ) |
-| `market` | `'KOSPI' \| 'KOSDAQ'` | 시장 구분 |
-| `tradeDate` | string (YYYYMMDD) | REALTIME=조회 당일(KST), EOD=종가 기준 거래일 |
-| `closeIndex` | number | 최신 지수값(REALTIME=현재 지수, EOD=종가지수) |
-| `prevCloseIndex` | number \| null | 전일(직전) 지수 (없으면 null) |
-| `change` | number \| null | 전일대비 등락폭(포인트) |
-| `changePercent` | number \| null | 전일대비 등락률(%) |
-| `suspect` | boolean | 데이터 정합 의심 플래그 (DAR-367) |
-| `source` | `'REALTIME' \| 'EOD'` | 가격 출처 (DAR-371). EOD 는 `tradeDate` 가 '종가 기준일' |
-| `asOf` | string(ISO) \| null | REALTIME 일 때 서버 KIS 조회 시각. EOD 면 null |
+| 필드             | 타입                  | 설명                                                     |
+| ---------------- | --------------------- | -------------------------------------------------------- |
+| `indexCode`      | string                | 지수코드 (0001=KOSPI, 1001=KOSDAQ)                       |
+| `market`         | `'KOSPI' \| 'KOSDAQ'` | 시장 구분                                                |
+| `tradeDate`      | string (YYYYMMDD)     | REALTIME=조회 당일(KST), EOD=종가 기준 거래일            |
+| `closeIndex`     | number                | 최신 지수값(REALTIME=현재 지수, EOD=종가지수)            |
+| `prevCloseIndex` | number \| null        | 전일(직전) 지수 (없으면 null)                            |
+| `change`         | number \| null        | 전일대비 등락폭(포인트)                                  |
+| `changePercent`  | number \| null        | 전일대비 등락률(%)                                       |
+| `suspect`        | boolean               | 데이터 정합 의심 플래그 (DAR-367)                        |
+| `source`         | `'REALTIME' \| 'EOD'` | 가격 출처 (DAR-371). EOD 는 `tradeDate` 가 '종가 기준일' |
+| `asOf`           | string(ISO) \| null   | REALTIME 일 때 서버 KIS 조회 시각. EOD 면 null           |
 
 > 전일 데이터가 1건뿐이면 `prevCloseIndex`·`change`·`changePercent`는 `null`. 데이터가 전혀 없으면 빈 배열(홈 배지 미표시).
 >
@@ -2083,10 +2217,10 @@ KOSPI=0001·KOSDAQ=1001)가 가용하면 그 실가로 구동(`source: 'REALTIME
 GET /api/event-study   (JWT 필수)
 ```
 
-| 쿼리 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `eventType` | string | 선택 | 이벤트 유형 필터 |
-| `marketType` | string | 선택 | `KOSPI` / `KOSDAQ` / `ALL` (기본 `ALL`) |
+| 쿼리                  | 타입    | 필수 | 설명                                                                         |
+| --------------------- | ------- | ---- | ---------------------------------------------------------------------------- |
+| `eventType`           | string  | 선택 | 이벤트 유형 필터                                                             |
+| `marketType`          | string  | 선택 | `KOSPI` / `KOSDAQ` / `ALL` (기본 `ALL`)                                      |
 | `includeInsufficient` | boolean | 선택 | 표본<30 미유의(`INSUFFICIENT`) 데이터한계 항목 포함 (기본 false → `READY`만) |
 
 (eventType, bucketKey, marketType) 단위 버킷 평균 통계(D+N 초과수익·승률·표본 등)를 반환.
@@ -2100,28 +2234,28 @@ GET /api/event-study/:bucketKey/observations   (JWT 필수)
 버킷 통계가 **실제로 어떤 공시들로 만들어졌는지**를 검증할 수 있도록, 해당 버킷을 구성한
 개별 관측치(공시별 CAR)를 페이지네이션으로 반환한다(표본 투명성 — 과신 방지).
 
-| 파라미터 | 타입 | 필수 | 설명 |
-|---|---|---|---|
+| 파라미터           | 타입   | 필수 | 설명                                             |
+| ------------------ | ------ | ---- | ------------------------------------------------ |
 | `bucketKey` (path) | string | 필수 | 버킷 식별자 (예: `SUPPLY_CONTRACT__ratio_5to20`) |
-| `eventType` | string | 선택 | 이벤트 유형 추가 필터 |
-| `limit` | number | 선택 | 페이지 크기 (1~100, 기본 20) |
-| `offset` | number | 선택 | 오프셋 (기본 0) |
+| `eventType`        | string | 선택 | 이벤트 유형 추가 필터                            |
+| `limit`            | number | 선택 | 페이지 크기 (1~100, 기본 20)                     |
+| `offset`           | number | 선택 | 오프셋 (기본 0)                                  |
 
 **응답 `data`**
 
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `bucketKey` | string | 요청 버킷 |
-| `total` | number | 버킷 전체 관측치 수 |
-| `limit` / `offset` | number | 적용된 페이지 파라미터 |
-| `hasMore` | boolean | 다음 페이지 존재 여부 |
-| `items[]` | object | 개별 관측치 목록 |
-| `items[].rcpNo` | string | 공시 접수번호 |
-| `items[].corpName` | string\|null | 기업명(논리 조인, 미존재 시 null) |
-| `items[].d0Date` | string (YYYYMMDD) | 실제 D0 날짜 |
-| `items[].carD5` / `carD20` | number\|null | D+5 / D+20 누적 초과수익(CAR, %) — 미보유 시 null |
-| `items[].maxDrawdown` | number | D0~D+20 최대낙폭(%) |
-| `items[].isUpD5` / `isCrashD5` | boolean | D+5 상승 / 급락(-5% 이하) 여부 |
+| 필드                           | 타입              | 설명                                              |
+| ------------------------------ | ----------------- | ------------------------------------------------- |
+| `bucketKey`                    | string            | 요청 버킷                                         |
+| `total`                        | number            | 버킷 전체 관측치 수                               |
+| `limit` / `offset`             | number            | 적용된 페이지 파라미터                            |
+| `hasMore`                      | boolean           | 다음 페이지 존재 여부                             |
+| `items[]`                      | object            | 개별 관측치 목록                                  |
+| `items[].rcpNo`                | string            | 공시 접수번호                                     |
+| `items[].corpName`             | string\|null      | 기업명(논리 조인, 미존재 시 null)                 |
+| `items[].d0Date`               | string (YYYYMMDD) | 실제 D0 날짜                                      |
+| `items[].carD5` / `carD20`     | number\|null      | D+5 / D+20 누적 초과수익(CAR, %) — 미보유 시 null |
+| `items[].maxDrawdown`          | number            | D0~D+20 최대낙폭(%)                               |
+| `items[].isUpD5` / `isCrashD5` | boolean           | D+5 상승 / 급락(-5% 이하) 여부                    |
 
 > 관측치 모델은 `marketType`이 없어 시장 무관 풀(= `ALL` 버킷과 동일 표본)이다. 빈 버킷이면 `items: []`.
 > 관측치는 `POST /api/event-study/calculate` 산출 시 영속된다(스키마 변경 없음, 기존 `EventStudyObservation` 모델 사용).
@@ -2136,22 +2270,22 @@ GET /api/event-study/:bucketKey/distribution   (JWT 필수)
 (`EventStudyObservation.cumulativeAR`)에서 D+5/D+20 누적 초과수익의 **분포**(평균·중앙값·분위수)를 직접 산출한다.
 평균과 중앙값의 괴리가 크면 그 버킷이 소수 이상치에 오염됐다는 신호다.
 
-| 파라미터 | 타입 | 필수 | 설명 |
-|---|---|---|---|
+| 파라미터           | 타입   | 필수 | 설명                                             |
+| ------------------ | ------ | ---- | ------------------------------------------------ |
 | `bucketKey` (path) | string | 필수 | 버킷 식별자 (예: `SUPPLY_CONTRACT__ratio_5to20`) |
-| `eventType` | string | 선택 | 이벤트 유형 추가 필터 |
+| `eventType`        | string | 선택 | 이벤트 유형 추가 필터                            |
 
 **응답 `data`**
 
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `bucketKey` | string | 요청 버킷 |
-| `count` | number | 관측치 행 수 |
-| `d5` / `d20` | object | D+5 / D+20 누적 AR 분포 요약 |
-| `d5.count` | number | 유효 값 수 |
-| `d5.mean` | number\|null | 산술평균(이상치 지배 가능) |
-| `d5.median` | number\|null | 중앙값(이상치 강건) |
-| `d5.p5` / `p25` / `p75` / `p95` | number\|null | 분위수(선형 보간) |
+| 필드                            | 타입         | 설명                         |
+| ------------------------------- | ------------ | ---------------------------- |
+| `bucketKey`                     | string       | 요청 버킷                    |
+| `count`                         | number       | 관측치 행 수                 |
+| `d5` / `d20`                    | object       | D+5 / D+20 누적 AR 분포 요약 |
+| `d5.count`                      | number       | 유효 값 수                   |
+| `d5.mean`                       | number\|null | 산술평균(이상치 지배 가능)   |
+| `d5.median`                     | number\|null | 중앙값(이상치 강건)          |
+| `d5.p5` / `p25` / `p75` / `p95` | number\|null | 분위수(선형 보간)            |
 
 > 표본이 비면 모든 분포 필드 null(에러 아님). 관측치 모델은 `marketType`이 없어 시장 무관 풀이다.
 
@@ -2166,16 +2300,21 @@ GET /api/companies/:corpCode/event-study   (OptionalJwt — 게스트 열람)
 이벤트 스터디 결과**를 반환한다(= 16.1 버킷 통계를 기업 보유 유형으로 필터링한 부분집합). 시장 전체 통계라
 비민감 데이터 → 게스트 열람 허용(메서드 단위 `OptionalJwt`, 시세 API와 동일 패턴).
 
-| 파라미터 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `corpCode` (path) | string | 필수 | 기업 고유번호(8자리) |
-| `eventType` | string | 선택 | 이벤트 유형 필터(기업 보유 유형과의 교집합으로 제한) |
-| `marketType` | string | 선택 | 시장 유형 (`KOSPI` / `KOSDAQ` / `ALL`, 기본 `ALL`) |
+| 파라미터          | 타입   | 필수 | 설명                                                 |
+| ----------------- | ------ | ---- | ---------------------------------------------------- |
+| `corpCode` (path) | string | 필수 | 기업 고유번호(8자리)                                 |
+| `eventType`       | string | 선택 | 이벤트 유형 필터(기업 보유 유형과의 교집합으로 제한) |
+| `marketType`      | string | 선택 | 시장 유형 (`KOSPI` / `KOSDAQ` / `ALL`, 기본 `ALL`)   |
 
 **응답** (`data`: `EventStudyResult` 배열, 16.1 버킷 통계와 동일 형태)
 
 ```jsonc
-{ "success": true, "data": [ /* (eventType, bucketKey, marketType) 버킷 통계 … */ ] }
+{
+  "success": true,
+  "data": [
+    /* (eventType, bucketKey, marketType) 버킷 통계 … */
+  ],
+}
 ```
 
 > 기업이 제출한 공시 이벤트가 없거나(`eventType` 교집합 공집합 포함), 매칭되는 `READY` 결과가 없으면
@@ -2197,10 +2336,10 @@ GET /api/backtest/evaluation-corpus?limit=2000&eventType=SUPPLY_CONTRACT   (Opti
 ★ **AI 금지영역 불가침**: 코퍼스는 **참고 평가자료**일 뿐 주문을 직접 결정하지 않는다. Buy/Exit Score 는
 Rule 공식이 산출하고 Risk·체결은 Engine5 독립이다. 응답 `disclaimer`(=`CORPUS_REFERENCE_ONLY…`)로 명시.
 
-| 파라미터 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `limit` | int | 선택 | 대상 공시 최대 수(최신 추출순). 기본 2000, 상한 5000(비숫자/음수 안전화) |
-| `eventType` | string | 선택 | 이벤트 유형 필터 |
+| 파라미터    | 타입   | 필수 | 설명                                                                     |
+| ----------- | ------ | ---- | ------------------------------------------------------------------------ |
+| `limit`     | int    | 선택 | 대상 공시 최대 수(최신 추출순). 기본 2000, 상한 5000(비숫자/음수 안전화) |
+| `eventType` | string | 선택 | 이벤트 유형 필터                                                         |
 
 **라벨 규칙**: 사전 극성 `POSITIVE→+1`/`NEGATIVE→-1`/`MIXED·UNKNOWN→0`. 실현 AR 부호와 비교 —
 실현결과 없음(미성숙)·방향예측 없음·정확히 0 → `NEUTRAL`(과신 방지), 부호 일치 → `AGREE`, 불일치 → `DIVERGE`.
@@ -2214,25 +2353,39 @@ Rule 공식이 산출하고 Risk·체결은 Engine5 독립이다. 응답 `discla
   "data": {
     "generatedAtNote": "point-in-time 코퍼스: 호출 시점의 관측치·AI분석 기준 스냅샷(저장 없음)",
     "summary": {
-      "totalRecords": 1234, "distinctEventTypes": 12,
-      "withAiCount": 800, "withOutcomeD5Count": 950,
-      "aiCoveragePct": 64.83, "outcomeCoverageD5Pct": 77.0,
-      "agreeD5": 620, "divergeD5": 330, "neutralD5": 284,
-      "hitRateD5": 65.26, "hitRateD20": 61.1
+      "totalRecords": 1234,
+      "distinctEventTypes": 12,
+      "withAiCount": 800,
+      "withOutcomeD5Count": 950,
+      "aiCoveragePct": 64.83,
+      "outcomeCoverageD5Pct": 77.0,
+      "agreeD5": 620,
+      "divergeD5": 330,
+      "neutralD5": 284,
+      "hitRateD5": 65.26,
+      "hitRateD20": 61.1,
     },
     "byEventType": [
       {
-        "key": "SUPPLY_CONTRACT", "recordCount": 210,
-        "withAiCount": 140, "withOutcomeD5Count": 180, "withOutcomeD20Count": 170,
-        "aiCoveragePct": 66.67, "outcomeCoverageD5Pct": 85.71,
-        "agreeD5": 120, "divergeD5": 60, "neutralD5": 30,
-        "hitRateD5": 66.67, "hitRateD20": 64.2,
-        "meanArD5": 1.83, "meanArD20": 2.41
-      }
+        "key": "SUPPLY_CONTRACT",
+        "recordCount": 210,
+        "withAiCount": 140,
+        "withOutcomeD5Count": 180,
+        "withOutcomeD20Count": 170,
+        "aiCoveragePct": 66.67,
+        "outcomeCoverageD5Pct": 85.71,
+        "agreeD5": 120,
+        "divergeD5": 60,
+        "neutralD5": 30,
+        "hitRateD5": 66.67,
+        "hitRateD20": 64.2,
+        "meanArD5": 1.83,
+        "meanArD20": 2.41,
+      },
       /* … 레코드 수 내림차순 … */
     ],
-    "disclaimer": "CORPUS_REFERENCE_ONLY — …"
-  }
+    "disclaimer": "CORPUS_REFERENCE_ONLY — …",
+  },
 }
 ```
 
@@ -2264,14 +2417,14 @@ TimescaleDB 분봉 하이퍼테이블(`stock_minute_prices`)과 연속집계(`st
 
 **쿼리 파라미터**
 
-| 파라미터 | 필수 | 설명 |
-|---|---|---|
-| `stockCode` | ✅ | 종목코드 6자리 (위반 시 400) |
-| `resolution` | — | `1m`(기본)·`5m`·`15m`·`1d`. 5m/15m/1d 는 연속집계 롤업 |
-| `from` | — | 구간 시작(포함) — ISO 8601 또는 `YYYYMMDD`/`YYYYMMDDHHmm`(UTC) |
-| `to` | — | 구간 끝(포함) — `from` 과 동일 형식 (`from > to` 면 400) |
-| `before` | — | 페이지네이션 커서 — 이 시각 이전(미만) 캔들만(과거 페이지). 응답 `nextCursor` 사용 |
-| `limit` | — | 한 페이지 캔들 수 (기본 200, 최대 1000) |
+| 파라미터     | 필수 | 설명                                                                               |
+| ------------ | ---- | ---------------------------------------------------------------------------------- |
+| `stockCode`  | ✅   | 종목코드 6자리 (위반 시 400)                                                       |
+| `resolution` | —    | `1m`(기본)·`5m`·`15m`·`1d`. 5m/15m/1d 는 연속집계 롤업                             |
+| `from`       | —    | 구간 시작(포함) — ISO 8601 또는 `YYYYMMDD`/`YYYYMMDDHHmm`(UTC)                     |
+| `to`         | —    | 구간 끝(포함) — `from` 과 동일 형식 (`from > to` 면 400)                           |
+| `before`     | —    | 페이지네이션 커서 — 이 시각 이전(미만) 캔들만(과거 페이지). 응답 `nextCursor` 사용 |
+| `limit`      | —    | 한 페이지 캔들 수 (기본 200, 최대 1000)                                            |
 
 **응답** — `candles` 는 시간 오름차순. `source` 는 `TIMESCALE`(조회 성공) 또는 `UNAVAILABLE`
 (확장/마이그레이션 미적용 등 — 빈 배열 graceful, 비파괴). `asOf` 는 서버 조회시각(환경 시계 괴리 고지).
@@ -2287,10 +2440,17 @@ TimescaleDB 분봉 하이퍼테이블(`stock_minute_prices`)과 연속집계(`st
     "count": 200,
     "nextCursor": "2026-05-29T00:00:00.000Z",
     "candles": [
-      { "time": "2026-05-29T00:05:00.000Z", "open": 70100, "high": 70530, "low": 69950, "close": 70450, "volume": 8064 }
+      {
+        "time": "2026-05-29T00:05:00.000Z",
+        "open": 70100,
+        "high": 70530,
+        "low": 69950,
+        "close": 70450,
+        "volume": 8064,
+      },
       /* … 오름차순 … */
-    ]
-  }
+    ],
+  },
 }
 ```
 
@@ -2351,7 +2511,13 @@ GET /api/paper-trading/simulation/strategies/comparison   (OptionalJwt — 게�
         "label": "이벤트엣지",
         "tagline": "EventStudy 유의 양(+) 이벤트만 추종 …",
         "initialCapital": 10000000,
-        "equityCurve": [ { "snapshotDate": "2025-06-21", "totalValue": 10000000, "returnPct": 0 } ],
+        "equityCurve": [
+          {
+            "snapshotDate": "2025-06-21",
+            "totalValue": 10000000,
+            "returnPct": 0,
+          },
+        ],
         "cumulativeReturnPct": 12.5,
         "winRate": 0.55,
         "tradeCount": 40,
@@ -2361,19 +2527,24 @@ GET /api/paper-trading/simulation/strategies/comparison   (OptionalJwt — 게�
         "benchmarkAlphaPct": null,
         "rules": {
           "entry": "전 이벤트 대상 · 매수점수 ≥35 · 점수가중 배분 · 최대 20종목",
-          "exit": "익절 +20% / 손절 -10% · 최대보유 20거래일"
+          "exit": "익절 +20% / 손절 -10% · 최대보유 20거래일",
         },
-        "lowSample": false
-      }
+        "lowSample": false,
+      },
       /* … 나머지 3종 … */
     ],
     "ranking": {
-      "ranking": ["event-edge", "conservative-value", "short-momentum", "aggressive-diversified"],
+      "ranking": [
+        "event-edge",
+        "conservative-value",
+        "short-momentum",
+        "aggressive-diversified",
+      ],
       "bestKey": "event-edge",
-      "allLowSample": false
+      "allLowSample": false,
     },
-    "lowSampleThreshold": 20
-  }
+    "lowSampleThreshold": 20,
+  },
 }
 ```
 
@@ -2396,20 +2567,26 @@ GET /api/paper-trading/simulation/strategies/:key/trade-history   (OptionalJwt �
     "tagline": "EventStudy 유의 양(+) 이벤트만 추종 …",
     "rules": {
       "entry": "전 이벤트 대상 · 매수점수 ≥35 · 점수가중 배분 · 최대 20종목",
-      "exit": "익절 +20% / 손절 -10% · 최대보유 20거래일"
+      "exit": "익절 +20% / 손절 -10% · 최대보유 20거래일",
     },
     "trades": [
       {
         "id": "ckxtrade…",
-        "stockCode": "005930", "stockName": "삼성전자",
+        "stockCode": "005930",
+        "stockName": "삼성전자",
         "eventType": "SUPPLY_CONTRACT",
-        "entryDate": "2025-07-01", "exitDate": "2025-07-10",
-        "entryPrice": 70000, "exitPrice": 77000,
-        "returnPct": 9.5, "exitReason": "TAKE_PROFIT", "holdDays": 9, "status": "CLOSED"
-      }
+        "entryDate": "2025-07-01",
+        "exitDate": "2025-07-10",
+        "entryPrice": 70000,
+        "exitPrice": 77000,
+        "returnPct": 9.5,
+        "exitReason": "TAKE_PROFIT",
+        "holdDays": 9,
+        "status": "CLOSED",
+      },
       /* … 최신순 … */
-    ]
-  }
+    ],
+  },
 }
 ```
 
@@ -2426,12 +2603,19 @@ POST /api/paper-trading/simulation/strategies/refresh   (JWT 필수 — 쓰기·
 {
   "success": true,
   "data": {
-    "startDate": "2025-06-21", "endDate": "2026-06-21",
+    "startDate": "2025-06-21",
+    "endDate": "2026-06-21",
     "results": [
-      { "strategyKey": "event-edge", "status": "COMPLETED", "runId": "ckxxx…", "totalTrades": 40, "cumulativeReturnPct": 12.5 }
+      {
+        "strategyKey": "event-edge",
+        "status": "COMPLETED",
+        "runId": "ckxxx…",
+        "totalTrades": 40,
+        "cumulativeReturnPct": 12.5,
+      },
       /* … 나머지 3종 … */
-    ]
-  }
+    ],
+  },
 }
 ```
 
@@ -2451,28 +2635,59 @@ Body: { "startDate": "2025-06-19", "endDate": "2026-06-19" }
   `FRAGILE`(이웃이 손익 부호를 뒤집음) · `LOW_SAMPLE`(baseline 표본<20, 판단보류). `overall`=축 최악.
 - **★ read-only** — BacktestRun/Trade 영속 0(운용·측정 트랙 무접촉). 리포트는 응답으로만 반환하는 휘발 산출물.
   상시 크론 없음(수동 트리거 전용). 스크립트: `npx ts-node -r dotenv/config
-  src/engine3-quant-market/backtest/strategies/parameter-sweep.manual.ts <key> <start> <end>`.
+src/engine3-quant-market/backtest/strategies/parameter-sweep.manual.ts <key> <start> <end>`.
 - **★★ AI 자동 파라미터 조정 금지** — 하니스는 측정·리포트만. 파라미터 반영은 `docs/trading/strategy-rulebook.md
-  §8 변경 절차`(문서 개정 → 재검증 → 사람 승인)로만. 프리셋 키 기반 일반화 — 신규 트랙(P12·P14) 머지 시 동일 적용.
+§8 변경 절차`(문서 개정 → 재검증 → 사람 승인)로만. 프리셋 키 기반 일반화 — 신규 트랙(P12·P14) 머지 시 동일 적용.
 
 ```jsonc
 {
   "success": true,
   "data": {
-    "presetKey": "conservative-value", "presetLabel": "보수가치",
+    "presetKey": "conservative-value",
+    "presetLabel": "보수가치",
     "window": { "startDate": "2025-06-19", "endDate": "2026-06-19" },
-    "baseline": { "totalReturn": 12.4, "winRate": 58.0, "profitFactor": 1.6, "mdd": -11.2, "sharpe": 1.1, "totalTrades": 34 },
-    "baselineTrades": 34, "gridSize": 9,
+    "baseline": {
+      "totalReturn": 12.4,
+      "winRate": 58.0,
+      "profitFactor": 1.6,
+      "mdd": -11.2,
+      "sharpe": 1.1,
+      "totalTrades": 34,
+    },
+    "baselineTrades": 34,
+    "gridSize": 9,
     "axes": [
-      { "axisKey": "stopLoss", "axisLabel": "손절", "unit": "%p", "step": 2,
-        "baselineParam": -10, "downParam": -12, "upParam": -8,
-        "primaryAbsSwing": 1.8, "primaryRelSwing": 0.15, "signFlip": false, "verdict": "STABLE",
-        "metrics": [ { "metric": "totalReturn", "baseline": 12.4, "down": 11.0, "up": 13.2, "downDelta": -1.4, "upDelta": 0.8, "maxAbsSwing": 1.4 } /* … */ ] }
+      {
+        "axisKey": "stopLoss",
+        "axisLabel": "손절",
+        "unit": "%p",
+        "step": 2,
+        "baselineParam": -10,
+        "downParam": -12,
+        "upParam": -8,
+        "primaryAbsSwing": 1.8,
+        "primaryRelSwing": 0.15,
+        "signFlip": false,
+        "verdict": "STABLE",
+        "metrics": [
+          {
+            "metric": "totalReturn",
+            "baseline": 12.4,
+            "down": 11.0,
+            "up": 13.2,
+            "downDelta": -1.4,
+            "upDelta": 0.8,
+            "maxAbsSwing": 1.4,
+          } /* … */,
+        ],
+      },
       /* … takeProfit · holdDays · minBuyScore … */
     ],
-    "mostSensitiveAxisKey": "takeProfit", "overallVerdict": "MODERATE", "lowSample": false,
-    "notice": "read-only 측정 리포트. 파라미터 자동 조정 없음. 값 반영은 … §8 변경 절차로만."
-  }
+    "mostSensitiveAxisKey": "takeProfit",
+    "overallVerdict": "MODERATE",
+    "lowSample": false,
+    "notice": "read-only 측정 리포트. 파라미터 자동 조정 없음. 값 반영은 … §8 변경 절차로만.",
+  },
 }
 ```
 
@@ -2531,23 +2746,28 @@ GET /api/paper-trading/simulation/intraday-scalp/status   (게스트 허용)
     "strategyKey": "intraday-scalp",
     "tagline": "분봉 단타 — 거래량 폭발+돌파+VWAP 진입, 당일 청산(오버나잇 금지)",
     "initialCapital": 10000000,
-    "openPositions": 2,            // 현재 보유(장중)
-    "closedTrades": 5,             // 청산 완료 누적
-    "realizedPnl": -12000,         // 실현 손익(KRW)
-    "winRate": 0.4,                // 0~1
+    "openPositions": 2, // 현재 보유(장중)
+    "closedTrades": 5, // 청산 완료 누적
+    "realizedPnl": -12000, // 실현 손익(KRW)
+    "winRate": 0.4, // 0~1
     "cumulativeReturnPct": -0.12,
-    "lowSample": true,             // 표본 < 20 (forward 초기 graceful)
+    "lowSample": true, // 표본 < 20 (forward 초기 graceful)
     "lowSampleThreshold": 20,
-    "backtestable": false,         // ★분봉 단타는 백테스트 불가(forward-only)
-    "roundTripCostPct": 0.31,      // ★DAR-418 왕복 거래비용율(%) — 수수료·세금·슬리피지 SSOT
-    "takeProfitNetPct": 2.0,       // 순(net) 익절 목표(%)
-    "stopLossNetPct": -1.2,        // 순(net) 손절 목표(%)
-    "totalFees": 4300,             // 청산 완료 거래 총수수료(수수료+세금) 합(KRW)
-    "equityCurve": [               // 일별 실현 누적(오늘부터 forward) — DAR-412 flat-fill 앵커 포함
-      { "tradeDate": "20260621", "realizedPnl": 0, "cumulativeReturnPct": 0 },     // 변동 직전 달력일 앵커(평평)
-      { "tradeDate": "20260622", "realizedPnl": -12000, "cumulativeReturnPct": -0.12 }
-    ]
-  }
+    "backtestable": false, // ★분봉 단타는 백테스트 불가(forward-only)
+    "roundTripCostPct": 0.31, // ★DAR-418 왕복 거래비용율(%) — 수수료·세금·슬리피지 SSOT
+    "takeProfitNetPct": 2.0, // 순(net) 익절 목표(%)
+    "stopLossNetPct": -1.2, // 순(net) 손절 목표(%)
+    "totalFees": 4300, // 청산 완료 거래 총수수료(수수료+세금) 합(KRW)
+    "equityCurve": [
+      // 일별 실현 누적(오늘부터 forward) — DAR-412 flat-fill 앵커 포함
+      { "tradeDate": "20260621", "realizedPnl": 0, "cumulativeReturnPct": 0 }, // 변동 직전 달력일 앵커(평평)
+      {
+        "tradeDate": "20260622",
+        "realizedPnl": -12000,
+        "cumulativeReturnPct": -0.12,
+      },
+    ],
+  },
 }
 ```
 
@@ -2571,28 +2791,28 @@ GET /api/paper-trading/simulation/intraday-scalp/trade-history   (게스트 허�
     "styleTag": "intraday-scalp",
     "strategyKey": "intraday-scalp",
     "tagline": "분봉 단타 — 거래량 폭발+돌파+VWAP 진입, 당일 청산(오버나잇 금지)",
-    "roundTripCostPct": 0.31,                       // ★DAR-418 왕복 거래비용율(%)
+    "roundTripCostPct": 0.31, // ★DAR-418 왕복 거래비용율(%)
     "trades": [
       {
         "id": "clx...",
         "stockCode": "000001",
         "corpName": "가나기업",
         "tradeDate": "20260622",
-        "entryTs": "2026-06-22T10:05:00+09:00",  // ★DAR-435 KST 벽시계 +09:00 오프셋 명시 ISO(진입 분봉 시각)
-        "exitTs": "2026-06-22T10:32:00+09:00",    // ★DAR-435 entryTs 와 동일 timebase·OPEN 이면 null
+        "entryTs": "2026-06-22T10:05:00+09:00", // ★DAR-435 KST 벽시계 +09:00 오프셋 명시 ISO(진입 분봉 시각)
+        "exitTs": "2026-06-22T10:32:00+09:00", // ★DAR-435 entryTs 와 동일 timebase·OPEN 이면 null
         "entryReason": "VOLUME_BREAKOUT_VWAP",
-        "exitReason": "TAKE_PROFIT",               // TAKE_PROFIT | STOP_LOSS | FORCE_CLOSE_EOD | null(OPEN)
+        "exitReason": "TAKE_PROFIT", // TAKE_PROFIT | STOP_LOSS | FORCE_CLOSE_EOD | null(OPEN)
         "entryPrice": 10500,
-        "exitPrice": 10710,                         // OPEN 이면 null
-        "returnPct": 2.0,                           // 순수익률(%, =netReturnPct) — OPEN 이면 null
-        "grossReturnPct": 2.31,                     // ★DAR-418 gross 수익률(%, 비용 전) — OPEN 이면 null
-        "netReturnPct": 2.0,                        // ★DAR-418 순(net) 수익률(%) — OPEN 이면 null
-        "netPnl": 18000,                            // 순손익(KRW) — OPEN 이면 null
-        "totalFees": 430,                           // ★DAR-418 총수수료(수수료+세금, KRW) — OPEN 이면 null
-        "status": "CLOSED"                          // OPEN | CLOSED
-      }
-    ]
-  }
+        "exitPrice": 10710, // OPEN 이면 null
+        "returnPct": 2.0, // 순수익률(%, =netReturnPct) — OPEN 이면 null
+        "grossReturnPct": 2.31, // ★DAR-418 gross 수익률(%, 비용 전) — OPEN 이면 null
+        "netReturnPct": 2.0, // ★DAR-418 순(net) 수익률(%) — OPEN 이면 null
+        "netPnl": 18000, // 순손익(KRW) — OPEN 이면 null
+        "totalFees": 430, // ★DAR-418 총수수료(수수료+세금, KRW) — OPEN 이면 null
+        "status": "CLOSED", // OPEN | CLOSED
+      },
+    ],
+  },
 }
 ```
 
@@ -2613,6 +2833,7 @@ GET /api/paper-trading/simulation/intraday-scalp/trade-history   (게스트 허�
 **수신자**: ★실제 앱 사용자 **전원**(브로드캐스트). 시스템 모의/단타는 전역 단일 시뮬이라 포지션 소유자(합성 시스템 유저 `provider='system'`)가 아닌 실 사용자가 수신 대상이다. 사용자별 `tradePushEnabled` 토글(기본 ON·§6.2)로 게이트 — OFF면 인박스·푸시 모두 생략. 푸시는 추가로 master `isEnabled` + 유효 디바이스 토큰 필요. 멱등: `(userId, type, refId)` 유니크(refId = 분봉 단타 trade id / 시스템 모의 position id).
 
 **인박스/푸시 내용** (DAR-432 · 2026-07-06 이모지 제거 개정 — 출처명 텍스트, 한 줄 이해, 대괄호 0):
+
 - 매수 — title `{출처명} · {종목명} 매수`, body `₩{체결가} × {수량}주 · 잔액 ₩{현금}`
 - 매도 — title `{출처명} · {종목명} 매도 {±수익%}`, body `손익 {±%}({청산사유}) · 평가금 ₩{전체평가금}`
 - 출처명은 `strategyKey`로 SSOT(`notification-source.ts`)에서 매핑: 모의(`paper-simulation`)·단타(`intraday-scalp`)·이벤트엣지(`event-edge`)·보수가치(`conservative-value`)·단기모멘텀(`short-momentum`)·공격분산(`aggressive-diversified`); 미등록 키는 '알림' 폴백.
@@ -2620,6 +2841,7 @@ GET /api/paper-trading/simulation/intraday-scalp/trade-history   (게스트 허�
 - 푸시 `data`: `{ deepLink, type, refId, channelId, source, strategyKey, strategyName }` — 출처(source=SSOT 라벨)·트랙 식별자(strategyKey/strategyName)·채널을 동봉(DAR-430 채널·DAR-431 딥링크 정합). 빈 값 키는 제외(legacy 호환). `deepLink`는 인박스(`NotificationHistory.deepLink`)에도 동일 충전돼 알림 탭 탭(tap) 라우팅에 쓰인다.
 
 **딥링크 라우팅(DAR-431)**: 체결 알림 탭은 해당 트랙 화면으로 직행한다(포트폴리오 루트 폴백 제거).
+
 - 분봉 단타 → `/portfolio/strategy/intraday-scalp`
 - 시스템 모의 → `/portfolio?tab=sim` (포트폴리오 '시스템 모의' 서브탭)
 - (4종 전략 `event-edge`·`short-momentum`·`conservative-value`·`aggressive-diversified` 드릴다운은 `/portfolio/strategy/<key>` — 단, 백테스트 전용이라 라이브 체결 알림은 발행하지 않는다.)
@@ -2639,6 +2861,7 @@ GET /api/paper-trading/simulation/intraday-scalp/trade-history   (게스트 허�
 **출처→출처명 SSOT**: 백엔드 `backend/src/notifications/notification-source.ts` ↔ 모바일 `mobile/utils/notificationSource.ts`(라벨 1:1 동일, `mobile/scripts/check-notification-sources.ts` 결정론 검증). DAR-430 카테고리(3 버킷=채널·필터 축)와 **상호보완**(출처=세분화된 발행원 축).
 
 **출처별 템플릿**:
+
 - 공시(`DISCLOSURE`): title `{기업명} · {공시유형}` / body `{공시명}` (탭→`/disclosure/{rcpNo}`)
 - 매수신호(`SIGNAL`): title `{기업명} 매수신호 {등급(한국어)}` / body `{점수}점 · {근거}`
 - 청산(`EXIT`): title `{기업명} 청산 권고` · 논리훼손(`THESIS_VIOLATED`): title `{기업명} 투자논리 훼손`
@@ -2655,23 +2878,23 @@ M10 30일 모의운용의 정본 트랙. **전역 단일 시스템 모의**(합�
 
 ### 21.1 시스템 모의 기본 트랙
 
-| 엔드포인트 | 인증 | 요약 |
-|---|---|---|
-| `GET /paper-trading/simulation/status` | JWT | 모의운용 누적 졸업지표·포트폴리오 진척 조회 |
-| `GET /paper-trading/simulation/equity-curve` | OptionalJwt | 모의 자산곡선(일별 평가금액 시계열) + 졸업 진척 |
+| 엔드포인트                                    | 인증        | 요약                                                                   |
+| --------------------------------------------- | ----------- | ---------------------------------------------------------------------- |
+| `GET /paper-trading/simulation/status`        | JWT         | 모의운용 누적 졸업지표·포트폴리오 진척 조회                            |
+| `GET /paper-trading/simulation/equity-curve`  | OptionalJwt | 모의 자산곡선(일별 평가금액 시계열) + 졸업 진척                        |
 | `GET /paper-trading/simulation/trade-history` | OptionalJwt | 모의 매매 사유 추적 + 성적표 — 진입/청산 근거·승률·평균손익·누적수익률 |
-| `POST /paper-trading/simulation/run-once` | JWT | 모의운용 1일치 사이클 수동 실행(매수→스냅샷→Exit→지표) |
-| `POST /paper-trading/simulation/reset` | JWT | 시스템 모의 클린 리셋(DAR-429) — 아래 상세 |
-| `GET /paper-trading/portfolio` | JWT | 모의투자 포트폴리오 조회 |
+| `POST /paper-trading/simulation/run-once`     | JWT         | 모의운용 1일치 사이클 수동 실행(매수→스냅샷→Exit→지표)                 |
+| `POST /paper-trading/simulation/reset`        | JWT         | 시스템 모의 클린 리셋(DAR-429) — 아래 상세                             |
+| `GET /paper-trading/portfolio`                | JWT         | 모의투자 포트폴리오 조회                                               |
 
 **시스템 모의 클린 리셋 (DAR-429)** — `POST /paper-trading/simulation/reset`은 **body `{ "confirm": "RESET" }` 필수**(휴먼 승인 게이트·cron 자동호출 0). 오염된 모의 이력을 제거하고 초기상태(현금 = 초기자본 10,000,000·OPEN 0)로 복원한다. 해당 sim 유저의 단일 포트폴리오 범위 DELETE만 수행(DB 전역 파괴 금지)·멱등·`$transaction` 전부-or-전무. 단타(intraday-scalp)는 별개 트랙이라 리셋 대상이 아니다.
 
 ### 21.2 철학 스타일별 모의운용 (Philosophy Style Simulation)
 
-| 엔드포인트 | 인증 | 요약 |
-|---|---|---|
+| 엔드포인트                                        | 인증        | 요약                                                                        |
+| ------------------------------------------------- | ----------- | --------------------------------------------------------------------------- |
 | `GET /paper-trading/simulation/styles/comparison` | OptionalJwt | 철학 스타일별 모의운용 성과 비교 — 스타일별 자산곡선·승률·누적수익·졸업지표 |
-| `POST /paper-trading/simulation/styles/run-once` | JWT | 철학 스타일별 1일치 사이클 수동 실행(스타일×4 분기 운용) |
+| `POST /paper-trading/simulation/styles/run-once`  | JWT         | 철학 스타일별 1일치 사이클 수동 실행(스타일×4 분기 운용)                    |
 
 > live-readiness W1: 스타일 4트랙은 평일 19:40 KST 크론(`ForwardTracksScheduler`, cron-health `paper.style-simulation`)으로 자동 가동된다 — 종전엔 run-once 수동 경로만 있어 미가동이던 결함 교정.
 > ★개장 체결 정렬(2026-07-06): 진입은 즉시 체결이 아니라 **PENDING 예약 → 익일 개장 당일 시가 체결**(시스템 모의와 동일 의미론, `docs/workflow.md §6.10`). run-once/사이클 응답에 `reserved`(신규 예약 수)가 추가되고 `bought` 는 '당일 시가로 체결된 이전 예약 수'를 뜻한다. 진입 후보에 entryReady 폴백(buyScore≥50) 적용.
@@ -2681,30 +2904,30 @@ M10 30일 모의운용의 정본 트랙. **전역 단일 시스템 모의**(합�
 engine3 리플레이 트랙(§18, 과거 1년 재생)과 **별개의 forward 실운용 트랙** — 라이브 TradingSignal(isBackfill=false)에 `strategy-presets` 의 preset.params(minBuyScore·eventTypes allowlist·maxPositions·사이징)를 적용해 전략별 전용 포트폴리오(`모의운용 포트폴리오 [strategy:<key>]`, PaperTrade `styleTag='strategy:<key>'`)를 매일 운용한다. event-edge 는 EventEdgeSelector robust allowlist 를 당일 1회 해석(비면 진입 0, do-no-harm). 청산은 preset.exitRules(익절/손절/최대보유)를 Position exit 파라미터에 대입. 크론: 평일 19:45 KST(cron-health `paper.strategy-forward`). ★실주문 0·AI 0(순수 Rule).
 ★개장 체결 정렬(2026-07-06): 진입은 **PENDING 예약 → 익일 개장 당일 시가 체결**(시스템 모의와 동일 의미론, `docs/workflow.md §6.10`) — exit 파라미터(preset.exitRules) 대입은 체결기의 Position 생성 시점에 수행. run-once/사이클 응답에 `reserved`(신규 예약 수)가 추가되고 `bought` 는 '당일 시가로 체결된 이전 예약 수'다.
 
-| 엔드포인트 | 인증 | 요약 |
-|---|---|---|
+| 엔드포인트                                                    | 인증        | 요약                                                                                     |
+| ------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------- |
 | `GET /paper-trading/simulation/strategies-forward/comparison` | OptionalJwt | 전략별 forward 자산곡선·성적표(승률·누적수익·표본)·랭킹 비교 — 리플레이 비교(§18)와 별개 |
-| `POST /paper-trading/simulation/strategies-forward/run-once` | JWT | 전략 4종 forward 1일치 사이클 수동 실행 |
+| `POST /paper-trading/simulation/strategies-forward/run-once`  | JWT         | 전략 4종 forward 1일치 사이클 수동 실행                                                  |
 
 ### 21.4 백테스트 vs forward 성과 괴리 (Backtest-Forward Divergence, 견고화 W0·P04, DAR-479)
 
 리플레이 트랙(§18, 과거 1년 재생)과 forward 트랙(§21.3, 오늘 신호→오늘 진입 누적)을 **strategyKey 로 조인**해 백테스트 대비 실운용 괴리를 산출하는 **read-only 측정 표면**(졸업 판정 핵심 지표). 지표 4종 — 수익률·승률·거래빈도(월 환산)·보유기간 — 각각 `gap = forward − backtest` 와 판정(`ALIGNED`/`DIVERGED`/`LOW_SAMPLE`)을 노출한다. 승률은 통일 정의(순손익>0 / 전체 청산, 0~1), gap 판정은 calibration 의미론(|gap|<ε 이면 ALIGNED, 표본 부족은 판정 보류) 계승. 표본 임계는 기존값 준수(백테스트 20건·forward 5건 미만이면 `LOW_SAMPLE`). 일별 스냅샷은 `backtest_forward_divergence_snapshots`(멱등키 strategyKey+snapshotDate)에 forward 크론(19:45 KST) 직후 적재된다. ★조회·적재 전용 — 트레이딩 행동(매수·체결·청산) 무접촉, 실주문 0·AI 0(순수 산술). 전략 파라미터·임계값을 자동 변경하지 않는다.
 
-| 엔드포인트 | 인증 | 요약 |
-|---|---|---|
-| `GET /paper-trading/simulation/backtest-forward/divergence` | OptionalJwt | 전략 4종 백테스트 대비 forward 괴리(수익률·승률·거래빈도·보유기간)+임계·판정 |
-| `GET /paper-trading/simulation/backtest-forward/:key/trend` | OptionalJwt | 한 전략의 일별 괴리 추세(스냅샷 시계열; `limit` 최근 N일, 기본 90·최대 365) |
-| `POST /paper-trading/simulation/backtest-forward/snapshot-once` | JWT | 당일 괴리 스냅샷 수동 적재(멱등 upsert) — 검증·백필 경로 |
+| 엔드포인트                                                      | 인증        | 요약                                                                         |
+| --------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------- |
+| `GET /paper-trading/simulation/backtest-forward/divergence`     | OptionalJwt | 전략 4종 백테스트 대비 forward 괴리(수익률·승률·거래빈도·보유기간)+임계·판정 |
+| `GET /paper-trading/simulation/backtest-forward/:key/trend`     | OptionalJwt | 한 전략의 일별 괴리 추세(스냅샷 시계열; `limit` 최근 N일, 기본 90·최대 365)  |
+| `POST /paper-trading/simulation/backtest-forward/snapshot-once` | JWT         | 당일 괴리 스냅샷 수동 적재(멱등 upsert) — 검증·백필 경로                     |
 
 ### 21.5 듀얼모멘텀 코어 forward 모의운용 (Dual-Momentum Core Forward, 견고화 W1·P13, DAR-494)
 
 코어 트랙(`styleTag='alloc:dual-momentum'`·자본 65% 배분·독립 가상원금 10M)의 **ETF 월말 리밸런싱 forward(모의)**. 판정은 engine3 P12 `decideMonthlyRebalance`(순수 함수·252 거래일 룩백)를 재사용해 `EtfDailyPrice`(360750/069500/153130/273130) asOf 종가로 상대(argmax A,B) ∧ 절대(> 단기채) 모멘텀 → 단일 자산 100% 목표를 산출한다. 체결은 "예약→익일 시가(PENDING)" 의미론 — 월말 SWITCH 시 목표 ETF PENDING 매수 예약(entryTradeDate=nextTradingDay) → 익일 사이클이 **현재 보유 전량 매도(현금 확보) → 목표 전량 매수** 순서로 그 날 시가에 집행(ETF 비용=거래세 0). 크론: 평일 19:50 KST 매일 발화, **판정은 월말 거래일 1회**(P09 `isLastTradingDayOfMonth`+당일 데이터 게이트, cron 'L' 우회·cron-health `paper.dual-momentum-forward`). 결측 시 무행동+전월 유지+OPS_ALERT. 보유·이력은 **FK 없는 전용 모델 `DualMomentumForwardTrade`**(ETF 는 corpCode 없음). 킬스위치 REDUCE_ONLY·현금≥0 자동 적용. 활성 근거: 룰북 §9.3.2 위험조정 게이트(사람 승인 2026-07-03). 위성(변동성 돌파)은 기각·배선 없음. ★실주문 0·AI 0(순수 Rule).
 
-| 엔드포인트 | 인증 | 요약 |
-|---|---|---|
-| `GET /paper-trading/simulation/dual-momentum-forward/status` | OptionalJwt | 보유 ETF·자산곡선·누적수익·월말 리밸런싱 이력(모의, 게스트 데모 가능) |
+| 엔드포인트                                                      | 인증        | 요약                                                                                                                                                                                                                                                                                                                                                                                   |
+| --------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /paper-trading/simulation/dual-momentum-forward/status`    | OptionalJwt | 보유 ETF·자산곡선·누적수익·월말 리밸런싱 이력(모의, 게스트 데모 가능)                                                                                                                                                                                                                                                                                                                  |
 | `GET /paper-trading/simulation/dual-momentum-forward/scorecard` | OptionalJwt | 코어 트랙 스코어카드(견고화 W1·P17, DAR-495) — 자산곡선·누적수익·통일 성적표(승률·평균손익·표본)·현재 보유(ETF 이름 병기)·**다음 월말 판정 예정일**·리밸런싱 이력. 유형 라벨 `trackTypeLabel='자산배분(월단위)'`·`rebalanceFrequency='MONTHLY'`·`lowSample`(임계 6·월단위 트랙 느린 표본 축적)로 정직 표기. `status`(DAR-494)와 별개 표면·기존 응답 무변경(하위호환). 게스트 데모 가능 |
-| `POST /paper-trading/simulation/dual-momentum-forward/run-once` | JWT | 코어 forward 1일 사이클 수동 실행(예약 체결→월말 판정·예약→평가; `body.date` 생략 시 오늘 KST) |
+| `POST /paper-trading/simulation/dual-momentum-forward/run-once` | JWT         | 코어 forward 1일 사이클 수동 실행(예약 체결→월말 판정·예약→평가; `body.date` 생략 시 오늘 KST)                                                                                                                                                                                                                                                                                         |
 
 **모바일 표면(DAR-495)**: 포트폴리오 '전략' 서브탭(시스템 검증 트랙 비교 화면) 최상단에 **코어 트랙 카드**(`CoreTrackSection`)를 추가 — `scorecard` 응답을 `useCoreTrackScorecard`(React Query·staleTime 5분·장중 폴링 없음)로 소비하고, `trade-scorecard` 통일 정의(누적수익·승률·표본)·`DataLimitBadge`(LOW_SAMPLE)를 재사용한다. **유형 라벨 '자산배분(월단위)'**(layers 아이콘)로 단타·백테스트 4종과 유형을 구분하고(감사 C2), 월 1회 리밸런싱 특성(다음 판정 예정일)·현재 보유(ETF 이름)·미니 자산곡선·리밸런싱 이력을 표기(theme 토큰만·하드코딩 색상 0·read-only 표면). 위성 트랙 관련 표면 없음(기각).
 
@@ -2720,14 +2943,14 @@ engine3 리플레이 트랙(§18, 과거 1년 재생)과 **별개의 forward 실
 
 활성 포트폴리오·포지션·투자 논리(Position Thesis)·청산 신호(ExitSignal)의 읽기 전용 조회. 모두 JWT 필수.
 
-| 엔드포인트 | 요약 |
-|---|---|
-| `GET /positions` | 보유 포지션 목록 조회 (OPEN) |
-| `GET /positions/:id` | 단일 포지션 조회 |
-| `GET /positions/:id/thesis` | Position Thesis(투자 논리) 조회 |
-| `GET /positions/:id/exit` | 최신 ExitSignal 조회 |
-| `GET /portfolio/summary` | 활성 포트폴리오 요약 조회 |
-| `GET /portfolio/risk/latest` | 최신 리스크 스냅샷 조회 — 상세는 §14 |
+| 엔드포인트                      | 요약                                           |
+| ------------------------------- | ---------------------------------------------- |
+| `GET /positions`                | 보유 포지션 목록 조회 (OPEN)                   |
+| `GET /positions/:id`            | 단일 포지션 조회                               |
+| `GET /positions/:id/thesis`     | Position Thesis(투자 논리) 조회                |
+| `GET /positions/:id/exit`       | 최신 ExitSignal 조회                           |
+| `GET /portfolio/summary`        | 활성 포트폴리오 요약 조회                      |
+| `GET /portfolio/risk/latest`    | 최신 리스크 스냅샷 조회 — 상세는 §14           |
 | `GET /portfolio/briefing/today` | 오늘의 브리핑 조회 (갭분석 W14) — 상세는 §22.1 |
 
 ### 22.1 오늘의 브리핑 (갭분석 W14)
@@ -2737,18 +2960,31 @@ engine3 리플레이 트랙(§18, 과거 1년 재생)과 **별개의 forward 실
 포지션·관심종목의 당일 공시 이벤트(캐시된 AI 요약 1줄 재사용 — **LLM 신규 호출 $0**, 순수 룰 조립)·일간 손익·점검 필요 포지션·리스크 스냅샷을 하나의 브리핑으로 결합해 반환한다. 포트폴리오 탭 상단 `TodayBriefingSection`이 소비한다.
 
 **Response** (`data`: `TodayBriefing | null`):
+
 ```jsonc
 {
   "dateKst": "2026-07-16",
-  "asOf": "2026-07-16T00:30:00.000Z",   // 조립 시각(데이터 기준 시각 정직 표기)
-  "events": [                            // 당일 공시 이벤트 (최대 10건, 0건이면 null)
-    { "rcpNo": "2026...", "corpCode": "00126380", "corpName": "삼성전자",
-      "reportName": "…", "eventType": "SUPPLY_CONTRACT", "polarity": "POSITIVE",
-      "summaryLine": "…(캐시 AI 요약 1줄, 없으면 null)", "source": "POSITION" } // POSITION | WATCHLIST
+  "asOf": "2026-07-16T00:30:00.000Z", // 조립 시각(데이터 기준 시각 정직 표기)
+  "events": [
+    // 당일 공시 이벤트 (최대 10건, 0건이면 null)
+    {
+      "rcpNo": "2026...",
+      "corpCode": "00126380",
+      "corpName": "삼성전자",
+      "reportName": "…",
+      "eventType": "SUPPLY_CONTRACT",
+      "polarity": "POSITIVE",
+      "summaryLine": "…(캐시 AI 요약 1줄, 없으면 null)",
+      "source": "POSITION",
+    }, // POSITION | WATCHLIST
   ],
-  "dailyPnl": { "snapshotDate": "20260715", /* 일간 손익 집계 — 스냅샷 없으면 null */ },
-  "checks": [ /* 점검 필요 포지션 최대 5건 (thesisStatus·exitScore·exitAction·reason) — 0건이면 null */ ],
-  "risk": null                           // 리스크 스냅샷 뷰 (모바일은 PortfolioRiskBadge 전담이라 의도적 미렌더)
+  "dailyPnl": {
+    "snapshotDate": "20260715" /* 일간 손익 집계 — 스냅샷 없으면 null */,
+  },
+  "checks": [
+    /* 점검 필요 포지션 최대 5건 (thesisStatus·exitScore·exitAction·reason) — 0건이면 null */
+  ],
+  "risk": null, // 리스크 스냅샷 뷰 (모바일은 PortfolioRiskBadge 전담이라 의도적 미렌더)
 }
 ```
 
@@ -2762,13 +2998,13 @@ engine3 리플레이 트랙(§18, 과거 1년 재생)과 **별개의 forward 실
 
 사용자가 나중에 보려고 저장(북마크)한 공시. 모두 JWT 필수.
 
-| 엔드포인트 | 요약 |
-|---|---|
-| `GET /saved-disclosures` | 저장된 공시 목록 조회 |
-| `POST /saved-disclosures` | 공시 저장 — body `{ "rcpNo": "20260306000885" }` (14자리 숫자, DAR-282 형식 검증) |
-| `DELETE /saved-disclosures/:id` | 저장된 공시 삭제 (by id) |
-| `DELETE /saved-disclosures/rcpNo/:rcpNo` | 저장된 공시 삭제 (by rcpNo) |
-| `GET /saved-disclosures/check/:rcpNo` | 공시 저장 여부 확인 |
+| 엔드포인트                               | 요약                                                                              |
+| ---------------------------------------- | --------------------------------------------------------------------------------- |
+| `GET /saved-disclosures`                 | 저장된 공시 목록 조회                                                             |
+| `POST /saved-disclosures`                | 공시 저장 — body `{ "rcpNo": "20260306000885" }` (14자리 숫자, DAR-282 형식 검증) |
+| `DELETE /saved-disclosures/:id`          | 저장된 공시 삭제 (by id)                                                          |
+| `DELETE /saved-disclosures/rcpNo/:rcpNo` | 저장된 공시 삭제 (by rcpNo)                                                       |
+| `GET /saved-disclosures/check/:rcpNo`    | 공시 저장 여부 확인                                                               |
 
 ---
 
@@ -2776,12 +3012,12 @@ engine3 리플레이 트랙(§18, 과거 1년 재생)과 **별개의 forward 실
 
 거장 철학(P-A 시드) × 종목 적합도(0~100, 결정론적 Rule 산출). 모두 읽기 전용·교육/발견 가치 → **OptionalJwt(게스트 열람 가능)**.
 
-| 엔드포인트 | 요약 |
-|---|---|
-| `GET /philosophies` | 투자자 철학 목록 (P-A 시드 — 지표·출처 포함) |
+| 엔드포인트                                                  | 요약                                                                                             |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `GET /philosophies`                                         | 투자자 철학 목록 (P-A 시드 — 지표·출처 포함)                                                     |
 | `GET /philosophies/:id/fit?corpCode={8자리}&fsDiv=CFS\|OFS` | 철학 1종 × 종목 적합도(0~100) + 통과/미달 근거. `corpCode` 필수(누락 시 400), `fsDiv` 기본 `CFS` |
-| `GET /companies/:corpCode/philosophy-fit?fsDiv=` | 종목 × 거장별 적합도 (전체 철학, 점수 내림차순) |
-| `GET /companies/:corpCode/persona-philosophy-fusion` | 종목 × 거장 철학 × AI 관점 결합 (결합점수·근거·표본·신뢰도) — 순수 Rule 결합, AI 신규 호출 0 |
+| `GET /companies/:corpCode/philosophy-fit?fsDiv=`            | 종목 × 거장별 적합도 (전체 철학, 점수 내림차순)                                                  |
+| `GET /companies/:corpCode/persona-philosophy-fusion`        | 종목 × 거장 철학 × AI 관점 결합 (결합점수·근거·표본·신뢰도) — 순수 Rule 결합, AI 신규 호출 0     |
 
 ---
 
@@ -2789,11 +3025,11 @@ engine3 리플레이 트랙(§18, 과거 1년 재생)과 **별개의 forward 실
 
 ### 25.1 재무지표 (Financials)
 
-| 엔드포인트 | 인증 | 요약 |
-|---|---|---|
-| `GET /financials/latest?corpCode={8자리}&fsDiv=CFS\|OFS` | OptionalJwt | 기업 최신 재무지표 조회 (종목 상세 펀더멘털 카드, DAR-96 — 게스트 열람) |
-| `POST /financials/collect?bsnsYear=&reprtCode=&fsDiv=&limit=&scope=` | JWT | 재무지표 수동 수집 (DART 재무제표 → `CompanyFinancial`, 멱등) |
-| `POST /financials/backfill?bsnsYears=&fsDiv=&limit=&scope=` | JWT | 재무지표 분기 시계열 백필 (reprtCode 11011~11014 × 연도, 멱등) |
+| 엔드포인트                                                           | 인증        | 요약                                                                    |
+| -------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------- |
+| `GET /financials/latest?corpCode={8자리}&fsDiv=CFS\|OFS`             | OptionalJwt | 기업 최신 재무지표 조회 (종목 상세 펀더멘털 카드, DAR-96 — 게스트 열람) |
+| `POST /financials/collect?bsnsYear=&reprtCode=&fsDiv=&limit=&scope=` | JWT         | 재무지표 수동 수집 (DART 재무제표 → `CompanyFinancial`, 멱등)           |
+| `POST /financials/backfill?bsnsYears=&fsDiv=&limit=&scope=`          | JWT         | 재무지표 분기 시계열 백필 (reprtCode 11011~11014 × 연도, 멱등)          |
 
 ### 25.2 내부자/대량보유 지분변동 (Insider Holdings)
 
@@ -2801,13 +3037,13 @@ engine3 리플레이 트랙(§18, 과거 1년 재생)과 **별개의 forward 실
 GET /api/insider-holdings   (OptionalJwt — 게스트 열람)
 ```
 
-| 쿼리 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `corpCode` | string | 선택 | 기업 필터 |
-| `tradeType` | string | 선택 | 순매수 방향 (`BUY` \| `SELL` \| `MIXED` \| `UNKNOWN`) |
-| `source` | string | 선택 | 출처 (`MAJOR_STOCK` 대량보유 \| `EXECUTIVE` 임원·주요주주) |
-| `from` / `to` | string (YYYYMMDD) | 선택 | 기간 필터 |
-| `page` / `limit` | number | 선택 | 페이지네이션 |
+| 쿼리             | 타입              | 필수 | 설명                                                       |
+| ---------------- | ----------------- | ---- | ---------------------------------------------------------- |
+| `corpCode`       | string            | 선택 | 기업 필터                                                  |
+| `tradeType`      | string            | 선택 | 순매수 방향 (`BUY` \| `SELL` \| `MIXED` \| `UNKNOWN`)      |
+| `source`         | string            | 선택 | 출처 (`MAJOR_STOCK` 대량보유 \| `EXECUTIVE` 임원·주요주주) |
+| `from` / `to`    | string (YYYYMMDD) | 선택 | 기간 필터                                                  |
+| `page` / `limit` | number            | 선택 | 페이지네이션                                               |
 
 ---
 
@@ -2815,16 +3051,16 @@ GET /api/insider-holdings   (OptionalJwt — 게스트 열람)
 
 ### 26.1 공시 원문 파싱 (document-parsing) — JWT 필수(운영)
 
-| 엔드포인트 | 요약 |
-|---|---|
-| `POST /document-parsing/parse/:rcpNo` | 단건 공시 원문 파싱 (수동 트리거) |
-| `POST /document-parsing/batch` | PENDING 상태 배치 파싱 |
-| `POST /document-parsing/retry` | 파싱 실패 건 재처리 큐 강제 실행 |
-| `GET /document-parsing/stats` | 파싱 상태 현황 집계 (ParseStatus별 건수) |
-| `GET /document-parsing/:rcpNo` | 파싱 결과 단건 조회 (rawText 제외) |
-| `POST /document-parsing/facts/backfill` | `DartFiledFact` 일괄 backfill (DONE 문서 소급 적재) |
-| `POST /document-parsing/facts/:rcpNo` | 단건 공시 정량 fact 적재 (parsedJson → `DartFiledFact`) |
-| `GET /document-parsing/facts/:rcpNo` | 단건 공시 적재 fact 조회 (factKey 정렬) |
+| 엔드포인트                              | 요약                                                    |
+| --------------------------------------- | ------------------------------------------------------- |
+| `POST /document-parsing/parse/:rcpNo`   | 단건 공시 원문 파싱 (수동 트리거)                       |
+| `POST /document-parsing/batch`          | PENDING 상태 배치 파싱                                  |
+| `POST /document-parsing/retry`          | 파싱 실패 건 재처리 큐 강제 실행                        |
+| `GET /document-parsing/stats`           | 파싱 상태 현황 집계 (ParseStatus별 건수)                |
+| `GET /document-parsing/:rcpNo`          | 파싱 결과 단건 조회 (rawText 제외)                      |
+| `POST /document-parsing/facts/backfill` | `DartFiledFact` 일괄 backfill (DONE 문서 소급 적재)     |
+| `POST /document-parsing/facts/:rcpNo`   | 단건 공시 정량 fact 적재 (parsedJson → `DartFiledFact`) |
+| `GET /document-parsing/facts/:rcpNo`    | 단건 공시 적재 fact 조회 (factKey 정렬)                 |
 
 ### 26.2 공시 본문 정량 fact 조회 (게스트)
 
@@ -2836,13 +3072,13 @@ GET /api/disclosure-facts/:rcpNo   (인증 불요 — 공시 상세 화면 소�
 
 ### 26.3 공시 이벤트 (disclosure-events)
 
-| 엔드포인트 | 인증 | 요약 |
-|---|---|---|
+| 엔드포인트                                                                   | 인증 | 요약                                 |
+| ---------------------------------------------------------------------------- | ---- | ------------------------------------ |
 | `GET /disclosure-events?corpCode=&eventType=&extractionStatus=&page=&limit=` | 불요 | 이벤트 목록 조회 (필터·페이지네이션) |
-| `GET /disclosure-events/:rcpNo` | 불요 | 단건 이벤트 조회 |
-| `POST /disclosure-events/extract/:rcpNo` | JWT | 단건 이벤트 추출 (수동 트리거) |
-| `POST /disclosure-events/batch?limit=` | JWT | 미처리 이벤트 일괄 추출 |
-| `POST /disclosure-events/reprocess?limit=` | JWT | 신규 extractor 재추출 |
+| `GET /disclosure-events/:rcpNo`                                              | 불요 | 단건 이벤트 조회                     |
+| `POST /disclosure-events/extract/:rcpNo`                                     | JWT  | 단건 이벤트 추출 (수동 트리거)       |
+| `POST /disclosure-events/batch?limit=`                                       | JWT  | 미처리 이벤트 일괄 추출              |
+| `POST /disclosure-events/reprocess?limit=`                                   | JWT  | 신규 extractor 재추출                |
 
 ### 26.4 예정 이벤트 캘린더 (upcoming-events, DAR-538)
 
@@ -2889,29 +3125,29 @@ GET /api/upcoming-events?days=90   (JWT 필수)
 
 ### 27.1 공시 수집 스케줄러 (scheduler)
 
-| 엔드포인트 | 요약 |
-|---|---|
-| `POST /scheduler/collect` | 공시 수동 수집 (날짜 지정) |
-| `GET /scheduler/collection-logs` | 공시 수집 이력 조회 (최근 50건) |
+| 엔드포인트                         | 요약                                                                                     |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- |
+| `POST /scheduler/collect`          | 공시 수동 수집 (날짜 지정)                                                               |
+| `GET /scheduler/collection-logs`   | 공시 수집 이력 조회 (최근 50건)                                                          |
 | `GET /scheduler/backfill-coverage` | 연속 과거 확장 백필 커버리지(read-only) — 최소·최대 rcpDt·총건수·프런티어·하한 도달 여부 |
-| `POST /scheduler/backfill-extend` | 연속 과거 확장 백필 1회 실행 (멱등·쿼터 인지·알림 미발송, cron과 동일 경로) |
+| `POST /scheduler/backfill-extend`  | 연속 과거 확장 백필 1회 실행 (멱등·쿼터 인지·알림 미발송, cron과 동일 경로)              |
 
 ### 27.2 파이프라인 운영 (pipeline)
 
-| 엔드포인트 | 요약 |
-|---|---|
-| `GET /pipeline/health` | 수집→파싱→이벤트→AI 단계별 건수·지연·실패 행 스냅샷 (read-only) |
-| `GET /pipeline/drain-progress` | 문서 파싱 DONE%·잔여 백로그·ETA (DAR-392, read-only) |
-| `POST /pipeline/drain` | 폐루프 누락분 backfill 1회 실행 (멱등 — 누락문서 큐등록→PENDING 파싱→무이벤트 추출, AI는 자동 체이닝) |
-| `POST /pipeline/reprocess-ai` | AI summary 미도달 자격 이벤트(SUCCESS\|NEEDS_REVIEW) 큐 재발행 (운영자 수동 전용·멱등) |
-| `GET /pipeline/event-coverage` | rcpDt 월(YYYYMM)별 이벤트 추출 커버리지 분포 (read-only) |
-| `POST /pipeline/event-backfill` | 과거 백필 공시 이벤트 추출 1회 실행 (멱등·Rule 추출·AI 신규 호출 0) |
-| `GET /pipeline/title-event-backfill-progress` | 제목 기반 이벤트 백필 진행 리포트 (read-only) — 잔여 후보·생성 누계(TITLE_ONLY 마커 분리 집계) (갭분석 W4) |
+| 엔드포인트                                                                         | 요약                                                                                                                                                                                            |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /pipeline/health`                                                             | 수집→파싱→이벤트→AI 단계별 건수·지연·실패 행 스냅샷 (read-only)                                                                                                                                 |
+| `GET /pipeline/drain-progress`                                                     | 문서 파싱 DONE%·잔여 백로그·ETA (DAR-392, read-only)                                                                                                                                            |
+| `POST /pipeline/drain`                                                             | 폐루프 누락분 backfill 1회 실행 (멱등 — 누락문서 큐등록→PENDING 파싱→무이벤트 추출, AI는 자동 체이닝)                                                                                           |
+| `POST /pipeline/reprocess-ai`                                                      | AI summary 미도달 자격 이벤트(SUCCESS\|NEEDS_REVIEW) 큐 재발행 (운영자 수동 전용·멱등)                                                                                                          |
+| `GET /pipeline/event-coverage`                                                     | rcpDt 월(YYYYMM)별 이벤트 추출 커버리지 분포 (read-only)                                                                                                                                        |
+| `POST /pipeline/event-backfill`                                                    | 과거 백필 공시 이벤트 추출 1회 실행 (멱등·Rule 추출·AI 신규 호출 0)                                                                                                                             |
+| `GET /pipeline/title-event-backfill-progress`                                      | 제목 기반 이벤트 백필 진행 리포트 (read-only) — 잔여 후보·생성 누계(TITLE_ONLY 마커 분리 집계) (갭분석 W4)                                                                                      |
 | `POST /pipeline/title-event-backfill?scanLimit=&startAfterRcpDt=&startAfterRcpNo=` | 제목(reportName) 룰 분류만으로 과거 백필 공시 이벤트 생성 1회 실행 (멱등·**DART 호출 0·AI 호출 0**·문서 fetch 미트리거 — cron 매일 02:40 KST와 동일 경로, `docs/workflow.md` §2.15) (갭분석 W4) |
-| `GET /pipeline/rawtext-offload-progress` | rawText 오프로드 진행 리포트 — 잔여/완료율·활성 드라이버(s3\|local) |
-| `POST /pipeline/rawtext-offload` | 과거 rawText → 객체 스토리지(S3/로컬) 1회 오프로드 (멱등·DB 컬럼 비움) |
-| `GET /pipeline/tables-offload-progress` | tables 오프로드 진행 리포트 — 잔여/완료율·활성 드라이버 |
-| `POST /pipeline/tables-offload` | 과거 tables → 객체 스토리지 1회 오프로드 (멱등·DB 컬럼 비움) |
+| `GET /pipeline/rawtext-offload-progress`                                           | rawText 오프로드 진행 리포트 — 잔여/완료율·활성 드라이버(s3\|local)                                                                                                                             |
+| `POST /pipeline/rawtext-offload`                                                   | 과거 rawText → 객체 스토리지(S3/로컬) 1회 오프로드 (멱등·DB 컬럼 비움)                                                                                                                          |
+| `GET /pipeline/tables-offload-progress`                                            | tables 오프로드 진행 리포트 — 잔여/완료율·활성 드라이버                                                                                                                                         |
+| `POST /pipeline/tables-offload`                                                    | 과거 tables → 객체 스토리지 1회 오프로드 (멱등·DB 컬럼 비움)                                                                                                                                    |
 
 ---
 
@@ -2921,21 +3157,21 @@ GET /api/upcoming-events?days=90   (JWT 필수)
 
 읽기 전용 시세 조회(quote·minute-candles·candles·indices/latest)는 §13·§15·§17 참조.
 
-| 엔드포인트 | 요약 |
-|---|---|
-| `POST /market-data/collect/daily` | KRX 일봉 수동 수집 (날짜 지정) |
-| `POST /market-data/collect/indices` | KRX 시장지수 수동 수집 |
-| `POST /market-data/backfill/indices` | 시장지수 히스토리 백필 |
-| `POST /market-data/collect/status` | KRX 종목상태 수동 수집 |
-| `POST /market-data/collect/all` | KRX EOD 통합 수집 (일봉+지수+종목상태) |
-| `POST /market-data/collect/catch-up` | KRX 일봉·지수 캐치업 — 마지막 적재일~최신 가용 거래일 갭 멱등 백필 (DAR-375, KRX 프로브로 정체 극복) |
-| `POST /market-data/collect/investor-flow?cap=` | 수급·공매도 수동 수집 — `InvestorFlowDaily`+`ShortSellingDaily` 멱등 적재 (cron 3슬롯 외 단발 트리거/백필, `cap`으로 KIS 유량 가드 — 기본 env `INVESTOR_FLOW_COLLECT_CAP`→3000) (갭분석 W16, 조회는 §33) |
-| `POST /market-data/sync-company-markets?basDd=` | KRX 기준정보로 `company.market` KOSPI/KOSDAQ 분류·백필 (DAR-328, 멱등) |
-| `POST /market-data/backfill/daily` | KRX 히스토리컬 일봉 백필 (과거 N거래일, 멱등) |
-| `POST /market-data/backfill/deep?days=` | KRX 일봉 과거 깊이 백필 — 가장 오래된 적재일부터 더 과거로 (DAR-376, 재개 가능·멱등, 기본 120거래일) |
-| `POST /market-data/collect/minute-prices` | 분봉 수동 수집 — §13.3 참조 |
-| `GET /market-data/coverage` | 일봉 적재 커버리지·갭 리포트 (DAR-376) — 유니버스 대비 누락 종목·거래일 범위·총 행수 |
-| `GET /market-data/collection-logs` | 시세 수집 이력 조회 (최근 20건) |
+| 엔드포인트                                      | 요약                                                                                                                                                                                                     |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /market-data/collect/daily`               | KRX 일봉 수동 수집 (날짜 지정)                                                                                                                                                                           |
+| `POST /market-data/collect/indices`             | KRX 시장지수 수동 수집                                                                                                                                                                                   |
+| `POST /market-data/backfill/indices`            | 시장지수 히스토리 백필                                                                                                                                                                                   |
+| `POST /market-data/collect/status`              | KRX 종목상태 수동 수집                                                                                                                                                                                   |
+| `POST /market-data/collect/all`                 | KRX EOD 통합 수집 (일봉+지수+종목상태)                                                                                                                                                                   |
+| `POST /market-data/collect/catch-up`            | KRX 일봉·지수 캐치업 — 마지막 적재일~최신 가용 거래일 갭 멱등 백필 (DAR-375, KRX 프로브로 정체 극복)                                                                                                     |
+| `POST /market-data/collect/investor-flow?cap=`  | 수급·공매도 수동 수집 — `InvestorFlowDaily`+`ShortSellingDaily` 멱등 적재 (cron 3슬롯 외 단발 트리거/백필, `cap`으로 KIS 유량 가드 — 기본 env `INVESTOR_FLOW_COLLECT_CAP`→3000) (갭분석 W16, 조회는 §33) |
+| `POST /market-data/sync-company-markets?basDd=` | KRX 기준정보로 `company.market` KOSPI/KOSDAQ 분류·백필 (DAR-328, 멱등)                                                                                                                                   |
+| `POST /market-data/backfill/daily`              | KRX 히스토리컬 일봉 백필 (과거 N거래일, 멱등)                                                                                                                                                            |
+| `POST /market-data/backfill/deep?days=`         | KRX 일봉 과거 깊이 백필 — 가장 오래된 적재일부터 더 과거로 (DAR-376, 재개 가능·멱등, 기본 120거래일)                                                                                                     |
+| `POST /market-data/collect/minute-prices`       | 분봉 수동 수집 — §13.3 참조                                                                                                                                                                              |
+| `GET /market-data/coverage`                     | 일봉 적재 커버리지·갭 리포트 (DAR-376) — 유니버스 대비 누락 종목·거래일 범위·총 행수                                                                                                                     |
+| `GET /market-data/collection-logs`              | 시세 수집 이력 조회 (최근 20건)                                                                                                                                                                          |
 
 ### 28.2 기술지표 백필 (indicators)
 
@@ -2959,22 +3195,22 @@ GET /api/stock-status/risk?corpCode=&stockCode=   (OptionalJwt — 게스트 열
 
 ### 29.1 1년 리플레이 백테스트 (backtest)
 
-| 엔드포인트 | 인증 | 요약 |
-|---|---|---|
-| `POST /backtest/replay` | JWT | 1년 자동매매 point-in-time 리플레이 실행 + 트랙레코드 저장 (미래모름 백테스트) |
-| `GET /backtest/track-record` | OptionalJwt | 최신 1년 백테스트 트랙레코드 조회 (게스트 데모) |
-| `GET /backtest/track-record/:id` | OptionalJwt | id별 트랙레코드 조회 (게스트 데모) |
+| 엔드포인트                       | 인증        | 요약                                                                           |
+| -------------------------------- | ----------- | ------------------------------------------------------------------------------ |
+| `POST /backtest/replay`          | JWT         | 1년 자동매매 point-in-time 리플레이 실행 + 트랙레코드 저장 (미래모름 백테스트) |
+| `GET /backtest/track-record`     | OptionalJwt | 최신 1년 백테스트 트랙레코드 조회 (게스트 데모)                                |
+| `GET /backtest/track-record/:id` | OptionalJwt | id별 트랙레코드 조회 (게스트 데모)                                             |
 
 ### 29.2 신호 사후검증·보정 (signal-accuracy) — OptionalJwt
 
 공통 쿼리: `limit`·`eventType`·`signalGrade`. `signal-accuracy`·`calibration` 은 추가로 `from`·`to`(공시 접수일 rcpDt `YYYYMMDD`, 포함) 지원 — 미지정/무효 시 기본 기간(최근 12개월, KST).
 
-| 엔드포인트 | 요약 |
-|---|---|
-| `GET /backtest/signal-accuracy` | 신호 사후검증 — 등급·스코어구간·eventType별 D+5/D+20 실현 초과수익 정밀도 |
-| `GET /backtest/calibration` | 신호 보정 루프 — 실현 초과수익 vs `EVENT_BASE_SCORES` 괴리·권장 delta (diff형 권고, **자동적용 금지**) |
-| `GET /backtest/feature-ab` | 피처 A/B 백테스트 — 성장률/DartFiledFact/내부자 피처 포함 vs 미포함 재채점 비교 (증거 리포트, **가중치 자동변경 금지**) |
-| `GET /backtest/evaluation-corpus` | 평가자료·인과코퍼스 — §16.4 참조 |
+| 엔드포인트                        | 요약                                                                                                                    |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `GET /backtest/signal-accuracy`   | 신호 사후검증 — 등급·스코어구간·eventType별 D+5/D+20 실현 초과수익 정밀도                                               |
+| `GET /backtest/calibration`       | 신호 보정 루프 — 실현 초과수익 vs `EVENT_BASE_SCORES` 괴리·권장 delta (diff형 권고, **자동적용 금지**)                  |
+| `GET /backtest/feature-ab`        | 피처 A/B 백테스트 — 성장률/DartFiledFact/내부자 피처 포함 vs 미포함 재채점 비교 (증거 리포트, **가중치 자동변경 금지**) |
+| `GET /backtest/evaluation-corpus` | 평가자료·인과코퍼스 — §16.4 참조                                                                                        |
 
 **표본 설계 (TB-2, 2026-07-03)**: `signal-accuracy`/`calibration` 의 표본은 종전 '최신순 take(limit)'에서 ① `(rcpNo, eventType)` 단위 dedup(persona 4행 복제 제거 — 대표 = 사전순 첫 persona 행) ② rcpDt 기간(`from`/`to`) 내 **월별 층화 샘플링**(접수월별 균등 추출, `limit` = dedup 후 표본 상한)으로 변경. 파라미터 미지정 시 새 기본 동작(최근 12개월 층화) — 응답 스키마는 불변(additive).
 
@@ -2982,22 +3218,22 @@ GET /api/stock-status/risk?corpCode=&stockCode=   (OptionalJwt — 게스트 열
 
 ### 29.3 신호 생성 운영 (signal-generation) — JWT 필수
 
-| 엔드포인트 | 요약 |
-|---|---|
-| `POST /signals/generate` | 매수 신호 수동 생성 (대상: 이벤트+시세 있고 `TradingSignal` 없는 공시) |
-| `POST /signals/regenerate` | 매수 신호 재생성·재채점 (기존 신호 upsert 갱신 — TI 백필 후 chart/entryReady 반영, DAR-50) |
+| 엔드포인트                        | 요약                                                                                                                                                                                                                                                                                          |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /signals/generate`          | 매수 신호 수동 생성 (대상: 이벤트+시세 있고 `TradingSignal` 없는 공시)                                                                                                                                                                                                                        |
+| `POST /signals/regenerate`        | 매수 신호 재생성·재채점 (기존 신호 upsert 갱신 — TI 백필 후 chart/entryReady 반영, DAR-50)                                                                                                                                                                                                    |
 | `POST /signals/generate-backfill` | 과거(백필) 공시 point-in-time 신호 백필 (분석·백테스트용 — 가격≤rcpDt as-of, 멱등, AI 미개입, DAR-389). TB-1(2026-07-03): 상태플래그(`StockStatus` 현재 스냅샷) 하드차단은 백필에 미적용(등급 배정 lookahead 차단 — 라이브는 유지), 이벤트타입 하드블록 3종(rcpDt 시점 파생, PIT 안전)은 유지 |
 
 ---
 
 ## 30. 졸업 게이트·감사 로그 (Engine5)
 
-| 엔드포인트 | 인증 | 요약 |
-|---|---|---|
-| `GET /graduation/metrics` | OptionalJwt | 졸업 게이트(G1 적중률·G2 누적수익·G3 AI비용/순익·G5 Exit정확도) 현재값 vs 기준·통과여부·표본수 + 30일 모의운용 진행률(경과/잔여일·측정대기) |
-| `GET /graduation/funnel` | OptionalJwt | 신호→진입 퍼널(DAR-109) — 당일 생성 신호→후보 통과→체결의 일별·누적 전환율(채택률·체결률·신호→체결). 졸업 표본 누적 모니터링 |
-| `GET /trading/audit-logs?from=&to=&actorKind=&action=&orderRequestId=&page=&limit=` | JWT | 거래 감사로그 조회 (DAR-351, 운영자용) |
-| `GET /trading/auto-status` | OptionalJwt | 자동매매 실행상태(읽기전용 투명성) — 상세는 §11.4 |
+| 엔드포인트                                                                          | 인증        | 요약                                                                                                                                        |
+| ----------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /graduation/metrics`                                                           | OptionalJwt | 졸업 게이트(G1 적중률·G2 누적수익·G3 AI비용/순익·G5 Exit정확도) 현재값 vs 기준·통과여부·표본수 + 30일 모의운용 진행률(경과/잔여일·측정대기) |
+| `GET /graduation/funnel`                                                            | OptionalJwt | 신호→진입 퍼널(DAR-109) — 당일 생성 신호→후보 통과→체결의 일별·누적 전환율(채택률·체결률·신호→체결). 졸업 표본 누적 모니터링                |
+| `GET /trading/audit-logs?from=&to=&actorKind=&action=&orderRequestId=&page=&limit=` | JWT         | 거래 감사로그 조회 (DAR-351, 운영자용)                                                                                                      |
+| `GET /trading/auto-status`                                                          | OptionalJwt | 자동매매 실행상태(읽기전용 투명성) — 상세는 §11.4                                                                                           |
 
 ---
 
@@ -3005,20 +3241,21 @@ GET /api/stock-status/risk?corpCode=&stockCode=   (OptionalJwt — 게스트 열
 
 ### 31.1 헬스체크 (인증 불요)
 
-| 엔드포인트 | 요약 |
-|---|---|
-| `GET /health` | readiness — DB·BullMQ(Redis) 도달성 + 외부키(DART/KRX/LLM) 존재/형식 점검(실호출 없음). prod 외부 헬스체크·배포 검증에 사용 |
-| `GET /health/live` | liveness — 프로세스 응답 가능 여부 (외부 의존 점검 없음) |
+| 엔드포인트         | 요약                                                                                                                        |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`      | readiness — DB·BullMQ(Redis) 도달성 + 외부키(DART/KRX/LLM) 존재/형식 점검(실호출 없음). prod 외부 헬스체크·배포 검증에 사용 |
+| `GET /health/live` | liveness — 프로세스 응답 가능 여부 (외부 의존 점검 없음)                                                                    |
 
 ### 31.2 운영 지표·수집 현황 (인증 불요 — 운영/내부용)
 
-| 엔드포인트 | 요약 |
-|---|---|
-| `GET /ops/metrics` | 운영 핵심 카운터(JSON) — AI누적·최근신호·모의포지션·마지막수집(freshness)·졸업지표 G1/G2/G3/G5·**슬리피지 분포(DAR-474)** |
-| `GET /collection/status` | 수집 현황 집계 — 공시·재무·시세지표·모의운용 파이프라인 커버리지·최근 수집시각·성숙도 배지 (read-only) |
-| `GET /collection/freshness` | 데이터 신선도/크론 헬스 — 수집 크론 마지막 성공시각·처리건수·stale(정체) 판정 (read-only, 조용한 수집 정체 안전망) |
+| 엔드포인트                  | 요약                                                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `GET /ops/metrics`          | 운영 핵심 카운터(JSON) — AI누적·최근신호·모의포지션·마지막수집(freshness)·졸업지표 G1/G2/G3/G5·**슬리피지 분포(DAR-474)** |
+| `GET /collection/status`    | 수집 현황 집계 — 공시·재무·시세지표·모의운용 파이프라인 커버리지·최근 수집시각·성숙도 배지 (read-only)                    |
+| `GET /collection/freshness` | 데이터 신선도/크론 헬스 — 수집 크론 마지막 성공시각·처리건수·stale(정체) 판정 (read-only, 조용한 수집 정체 안전망)        |
 
 **`GET /ops/metrics` 슬리피지 분포(DAR-474, `data.slippage`)** — read-only 집계(체결·주문·AI 개입 0). 산출 실패 시 `null`(graceful, 카운터 본체는 유지):
+
 ```jsonc
 "slippage": {
   "overall": { "tradeCount": 42, "avgSlippageKrw": 812.5, "p95SlippageKrw": 2100.0,
@@ -3031,6 +3268,7 @@ GET /api/stock-status/risk?corpCode=&stockCode=   (OptionalJwt — 게스트 열
   ]
 }
 ```
+
 - **Krw**: 체결 시 기록된 `PaperTrade.slippage`/`IntradayScalpTrade.slippage` 원가 절대값(체결일 기준가 대비 체결 마찰).
 - **Bps**: 신호시점 기대가(`PaperTrade.expectedPrice`, 없으면 `entryPrice` 폴백) 대비 실현 슬리피지(부호=불리 방향 양수). 실전 전환 게이트("슬리피지 기대 이내 시 증액")가 소비. `expectedPrice` 보존분만 산정 — 레거시/단타 트랙은 `null`(과신 방지).
 - **totalFeesKrw**: 수수료+세금 합 — ★슬리피지와 **구분 유지**(단타 `totalFees` SSOT 정합).
@@ -3038,16 +3276,17 @@ GET /api/stock-status/risk?corpCode=&stockCode=   (OptionalJwt — 게스트 열
 
 ### 31.3 스토리지 운영 (storage) — JWT 필수
 
-| 엔드포인트 | 요약 |
-|---|---|
-| `GET /storage/health` | DB 크기·테이블별 용량·rawText 오프로드 진행·객체 스토리지 용량·로컬 임계 경고 (read-only) |
-| `POST /storage/vacuum?table=&full=` | VACUUM (FULL) 디스크 실회수 + 전후 크기 리포트 (★운영자 수동·오프피크 전용·ACCESS EXCLUSIVE 락·테이블 화이트리스트) |
-| `POST /storage/cleanup-local-artifacts?limit=` | 로컬 원시 파일(rawFilePath) 삭제 + 컬럼 비움 1회 배치 (멱등) |
-| `POST /storage/lifecycle` | rawText 객체 콜드 라이프사이클(STANDARD_IA@30d→GLACIER@90d) 적용 (멱등, S3만 실적용·로컬 no-op) |
+| 엔드포인트                                     | 요약                                                                                                                |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `GET /storage/health`                          | DB 크기·테이블별 용량·rawText 오프로드 진행·객체 스토리지 용량·로컬 임계 경고 (read-only)                           |
+| `POST /storage/vacuum?table=&full=`            | VACUUM (FULL) 디스크 실회수 + 전후 크기 리포트 (★운영자 수동·오프피크 전용·ACCESS EXCLUSIVE 락·테이블 화이트리스트) |
+| `POST /storage/cleanup-local-artifacts?limit=` | 로컬 원시 파일(rawFilePath) 삭제 + 컬럼 비움 1회 배치 (멱등)                                                        |
+| `POST /storage/lifecycle`                      | rawText 객체 콜드 라이프사이클(STANDARD_IA@30d→GLACIER@90d) 적용 (멱등, S3만 실적용·로컬 no-op)                     |
 
 ### 31.4 일일 운영 리포트 잡 (cron `ops.daily-report`, DAR-477) — HTTP 엔드포인트 없음
 
 `GET /ops/metrics`(§31.2)가 상시 조회형인 데 반해, **`OpsDailyReportScheduler`(매일 20:30 KST — forward 트랙 19:40/19:45 이후)** 가 하루 1회 운영 요약을 능동 생성해 **OPS_ALERT 채널(DAR-473 `enqueueOpsAlert`)** 로 발송한다. `OpsMetricsService.getMetrics`(슬리피지·freshness·신호·AI비용) 집계를 재사용하고 다음을 더한다:
+
 - **트랙별 손익**: 누적 실현(CLOSED `Position.unrealizedPnl` 합·strategy-forward equity 관점) + 현재 평가(OPEN 합) — 포트폴리오 단위(시스템 모의·전략 4종·철학 4종) + 분봉 단타(`IntradayScalpTrade.netPnl`).
 - **체결 건수(최근 24h)**: `PaperTrade`(filledShares>0·filledAt) + `IntradayScalpTrade`(CLOSED·exitTs), styleTag 트랙별.
 - **크론 실패·오류율(최근 24h)**: `CronRunLog` status=FAILED/전체(총 0이면 `null`, 가짜 비율 금지) + `GET /collection/freshness` stale 연계.
@@ -3057,35 +3296,63 @@ GET /api/stock-status/risk?corpCode=&stockCode=   (OptionalJwt — 게스트 열
 
 ### 31.5 격주 트랙 성과 순위 리포트 — JWT 필수
 
-| 엔드포인트 | 요약 |
-|---|---|
+| 엔드포인트                  | 요약                                                                                                                                                        |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /api/ops/track-review` | 격주 트랙 성과 순위 리포트(온디맨드 계산) — 모의투자 전 트랙의 **트레일링 14일(캘린더, KST) 실현 성과** 순위 + 시장국면 태깅. 영속 모델 없음(스키마 변경 0) |
 
 **응답(`data`: `BiweeklyTrackReview`)** — read-only 집계(체결·주문·킬스위치·AI 개입 0):
+
 ```jsonc
 {
   "generatedAt": "2026-07-12T01:00:00.000Z",
-  "periodStartKst": "2026-06-29",  // 윈도 첫날(KST 자정 포함)
-  "periodEndKst": "2026-07-12",    // 생성일(포함) — 트레일링 14 캘린더 일
+  "periodStartKst": "2026-06-29", // 윈도 첫날(KST 자정 포함)
+  "periodEndKst": "2026-07-12", // 생성일(포함) — 트레일링 14 캘린더 일
   "windowDays": 14,
-  "regime": {                       // market-regime Rule(DAR-130) 재사용 — 판정 실패 시 null(graceful)
-    "trend": "UPTREND", "volatility": "NORMAL", "eventSkew": "OPPORTUNITY",
-    "trendChangePct": 4.3, "dailyVolatilityPct": 0.9,
-    "indexSampleSize": 40, "eventSampleSize": 120, "dataLimited": false, "asOf": "20260710"
+  "regime": {
+    // market-regime Rule(DAR-130) 재사용 — 판정 실패 시 null(graceful)
+    "trend": "UPTREND",
+    "volatility": "NORMAL",
+    "eventSkew": "OPPORTUNITY",
+    "trendChangePct": 4.3,
+    "dailyVolatilityPct": 0.9,
+    "indexSampleSize": 40,
+    "eventSampleSize": 120,
+    "dataLimited": false,
+    "asOf": "20260710",
   },
-  "tracks": [                       // 수익률 내림차순 순위(동률: 청산 desc → trackKey asc)
-    { "trackKey": "strategy:event-edge", "label": "전략 이벤트엣지", "rank": 1,
-      "closedTrades": 12, "wins": 7, "winRatePct": 58.3,
-      "realizedPnlKrw": 234000, "initialCapitalKrw": 10000000, "returnPct": 2.34,
-      "avgHoldDays": 4.2, "lowSample": false },
-    { "trackKey": "intraday-scalp", "label": "분봉 단타", "rank": 2,
-      "closedTrades": 2, "wins": 1, "winRatePct": 50,
-      "realizedPnlKrw": -12000, "initialCapitalKrw": 10000000, "returnPct": -0.12,
-      "avgHoldDays": 0.02, "lowSample": true }   // 청산<5 정직 표기(순위에는 포함)
+  "tracks": [
+    // 수익률 내림차순 순위(동률: 청산 desc → trackKey asc)
+    {
+      "trackKey": "strategy:event-edge",
+      "label": "전략 이벤트엣지",
+      "rank": 1,
+      "closedTrades": 12,
+      "wins": 7,
+      "winRatePct": 58.3,
+      "realizedPnlKrw": 234000,
+      "initialCapitalKrw": 10000000,
+      "returnPct": 2.34,
+      "avgHoldDays": 4.2,
+      "lowSample": false,
+    },
+    {
+      "trackKey": "intraday-scalp",
+      "label": "분봉 단타",
+      "rank": 2,
+      "closedTrades": 2,
+      "wins": 1,
+      "winRatePct": 50,
+      "realizedPnlKrw": -12000,
+      "initialCapitalKrw": 10000000,
+      "returnPct": -0.12,
+      "avgHoldDays": 0.02,
+      "lowSample": true,
+    }, // 청산<5 정직 표기(순위에는 포함)
   ],
-  "body": "격주 트랙 성과 리포트 (2026-06-29 ~ 2026-07-12 KST · 트레일링 14일)\n..." // 발송 본문(이모지 미사용)
+  "body": "격주 트랙 성과 리포트 (2026-06-29 ~ 2026-07-12 KST · 트레일링 14일)\n...", // 발송 본문(이모지 미사용)
 }
 ```
+
 - **전부 CLOSED/실현 기준** — 보유(OPEN) 평가손익 미포함. 승률·평균보유는 청산 0건이면 `null`(가짜 비율 금지).
 - **트랙**: 시스템 모의(`paper-simulation`)·철학 4종(`BUFFETT`/`LYNCH`/`GREENBLATT`/`DRUCKENMILLER`)·전략 forward(`strategy:*` 동적 수집)·분봉 단타(`intraday-scalp`)·듀얼모멘텀 코어(`alloc:dual-momentum`). 수익률 분모는 각 트랙 원금 상수(1천만원).
 - **발송 잡(cron `ops.biweekly-track-review`)**: 매주 일요일 10:00 KST 발화 + **격주 게이트**(고정 앵커 `20260712` 일요일 기준 짝수 주차만 실행·오프 주는 SKIPPED). OPS_ALERT 채널(`INFO`·source `biweekly-track-review`), 멱등키 `biweekly-track-review:<앵커기준 회차>`, `deepLink=/portfolio`. freshness 안전망 등록(stale 임계 17일 — 격주 카덴스+3일). 배치 상세: `docs/workflow.md` §2.13.
@@ -3098,22 +3365,29 @@ GET /api/ops/notification-latency?days=7
 
 공시(DISCLOSURE) 알림의 **감지(`Disclosure.createdAt`)→푸시 발송(`NotificationHistory.sentAt`)** 지연을 KST 일별 p50/p95/max로 집계한다(read-only — 신규 테이블·수집·외부호출 0, 기존 테이블 집계만). "경쟁사는 주장, 우리는 측정치" 전환의 데이터 소스.
 
-| 쿼리 | 타입 | 필수 | 설명 |
-|---|---|---|---|
+| 쿼리   | 타입   | 필수 | 설명                                                        |
+| ------ | ------ | ---- | ----------------------------------------------------------- |
 | `days` | number | 선택 | 집계 윈도(일, 1~30 클램프, 기본 7 — KST 오늘 포함 최근 N일) |
 
 **Response** (`data`: `DisclosureLatencyReport`):
+
 ```jsonc
 {
   "metric": "disclosure-detect-to-push",
-  "definition": "…",            // ★정직성 계약: DART API에 접수 시각이 없어(rcept_dt는 일자뿐)
-                                 //   접수→푸시 E2E가 아닌 '감지→푸시' 구간임을 명시
+  "definition": "…", // ★정직성 계약: DART API에 접수 시각이 없어(rcept_dt는 일자뿐)
+  //   접수→푸시 E2E가 아닌 '감지→푸시' 구간임을 명시
   "windowDays": 7,
   "generatedAt": "2026-07-16T00:00:00.000Z",
-  "daily": [                     // 최신 일자 우선. 표본 없는 일자는 행 미생성
-    { "kstDate": "2026-07-16", "count": 120,
-      "detectToPushP50Ms": 42000, "detectToPushP95Ms": 95000, "detectToPushMaxMs": 180000 }
-  ]
+  "daily": [
+    // 최신 일자 우선. 표본 없는 일자는 행 미생성
+    {
+      "kstDate": "2026-07-16",
+      "count": 120,
+      "detectToPushP50Ms": 42000,
+      "detectToPushP95Ms": 95000,
+      "detectToPushMaxMs": 180000,
+    },
+  ],
 }
 ```
 
@@ -3133,40 +3407,64 @@ GET /api/ops/edition-density?days=60
 - **보조 계열**: `allGrade`(전등급 신호 밀도) — 파이프라인이 신호는 만들지만 매수등급이 아닐 뿐인지(폴백 여지) 진단. `buyGradeUniqueCorp`(corpCode dedup 매수등급 밀도) — 실제 노출 카드 수 기준 해석용.
 - **분모 교차검증**: 캘린더 거래일 수 vs 윈도 구간 일봉(`StockDailyPrice`) 실재 거래일 distinct 수 대조(불일치 시 캘린더 누락 공휴일/시세 수집 공백 의심).
 
-| 쿼리 | 타입 | 필수 | 설명 |
-|---|---|---|---|
+| 쿼리   | 타입   | 필수 | 설명                                                               |
+| ------ | ------ | ---- | ------------------------------------------------------------------ |
 | `days` | number | 선택 | 집계 거래일 수(1~120 클램프, 기본 60) — 최근 완료 거래일 기준 역산 |
 
 **Response** (`data`: `EditionDensityReport`):
+
 ```jsonc
 {
   "metric": "edition-signal-density",
   "definition": "에디션 신호 = 매수등급(STRONG_BUY+BUY)·백필 제외 … (정직성 계약)",
   "windowTradingDays": 60,
-  "anchorEndDate": "20260716",     // 최근 완료 거래일(YYYYMMDD)
+  "anchorEndDate": "20260716", // 최근 완료 거래일(YYYYMMDD)
   "oldestDate": "20260421",
   "todayDate": "20260717",
-  "todayIncludedInWindow": false,  // 오늘 19:15 KST 전이면 제외(0건일 오염 차단)
+  "todayIncludedInWindow": false, // 오늘 19:15 KST 전이면 제외(0건일 오염 차단)
   "generatedAt": "2026-07-16T18:14:58.838Z",
-  "buyGrade": {                    // ★주계열: 매수등급 TradingSignal 원시 행 밀도(페르소나 중복 포함 가능)
-    "days": 60, "totalSignals": 34, "mean": 0.57, "median": 0,
-    "min": 0, "max": 17, "p25": 0, "p75": 0,
-    "zeroDays": 55, "zeroDayRatio": 0.9167,
-    "histogram": [ { "bucket": "0", "days": 55 }, /* 1,2,3-4,5-9,10+ */ ]
+  "buyGrade": {
+    // ★주계열: 매수등급 TradingSignal 원시 행 밀도(페르소나 중복 포함 가능)
+    "days": 60,
+    "totalSignals": 34,
+    "mean": 0.57,
+    "median": 0,
+    "min": 0,
+    "max": 17,
+    "p25": 0,
+    "p75": 0,
+    "zeroDays": 55,
+    "zeroDayRatio": 0.9167,
+    "histogram": [{ "bucket": "0", "days": 55 } /* 1,2,3-4,5-9,10+ */],
   },
-  "allGrade": { /* 전등급 신호 밀도(동일 구조) — 폴백 여지 진단 */ },
-  "buyGradeUniqueCorp": { /* DAR-553: corpCode dedup 매수등급 밀도(동일 구조) — daily-editions count와 1:1 */ },
+  "allGrade": {
+    /* 전등급 신호 밀도(동일 구조) — 폴백 여지 진단 */
+  },
+  "buyGradeUniqueCorp": {
+    /* DAR-553: corpCode dedup 매수등급 밀도(동일 구조) — daily-editions count와 1:1 */
+  },
   "verdict": {
-    "medianBelowThreshold": true, "zeroDayRatioAboveThreshold": true,
+    "medianBelowThreshold": true,
+    "zeroDayRatioAboveThreshold": true,
     "fallbackProposalTriggered": true,
     "thresholds": { "medianLt": 2, "zeroDayRatioGt": 0.4 },
     "proposalDoc": "docs/roadmap/cc-edition-density-fallback-proposal-2026-07-17.md",
-    "summary": "트리거: 중앙값 0 < 2 · 0건일 비율 91.7% > 40% → …"
+    "summary": "트리거: 중앙값 0 < 2 · 0건일 비율 91.7% > 40% → …",
   },
   "tradingDayCrossCheck": {
-    "calendarTradingDays": 60, "marketDataTradingDays": 41, "matches": false, "note": "…"
+    "calendarTradingDays": 60,
+    "marketDataTradingDays": 41,
+    "matches": false,
+    "note": "…",
   },
-  "daily": [ { "date": "20260717", "buyCount": 0, "totalCount": 0, "uniqueCorpBuyCount": 0 } /* 최신 우선, N행 */ ]
+  "daily": [
+    {
+      "date": "20260717",
+      "buyCount": 0,
+      "totalCount": 0,
+      "uniqueCorpBuyCount": 0,
+    } /* 최신 우선, N행 */,
+  ],
 }
 ```
 
@@ -3187,40 +3485,92 @@ GET /api/ops/dart-quota-forensics?date=YYYYMMDD
 - **가설 판정** `hypothesis.verdict`: `SUPPORTED`(야간 추정 하한 > 단일 프로세스 벌크 상한 14,000 — 재개방/멀티 인스턴스 없이 설명 불가 · 또는 마커 2건 이상 + 상한 50% 이상 소비) / `REFUTED`(상한 내 + 마커 0건, **조회 일자 한정**) / `INCONCLUSIVE`(소비 흔적 0건 등). 판정 근거는 `reasons[]` 정량 문장으로 동봉.
 - **쿼터 상태 스냅샷**: `dart_quota_state`(DAR-532, PR #513) 당일 행 — `callsToday`(200콜 스텝 flush 하한)·`quotaExhausted`(실제 020/021 관측). 배포 전 일자는 행 없음(`found:false`).
 
-| 쿼리 | 타입 | 필수 | 설명 |
-|---|---|---|---|
+| 쿼리   | 타입   | 필수 | 설명                                                                                                                             |
+| ------ | ------ | ---- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `date` | string | 선택 | 감사 대상 KST 일자(YYYYMMDD, 기본 오늘). 형식/실존 위반 시 400 `INVALID_DATE_PARAM`. **사건 발생 일자를 지정해야 판정이 유의미** |
 
 **Response** (`data`: `DartQuotaForensicsReport`):
+
 ```jsonc
 {
   "metric": "dart-quota-forensics",
   "date": "20260715",
   "nightWindow": { "startKst": "00:00", "endKst": "08:29" },
-  "budget": { "dailyBudget": 19000, "liveReserve": 2000, "liveParseReserve": 3000,
-              "liveParseCeiling": 17000, "bulkCeiling": 14000, "persistStep": 200 },
-  "quotaState": { "found": true, "callsToday": 18800, "quotaExhausted": true,
-                  "updatedAtKst": "2026-07-15 08:10:00", "note": "…" },
+  "budget": {
+    "dailyBudget": 19000,
+    "liveReserve": 2000,
+    "liveParseReserve": 3000,
+    "liveParseCeiling": 17000,
+    "bulkCeiling": 14000,
+    "persistStep": 200,
+  },
+  "quotaState": {
+    "found": true,
+    "callsToday": 18800,
+    "quotaExhausted": true,
+    "updatedAtKst": "2026-07-15 08:10:00",
+    "note": "…",
+  },
   "night": {
     "totalEstimatedCalls": 14973,
-    "paths": [ { "path": "DOC_FETCH_BACKFILL", "label": "문서 파싱 fetch — 백필",
-                 "estimatedCalls": 14000, "evidence": "disclosure_documents.fetchedAt …" } /* 7종 고정 */ ],
-    "topPaths": [ /* 상위 3경로(0 제외) — DoD '상위 경로 3건 정량' */ ]
+    "paths": [
+      {
+        "path": "DOC_FETCH_BACKFILL",
+        "label": "문서 파싱 fetch — 백필",
+        "estimatedCalls": 14000,
+        "evidence": "disclosure_documents.fetchedAt …",
+      } /* 7종 고정 */,
+    ],
+    "topPaths": [
+      /* 상위 3경로(0 제외) — DoD '상위 경로 3건 정량' */
+    ],
   },
-  "hourly": [ { "hour": "03", "total": 14120, "byPath": { "DOC_FETCH_BACKFILL": 14000, /* … */ } } /* 24행 */ ],
-  "cronTimeline": [ { "jobKey": "event.backfill-drain", "startedAtKst": "2026-07-15 03:00:00",
-                      "finishedAtKst": "2026-07-15 03:09:00", "status": "SUCCESS",
-                      "itemCount": 200, "dartRelevant": true } ],
-  "collectionRuns": [ /* disclosure_collection_logs 당일 원자료 + estimatedListCalls(감사 추적) */ ],
-  "restartMarkers": { "count": 1, "markers": [ { "source": "cron_run_logs", "key": "event.backfill-drain",
-                      "startedAtKst": "2026-07-15 03:20:00", "note": "…" } ], "note": "…" },
+  "hourly": [
+    {
+      "hour": "03",
+      "total": 14120,
+      "byPath": { "DOC_FETCH_BACKFILL": 14000 /* … */ },
+    } /* 24행 */,
+  ],
+  "cronTimeline": [
+    {
+      "jobKey": "event.backfill-drain",
+      "startedAtKst": "2026-07-15 03:00:00",
+      "finishedAtKst": "2026-07-15 03:09:00",
+      "status": "SUCCESS",
+      "itemCount": 200,
+      "dartRelevant": true,
+    },
+  ],
+  "collectionRuns": [
+    /* disclosure_collection_logs 당일 원자료 + estimatedListCalls(감사 추적) */
+  ],
+  "restartMarkers": {
+    "count": 1,
+    "markers": [
+      {
+        "source": "cron_run_logs",
+        "key": "event.backfill-drain",
+        "startedAtKst": "2026-07-15 03:20:00",
+        "note": "…",
+      },
+    ],
+    "note": "…",
+  },
   "hypothesis": {
     "hypothesis": "DAR-532 가설: 야간 다중 프로세스 재기동이 …",
-    "verdict": "SUPPORTED",            // SUPPORTED | REFUTED | INCONCLUSIVE
-    "nightEstimatedCalls": 14973, "bulkCeiling": 14000, "budgetOverrunFactor": 1.07,
-    "restartMarkerCount": 1, "reasons": [ "…정량 근거 문장…" ], "note": "판정은 조회 일자 1일 한정 …"
+    "verdict": "SUPPORTED", // SUPPORTED | REFUTED | INCONCLUSIVE
+    "nightEstimatedCalls": 14973,
+    "bulkCeiling": 14000,
+    "budgetOverrunFactor": 1.07,
+    "restartMarkerCount": 1,
+    "reasons": ["…정량 근거 문장…"],
+    "note": "판정은 조회 일자 1일 한정 …",
   },
-  "caveats": [ "모든 경로 추정치는 저장 흔적 기준 하한 …", "tables lazy fetch 는 S3 전용(DART 소비 0) …" ]
+  "caveats": [
+    "모든 경로 추정치는 저장 흔적 기준 하한 …",
+    "tables lazy fetch 는 S3 전용(DART 소비 0) …",
+  ],
 }
 ```
 
@@ -3235,6 +3585,7 @@ POST /ops/funnel        → 202 Accepted
 온보딩 퍼널 5단계(`install → intro → kakao → watchlist → push_permission`) 계측 전용 엔드포인트. install/intro/kakao 단계는 로그인 이전이라 **비인증**이며, 수용 입력은 `anonId + step (+ meta 캡)` 화이트리스트뿐(개인정보·비밀값 미취급).
 
 **Request Body** (`RecordFunnelEventDto`):
+
 ```json
 {
   "anonId": "6f0c2b3e-8a41-4b7d-9d2f-1c5e7a9b3d10",
@@ -3243,11 +3594,11 @@ POST /ops/funnel        → 202 Accepted
 }
 ```
 
-| 필드 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `anonId` | string(8~64) | 필수 | 디바이스 단위 익명 ID(로그인 전 추적, 모바일 생성·영속) |
-| `step` | enum | 필수 | `install` \| `intro` \| `kakao` \| `watchlist` \| `push_permission` (모바일 `utils/funnel.ts` `FUNNEL_STEPS`와 SSOT 미러) |
-| `meta` | object | 선택 | 스텝별 부가 정보(2048B 캡) |
+| 필드     | 타입         | 필수 | 설명                                                                                                                      |
+| -------- | ------------ | ---- | ------------------------------------------------------------------------------------------------------------------------- |
+| `anonId` | string(8~64) | 필수 | 디바이스 단위 익명 ID(로그인 전 추적, 모바일 생성·영속)                                                                   |
+| `step`   | enum         | 필수 | `install` \| `intro` \| `kakao` \| `watchlist` \| `push_permission` (모바일 `utils/funnel.ts` `FUNNEL_STEPS`와 SSOT 미러) |
+| `meta`   | object       | 선택 | 스텝별 부가 정보(2048B 캡)                                                                                                |
 
 **Response**: `202 Accepted` — `{ "success": true }` (**적재 실패도 202로 흡수** — 계측 전용, 모바일 fire-and-forget)
 
@@ -3267,28 +3618,39 @@ Play 테스터 12인 코호트의 **로그인 후 인앱 행동**을 기록·집
 > ★**PII 무수집(수용기준 1)**: 서버는 `userId`(인증)·`event`(화이트리스트)·`ts`(서버 스탬프)만 저장한다. 자유텍스트·종목/카드 식별자·기기정보 입력 경로 없음(`event` 는 `IsIn` 화이트리스트뿐). M10 무오염 — engine5(매매/리스크) 무접점.
 
 **POST /ops/tester-event** — 이벤트 1건 기록. **Request Body** (`RecordTesterEventDto`):
+
 ```json
 { "event": "edition_open" }
 ```
 
-| 필드 | 타입 | 필수 | 설명 |
-|---|---|---|---|
+| 필드    | 타입 | 필수 | 설명                                                                                                                                                             |
+| ------- | ---- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `event` | enum | 필수 | `edition_open` \| `card_tap` \| `push_open` \| `stats_section_view` \| `waitlist_cta` \| `survey_ios_shown` \| `survey_ios_answer_yes` \| `survey_ios_answer_no` |
 
 - **Response**: `202 Accepted` — `{ "success": true }` (**적재 실패도 202로 흡수** — 계측 전용, 모바일 fire-and-forget). 라우트 전용 스로틀 120req/min(IP·인앱 연속 탭 버스트 통과).
 
 **GET /ops/tester-metrics** — 오픈율·재방문 코호트 집계(수용기준 3, ops-facing). 쿼리 `?days=`(관측창, 1~90, 기본 14).
+
 ```json
 {
   "success": true,
   "data": {
-    "windowDays": 14, "since": "2026-07-03T...Z",
-    "totalUsers": 10, "editionOpenUsers": 8, "pushOpenUsers": 5, "revisitUsers": 4,
-    "openRate": 0.8, "revisitRate": 0.4,
-    "byEvent": [ { "event": "edition_open", "count": 42 }, { "event": "card_tap", "count": 30 } ]
+    "windowDays": 14,
+    "since": "2026-07-03T...Z",
+    "totalUsers": 10,
+    "editionOpenUsers": 8,
+    "pushOpenUsers": 5,
+    "revisitUsers": 4,
+    "openRate": 0.8,
+    "revisitRate": 0.4,
+    "byEvent": [
+      { "event": "edition_open", "count": 42 },
+      { "event": "card_tap", "count": 30 }
+    ]
   }
 }
 ```
+
 - `openRate` = 관측창 내 `edition_open` 1회↑ 고유 사용자 / 전체 활동 사용자. `revisitRate` = 활동일(KST) ≥2 고유 사용자 / 전체 활동 사용자. KST 일 버킷은 `createdAt`(naive-UTC) → `AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Seoul'` 이중 변환 파생(DAR-505 패턴).
 
 ---
@@ -3296,13 +3658,16 @@ Play 테스터 12인 코호트의 **로그인 후 인앱 행동**을 기록·집
 ## 부록 A. Rate Limiting
 
 ### 전역 제한
+
 - **60 requests / 분** (IP 기준, `ThrottlerGuard` 전역 적용)
 
 ### 인증 엔드포인트 제한
+
 - **5 requests / 분**: `POST /auth/signup`, `POST /auth/login`
 - **10 requests / 분**: `POST /auth/kakao`
 
 ### Headers
+
 ```
 X-RateLimit-Limit: 60
 X-RateLimit-Remaining: 45
@@ -3314,6 +3679,7 @@ X-RateLimit-Reset: 1678190400
 ## 부록 B. 푸시 알림 Payload
 
 **Expo Push Notification 형식** (공시 알림 예):
+
 ```json
 {
   "to": "ExponentPushToken[...]",
@@ -3345,13 +3711,13 @@ P01(DAR-473)이 신설한 능동 알림 채널(`NotificationType.RISK_ALERT`/`OP
 발송 조건은 **에지/디바운스**로 폭주를 막고, `dedupeKey`(자연키)로 consumer 멱등(`refId` unique)까지
 이중 억제한다. 새 API 엔드포인트·스키마 변경은 없다(관측 이벤트가 §8 알림 히스토리·푸시로 표면화).
 
-| # | 감지점 | 알림 | 트리거·디바운스 | source | severity |
-|---|--------|------|-----------------|--------|----------|
-| 1 | 킬스위치 발동(수동/자동 불문, `KillSwitchManager.activate`) | `RISK_ALERT` | 발동 즉시(활성화 시각 분버킷 dedupe) | `kill-switch` | CRITICAL |
-| 2 | 크론 신선도 `anyStale` 정상→정체 전환 | `OPS_ALERT` | 30분 주기 평가·**상승 에지 1회**(정상 복귀 시 재무장)·정체잡 집합+일자 dedupe | `cron-freshness` | ≥3잡 ERROR, else WARNING |
-| 3 | 데이터 수집 실패·결측 fail-safe | `OPS_ALERT` | #2와 동일 관측면(수집 실패→마지막 성공시각 노후화→신선도 정체로 표면화)에서 정체잡 목록으로 함께 통지 | `cron-freshness` | (#2와 동일) |
-| 4 | 단타 catch-up 청산(오버나잇 잔존분 강제청산·15:20 정규청산 누락 표면화) | `RISK_ALERT` | catch-up sweep이 ≥1건 청산 시(거래일 dedupe)·가격결측 폴백 섞이면 CRITICAL | `scalp-catchup` | ERROR(결측 시 CRITICAL) |
-| 5 | AI 비용 일일 모니터 수용기준/한도 위반 | `OPS_ALERT` | 일 1회 잡(자연 디바운스)·일자 dedupe·자동 조치 없음(휴먼 승인 경계) | `ai-cost-monitor` | WARNING |
+| #   | 감지점                                                                  | 알림         | 트리거·디바운스                                                                                       | source            | severity                 |
+| --- | ----------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------- | ----------------- | ------------------------ |
+| 1   | 킬스위치 발동(수동/자동 불문, `KillSwitchManager.activate`)             | `RISK_ALERT` | 발동 즉시(활성화 시각 분버킷 dedupe)                                                                  | `kill-switch`     | CRITICAL                 |
+| 2   | 크론 신선도 `anyStale` 정상→정체 전환                                   | `OPS_ALERT`  | 30분 주기 평가·**상승 에지 1회**(정상 복귀 시 재무장)·정체잡 집합+일자 dedupe                         | `cron-freshness`  | ≥3잡 ERROR, else WARNING |
+| 3   | 데이터 수집 실패·결측 fail-safe                                         | `OPS_ALERT`  | #2와 동일 관측면(수집 실패→마지막 성공시각 노후화→신선도 정체로 표면화)에서 정체잡 목록으로 함께 통지 | `cron-freshness`  | (#2와 동일)              |
+| 4   | 단타 catch-up 청산(오버나잇 잔존분 강제청산·15:20 정규청산 누락 표면화) | `RISK_ALERT` | catch-up sweep이 ≥1건 청산 시(거래일 dedupe)·가격결측 폴백 섞이면 CRITICAL                            | `scalp-catchup`   | ERROR(결측 시 CRITICAL)  |
+| 5   | AI 비용 일일 모니터 수용기준/한도 위반                                  | `OPS_ALERT`  | 일 1회 잡(자연 디바운스)·일자 dedupe·자동 조치 없음(휴먼 승인 경계)                                   | `ai-cost-monitor` | WARNING                  |
 
 - #2·#3은 신선도 SSOT(`DataFreshnessService`)를 주기 평가하는 `DataFreshnessMonitorScheduler`가
   단일 관측면으로 함께 커버한다(개별 수집기 warn 산발 배선 대신 — 폭주 방지·유지보수 단순화). 신선도
@@ -3375,12 +3741,12 @@ GET /api/market-data/indicators?stockCode=005930&from=&to=&before=&limit=
 
 `TechnicalIndicator`(MA5/20/60/120·RSI14·MACD·볼린저·ATR14·VWAP·거래량비율20·52주 고저·공시 전 선행상승률, EOD 일봉 파생)를 §17 캔들과 동일한 파라미터·응답 규약(from~to + `before` 커서 + `limit` 상한 1000, newest-first 조회 후 오름차순 반환)으로 개방한다. Buy Score 입력 근거 검증·차트 MA/볼린저 오버레이용.
 
-| 쿼리 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `stockCode` | string | 필수 | 종목코드 6자리 |
-| `from` / `to` | string | 선택 | 구간(포함) — ISO 8601 또는 YYYYMMDD (§17 candles와 동일 형식) |
-| `before` | string | 선택 | 페이지네이션 커서(이 거래일 미만 과거 페이지) — 응답 `nextCursor` 사용 |
-| `limit` | number | 선택 | 페이지 행 수 (기본 200, 최대 1000) |
+| 쿼리          | 타입   | 필수 | 설명                                                                   |
+| ------------- | ------ | ---- | ---------------------------------------------------------------------- |
+| `stockCode`   | string | 필수 | 종목코드 6자리                                                         |
+| `from` / `to` | string | 선택 | 구간(포함) — ISO 8601 또는 YYYYMMDD (§17 candles와 동일 형식)          |
+| `before`      | string | 선택 | 페이지네이션 커서(이 거래일 미만 과거 페이지) — 응답 `nextCursor` 사용 |
+| `limit`       | number | 선택 | 페이지 행 수 (기본 200, 최대 1000)                                     |
 
 **Response** (`data`: `IndicatorSeriesResult`): `stockCode`·`source`(`EOD`\|`UNAVAILABLE`)·`asOf`(서버 조회시각)·**`latestTradeDate`(지표 기준일 — 이 종목의 적재 최신 tradeDate, T+1 지연을 숨기지 않는 정직 고지·적재 0행이면 null)**·`count`·`nextCursor`·`points[]`(거래일 오름차순 `IndicatorPoint` — 각 지표 nullable, 모바일은 '—' 처리). 형식 위반은 400. 관련 표면: 일봉 차트 오버레이 토글·지표 기준일 배지·신호 상세 근거 지표 섹션(`evidenceIndicators` — 신호 생성 KST 거래일 as-of 근사 재조회, `tradeDate` 동반 노출).
 
@@ -3392,10 +3758,10 @@ GET /api/market-data/investor-flow?stockCode=005930&days=20
 
 외국인/기관/개인 순매수(수량·금액, 원 단위) 최근 N거래일 시계열 + 5/20일 누적 요약. 모바일 종목 화면 '수급 요약' 카드(`SupplyDemandCard`) 소비.
 
-| 쿼리 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `stockCode` | string | 필수 | 종목코드 6자리 |
-| `days` | number | 선택 | 조회 거래일 수 (기본 20, 최대 120). 요약(5/20일)은 항상 최근 20일로 산출 |
+| 쿼리        | 타입   | 필수 | 설명                                                                     |
+| ----------- | ------ | ---- | ------------------------------------------------------------------------ |
+| `stockCode` | string | 필수 | 종목코드 6자리                                                           |
+| `days`      | number | 선택 | 조회 거래일 수 (기본 20, 최대 120). 요약(5/20일)은 항상 최근 20일로 산출 |
 
 **Response** (`data`: `InvestorFlowResultDto`): `stockCode`·**`asOfDate`(데이터 기준일 YYYYMMDD — 없으면 null, 소비측 카드 억제)**·`rows[]`(tradeDate·투자자별 순매수 수량/금액·source)·`summary`(외국인·기관 5/20일 누적 순매수 금액 + `window5dDays`/`window20dDays` — 축적 미달 시 실제 반영 일수 정직 고지).
 
@@ -3431,9 +3797,9 @@ GET /                      → 200 text/html (Cache-Control: public, max-age=360
 GET /share/:rcpNo          → 200 text/html | 404 text/html
 ```
 
-| 파라미터 | 설명 |
-|---|---|
-| `rcpNo` | DART 접수번호(14자리) |
+| 파라미터 | 설명                  |
+| -------- | --------------------- |
+| `rcpNo`  | DART 접수번호(14자리) |
 
 og 메타(카카오톡 등 미리보기) + 공시 제목·회사명·접수일 + **캐시된 AI 요약(있을 때만)** + 앱 딥링크를 담은 공유용 HTML 1장. 모바일 공유 버튼(`shareLink.ts`)이 이 URL을 생성한다.
 
@@ -3449,13 +3815,19 @@ GET /status.json           → 200 application/json (항상 JSON)
 오늘 공시 수집 건수·파이프라인 상태·최근 24h 크론 성공률·서비스 가동 상태를 **운영 사실 그대로** 노출한다(성과·수익률·계정·비밀값 절대 미포함 — 졸업 전 공개해도 오도 위험 0 원칙). 60초 인메모리 캐시로 DB 부하 차단 + 전역 스로틀 유지.
 
 **Response** (`data` 래핑 없음 — `PublicStatusSnapshot` 원형):
+
 ```jsonc
 {
   "generatedAt": "2026-07-16T00:00:00.000Z",
-  "service":    { "status": "OK", "label": "정상 가동", "uptimeSeconds": 86400 },  // stale 잡 있으면 DEGRADED
-  "disclosure": { "todayCollectedCount": 151, "lastCollectedAt": "…" },            // 오늘(KST) 라이브 공시(백필 제외)
-  "pipeline":   { "status": "OK", "label": "…", "staleJobKeys": [] },
-  "cron":       { "windowHours": 24, "totalRuns": 320, "okRuns": 318, "successRatePct": 99.4 } // 실행 0건이면 null
+  "service": { "status": "OK", "label": "정상 가동", "uptimeSeconds": 86400 }, // stale 잡 있으면 DEGRADED
+  "disclosure": { "todayCollectedCount": 151, "lastCollectedAt": "…" }, // 오늘(KST) 라이브 공시(백필 제외)
+  "pipeline": { "status": "OK", "label": "…", "staleJobKeys": [] },
+  "cron": {
+    "windowHours": 24,
+    "totalRuns": 320,
+    "okRuns": 318,
+    "successRatePct": 99.4,
+  }, // 실행 0건이면 null
 }
 ```
 
@@ -3475,20 +3847,20 @@ Play Console 스토어 리스팅에 게시할 공개 웹 URL. API가 아닌 정�
 모든 경로는 `/api/aos/operator` 하위이며 access JWT와 활성 운영자 멤버십을 요구한다.
 응답은 `{ success: true, data }` 형태다. 조회 기본 권한은 `OPERATOR_READ`이다.
 
-| Method | Path | 권한/Step-up | 역할 |
-|---|---|---|---|
-| GET | `/bootstrap` | READ | 역할, 권한, read-only 상태, 운영 요약 |
-| GET | `/strategies` | READ | 전략과 최근 버전 목록 |
-| GET | `/strategy-versions/:id?compareTo=` | READ | 룰·활성화·백테스트·config diff |
-| GET | `/backtests` | READ | immutable run과 acceptance 근거 |
-| GET | `/shadow` | READ | 분리 계좌, order plan, 대사와 break |
-| GET | `/audit` | READ | 승인·구성·개입·Kill·command 원장 |
-| GET | `/health` | READ | 최근 Worker 실행 상태 |
-| GET | `/replay/decisions/:id` | READ | Feature/Regime/Rule trace 결정 재생 |
-| POST | `/auth/step-up` | READ | 범위별 5분 단일 사용 재인증 토큰 |
+| Method     | Path                                    | 권한/Step-up                               | 역할                                    |
+| ---------- | --------------------------------------- | ------------------------------------------ | --------------------------------------- |
+| GET        | `/bootstrap`                            | READ                                       | 역할, 권한, read-only 상태, 운영 요약   |
+| GET        | `/strategies`                           | READ                                       | 전략과 최근 버전 목록                   |
+| GET        | `/strategy-versions/:id?compareTo=`     | READ                                       | 룰·활성화·백테스트·config diff          |
+| GET        | `/backtests`                            | READ                                       | immutable run과 acceptance 근거         |
+| GET        | `/shadow`                               | READ                                       | 분리 계좌, order plan, 대사와 break     |
+| GET        | `/audit`                                | READ                                       | 승인·구성·개입·Kill·command 원장        |
+| GET        | `/health`                               | READ                                       | 최근 Worker 실행 상태                   |
+| GET        | `/replay/decisions/:id`                 | READ                                       | Feature/Regime/Rule trace 결정 재생     |
+| POST       | `/auth/step-up`                         | READ                                       | 범위별 5분 단일 사용 재인증 토큰        |
 | POST/PATCH | `/strategies/*`, `/strategy-versions/*` | CONFIG_WRITE 또는 CONFIG_APPROVE + Step-up | DRAFT→검증→백테스트→분리 승인→장후 예약 |
-| POST | `/emergency/kill-switch` | EMERGENCY_CONTROL + Step-up | 신규 진입 FULL_HALT 또는 해제 검토 기록 |
-| POST | `/reconciliation-breaks/:id/resolve` | RECONCILIATION_RESOLVE + Step-up | 증거 있는 대사 차이 설명/해결 |
+| POST       | `/emergency/kill-switch`                | EMERGENCY_CONTROL + Step-up                | 신규 진입 FULL_HALT 또는 해제 검토 기록 |
+| POST       | `/reconciliation-breaks/:id/resolve`    | RECONCILIATION_RESOLVE + Step-up           | 증거 있는 대사 차이 설명/해결           |
 
 변경 API는 `AOS_OPERATOR_MUTATIONS_ENABLED=false`에서 403으로 fail-safe 차단된다. Step-up 토큰은
 `x-aos-step-up-token` 헤더로 전달하며 성공/실패 여부와 무관하게 재사용할 수 없다. Kill Switch
@@ -3499,6 +3871,26 @@ Play Console 스토어 리스팅에 게시할 공개 웹 URL. API가 아닌 정�
 재확인·1.2초 long-press 뒤 서버 응답의 `effectiveAt`과 Kill event `receiptHash`를 표시한다. Rule 편집,
 전략 승인/활성화, Kill 해제는 모바일에서 제공하지 않는다.
 
+## 36. AOS 확정이익 배분 계획 API (Issue #576)
+
+Admin 경로는 `/api/aos/operator/allocation` 하위이며 Operator RBAC와 mutation flag, 범위별 Step-up을
+그대로 적용한다. 실제 자금 이동 API는 없다.
+
+| Method | Path                                                 | 권한/Step-up                 | 역할                                             |
+| ------ | ---------------------------------------------------- | ---------------------------- | ------------------------------------------------ |
+| GET    | `/api/aos/operator/allocation`                       | OPERATOR_READ                | 정책, SYSTEM_TRADING 계정, 최근 plan/item/ledger |
+| POST   | `/api/aos/operator/allocation/policies`              | CONFIG_WRITE / CONFIG_CHANGE | 50/30/20 및 미확정 운영정책 DRAFT 생성           |
+| POST   | `/api/aos/operator/allocation/policies/:id/activate` | CONFIG_APPROVE / APPROVAL    | 다른 승인자가 KRX 종가 후 ACTIVE 전환            |
+| POST   | `/api/aos/operator/allocation/plans`                 | CONFIG_WRITE / CONFIG_CHANGE | 닫힌 기간 확정이익 plan 생성                     |
+| POST   | `/api/aos/operator/allocation/plans/:id/approve`     | CONFIG_APPROVE / APPROVAL    | 다른 승인자가 ACTIVE policy와 증거 대사 후 승인  |
+| POST   | `/api/aos/operator/allocation/plans/:id/cancel`      | CONFIG_APPROVE / APPROVAL    | plan 상태 취소, 원장 보존                        |
+| POST   | `/api/aos/operator/allocation/plans/:id/reissue`     | CONFIG_WRITE / CONFIG_CHANGE | 취소된 동일 계정·기간 plan의 새 revision 생성    |
+| GET    | `/api/aos/allocation/summary`                        | 일반 JWT                     | 로그인 사용자의 승인된 최근 plan 조회            |
+
+plan 생성 body의 `grossRealizedProfitKrw`, `taxReserveKrw`, `fxReserveKrw`는 원 단위 정수다.
+`sourceEvidenceJson`은 빈 object일 수 없다. 확정이익 또는 distributable profit이 0 이하이면 400으로
+거부한다. 모바일 응답은 항상 `executionAvailable: false`이며 승인 plan이 없으면 빈 배열을 반환한다.
+
 ---
 
-**AOS 최신 갱신**: 2026-08-01 (A7 온디바이스 Rule 입력 가격·모바일 제한 비상 제어)
+**AOS 최신 갱신**: 2026-08-01 (A8 50/30/20 확정이익 배분 계획·감사 원장)

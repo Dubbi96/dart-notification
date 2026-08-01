@@ -1,10 +1,21 @@
-export type ViewKey = 'overview' | 'strategies' | 'backtests' | 'shadow' | 'audit' | 'health' | 'emergency';
+export type ViewKey = 'overview' | 'strategies' | 'backtests' | 'shadow' | 'allocation' | 'audit' | 'health' | 'emergency';
 
 export interface BootstrapData {
-  operator: { userId: string; email: string; role: string; permissions: string[]; source: string };
+  operator: {
+    userId: string;
+    email: string;
+    role: string;
+    permissions: string[];
+    source: string;
+  };
   mode: 'READ_ONLY' | 'CONTROLLED_MUTATION';
   mutationsEnabled: boolean;
-  summary: { strategyCount: number; failedBacktests: number; openBreaks: number; recentFailures: number };
+  summary: {
+    strategyCount: number;
+    failedBacktests: number;
+    openBreaks: number;
+    recentFailures: number;
+  };
   killSwitch: Record<string, unknown> | null;
   asOf: string;
 }
@@ -61,10 +72,43 @@ export interface BacktestRow {
 }
 
 export interface ShadowData {
-  accounts: Array<{ id: string; label: string; accountType: string; status: string; capitalBuckets: Array<{ bucketType: string; targetWeight: string | number; availableAmount?: string | number | null }> }>;
-  plans: Array<{ id: string; status: string; mode: string; side: string; plannedQuantity: number; plannedPrice?: string | number | null; validFrom: string; expiresAt: string; order?: { status: string; fills: unknown[] } | null }>;
-  reconciliations: Array<{ id: string; tradeDate: string; status: string; unexplainedBreaks: number; completedAt: string }>;
-  breaks: Array<{ id: string; breakKey: string; severity: string; category: string; resolution: string; createdAt: string }>;
+  accounts: Array<{
+    id: string;
+    label: string;
+    accountType: string;
+    status: string;
+    capitalBuckets: Array<{
+      bucketType: string;
+      targetWeight: string | number;
+      availableAmount?: string | number | null;
+    }>;
+  }>;
+  plans: Array<{
+    id: string;
+    status: string;
+    mode: string;
+    side: string;
+    plannedQuantity: number;
+    plannedPrice?: string | number | null;
+    validFrom: string;
+    expiresAt: string;
+    order?: { status: string; fills: unknown[] } | null;
+  }>;
+  reconciliations: Array<{
+    id: string;
+    tradeDate: string;
+    status: string;
+    unexplainedBreaks: number;
+    completedAt: string;
+  }>;
+  breaks: Array<{
+    id: string;
+    breakKey: string;
+    severity: string;
+    category: string;
+    resolution: string;
+    createdAt: string;
+  }>;
 }
 
 export interface AuditData {
@@ -83,4 +127,69 @@ export interface HealthRow {
   startedAt: string;
   finishedAt?: string | null;
   errorMessage?: string | null;
+}
+
+export interface AllocationPolicyRow {
+  id: string;
+  version: number;
+  status: 'DRAFT' | 'ACTIVE' | 'RETIRED';
+  spgiWeight: string | number;
+  vtiWeight: string | number;
+  systemTradingWeight: string | number;
+  profitPeriodPolicyJson: Record<string, unknown>;
+  taxReservePolicyJson: Record<string, unknown>;
+  fxPolicyJson: Record<string, unknown>;
+  minimumAmountPolicyJson: Record<string, unknown>;
+  contentHash: string;
+  createdByUserId: string;
+  approvedByUserId?: string | null;
+  effectiveFrom?: string | null;
+  createdAt: string;
+}
+
+export interface AllocationPlanRow {
+  id: string;
+  tradingAccountId: string;
+  periodStart: string;
+  periodEnd: string;
+  revision: number;
+  grossRealizedProfit: string | number;
+  taxReserveAmount: string | number;
+  fxReserveAmount: string | number;
+  distributableProfit: string | number;
+  currency: string;
+  status: 'DRAFT' | 'APPROVED' | 'CANCELLED';
+  planHash: string;
+  sourceEvidenceJson: Record<string, unknown>;
+  parentPlanId?: string | null;
+  createdByUserId: string;
+  approvedByUserId?: string | null;
+  approvedAt?: string | null;
+  cancelledAt?: string | null;
+  createdAt: string;
+  allocationPolicy: { version: number; contentHash: string };
+  tradingAccount: { label: string };
+  items: Array<{
+    destination: 'SPGI' | 'VTI' | 'SYSTEM_TRADING';
+    weight: string | number;
+    amount: string | number;
+  }>;
+  ledger: Array<{
+    eventType: string;
+    actorRole: string;
+    reason: string;
+    receiptHash: string;
+    createdAt: string;
+  }>;
+}
+
+export interface AllocationData {
+  policies: AllocationPolicyRow[];
+  accounts: Array<{
+    id: string;
+    userId: string;
+    label: string;
+    currency: string;
+  }>;
+  plans: AllocationPlanRow[];
 }

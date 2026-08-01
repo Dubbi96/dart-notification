@@ -6,6 +6,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { TradingRiskModule } from '../../engine5-trading-risk/trading-risk.module';
 import { AosExecutionModule } from '../execution/aos-execution.module';
 import { StrategyVersionActivationService } from '../strategy-management/services/strategy-version-activation.service';
+import { AosAllocationModule } from '../allocation/aos-allocation.module';
 import { AosOperatorController } from './aos-operator.controller';
 import { OperatorAccessGuard } from './guards/operator-access.guard';
 import { OperatorStepUpGuard } from './guards/operator-step-up.guard';
@@ -20,6 +21,7 @@ import { AosStepUpService } from './services/aos-step-up.service';
     PrismaModule,
     TradingRiskModule,
     AosExecutionModule,
+    AosAllocationModule,
   ],
   controllers: [AosOperatorController],
   providers: [

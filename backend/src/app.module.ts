@@ -33,6 +33,7 @@ import { QuantMarketModule } from './engine3-quant-market/quant-market.module';
 import { PortfolioExitModule } from './engine4-portfolio-exit/portfolio-exit.module';
 import { TradingRiskModule } from './engine5-trading-risk/trading-risk.module';
 import { AosOperatorModule } from './aos/operator/aos-operator.module';
+import { AosAllocationModule } from './aos/allocation/aos-allocation.module';
 import { PaperSimulationModule } from './engine5-trading-risk/paper-simulation/paper-simulation.module';
 import { GraduationModule } from './engine5-trading-risk/simulation/graduation.module';
 import { PhilosophyStyleSimulationModule } from './engine5-trading-risk/paper-simulation/philosophy-style-simulation.module';
@@ -131,6 +132,9 @@ import { envValidationSchema, envValidationOptions } from './config/env.validati
 
     // AOS A6 — 별도 Operator Web 전용 RBAC/read model/통제 API. mutation 기본 OFF.
     AosOperatorModule,
+
+    // AOS A8 — 확정이익 50/30/20 계획의 모바일 조회 API. 외부 자금이동 없음.
+    AosAllocationModule,
 
     // Engine 5 — 일일 모의운용 오케스트레이터 (M10 모의운용, DAR-40)
     PaperSimulationModule,

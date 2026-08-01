@@ -2,15 +2,20 @@ FROM node:20-alpine AS builder
 
 RUN apk add --no-cache openssl
 
-WORKDIR /app
+WORKDIR /workspace
 
-COPY package.json package-lock.json ./
+COPY packages/aos-rule-engine/package.json ./packages/aos-rule-engine/package.json
+COPY backend/package.json backend/package-lock.json ./backend/
+WORKDIR /workspace/backend
 RUN npm ci --legacy-peer-deps
 
-COPY prisma ./prisma
+COPY packages/aos-rule-engine /workspace/packages/aos-rule-engine
+RUN npx tsc -p ../packages/aos-rule-engine/tsconfig.json
+
+COPY backend/prisma ./prisma
 RUN npx prisma generate
 
-COPY . .
+COPY backend .
 RUN npm run build
 
 # ------- production -------
@@ -21,14 +26,17 @@ FROM node:20-alpine
 RUN apk add --no-cache openssl tzdata
 ENV TZ=Asia/Seoul
 
-WORKDIR /app
+WORKDIR /workspace
 
-COPY --from=builder /app/package.json /app/package-lock.json ./
+COPY packages/aos-rule-engine/package.json ./packages/aos-rule-engine/package.json
+COPY --from=builder /workspace/packages/aos-rule-engine/dist ./packages/aos-rule-engine/dist
+COPY backend/package.json backend/package-lock.json ./backend/
+WORKDIR /workspace/backend
 RUN npm ci --legacy-peer-deps --omit=dev
 
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /workspace/backend/dist ./dist
+COPY --from=builder /workspace/backend/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /workspace/backend/prisma ./prisma
 
 EXPOSE 3000
 

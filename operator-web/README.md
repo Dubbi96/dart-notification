@@ -26,3 +26,14 @@ npm run dev
 `npm run build` 결과인 `dist/`를 정적 호스팅에 배포하고 API reverse proxy 또는
 `VITE_API_BASE_URL`을 구성합니다. 운영 활성화 전에 운영자 멤버십, CORS, CSP, SSO,
 감사 보존정책을 검토해야 합니다.
+
+현재 운영 정본은 추가 비용이 없는 OCI Always Free micro1 정적 호스팅입니다.
+
+- URL: `https://admin.168.138.198.152.nip.io`
+- API: 같은 origin의 `/api`를 Caddy가 Backend로 전달
+- 배포: 저장소 루트에서 `bash scripts/deploy-operator-prod.sh`
+- 안전 기본값: `AOS_OPERATOR_MUTATIONS_ENABLED=false`
+- 릴리스: `/var/www/aos-operator/releases/<release-id>`와 원자적 `current` 링크로 롤백 가능
+
+장기적으로 실도메인과 Cloudflare Access 또는 동급 SSO/2FA를 붙이기 전에는 변경 명령을
+활성화하지 않습니다.

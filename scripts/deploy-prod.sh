@@ -170,7 +170,8 @@ if $SKIP_BUILD; then
   docker image inspect "$IMAGE" >/dev/null 2>&1 || die "로컬에 $IMAGE 이미지가 없습니다"
 else
   log "② linux/amd64 크로스빌드 (~10분)"
-  docker buildx build --platform linux/amd64 -t "$IMAGE" ./backend --load
+  # AOS 공용 Rule Engine(packages/aos-rule-engine)을 이미지에 포함하므로 저장소 루트를 context로 쓴다.
+  docker buildx build --platform linux/amd64 -f backend/Dockerfile -t "$IMAGE" . --load
 fi
 
 # ── ③ 이미지 스트리밍 전송 ───────────────────────────────────────────────────
@@ -187,8 +188,8 @@ else
     "cd $REMOTE_DIR && $COMPOSE --profile migrate run --rm --no-deps migrate"
 fi
 
-log "④-2 백엔드 재기동 (로드된 이미지 그대로 — ★--build 금지)"
-ssh "${SSH_OPTS[@]}" "$REMOTE" "cd $REMOTE_DIR && $COMPOSE up -d backend"
+log "④-2 백엔드 재기동 (로드된 이미지 그대로 — ★--build·dependency 재생성 금지)"
+ssh "${SSH_OPTS[@]}" "$REMOTE" "cd $REMOTE_DIR && $COMPOSE up -d --no-deps backend"
 
 log "부팅 대기(20s) 후 검증 시작"
 sleep 20

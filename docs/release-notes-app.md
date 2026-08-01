@@ -21,7 +21,9 @@
 
 APK와 무결성 값은 [AOS A1–A8 release validation](roadmap/aos-release-validation.md)에 기록한다.
 운영 DB schema는 사용자 승인 후 2026-08-01 AOS migration 10개를 적용했다. Backend 앱 이미지와
-Admin hosting은 아직 배포하지 않았으므로 새 서버 API는 앱 코드 배포 전까지 활성화되지 않는다.
+Admin hosting도 후속 승인에 따라 같은 날 OCI Always Free에 배포했다. Admin은
+`https://admin.168.138.198.152.nip.io`에서 제공하며, 지정된 bootstrap 운영자 이메일로 기존 앱
+가입·로그인 후 접근한다. 운영 변경 기능은 `AOS_OPERATOR_MUTATIONS_ENABLED=false`로 잠겨 있다.
 
 ---
 

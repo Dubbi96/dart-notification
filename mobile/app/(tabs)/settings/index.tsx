@@ -9,7 +9,6 @@ import { router } from 'expo-router';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
-import { GlassCard } from '@components/common/GlassCard';
 import { DevConnectionStatus } from '@components/common/DevConnectionStatus';
 import { useDialog } from '@components/common/DialogProvider';
 import { useAuthStore } from '@stores/authStore';
@@ -17,8 +16,6 @@ import { useSettingsStore } from '@stores/settingsStore';
 import { useLogout, useMe } from '@hooks/useAuth';
 import { useWatchlist } from '@hooks/useWatchlist';
 import { verticalHitSlopForHeight } from '@utils/touchTarget';
-import { SHOW_PRO_UPSELL } from '@utils/proVisibility';
-import { SHOW_OPS } from '@utils/opsVisibility';
 import type { ColorScheme } from '@theme';
 
 // DAR-470: 현재값 칩 최대 폭(긴 옵션 라벨 줄임 기준). 매직넘버 금지 → 명명 상수.
@@ -201,46 +198,21 @@ export default function SettingsScreen() {
       >
         <View style={styles.profileRow}>
           {/* D1: 탭 라벨(설정)과 일치 — 하단 '프로필 정보' 행과의 혼동 제거. */}
-          <Text style={[typo.h2, { color: palette.white }]}>설정</Text>
+          <Text style={[typo.h2, { color: palette.white }]}>제어 및 설정</Text>
         </View>
 
         {isAuthenticated ? (
-          <>
-            <View style={styles.profileInfo}>
-              <View style={[styles.avatar, { backgroundColor: colors.avatarOnColor }]}>
-                <Feather name="user" size={32} color={palette.white} />
-              </View>
-              <View style={styles.profileText}>
-                <Text style={[typo.h3, { color: palette.white }]}>{user?.name || '사용자'}</Text>
-                <Text style={[typo.caption, { color: colors.onColorSubtle }]}>
-                  {user?.email?.includes('@kakao.user') ? '카카오 로그인' : user?.email || '-'}
-                </Text>
-              </View>
+          <View style={styles.profileInfo}>
+            <View style={[styles.avatar, { backgroundColor: colors.avatarOnColor }]}>
+              <Feather name="user" size={32} color={palette.white} />
             </View>
-
-            {SHOW_PRO_UPSELL && (
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => router.push('/settings-detail/pro')}
-                accessibilityRole="button"
-                accessibilityLabel="Pro 혜택 보기"
-              >
-                <GlassCard style={styles.promoBanner} intensity={25} variant="iridescent">
-                  <View style={styles.promoContent}>
-                    <View>
-                      <Text style={[typo.captionMedium, { color: palette.white }]}>
-                        Pro로 업그레이드
-                      </Text>
-                      <Text style={[typo.small, { color: colors.onColorMuted }]}>
-                        관심기업 한도 확대 — 30 → 200종목
-                      </Text>
-                    </View>
-                    <Feather name="arrow-right-circle" size={28} color={colors.onColorStrong} />
-                  </View>
-                </GlassCard>
-              </TouchableOpacity>
-            )}
-          </>
+            <View style={styles.profileText}>
+              <Text style={[typo.h3, { color: palette.white }]}>{user?.name || '사용자'}</Text>
+              <Text style={[typo.caption, { color: colors.onColorSubtle }]}>
+                {user?.email?.includes('@kakao.user') ? '카카오 로그인' : user?.email || '-'}
+              </Text>
+            </View>
+          </View>
         ) : (
           <View style={styles.profileInfo}>
             <View style={[styles.avatar, { backgroundColor: colors.avatarOnColor }]}>
@@ -278,6 +250,24 @@ export default function SettingsScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
+          {isAuthenticated && (
+            <View style={styles.section}>
+              <Text
+                style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}
+              >
+                운영 제어
+              </Text>
+              <View style={[styles.menuCard, { backgroundColor: colors.surface }]}>
+                <MenuItem
+                  icon="shield"
+                  title="비상 제어"
+                  subtitle="상태 확인 · 운영자 신규 진입 중단"
+                  onPress={() => router.push('/settings-detail/emergency-control')}
+                />
+              </View>
+            </View>
+          )}
+
           {isAuthenticated && (
             <View style={styles.section}>
               <Text
@@ -345,24 +335,6 @@ export default function SettingsScreen() {
                 onPress={cycleTextScale}
                 showChevron={false}
               />
-              {SHOW_OPS && (
-                <>
-                  <Divider style={{ backgroundColor: colors.borderLight }} />
-                  <MenuItem
-                    icon="activity"
-                    title="수집 현황"
-                    subtitle="공시·재무·지표·모의 커버리지"
-                    onPress={() => router.push('/settings-detail/collection-status')}
-                  />
-                  <Divider style={{ backgroundColor: colors.borderLight }} />
-                  <MenuItem
-                    icon="bar-chart-2"
-                    title="AI 비용/거버넌스"
-                    subtitle="AI 분석 비용·한도 소진율"
-                    onPress={() => router.push('/settings-detail/ai-cost')}
-                  />
-                </>
-              )}
               <Divider style={{ backgroundColor: colors.borderLight }} />
               <MenuItem
                 icon="file-text"
@@ -463,16 +435,6 @@ const styles = StyleSheet.create({
   },
   profileText: {
     marginLeft: spacing.base,
-  },
-  promoBanner: {
-    marginTop: spacing.lg,
-    borderRadius: radius.lg,
-  },
-  promoContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.base,
   },
   contentArea: {
     flex: 1,

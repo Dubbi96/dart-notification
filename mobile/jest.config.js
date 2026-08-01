@@ -9,6 +9,12 @@
 /** @type {import('jest').Config} */
 module.exports = {
   preset: 'jest-expo',
+  // 저장소 상위 공유 Rule 패키지를 소스 그대로 변환할 때 Babel helper도 모바일 설치본에서 찾는다.
+  moduleDirectories: ['node_modules', '<rootDir>/node_modules'],
+  moduleNameMapper: {
+    '^@dart-notification/aos-rule-engine$':
+      '<rootDir>/../packages/aos-rule-engine/src/index.ts',
+  },
   testMatch: ['<rootDir>/__tests__/**/*.test.ts', '<rootDir>/__tests__/**/*.test.tsx'],
   // RN/Expo 생태계는 ESM 원본으로 배포되는 패키지가 많아 변환 허용 목록이 필요하다
   // (jest-expo 공식 권장 패턴 + 이 프로젝트가 실제 사용하는 패키지 가산).

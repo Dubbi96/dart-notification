@@ -35,7 +35,7 @@ export default function KakaoCallback() {
     // sign-in.tsx의 인라인 핸들러/폴링이 먼저 결과를 소비하면 이 딥링크 경로는
     // success:false 를 받는다. 이때 이미 인증된 상태라면 로그인 화면이 아니라 홈으로 보낸다(레이스 가드).
     function settleToHome(isNewUser: boolean) {
-      router.replace(isNewUser ? '/onboarding' : '/(tabs)/home');
+      router.replace(isNewUser ? '/onboarding' : '/(tabs)/signals');
     }
 
     async function complete() {

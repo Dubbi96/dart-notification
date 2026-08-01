@@ -2,15 +2,22 @@ import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 import { EditionSignalList } from '@components/signals/EditionSignalList';
 import { useEdition } from '@hooks/useSignals';
+import { useDeviceRuleDecision, useLastDeviceEditionReceipt } from '@hooks/useDeviceRuleDecision';
 import { router } from 'expo-router';
 
 // DAR-509: 에디션 세로 리스트 — 빈 4분기 카피 / 과거 배너·오늘로 / 오늘 배너 미노출을 검증.
 // DAR-552: 빈 에디션 폴백 '오늘의 주요 공시 브리핑'(meta.fallbackBriefing) 유/무 2상태를 추가 검증.
 // useEdition(react-query)·expo-router 만 모킹하고 SignalExploreCard 는 실제 렌더(corpName 노출).
 jest.mock('@hooks/useSignals', () => ({ useEdition: jest.fn() }));
+jest.mock('@hooks/useDeviceRuleDecision', () => ({
+  useDeviceRuleDecision: jest.fn(),
+  useLastDeviceEditionReceipt: jest.fn(),
+}));
 jest.mock('expo-router', () => ({ router: { push: jest.fn() } }));
 
 const mockUseEdition = useEdition as unknown as jest.Mock;
+const mockUseDeviceRuleDecision = useDeviceRuleDecision as unknown as jest.Mock;
+const mockUseLastDeviceEditionReceipt = useLastDeviceEditionReceipt as unknown as jest.Mock;
 const mockRouterPush = router.push as jest.Mock;
 
 function editionResult(overrides: Record<string, unknown>) {
@@ -28,6 +35,46 @@ function editionResult(overrides: Record<string, unknown>) {
 describe('components/signals/EditionSignalList', () => {
   beforeEach(() => {
     mockRouterPush.mockClear();
+    mockUseLastDeviceEditionReceipt.mockReturnValue({ data: null });
+    mockUseDeviceRuleDecision.mockImplementation((_date: string, signals: { id: string }[]) => ({
+      data:
+        signals.length > 0
+          ? {
+              decisions: signals.map((signal) => ({
+                signalId: signal.id,
+                tone: 'CHECK',
+                verdict: '진입 조건 확인',
+                rationale: '조건을 확인합니다.',
+                primaryCondition: '가격 조건 확인',
+                invalidation: '필수 조건 이탈',
+                pricePlan: null,
+                receiptHash: 'a'.repeat(64),
+                calculatedAt: '2026-07-17T10:00:00Z',
+                evaluation: {
+                  receipt: {
+                    status: 'COMPLETED',
+                    score: 80,
+                    version: {
+                      strategyVersionId: 'mobile-shadow-short-momentum.v1',
+                      riskPolicyVersionId: 'mobile-shadow-risk.v1',
+                    },
+                    traces: [],
+                  },
+                },
+              })),
+              readyCount: 0,
+              checkCount: signals.length,
+              riskCount: 0,
+              unavailableCount: 0,
+              headline: '지금은 확인이 우선이에요',
+              description: '기기에서 다시 계산했어요.',
+            }
+          : undefined,
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: jest.fn(),
+    }));
   });
 
   it('날짜 미확정/로딩 중에는 스켈레톤을 렌더한다(백지 방지)', () => {
@@ -127,7 +174,9 @@ describe('components/signals/EditionSignalList', () => {
     expect(getByText('SK하이닉스')).toBeTruthy();
 
     // 탭 → 공시 상세(rcpNo 기반 딥링크)로 이동.
-    fireEvent.press(getByLabelText('삼성전자 공급계약. 반도체 장비 공급계약 체결 — 계약금액 1,200억원 규모.'));
+    fireEvent.press(
+      getByLabelText('삼성전자 공급계약. 반도체 장비 공급계약 체결 — 계약금액 1,200억원 규모.'),
+    );
     expect(mockRouterPush).toHaveBeenCalledWith('/disclosure/20260716000123');
   });
 

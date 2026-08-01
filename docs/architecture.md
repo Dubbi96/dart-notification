@@ -5,8 +5,8 @@
 ```
 ┌─────────────────┐
 │   Mobile App    │  React Native (Expo) + React Native Paper
-│  (React Native) │  - 사용자 UI
-└────────┬────────┘  - 푸시 알림 수신 · Deep Link 처리
+│  (React Native) │  - 사용자 UI · 순수 Rule/Risk Shadow 평가
+└────────┬────────┘  - 푸시 · Deep Link · 제한 비상 제어
          │ HTTPS/REST API
          ▼
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -64,13 +64,17 @@ External APIs:
 - 백엔드 API 호출
 - 푸시 알림 수신 및 처리
 - Deep Link를 통한 공시 상세 화면 이동
+- 공용 순수 evaluator를 이용한 종가 후보의 온디바이스 Rule/Risk Shadow 재평가
+- 운영자 권한이 있을 때 신규 진입 Kill Switch 요청과 receipt 확인
 
-**주요 화면**
-- 인증: 회원가입, 로그인
-- 홈: 최근 공시 목록
-- 설정: 관심 기업, 공시 유형, 알림 설정
-- 공시 상세: 공시 정보, DART 원문 링크
-- 알림 히스토리: 받은 알림 목록
+**AOS 핵심 IA**
+- 판단: 종가 후 운영 브리핑 → 조건부 가격 계획 → 근거 상세
+- 포지션: 보유·손익·Risk 조회
+- 알림: 거래·공시·위험 알림
+- 제어: 계정·환경 설정과 운영자 제한 비상 제어
+
+전략/Rule/Weight 편집, 백테스트 상세, Shadow/Paper 원장, Worker/AI 비용은 `operator-web/`로
+이관한다. Legacy 모바일 route는 데이터 삭제 없이 경량 redirect로 유지한다.
 
 **기술 스택**
 - Expo (React Native 프레임워크)
@@ -147,12 +151,13 @@ External APIs:
 - **현재 비배선**: 기존 Strategy/Risk 상태 전이와 activation 서비스에는 아직 연결하지 않았으며 API·UI·Cron·Queue 등록도 없다.
 
 #### AOS 실행 코어 — Shared Rule Evaluator (`packages/aos-rule-engine/`)
-- **현재 책임(Phase A3-1)**: Android/iOS 디바이스와 백엔드 replay가 같은 버전·Feature Snapshot으로 같은 평가 trace와 canonical receipt를 만드는 동기식 순수 TypeScript 코어다.
+- **현재 책임(Phase A7)**: Android/iOS 디바이스와 백엔드 replay가 같은 버전·Feature Snapshot으로 같은 평가 trace와 canonical receipt를 만드는 동기식 순수 TypeScript 코어다.
 - **결정론 경계**: 실행 순서는 `priority → ruleKey`로 고정하고 object key·reason code를 정규화한다. 시스템 시계·난수·비동기·전역 mutable state는 사용하지 않는다.
 - **Fail-safe**: Hard Risk 비활성화·입력 누락·FAIL·ABSTAIN·구현 오류는 모두 `BLOCKED`다. AI는 검증된 feature 입력만 제공할 수 있으며 Hard Risk를 우회할 수 없다.
 - **플랫폼 경계**: 런타임 dependency 0이며 Node·React Native·Expo·NestJS·Prisma·DB·네트워크·저장소 import를 CI에서 차단한다.
-- **현재 비배선**: Feature Snapshot 생성·영속화, 모바일 background 실행, SignalDecision, 주문 계획은 아직 연결하지 않았다. 기존 Signal/Paper/Order 행동에는 영향이 없다.
+- **현재 배선**: 모바일 종가 에디션은 point-in-time 일봉과 기존 신호 feature를 Snapshot으로 만들어 evaluator를 직접 실행하고, version/hash를 SecureStore에 경량 보존한다. 화면용 Shadow 가격 계획만 만들며 Signal/Paper/Order write에는 연결하지 않는다.
 - **상세 계약**: `docs/roadmap/aos-rule-evaluator-core.md`
+- **모바일 계약**: `docs/roadmap/aos-mobile-device-rule.md`
 
 #### 횡단 모듈 (독립 유지)
 - `auth` · `users` · `companies` · `watchlist` · `notifications` · `notification-settings` · `expo-push` · `devices` · `saved-disclosures` · `prisma` · `common`

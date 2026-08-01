@@ -12,7 +12,7 @@ export default function NotFoundScreen() {
       <Text style={[typo.h2, { color: colors.text }]}>페이지를 찾을 수 없어요</Text>
       <Button
         title="홈으로 가기"
-        onPress={() => router.replace('/(tabs)/home')}
+        onPress={() => router.replace('/(tabs)/signals')}
         style={{ marginTop: spacing.xl }}
       />
     </View>

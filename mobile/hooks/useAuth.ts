@@ -14,7 +14,7 @@ export function useKakaoLogin() {
       if (data.isNewUser) {
         router.replace('/onboarding');
       } else {
-        router.replace('/(tabs)/home');
+        router.replace('/(tabs)/signals');
       }
     },
   });

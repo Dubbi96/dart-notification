@@ -608,7 +608,7 @@ micro(1GB RAM)에서는 backend 이미지 빌드가 불가능하다(OOM). **Mac 
 ```bash
 # ① (Mac) linux/amd64 크로스빌드 — compose 의 image 태그와 동일하게
 docker buildx build --platform linux/amd64 \
-  -t dart-notification-backend:prod ./backend --load
+  -f backend/Dockerfile -t dart-notification-backend:prod . --load
 
 # ② 이미지 스트리밍 전송(중간 파일 없이 gzip 파이프로 바로 docker load)
 docker save dart-notification-backend:prod | gzip | \

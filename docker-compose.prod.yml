@@ -78,8 +78,9 @@ services:
   backend:
     # 호스트 아키텍처(arm64)로 빌드. image 태그를 고정해 migrate 잡이 동일 이미지를 재사용한다.
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      # AOS 공용 Rule Engine 패키지가 저장소 루트 packages/ 아래에 있어 루트 context가 필요하다.
+      context: .
+      dockerfile: backend/Dockerfile
     image: dart-notification-backend:prod
     container_name: dart-prod-backend
     # OPS-3: unless-stopped → always 격상. OOM-kill·재부팅 후에도 무조건 재기동.
@@ -122,8 +123,8 @@ services:
   migrate:
     image: dart-notification-backend:prod
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: dart-prod-migrate
     profiles: ['migrate'] # up -d 시 기동 안 함. run --rm 으로만 실행.
     env_file:

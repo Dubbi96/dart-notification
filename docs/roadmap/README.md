@@ -14,6 +14,7 @@
 
 | 문서 | 내용 |
 |------|------|
+| [aos-mobile-device-rule](./aos-mobile-device-rule.md) | A7 모바일 4영역 IA, 온디바이스 Rule/Risk Shadow 판단, 실행 계획 카드, 제한 Kill Switch, 경량화 기준 |
 | [cc-gate-backlog-2026-07-17](./cc-gate-backlog-2026-07-17.md) | **게이트 백로그 정본 — 착수 금지·조건 개방 8항목의 개방 조건(측정치·날짜 앵커·선행 이슈)·근거·위반 리스크** (DAR-529) |
 | [cc-resume-plan-2026-07-02](./cc-resume-plan-2026-07-02.md) | **재개 계획 + M0~M12 상태 매트릭스 + 문서/브랜치 위생 감사 결과** |
 | [cc-live-readiness-diagnosis-2026-07-03](./cc-live-readiness-diagnosis-2026-07-03.md) | **실투자 전환 준비도 진단 — 사용자/화면/시스템 준비 체크리스트, Track B 재해석(측정 오염), 1차 고도화 백로그** |

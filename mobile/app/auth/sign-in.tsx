@@ -75,7 +75,7 @@ export default function SignInScreen() {
   // 게스트(둘러보기) 진입 — 로그인 실패/미진입 시 공시 둘러보기 동선(DAR-43 §2).
   const goGuest = useCallback(() => {
     useAuthStore.getState().enterGuest();
-    router.replace('/(tabs)/home');
+    router.replace('/(tabs)/signals');
   }, []);
 
   // UXR L-1 A-8: 법적 고지 링크 — 중첩 Text onPress 대신 역할(link) 있는 터치러블로 승격.
@@ -173,7 +173,7 @@ export default function SignInScreen() {
           if (isNewUser) {
             router.replace('/onboarding');
           } else {
-            router.replace('/(tabs)/home');
+            router.replace('/(tabs)/signals');
           }
         }
       } catch {
@@ -221,9 +221,7 @@ export default function SignInScreen() {
           return;
         }
         try {
-          const { data } = await api.get(
-            `/auth/kakao/result?state=${encodeURIComponent(state)}`,
-          );
+          const { data } = await api.get(`/auth/kakao/result?state=${encodeURIComponent(state)}`);
           if (data?.success && data?.data) {
             guard.clearTimer(pollingRef.current);
             pollingRef.current = null;
@@ -234,7 +232,7 @@ export default function SignInScreen() {
             // 갭분석 W15 ③: 퍼널 3단계(kakao) 계측 — once 플래그로 폴링 경로와 중복 방지.
             void recordFunnelStep('kakao', { isNewUser: Boolean(isNewUser) }, { once: true });
             setIsLoading(false);
-            router.replace(isNewUser ? '/onboarding' : '/(tabs)/home');
+            router.replace(isNewUser ? '/onboarding' : '/(tabs)/signals');
             return;
           }
         } catch {
@@ -294,7 +292,12 @@ export default function SignInScreen() {
           <Text
             style={[
               typo.h3,
-              { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm, fontWeight: '400' },
+              {
+                color: colors.textSecondary,
+                textAlign: 'center',
+                marginTop: spacing.sm,
+                fontWeight: '400',
+              },
             ]}
           >
             소셜 계정으로 간편하게 시작하세요
@@ -313,11 +316,7 @@ export default function SignInScreen() {
             {isLoading ? (
               <ActivityIndicator size="small" color={palette.gray900} />
             ) : (
-              <Image
-                source={kakaoLoginImage}
-                style={styles.kakaoImage}
-                resizeMode="contain"
-              />
+              <Image source={kakaoLoginImage} style={styles.kakaoImage} resizeMode="contain" />
             )}
           </TouchableOpacity>
 

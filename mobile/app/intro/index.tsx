@@ -360,7 +360,7 @@ export default function GuestIntroScreen() {
   const handleGuest = useCallback(async () => {
     await markIntroSeen();
     enterGuest();
-    router.replace('/(tabs)/home');
+    router.replace('/(tabs)/signals');
   }, [enterGuest]);
 
   const isLastSlide = currentIndex === slides.length - 1;

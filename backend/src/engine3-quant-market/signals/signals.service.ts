@@ -13,13 +13,7 @@ import {
 // 등급무관 탐색(DAR-46): 백엔드 6단계 enum을 모바일에 1:1로 노출한다.
 // 기존엔 NEUTRAL/AVOID/WATCH를 'WATCH'로 합쳐 등급 칩·필터가 무의미해졌으므로,
 // 전 등급을 보존해 탐색 화면이 등급별로 변별·필터·표시할 수 있게 한다.
-type MobileGrade =
-  | 'STRONG_BUY'
-  | 'BUY'
-  | 'WATCH'
-  | 'NEUTRAL'
-  | 'AVOID'
-  | 'BLOCKED';
+type MobileGrade = 'STRONG_BUY' | 'BUY' | 'WATCH' | 'NEUTRAL' | 'AVOID' | 'BLOCKED';
 
 /** 모바일 등급값 → Prisma SignalGrade enum (필터 where 절 역매핑) */
 const MOBILE_GRADE_TO_ENUM: Record<MobileGrade, SignalGrade> = {
@@ -134,9 +128,7 @@ function resolveGradeToken(token: string): SignalGrade | undefined {
  *   홈 '상위 매수 신호' 큐레이션이 매수등급(STRONG_BUY+BUY)만 점수순으로 받기 위함.
  * - 인식 가능한 토큰이 없으면 undefined → signal 조건 미생성(전 등급).
  */
-function resolveGradeFilter(
-  grade?: string,
-): SignalGrade | { in: SignalGrade[] } | undefined {
+function resolveGradeFilter(grade?: string): SignalGrade | { in: SignalGrade[] } | undefined {
   if (!grade) return undefined;
   const enums: SignalGrade[] = [];
   for (const token of grade.split(',')) {
@@ -173,9 +165,7 @@ function mapScoreBreakdown(
       // 표본수가 있는 통계 항목에만 sampleN + 출처 스코프(sampleScope) 부여.
       // 표본수 출처가 (ALL, __ALL__) 코어스 버킷으로 고정이므로 스코프도 상수 —
       // 그 외 항목은 키 자체를 생략(undefined 유지, 기존 응답 필드 불변·하위호환).
-      ...(typeof sampleN === 'number'
-        ? { sampleN, sampleScope: SAMPLE_SCOPE_ALL_MARKET }
-        : {}),
+      ...(typeof sampleN === 'number' ? { sampleN, sampleScope: SAMPLE_SCOPE_ALL_MARKET } : {}),
     };
   });
 }
@@ -189,9 +179,7 @@ function buildSampleNByKey(
   eventType: string | null | undefined,
   sampleCountByEventType: Map<string, number>,
 ): Partial<Record<string, number>> {
-  const sampleN = eventType
-    ? sampleCountByEventType.get(eventType)
-    : undefined;
+  const sampleN = eventType ? sampleCountByEventType.get(eventType) : undefined;
   if (typeof sampleN !== 'number') return {};
   const out: Partial<Record<string, number>> = {};
   for (const key of STAT_DERIVED_KEYS) {
@@ -218,6 +206,19 @@ export interface SignalEvidenceIndicators {
   volumeRatio20: number | null;
   /** 공시 전 선행상승률 D-5~D-1 (%). */
   preDsclReturn: number | null;
+}
+
+/**
+ * 모바일 온디바이스 Rule 평가가 소비하는 point-in-time 가격 기준점.
+ * 실시간 현재가가 아니라 해당 에디션 거래일 이하의 최신 KRX 일봉이며, 화면은 source/date를
+ * 함께 표시해야 한다. 가격이 없으면 숫자 진입·청산 계획을 만들지 않는다.
+ */
+export interface SignalReferencePrice {
+  tradeDate: string;
+  closePrice: number;
+  highPrice: number;
+  lowPrice: number;
+  source: 'STOCK_DAILY_PRICE';
 }
 
 function mapExitReasons(exitSignal: {
@@ -305,8 +306,7 @@ export class SignalsService {
     // 최신성 윈도우 기본값 규칙: sort=score(점수순 큐레이션)이고 sinceDays 미지정이면 기본 14일 —
     // 전체 이력 고득점 고정(홈 '오늘의 투자판단' 정체)을 차단한다. sinceDays=0 명시 시 윈도우
     // 해제(전체 이력·이전 동작). sort=latest 는 기본 무윈도우(기존 동작 유지, 명시 지정만 적용).
-    const effectiveSinceDays =
-      sinceDays ?? (sort === 'score' ? DEFAULT_SCORE_SINCE_DAYS : 0);
+    const effectiveSinceDays = sinceDays ?? (sort === 'score' ? DEFAULT_SCORE_SINCE_DAYS : 0);
 
     const where: Prisma.TradingSignalWhereInput = {
       // ★DAR-129: 신호 피드는 백필(과거 분석 baseline) 공시 기반 신호를 절대 노출하지 않는다.
@@ -414,10 +414,7 @@ export class SignalsService {
 
     const [sampleCountByEventType, evidenceIndicators] = await Promise.all([
       this.sampleCountByEventType([s.eventType]),
-      this.loadEvidenceIndicators(
-        s.company?.stockCode ?? s.stockCode,
-        s.createdAt,
-      ),
+      this.loadEvidenceIndicators(s.company?.stockCode ?? s.stockCode, s.createdAt),
     ]);
 
     return {
@@ -617,7 +614,7 @@ export class SignalsService {
    * corpCode당 대표 1건(최고 buyScore, 동점은 orderBy 그대로 tie-break)으로 dedup하고,
    * 나머지는 personaCount·otherPersonas 메타로 흡수한다(정보 손실 없이 '외 N개 관점' 표기 가능).
    */
-  private async findByCreatedRange(gteUtc: Date, ltUtc: Date) {
+  private async findByCreatedRange(gteUtc: Date, ltUtc: Date, editionDate: string) {
     const where: Prisma.TradingSignalWhereInput = {
       disclosure: { isBackfill: false },
       signal: { in: [SignalGrade.STRONG_BUY_CANDIDATE, SignalGrade.BUY_CANDIDATE] },
@@ -651,8 +648,47 @@ export class SignalsService {
       representatives.map((s) => s.eventType),
     );
 
+    // 숫자 투자 플랜은 신호 당시 확인 가능했던 일봉만 사용한다. 종목별 N+1 조회 대신
+    // 최근 35달력일의 좁은 창을 한 번에 읽고, tradeDate desc 첫 행을 채택한다.
+    // 장기 휴장·수집 공백으로 가격이 없으면 null을 반환해 모바일 Rule이 fail-safe BLOCK한다.
+    const stockCodes = [
+      ...new Set(
+        representatives
+          .map((s) => s.company?.stockCode ?? s.stockCode)
+          .filter((stockCode): stockCode is string => !!stockCode),
+      ),
+    ];
+    const referencePriceRows =
+      stockCodes.length === 0
+        ? []
+        : await this.prisma.stockDailyPrice.findMany({
+            where: {
+              stockCode: { in: stockCodes },
+              tradeDate: {
+                gte: this.shiftYmd(editionDate, -35),
+                lte: editionDate,
+              },
+            },
+            orderBy: [{ tradeDate: 'desc' }],
+            select: {
+              stockCode: true,
+              tradeDate: true,
+              closePrice: true,
+              highPrice: true,
+              lowPrice: true,
+            },
+          });
+    const referencePriceByStockCode = new Map<string, (typeof referencePriceRows)[number]>();
+    for (const row of referencePriceRows) {
+      if (!referencePriceByStockCode.has(row.stockCode)) {
+        referencePriceByStockCode.set(row.stockCode, row);
+      }
+    }
+
     return representatives.map((s) => {
       const group = groups.get(s.corpCode)!;
+      const stockCode = s.company?.stockCode ?? s.stockCode;
+      const referencePrice = stockCode ? referencePriceByStockCode.get(stockCode) : undefined;
       const otherPersonas = [...new Set(group.map((g) => g.persona))].filter(
         (persona) => persona !== s.persona,
       );
@@ -666,10 +702,24 @@ export class SignalsService {
         buyScore: s.buyScore,
         summary: s.signalSummary ?? undefined,
         entryConditions: [
-          ...s.entryConditionMet.map((label, i) => ({ id: `met_${i}`, label, required: true, met: true })),
-          ...s.entryConditionUnmet.map((label, i) => ({ id: `unmet_${i}`, label, required: true, met: false })),
+          ...s.entryConditionMet.map((label, i) => ({
+            id: `met_${i}`,
+            label,
+            required: true,
+            met: true,
+          })),
+          ...s.entryConditionUnmet.map((label, i) => ({
+            id: `unmet_${i}`,
+            label,
+            required: true,
+            met: false,
+          })),
         ],
-        riskFlags: s.riskFactors.map((label, i) => ({ id: `risk_${i}`, label, severity: 'medium' as const })),
+        riskFlags: s.riskFactors.map((label, i) => ({
+          id: `risk_${i}`,
+          label,
+          severity: 'medium' as const,
+        })),
         blockedReason: s.blockedReason ?? undefined,
         suppressionReason: s.suppressionReason ?? undefined,
         scoreBreakdown: mapScoreBreakdown(
@@ -680,6 +730,15 @@ export class SignalsService {
         rcpDt: s.disclosure?.rcpDt ?? undefined,
         expiresAt: s.validUntil?.toISOString() ?? undefined,
         createdAt: s.createdAt.toISOString(),
+        referencePrice: referencePrice
+          ? {
+              tradeDate: referencePrice.tradeDate,
+              closePrice: referencePrice.closePrice,
+              highPrice: referencePrice.highPrice,
+              lowPrice: referencePrice.lowPrice,
+              source: 'STOCK_DAILY_PRICE' as const,
+            }
+          : null,
         // DAR-553: 대표 카드 뒤에 흡수된 페르소나 관점 수(대표 포함) + 대표를 제외한 목록.
         personaCount: otherPersonas.length + 1,
         otherPersonas,
@@ -828,7 +887,7 @@ export class SignalsService {
     const todayKst = tradeDateFromMs(Date.now());
 
     const [items, prevSig, nextSig, firstSig] = await Promise.all([
-      this.findByCreatedRange(gteUtc, ltUtc),
+      this.findByCreatedRange(gteUtc, ltUtc, date),
       // 이 날짜 UTC 범위 이전의 가장 최근 매수 신호 (prevEditionDate 산출)
       this.prisma.tradingSignal.findFirst({
         where: {
@@ -873,10 +932,7 @@ export class SignalsService {
         const kstH = kstNow.getUTCHours();
         const kstM = kstNow.getUTCMinutes();
         emptyReason = kstH < 19 || (kstH === 19 && kstM < 15) ? 'PENDING' : 'QUIET';
-      } else if (
-        firstSig &&
-        tradeDateFromMs(firstSig.createdAt.getTime()) > date
-      ) {
+      } else if (firstSig && tradeDateFromMs(firstSig.createdAt.getTime()) > date) {
         emptyReason = 'COLD_START';
       } else {
         emptyReason = 'QUIET';
@@ -957,6 +1013,17 @@ export class SignalsService {
     const mm = String(next.getUTCMonth() + 1).padStart(2, '0');
     const dd = String(next.getUTCDate()).padStart(2, '0');
     return `${yy}${mm}${dd}`;
+  }
+
+  /** YYYYMMDD에 달력일 offset을 적용한다. 좁은 가격 조회창 계산에만 사용한다. */
+  private shiftYmd(ymd: string, offsetDays: number): string {
+    const y = Number(ymd.slice(0, 4));
+    const m = Number(ymd.slice(4, 6));
+    const d = Number(ymd.slice(6, 8));
+    const shifted = new Date(Date.UTC(y, m - 1, d + offsetDays));
+    return `${shifted.getUTCFullYear().toString().padStart(4, '0')}${(shifted.getUTCMonth() + 1)
+      .toString()
+      .padStart(2, '0')}${shifted.getUTCDate().toString().padStart(2, '0')}`;
   }
 
   // DAR-559: where·take·사용자 스코프 없는 전량조회가 axios 10s를 넘겨 매도 탭이

@@ -21,7 +21,7 @@ describe('utils/onboardingFlow', () => {
     expect(onboardingExitRoute('signals')).toBe('/(tabs)/signals');
   });
 
-  it("종료 선택 'home' → 홈 탭 라우트", () => {
-    expect(onboardingExitRoute('home')).toBe('/(tabs)/home');
+  it("레거시 'home' 종료도 AOS 판단 탭으로 수렴", () => {
+    expect(onboardingExitRoute('home')).toBe('/(tabs)/signals');
   });
 });

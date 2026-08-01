@@ -3,13 +3,7 @@
 // 의존하는 형태를 고정하고, 실제 응답이 생기면 그대로 연동된다.
 
 // 백엔드 SignalGrade enum 6단계와 1:1 대응(DAR-46). NEUTRAL/AVOID를 WATCH로 합치지 않는다.
-export type SignalGrade =
-  | 'STRONG_BUY'
-  | 'BUY'
-  | 'WATCH'
-  | 'NEUTRAL'
-  | 'AVOID'
-  | 'BLOCKED';
+export type SignalGrade = 'STRONG_BUY' | 'BUY' | 'WATCH' | 'NEUTRAL' | 'AVOID' | 'BLOCKED';
 
 /** 신호 정렬(DAR-46): 점수 내림차순 / 최신순 */
 export type SignalSort = 'score' | 'latest';
@@ -83,6 +77,15 @@ export interface SignalEvidenceIndicators {
   preDsclReturn: number | null;
 }
 
+/** 숫자 플랜 계산 기준. 실시간 현재가가 아니라 에디션 시점 이하 최신 일봉이다. */
+export interface SignalReferencePrice {
+  tradeDate: string;
+  closePrice: number;
+  highPrice: number;
+  lowPrice: number;
+  source: 'STOCK_DAILY_PRICE';
+}
+
 /** 매수 신호 */
 export interface TradingSignal {
   id: string;
@@ -117,6 +120,8 @@ export interface TradingSignal {
    * 귀속일 정직화 근거(발행일 createdAt ↔ 실제 공시 접수일 간극 = 지연배지 판정). 그 외 응답엔 미포함.
    */
   rcpDt?: string;
+  /** 에디션 응답에만 포함. 없으면 온디바이스 Rule은 숫자 플랜을 fail-safe 차단한다. */
+  referencePrice?: SignalReferencePrice | null;
   /** ISO 8601 — 신호 만료 시각 */
   expiresAt?: string;
   /** ISO 8601 — 공시 발생/신호 생성 시각 */

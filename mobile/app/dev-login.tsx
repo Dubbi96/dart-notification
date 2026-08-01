@@ -32,7 +32,7 @@ export default function DevLogin() {
       const store = useAuthStore.getState();
       store.setAuth(access, refresh);
       store.completeOnboarding();
-      router.replace('/(tabs)/home');
+      router.replace('/(tabs)/signals');
     } else {
       router.replace('/');
     }

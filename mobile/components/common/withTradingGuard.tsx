@@ -17,7 +17,7 @@ export function withTradingGuard<P extends object>(
 ): React.ComponentType<P> {
   function TradingGuarded(props: P) {
     if (!SHOW_TRADING) {
-      return <Redirect href="/(tabs)/home" />;
+      return <Redirect href="/(tabs)/signals" />;
     }
     return <Inner {...props} />;
   }

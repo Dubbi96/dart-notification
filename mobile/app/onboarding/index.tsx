@@ -200,14 +200,13 @@ export default function OnboardingScreen() {
     setStep(3);
   };
 
-  // Step 3(DAR-209): 가치 안내 종료 — '신호 보러 가기' 또는 '홈으로'.
+  // Step 3: AOS 첫 화면인 종가 후 운영 브리핑으로 이동한다.
   const handleFinish = (exit: 'signals' | 'home') => {
     completeOnboarding();
     router.replace(onboardingExitRoute(exit));
   };
 
-  // Step 3(DAR-209): 신호·포트폴리오 가치 안내 — intro 캐러셀이 약속한
-  // AI 투자판단·거장 철학을 가입 직후 핵심 탭과 연결한다.
+  // Step 3: 기기 Rule 판단과 조회 전용 포지션의 역할을 설명한다.
   if (step === 3) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -218,21 +217,21 @@ export default function OnboardingScreen() {
             이제 투자 판단까지{'\n'}받아보세요
           </Text>
           <Text style={[typo.body, { color: colors.textSecondary, marginTop: spacing.sm }]}>
-            공시 알림에서 끝나지 않아요. 신호와 포트폴리오로{'\n'}매수·매도 판단을 도와드려요.
+            공시를 나열하지 않고 Rule이 만든 종합 의견과{'\n'}조건부 실행 계획을 먼저 보여드려요.
           </Text>
 
           <View style={styles.valueList}>
             <ValueCard
               icon={<ChartLineUp size={28} color={colors.primary} weight="duotone" />}
-              title="신호 — AI 매수 판단"
-              description="공시가 뜨면 거장 4인의 투자 철학 기준으로 AI가 매수 점수를 매겨요."
+              title="판단 — 기기 Rule 계산"
+              description="종가 데이터와 진입 조건, Risk를 기기에서 다시 계산해 계획 여부를 구분해요."
               colors={colors}
               typo={typo}
             />
             <ValueCard
               icon={<Briefcase size={28} color={colors.primary} weight="duotone" />}
               title="포트폴리오 — 보유 종목 추적"
-              description="관심 종목을 담아 수익률과 매도 신호를 한눈에 확인해요."
+              description="보유 종목의 손익과 계획 중단 기준을 한눈에 확인해요."
               colors={colors}
               typo={typo}
             />
@@ -241,27 +240,18 @@ export default function OnboardingScreen() {
           <View style={[styles.disclaimerMini, { backgroundColor: colors.surfaceSecondary }]}>
             <Ionicons name="information-circle-outline" size={14} color={colors.textTertiary} />
             <Text style={[typo.small, styles.disclaimerText, { color: colors.textTertiary }]}>
-              AI 점수는 참고 정보예요 · 투자자문이 아닙니다
+              Shadow 계획은 실주문이 아니며, 가격·조건이 달라지면 적용하지 않습니다
             </Text>
           </View>
         </View>
 
         <View style={styles.footer}>
           <Button
-            title="신호 보러 가기"
+            title="오늘의 판단 보기"
             onPress={() => handleFinish('signals')}
             fullWidth
             size="lg"
           />
-          <TouchableOpacity
-            style={styles.skipButton}
-            onPress={() => handleFinish('home')}
-            accessibilityRole="button"
-            accessibilityLabel="홈으로 이동"
-            hitSlop={verticalHitSlopForHeight(SKIP_BUTTON_VISUAL_HEIGHT)}
-          >
-            <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>홈으로 가기</Text>
-          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );

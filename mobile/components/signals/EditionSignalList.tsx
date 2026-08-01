@@ -1,15 +1,17 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
-import { SignalExploreCard } from '@components/signals/SignalExploreCard';
+import { EditionDecisionCard } from '@components/signals/EditionDecisionCard';
+import { EditionDecisionSummary } from '@components/signals/EditionDecisionSummary';
 import { EditionFallbackBriefing } from '@components/signals/EditionFallbackBriefing';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
 import { useEdition } from '@hooks/useSignals';
+import { useDeviceRuleDecision, useLastDeviceEditionReceipt } from '@hooks/useDeviceRuleDecision';
 import { getEditionEmptyCopy } from '@utils/editionDisplay';
 import { recordTesterEvent } from '@services/testerEvents.service';
 
@@ -50,6 +52,15 @@ function EditionSignalListBase({
 
   const meta = query.data?.meta;
   const items = query.data?.items ?? [];
+  const deviceDecision = useDeviceRuleDecision(date, items);
+  const cachedReceipt = useLastDeviceEditionReceipt(date);
+  const decisionBySignalId = useMemo(
+    () =>
+      new Map(
+        (deviceDecision.data?.decisions ?? []).map((decision) => [decision.signalId, decision]),
+      ),
+    [deviceDecision.data?.decisions],
+  );
 
   // 과거 에디션(오늘 아님 · 미래 아님) → 지난 판단 배너 + muted. 신호가 있을 때만 배너 노출
   // (빈 과거 에디션은 4분기 카피가 사유를 이미 고지 — 배너 중복 회피).
@@ -62,10 +73,20 @@ function EditionSignalListBase({
   }, []);
 
   const renderItem = useCallback(
-    ({ item }: { item: TradingSignal }) => (
-      <SignalExploreCard signal={item} onPress={handlePress} />
-    ),
-    [handlePress],
+    ({ item, index }: { item: TradingSignal; index: number }) => {
+      const decision = decisionBySignalId.get(item.id);
+      if (!decision) return null;
+      return (
+        <EditionDecisionCard
+          signal={item}
+          decision={decision}
+          rank={index + 1}
+          historical={isPast}
+          onPress={handlePress}
+        />
+      );
+    },
+    [decisionBySignalId, handlePress, isPast],
   );
 
   // pull-to-refresh — 에디션 상세 + 스트립(날짜 목록) 동시 갱신.
@@ -86,6 +107,20 @@ function EditionSignalListBase({
   if (query.isError) {
     return (
       <View style={styles.container}>
+        {cachedReceipt.data ? (
+          <View
+            style={[
+              styles.cachedReceipt,
+              { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+            ]}
+          >
+            <Feather name="archive" size={16} color={colors.textSecondary} />
+            <Text style={[typo.small, styles.cachedReceiptText, { color: colors.textSecondary }]}>
+              마지막 기기 계산: {cachedReceipt.data.headline} ·{' '}
+              {cachedReceipt.data.savedAt.slice(0, 10)}
+            </Text>
+          </View>
+        ) : null}
         <ApiErrorState
           error={query.error}
           title="에디션을 불러오지 못했습니다."
@@ -104,11 +139,33 @@ function EditionSignalListBase({
   const fallbackBriefing = meta?.fallbackBriefing ?? [];
   const hasFallbackBriefing = fallbackBriefing.length > 0;
 
+  if (items.length > 0 && (deviceDecision.isPending || deviceDecision.isError)) {
+    return (
+      <View style={styles.container}>
+        {deviceDecision.isError ? (
+          <ApiErrorState
+            error={deviceDecision.error}
+            title="기기 Rule 계산을 완료하지 못했습니다."
+            description="안전상 숫자 플랜을 표시하지 않습니다. 다시 계산해 주세요."
+            onRetry={deviceDecision.refetch}
+          />
+        ) : (
+          <SkeletonList variant="buyScore" />
+        )}
+      </View>
+    );
+  }
+
   return (
     // testID: 선택 에디션(날짜)의 매수 신호 세로 리스트 앵커(DAR-542 스모크 ② — 날짜 스트립 탭 후 갱신 확인).
     <View style={styles.container} testID="edition-signal-list">
       {showBanner ? (
-        <View style={[styles.banner, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+        <View
+          style={[
+            styles.banner,
+            { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+          ]}
+        >
           <Feather name="clock" size={16} color={colors.textSecondary} />
           <Text style={[typo.small, styles.bannerText, { color: colors.textSecondary }]}>
             지난 판단 · 현재 시세와 다를 수 있어요
@@ -139,6 +196,11 @@ function EditionSignalListBase({
         windowSize={7}
         refreshing={query.isRefetching}
         onRefresh={handleRefresh}
+        ListHeaderComponent={
+          deviceDecision.data ? (
+            <EditionDecisionSummary decision={deviceDecision.data} historical={isPast} />
+          ) : null
+        }
         ListEmptyComponent={
           <View>
             <EmptyState
@@ -152,7 +214,17 @@ function EditionSignalListBase({
             {hasFallbackBriefing ? <EditionFallbackBriefing items={fallbackBriefing} /> : null}
           </View>
         }
-        ListFooterComponent={items.length > 0 ? <DisclaimerSection style={styles.disclaimer} /> : null}
+        ListFooterComponent={
+          items.length > 0 ? (
+            <DisclaimerSection
+              style={styles.disclaimer}
+              contextNotes={[
+                '표시 가격은 해당 에디션 시점의 종가를 기준으로 기기에서 계산한 Shadow 계획이며 실주문이 아닙니다.',
+                '시장가 갭으로 진입 구간을 벗어나면 계획을 적용하지 않습니다.',
+              ]}
+            />
+          ) : null
+        }
       />
     </View>
   );
@@ -176,6 +248,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   bannerText: {
+    flex: 1,
+  },
+  cachedReceipt: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    margin: spacing.lg,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  cachedReceiptText: {
     flex: 1,
   },
   resetBtn: {

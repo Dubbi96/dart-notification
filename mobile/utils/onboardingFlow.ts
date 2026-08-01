@@ -11,7 +11,7 @@ export const ONBOARDING_TOTAL_STEPS = 3 as const;
 
 export type OnboardingStep = 1 | 2 | 3;
 
-/** 마지막 단계의 종료 선택 — '신호 보러 가기' 또는 '홈으로'. */
+/** 레거시 호출 호환용 종료 선택. AOS에서는 두 경로 모두 판단 탭으로 수렴한다. */
 export type OnboardingExit = 'signals' | 'home';
 
 /**
@@ -32,6 +32,6 @@ export function nextOnboardingStep(current: OnboardingStep): OnboardingStep | nu
 }
 
 /** 마지막 단계 종료 선택 → 진입할 탭 라우트. */
-export function onboardingExitRoute(exit: OnboardingExit): '/(tabs)/signals' | '/(tabs)/home' {
-  return exit === 'signals' ? '/(tabs)/signals' : '/(tabs)/home';
+export function onboardingExitRoute(_exit: OnboardingExit): '/(tabs)/signals' {
+  return '/(tabs)/signals';
 }

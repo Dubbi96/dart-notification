@@ -19,7 +19,8 @@
       "@app-types": ["types"],
       "@app-types/*": ["types/*"],
       "@utils": ["utils"],
-      "@utils/*": ["utils/*"]
+      "@utils/*": ["utils/*"],
+      "@dart-notification/aos-rule-engine": ["../packages/aos-rule-engine/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "scripts", "__tests__"]

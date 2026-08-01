@@ -100,6 +100,7 @@ describe('SignalsService — findDailyEdition', () => {
       count: jest.Mock;
     };
     eventStudyResult: { findMany: jest.Mock };
+    stockDailyPrice: { findMany: jest.Mock };
     $queryRaw: jest.Mock;
   };
 
@@ -116,14 +117,12 @@ describe('SignalsService — findDailyEdition', () => {
         count: jest.fn().mockResolvedValue(0),
       },
       eventStudyResult: { findMany: jest.fn().mockResolvedValue([]) },
+      stockDailyPrice: { findMany: jest.fn().mockResolvedValue([]) },
       $queryRaw: jest.fn().mockResolvedValue([]),
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        SignalsService,
-        { provide: PrismaService, useValue: prisma },
-      ],
+      providers: [SignalsService, { provide: PrismaService, useValue: prisma }],
     }).compile();
 
     service = module.get<SignalsService>(SignalsService);
@@ -174,13 +173,15 @@ describe('SignalsService — findDailyEdition', () => {
 
   it('과거 거래일 + 신호 없음 + firstSig 있음 → emptyReason=QUIET', async () => {
     // firstSig는 20260701 KST 신호 → 20260701 < 20260710 이므로 COLD_START 아님
-    prisma.tradingSignal.findFirst.mockImplementation((args: { orderBy?: { createdAt?: string } }) => {
-      if (args?.orderBy?.createdAt === 'asc') {
-        // 시스템 최초 신호: KST 20260701
-        return Promise.resolve({ createdAt: new Date('2026-07-01T00:00:00.000Z') });
-      }
-      return Promise.resolve(null);
-    });
+    prisma.tradingSignal.findFirst.mockImplementation(
+      (args: { orderBy?: { createdAt?: string } }) => {
+        if (args?.orderBy?.createdAt === 'asc') {
+          // 시스템 최초 신호: KST 20260701
+          return Promise.resolve({ createdAt: new Date('2026-07-01T00:00:00.000Z') });
+        }
+        return Promise.resolve(null);
+      },
+    );
     const result = await service.findDailyEdition('20260710'); // 과거 거래일
     expect(result.meta.isEmpty).toBe(true);
     expect(result.meta.emptyReason).toBe('QUIET');
@@ -188,12 +189,14 @@ describe('SignalsService — findDailyEdition', () => {
 
   it('시스템 최초 신호보다 이전 날짜 → emptyReason=COLD_START', async () => {
     // 시스템 최초 신호: KST 20260715 (UTC 20260714T15:00)
-    prisma.tradingSignal.findFirst.mockImplementation((args: { orderBy?: { createdAt?: string } }) => {
-      if (args?.orderBy?.createdAt === 'asc') {
-        return Promise.resolve({ createdAt: new Date('2026-07-14T15:00:00.000Z') }); // KST 20260715
-      }
-      return Promise.resolve(null);
-    });
+    prisma.tradingSignal.findFirst.mockImplementation(
+      (args: { orderBy?: { createdAt?: string } }) => {
+        if (args?.orderBy?.createdAt === 'asc') {
+          return Promise.resolve({ createdAt: new Date('2026-07-14T15:00:00.000Z') }); // KST 20260715
+        }
+        return Promise.resolve(null);
+      },
+    );
     // 20260710은 KST 20260715 이전 → COLD_START
     const result = await service.findDailyEdition('20260710');
     expect(result.meta.isEmpty).toBe(true);
@@ -216,6 +219,43 @@ describe('SignalsService — findDailyEdition', () => {
     prisma.eventStudyResult.findMany.mockResolvedValue([]);
     const result = await service.findDailyEdition(TODAY_KST);
     expect(result.items[0].rcpDt).toBe('20260716');
+  });
+
+  it('신호 시점 이하 최신 일봉을 referencePrice로 노출한다', async () => {
+    prisma.tradingSignal.findMany.mockResolvedValue([BASE_SIGNAL]);
+    prisma.stockDailyPrice.findMany.mockResolvedValue([
+      {
+        stockCode: '005930',
+        tradeDate: '20260715',
+        closePrice: 71000,
+        highPrice: 72000,
+        lowPrice: 70000,
+      },
+    ]);
+
+    const result = await service.findDailyEdition(TODAY_KST);
+
+    expect(result.items[0].referencePrice).toEqual({
+      tradeDate: '20260715',
+      closePrice: 71000,
+      highPrice: 72000,
+      lowPrice: 70000,
+      source: 'STOCK_DAILY_PRICE',
+    });
+    expect(prisma.stockDailyPrice.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          stockCode: { in: ['005930'] },
+          tradeDate: { gte: '20260611', lte: TODAY_KST },
+        }),
+      }),
+    );
+  });
+
+  it('일봉이 없으면 referencePrice=null로 내려 숫자 플랜 생성을 막는다', async () => {
+    prisma.tradingSignal.findMany.mockResolvedValue([BASE_SIGNAL]);
+    const result = await service.findDailyEdition(TODAY_KST);
+    expect(result.items[0].referencePrice).toBeNull();
   });
 
   it('isToday=true 이면 meta.isToday=true', async () => {
@@ -302,9 +342,24 @@ describe('SignalsService — findDailyEdition', () => {
   it('DAR-553 계약: 홈 요약 상위 2건(top-2)이 자동으로 서로 다른 종목이 된다', async () => {
     // 같은 corp(A)가 페르소나 2개(90, 85)로 1·2위를 모두 점유하던 회귀 시나리오.
     // dedup 전이었다면 top-2 = [A(90), A(85)] — 홈 요약이 같은 종목을 두 번 보여줬을 것.
-    const corpAHigh = signalFixture({ id: 'sig_a_high', corpCode: 'CORP_A', persona: 'GROWTH', buyScore: 90 });
-    const corpALow = signalFixture({ id: 'sig_a_low', corpCode: 'CORP_A', persona: 'VALUE', buyScore: 85 });
-    const corpB = signalFixture({ id: 'sig_b', corpCode: 'CORP_B', persona: 'MOMENTUM', buyScore: 80 });
+    const corpAHigh = signalFixture({
+      id: 'sig_a_high',
+      corpCode: 'CORP_A',
+      persona: 'GROWTH',
+      buyScore: 90,
+    });
+    const corpALow = signalFixture({
+      id: 'sig_a_low',
+      corpCode: 'CORP_A',
+      persona: 'VALUE',
+      buyScore: 85,
+    });
+    const corpB = signalFixture({
+      id: 'sig_b',
+      corpCode: 'CORP_B',
+      persona: 'MOMENTUM',
+      buyScore: 80,
+    });
     prisma.tradingSignal.findMany.mockResolvedValue([corpAHigh, corpALow, corpB]);
     prisma.eventStudyResult.findMany.mockResolvedValue([]);
 
@@ -321,23 +376,25 @@ describe('SignalsService — findDailyEdition', () => {
 
   it('prevSig 있으면 prevEditionDate가 KST 날짜 문자열로 반환', async () => {
     // prevSig: KST 20260714 = UTC 20260713T15:xx
-    prisma.tradingSignal.findFirst.mockImplementation((args: {
-      orderBy?: { createdAt?: string };
-      where?: { createdAt?: { lt?: Date; gte?: Date } };
-    }) => {
-      if (args?.where?.createdAt?.lt) {
-        // prevSig 쿼리
-        return Promise.resolve({ createdAt: new Date('2026-07-13T15:30:00.000Z') }); // KST 20260714
-      }
-      if (args?.where?.createdAt?.gte) {
-        // nextSig 쿼리
+    prisma.tradingSignal.findFirst.mockImplementation(
+      (args: {
+        orderBy?: { createdAt?: string };
+        where?: { createdAt?: { lt?: Date; gte?: Date } };
+      }) => {
+        if (args?.where?.createdAt?.lt) {
+          // prevSig 쿼리
+          return Promise.resolve({ createdAt: new Date('2026-07-13T15:30:00.000Z') }); // KST 20260714
+        }
+        if (args?.where?.createdAt?.gte) {
+          // nextSig 쿼리
+          return Promise.resolve(null);
+        }
+        if (args?.orderBy?.createdAt === 'asc') {
+          return Promise.resolve(null);
+        }
         return Promise.resolve(null);
-      }
-      if (args?.orderBy?.createdAt === 'asc') {
-        return Promise.resolve(null);
-      }
-      return Promise.resolve(null);
-    });
+      },
+    );
     const result = await service.findDailyEdition(TODAY_KST);
     expect(result.meta.prevEditionDate).toBe('20260714');
   });
@@ -354,11 +411,7 @@ describe('SignalsService — findDailyEdition', () => {
     prisma.eventStudyResult.findMany.mockResolvedValue([]);
     await service.findDailyEdition(TODAY_KST);
     const call = prisma.tradingSignal.findMany.mock.calls[0][0];
-    expect(call.orderBy).toEqual([
-      { buyScore: 'desc' },
-      { createdAt: 'desc' },
-      { id: 'desc' },
-    ]);
+    expect(call.orderBy).toEqual([{ buyScore: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }]);
   });
 
   // ─── createdAt 범위 파라미터 ──────────────────────────────────────────────
@@ -472,10 +525,7 @@ describe('SignalsService — findDailyEditions', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        SignalsService,
-        { provide: PrismaService, useValue: prisma },
-      ],
+      providers: [SignalsService, { provide: PrismaService, useValue: prisma }],
     }).compile();
 
     service = module.get<SignalsService>(SignalsService);
@@ -526,8 +576,20 @@ describe('SignalsService — findDailyEditions', () => {
   it('결과 수 = limit 이면 hasMore=true, nextCursor=마지막 날짜', async () => {
     const limit = 2;
     prisma.$queryRaw.mockResolvedValue([
-      { date: '20260716', count: BigInt(1), strongBuyCount: BigInt(0), headlineCorpName: null, topGradeRaw: SignalGrade.BUY_CANDIDATE },
-      { date: '20260715', count: BigInt(1), strongBuyCount: BigInt(0), headlineCorpName: null, topGradeRaw: SignalGrade.BUY_CANDIDATE },
+      {
+        date: '20260716',
+        count: BigInt(1),
+        strongBuyCount: BigInt(0),
+        headlineCorpName: null,
+        topGradeRaw: SignalGrade.BUY_CANDIDATE,
+      },
+      {
+        date: '20260715',
+        count: BigInt(1),
+        strongBuyCount: BigInt(0),
+        headlineCorpName: null,
+        topGradeRaw: SignalGrade.BUY_CANDIDATE,
+      },
     ]);
     const result = await service.findDailyEditions(undefined, limit);
     expect(result.meta.hasMore).toBe(true);

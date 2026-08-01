@@ -1783,6 +1783,10 @@ GET /api/signals/daily/:date   (JWT 필수)
 | `rcpDt` | string \| undefined | 공시 접수일 (Disclosure.rcpDt, YYYYMMDD 또는 YYYYMMDDHHmmss) |
 | `personaCount` | number | DAR-553: 이 카드로 흡수된 페르소나 관점 수(대표 포함, 최소 1) |
 | `otherPersonas` | string[] | DAR-553: 대표를 제외한 나머지 persona 목록(중복 제거). 없으면 `[]` — FE가 `length`로 '외 N개 관점' 표기 가능 |
+| `referencePrice` | object \| null | AOS A7: 에디션 거래일 이하 최신 일봉 기준점. 가격이 없으면 `null`이며 모바일은 숫자 계획을 만들지 않음 |
+| `referencePrice.tradeDate` | string | 기준 일봉 거래일(YYYYMMDD) |
+| `referencePrice.closePrice` / `highPrice` / `lowPrice` | number | 해당 일봉 가격. 진입·손절·목표의 point-in-time 입력 |
+| `referencePrice.source` | `'STOCK_DAILY_PRICE'` | 실시간가가 아닌 적재 일봉임을 나타내는 고정 provenance |
 
 > **DAR-553 dedup.** 같은 종목(`corpCode`)이 같은 날 여러 페르소나(`GROWTH`\|`VALUE`\|`MOMENTUM`\|`EVENT_DRIVEN`) 신호를 가지면, 그 중 `buyScore` 최고 1건만 카드로 노출하고(동점은 `createdAt desc → id desc`) 나머지는 `personaCount`/`otherPersonas`로 흡수한다. 서로 다른 `corpCode`는 dedup 대상이 아니다(과도 병합 금지).
 
@@ -3490,6 +3494,11 @@ Play Console 스토어 리스팅에 게시할 공개 웹 URL. API가 아닌 정�
 `x-aos-step-up-token` 헤더로 전달하며 성공/실패 여부와 무관하게 재사용할 수 없다. Kill Switch
 `DEACTIVATE_REQUEST`는 사건만 기록하고 실제 Legacy Kill Switch를 해제하지 않는다. LIVE 주문 API는 없다.
 
+모바일 AOS 제어 화면도 동일 API를 사용한다. 모바일은 `GET /bootstrap`, `POST /auth/step-up`,
+`POST /emergency/kill-switch` 중 `ACTIVATE + NEW_ENTRY + FULL_HALT`만 노출한다. 사유·비밀번호
+재확인·1.2초 long-press 뒤 서버 응답의 `effectiveAt`과 Kill event `receiptHash`를 표시한다. Rule 편집,
+전략 승인/활성화, Kill 해제는 모바일에서 제공하지 않는다.
+
 ---
 
-**AOS 최신 갱신**: 2026-08-01 (A6 Operator Console API, RBAC, Step-up, read-only 기본값)
+**AOS 최신 갱신**: 2026-08-01 (A7 온디바이스 Rule 입력 가격·모바일 제한 비상 제어)

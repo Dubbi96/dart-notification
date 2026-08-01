@@ -60,6 +60,7 @@ External APIs:
 ### 2.1 Mobile App (React Native + Expo)
 
 **주요 책임**
+
 - 사용자 인터페이스 제공
 - 백엔드 API 호출
 - 푸시 알림 수신 및 처리
@@ -68,6 +69,7 @@ External APIs:
 - 운영자 권한이 있을 때 신규 진입 Kill Switch 요청과 receipt 확인
 
 **AOS 핵심 IA**
+
 - 판단: 종가 후 운영 브리핑 → 조건부 가격 계획 → 근거 상세
 - 포지션: 보유·손익·Risk 조회
 - 알림: 거래·공시·위험 알림
@@ -77,6 +79,7 @@ External APIs:
 이관한다. Legacy 모바일 route는 데이터 삭제 없이 경량 redirect로 유지한다.
 
 **기술 스택**
+
 - Expo (React Native 프레임워크)
 - Expo Router (파일 기반 라우팅)
 - React Query (서버 상태 관리)
@@ -92,18 +95,21 @@ External APIs:
 엔진 간 통신은 서비스 직접 호출 대신 **BullMQ 큐**를 통해 비동기로 연결된다.
 
 #### Engine 1 — Disclosure Intelligence (`engine1-disclosure/`)
+
 - **책임**: 공시 수집 → HTML/XML 파싱 → 이벤트·수치 추출 (M0~M2, ✅ 완료)
 - **하위 모듈**: collection(DART 폴링·재시도), dart-api, disclosures(HTTP 조회), disclosure-documents(파싱), disclosure-events(이벤트 추출·분류)
 - **BullMQ 발행**: `disclosure-parse`, `event-extract`
 - **주요 엔드포인트**: `GET /disclosures`, `GET /disclosures/:rcpNo`, `POST /scheduler/collect`
 
 #### Engine 2 — AI Analyst (`engine2-ai-analyst/`)
+
 - **책임**: 공시 요약·Persona 해석·Position Thesis AI 초안 생성 (M3, 🚧 스캐폴딩)
 - **비용 게이트**: L0(AI 금지) ~ L3(Position Thesis) 4단계 분류. 일/월 한도 초과 시 L0 강등.
 - **구성**: tasks/(summary·persona·thesis), cost-gate, cost-metrics, cost-aggregation, usage-log, llm, adapters, ports
 - **BullMQ 소비**: `ai-analyze` / **발행**: `signal-generate`
 
 #### Engine 3 — Quant Market (`engine3-quant-market/`)
+
 - **책임**: 시세 수집·기술지표 계산·Event Study·Buy Score 생성 (M4~M6, M9, ⬜ 예정)
 - **AI 정책**: Buy Score 계산은 **순수 Rule 기반** (AI 개입 금지)
 - **구성**: market-data, indicators, buy-signal, event-study, signal-generation(cron), signals(HTTP), backtest
@@ -112,6 +118,7 @@ External APIs:
 - **주요 엔드포인트**: `GET /signals`, `GET /signals/:id`, `GET /signals/daily-editions`(에디션 날짜 목록), `GET /signals/daily/:date`(에디션 상세). 두 에디션 조회는 마이그레이션 0의 **읽기 파생 API**(§3.4).
 
 #### Engine 4 — Portfolio & Exit (`engine4-portfolio-exit/`)
+
 - **책임**: 포트폴리오·포지션 관리·Exit Score 계산 (M7~M8, ⬜ 예정)
 - **헥사고날 포트/어댑터**:
   - `IPositionThesisRepository` ↔ InMemory 어댑터 / Prisma 어댑터 (DAR-35)
@@ -121,6 +128,7 @@ External APIs:
 - **주요 엔드포인트**: `GET /portfolio`, `GET /positions/:id`, `GET /positions/:id/thesis`
 
 #### Engine 5 — Trading & Risk (`engine5-trading-risk/`)
+
 - **책임**: 모의투자 체결 시뮬레이션·Risk 하드룰 검증 (M10~M12, ⬜ 예정)
 - **AI 금지영역**: Risk 판정·주문 승인·손절 하드룰에 AI 개입 절대 불가. `RiskCheckService`는 AI 서비스 의존성 0.
 - **헥사고날 포트/어댑터**:
@@ -130,6 +138,7 @@ External APIs:
 - **주요 엔드포인트**: `GET /paper-trading`, `POST /paper-trading/order`
 
 #### AOS 제어평면 — Strategy Management (`aos/strategy-management/`)
+
 - **현재 책임(Phase A2)**: 국내주식 Long Only 2~20거래일 전략·룰 설정 버전화, 불변 해시, 승인 이후 예약과 종가 후 활성화 원장
 - **활성화 안전성**: 검증된 KRX 거래일·공휴일·지연개장 세션을 KST로 판정하고, strategy advisory lock + SERIALIZABLE transaction + DB partial unique index로 전략별 ACTIVE를 하나 이하로 유지한다.
 - **현재 비배선**: `AppModule`, Cron, Queue, 기존 Signal/Paper/Order에는 연결하지 않았다. 따라서 기존 운영 매매 행동은 바뀌지 않는다.
@@ -137,6 +146,7 @@ External APIs:
 - **AI 경계**: AI 산출물은 향후 feature 입력만 제공하며 주문·수량·Hard Risk Gate를 결정하거나 우회하지 않는다.
 
 #### AOS 제어평면 — Risk Policy (`aos/risk-policy/`)
+
 - **현재 책임(Phase A2)**: Hard Risk 한도를 전략 설정과 독립된 `RiskPolicyVersion`으로 버전화하고, strict schema·canonical SHA-256 hash·불변 수명주기를 제공한다.
 - **구조적 금지**: `KR_STOCK`·`LONG_ONLY`, 공매도/레버리지 비허용, 장기투자 자산의 트레이딩 손실 자동보전 금지를 애플리케이션과 DB 양쪽에서 강제한다.
 - **값 결정 경계**: 이번 기반은 정책 값이나 기본값을 선택·seed하지 않는다. 실제 한도는 후속 ApprovalRecord/RBAC와 Backtest·Shadow 검증을 통과한 사람 승인 입력만 사용할 수 있다.
@@ -144,6 +154,7 @@ External APIs:
 - **후속 활성화**: Risk policy 활성화는 승인 원장과 actor 권한을 마련한 뒤 Strategy activation과 같은 종가 후 단일-`ACTIVE` 원칙으로 결합한다.
 
 #### AOS 제어평면 — Governance (`aos/governance/`)
+
 - **현재 책임(Phase A2)**: Strategy/Rule/Risk/Activation 설정 변경과 승인 결정을 대상 hash·evidence hash·actor·correlation 기준의 append-only 원장으로 보존한다.
 - **불변 안전성**: 승인·감사 row는 update/delete/truncate할 수 없고, 같은 idempotency key 재시도는 중복 기록하지 않는다.
 - **Actor 보존**: 사용자 actor와 시스템 actor를 명시적으로 구분한다. 사용자 actor는 기록 시 존재를 검증한 뒤 불변 logical reference로 남겨 계정 삭제가 감사 원장을 cascade하거나 수정하지 않게 한다.
@@ -151,6 +162,7 @@ External APIs:
 - **현재 비배선**: 기존 Strategy/Risk 상태 전이와 activation 서비스에는 아직 연결하지 않았으며 API·UI·Cron·Queue 등록도 없다.
 
 #### AOS 실행 코어 — Shared Rule Evaluator (`packages/aos-rule-engine/`)
+
 - **현재 책임(Phase A7)**: Android/iOS 디바이스와 백엔드 replay가 같은 버전·Feature Snapshot으로 같은 평가 trace와 canonical receipt를 만드는 동기식 순수 TypeScript 코어다.
 - **결정론 경계**: 실행 순서는 `priority → ruleKey`로 고정하고 object key·reason code를 정규화한다. 시스템 시계·난수·비동기·전역 mutable state는 사용하지 않는다.
 - **Fail-safe**: Hard Risk 비활성화·입력 누락·FAIL·ABSTAIN·구현 오류는 모두 `BLOCKED`다. AI는 검증된 feature 입력만 제공할 수 있으며 Hard Risk를 우회할 수 없다.
@@ -159,7 +171,17 @@ External APIs:
 - **상세 계약**: `docs/roadmap/aos-rule-evaluator-core.md`
 - **모바일 계약**: `docs/roadmap/aos-mobile-device-rule.md`
 
+#### AOS 자산배분 계획 — Allocation (`aos/allocation/`)
+
+- **현재 책임(Phase A8)**: SYSTEM_TRADING 계정의 닫힌 기간 확정이익을 SPGI 50%, VTI 30%, SYSTEM_TRADING 20%로 나누는 정책·계획·승인·취소·재발행 원장이다.
+- **계산 불변식**: 손실/0원/유보액 초과는 plan을 만들지 않고, 원 단위 내림 뒤 잔여 원을 SYSTEM_TRADING에 귀속해 항목 합계가 distributable profit과 정확히 일치한다.
+- **운영 경계**: 정책은 작성자와 다른 승인자가 검증된 KRX 거래일 종가 이후 활성화한다. plan도 작성자와 승인자를 분리하고 ACTIVE policy hash를 고정한다.
+- **실행 부재**: 송금·환전·매수·브로커 adapter가 없으며 `AosCapitalBucket`의 자금을 변경하거나 장기계좌에서 손실을 보전하지 않는다.
+- **표면**: Operator Web은 전체 수명주기를 통제하고 모바일 포지션 화면은 승인된 최근 plan만 조회한다.
+- **상세 계약**: `docs/roadmap/aos-allocation-planning.md`
+
 #### 횡단 모듈 (독립 유지)
+
 - `auth` · `users` · `companies` · `watchlist` · `notifications` · `notification-settings` · `expo-push` · `devices` · `saved-disclosures` · `prisma` · `common`
 - 모든 엔진이 공유하는 인증·알림·기업 마스터 등을 담당한다.
 - Scheduler는 engine1-disclosure/scheduler/로 흡수·래핑됨.
@@ -193,16 +215,19 @@ External APIs:
 ### 2.3 Database (PostgreSQL + Prisma)
 
 **주요 역할**
+
 - 사용자, 공시, 알림 데이터 영구 저장
 - 관계형 데이터 관리
 - 트랜잭션 지원
 
 **ORM: Prisma**
+
 - 타입 안전한 DB 쿼리
 - 마이그레이션 관리
 - 스키마 버전 관리
 
 **시계열 저장 엔진: TimescaleDB (DAR-378)**
+
 - 대규모 분봉/일봉(수억 행)을 효율 저장하기 위해 PostgreSQL 위에 TimescaleDB(pg15 기반)를 사용한다.
   pg15 호환 이미지라 기존 `postgres_data` 볼륨을 그대로 쓴다(데이터 손실 0). 확장은 마이그레이션의
   `CREATE EXTENSION IF NOT EXISTS timescaledb` 로 활성화한다.
@@ -219,6 +244,7 @@ External APIs:
 ### 2.4 External APIs
 
 #### DART Open API
+
 - **용도**: 전자공시 데이터 수집
 - **주요 API**:
   - `GET /api/list.json` - 공시 목록 조회
@@ -227,6 +253,7 @@ External APIs:
 - **Rate Limit**: (DART API 문서 확인 필요)
 
 #### Expo Push Notification Service
+
 - **용도**: 모바일 푸시 알림 발송
 - **방식**: Expo Push Token 기반
 - **Endpoint**: `https://exp.host/--/api/v2/push/send`
@@ -409,15 +436,18 @@ External APIs:
 ```
 
 ### 4.2 비밀번호 보안
+
 - bcrypt 해싱 (saltRounds: 10)
 - 평문 비밀번호는 DB에 저장하지 않음
 
 ### 4.3 API Rate Limiting
+
 - NestJS Throttler 사용
 - 기본: 60 requests / 분
 - 로그인: 5 requests / 분
 
 ### 4.4 입력 검증
+
 - class-validator를 통한 DTO 검증
 - SQL Injection 방지 (Prisma ORM 사용)
 - XSS 방지 (helmet middleware)
@@ -425,11 +455,13 @@ External APIs:
 ## 5. 중복 알림 방지 메커니즘
 
 ### 5.1 문제 정의
+
 - 같은 공시에 대해 같은 사용자에게 여러 번 알림이 가는 것을 방지
 
 ### 5.2 해결 방안
 
 #### NotificationHistory 테이블 설계
+
 ```prisma
 model NotificationHistory {
   id               String   @id @default(cuid())
@@ -447,6 +479,7 @@ model NotificationHistory {
 ```
 
 #### 알림 발송 로직
+
 ```typescript
 async sendNotification(userId: string, disclosureRcpNo: string) {
   // 1. 이미 알림을 보낸 적이 있는지 체크
@@ -480,6 +513,7 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
 ## 6. 정정공시 처리 메커니즘
 
 ### 6.1 정정공시란?
+
 - 이미 제출한 공시의 내용을 수정하여 다시 제출하는 공시
 - DART에서는 별도의 공시로 접수됨 (새로운 rcp_no)
 
@@ -488,11 +522,13 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
 **기본 정책**: 정정공시를 별개의 신규 공시로 취급하여 알림 발송
 
 **이유**:
+
 - 정정공시는 중요한 변경사항이므로 사용자가 반드시 알아야 함
 - DART API에서 정정공시와 원 공시의 연결 정보를 제공하지 않을 수 있음
 - 1차 MVP에서는 단순하게 처리하고, 이후 개선
 
 **향후 개선 방향** (MVP 1.5+):
+
 - 공시명에 "[정정]" 표시
 - 원 공시와 정정공시 연결 정보 제공
 - 정정 내용 비교 기능
@@ -500,6 +536,7 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
 ## 7. 확장성 고려사항
 
 ### 7.1 사용자 증가 대응
+
 - **현재 구조**: 단일 서버 + 단일 DB
 - **향후 확장**:
   - 백엔드 API 서버 수평 확장 (로드 밸런서)
@@ -507,12 +544,14 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
   - Redis 캐시 추가 (자주 조회되는 공시)
 
 ### 7.2 공시 데이터 증가 대응
+
 - **현재**: 모든 공시를 단일 Disclosures 테이블에 저장
 - **향후**:
   - 오래된 공시는 별도 Archive 테이블로 이동
   - 파티셔닝 (월별 또는 분기별)
 
 ### 7.3 알림 발송 부하 대응
+
 - **현재**: Scheduler에서 동기적으로 알림 발송
 - **향후**:
   - 메시지 큐 도입 (Bull.js + Redis)
@@ -521,6 +560,7 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
 ## 8. 모니터링 및 로깅
 
 ### 8.1 로깅 전략
+
 - **NestJS Logger 사용**
 - **로그 레벨**: error, warn, info, debug
 - **주요 로깅 포인트**:
@@ -530,6 +570,7 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
   - 에러 발생 (Exception Filter)
 
 ### 8.2 모니터링 지표 (향후)
+
 - API 응답 시간
 - 공시 수집 성공률
 - 알림 발송 성공률
@@ -539,12 +580,14 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
 ## 9. 배포 아키텍처
 
 ### 9.1 개발 환경
+
 - Docker Compose로 로컬 개발 환경 구성
   - NestJS backend
   - PostgreSQL
   - (선택) Redis (향후)
 
 ### 9.2 프로덕션 환경 (향후)
+
 - **백엔드**: AWS ECS / GCP Cloud Run / Fly.io
 - **DB**: AWS RDS PostgreSQL / GCP Cloud SQL
 - **푸시 알림**: Expo Push Notification Service
@@ -552,24 +595,24 @@ async sendNotification(userId: string, disclosureRcpNo: string) {
 
 ## 10. 기술적 의사결정 정리
 
-| 의사결정 항목 | 선택 | 이유 |
-|--------------|------|------|
-| **백엔드 프레임워크** | NestJS | TypeScript 지원, 모듈화, DI, 생산성 |
-| **ORM** | Prisma | 타입 안전, 마이그레이션, 개발자 경험 |
-| **DB** | PostgreSQL | 관계형 데이터, 트랜잭션, 안정성 |
-| **Scheduler** | @nestjs/schedule | NestJS 네이티브 통합, cron 지원 |
-| **모바일 프레임워크** | React Native (Expo) | 빠른 개발, 푸시 알림 간편, Deep Link 지원 |
-| **상태 관리** | React Query + Zustand | 서버/클라이언트 상태 분리, 캐싱, 간결함 |
-| **UI** | React Native Paper + StyleSheet | RN Paper 컴포넌트 사용, NativeWind 미사용 |
-| **푸시 알림** | Expo Push | Expo와 통합, 간단한 설정 |
-| **인프라 (MVP)** | GCP (Cloud Run + Cloud SQL) | Cloud Run 무료 티어(월 200만 요청, vCPU 180,000초), Cloud SQL 소규모 인스턴스 저렴. 1인 개발 MVP 단계에서 비용 부담 최소화 |
-| **인프라 (확장 시)** | AWS 이관 예정 | 사용자 증가 시 안정성·세밀한 인프라 제어가 필요해지면 AWS ECS + RDS로 이관. AWS ECS Fargate는 무료 티어가 없어 초기에는 비용 비효율적 |
+| 의사결정 항목         | 선택                            | 이유                                                                                                                                  |
+| --------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **백엔드 프레임워크** | NestJS                          | TypeScript 지원, 모듈화, DI, 생산성                                                                                                   |
+| **ORM**               | Prisma                          | 타입 안전, 마이그레이션, 개발자 경험                                                                                                  |
+| **DB**                | PostgreSQL                      | 관계형 데이터, 트랜잭션, 안정성                                                                                                       |
+| **Scheduler**         | @nestjs/schedule                | NestJS 네이티브 통합, cron 지원                                                                                                       |
+| **모바일 프레임워크** | React Native (Expo)             | 빠른 개발, 푸시 알림 간편, Deep Link 지원                                                                                             |
+| **상태 관리**         | React Query + Zustand           | 서버/클라이언트 상태 분리, 캐싱, 간결함                                                                                               |
+| **UI**                | React Native Paper + StyleSheet | RN Paper 컴포넌트 사용, NativeWind 미사용                                                                                             |
+| **푸시 알림**         | Expo Push                       | Expo와 통합, 간단한 설정                                                                                                              |
+| **인프라 (MVP)**      | GCP (Cloud Run + Cloud SQL)     | Cloud Run 무료 티어(월 200만 요청, vCPU 180,000초), Cloud SQL 소규모 인스턴스 저렴. 1인 개발 MVP 단계에서 비용 부담 최소화            |
+| **인프라 (확장 시)**  | AWS 이관 예정                   | 사용자 증가 시 안정성·세밀한 인프라 제어가 필요해지면 AWS ECS + RDS로 이관. AWS ECS Fargate는 무료 티어가 없어 초기에는 비용 비효율적 |
 
 ---
 
 **작성일**: 2026-04-18
-**최종 수정일**: 2026-07-31 (AOS Phase A3-1 디바이스 실행 가능 공유 Rule Evaluator 반영) / 이전: AOS Governance
-**버전**: 2.5 (AOS Shared Rule Evaluator 실행 코어 추가) / 이전: 2.4 (AOS Approval/ConfigAudit 제어평면 추가)
+**최종 수정일**: 2026-08-01 (AOS Phase A8 확정이익 배분 계획 반영)
+**버전**: 2.6 (AOS Allocation Planning 추가) / 이전: 2.5 (AOS Shared Rule Evaluator 실행 코어 추가)
 
 ## 11. AOS 운영 제어면
 

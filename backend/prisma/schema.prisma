@@ -49,6 +49,11 @@ model User {
   aosOperatorGrants           AosOperatorMembership[]     @relation("AosOperatorGrantedBy")
   aosStepUpGrants             AosStepUpGrant[]
   aosOperatorCommands         AosOperatorCommandReceipt[]
+  createdAllocationPolicies   AosAllocationPolicy[]       @relation("AosAllocationPolicyCreatedBy")
+  approvedAllocationPolicies  AosAllocationPolicy[]       @relation("AosAllocationPolicyApprovedBy")
+  createdAllocationPlans      AosAllocationPlan[]         @relation("AosAllocationPlanCreatedBy")
+  approvedAllocationPlans     AosAllocationPlan[]         @relation("AosAllocationPlanApprovedBy")
+  aosAllocationLedgerEntries  AosAllocationLedgerEntry[]
 
   @@unique([provider, providerId])
   @@index([email])
@@ -3144,6 +3149,37 @@ enum AosOperatorCommandStatus {
   FAILED
 }
 
+// ====================================
+// AOS A8 — realized-profit allocation planning (planning only)
+// ====================================
+
+enum AosAllocationPolicyStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum AosAllocationPlanStatus {
+  DRAFT
+  APPROVED
+  CANCELLED
+}
+
+enum AosAllocationDestination {
+  SPGI
+  VTI
+  SYSTEM_TRADING
+}
+
+enum AosAllocationLedgerEventType {
+  POLICY_CREATED
+  POLICY_ACTIVATED
+  PLAN_CREATED
+  PLAN_APPROVED
+  PLAN_CANCELLED
+  PLAN_REISSUED
+}
+
 model AosOperatorMembership {
   id              String                      @id @default(cuid())
   userId          String                      @unique
@@ -3225,10 +3261,119 @@ model AosTradingAccount {
   portfolioProposals AosPortfolioProposal[]
   orderPlans         AosOrderPlan[]
   reconciliationRuns AosReconciliationRun[]
+  allocationPlans    AosAllocationPlan[]
 
   @@unique([userId, accountType, label])
   @@index([userId, status])
   @@map("aos_trading_accounts")
+}
+
+model AosAllocationPolicy {
+  id                      String                    @id @default(cuid())
+  version                 Int                       @unique
+  status                  AosAllocationPolicyStatus @default(DRAFT)
+  spgiWeight              Decimal                   @default(0.5) @db.Decimal(5, 4)
+  vtiWeight               Decimal                   @default(0.3) @db.Decimal(5, 4)
+  systemTradingWeight     Decimal                   @default(0.2) @db.Decimal(5, 4)
+  profitPeriodPolicyJson  Json
+  taxReservePolicyJson    Json
+  fxPolicyJson            Json
+  minimumAmountPolicyJson Json
+  contentHash             String                    @unique
+  createdByUserId         String
+  approvedByUserId        String?
+  approvedAt              DateTime?
+  effectiveFrom           DateTime?
+  createdAt               DateTime                  @default(now())
+
+  createdBy  User                       @relation("AosAllocationPolicyCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  approvedBy User?                      @relation("AosAllocationPolicyApprovedBy", fields: [approvedByUserId], references: [id], onDelete: Restrict)
+  plans      AosAllocationPlan[]
+  ledger     AosAllocationLedgerEntry[]
+
+  @@index([status, effectiveFrom])
+  @@index([createdByUserId, createdAt])
+  @@map("aos_allocation_policies")
+}
+
+model AosAllocationPlan {
+  id                  String                  @id @default(cuid())
+  allocationPolicyId  String
+  tradingAccountId    String
+  periodStart         DateTime
+  periodEnd           DateTime
+  revision            Int                     @default(1)
+  grossRealizedProfit Decimal                 @db.Decimal(18, 2)
+  taxReserveAmount    Decimal                 @db.Decimal(18, 2)
+  fxReserveAmount     Decimal                 @db.Decimal(18, 2)
+  distributableProfit Decimal                 @db.Decimal(18, 2)
+  currency            String                  @default("KRW")
+  status              AosAllocationPlanStatus @default(DRAFT)
+  sourceEvidenceJson  Json
+  sourceEvidenceHash  String
+  planHash            String                  @unique
+  parentPlanId        String?
+  createdByUserId     String
+  approvedByUserId    String?
+  approvedAt          DateTime?
+  cancelledAt         DateTime?
+  createdAt           DateTime                @default(now())
+
+  allocationPolicy AosAllocationPolicy        @relation(fields: [allocationPolicyId], references: [id], onDelete: Restrict)
+  tradingAccount   AosTradingAccount          @relation(fields: [tradingAccountId], references: [id], onDelete: Restrict)
+  parentPlan       AosAllocationPlan?         @relation("AosAllocationPlanReissue", fields: [parentPlanId], references: [id], onDelete: Restrict)
+  reissuedPlans    AosAllocationPlan[]        @relation("AosAllocationPlanReissue")
+  createdBy        User                       @relation("AosAllocationPlanCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  approvedBy       User?                      @relation("AosAllocationPlanApprovedBy", fields: [approvedByUserId], references: [id], onDelete: Restrict)
+  items            AosAllocationPlanItem[]
+  ledger           AosAllocationLedgerEntry[]
+
+  @@unique([tradingAccountId, periodStart, periodEnd, revision])
+  @@index([tradingAccountId, status, periodEnd])
+  @@index([allocationPolicyId, status])
+  @@index([parentPlanId])
+  @@index([sourceEvidenceHash])
+  @@map("aos_allocation_plans")
+}
+
+model AosAllocationPlanItem {
+  id          String                   @id @default(cuid())
+  planId      String
+  destination AosAllocationDestination
+  weight      Decimal                  @db.Decimal(5, 4)
+  amount      Decimal                  @db.Decimal(18, 2)
+  currency    String                   @default("KRW")
+  createdAt   DateTime                 @default(now())
+
+  plan AosAllocationPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@unique([planId, destination])
+  @@index([destination, createdAt])
+  @@map("aos_allocation_plan_items")
+}
+
+model AosAllocationLedgerEntry {
+  id            String                       @id @default(cuid())
+  policyId      String?
+  planId        String?
+  eventType     AosAllocationLedgerEventType
+  actorUserId   String
+  actorRole     AosOperatorRole
+  reason        String
+  snapshotJson  Json
+  snapshotHash  String
+  correlationId String                       @unique
+  receiptHash   String                       @unique
+  createdAt     DateTime                     @default(now())
+
+  policy AosAllocationPolicy? @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  plan   AosAllocationPlan?   @relation(fields: [planId], references: [id], onDelete: Restrict)
+  actor  User                 @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([policyId, createdAt])
+  @@index([planId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@map("aos_allocation_ledger_entries")
 }
 
 model AosCapitalBucket {

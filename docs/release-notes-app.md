@@ -20,8 +20,8 @@
 | Admin Web | 전략/Rule 버전, Backtest, Shadow 원장, 자산배분 정책·계획, 감사, Worker, Kill Switch를 독립 운영 화면에서 관리 | `operator-web` production build 또는 demo mode 실행 |
 
 APK와 무결성 값은 [AOS A1–A8 release validation](roadmap/aos-release-validation.md)에 기록한다.
-운영 Backend/DB와 Admin hosting은 별도 승인 전까지 배포하지 않았으므로, 그 전에는 새 서버 의존 화면이
-현재 운영 API에서 활성화되지 않는다.
+운영 DB schema는 사용자 승인 후 2026-08-01 AOS migration 10개를 적용했다. Backend 앱 이미지와
+Admin hosting은 아직 배포하지 않았으므로 새 서버 API는 앱 코드 배포 전까지 활성화되지 않는다.
 
 ---
 

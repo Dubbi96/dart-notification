@@ -2,7 +2,7 @@
   "expo": {
     "name": "공시온",
     "slug": "dart-alert",
-    "version": "1.0.0",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -34,7 +34,7 @@
       },
       "package": "com.gongsion.app",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 1,
+      "versionCode": 5,
       "predictiveBackGestureEnabled": false
     },
     "web": {

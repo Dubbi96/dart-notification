@@ -39,11 +39,17 @@ GitHub Release `aos-v1.0.3-build5`에도 같은 APK를 첨부해 EAS 임시 URL 
 
 이 릴리스는 설치 가능한 내부 검수 APK와 Admin production build를 완성한다. 사용자 승인에 따라
 2026-08-01 운영 DB에 AOS migration 10개를 적용했고, 적용 전 S3 전체 백업과 적용 후 Prisma/HTTP health를
-확인했다. 다음 작업은 포함하지 않았다.
+확인했다. 후속 승인으로 같은 날 OCI Backend 이미지와 Admin HTTPS 정적 호스팅도 배포했다.
 
-- OCI Backend 애플리케이션 이미지 배포
-- Admin hosting, 운영 계정/SSO/2FA/CORS/CSP 확정
+- Backend: AOS 공용 Rule Engine 포함 amd64 production image, container healthy
+- Admin: `https://admin.168.138.198.152.nip.io`, same-origin `/api`, CSP/HSTS, source map 0
+- 운영자: 승인 이메일 bootstrap 등록, Mutation 전역 OFF
+
+다음 작업은 포함하지 않았다.
+
+- 실도메인, SSO/2FA, bootstrap env의 DB membership 전환
+- Operator mutation 활성화와 역할별 복수 계정 분리
 - 송금, 환전, 실브로커 주문 또는 A9 LIVE adapter
 
-따라서 DB schema는 준비됐지만 A1–A8 Backend API는 아직 운영 컨테이너에 배포되지 않았다. 운영 APK의
-신규 서버 의존 기능은 Backend 이미지 배포 승인을 받아 반영하기 전까지 활성화되지 않는다.
+따라서 A1–A8의 DB·Backend·Admin 조회 경로는 운영에 반영됐지만, 변경 명령과 LIVE 거래 경로는 계속
+차단되어 있다.

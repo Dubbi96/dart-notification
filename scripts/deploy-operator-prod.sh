@@ -30,7 +30,7 @@ npm --prefix "${OPERATOR_DIR}" ci --legacy-peer-deps
 npm --prefix "${OPERATOR_DIR}" test
 VITE_API_BASE_URL=/api VITE_AOS_OPERATOR_DEMO=0 npm --prefix "${OPERATOR_DIR}" run build
 
-tar -C "${OPERATOR_DIR}/dist" -czf "${ARCHIVE}" .
+COPYFILE_DISABLE=1 tar --no-xattrs -C "${OPERATOR_DIR}/dist" -czf "${ARCHIVE}" .
 scp "${SSH_OPTS[@]}" "${ARCHIVE}" "${REMOTE}:${REMOTE_ARCHIVE}"
 scp "${SSH_OPTS[@]}" "${CADDY_SNIPPET}" "${REMOTE}:${REMOTE_SNIPPET}"
 
@@ -50,8 +50,22 @@ ssh "${SSH_OPTS[@]}" "${REMOTE}" "
   sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
   sudo ln -sfn \"\${release}\" '${REMOTE_ROOT}/current'
   sudo systemctl reload caddy
-  test \"\$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 'https://${ADMIN_HOST}/')\" = 200
-  test \"\$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 'https://${ADMIN_HOST}/api/aos/operator/bootstrap')\" = 401
+  check_url() {
+    expected=\"\$1\"
+    url=\"\$2\"
+    attempt=0
+    while [ \"\$attempt\" -lt 12 ]; do
+      code=\"\$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 \"\$url\" 2>/dev/null || true)\"
+      [ \"\$code\" = \"\$expected\" ] && return 0
+      attempt=\$((attempt + 1))
+      sleep 3
+    done
+    echo \"검증 실패: \$url HTTP \$code (기대 \$expected)\" >&2
+    return 1
+  }
+  # 신규 호스트의 최초 Let's Encrypt 발급 시간을 포함해 최대 36초 재시도한다.
+  check_url 200 'https://${ADMIN_HOST}/'
+  check_url 401 'https://${ADMIN_HOST}/api/aos/operator/bootstrap'
 "
 
 echo "Admin 배포 완료: https://${ADMIN_HOST}/"

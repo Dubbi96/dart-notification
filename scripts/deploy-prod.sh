@@ -188,8 +188,8 @@ else
     "cd $REMOTE_DIR && $COMPOSE --profile migrate run --rm --no-deps migrate"
 fi
 
-log "④-2 백엔드 재기동 (로드된 이미지 그대로 — ★--build 금지)"
-ssh "${SSH_OPTS[@]}" "$REMOTE" "cd $REMOTE_DIR && $COMPOSE up -d backend"
+log "④-2 백엔드 재기동 (로드된 이미지 그대로 — ★--build·dependency 재생성 금지)"
+ssh "${SSH_OPTS[@]}" "$REMOTE" "cd $REMOTE_DIR && $COMPOSE up -d --no-deps backend"
 
 log "부팅 대기(20s) 후 검증 시작"
 sleep 20

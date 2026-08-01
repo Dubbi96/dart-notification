@@ -3,6 +3,24 @@
 Issue #583의 운영 배포와 후속 설계 정본이다. Admin은 로컬 개발 서버가 아니라 기존 OCI Always
 Free micro1에서 정적 파일로 제공한다. Backend와 같은 인스턴스를 재사용하므로 추가 월 비용은 0원이다.
 
+## 2026-08-01 운영 반영
+
+- Admin URL: `https://admin.168.138.198.152.nip.io`
+- Backend: AOS Rule Engine 포함 production image 배포, container `healthy`
+- API: 무인증 Operator bootstrap 요청 `401` 확인(404 아님)
+- Admin: index와 hashed JS/CSS `200`, production source map 0
+- 보안: Let's Encrypt 인증서, CSP/HSTS/X-Frame-Options/nosniff/Permissions Policy 적용
+- 화면: 1280×900과 375×812에서 horizontal overflow 0, console error 0
+- 계정: 승인된 이메일을 bootstrap ADMIN으로 등록. 배포 시점 해당 이메일 DB 사용자 0건이므로
+  정상 가입한 뒤 기존 앱 인증으로 로그인해야 한다. 실제 이메일은 운영 환경에만 보관한다.
+- 변경 명령: `AOS_OPERATOR_MUTATIONS_ENABLED=false` 확인
+- 비용: 기존 OCI Always Free와 Caddy 재사용, 추가 월 비용 0원
+
+Backend 재생성 중 Docker가 종료된 구 컨테이너를 `removing` 상태에 남겨 새 컨테이너 시작이 지연됐다.
+구 compose 프로세스를 종료하고 Docker daemon을 1회 재시작한 뒤 새 Backend만 `--no-deps`로 기동했다.
+Redis는 restart policy로 정상 복귀했고, DB는 별도 micro2라 재기동 대상이 아니었다. 복구 후 Backend,
+Redis, 내부·공개 health와 Operator 인증 경계를 모두 재검증했다.
+
 ## 현재 운영 구조
 
 ```text

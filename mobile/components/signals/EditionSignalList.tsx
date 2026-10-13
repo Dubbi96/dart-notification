@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@theme';
@@ -7,6 +7,7 @@ import { spacing, radius } from '@theme/spacing';
 import { EditionDecisionCard } from '@components/signals/EditionDecisionCard';
 import { EditionDecisionSummary } from '@components/signals/EditionDecisionSummary';
 import { EditionFallbackBriefing } from '@components/signals/EditionFallbackBriefing';
+import { EditionOptInBanner } from '@components/signals/EditionOptInBanner';
 import { DisclaimerSection } from '@components/common/DisclaimerSection';
 import { EmptyState, ApiErrorState } from '@components/common/StateView';
 import { SkeletonList } from '@components/common/SkeletonCard';
@@ -108,7 +109,7 @@ function EditionSignalListBase({
 
   if (query.isError) {
     return (
-      <View style={styles.container}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.errorContent}>
         {cachedReceipt.data ? (
           <View
             style={[
@@ -117,7 +118,7 @@ function EditionSignalListBase({
             ]}
           >
             <Feather name="archive" size={16} color={colors.textSecondary} />
-            <Text style={[typo.small, styles.cachedReceiptText, { color: colors.textSecondary }]}>
+            <Text style={[typo.caption, styles.cachedReceiptText, { color: colors.textSecondary }]}>
               마지막 기기 계산: {cachedReceipt.data.headline} ·{' '}
               {cachedReceipt.data.savedAt.slice(0, 10)}
             </Text>
@@ -129,7 +130,7 @@ function EditionSignalListBase({
           description="잠시 후 다시 시도해 주세요."
           onRetry={refetch}
         />
-      </View>
+      </ScrollView>
     );
   }
 
@@ -141,19 +142,23 @@ function EditionSignalListBase({
   const fallbackBriefing = meta?.fallbackBriefing ?? [];
   const hasFallbackBriefing = fallbackBriefing.length > 0;
 
-  if (items.length > 0 && (deviceDecision.isPending || deviceDecision.isError)) {
+  if (items.length > 0 && deviceDecision.isError) {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.errorContent}>
+        <ApiErrorState
+          error={deviceDecision.error}
+          title="기기 Rule 계산을 완료하지 못했습니다."
+          description="안전상 숫자 플랜을 표시하지 않습니다. 다시 계산해 주세요."
+          onRetry={deviceDecision.refetch}
+        />
+      </ScrollView>
+    );
+  }
+
+  if (items.length > 0 && deviceDecision.isPending) {
     return (
       <View style={styles.container}>
-        {deviceDecision.isError ? (
-          <ApiErrorState
-            error={deviceDecision.error}
-            title="기기 Rule 계산을 완료하지 못했습니다."
-            description="안전상 숫자 플랜을 표시하지 않습니다. 다시 계산해 주세요."
-            onRetry={deviceDecision.refetch}
-          />
-        ) : (
-          <SkeletonList variant="buyScore" />
-        )}
+        <SkeletonList variant="buyScore" />
       </View>
     );
   }
@@ -169,17 +174,17 @@ function EditionSignalListBase({
           ]}
         >
           <Feather name="clock" size={16} color={colors.textSecondary} />
-          <Text style={[typo.small, styles.bannerText, { color: colors.textSecondary }]}>
+          <Text style={[typo.caption, styles.bannerText, { color: colors.textSecondary }]}>
             지난 판단 · 현재 시세와 다를 수 있어요
           </Text>
           {todayDate ? (
             <TouchableOpacity
               onPress={() => onSelectDate(todayDate)}
-              style={[styles.resetBtn, { borderColor: colors.primary }]}
+              style={[styles.resetBtn, { borderColor: colors.primaryDark }]}
               accessibilityRole="button"
               accessibilityLabel="오늘 에디션으로 이동"
             >
-              <Text style={[typo.small, { color: colors.primary, fontWeight: '600' }]}>오늘로</Text>
+              <Text style={[typo.captionMedium, { color: colors.primaryDark }]}>오늘로</Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -199,25 +204,31 @@ function EditionSignalListBase({
         refreshing={query.isRefetching}
         onRefresh={handleRefresh}
         ListHeaderComponent={
-          deviceDecision.data ? (
-            <View style={styles.header}>
-              <EditionDecisionSummary decision={deviceDecision.data} historical={isPast} />
-              {!isPast && deviceDecision.controlNotice ? (
-                <View
-                  testID="edition-control-notice"
-                  style={[
-                    styles.controlNotice,
-                    { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
-                  ]}
-                >
-                  <Feather name="lock" size={16} color={colors.textSecondary} />
-                  <Text style={[typo.small, styles.bannerText, { color: colors.textSecondary }]}>
-                    {deviceDecision.controlNotice}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          ) : null
+          <View style={styles.header}>
+            {/* 큰 글씨에서도 배너가 판단 목록의 높이를 고정 점유하지 않도록 함께 스크롤한다. */}
+            <EditionOptInBanner />
+            {deviceDecision.data ? (
+              <>
+                <EditionDecisionSummary decision={deviceDecision.data} historical={isPast} />
+                {!isPast && deviceDecision.controlNotice ? (
+                  <View
+                    testID="edition-control-notice"
+                    style={[
+                      styles.controlNotice,
+                      { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+                    ]}
+                  >
+                    <Feather name="lock" size={16} color={colors.textSecondary} />
+                    <Text
+                      style={[typo.caption, styles.bannerText, { color: colors.textSecondary }]}
+                    >
+                      {deviceDecision.controlNotice}
+                    </Text>
+                  </View>
+                ) : null}
+              </>
+            ) : null}
+          </View>
         }
         ListEmptyComponent={
           <View>
@@ -267,6 +278,7 @@ const styles = StyleSheet.create({
   },
   bannerText: {
     flex: 1,
+    minWidth: 0,
   },
   header: {
     gap: spacing.md,
@@ -290,9 +302,12 @@ const styles = StyleSheet.create({
   },
   cachedReceiptText: {
     flex: 1,
+    minWidth: 0,
   },
   resetBtn: {
     minHeight: 48,
+    minWidth: 48,
+    flexShrink: 0,
     justifyContent: 'center',
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.md,
@@ -307,4 +322,5 @@ const styles = StyleSheet.create({
   disclaimer: {
     marginTop: spacing.lg,
   },
+  errorContent: { flexGrow: 1, paddingBottom: spacing.lg },
 });

@@ -144,7 +144,7 @@ function TypeSegmentChipBase({ segment, active, unread, onSelect }: TypeSegmentC
             // DAR-298: 고정 높이 카운트 배지 — OS 글꼴 확대 시 텍스트 클리핑 방지 배율 상한.
             maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
             style={[
-              typo.small,
+              typo.captionMedium,
               styles.segmentBadgeText,
               { color: active ? colors.primary : colors.primaryForeground },
             ]}
@@ -225,34 +225,26 @@ function NotificationRowBase({ item, onPress }: NotificationRowProps) {
         )}
       </View>
       <View style={styles.notificationContent}>
-        <Text
-          style={[typo.captionMedium, { color: colors.text, minWidth: 0 }]}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
-          {primaryText}
-        </Text>
+        <Text style={[typo.bodyMedium, { color: colors.text }]}>{primaryText}</Text>
         {secondaryText ? (
-          <Text
-            style={[typo.caption, { color: colors.textSecondary, marginTop: 2 }]}
-            numberOfLines={2}
-          >
+          <Text style={[typo.caption, { color: colors.textSecondary, marginTop: 2 }]}>
             {secondaryText}
           </Text>
         ) : null}
-        <Text style={[typo.small, { color: colors.textTertiary, marginTop: spacing.xs }]}>
+        <Text style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
           {sentAtLabel}
         </Text>
         {newsStockCode ? (
           <TouchableOpacity
             style={styles.newsLinkRow}
             onPress={handleOpenNews}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="link"
             accessibilityLabel="네이버금융에서 종목 뉴스 보기, 외부 브라우저로 열림"
           >
-            <Feather name="external-link" size={12} color={colors.primary} />
-            <Text style={[typo.small, { color: colors.primary }]}>네이버금융 뉴스 보기</Text>
+            <Feather name="external-link" size={16} color={colors.primary} />
+            <Text style={[typo.captionMedium, styles.newsLinkText, { color: colors.primary }]}>
+              네이버금융 뉴스 보기
+            </Text>
           </TouchableOpacity>
         ) : null}
       </View>
@@ -402,8 +394,8 @@ export default function NotificationsScreen() {
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <Text style={[typo.h2, { color: colors.text }]}>알림</Text>
         <TouchableOpacity
+          style={styles.headerAction}
           onPress={() => router.push('/settings-detail/notification-settings')}
-          hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel="알림 설정 열기"
         >
@@ -413,6 +405,7 @@ export default function NotificationsScreen() {
 
       {/* DAR-430: 카테고리 세그먼트 칩 — 공시/신호/체결 + 전체, 카테고리별 미읽음 배지 */}
       <ScrollView
+        style={styles.segmentScroll}
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.segmentRow}
@@ -432,17 +425,16 @@ export default function NotificationsScreen() {
         {unreadCount > 0 && (
           <View style={[styles.unreadBadge, { backgroundColor: colors.primary }]}>
             <Text
-              style={[typo.small, { color: colors.primaryForeground, fontWeight: '600' }]}
+              style={[typo.captionMedium, { color: colors.primaryForeground }]}
               maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
             >
               {unreadCount}개 안 읽음
             </Text>
           </View>
         )}
-        <View style={{ flex: 1 }} />
         <TouchableOpacity
+          style={[styles.headerAction, styles.markAllAction]}
           onPress={handleMarkAllAsRead}
-          hitSlop={12}
           disabled={unreadCount === 0}
           accessibilityRole="button"
           accessibilityLabel="모든 알림 읽음으로 표시"
@@ -511,11 +503,26 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.base,
     borderBottomWidth: 1,
+  },
+  headerAction: {
+    minHeight: 48,
+    maxWidth: '100%',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  markAllAction: {
+    marginLeft: 'auto',
+  },
+  segmentScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
   },
   segmentRow: {
     flexDirection: 'row',
@@ -535,7 +542,7 @@ const styles = StyleSheet.create({
     // radius.full 라운드 클립 경계가 그 상자 밖으로 그려지는 한글 받침 글리프를 잘라낸다
     // (리스트 본문은 같은 captionMedium 토큰이라도 column 레이아웃이라 잘리지 않음).
     // 글리프가 클립 경계 안에 들도록 최소 높이를 확보(에뮬 1.0x/1.5x 받침 온전 실측).
-    minHeight: 40,
+    minHeight: 48,
     borderRadius: radius.full,
     borderWidth: 1,
   },
@@ -552,6 +559,8 @@ const styles = StyleSheet.create({
   },
   subHeader: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
@@ -563,10 +572,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 6,
+    paddingVertical: spacing.xs,
+    maxWidth: '100%',
   },
   notificationItem: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.base,
     borderBottomWidth: 1,
@@ -579,6 +590,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: spacing.md,
+    flexShrink: 0,
   },
   unreadDot: {
     position: 'absolute',
@@ -591,14 +603,21 @@ const styles = StyleSheet.create({
   },
   notificationContent: {
     flex: 1,
+    minWidth: 0,
     marginRight: spacing.sm,
   },
-  // 갭분석 W7·W6(d): 급변동 행의 네이버금융 뉴스 링크아웃(외부 브라우저) — hitSlop 으로 44pt 확보.
+  // 실제 레이아웃에 터치 높이를 확보해 인접 알림의 터치 영역과 겹치지 않는다.
   newsLinkRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
     marginTop: spacing.xs,
     alignSelf: 'flex-start',
+    minHeight: 48,
+    maxWidth: '100%',
+  },
+  newsLinkText: {
+    flexShrink: 1,
+    minWidth: 0,
   },
 });

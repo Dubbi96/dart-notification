@@ -45,28 +45,57 @@ function PortfolioScreen() {
   useScrollToTop(listRef);
 
   const rows = useMemo(() => {
-    const sorted = [...(positions.data ?? [])].sort((left, right) => STATUS_ORDER[left.thesisStatus] - STATUS_ORDER[right.thesisStatus] || (right.exitScore ?? 0) - (left.exitScore ?? 0));
+    const sorted = [...(positions.data ?? [])].sort(
+      (left, right) =>
+        STATUS_ORDER[left.thesisStatus] - STATUS_ORDER[right.thesisStatus] ||
+        (right.exitScore ?? 0) - (left.exitScore ?? 0),
+    );
     return dedupeByStock(sorted, (position) => position.id);
   }, [positions.data]);
 
   const refresh = useCallback(() => {
-    void Promise.all([positions.refetch(), summary.refetch(), risk.refetch(), allocation.refetch()]);
+    void Promise.all([
+      positions.refetch(),
+      summary.refetch(),
+      risk.refetch(),
+      allocation.refetch(),
+    ]);
   }, [allocation, positions, risk, summary]);
 
-  const renderPosition = useCallback(({ item }: { item: Position }) => <PositionCard position={item} onPress={(position) => router.push(`/portfolio/${position.portfolioId}/position/${position.id}`)} />, []);
+  const renderPosition = useCallback(
+    ({ item }: { item: Position }) => (
+      <PositionCard
+        position={item}
+        onPress={(position) =>
+          router.push(`/portfolio/${position.portfolioId}/position/${position.id}`)
+        }
+      />
+    ),
+    [],
+  );
 
   if (!authenticated) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        edges={['top']}
+      >
         <Header />
-        <GuestPrompt {...guestPromptCopy.portfolio} secondaryLabel="오늘의 판단 보기" onSecondary={() => router.push('/(tabs)/signals')} />
+        <GuestPrompt
+          {...guestPromptCopy.portfolio}
+          secondaryLabel="오늘의 판단 보기"
+          onSecondary={() => router.push('/(tabs)/signals')}
+        />
       </SafeAreaView>
     );
   }
 
   if (positions.isLoading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        edges={['top']}
+      >
         <Header />
         <SkeletonList variant="buyScore" />
       </SafeAreaView>
@@ -75,15 +104,25 @@ function PortfolioScreen() {
 
   if (positions.isError) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        edges={['top']}
+      >
         <Header />
-        <ApiErrorState error={positions.error} title="포지션을 불러오지 못했습니다." onRetry={refresh} />
+        <ApiErrorState
+          error={positions.error}
+          title="포지션을 불러오지 못했습니다."
+          onRetry={refresh}
+        />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <Header />
       <FlatList
         ref={listRef}
@@ -92,28 +131,48 @@ function PortfolioScreen() {
         renderItem={renderPosition}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
-        refreshing={positions.isRefetching || summary.isRefetching || risk.isRefetching || allocation.isRefetching}
+        refreshing={
+          positions.isRefetching ||
+          summary.isRefetching ||
+          risk.isRefetching ||
+          allocation.isRefetching
+        }
         onRefresh={refresh}
         ListHeaderComponent={
           <View style={styles.headerStack}>
-            <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View
+              style={[
+                styles.summaryCard,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
+            >
               <View style={styles.summaryTitleRow}>
-                <View style={styles.flex}>
-                  <Text style={[typo.small, { color: colors.textSecondary }]}>시스템 자금과 분리된 보유</Text>
-                  <Text style={[typo.h1, styles.amount, { color: colors.text }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-                    {summary.data ? `${summary.data.totalValue.toLocaleString('ko-KR')}원` : '—'}
-                  </Text>
-                </View>
+                <Text style={[typo.caption, styles.flex, { color: colors.textSecondary }]}>
+                  시스템 자금과 분리된 보유
+                </Text>
                 <Feather name="briefcase" size={24} color={colors.primary} />
               </View>
+              <Text style={[typo.h1, styles.amount, { color: colors.text }]}>
+                {summary.data ? `${summary.data.totalValue.toLocaleString('ko-KR')}원` : '—'}
+              </Text>
               {summary.data ? (
-                <Text style={[typo.bodyMedium, { color: pnlColor(summary.data.totalPnlPercent, colors) }]}>
-                  {signedKrw(summary.data.totalPnl)} ({formatPnlPercent(summary.data.totalPnlPercent)})
+                <Text
+                  style={[
+                    typo.bodyMedium,
+                    { color: pnlColor(summary.data.totalPnlPercent, colors) },
+                  ]}
+                >
+                  {signedKrw(summary.data.totalPnl)} (
+                  {formatPnlPercent(summary.data.totalPnlPercent)})
                 </Text>
               ) : (
-                <Text style={[typo.small, { color: colors.textSecondary }]}>평가 요약을 확인할 수 없습니다.</Text>
+                <Text style={[typo.caption, { color: colors.textSecondary }]}>
+                  평가 요약을 확인할 수 없습니다.
+                </Text>
               )}
-              <Text style={[typo.small, styles.basis, { color: colors.textTertiary }]}>조회 전용 · 실주문 기능 없음</Text>
+              <Text style={[typo.caption, styles.basis, { color: colors.textSecondary }]}>
+                조회 전용 · 실주문 기능 없음
+              </Text>
             </View>
 
             {risk.data ? (
@@ -121,19 +180,27 @@ function PortfolioScreen() {
             ) : risk.isError ? (
               <View style={[styles.inlineNotice, { backgroundColor: colors.warningSurface }]}>
                 <Feather name="alert-triangle" size={16} color={colors.warning} />
-                <Text style={[typo.small, styles.flex, { color: colors.text }]}>Risk 상태를 확인할 수 없습니다.</Text>
+                <Text style={[typo.caption, styles.flex, { color: colors.text }]}>
+                  Risk 상태를 확인할 수 없습니다.
+                </Text>
               </View>
             ) : null}
 
             {allocation.data ? <AllocationSummaryCard summary={allocation.data} /> : null}
 
             <View style={styles.sectionTitleRow}>
-              <Text style={[typo.h3, { color: colors.text }]}>보유 포지션</Text>
-              <Text style={[typo.small, { color: colors.textSecondary }]}>{rows.length}건</Text>
+              <Text style={[typo.h3, styles.flex, { color: colors.text }]}>보유 포지션</Text>
+              <Text style={[typo.caption, { color: colors.textSecondary }]}>{rows.length}건</Text>
             </View>
           </View>
         }
-        ListEmptyComponent={<EmptyState icon="briefcase" title="보유 포지션이 없습니다" description="Rule과 Risk를 통과한 포지션이 생기면 이곳에서 상태와 중단 기준을 확인할 수 있어요." />}
+        ListEmptyComponent={
+          <EmptyState
+            icon="briefcase"
+            title="보유 포지션이 없습니다"
+            description="Rule과 Risk를 통과한 포지션이 생기면 이곳에서 상태와 중단 기준을 확인할 수 있어요."
+          />
+        }
       />
     </SafeAreaView>
   );
@@ -142,7 +209,7 @@ function PortfolioScreen() {
     return (
       <View style={[styles.screenHeader, { borderBottomColor: colors.border }]}>
         <Text style={[typo.h2, { color: colors.text }]}>포지션</Text>
-        <Text style={[typo.small, { color: colors.textSecondary }]}>보유 · 손익 · Risk 상태</Text>
+        <Text style={[typo.caption, { color: colors.textSecondary }]}>보유 · 손익 · Risk 상태</Text>
       </View>
     );
   }

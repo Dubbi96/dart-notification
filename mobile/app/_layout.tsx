@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { PaperProvider } from 'react-native-paper';
 import { queryClient } from '@services/queryClient';
@@ -47,48 +48,50 @@ function AppContent() {
     <PaperProvider theme={paperTheme}>
       <ThemeContext.Provider value={theme}>
         <DialogProvider>
-        <SnackbarProvider>
-          <StatusBar style={theme.isDark ? 'light' : 'dark'} />
-          <View style={styles.appShell}>
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: theme.colors.background },
-              animation: 'slide_from_right',
-            }}
-          >
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="auth/sign-in" />
-            <Stack.Screen name="kakao" options={{ animation: 'none' }} />
-            <Stack.Screen name="disclosures/index" />
-            <Stack.Screen name="search/index" />
-            <Stack.Screen
-              name="disclosure/[id]"
-              options={{ animation: 'slide_from_bottom' }}
-            />
-            <Stack.Screen
-              name="disclosure/viewer"
-              options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
-            />
-            <Stack.Screen name="intro/index" options={{ animation: 'fade' }} />
-            <Stack.Screen name="onboarding/index" />
-            <Stack.Screen name="settings-detail/watchlist" />
-            <Stack.Screen name="settings-detail/notification-settings" />
-            <Stack.Screen name="settings-detail/profile" />
-            <Stack.Screen name="settings-detail/saved-disclosures" />
-            <Stack.Screen name="settings-detail/support" />
-            <Stack.Screen name="settings-detail/emergency-control" />
-            <Stack.Screen name="company/[corpCode]" />
-            <Stack.Screen name="legal/terms" />
-            <Stack.Screen name="legal/privacy" />
-            <Stack.Screen name="legal/data-sources" />
-          </Stack>
-          {/* DAR-173: 전역 오프라인 배너 — 절대 위치 오버레이라 화면 트리 위에 떠야 하므로 Stack 뒤. */}
-          <OfflineBanner />
-          {/* DAR-516: iOS 게이트 1문항 설문 — iOS+인증+미응답에서 1회 노출(Portal). 안드로이드=null. */}
-          <IosGateSurvey />
-          </View>
-        </SnackbarProvider>
+          <SnackbarProvider>
+            <StatusBar style={theme.isDark ? 'light' : 'dark'} />
+            <View style={styles.appShell}>
+              <OfflineBanner />
+              {/* 배너가 소비한 상단 안전 영역을 화면에서 다시 더하지 않도록 남은 영역을 측정한다. */}
+              <SafeAreaProvider style={styles.appShell}>
+                <Stack
+                  screenOptions={{
+                    headerShown: false,
+                    contentStyle: { backgroundColor: theme.colors.background },
+                    animation: 'slide_from_right',
+                  }}
+                >
+                  <Stack.Screen name="(tabs)" />
+                  <Stack.Screen name="auth/sign-in" />
+                  <Stack.Screen name="kakao" options={{ animation: 'none' }} />
+                  <Stack.Screen name="disclosures/index" />
+                  <Stack.Screen name="search/index" />
+                  <Stack.Screen
+                    name="disclosure/[id]"
+                    options={{ animation: 'slide_from_bottom' }}
+                  />
+                  <Stack.Screen
+                    name="disclosure/viewer"
+                    options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
+                  />
+                  <Stack.Screen name="intro/index" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="onboarding/index" />
+                  <Stack.Screen name="settings-detail/watchlist" />
+                  <Stack.Screen name="settings-detail/notification-settings" />
+                  <Stack.Screen name="settings-detail/profile" />
+                  <Stack.Screen name="settings-detail/saved-disclosures" />
+                  <Stack.Screen name="settings-detail/support" />
+                  <Stack.Screen name="settings-detail/emergency-control" />
+                  <Stack.Screen name="company/[corpCode]" />
+                  <Stack.Screen name="legal/terms" />
+                  <Stack.Screen name="legal/privacy" />
+                  <Stack.Screen name="legal/data-sources" />
+                </Stack>
+              </SafeAreaProvider>
+              {/* DAR-516: iOS 게이트 1문항 설문 — iOS+인증+미응답에서 1회 노출(Portal). 안드로이드=null. */}
+              <IosGateSurvey />
+            </View>
+          </SnackbarProvider>
         </DialogProvider>
       </ThemeContext.Provider>
     </PaperProvider>

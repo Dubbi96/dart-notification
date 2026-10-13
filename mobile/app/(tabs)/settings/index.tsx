@@ -3,6 +3,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import Constants from 'expo-constants';
 import { Divider } from 'react-native-paper';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -15,16 +16,8 @@ import { useAuthStore } from '@stores/authStore';
 import { useSettingsStore } from '@stores/settingsStore';
 import { useLogout, useMe } from '@hooks/useAuth';
 import { useWatchlist } from '@hooks/useWatchlist';
-import { verticalHitSlopForHeight } from '@utils/touchTarget';
+
 import type { ColorScheme } from '@theme';
-
-// DAR-470: 현재값 칩 최대 폭(긴 옵션 라벨 줄임 기준). 매직넘버 금지 → 명명 상수.
-const VALUE_CHIP_MAX_WIDTH = 160;
-
-// D7(L-4): 게스트 헤더 '로그인하기' 링크 — caption 한 줄(lineHeight 20)이라 실터치 높이가 44pt 미만.
-// 시각 크기는 유지하고 세로 hitSlop 으로 유효 터치 영역만 44pt 로 확장한다(DAR-146 규약).
-const GUEST_LOGIN_LINK_VISUAL_HEIGHT = 20;
-const GUEST_LOGIN_LINK_HIT_SLOP = verticalHitSlopForHeight(GUEST_LOGIN_LINK_VISUAL_HEIGHT);
 
 interface MenuItemProps {
   icon: keyof typeof Feather.glyphMap;
@@ -33,7 +26,7 @@ interface MenuItemProps {
   onPress?: () => void;
   badgeCount?: number;
   showChevron?: boolean;
-  /** cycle 행 우측 현재값 칩(있으면 순환 아이콘 동반) — 탭 시 값이 순환함을 알리는 affordance (D8). */
+  /** 현재값 칩과 순환 아이콘 — 탭 시 값이 순환함을 알린다. */
   valueChip?: string;
   /** 보조 동작 설명(스크린리더). 예: cycle 행 "탭하면 다음 옵션으로 전환" (D8). */
   accessibilityHint?: string;
@@ -66,36 +59,28 @@ function MenuItem({
       </View>
       <View style={styles.menuContent}>
         <Text style={[typo.bodyMedium, { color: colors.text }]}>{title}</Text>
-        {subtitle && <Text style={[typo.small, { color: colors.textSecondary }]}>{subtitle}</Text>}
+        {subtitle && (
+          <Text style={[typo.caption, { color: colors.textSecondary }]}>{subtitle}</Text>
+        )}
+        {valueChip != null && (
+          // 현재값은 본문 아래에 배치해 좁은 화면에서도 제목과 공간을 경쟁하지 않는다.
+          <View style={[styles.valueChip, { backgroundColor: colors.primaryLight }]}>
+            <Text style={[typo.captionMedium, styles.valueChipText, { color: colors.primary }]}>
+              {valueChip}
+            </Text>
+            <Feather name="refresh-cw" size={14} color={colors.primary} />
+          </View>
+        )}
       </View>
       <View style={styles.menuRight}>
         {badgeCount != null && badgeCount > 0 && (
           <View style={[styles.badge, { backgroundColor: colors.primary }]}>
-            {/* DAR-305: 고정 원형 배지 — OS 글꼴 확대 시 숫자 세로 클리핑 방지 배율 상한(DAR-174 정본). */}
             <Text
-              style={[typo.small, { color: colors.primaryForeground, fontWeight: '600' }]}
+              style={[typo.captionMedium, { color: colors.primaryForeground }]}
               maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
             >
               {badgeCount}
             </Text>
-          </View>
-        )}
-        {valueChip != null && (
-          // D8: 현재값 칩 + 순환 아이콘으로 cycle affordance 제공(chevron 대체).
-          <View style={[styles.valueChip, { backgroundColor: colors.primaryLight }]}>
-            <Text
-              style={[
-                typo.small,
-                styles.valueChipText,
-                { color: colors.primary, flexShrink: 1, minWidth: 0 },
-              ]}
-              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-              numberOfLines={1}
-              ellipsizeMode="tail"
-            >
-              {valueChip}
-            </Text>
-            <Feather name="refresh-cw" size={14} color={colors.primary} />
           </View>
         )}
         {showChevron && <Feather name="chevron-right" size={18} color={colors.textTertiary} />}
@@ -185,11 +170,13 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View
+    <ScrollView
       style={[styles.container, { backgroundColor: colors.background }]}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
       testID="settings-screen"
     >
-      {/* Profile Header - 고정 영역 */}
+      {/* 프로필도 함께 스크롤해 큰 글자·긴 이름에서 설정 항목을 가리지 않는다. */}
       <LinearGradient
         colors={[colors.cardGradientStart, colors.cardGradientEnd]}
         style={[styles.profileHeader, { paddingTop: insets.top + spacing.base }]}
@@ -220,13 +207,12 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.profileText}>
               <Text style={[typo.h3, { color: palette.white }]}>GUEST</Text>
-              {/* D7(L-4): 게스트의 유일한 헤더 로그인 동선 — hitSlop 44pt + 버튼 role/label 로 스크린리더 발견성 확보. */}
               <TouchableOpacity
+                style={styles.loginLink}
                 onPress={() => {
                   useAuthStore.getState().clearAuth();
                   router.push('/auth/sign-in');
                 }}
-                hitSlop={GUEST_LOGIN_LINK_HIT_SLOP}
                 accessibilityRole="button"
                 accessibilityLabel="로그인하기"
               >
@@ -246,164 +232,157 @@ export default function SettingsScreen() {
 
       {/* Content area - 스크롤 영역 */}
       <View style={[styles.contentArea, { backgroundColor: colors.background }]}>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          {isAuthenticated && (
-            <View style={styles.section}>
-              <Text
-                style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}
-              >
-                운영 제어
-              </Text>
-              <View style={[styles.menuCard, { backgroundColor: colors.surface }]}>
-                <MenuItem
-                  icon="shield"
-                  title="비상 제어"
-                  subtitle="상태 확인 · 운영자 신규 진입 중단"
-                  onPress={() => router.push('/settings-detail/emergency-control')}
-                />
-              </View>
-            </View>
-          )}
-
-          {isAuthenticated && (
-            <View style={styles.section}>
-              <Text
-                style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}
-              >
-                계정 관리
-              </Text>
-              <View style={[styles.menuCard, { backgroundColor: colors.surface }]}>
-                <MenuItem
-                  icon="user"
-                  title="프로필 정보"
-                  subtitle="계정 정보 관리"
-                  onPress={() => router.push('/settings-detail/profile')}
-                />
-                <Divider style={{ backgroundColor: colors.borderLight }} />
-                <MenuItem
-                  icon="star"
-                  title="관심목록"
-                  subtitle="관심 기업 관리"
-                  onPress={() => router.push('/settings-detail/watchlist')}
-                  badgeCount={watchlistCount}
-                />
-                <Divider style={{ backgroundColor: colors.borderLight }} />
-                <MenuItem
-                  icon="bell"
-                  title="알림 설정"
-                  subtitle="알림 환경 설정"
-                  onPress={() => router.push('/settings-detail/notification-settings')}
-                />
-                <Divider style={{ backgroundColor: colors.borderLight }} />
-                {/* D12/DAR-520: '보관함'(저장한 공시) 진입점을 설정에 노출(홈 summaryCard 1탭과 병행 — 발견성·재방문 훅 보존). */}
-                <MenuItem
-                  icon="bookmark"
-                  title="보관함"
-                  subtitle="북마크한 공시 모아보기"
-                  onPress={() => router.push('/settings-detail/saved-disclosures')}
-                />
-              </View>
-            </View>
-          )}
-
+        {isAuthenticated && (
           <View style={styles.section}>
             <Text
               style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}
             >
-              일반
+              운영 제어
             </Text>
             <View style={[styles.menuCard, { backgroundColor: colors.surface }]}>
               <MenuItem
-                icon="moon"
-                title="화면 설정"
-                subtitle="테마 모드 전환"
-                valueChip={themeLabel}
-                accessibilityHint="탭하면 다음 옵션으로 전환"
-                onPress={cycleTheme}
-                showChevron={false}
-              />
-              <Divider style={{ backgroundColor: colors.borderLight }} />
-              <MenuItem
-                icon="type"
-                title="글자 크기"
-                subtitle="본문 글자 배율"
-                valueChip={textScaleLabel}
-                accessibilityHint="탭하면 다음 옵션으로 전환"
-                onPress={cycleTextScale}
-                showChevron={false}
-              />
-              <Divider style={{ backgroundColor: colors.borderLight }} />
-              <MenuItem
-                icon="file-text"
-                title="이용약관"
-                onPress={() => router.push('/legal/terms')}
-              />
-              <Divider style={{ backgroundColor: colors.borderLight }} />
-              <MenuItem
                 icon="shield"
-                title="개인정보 처리방침"
-                onPress={() => router.push('/legal/privacy')}
+                title="비상 제어"
+                subtitle="상태 확인 · 운영자 신규 진입 중단"
+                onPress={() => router.push('/settings-detail/emergency-control')}
               />
-              <Divider style={{ backgroundColor: colors.borderLight }} />
-              {/* W11: 앱 내 문의 표면 — 이메일 문의·시스템 상태 페이지·버전 정보. */}
-              <MenuItem
-                icon="help-circle"
-                title="문의·지원"
-                subtitle="이메일 문의 · 시스템 상태"
-                onPress={() => router.push('/settings-detail/support')}
-              />
-              <Divider style={{ backgroundColor: colors.borderLight }} />
-              {/* W2 컴플라이언스(M0 정책 §4): 시세·공시 데이터 출처·지연 고지·면책 화면 진입점. */}
-              <MenuItem
-                icon="database"
-                title="데이터 출처"
-                subtitle="시세·공시 데이터의 출처와 지연 고지"
-                onPress={() => router.push('/legal/data-sources')}
-              />
-              <Divider style={{ backgroundColor: colors.borderLight }} />
-              {/* D9: dead tap 제거 — 버전 표시는 정보 행이므로 비터치(View)로 렌더. */}
-              <MenuItem
-                icon="info"
-                title="앱 정보"
-                subtitle="Version 1.0.0"
-                nonInteractive
-                showChevron={false}
-              />
-              <Divider style={{ backgroundColor: colors.borderLight }} />
-              {isAuthenticated ? (
-                <MenuItem icon="log-out" title="로그아웃" onPress={handleLogout} />
-              ) : (
-                <MenuItem
-                  icon="log-in"
-                  title="로그인"
-                  onPress={() => {
-                    useAuthStore.getState().clearAuth();
-                    router.push('/auth/sign-in');
-                  }}
-                />
-              )}
             </View>
           </View>
+        )}
 
-          {/* 개발용 연결 진단(DAR-43 §4) — 프로덕션 빌드에는 노출되지 않음 */}
-          {__DEV__ && (
-            <View style={styles.section}>
-              <Text
-                style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}
-              >
-                개발자
-              </Text>
-              <DevConnectionStatus />
+        {isAuthenticated && (
+          <View style={styles.section}>
+            <Text
+              style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}
+            >
+              계정 관리
+            </Text>
+            <View style={[styles.menuCard, { backgroundColor: colors.surface }]}>
+              <MenuItem
+                icon="user"
+                title="프로필 정보"
+                subtitle="계정 정보 관리"
+                onPress={() => router.push('/settings-detail/profile')}
+              />
+              <Divider style={{ backgroundColor: colors.borderLight }} />
+              <MenuItem
+                icon="star"
+                title="관심목록"
+                subtitle="관심 기업 관리"
+                onPress={() => router.push('/settings-detail/watchlist')}
+                badgeCount={watchlistCount}
+              />
+              <Divider style={{ backgroundColor: colors.borderLight }} />
+              <MenuItem
+                icon="bell"
+                title="알림 설정"
+                subtitle="알림 환경 설정"
+                onPress={() => router.push('/settings-detail/notification-settings')}
+              />
+              <Divider style={{ backgroundColor: colors.borderLight }} />
+              {/* D12/DAR-520: '보관함'(저장한 공시) 진입점을 설정에 노출(홈 summaryCard 1탭과 병행 — 발견성·재방문 훅 보존). */}
+              <MenuItem
+                icon="bookmark"
+                title="보관함"
+                subtitle="북마크한 공시 모아보기"
+                onPress={() => router.push('/settings-detail/saved-disclosures')}
+              />
             </View>
-          )}
+          </View>
+        )}
 
-          <View style={{ height: spacing['2xl'] }} />
-        </ScrollView>
+        <View style={styles.section}>
+          <Text style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}>
+            일반
+          </Text>
+          <View style={[styles.menuCard, { backgroundColor: colors.surface }]}>
+            <MenuItem
+              icon="moon"
+              title="화면 설정"
+              subtitle="테마 모드 전환"
+              valueChip={themeLabel}
+              accessibilityHint="탭하면 다음 옵션으로 전환"
+              onPress={cycleTheme}
+              showChevron={false}
+            />
+            <Divider style={{ backgroundColor: colors.borderLight }} />
+            <MenuItem
+              icon="type"
+              title="글자 크기"
+              subtitle="본문 글자 배율"
+              valueChip={textScaleLabel}
+              accessibilityHint="탭하면 다음 옵션으로 전환"
+              onPress={cycleTextScale}
+              showChevron={false}
+            />
+            <Divider style={{ backgroundColor: colors.borderLight }} />
+            <MenuItem
+              icon="file-text"
+              title="이용약관"
+              onPress={() => router.push('/legal/terms')}
+            />
+            <Divider style={{ backgroundColor: colors.borderLight }} />
+            <MenuItem
+              icon="shield"
+              title="개인정보 처리방침"
+              onPress={() => router.push('/legal/privacy')}
+            />
+            <Divider style={{ backgroundColor: colors.borderLight }} />
+            {/* W11: 앱 내 문의 표면 — 이메일 문의·시스템 상태 페이지·버전 정보. */}
+            <MenuItem
+              icon="help-circle"
+              title="문의·지원"
+              subtitle="이메일 문의 · 시스템 상태"
+              onPress={() => router.push('/settings-detail/support')}
+            />
+            <Divider style={{ backgroundColor: colors.borderLight }} />
+            {/* W2 컴플라이언스(M0 정책 §4): 시세·공시 데이터 출처·지연 고지·면책 화면 진입점. */}
+            <MenuItem
+              icon="database"
+              title="데이터 출처"
+              subtitle="시세·공시 데이터의 출처와 지연 고지"
+              onPress={() => router.push('/legal/data-sources')}
+            />
+            <Divider style={{ backgroundColor: colors.borderLight }} />
+            {/* D9: dead tap 제거 — 버전 표시는 정보 행이므로 비터치(View)로 렌더. */}
+            <MenuItem
+              icon="info"
+              title="앱 정보"
+              subtitle={`Version ${Constants.expoConfig?.version ?? '확인 불가'}`}
+              nonInteractive
+              showChevron={false}
+            />
+            <Divider style={{ backgroundColor: colors.borderLight }} />
+            {isAuthenticated ? (
+              <MenuItem icon="log-out" title="로그아웃" onPress={handleLogout} />
+            ) : (
+              <MenuItem
+                icon="log-in"
+                title="로그인"
+                onPress={() => {
+                  useAuthStore.getState().clearAuth();
+                  router.push('/auth/sign-in');
+                }}
+              />
+            )}
+          </View>
+        </View>
+
+        {/* 개발용 연결 진단(DAR-43 §4) — 프로덕션 빌드에는 노출되지 않음 */}
+        {__DEV__ && (
+          <View style={styles.section}>
+            <Text
+              style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}
+            >
+              개발자
+            </Text>
+            <DevConnectionStatus />
+          </View>
+        )}
+
+        <View style={{ height: spacing['2xl'] }} />
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -432,17 +411,25 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     justifyContent: 'center',
     alignItems: 'center',
+    flexShrink: 0,
   },
   profileText: {
+    flex: 1,
+    minWidth: 0,
     marginLeft: spacing.base,
   },
+  loginLink: {
+    minHeight: 48,
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+  },
   contentArea: {
-    flex: 1,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     marginTop: -radius.xl,
   },
   scrollContent: {
+    flexGrow: 1,
     paddingBottom: spacing.xl,
   },
   section: {
@@ -451,8 +438,6 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     marginBottom: spacing.sm,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   menuCard: {
     borderRadius: radius.lg,
@@ -469,15 +454,19 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     justifyContent: 'center',
     alignItems: 'center',
+    flexShrink: 0,
   },
   menuContent: {
     flex: 1,
+    minWidth: 0,
+    gap: spacing.xs,
     marginLeft: spacing.md,
   },
   menuRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    flexShrink: 0,
   },
   badge: {
     minWidth: 22,
@@ -493,10 +482,12 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-    maxWidth: VALUE_CHIP_MAX_WIDTH,
+    borderRadius: radius.sm,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
   },
   valueChipText: {
-    fontWeight: '600',
+    flexShrink: 1,
+    minWidth: 0,
   },
 });

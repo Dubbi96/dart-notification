@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
-import { Button } from 'react-native-paper';
+import { Button } from '@components/common/Button';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
@@ -55,20 +55,26 @@ export function EmptyState({
   return (
     <View style={compact ? styles.compact : styles.centered}>
       <Feather name={icon} size={48} color={colors.textTertiary} />
-      <Text style={[typo.bodyMedium, { color: colors.text, marginTop: spacing.md, textAlign: 'center' }]}>
+      <Text
+        style={[
+          typo.bodyMedium,
+          { color: colors.text, marginTop: spacing.md, textAlign: 'center' },
+        ]}
+      >
         {title}
       </Text>
       {description ? (
         <Text
-          style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs, textAlign: 'center' }]}
+          style={[
+            typo.caption,
+            { color: colors.textSecondary, marginTop: spacing.xs, textAlign: 'center' },
+          ]}
         >
           {description}
         </Text>
       ) : null}
       {actionLabel && onAction ? (
-        <Button mode="outlined" onPress={onAction} style={styles.action}>
-          {actionLabel}
-        </Button>
+        <Button title={actionLabel} variant="outline" onPress={onAction} style={styles.action} />
       ) : null}
     </View>
   );
@@ -98,23 +104,32 @@ export function ErrorState({
   return (
     <View style={styles.centered}>
       <Feather name={icon} size={48} color={colors.error} />
-      <Text style={[typo.bodyMedium, { color: colors.text, marginTop: spacing.md, textAlign: 'center' }]}>
+      <Text
+        style={[
+          typo.bodyMedium,
+          { color: colors.text, marginTop: spacing.md, textAlign: 'center' },
+        ]}
+      >
         {title}
       </Text>
       <Text
-        style={[typo.caption, { color: colors.textSecondary, marginTop: spacing.xs, textAlign: 'center' }]}
+        style={[
+          typo.caption,
+          { color: colors.textSecondary, marginTop: spacing.xs, textAlign: 'center' },
+        ]}
       >
         {description}
       </Text>
       {onRetry ? (
-        <Button mode="outlined" onPress={onRetry} style={styles.action} icon="refresh">
-          {retryLabel}
-        </Button>
+        <Button title={retryLabel} variant="outline" onPress={onRetry} style={styles.action} />
       ) : null}
       {secondaryLabel && onSecondary ? (
-        <Button mode="text" onPress={onSecondary} style={styles.secondary}>
-          {secondaryLabel}
-        </Button>
+        <Button
+          title={secondaryLabel}
+          variant="ghost"
+          onPress={onSecondary}
+          style={styles.secondary}
+        />
       ) : null}
     </View>
   );
@@ -175,7 +190,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: spacing.xl,
-    paddingTop: 80,
+    paddingVertical: spacing.xl,
   },
   compact: {
     alignItems: 'center',

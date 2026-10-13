@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnreadCount } from '@hooks/useNotifications';
 import { usePositions } from '@hooks/usePortfolio';
 import { useAuthStore } from '@stores/authStore';
-import { MAX_CHIP_FONT_SCALE, useTheme } from '@theme';
+import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
 import { formatUnreadBadge } from '@utils/unreadBadge';
 import { SHOW_TRADING } from '@utils/tradingVisibility';
@@ -27,12 +27,15 @@ function TabLabel({
 }) {
   return (
     <Text
-      style={{ color, fontSize, fontWeight: '500', flexShrink: 1, minWidth: 0 }}
+      style={{
+        color,
+        fontSize,
+        lineHeight: Math.ceil(fontSize * 1.4),
+        fontWeight: '500',
+        minWidth: 0,
+      }}
       numberOfLines={1}
-      ellipsizeMode="tail"
-      adjustsFontSizeToFit
-      minimumFontScale={0.8}
-      maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+      allowFontScaling={false}
     >
       {label}
     </Text>
@@ -49,6 +52,7 @@ export default function TabLayout() {
     (position) => position.thesisStatus === 'VIOLATED',
   ).length;
   const bottomPadding = Math.max(insets.bottom, spacing.sm);
+  const tabContentHeight = TAB_BAR_CONTENT_HEIGHT + typo.caption.lineHeight - 20;
 
   return (
     <Tabs
@@ -63,8 +67,9 @@ export default function TabLayout() {
           borderTopWidth: 1,
           paddingBottom: bottomPadding,
           paddingTop: spacing.sm,
-          height: TAB_BAR_CONTENT_HEIGHT + bottomPadding,
+          height: tabContentHeight + bottomPadding,
         },
+        tabBarLabelPosition: 'below-icon',
       }}
     >
       <Tabs.Screen
@@ -73,7 +78,7 @@ export default function TabLayout() {
           title: '판단',
           tabBarIcon: ({ color, size }) => <Feather name="compass" size={size} color={color} />,
           tabBarLabel: ({ color }) => (
-            <TabLabel label="판단" color={color} fontSize={typo.small.fontSize} />
+            <TabLabel label="판단" color={color} fontSize={typo.caption.fontSize} />
           ),
         }}
       />
@@ -84,7 +89,7 @@ export default function TabLayout() {
           href: SHOW_TRADING ? undefined : null,
           tabBarIcon: ({ color, size }) => <Feather name="briefcase" size={size} color={color} />,
           tabBarLabel: ({ color }) => (
-            <TabLabel label="포지션" color={color} fontSize={typo.small.fontSize} />
+            <TabLabel label="포지션" color={color} fontSize={typo.caption.fontSize} />
           ),
           tabBarBadge: violatedCount > 0 ? violatedCount : undefined,
           tabBarBadgeStyle: { backgroundColor: colors.error, fontSize: typo.small.fontSize },
@@ -96,7 +101,7 @@ export default function TabLayout() {
           title: '알림',
           tabBarIcon: ({ color, size }) => <Feather name="bell" size={size} color={color} />,
           tabBarLabel: ({ color }) => (
-            <TabLabel label="알림" color={color} fontSize={typo.small.fontSize} />
+            <TabLabel label="알림" color={color} fontSize={typo.caption.fontSize} />
           ),
           tabBarBadge: formatUnreadBadge(unreadCount),
           tabBarBadgeStyle: { backgroundColor: colors.error, fontSize: typo.small.fontSize },
@@ -108,7 +113,7 @@ export default function TabLayout() {
           title: '제어',
           tabBarIcon: ({ color, size }) => <Feather name="shield" size={size} color={color} />,
           tabBarLabel: ({ color }) => (
-            <TabLabel label="제어" color={color} fontSize={typo.small.fontSize} />
+            <TabLabel label="제어" color={color} fontSize={typo.caption.fontSize} />
           ),
         }}
       />

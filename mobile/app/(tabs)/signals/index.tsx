@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { FlatList, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams, useScrollToTop } from 'expo-router';
 
@@ -19,6 +19,8 @@ import type { TradingSignal } from '@app-types/signal.types';
  */
 export default function SignalsScreen() {
   const { colors, typography: typo } = useTheme();
+  const { width } = useWindowDimensions();
+  const stackedHeader = width < 360 && typo.h2.fontSize > 28;
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const [showCheck, setShowCheck] = useState(false);
   const { date: dateParam } = useLocalSearchParams<{ date?: string }>();
@@ -33,9 +35,20 @@ export default function SignalsScreen() {
       edges={['top']}
     >
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <View style={styles.titleRow}>
-          <Text style={[typo.h2, styles.title, { color: colors.text }]}>오늘의 판단</Text>
-          <Button title="기기 점검" variant="secondary" size="sm" onPress={() => setShowCheck(true)} />
+        <View
+          testID="signals-screen-header-row"
+          style={[styles.titleRow, stackedHeader && styles.stackedHeader]}
+        >
+          <Text style={[typo.h2, !stackedHeader && styles.title, { color: colors.text }]}>
+            오늘의 판단
+          </Text>
+          <Button
+            title="기기 점검"
+            variant="secondary"
+            size="sm"
+            fullWidth={stackedHeader}
+            onPress={() => setShowCheck(true)}
+          />
         </View>
         <Text style={[typo.caption, styles.subtitle, { color: colors.textSecondary }]}>
           종가 기반 모의 계획 · 자동 실주문 꺼짐
@@ -69,4 +82,5 @@ const styles = StyleSheet.create({
   },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   title: { flex: 1, minWidth: 0 },
+  stackedHeader: { flexDirection: 'column', alignItems: 'stretch' },
 });

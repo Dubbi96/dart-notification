@@ -85,12 +85,14 @@ describe('기기 판단 카드의 점진적 정보 공개', () => {
 
   it('반올림한 참고 가격과 실제 체결가 대비 손절 조건을 구분한다', () => {
     const plan = edition.decisions[0].pricePlan!;
-    const { getByText, getByRole } = render(
+    const { getByText, getByRole, getByLabelText } = render(
       <EditionDecisionCard signal={signal} decision={edition.decisions[0]} rank={1} />,
     );
     expect(getByText('손절 조건: 체결가 대비 -5%')).toBeTruthy();
     expect(getByText('참고 약 67,500원')).toBeTruthy();
-    expect(getByText('약 69,600 ~ 71,000원')).toBeTruthy();
+    expect(getByLabelText('모의 진입 구간: 약 69,600 ~ 71,000원')).toBeTruthy();
+    expect(getByText('약 69,600원')).toBeTruthy();
+    expect(getByText('~ 71,000원')).toBeTruthy();
     const position = {
       entryPrice: plan.entryHigh,
       currentPrice: plan.stopPrice,

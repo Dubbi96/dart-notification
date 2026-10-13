@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { Button } from '@components/common/Button';
@@ -18,6 +18,8 @@ export function DeviceRuleCheckSheet({
   onClose: () => void;
 }) {
   const { colors, typography: typo, isDark } = useTheme();
+  const { width } = useWindowDimensions();
+  const stackedHeader = width < 360 && typo.h2.fontSize > 28;
   const danger = isDark ? colors.error : palette.red600;
   const reducedMotion = useReducedMotion();
   const running = useRef(false);
@@ -50,11 +52,27 @@ export function DeviceRuleCheckSheet({
       onRequestClose={onClose}
     >
       <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]}>
-        <View style={[styles.header, { borderBottomColor: colors.border }]}>
-          <Text style={[typo.h2, styles.flex, { color: colors.text }]} accessibilityRole="header">
+        <View
+          testID="device-rule-check-header"
+          style={[
+            styles.header,
+            stackedHeader && styles.stackedHeader,
+            { borderBottomColor: colors.border },
+          ]}
+        >
+          <Text
+            style={[typo.h2, !stackedHeader && styles.flex, { color: colors.text }]}
+            accessibilityRole="header"
+          >
             기기 판단 점검
           </Text>
-          <Button title="닫기" variant="ghost" size="sm" onPress={onClose} />
+          <Button
+            title="닫기"
+            variant="ghost"
+            size="sm"
+            style={styles.closeButton}
+            onPress={onClose}
+          />
         </View>
         <ScrollView contentContainerStyle={styles.content}>
           <View style={[styles.intro, { backgroundColor: colors.primaryLight }]}>
@@ -120,6 +138,8 @@ export function DeviceRuleCheckSheet({
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   flex: { flex: 1, minWidth: 0 },
+  stackedHeader: { flexDirection: 'column', alignItems: 'stretch' },
+  closeButton: { alignSelf: 'flex-end', flexShrink: 0 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

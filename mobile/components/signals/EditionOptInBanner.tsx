@@ -16,16 +16,7 @@ import { EDITION_OPT_IN_BANNER, shouldShowEditionOptInBanner } from '@utils/edit
 // 에디션 푸시(DAR-523)는 기본 OFF 옵트인 — 발견성 0 방지가 목적. '알림 받기' 1탭으로
 // editionPushEnabled=true 를 인라인 저장(useUpdateNotificationSettings)하고, 켠 뒤엔 dismiss 를
 // 영속해 재노출하지 않는다(재강요 금지). 이미 ON 이거나 닫은 뒤엔 미노출(shouldShow… SSOT).
-// 카드 톤·닫기 44pt hitSlop 은 SignalsCoachmark 패턴 재사용(동일 토큰·지오메트리).
-
-// 닫기 터치 영역: 아이콘 md(18) + hitSlop 13*2 = 44pt(sizing.minTouchTarget) 보장.
-const CLOSE_HIT_SLOP_INSET = (sizing.minTouchTarget - sizing.icon.md) / 2;
-const CLOSE_HIT_SLOP = {
-  top: CLOSE_HIT_SLOP_INSET,
-  bottom: CLOSE_HIT_SLOP_INSET,
-  left: CLOSE_HIT_SLOP_INSET,
-  right: CLOSE_HIT_SLOP_INSET,
-};
+// 닫기는 실측 가능한 48dp 영역을 쓰며 제목의 우측 여백과 겹치지 않는다.
 
 function EditionOptInBannerBase() {
   const { colors, typography: typo } = useTheme();
@@ -67,13 +58,15 @@ function EditionOptInBannerBase() {
   if (!show) return null;
 
   return (
-    <View style={[styles.card, { backgroundColor: colors.primaryLight, borderColor: colors.primary }]}>
+    <View
+      style={[styles.card, { backgroundColor: colors.primaryLight, borderColor: colors.primary }]}
+    >
       {/* 스크린리더 순서: 제목(header) → 설명 → CTA → 닫기(트리 마지막, 시각은 우상단 고정). */}
       <View style={styles.titleGroup}>
-        <Feather name="bell" size={sizing.icon.md} color={colors.primary} />
+        <Feather name="bell" size={sizing.icon.md} color={colors.primaryDark} />
         <Text
           accessibilityRole="header"
-          style={[typo.captionMedium, { color: colors.primary, marginLeft: spacing.sm, flex: 1 }]}
+          style={[typo.bodyMedium, styles.titleText, { color: colors.primaryDark }]}
         >
           {EDITION_OPT_IN_BANNER.title}
         </Text>
@@ -96,11 +89,10 @@ function EditionOptInBannerBase() {
       <TouchableOpacity
         style={styles.close}
         onPress={dismiss}
-        hitSlop={CLOSE_HIT_SLOP}
         accessibilityRole="button"
         accessibilityLabel={EDITION_OPT_IN_BANNER.dismissA11yLabel}
       >
-        <Feather name="x" size={sizing.icon.md} color={colors.primary} />
+        <Feather name="x" size={sizing.icon.md} color={colors.primaryDark} />
       </TouchableOpacity>
     </View>
   );
@@ -109,19 +101,23 @@ function EditionOptInBannerBase() {
 export const EditionOptInBanner = React.memo(EditionOptInBannerBase);
 
 const styles = StyleSheet.create({
-  // SignalsCoachmark 카드 스타일 재사용(동일 토큰) — 에디션 스트립 위 정적 장착.
+  // 목록의 스크롤 헤더가 외부 여백을 담당한다.
   card: {
     borderRadius: radius.lg,
     borderWidth: 1,
     padding: spacing.base,
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.md,
   },
   titleGroup: {
     flexDirection: 'row',
     alignItems: 'center',
     // 우상단 고정 닫기 아이콘과 제목이 겹치지 않도록 여백 확보.
-    paddingRight: spacing.xl,
+    paddingRight: 48,
+    minHeight: 48,
+  },
+  titleText: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: spacing.sm,
   },
   cta: {
     alignSelf: 'flex-start',
@@ -129,7 +125,11 @@ const styles = StyleSheet.create({
   },
   close: {
     position: 'absolute',
-    top: spacing.base,
-    right: spacing.base,
+    top: spacing.xs,
+    right: spacing.xs,
+    width: 48,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

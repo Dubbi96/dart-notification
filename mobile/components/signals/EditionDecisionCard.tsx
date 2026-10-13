@@ -82,9 +82,18 @@ function EditionDecisionCardBase({
       {plan ? (
         <View style={[styles.planBox, { backgroundColor: colors.surfaceSecondary }]}>
           <Text style={[typo.caption, { color: colors.textSecondary }]}>모의 진입 구간</Text>
-          <Text style={[typo.h3, styles.planValue, { color: colors.text }]}>
-            약 {Math.round(plan.entryLow).toLocaleString('ko-KR')} ~ {formatKrw(plan.entryHigh)}
-          </Text>
+          <View
+            accessible
+            accessibilityLabel={`모의 진입 구간: 약 ${Math.round(plan.entryLow).toLocaleString('ko-KR')} ~ ${formatKrw(plan.entryHigh)}`}
+            style={styles.planRange}
+          >
+            <Text style={[typo.h3, styles.price, { color: colors.text }]}>
+              약 {formatKrw(plan.entryLow)}
+            </Text>
+            <Text style={[typo.h3, styles.price, { color: colors.text }]}>
+              ~ {formatKrw(plan.entryHigh)}
+            </Text>
+          </View>
           <Text style={[typo.captionMedium, styles.stop, { color: danger }]}>
             손절 조건: 체결가 대비 {plan.stopLossPct}%
           </Text>
@@ -200,7 +209,14 @@ const styles = StyleSheet.create({
   titleWrap: { flex: 1, minWidth: 0, gap: spacing.xs },
   verdict: { marginTop: spacing.base, fontWeight: '700' },
   planBox: { marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md },
-  planValue: { marginTop: spacing.xs },
+  planRange: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  price: { maxWidth: '100%' },
   stop: { marginTop: spacing.sm },
   source: { marginTop: spacing.sm },
   condition: { marginTop: spacing.sm },

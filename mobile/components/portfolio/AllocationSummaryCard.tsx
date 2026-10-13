@@ -22,7 +22,7 @@ export function AllocationSummaryCard({ summary }: Props) {
       <View style={styles.titleRow}>
         <View style={styles.flex}>
           <Text style={[typo.h3, { color: colors.text }]}>확정이익 배분</Text>
-          <Text style={[typo.small, { color: colors.textSecondary }]}>
+          <Text style={[typo.caption, { color: colors.textSecondary }]}>
             50 · 30 · 20 계획 · 조회 전용
           </Text>
         </View>
@@ -31,13 +31,8 @@ export function AllocationSummaryCard({ summary }: Props) {
       {latest ? (
         <>
           <View style={styles.amountRow}>
-            <Text style={[typo.small, { color: colors.textSecondary }]}>최근 승인 배분액</Text>
-            <Text
-              style={[typo.h2, styles.amount, { color: colors.text }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.75}
-            >
+            <Text style={[typo.caption, { color: colors.textSecondary }]}>최근 승인 배분액</Text>
+            <Text style={[typo.h2, styles.amount, { color: colors.text }]}>
               {Math.round(Number(latest.distributableProfit)).toLocaleString('ko-KR')}원
             </Text>
           </View>
@@ -47,29 +42,24 @@ export function AllocationSummaryCard({ summary }: Props) {
               .map((item) => (
                 <View
                   key={item.destination}
-                  style={[styles.item, { backgroundColor: colors.background }]}
+                  style={[styles.item, { borderTopColor: colors.border }]}
                 >
-                  <Text style={[typo.caption, { color: colors.textTertiary }]} numberOfLines={1}>
+                  <Text style={[typo.caption, { color: colors.textSecondary }]}>
                     {LABELS[item.destination]} {Math.round(Number(item.weight) * 100)}%
                   </Text>
-                  <Text
-                    style={[typo.small, styles.itemAmount, { color: colors.text }]}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.72}
-                  >
+                  <Text style={[typo.bodyMedium, styles.itemAmount, { color: colors.text }]}>
                     {Math.round(Number(item.amount)).toLocaleString('ko-KR')}원
                   </Text>
                 </View>
               ))}
           </View>
-          <Text style={[typo.caption, styles.basis, { color: colors.textTertiary }]}>
+          <Text style={[typo.caption, { color: colors.textSecondary }]}>
             승인 {formatPeriod(latest.periodStart, latest.periodEnd)} · 송금·환전·매수 자동 실행
             없음
           </Text>
         </>
       ) : (
-        <Text style={[typo.small, styles.empty, { color: colors.textSecondary }]}>
+        <Text style={[typo.caption, styles.empty, { color: colors.textSecondary }]}>
           활성 정책 v{summary.policy?.version} · 승인된 배분 계획 없음
         </Text>
       )}
@@ -98,9 +88,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   amountRow: { gap: spacing.xs },
   amount: { flexShrink: 1 },
-  itemGrid: { flexDirection: 'row', gap: spacing.xs },
-  item: { flex: 1, minWidth: 0, borderRadius: radius.md, padding: spacing.sm },
+  itemGrid: { gap: spacing.sm },
+  item: { minWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm },
   itemAmount: { fontWeight: '700', marginTop: spacing.xs },
-  basis: { lineHeight: 18 },
   empty: { paddingVertical: spacing.xs },
 });

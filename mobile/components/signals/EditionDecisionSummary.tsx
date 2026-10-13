@@ -22,7 +22,7 @@ function EditionDecisionSummaryBase({ decision, historical = false }: EditionDec
     >
       <View style={styles.labelRow}>
         <Feather name="compass" size={sizing.icon.md} color={colors.primaryDark} />
-        <Text style={[typo.captionMedium, { color: colors.primaryDark }]}>
+        <Text style={[typo.captionMedium, styles.labelText, { color: colors.primaryDark }]}>
           {historical ? '당시의' : '오늘의'} 종합 의견
         </Text>
       </View>
@@ -51,6 +51,7 @@ export const EditionDecisionSummary = React.memo(EditionDecisionSummaryBase);
 const styles = StyleSheet.create({
   card: { borderRadius: radius.xl, borderWidth: 1, padding: spacing.lg },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  labelText: { flex: 1, minWidth: 0 },
   headline: { marginTop: spacing.md },
   description: { marginTop: spacing.sm },
   mode: {

@@ -16,9 +16,7 @@ import type { DailyEditionSummary } from '@app-types/signal.types';
 // keyExtractor=date(고유), getItemLayout+snapToInterval 로 고정폭 스냅 + 선택 칩 auto-center.
 // 빈 날(오늘 미발행)은 딤 처리하고 건수 dot 미표시(억지 발명 금지 — 빈 사유는 상세에서 고지).
 
-const CHIP_WIDTH = 64;
 const CHIP_GAP = spacing.sm;
-const ITEM_WIDTH = CHIP_WIDTH + CHIP_GAP;
 
 interface StripChip {
   date: string;
@@ -55,6 +53,9 @@ function EditionDateStripBase({
   const reducedMotion = useReducedMotion();
   const haptics = useHaptics();
   const selectionColor = isDark ? colors.primary : colors.primaryDark;
+  // 날짜를 축소/말줄임하지 않고 글자 배율에 맞춰 터치 영역을 넓힌다.
+  const chipWidth = Math.max(72, Math.ceil(typo.captionMedium.fontSize * 4.5));
+  const itemWidth = chipWidth + CHIP_GAP;
   const listRef = useRef<FlatList<StripChip>>(null);
 
   const chips = useMemo<StripChip[]>(() => {
@@ -88,15 +89,15 @@ function EditionDateStripBase({
       });
     }, 0);
     return () => clearTimeout(id);
-  }, [selectedIndex, reducedMotion]);
+  }, [selectedIndex, reducedMotion, itemWidth]);
 
   const getItemLayout = useCallback(
     (_data: ArrayLike<StripChip> | null | undefined, index: number) => ({
-      length: ITEM_WIDTH,
-      offset: ITEM_WIDTH * index,
+      length: itemWidth,
+      offset: itemWidth * index,
       index,
     }),
-    [],
+    [itemWidth],
   );
 
   const renderChip = useCallback(
@@ -119,12 +120,18 @@ function EditionDateStripBase({
       return (
         <TouchableOpacity
           activeOpacity={0.8}
-          onPress={() => { if (!isSelected) { haptics.light(); onSelect(item.date); } }}
+          onPress={() => {
+            if (!isSelected) {
+              haptics.light();
+              onSelect(item.date);
+            }
+          }}
           // testID: 날짜 스트립 칩 앵커(DAR-542 스모크 ② — 에디션 날짜 스트립 탭). 개별 칩은
           // index 로 구분(Maestro tapOn id+index). 선택 상태는 accessibilityState.selected 로 노출.
           testID="edition-date-chip"
           style={[
             styles.chip,
+            { width: chipWidth },
             isSelected
               ? { backgroundColor: selectionColor, borderColor: selectionColor }
               : { backgroundColor: colors.surface, borderColor: colors.borderLight },
@@ -154,9 +161,7 @@ function EditionDateStripBase({
                 minWidth: 0,
               },
             ]}
-            numberOfLines={1}
             maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-            ellipsizeMode="tail"
           >
             {label.primary}
           </Text>
@@ -171,7 +176,7 @@ function EditionDateStripBase({
                 />
                 <Text
                   style={[
-                    typo.small,
+                    typo.caption,
                     { color: isSelected ? colors.primaryForeground : colors.textSecondary },
                   ]}
                   maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
@@ -182,7 +187,7 @@ function EditionDateStripBase({
             ) : (
               // 빈 날/미발행 — dot·건수 미표시(자리만 유지해 칩 높이 정렬).
               <Text
-                style={[typo.small, { color: colors.textTertiary }]}
+                style={[typo.caption, { color: colors.textTertiary }]}
                 maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
               >
                 ·
@@ -192,7 +197,17 @@ function EditionDateStripBase({
         </TouchableOpacity>
       );
     },
-    [colors, typo, todayDate, selectedDate, onSelect, unreadDates, selectionColor, haptics],
+    [
+      colors,
+      typo,
+      todayDate,
+      selectedDate,
+      onSelect,
+      unreadDates,
+      selectionColor,
+      haptics,
+      chipWidth,
+    ],
   );
 
   if (chips.length === 0) return null;
@@ -214,13 +229,13 @@ function EditionDateStripBase({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
         getItemLayout={getItemLayout}
-        snapToInterval={ITEM_WIDTH}
+        snapToInterval={itemWidth}
         snapToAlignment="start"
         decelerationRate="fast"
         // 선택 칩이 화면 밖이라 scrollToIndex 가 실패해도 근사 오프셋으로 폴백(백지·크래시 방지).
         onScrollToIndexFailed={(info) => {
           listRef.current?.scrollToOffset({
-            offset: ITEM_WIDTH * info.index,
+            offset: itemWidth * info.index,
             animated: !reducedMotion,
           });
         }}
@@ -240,12 +255,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   chip: {
-    width: CHIP_WIDTH,
+    minHeight: 48,
     // DAR-319: 가로 FlatList 는 contentContainer gap 이 Fabric 에서 미적용될 수 있어 marginRight 로 간격.
     marginRight: CHIP_GAP,
     borderRadius: radius.lg,
     borderWidth: 1,
     paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
     alignItems: 'center',
     gap: 2,
   },

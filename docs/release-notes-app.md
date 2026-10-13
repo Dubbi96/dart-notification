@@ -8,7 +8,7 @@
 
 ## 2026-10-13 — 판단 화면·기기 안전 점검·분석 문체 개선 (#585)
 
-**상태**: 개발·로컬 회귀 완료, 내부 APK 빌드 진행. 모바일 보안 게이트 차단 4건이 남아 정식 출시·운영 배포는 보류한다. 기존 앱과 운영 Backend는 변경하지 않았다.
+**상태**: 내부 APK `1.0.4 (6)` 빌드 및 사용자 승인 기기 설치 완료. 문구 보완은 Android preview/runtime `1.0.4`에만 OTA 배포했다(최종 기기 적용 확인 대기). 모바일 보안 게이트 차단 4건이 남아 정식 출시는 보류한다. 기존 `1.0.3` 및 운영 Backend는 변경하지 않았다.
 
 | 화면/기능 | 변경 | 확인 방법 |
 | --- | --- | --- |
@@ -18,7 +18,7 @@
 | 공통 조작 | 48dp 버튼·포커스/누름/로딩·동작 줄이기, 카드 대비·탭 공간 보완 | 큰 글자·다크/라이트·뒤로가기에서 확인 |
 | GPT 분석 | Humanizer 한국어 문장 지침을 기존 분석 호출 안에 적용 | Backend 배포 후 새 분석부터 적용. 점수·enum·기계 조건·위험 경고는 문체 편집 대상에서 제외 |
 
-검증: Backend 4,791 tests, Mobile 275 tests, Operator 2 tests, Rule core 17 tests 통과. 상세 범위·한계·빌드 결과는 [#585 작업 기록](roadmap/aos-mobile-agent-585.md), 실거래 등록·선행 조건은 [준비도 검토](roadmap/aos-agent-readiness-585.md)에 기록한다. 실계좌 주문 adapter와 상시 기기 감시는 아직 제공하지 않는다.
+검증: Backend 4,791 tests, Mobile 277 tests, Operator 2 tests, Rule core 17 tests 통과. 실기기 합성 점검 22/22, 근거 펼치기·모달 뒤로가기 확인. 상세 범위·한계·APK/OTA 정보는 [#585 작업 기록](roadmap/aos-mobile-agent-585.md), 실거래 등록·선행 조건은 [준비도 검토](roadmap/aos-agent-readiness-585.md)에 기록한다. 실계좌 주문 adapter와 상시 기기 감시는 아직 제공하지 않는다.
 
 ---
 

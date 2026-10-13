@@ -84,9 +84,9 @@ Android는 Doze에서 네트워크/일반 작업을 지연하며 WorkManager도 
 ### 최종 로컬 검증 상태
 
 - Backend: `npx tsc --noEmit`, `npm run build`, `npx jest --runInBand --silent --forceExit` 통과. 전체 **368 suites / 4,791 tests**. 기존 종료되지 않은 handle 경고가 있어 forceExit로 종료했으며 handle 원인을 이번 작업에서 해결한 것은 아니다.
-- Mobile: 전체 **36 suites / 275 tests / 5 snapshots**, 앱·테스트 TypeScript 검사, Android JS bundle 생성 통과. lint 오류 0개, 기존 경고 829개. 합성 자체 점검 **22 / 22**는 수익률이나 실계좌 주문 검증이 아니다.
+- Mobile: 실기기 문구 보완 후 전체 **37 suites / 277 tests / 5 snapshots**, 앱·테스트 TypeScript 검사, Android JS bundle 생성 통과. lint 오류 0개, 기존 경고 829개. 합성 자체 점검 **22 / 22**는 수익률이나 실계좌 주문 검증이 아니다.
 - 공유 Rule 패키지: **17 tests** 및 dependency boundary 검사 통과. Operator 웹: TypeScript/Vite build 및 **2 tests** 통과.
-- 변경 APK의 실제 휴대전화 설치·터치·잠금/Doze·통신 단절 검증은 미완료다. APK 빌드·배포 상태와 화면 검토 증거는 [모바일 작업 기록](aos-mobile-agent-585.md)을 기준으로 확인한다.
+- 내부 APK 1.0.4 (6)의 데이터 유지 업데이트 설치·근거 펼치기·합성 점검 22/22·모달 뒤로가기는 갤럭시에서 확인했다. 이후 문구 보완 OTA의 최종 적용·큰 글자·잠금/Doze·통신 단절 검증은 미완료다. APK/OTA 배포 상태와 검토 범위는 [모바일 작업 기록](aos-mobile-agent-585.md)을 기준으로 확인한다.
 
 2026-10-13 `node scripts/audit-gate.mjs <workspace>`의 최종 상태다. 아래 심각도 수치는 `npm audit --omit=dev`의 취약 의존성 집계이며, 고유 advisory 수와 다르다.
 

@@ -1,7 +1,7 @@
 # AOS 기기 판단 Agent · 실거래 준비도 검토 (#585)
 
 검토일: 2026-10-13 KST. 착수 기준: `origin/main` `9cadc5d48f03b9832eb78965619c7df19b50feed`.
-범위: 저장소 코드와 공식 공개 문서. 운영 DB, 사용자 실계좌, 현재 운영 플래그의 실제 값은 이 검토에서 확인하지 않았다.
+범위: 저장소 코드, 공식 공개 문서, 아래에 기록한 제한적 운영 HTTP·호스트 상태 점검. 운영 DB, 사용자 실계좌, 현재 운영 플래그의 실제 값은 이 검토에서 확인하지 않았다.
 
 ## 결론
 
@@ -99,6 +99,18 @@ Android는 Doze에서 네트워크/일반 작업을 지연하며 WorkManager도 
 Backend의 기존 예외는 `fast-xml-builder`, `fast-xml-parser`, `lodash`, `path-to-regexp`다. Backend 개발 의존성까지 포함한 audit에는 68개(critical 1/high 44/moderate 19/low 4)가 남는다. 게이트 통과는 무취약·LIVE 안전성 증명이 아니며 후속 보안 작업이 필요하다.
 
 Mobile 미해결 4건은 `braces` [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm), `node-forge` [GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv), `image-size` [GHSA-5p2g-fcmc-qvqq](https://github.com/advisories/GHSA-5p2g-fcmc-qvqq)·[GHSA-w3rx-r6r6-pgpr](https://github.com/advisories/GHSA-w3rx-r6r6-pgpr)다. 검토일 기준 앞의 두 패키지에는 공식 수정판이 없고, `image-size`는 1.x 수정판 없이 2.x로 전환해야 한다. 현행 Metro의 동기 파일 경로 호출과 API가 달라 강제 override는 적용하지 않았다. 상위 도구의 호환 업데이트 또는 별도 검증한 수정이 필요하며, 예외 추가로 통과 처리하지 않는다.
+
+### 운영 응답 단발 점검: 2026-10-13 10:07 KST
+
+각 경로에 10초 상한 GET을 한 번씩 보냈다. `/health`는 HTTP 200·0.326초였지만 `/api/disclosures/today-count`는 TLS 연결 완료 0.088초 뒤 본문 없이 10.005초에 타임아웃됐다. 읽기 전용 호스트 점검에서 Backend·Redis는 healthy였고 부하는 낮았다. 반복 요청, 운영 DB·로그·환경변수 조회, 배포·재시작은 하지 않았다.
+
+이는 **서버 readiness 응답과 공시 집계 응답 지연을 따로 확인한 결과**다. 공시 최신일·누락 여부·현재가 정확성·분석 품질이 정상이라는 증거는 아니다. 로컬 `backend/src/ops/indicators/prisma-health.indicator.ts:21`의 health DB 검사는 `SELECT 1` 연결 확인이며 실제 공시 집계를 검사하지 않는다.
+
+다음 조사 지점은 코드 기준 가설이며 운영 원인으로 확정하지 않았다.
+
+- `backend/src/engine1-disclosure/disclosures/disclosures.service.ts:140`: 최신 `rcpDt` 한 건 조회 후 `startsWith(date)` count를 순차 실행한다. `findAll`용 광역 count 캐시는 이 경로에 적용되지 않는다. “오늘”은 시계상 오늘이 아니라 **최신 가용 공시일**이다.
+- `backend/prisma/schema.prisma:286` 및 `backend/prisma/migrations/20260308100000_natural_key_pk/migration.sql:38`: 일반 `rcpDt` 인덱스는 정의돼 있으나 prefix 조회가 반드시 범위 스캔한다는 주석은 실제 실행계획으로 확인해야 한다. PostgreSQL의 LIKE 인덱스 사용은 collation/operator class 조건의 영향을 받는다. [공식 문서](https://www.postgresql.org/docs/current/indexes-opclass.html).
+- 별도 운영 진단 범위가 승인되면 배포 revision·적용 인덱스·collation·쿼리별 대기/실행 시간을 확인해 최신일 조회, count, 연결 풀 대기를 구분한다. 현재는 어느 단계가 느린지 미확인이다. `mobile/services/api.ts:16`의 10초 제한과 같은 수준의 지연이므로 앱에서도 요청 만료 가능성이 있다. 추정에 따른 쿼리·인덱스·timeout 변경은 하지 않았다.
 
 ## 사용자가 직접 준비할 등록 절차
 

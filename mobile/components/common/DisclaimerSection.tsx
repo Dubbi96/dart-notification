@@ -43,7 +43,6 @@ export function DisclaimerSection({ style, contextNotes }: DisclaimerSectionProp
                 style={styles.contextRow}
                 accessibilityLabel={note}
               >
-                <Feather name="alert-triangle" size={13} color={colors.warning} />
                 <Text style={[typo.captionMedium, styles.contextText, { color: colors.textSecondary }]}>
                   {note}
                 </Text>
@@ -52,7 +51,7 @@ export function DisclaimerSection({ style, contextNotes }: DisclaimerSectionProp
           </View>
         ) : null}
 
-        <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>⚠ 투자자문 아님</Text>
+        <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>투자자문 아님</Text>
         <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
           {DISCLAIMER_TEXT}
         </Text>

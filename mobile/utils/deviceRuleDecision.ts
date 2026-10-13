@@ -474,7 +474,7 @@ export async function evaluateSignalOnDevice(
       dataWarning ??
       (!controlClear ? '통제 차단 또는 상태 미확인' : undefined) ??
       firstRisk ??
-      firstUnmet ??
+      (firstUnmet ? `진입 보류: ${firstUnmet} 조건 미충족` : undefined) ??
       `필수 조건 이탈 또는 체결가 대비 ${Math.abs(DEVICE_SWING_RULE.stopLossPct)}% 하락`,
     pricePlan,
     evaluation,

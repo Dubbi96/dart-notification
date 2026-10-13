@@ -261,6 +261,27 @@ describe('deviceRuleDecision', () => {
     expect(result.evaluation.receipt.status).toBe('COMPLETED');
     expect(result.pricePlan).toBeNull();
     expect(result.primaryCondition).toBe('종가가 20일 이동평균선 위');
+    expect(result.invalidation).toBe('진입 보류: 종가가 20일 이동평균선 위 조건 미충족');
+  });
+
+  it('진입 조건 충족과 미충족을 중단 기준 문구에서 반대로 읽게 하지 않는다', async () => {
+    const label = '공시 후 거래량 20일 평균 대비 300% 이상';
+    const condition = { id: 'volume', label, required: true, met: false };
+    const unmet = await evaluateSignalOnDevice(
+      signal({ entryConditions: [condition] }),
+      '20260731',
+    );
+    const met = await evaluateSignalOnDevice(
+      signal({ entryConditions: [{ ...condition, met: true }] }),
+      '20260731',
+    );
+
+    expect(unmet.primaryCondition).toBe(label);
+    expect(unmet.invalidation).toBe(`진입 보류: ${label} 조건 미충족`);
+    expect(unmet.pricePlan).toBeNull();
+    expect(met.tone).toBe('READY');
+    expect(met.invalidation).toBe('필수 조건 이탈 또는 체결가 대비 5% 하락');
+    expect(unmet.evaluation.receipt.version).toEqual(met.evaluation.receipt.version);
   });
 
   it('같은 입력은 receipt와 에디션 종합 의견이 결정적으로 같다', async () => {

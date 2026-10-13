@@ -67,7 +67,9 @@ braces 검사는 512 KiB stack의 별도 프로세스에서 깊은 문자열·AS
 
 Mobile `npm audit --omit=dev`: critical 0 / high 16 / moderate 10 / low 1. 고유 high advisory **2건, 예외 0, 차단 2 → 실패**. high 16은 전이 의존성 노드 수이며 16개 독립 취약점이라는 뜻이 아니다. 개발 의존성 포함 전체 보고서는 critical 0 / high 53 / moderate 12 / low 1, 총 66노드다. 패치 코드는 설치 시 검증되지만 버전 기반 npm advisory 판정은 바뀌지 않는다.
 
-이미지 2건은 공식 수정판으로 advisory가 제거됐다. 나머지 2건은 반례를 통과한 검증 후보이며 **공식 차단 0건·정식 release 준비 완료가 아니다**. 신규 예외를 넣거나 버전을 속여 통과 처리하지 않았다. GitHub CI 결과는 PR에서 별도로 확인하며 APK/OTA/배포 검증과 혼동하지 않는다.
+이미지 2건은 공식 수정판으로 advisory가 제거됐다. 나머지 2건은 반례를 통과한 검증 후보이며 **공식 차단 0건·정식 release 준비 완료가 아니다**. 신규 예외를 넣거나 버전을 속여 통과 처리하지 않았다.
+
+구현 commit `3c6e3462b`의 [GitHub CI 실행 38348691578](https://github.com/Dubbi96/dart-notification/actions/runs/38348691578): Mobile(설치/패치 검사/앱·테스트 타입 검사/332테스트/lint/Android export), Backend, Operator, gitleaks 통과. 감사 잡은 Mobile 고유 high 2건으로 실패했으며 로그에서 정확한 advisory를 재확인했다. 코드 검증 4개 통과와 보안 감사 통과는 구분한다. 이후 문서만 수정한 커밋은 이 구현 검증 결과를 기록한다. EAS APK/OTA/실기기 검증은 미실행이다.
 
 ## 잔여 위험과 다음 결정
 

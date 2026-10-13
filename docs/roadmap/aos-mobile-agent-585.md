@@ -10,7 +10,7 @@
 - [x] 패치 적용·해시·악성 입력 동작 검사를 설치 단계와 CI에 연결.
 - [x] braces·node-forge 백포트와 추가 우회 반례 검증 완료·별도 에이전트 코드 검토. 외부 암호 감사는 아님.
 - [x] clean install 재현, 보안 회귀 9테스트+239그룹, 앱 332테스트, 상위 패키지 899+833테스트 통과(기존 pending 4).
-- [ ] GitHub CI 결과 확인·보고.
+- [x] 구현 commit `3c6e3462b` GitHub CI 확인: Mobile·Backend·Operator·gitleaks 통과, 감사는 기존 백포트 대상 2건으로 실패(예외 0). [실행 기록](https://github.com/Dubbi96/dart-notification/actions/runs/38348691578).
 - [ ] 보고 후 사용자 릴리스 결정. 새 APK·OTA·실기기 설치는 아직 하지 않음.
 
 감사 게이트/allowlist, 앱 버전, 운영 서버·DB·실주문에는 변경이 없다.

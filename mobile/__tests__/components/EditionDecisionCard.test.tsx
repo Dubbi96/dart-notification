@@ -149,15 +149,33 @@ describe('기기 판단 카드의 점진적 정보 공개', () => {
   });
 
   it('다크 모드·큰 글씨에서도 재단 없이 표시하며 종합 의견은 내부 식별자를 숨긴다', () => {
-    const { getByText, queryByText } = render(
+    const { getByText, getByRole, queryByText } = render(
       <ThemeContext.Provider value={getTheme('dark', 1.5)}>
         <EditionDecisionSummary decision={edition} historical />
         <EditionDecisionCard signal={signal} decision={edition.decisions[0]} rank={1} historical />
       </ThemeContext.Provider>,
     );
     expect(getByText('당시의 종합 의견')).toBeTruthy();
-    expect(getByText(/실시간 판단·실주문이 아닙니다/)).toBeTruthy();
+    expect(getByText('종가 기반 모의 계획 · 실주문 아님')).toBeTruthy();
+    expect(queryByText(edition.description)).toBeNull();
+    expect(queryByText(/실시간 판단·실주문이 아닙니다/)).toBeNull();
     expect(getByText(edition.headline).props.numberOfLines).toBeUndefined();
     expect(queryByText(/Strategy|receipt/)).toBeNull();
+    fireEvent.press(getByRole('button', { name: '종합 의견 설명 보기' }));
+    expect(getByText(/실시간 판단·실주문이 아닙니다/).props.children).toContain(edition.description);
+    expect(getByText(/실제 주문·체결 가격이나 주문 가능한 호가/)).toBeTruthy();
+    fireEvent.press(getByRole('button', { name: '설명 닫기' }));
+    expect(queryByText(/실시간 판단·실주문이 아닙니다/)).toBeNull();
+  });
+
+  it('데이터 누락으로 플랜이 없는 이유는 도움말을 열기 전부터 표시한다', async () => {
+    const unavailable = await evaluateEditionOnDevice(
+      [{ ...signal, referencePrice: undefined }],
+      '20261013',
+    );
+    expect(unavailable.unavailableCount).toBe(1);
+    const { getByText } = render(<EditionDecisionSummary decision={unavailable} />);
+    expect(getByText(unavailable.description)).toBeTruthy();
+    expect(getByText('종가 기반 모의 계획 · 실주문 아님')).toBeTruthy();
   });
 });

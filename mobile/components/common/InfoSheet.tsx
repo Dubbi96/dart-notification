@@ -48,6 +48,7 @@ export function InfoSheet({ visible, onClose, title, sections, footnote }: InfoS
       onRequestClose={onClose}
     >
       <SafeAreaView
+        accessibilityViewIsModal
         style={[styles.container, { backgroundColor: colors.background }]}
         edges={['top', 'bottom']}
       >

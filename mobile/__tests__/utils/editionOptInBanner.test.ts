@@ -1,17 +1,16 @@
-import {
-  EDITION_OPT_IN_BANNER,
-  shouldShowEditionOptInBanner,
-} from '@utils/editionOptInBanner';
+import { EDITION_OPT_IN_BANNER, shouldShowEditionOptInBanner } from '@utils/editionOptInBanner';
 
 // DAR-547: 신호탭 에디션 옵트인 배너 노출 조건 SSOT 회귀 가드.
 // RN 무의존 순수 로직 — dismiss 로딩/해제·설정 로드·이미 ON 3축의 노출 매트릭스를 고정한다.
 describe('utils/editionOptInBanner', () => {
   it('발행 시각(19시)·에디션 어휘가 카피에 명시된다(기대치 관리)', () => {
-    // 이슈 카피: '매일 저녁 7시, 그날의 투자판단 에디션'.
+    // 짧은 제목에 발행 시각, 도움말 설명에 에디션 내용을 남긴다.
     expect(EDITION_OPT_IN_BANNER.title).toContain('저녁 7시');
-    expect(EDITION_OPT_IN_BANNER.title).toContain('에디션');
+    expect(EDITION_OPT_IN_BANNER.description).toContain('에디션');
     expect(EDITION_OPT_IN_BANNER.enableLabel.length).toBeGreaterThan(0);
     expect(EDITION_OPT_IN_BANNER.dismissA11yLabel).toContain('닫기');
+    expect(EDITION_OPT_IN_BANNER.confirmMessage).toContain('평일 저녁 7시 이후');
+    expect(EDITION_OPT_IN_BANNER.confirmMessage).toContain('발행할 판단이 있는 날');
   });
 
   it('단정·FOMO·지시형 문구가 없다(과신 금지 톤)', () => {

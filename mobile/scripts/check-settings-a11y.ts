@@ -2,7 +2,7 @@
 // (MenuItem 접근성 + 안전장치 + 타이틀/진입점). 정본: docs/roadmap/cc-ui-ux-audit-2026-06-27.md
 //
 // 검증 대상 6건:
-//  D1 헤더 타이틀 "프로필"→"설정"(탭 정체성 정합)
+//  D1 헤더 타이틀 "제어 및 설정"(AOS 비상 제어 진입점 포함)
 //  D2 MenuItem accessibilityRole="button" + accessibilityLabel(subtitle/현재값 합성)
 //  D3 로그아웃 확인 다이얼로그("로그아웃하시겠어요?") 게이트(즉시 logout 금지)
 //  D8 cycle 행(화면 설정/글자 크기) 현재값 칩 + accessibilityHint
@@ -48,13 +48,13 @@ ok(
 );
 ok("D2 재현: subtitle 없음 → 'title'", buildLabel('이용약관') === '이용약관');
 ok(
-  "D2 재현: cycle 행 → 'title, subtitle, 현재 값'",
-  buildLabel('화면 설정', '테마 모드 전환', '라이트') === '화면 설정, 테마 모드 전환, 현재 라이트',
+  "D2 재현: 설명을 숨겨도 cycle 행 현재값 유지",
+  buildLabel('화면 설정', undefined, '라이트') === '화면 설정, 현재 라이트',
 );
 
 // --- D1: 헤더 타이틀 ---
 const profileRow = src.slice(src.indexOf('styles.profileRow'), src.indexOf('isAuthenticated ? ('));
-ok('D1: 헤더 h2 타이틀 "설정"', /\]\}>설정<\/Text>/.test(profileRow));
+ok('D1: 헤더 h2 타이틀 "제어 및 설정"', /\]\}>제어 및 설정<\/Text>/.test(profileRow));
 ok('D1: 헤더에 "프로필" 하드코딩 잔존 없음', !/\]\}>프로필<\/Text>/.test(profileRow));
 
 // --- D3: 로그아웃 확인 게이트 ---

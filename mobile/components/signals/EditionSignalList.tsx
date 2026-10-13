@@ -248,7 +248,6 @@ function EditionSignalListBase({
             <DisclaimerSection
               style={styles.disclaimer}
               contextNotes={[
-                '표시 가격은 해당 에디션 시점의 종가를 기준으로 기기에서 계산한 Shadow 계획이며 실주문이 아닙니다.',
                 '시장가 갭으로 진입 구간을 벗어나면 계획을 적용하지 않습니다.',
               ]}
             />

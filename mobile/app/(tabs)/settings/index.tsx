@@ -12,12 +12,24 @@ import { palette } from '@theme/colors';
 import { spacing, radius } from '@theme/spacing';
 import { DevConnectionStatus } from '@components/common/DevConnectionStatus';
 import { useDialog } from '@components/common/DialogProvider';
+import { HelpButton } from '@components/common/HelpButton';
 import { useAuthStore } from '@stores/authStore';
 import { useSettingsStore } from '@stores/settingsStore';
 import { useLogout, useMe } from '@hooks/useAuth';
 import { useWatchlist } from '@hooks/useWatchlist';
 
 import type { ColorScheme } from '@theme';
+
+const SETTINGS_HELP_SECTIONS = [
+  {
+    heading: '화면 설정',
+    body: '누를 때마다 시스템, 라이트, 다크 순서로 바뀝니다.',
+  },
+  {
+    heading: '글자 크기',
+    body: '누를 때마다 시스템 따름, 크게(1.25배), 아주 크게(1.5배) 순서로 바뀝니다.',
+  },
+];
 
 interface MenuItemProps {
   icon: keyof typeof Feather.glyphMap;
@@ -261,14 +273,12 @@ export default function SettingsScreen() {
               <MenuItem
                 icon="user"
                 title="프로필 정보"
-                subtitle="계정 정보 관리"
                 onPress={() => router.push('/settings-detail/profile')}
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
               <MenuItem
                 icon="star"
                 title="관심목록"
-                subtitle="관심 기업 관리"
                 onPress={() => router.push('/settings-detail/watchlist')}
                 badgeCount={watchlistCount}
               />
@@ -276,7 +286,6 @@ export default function SettingsScreen() {
               <MenuItem
                 icon="bell"
                 title="알림 설정"
-                subtitle="알림 환경 설정"
                 onPress={() => router.push('/settings-detail/notification-settings')}
               />
               <Divider style={{ backgroundColor: colors.borderLight }} />
@@ -284,7 +293,7 @@ export default function SettingsScreen() {
               <MenuItem
                 icon="bookmark"
                 title="보관함"
-                subtitle="북마크한 공시 모아보기"
+                accessibilityHint="저장한 공시를 엽니다"
                 onPress={() => router.push('/settings-detail/saved-disclosures')}
               />
             </View>
@@ -292,14 +301,22 @@ export default function SettingsScreen() {
         )}
 
         <View style={styles.section}>
-          <Text style={[typo.captionMedium, styles.sectionTitle, { color: colors.textSecondary }]}>
-            일반
-          </Text>
+          <View style={styles.sectionHeading}>
+            <Text
+              style={[
+                typo.captionMedium,
+                styles.sectionHeadingTitle,
+                { color: colors.textSecondary },
+              ]}
+            >
+              일반
+            </Text>
+            <HelpButton title="화면·글자 설정" sections={SETTINGS_HELP_SECTIONS} />
+          </View>
           <View style={[styles.menuCard, { backgroundColor: colors.surface }]}>
             <MenuItem
               icon="moon"
               title="화면 설정"
-              subtitle="테마 모드 전환"
               valueChip={themeLabel}
               accessibilityHint="탭하면 다음 옵션으로 전환"
               onPress={cycleTheme}
@@ -309,7 +326,6 @@ export default function SettingsScreen() {
             <MenuItem
               icon="type"
               title="글자 크기"
-              subtitle="본문 글자 배율"
               valueChip={textScaleLabel}
               accessibilityHint="탭하면 다음 옵션으로 전환"
               onPress={cycleTextScale}
@@ -332,7 +348,7 @@ export default function SettingsScreen() {
             <MenuItem
               icon="help-circle"
               title="문의·지원"
-              subtitle="이메일 문의 · 시스템 상태"
+              accessibilityHint="이메일 문의와 시스템 상태를 확인합니다"
               onPress={() => router.push('/settings-detail/support')}
             />
             <Divider style={{ backgroundColor: colors.borderLight }} />
@@ -340,7 +356,7 @@ export default function SettingsScreen() {
             <MenuItem
               icon="database"
               title="데이터 출처"
-              subtitle="시세·공시 데이터의 출처와 지연 고지"
+              accessibilityHint="시세와 공시의 출처 및 지연 안내를 엽니다"
               onPress={() => router.push('/legal/data-sources')}
             />
             <Divider style={{ backgroundColor: colors.borderLight }} />
@@ -438,6 +454,16 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     marginBottom: spacing.sm,
+  },
+  sectionHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  sectionHeadingTitle: {
+    flex: 1,
+    minWidth: 0,
   },
   menuCard: {
     borderRadius: radius.lg,

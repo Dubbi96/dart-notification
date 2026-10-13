@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius, sizing } from '@theme/spacing';
 import { Button } from '@components/common/Button';
+import { HelpButton } from '@components/common/HelpButton';
 import { useDialog } from '@components/common/DialogProvider';
 import { useEditionOptInBanner } from '@hooks/useEditionOptInBanner';
 import {
@@ -61,7 +62,7 @@ function EditionOptInBannerBase() {
     <View
       style={[styles.card, { backgroundColor: colors.primaryLight, borderColor: colors.primary }]}
     >
-      {/* 스크린리더 순서: 제목(header) → 설명 → CTA → 닫기(트리 마지막, 시각은 우상단 고정). */}
+      {/* 제목 → 알림 받기 → 설명 보기 → 닫기. 긴 설명은 요청할 때만 연다. */}
       <View style={styles.titleGroup}>
         <Feather name="bell" size={sizing.icon.md} color={colors.primaryDark} />
         <Text
@@ -72,19 +73,26 @@ function EditionOptInBannerBase() {
         </Text>
       </View>
 
-      <Text style={[typo.caption, { color: colors.text, marginTop: spacing.sm }]}>
-        {EDITION_OPT_IN_BANNER.description}
-      </Text>
-
-      <Button
-        title={EDITION_OPT_IN_BANNER.enableLabel}
-        onPress={handleEnable}
-        variant="primary"
-        size="sm"
-        loading={updateSettings.isPending}
-        disabled={updateSettings.isPending}
-        style={styles.cta}
-      />
+      <View style={styles.actions}>
+        <Button
+          title={EDITION_OPT_IN_BANNER.enableLabel}
+          onPress={handleEnable}
+          variant="primary"
+          size="sm"
+          loading={updateSettings.isPending}
+          disabled={updateSettings.isPending}
+        />
+        <HelpButton
+          title="판단 알림"
+          sections={[
+            { heading: '알림 내용', body: EDITION_OPT_IN_BANNER.description },
+            {
+              heading: '발송 시각',
+              body: '평일 저녁 7시 이후, 발행할 판단이 있는 날 알림을 보냅니다.',
+            },
+          ]}
+        />
+      </View>
 
       <TouchableOpacity
         style={styles.close}
@@ -119,9 +127,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
     marginLeft: spacing.sm,
   },
-  cta: {
-    alignSelf: 'flex-start',
-    marginTop: spacing.md,
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
   },
   close: {
     position: 'absolute',

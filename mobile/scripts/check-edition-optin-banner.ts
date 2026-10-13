@@ -237,14 +237,19 @@ check(
 );
 check('comp: 제목 accessibilityRole="header"', /accessibilityRole="header"/.test(compSrc));
 {
-  // 스크린리더 순서: 제목 → 설명 → CTA → 닫기(트리 마지막). 소스 등장 순서로 단언.
+  // 스크린리더 순서: 제목 → CTA → 도움말 → 닫기. 설명은 도움말 sections에 보존한다.
   const idxTitle = compSrc.indexOf('EDITION_OPT_IN_BANNER.title');
   const idxDesc = compSrc.indexOf('EDITION_OPT_IN_BANNER.description');
   const idxCta = compSrc.indexOf('EDITION_OPT_IN_BANNER.enableLabel');
+  const idxHelp = compSrc.indexOf('<HelpButton');
   const idxClose = compSrc.indexOf('EDITION_OPT_IN_BANNER.dismissA11yLabel');
   check(
-    'comp: SR 순서 = 제목 → 설명 → CTA → 닫기(트리 마지막)',
-    idxTitle > -1 && idxDesc > idxTitle && idxCta > idxDesc && idxClose > idxCta,
+    'comp: 제목 → CTA → 설명 도움말 → 닫기 순서, 설명 원문 보존',
+    idxTitle > -1 &&
+      idxCta > idxTitle &&
+      idxHelp > idxCta &&
+      idxDesc > idxHelp &&
+      idxClose > idxDesc,
   );
 }
 check(

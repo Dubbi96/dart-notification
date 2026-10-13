@@ -12,6 +12,7 @@ import type { AosAllocationSummary } from '@app-types/allocation.types';
 import PortfolioScreen from '../../app/(tabs)/portfolio';
 
 jest.mock('@expo/vector-icons', () => ({ Feather: () => null }));
+jest.mock('@hooks/useReducedMotion', () => ({ useReducedMotion: () => true }));
 jest.mock('expo-router', () => ({ router: { push: jest.fn() }, useScrollToTop: jest.fn() }));
 jest.mock('@components/common/withTradingGuard', () => ({
   withTradingGuard: (component: unknown) => component,
@@ -133,7 +134,7 @@ describe('포지션 큰 글씨 레이아웃 안전장치', () => {
     expect(getByText('최대종목 98%', { includeHiddenElements: true })).toBeTruthy();
   });
 
-  it('큰 배분액과 이체 제한 설명에 한 줄 축소나 고정 행간을 적용하지 않는다', () => {
+  it('큰 배분액과 실행 제한은 도움말을 열지 않아도 읽을 수 있다', () => {
     const { getByText } = renderNarrow(<AllocationSummaryCard summary={allocation} />);
     for (const value of [
       '9,876,543,210,123원',
@@ -146,8 +147,51 @@ describe('포지션 큰 글씨 레이아웃 안전장치', () => {
       expect(amount.props.adjustsFontSizeToFit).not.toBe(true);
       expect(StyleSheet.flatten(amount.props.style).fontSize).toBeGreaterThanOrEqual(24);
     }
-    const basis = getByText(/송금·환전·매수 자동 실행 없음/);
+    const basis = getByText('조회 전용 · 자동 이체·매수 없음');
     expect(StyleSheet.flatten(basis.props.style).lineHeight).toBe(30);
+    expect(getByText('SPGI 50%')).toBeTruthy();
+    expect(getByText('VTI 30%')).toBeTruthy();
+    expect(getByText('시스템 20%')).toBeTruthy();
+    expect(getByText(/배분 기간/)).toBeTruthy();
+    expect(getByText('장기자금으로 트레이딩 손실 자동 보전 금지')).toBeTruthy();
+  });
+
+  it('배분 배경 설명은 하나의 도움말로 열고 닫는다', () => {
+    const { getByText, queryByText, getByRole, getAllByRole } = renderNarrow(
+      <AllocationSummaryCard summary={allocation} />,
+    );
+    const background =
+      '시스템 트레이딩에서 결산한 확정이익을 나누는 계획입니다. 항목별 비중과 금액은 승인된 계획을 기준으로 표시합니다.';
+    expect(queryByText(background)).toBeNull();
+    expect(getAllByRole('button')).toHaveLength(1);
+    fireEvent.press(getByRole('button', { name: '확정이익 배분 설명 보기' }));
+    expect(getByText(background)).toBeTruthy();
+    expect(getByText(/송금·환전·매수를 자동 실행하지 않습니다/)).toBeTruthy();
+    fireEvent.press(getByRole('button', { name: '설명 닫기' }));
+    expect(queryByText(background)).toBeNull();
+  });
+
+  it('승인 전에도 활성 정책의 목표 비중과 실행 제한을 유지한다', () => {
+    const { getByText } = renderNarrow(
+      <AllocationSummaryCard
+        summary={{
+          ...allocation,
+          plans: [],
+          policy: {
+            version: 2,
+            spgiWeight: '0.5',
+            vtiWeight: '0.3',
+            systemTradingWeight: '0.2',
+            contentHash: 'synthetic',
+            effectiveFrom: '2026-10-13T00:00:00.000Z',
+          },
+        }}
+      />,
+    );
+    expect(getByText('정책 v2 · 승인된 계획 없음')).toBeTruthy();
+    expect(getByText('SPGI 50% · VTI 30% · 시스템 20%')).toBeTruthy();
+    expect(getByText('조회 전용 · 자동 이체·매수 없음')).toBeTruthy();
+    expect(getByText('장기자금으로 트레이딩 손실 자동 보전 금지')).toBeTruthy();
   });
 
   it('포지션 화면 총액은 별도 전폭 행에서 정확한 금액을 보존한다', () => {

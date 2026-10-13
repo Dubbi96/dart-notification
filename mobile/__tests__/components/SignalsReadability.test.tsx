@@ -43,6 +43,25 @@ afterEach(() => {
 });
 
 describe.each(['light', 'dark'] as const)('%s 판단 화면 읽기 계약', (scheme) => {
+  it('알림의 긴 설명은 도움말에서 읽고 켜기 동작은 별도로 실행한다', () => {
+    const { getByText, queryByText, getByRole } = render(
+      <ThemeContext.Provider value={getTheme(scheme, 1.5)}>
+        <EditionOptInBanner />
+      </ThemeContext.Provider>,
+    );
+    expect(getByText(EDITION_OPT_IN_BANNER.title)).toBeTruthy();
+    expect(queryByText(EDITION_OPT_IN_BANNER.description)).toBeNull();
+    fireEvent.press(getByRole('button', { name: '판단 알림 설명 보기' }));
+    expect(getByText(EDITION_OPT_IN_BANNER.description)).toBeTruthy();
+    expect(getByText('평일 저녁 7시 이후, 발행할 판단이 있는 날 알림을 보냅니다.')).toBeTruthy();
+    expect(mockMutate).not.toHaveBeenCalled();
+    expect(mockDismiss).not.toHaveBeenCalled();
+    fireEvent.press(getByRole('button', { name: '설명 닫기' }));
+    expect(queryByText(EDITION_OPT_IN_BANNER.description)).toBeNull();
+    fireEvent.press(getByRole('button', { name: EDITION_OPT_IN_BANNER.enableLabel }));
+    expect(mockMutate).toHaveBeenCalledWith({ editionPushEnabled: true }, expect.any(Object));
+  });
+
   it.each([1, 1.5])('글자 배율 %s에서 날짜/공시/알림 제목을 말줄이지 않는다', (scale) => {
     const theme = getTheme(scheme, scale);
     const company = '검토용 매우 긴 이름의 국내 반도체 제조 기업';

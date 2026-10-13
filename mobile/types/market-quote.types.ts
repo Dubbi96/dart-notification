@@ -17,6 +17,12 @@ export interface StockQuote {
   tradeDate: string | null;
   /** 가격 출처 — 'REALTIME'(KIS 신선) | 'DAILY'(일봉 종가). */
   source: 'REALTIME' | 'DAILY';
+  /** KIS 응답 수집시각(ISO), 거래소 체결시각 아님. 구버전 API/일봉은 미상. */
+  fetchedAt?: string | null;
+  /** 현재 adapter에서 미제공. null/undefined를 수집시각으로 대신하지 않는다. */
+  marketObservedAt?: string | null;
+  /** 서버 캐시 신선도 상한. 거래 가능성이나 실제 시장가의 신선도 보증이 아니다. */
+  freshnessMaxAgeMs?: number | null;
   /** 최근 종가 스파크라인(오래된→최신, 최대 5개). */
   sparkline: number[];
 }

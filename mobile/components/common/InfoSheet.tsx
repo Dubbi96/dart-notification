@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, sizing } from '@theme/spacing';
+import { useReducedMotion } from '@hooks/useReducedMotion';
 
 /**
  * 정보 공개(info disclosure) 시트 (DAR-175).
@@ -37,17 +38,19 @@ interface InfoSheetProps {
 
 export function InfoSheet({ visible, onClose, title, sections, footnote }: InfoSheetProps) {
   const { colors, typography: typo } = useTheme();
+  const reducedMotion = useReducedMotion();
 
   return (
     <Modal
       visible={visible}
-      animationType="slide"
+      animationType={reducedMotion ? 'none' : 'slide'}
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
       <SafeAreaView
+        accessibilityViewIsModal
         style={[styles.container, { backgroundColor: colors.background }]}
-        edges={['top']}
+        edges={['top', 'bottom']}
       >
         <View style={styles.header}>
           <Text style={[typo.h3, { color: colors.text, flex: 1 }]} accessibilityRole="header">
@@ -84,7 +87,7 @@ export function InfoSheet({ visible, onClose, title, sections, footnote }: InfoS
               <Feather name="info" size={13} color={colors.textTertiary} />
               <Text
                 style={[
-                  typo.small,
+                  typo.caption,
                   { color: colors.textTertiary, flex: 1, marginLeft: spacing.xs },
                 ]}
               >
@@ -111,8 +114,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   closeBtn: {
-    width: sizing.minTouchTarget,
-    height: sizing.minTouchTarget,
+    width: Math.max(48, sizing.minTouchTarget),
+    height: Math.max(48, sizing.minTouchTarget),
     justifyContent: 'center',
     alignItems: 'flex-end',
   },

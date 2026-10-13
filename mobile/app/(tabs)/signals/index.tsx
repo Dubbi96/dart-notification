@@ -1,10 +1,12 @@
-import React, { useRef } from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { FlatList, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams, useScrollToTop } from 'expo-router';
 
 import { BuyEditionView } from '@components/signals/BuyEditionView';
 import { GuestSignalPreview } from '@components/signals/GuestSignalPreview';
+import { DeviceRuleCheckSheet } from '@components/signals/DeviceRuleCheckSheet';
+import { Button } from '@components/common/Button';
 import { useAuthStore } from '@stores/authStore';
 import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
@@ -17,7 +19,10 @@ import type { TradingSignal } from '@app-types/signal.types';
  */
 export default function SignalsScreen() {
   const { colors, typography: typo } = useTheme();
+  const { width } = useWindowDimensions();
+  const stackedHeader = width < 360 && typo.h2.fontSize > 28;
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const [showCheck, setShowCheck] = useState(false);
   const { date: dateParam } = useLocalSearchParams<{ date?: string }>();
   const focusDate =
     typeof dateParam === 'string' && /^\d{8}$/.test(dateParam) ? dateParam : undefined;
@@ -30,9 +35,23 @@ export default function SignalsScreen() {
       edges={['top']}
     >
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <Text style={[typo.h2, { color: colors.text }]}>오늘의 판단</Text>
-        <Text style={[typo.small, styles.subtitle, { color: colors.textSecondary }]}>
-          종가 데이터로 기기에서 Rule을 계산한 Shadow 운영 계획
+        <View
+          testID="signals-screen-header-row"
+          style={[styles.titleRow, stackedHeader && styles.stackedHeader]}
+        >
+          <Text style={[typo.h2, !stackedHeader && styles.title, { color: colors.text }]}>
+            오늘의 판단
+          </Text>
+          <Button
+            title="기기 점검"
+            variant="secondary"
+            size="sm"
+            fullWidth={stackedHeader}
+            onPress={() => setShowCheck(true)}
+          />
+        </View>
+        <Text style={[typo.caption, styles.subtitle, { color: colors.textSecondary }]}>
+          종가 기반 모의 계획 · 자동 실주문 꺼짐
         </Text>
       </View>
 
@@ -44,6 +63,7 @@ export default function SignalsScreen() {
           onSecondary={() => router.push('/disclosures')}
         />
       )}
+      {showCheck ? <DeviceRuleCheckSheet visible onClose={() => setShowCheck(false)} /> : null}
     </SafeAreaView>
   );
 }
@@ -60,4 +80,7 @@ const styles = StyleSheet.create({
   subtitle: {
     marginTop: spacing.xs,
   },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  title: { flex: 1, minWidth: 0 },
+  stackedHeader: { flexDirection: 'column', alignItems: 'stretch' },
 });

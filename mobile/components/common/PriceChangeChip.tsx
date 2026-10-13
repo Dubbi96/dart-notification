@@ -99,13 +99,15 @@ export function PriceChangeChip({
         // DAR-174: OS 글꼴 최대 확대 시 고정 높이 칩에서 텍스트가 잘리지 않도록 배율 상한 가드.
         maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
         onPress={disableInfo ? undefined : openSheet}
+        accessibilityRole={disableInfo ? 'text' : 'button'}
         style={[
           styles.chip,
+          !disableInfo && { minHeight: 48 },
           { backgroundColor: chipBg },
           isNeutral && { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
           style,
         ]}
-        textStyle={[typo.small, { color: textColor, fontWeight: '700' }]}
+        textStyle={[typo.caption, { color: textColor, fontWeight: '700' }]}
         icon={({ size }) => <Feather name={iconName} size={size} color={textColor} />}
         accessibilityLabel={
           disableInfo ? valueLabel : `${valueLabel}, 탭하면 ${isPnl ? '손익' : '등락률'} 표시 설명`

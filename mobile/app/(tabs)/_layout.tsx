@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, type ColorValue } from 'react-native';
+import { Text, type ColorValue, type TextStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,14 +7,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnreadCount } from '@hooks/useNotifications';
 import { usePositions } from '@hooks/usePortfolio';
 import { useAuthStore } from '@stores/authStore';
-import { MAX_CHIP_FONT_SCALE, useTheme } from '@theme';
+import { useTheme } from '@theme';
 import { spacing } from '@theme/spacing';
 import { formatUnreadBadge } from '@utils/unreadBadge';
 import { SHOW_TRADING } from '@utils/tradingVisibility';
 
 export { ErrorFallback as ErrorBoundary } from '@components/common/ErrorFallback';
 
-const TAB_BAR_CONTENT_HEIGHT = 54;
+const TAB_BAR_CONTENT_HEIGHT = 64;
 
 function TabLabel({
   label,
@@ -27,12 +27,15 @@ function TabLabel({
 }) {
   return (
     <Text
-      style={{ color, fontSize, fontWeight: '500', flexShrink: 1, minWidth: 0 }}
+      style={{
+        color,
+        fontSize,
+        lineHeight: Math.ceil(fontSize * 1.4),
+        fontWeight: '500',
+        minWidth: 0,
+      }}
       numberOfLines={1}
-      ellipsizeMode="tail"
-      adjustsFontSizeToFit
-      minimumFontScale={0.8}
-      maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
+      allowFontScaling={false}
     >
       {label}
     </Text>
@@ -49,6 +52,29 @@ export default function TabLayout() {
     (position) => position.thesisStatus === 'VIOLATED',
   ).length;
   const bottomPadding = Math.max(insets.bottom, spacing.sm);
+  const tabContentHeight = TAB_BAR_CONTENT_HEIGHT + typo.caption.lineHeight - 20;
+  const unreadBadge = formatUnreadBadge(unreadCount);
+  const positionBadge = violatedCount > 0 ? violatedCount : undefined;
+  const badgeHeight = Math.max(20, typo.small.lineHeight);
+  // 내장 배지의 31dp 아이콘 폭/고정 높이에 글자만 커지지 않도록 배지도 함께 확장한다.
+  const badgeStyle = (label: string | number | undefined): TextStyle => {
+    const width = Math.max(
+      badgeHeight,
+      Math.ceil(String(label ?? '').length * typo.small.fontSize * 0.75) + spacing.sm,
+    );
+    return {
+      backgroundColor: colors.error,
+      fontSize: typo.small.fontSize,
+      fontVariant: ['tabular-nums'],
+      width,
+      height: badgeHeight,
+      lineHeight: badgeHeight,
+      borderRadius: badgeHeight / 2,
+      // 기본 20dp 배지의 우상단 중심을 유지한다. transform은 내장 애니메이션에 맡긴다.
+      end: -3 - (width - 20) / 2,
+      top: -badgeHeight / 2,
+    };
+  };
 
   return (
     <Tabs
@@ -63,8 +89,11 @@ export default function TabLayout() {
           borderTopWidth: 1,
           paddingBottom: bottomPadding,
           paddingTop: spacing.sm,
-          height: TAB_BAR_CONTENT_HEIGHT + bottomPadding,
+          height: tabContentHeight + bottomPadding,
         },
+        tabBarLabelPosition: 'below-icon',
+        // 배지의 Animated.Text는 전역 Text 래퍼 밖에 있어 OS 배율 중복 적용을 명시적으로 막는다.
+        tabBarAllowFontScaling: false,
       }}
     >
       <Tabs.Screen
@@ -73,21 +102,21 @@ export default function TabLayout() {
           title: '판단',
           tabBarIcon: ({ color, size }) => <Feather name="compass" size={size} color={color} />,
           tabBarLabel: ({ color }) => (
-            <TabLabel label="판단" color={color} fontSize={typo.small.fontSize} />
+            <TabLabel label="판단" color={color} fontSize={typo.caption.fontSize} />
           ),
         }}
       />
       <Tabs.Screen
         name="portfolio/index"
         options={{
-          title: '포트폴리오',
+          title: '포지션',
           href: SHOW_TRADING ? undefined : null,
           tabBarIcon: ({ color, size }) => <Feather name="briefcase" size={size} color={color} />,
           tabBarLabel: ({ color }) => (
-            <TabLabel label="포트폴리오" color={color} fontSize={typo.small.fontSize} />
+            <TabLabel label="포지션" color={color} fontSize={typo.caption.fontSize} />
           ),
-          tabBarBadge: violatedCount > 0 ? violatedCount : undefined,
-          tabBarBadgeStyle: { backgroundColor: colors.error, fontSize: typo.small.fontSize },
+          tabBarBadge: positionBadge,
+          tabBarBadgeStyle: badgeStyle(positionBadge),
         }}
       />
       <Tabs.Screen
@@ -96,10 +125,10 @@ export default function TabLayout() {
           title: '알림',
           tabBarIcon: ({ color, size }) => <Feather name="bell" size={size} color={color} />,
           tabBarLabel: ({ color }) => (
-            <TabLabel label="알림" color={color} fontSize={typo.small.fontSize} />
+            <TabLabel label="알림" color={color} fontSize={typo.caption.fontSize} />
           ),
-          tabBarBadge: formatUnreadBadge(unreadCount),
-          tabBarBadgeStyle: { backgroundColor: colors.error, fontSize: typo.small.fontSize },
+          tabBarBadge: unreadBadge,
+          tabBarBadgeStyle: badgeStyle(unreadBadge),
         }}
       />
       <Tabs.Screen
@@ -108,7 +137,7 @@ export default function TabLayout() {
           title: '제어',
           tabBarIcon: ({ color, size }) => <Feather name="shield" size={size} color={color} />,
           tabBarLabel: ({ color }) => (
-            <TabLabel label="제어" color={color} fontSize={typo.small.fontSize} />
+            <TabLabel label="제어" color={color} fontSize={typo.caption.fontSize} />
           ),
         }}
       />

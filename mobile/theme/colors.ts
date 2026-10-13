@@ -50,9 +50,11 @@ export const palette = {
   red400: '#F87171',
   red500: '#EF4444',
   red600: '#DC2626',
+  red700: '#B91C1C',
   green400: '#4ADE80',
   green500: '#22C55E',
   green600: '#16A34A',
+  green800: '#166534',
   yellow400: '#FACC15',
   yellow500: '#EAB308',
   blue400: '#60A5FA',
@@ -68,7 +70,8 @@ export const lightColors = {
   surfaceElevated: palette.white,
 
   // Primary
-  primary: palette.teal500,
+  // 읽을 수 있는 강조색: 작은 링크·탭·버튼에서 밝은 표면 대비 4.5:1 이상.
+  primary: palette.teal700,
   primaryLight: palette.teal50,
   primaryDark: palette.teal700,
   primaryForeground: palette.white,
@@ -77,12 +80,9 @@ export const lightColors = {
 
   // Text
   text: palette.gray900,
-  textSecondary: palette.gray500,
-  // DAR-144: gray400(#9CA3AF)는 흰 배경 대비 ~2.5:1로 AA(4.5:1)·UI 3:1 모두 미달.
-  // gray500로 상향해 가독 텍스트는 AA를 충족하고 장식 아이콘도 3:1 이상 확보한다.
-  // UXR-8 A-2: 같은 근거로 잔존하던 tabInactive·inputPlaceholder(gray400, 흰 배경 2.54:1)도
-  // gray500(4.83:1)로 상향 — 12pt 탭 라벨·placeholder는 '읽어야 하는' 작은 텍스트라 AA 4.5:1 필요.
-  textTertiary: palette.gray500,
+  textSecondary: palette.gray600,
+  // 흰색뿐 아니라 surfaceSecondary(#F3F4F6) 위 작은 설명도 AA 4.5:1 이상.
+  textTertiary: palette.gray600,
   textInverse: palette.white,
 
   // Borders
@@ -90,7 +90,7 @@ export const lightColors = {
   borderLight: palette.gray100,
 
   // Card (Paychain style gradient card area)
-  cardGradientStart: palette.teal500,
+  cardGradientStart: palette.teal700,
   cardGradientEnd: palette.teal800,
 
   // On-color — 컬러 그라데이션 히어로/카드 위 흰색 전경 (DAR-269)
@@ -108,29 +108,28 @@ export const lightColors = {
   snackbarText: palette.white,
 
   // Status
-  success: palette.green600,
+  success: palette.green800,
   successSurface: '#D1FAE5',
-  error: palette.red500,
+  error: palette.red700,
   errorSurface: '#FEE2E2',
-  warning: palette.yellow500,
+  warning: '#92400E',
   // DAR-173: 오프라인 배너 배경(tinted surface). success/errorSurface 와 동일 규약
   // — 옅은 동색 surface + 진한 warning 전경 텍스트로 AA 확보.
   warningSurface: '#FEF3C7',
-  info: palette.blue500,
+  info: palette.blue600,
 
   // Tab bar
   tabBar: palette.white,
   tabBarBorder: palette.gray200,
-  tabActive: palette.teal500,
-  // UXR-8 A-2: gray400(2.54:1) → gray500(흰 tabBar 4.83:1) — 근거는 textTertiary(DAR-144) 주석 참조.
-  tabInactive: palette.gray500,
+  tabActive: palette.teal700,
+  // 큰 글자/작은 글자 모두 읽을 수 있는 비활성 라벨.
+  tabInactive: palette.gray600,
 
   // Input
   inputBackground: palette.white,
   inputBorder: palette.gray300,
   inputText: palette.gray900,
-  // UXR-8 A-2: gray400(2.54:1) → gray500(흰 입력창 4.83:1) — 근거는 textTertiary(DAR-144) 주석 참조.
-  inputPlaceholder: palette.gray500,
+  inputPlaceholder: palette.gray600,
 
   // Overlay
   overlay: 'rgba(0, 0, 0, 0.5)',

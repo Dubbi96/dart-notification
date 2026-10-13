@@ -40,6 +40,18 @@ describe('RealtimeQuoteCache (DAR-140)', () => {
     expect(cache.getFresh('99999999', 1)).toBeNull();
   });
 
+  it.each([NaN, Infinity, 2001])('잘못되거나 미래인 수집시각 %s는 신선하지 않다', (fetchedAt) => {
+    const cache = new RealtimeQuoteCache();
+    cache.set(quote('00126380', 23500, fetchedAt));
+    expect(cache.getFresh('00126380', 2000)).toBeNull();
+  });
+
+  it.each([NaN, Infinity, 0, -1])('유효하지 않은 가격 %s는 모든 소비자에서 거부한다', (price) => {
+    const cache = new RealtimeQuoteCache();
+    cache.set(quote('00126380', price, 2000));
+    expect(cache.getFresh('00126380', 2000)).toBeNull();
+  });
+
   it('동일 corpCode 재set 은 최신값으로 덮어쓴다', () => {
     const cache = new RealtimeQuoteCache();
     cache.set(quote('00126380', 23500, 1000));

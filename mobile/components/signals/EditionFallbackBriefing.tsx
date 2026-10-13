@@ -2,7 +2,7 @@ import React, { useCallback } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
+import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { Card } from '@components/common/Card';
 
@@ -34,30 +34,15 @@ function BriefingRowBase({ item, onPress }: RowProps) {
     >
       <Card style={styles.row} variant="elevated">
         <View style={styles.rowHeader}>
-          <View style={[styles.badge, { backgroundColor: colors.surfaceSecondary }]}>
-            <Text
-              style={[typo.small, { color: colors.textSecondary, flexShrink: 1, minWidth: 0 }]}
-              numberOfLines={1}
-              ellipsizeMode="tail"
-              maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-            >
-              {item.eventLabel}
-            </Text>
-          </View>
-          <Text
-            style={[typo.captionMedium, styles.corpName, { color: colors.text, flexShrink: 1, minWidth: 0 }]}
-            numberOfLines={1}
-            ellipsizeMode="tail"
-          >
+          <Text style={[typo.bodyMedium, styles.corpName, { color: colors.text }]}>
             {item.corpName}
           </Text>
           <Feather name="chevron-right" size={16} color={colors.textTertiary} />
         </View>
-        <Text
-          style={[typo.caption, styles.summary, { color: colors.textSecondary, flexShrink: 1, minWidth: 0 }]}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
+        <View style={[styles.badge, { backgroundColor: colors.surfaceSecondary }]}>
+          <Text style={[typo.caption, { color: colors.textSecondary }]}>{item.eventLabel}</Text>
+        </View>
+        <Text style={[typo.body, styles.summary, { color: colors.textSecondary }]}>
           {item.summaryLine}
         </Text>
       </Card>
@@ -90,7 +75,7 @@ function EditionFallbackBriefingBase({ items }: EditionFallbackBriefingProps) {
       <View style={styles.header}>
         <Feather name="file-text" size={16} color={colors.primary} />
         <Text
-          style={[typo.captionMedium, { color: colors.text, marginLeft: spacing.xs }]}
+          style={[typo.bodyMedium, styles.sectionTitle, { color: colors.text }]}
           accessibilityRole="header"
         >
           {`오늘의 주요 공시 ${items.length}건`}
@@ -113,17 +98,18 @@ const styles = StyleSheet.create({
   section: {
     width: '100%',
     marginTop: spacing.xl,
-    paddingHorizontal: spacing.lg,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: spacing.md,
   },
+  sectionTitle: { flex: 1, minWidth: 0, marginLeft: spacing.xs },
   separator: {
     height: spacing.sm,
   },
   row: {
+    minHeight: 48,
     padding: spacing.md,
   },
   rowHeader: {
@@ -132,6 +118,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   badge: {
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    marginTop: spacing.sm,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     borderRadius: radius.sm,
@@ -142,6 +131,6 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   summary: {
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
   },
 });

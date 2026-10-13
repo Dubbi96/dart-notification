@@ -1,4 +1,5 @@
 import React from 'react';
+import { ScrollView, StyleSheet } from 'react-native';
 import { render, fireEvent } from '@testing-library/react-native';
 import { EditionSignalList } from '@components/signals/EditionSignalList';
 import { useEdition } from '@hooks/useSignals';
@@ -14,6 +15,7 @@ jest.mock('@hooks/useDeviceRuleDecision', () => ({
   useLastDeviceEditionReceipt: jest.fn(),
 }));
 jest.mock('expo-router', () => ({ router: { push: jest.fn() } }));
+jest.mock('@components/signals/EditionOptInBanner', () => ({ EditionOptInBanner: () => null }));
 
 const mockUseEdition = useEdition as unknown as jest.Mock;
 const mockUseDeviceRuleDecision = useDeviceRuleDecision as unknown as jest.Mock;
@@ -83,6 +85,34 @@ describe('components/signals/EditionSignalList', () => {
       <EditionSignalList date={undefined} todayDate="20260717" onSelectDate={jest.fn()} />,
     );
     expect(toJSON()).toBeTruthy();
+  });
+
+  it.each(['fetch', 'device'])('%s 오류 안내와 재시도를 함께 스크롤할 수 있다', (source) => {
+    const retry = jest.fn();
+    mockUseEdition.mockReturnValue(
+      editionResult({
+        data: { items: source === 'device' ? [{ id: 's1' }] : [] },
+        isError: source === 'fetch',
+        error: new Error('연결을 확인해 주세요'),
+        refetch: retry,
+      }),
+    );
+    mockUseDeviceRuleDecision.mockReturnValue({
+      isError: source === 'device',
+      error: new Error('기기 계산 실패'),
+      refetch: retry,
+    });
+    const { UNSAFE_getByType, getByText } = render(
+      <EditionSignalList date="20260717" todayDate="20260717" onSelectDate={jest.fn()} />,
+    );
+    expect(
+      StyleSheet.flatten(UNSAFE_getByType(ScrollView).props.contentContainerStyle).flexGrow,
+    ).toBe(1);
+    if (source === 'device') {
+      expect(getByText('안전상 숫자 플랜을 표시하지 않습니다. 다시 계산해 주세요.')).toBeTruthy();
+    }
+    fireEvent.press(getByText('재시도'));
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 
   it('빈 에디션(QUIET)은 정직 카피 + 직전 거래일 CTA를 노출한다', () => {
@@ -232,5 +262,42 @@ describe('components/signals/EditionSignalList', () => {
       <EditionSignalList date="20260717" todayDate="20260717" onSelectDate={jest.fn()} />,
     );
     expect(queryByText('지난 판단 · 현재 시세와 다를 수 있어요')).toBeNull();
+  });
+
+  it.each([true, false])('현재 통제 안내는 오늘=%s 에디션일 때만 표시한다', (isToday) => {
+    const notice = '현재 계정에는 통제 상태 조회 권한이 없어요.';
+    const original = mockUseDeviceRuleDecision.getMockImplementation()!;
+    mockUseDeviceRuleDecision.mockImplementation((...args) => ({
+      ...original(...args),
+      controlNotice: notice,
+    }));
+    mockUseEdition.mockReturnValue(
+      editionResult({
+        data: {
+          items: [
+            {
+              id: 's1',
+              corpCode: '00126380',
+              corpName: '삼성전자',
+              buyScore: 80,
+              grade: 'BUY',
+              riskFlags: [],
+              createdAt: '2026-07-17T10:00:00Z',
+            },
+          ],
+          meta: { date: '20260717', isToday, isEmpty: false },
+        },
+      }),
+    );
+    const { queryByTestId, queryByText } = render(
+      <EditionSignalList date="20260717" todayDate="20260717" onSelectDate={jest.fn()} />,
+    );
+    if (isToday) {
+      expect(queryByTestId('edition-control-notice')).toBeTruthy();
+      expect(queryByText(notice)).toBeTruthy();
+    } else {
+      expect(queryByTestId('edition-control-notice')).toBeNull();
+      expect(queryByText(notice)).toBeNull();
+    }
   });
 });

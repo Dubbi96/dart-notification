@@ -1,272 +1,52 @@
-import React, { useCallback } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { Surface, Button } from 'react-native-paper';
-import { BlurView } from 'expo-blur';
+import React from 'react';
+import { ScrollView, Text, StyleSheet, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
+import { Button } from '@components/common/Button';
+import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
-import { guestPromptCopy } from '@components/common/guestPromptCopy';
-import {
-  guestPreviewCards,
-  GUEST_PREVIEW_COPY,
-  type GuestPreviewCard,
-} from '@utils/guestSignalPreview';
-
-// DAR-213: 게스트 신호 탭 read-only 미리보기.
-// 신호 엔드포인트는 401(인증 필요)이라 게스트는 실데이터를 받을 수 없다. 기존엔
-// GuestPrompt만 노출돼 '가치 체험' 경로가 홈 1건뿐이었다. 여기서 신호 카드 '구조'를
-// 블러+잠금 오버레이로 직접 맛보게 하고 로그인 CTA로 자연스럽게 동선을 연다.
-// 정직 원칙: 실종목·실점수·실등급 비노출 — 마스킹된 '예시' 실루엣만(guestSignalPreview 정본).
-
-const SIGN_IN_ROUTE = '/auth/sign-in' as const;
-const PREVIEW_COUNT = 2;
 
 interface GuestSignalPreviewProps {
-  /** 로그인 없이 볼 수 있는 보조 동선(공시 둘러보기 등). */
   secondaryLabel?: string;
   onSecondary?: () => void;
 }
 
-/** 잠금 미리보기 카드(§블러+오버레이) — 실데이터 아님을 '예시' 배지로 명시. */
-function LockedPreviewCard({ card }: { card: GuestPreviewCard }) {
-  const { colors, typography: typo, isDark } = useTheme();
-  return (
-    <Surface
-      elevation={1}
-      // 카드 내부는 잠금 미리보기 단위 — 스크린리더는 오버레이 라벨만 읽는다.
-      importantForAccessibility="no-hide-descendants"
-      style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
-    >
-      {/* 실루엣(블러 아래) — 신호 카드 구조: 종목명 + 등급칩 + 점수 게이지바. */}
-      <View style={styles.cardHeader}>
-        <Text
-          style={[typo.bodyMedium, styles.flex1, { color: colors.text, minWidth: 0 }]}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
-          {card.maskedName}
-        </Text>
-        <View style={[styles.gradeChip, { backgroundColor: colors.surfaceSecondary }]}>
-          <View
-            style={[styles.maskBar, styles.maskBarChip, { backgroundColor: colors.textTertiary }]}
-          />
-        </View>
-      </View>
-      <View style={[styles.gaugeTrack, { backgroundColor: colors.surfaceSecondary }]}>
-        <View
-          style={[
-            styles.gaugeFill,
-            { backgroundColor: colors.primary, width: `${card.fill * 100}%` },
-          ]}
-        />
-      </View>
-      <View style={[styles.maskBar, styles.maskBarLine, { backgroundColor: colors.borderLight }]} />
-
-      {/* 블러 + 잠금 오버레이 — 수치를 읽을 수 없게 덮고 로그인 유도. */}
-      <BlurView intensity={18} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
-      <View style={[styles.exampleBadge, { backgroundColor: colors.overlay }]}>
-        <Text
-          style={[typo.small, { color: colors.textInverse }]}
-          maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-        >
-          {GUEST_PREVIEW_COPY.exampleBadge}
-        </Text>
-      </View>
-      <View style={styles.lockBadge} pointerEvents="none">
-        <View style={[styles.lockPill, { backgroundColor: colors.overlay }]}>
-          <Feather name="lock" size={14} color={colors.textInverse} />
-          <Text
-            style={[typo.captionMedium, { color: colors.textInverse }]}
-            maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
-          >
-            {GUEST_PREVIEW_COPY.lockBadge}
-          </Text>
-        </View>
-      </View>
-    </Surface>
-  );
-}
-
 export function GuestSignalPreview({ secondaryLabel, onSecondary }: GuestSignalPreviewProps) {
   const { colors, typography: typo } = useTheme();
-  const copy = guestPromptCopy.signals;
-  const cards = guestPreviewCards(PREVIEW_COUNT);
-
-  const handleLogin = useCallback(() => {
-    router.push(SIGN_IN_ROUTE);
-  }, []);
-
   return (
-    <View style={styles.container}>
-      <View style={[styles.screenIcon, { backgroundColor: colors.primaryLight }]}>
-        <Feather name={copy.icon} size={28} color={colors.primary} />
+    <ScrollView contentContainerStyle={styles.content}>
+      <View style={[styles.intro, { backgroundColor: colors.primaryLight }]}>
+        <Feather name="compass" size={32} color={colors.primaryDark} />
+        <Text style={[typo.h2, { color: colors.text }]}>조건을 먼저 확인하는 투자 계획</Text>
+        <Text style={[typo.body, { color: colors.textSecondary }]}>공시와 종가를 바탕으로 조건을 확인하고, 조건이 맞을 때만 모의 가격 계획을 보여드려요.</Text>
       </View>
-      <Text style={[typo.h3, styles.title, { color: colors.text }]}>{copy.title}</Text>
-      {copy.description ? (
-        <Text style={[typo.caption, styles.description, { color: colors.textSecondary }]}>
-          {copy.description}
-        </Text>
-      ) : null}
-
-      {/* read-only 미리보기 카드(블러+잠금) — 신호 가치 '구조' 맛보기. */}
-      <View
-        style={styles.preview}
-        accessibilityRole="image"
-        accessibilityLabel="잠긴 신호 미리보기 예시 — 로그인하면 실제 매수·매도 신호를 볼 수 있어요"
-      >
-        {cards.map((card) => (
-          <LockedPreviewCard key={card.maskedName} card={card} />
+      <View style={styles.steps}>
+        {[
+          ['판단부터 읽기', '후보 종목을 보기 전에 진입 조건과 대기 이유를 확인해요.'],
+          ['가격과 위험 함께 보기', '진입 구간, 손절 기준, 목표가를 한 계획으로 읽어요.'],
+          ['근거는 필요할 때 펼치기', '공시 근거와 기기 계산 기록을 이어서 확인해요.'],
+        ].map(([title, description], index) => (
+          <View key={title} style={styles.row}>
+            <Text style={[typo.captionMedium, { color: colors.primaryDark }]}>{String(index + 1).padStart(2, '0')}</Text>
+            <View style={styles.flex}>
+              <Text style={[typo.bodyMedium, { color: colors.text }]}>{title}</Text>
+              <Text style={[typo.caption, styles.description, { color: colors.textSecondary }]}>{description}</Text>
+            </View>
+          </View>
         ))}
       </View>
-
-      {copy.benefits && copy.benefits.length > 0 ? (
-        <View style={styles.benefits}>
-          {copy.benefits.map((b) => (
-            <View key={b} style={styles.benefitRow}>
-              <Feather name="check" size={16} color={colors.primary} />
-              <Text style={[typo.caption, styles.flex1, { color: colors.textSecondary }]}>{b}</Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
-
-      <Button
-        mode="contained"
-        onPress={handleLogin}
-        style={styles.cta}
-        contentStyle={styles.ctaContent}
-        accessibilityLabel={`${copy.ctaLabel ?? '로그인'} — ${copy.title}`}
-      >
-        {copy.ctaLabel ?? '로그인'}
-      </Button>
-      {secondaryLabel && onSecondary ? (
-        <Button mode="text" onPress={onSecondary} style={styles.secondary}>
-          {secondaryLabel}
-        </Button>
-      ) : null}
-    </View>
+      <Button title="로그인하고 판단 보기" onPress={() => router.push('/auth/sign-in')} fullWidth />
+      {secondaryLabel && onSecondary ? <Button title={secondaryLabel} variant="ghost" onPress={onSecondary} fullWidth /> : null}
+      <Text style={[typo.caption, { color: colors.textSecondary }]}>실계좌 자동매매는 아직 연결되지 않았어요. 로그인 없이 상단 ‘기기 점검’에서 합성 사례를 계산해 볼 수 있어요.</Text>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.xl,
-  },
-  screenIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  flex1: {
-    flex: 1,
-  },
-  title: {
-    marginTop: spacing.md,
-    textAlign: 'center',
-  },
-  description: {
-    marginTop: spacing.sm,
-    textAlign: 'center',
-  },
-  preview: {
-    alignSelf: 'stretch',
-    marginTop: spacing.xl,
-    gap: spacing.md,
-  },
-  card: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: spacing.base,
-    overflow: 'hidden',
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  gradeChip: {
-    minHeight: 26,
-    minWidth: 56,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.sm,
-  },
-  gaugeTrack: {
-    height: 10,
-    borderRadius: radius.full,
-    marginTop: spacing.md,
-    overflow: 'hidden',
-  },
-  gaugeFill: {
-    height: '100%',
-    borderRadius: radius.full,
-  },
-  maskBar: {
-    borderRadius: radius.sm,
-  },
-  maskBarChip: {
-    width: 36,
-    minHeight: 8,
-    opacity: 0.5,
-  },
-  maskBarLine: {
-    height: 8,
-    width: '60%',
-    marginTop: spacing.md,
-  },
-  exampleBadge: {
-    position: 'absolute',
-    top: spacing.sm,
-    right: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.sm,
-  },
-  lockBadge: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  lockPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.full,
-  },
-  benefits: {
-    alignSelf: 'stretch',
-    marginTop: spacing.lg,
-    gap: spacing.sm,
-    paddingHorizontal: spacing.sm,
-  },
-  benefitRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  cta: {
-    marginTop: spacing.xl,
-    alignSelf: 'stretch',
-  },
-  ctaContent: {
-    paddingVertical: spacing.xs,
-  },
-  secondary: {
-    marginTop: spacing.sm,
-  },
+  content: { padding: spacing.lg, gap: spacing.md, flexGrow: 1 },
+  intro: { padding: spacing.lg, gap: spacing.md, borderRadius: radius.lg },
+  steps: { gap: spacing.lg, paddingVertical: spacing.md },
+  row: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  flex: { flex: 1, minWidth: 0 },
+  description: { marginTop: spacing.xs },
 });

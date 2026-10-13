@@ -9,9 +9,9 @@ import { useReducedMotion } from '@hooks/useReducedMotion';
 
 // DAR-173: 전역 오프라인 인지 배너. 네트워크 단절 시 상단에서 슬라이드인.
 // 단절을 무표식으로 두면 캐시 옛값을 '정상'으로 오인 → colors.warning(Surface) 배너로 명시.
-// 절대 위치 오버레이라 레이아웃을 밀지 않고(콘텐츠 점프 0) 복구 시 슬라이드아웃.
+// 별도 행을 차지해 큰 글자 안내문이 헤더·뒤로 가기 버튼을 덮지 않는다.
 // 색 단독 의미 금지: wifi-off 아이콘(형태) + 평문 병기. pointerEvents='none'으로 터치 비차단.
-// 항상 마운트 + 애니메이션만 effect에서 구동(setState-in-effect 회피) — 온라인이면 opacity 0·a11y 숨김.
+// 훅은 항상 유지하고 온라인이면 행을 제거한다.
 export function OfflineBanner() {
   const { isOffline } = useNetworkStatus();
   const { colors, typography: typo } = useTheme();
@@ -36,8 +36,12 @@ export function OfflineBanner() {
     return () => animation.stop();
   }, [isOffline, anim, reducedMotion]);
 
+  if (!isOffline) return null;
+
   return (
     <Animated.View
+      accessible
+      accessibilityLiveRegion="polite"
       pointerEvents="none"
       accessibilityRole="alert"
       accessibilityElementsHidden={!isOffline}
@@ -62,11 +66,7 @@ export function OfflineBanner() {
       ]}
     >
       <Feather name="wifi-off" size={14} color={colors.warning} />
-      <Text
-        style={[typo.small, styles.text, { color: colors.text, minWidth: 0 }]}
-        numberOfLines={1}
-        ellipsizeMode="tail"
-      >
+      <Text style={[typo.caption, styles.text, { color: colors.text, minWidth: 0 }]}>
         오프라인 — 인터넷 연결이 없어 마지막으로 받은 데이터를 표시합니다
       </Text>
     </Animated.View>
@@ -75,11 +75,7 @@ export function OfflineBanner() {
 
 const styles = StyleSheet.create({
   container: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 1000,
+    flexShrink: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

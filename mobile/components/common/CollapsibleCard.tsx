@@ -7,13 +7,13 @@ import { Card } from '@components/common/Card';
 
 // 접이식 카드(DAR-123) — 텍스트 근거를 기본 접힘으로 두고 진입 화면 텍스트량을 줄이는 공용 컴포넌트.
 // DecisionHubTab의 로컬 CollapsibleSection 패턴을 공용으로 추출(추천→검색→드릴다운 원칙).
-// 접힘 상태에서도 1줄 요약(summary)을 노출해 '한눈 파악'을 유지한다.
+// 접힘 상태에서도 요약(summary)을 온전히 노출한다. 큰 글자에서는 자연스럽게 줄바꿈한다.
 // 색 단독 의미 금지 — 헤더 아이콘(형태) + 평문 텍스트 병행. 테마 토큰만(하드코딩 색상 0).
 
 interface CollapsibleCardProps {
   icon: keyof typeof Feather.glyphMap;
   title: string;
-  /** 접힘 상태에서도 항상 보이는 한 줄 요약. */
+  /** 접힘 상태에서도 항상 보이는 요약. */
   summary?: string;
   defaultExpanded?: boolean;
   children: React.ReactNode;
@@ -42,19 +42,9 @@ function CollapsibleCardBase({
       >
         <Feather name={icon} size={16} color={colors.primary} />
         <View style={styles.titleWrap}>
-          <Text
-            style={[typo.bodyMedium, { color: colors.text, minWidth: 0 }]}
-            numberOfLines={1}
-            ellipsizeMode="tail"
-          >
-            {title}
-          </Text>
+          <Text style={[typo.bodyMedium, { color: colors.text, minWidth: 0 }]}>{title}</Text>
           {summary && !expanded ? (
-            <Text
-              style={[typo.small, { color: colors.textSecondary, minWidth: 0 }]}
-              numberOfLines={1}
-              ellipsizeMode="tail"
-            >
+            <Text style={[typo.caption, { color: colors.textSecondary, minWidth: 0 }]}>
               {summary}
             </Text>
           ) : null}
@@ -79,11 +69,13 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 44,
+    minHeight: 48,
   },
   titleWrap: {
     flex: 1,
+    minWidth: 0,
     marginLeft: spacing.sm,
+    marginRight: spacing.sm,
   },
   body: {
     marginTop: spacing.md,

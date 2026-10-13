@@ -5,6 +5,8 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 
+import { HelpButton } from './HelpButton';
+
 // AI 면책 표준 컴포넌트(기획 §5). 투자 판단 화면(M6~) 최하단 고정 배치.
 // Surface(surfaceSecondary) + Text(textSecondary) + Feather alert-triangle.
 
@@ -16,8 +18,8 @@ const DISCLAIMER_TEXT =
 interface DisclaimerSectionProps {
   style?: ViewStyle;
   /**
-   * 화면별 동적 위험 맥락 고지(§6). 기존 면책 본문 위에 '상태 고지'로 추가만 한다 —
-   * 법적 본문은 절대 변경/약화하지 않는다. 상위 화면에서 사실 고지 문구를 주입.
+   * 화면별 동적 위험 맥락 고지(§6)는 접지 않는다.
+   * 면책 전문은 원문 그대로 도움말에서 제공한다. 상위 화면에서 사실 고지 문구를 주입.
    */
   contextNotes?: string[];
 }
@@ -32,30 +34,31 @@ export function DisclaimerSection({ style, contextNotes }: DisclaimerSectionProp
       style={[styles.container, { backgroundColor: colors.surfaceSecondary }, style]}
       accessibilityLabel="투자자문이 아님을 알리는 면책 고지"
     >
-      <Feather name="alert-triangle" size={16} color={colors.textSecondary} />
       <View style={styles.textWrap}>
-        {/* 동적 위험 맥락 고지 — 면책 본문 위에 추가만(약화 금지) */}
+        <View style={styles.heading}>
+          <Feather name="alert-triangle" size={16} color={colors.textSecondary} />
+          <Text style={[typo.captionMedium, styles.textWrap, { color: colors.textSecondary }]}>
+            투자자문 아님
+          </Text>
+          <HelpButton
+            title="투자 참고 정보"
+            sections={[{ heading: '투자자문 아님', body: DISCLAIMER_TEXT }]}
+          />
+        </View>
+        {/* 현재 위험 맥락은 도움말을 열지 않아도 읽을 수 있어야 한다. */}
         {notes.length > 0 ? (
           <View style={styles.contextNotes}>
             {notes.map((note, idx) => (
-              <View
-                key={`${idx}-${note}`}
-                style={styles.contextRow}
-                accessibilityLabel={note}
-              >
-                <Feather name="alert-triangle" size={13} color={colors.warning} />
-                <Text style={[typo.captionMedium, styles.contextText, { color: colors.textSecondary }]}>
+              <View key={`${idx}-${note}`} style={styles.contextRow} accessibilityLabel={note}>
+                <Text
+                  style={[typo.captionMedium, styles.contextText, { color: colors.textSecondary }]}
+                >
                   {note}
                 </Text>
               </View>
             ))}
           </View>
         ) : null}
-
-        <Text style={[typo.captionMedium, { color: colors.textSecondary }]}>⚠ 투자자문 아님</Text>
-        <Text style={[typo.small, { color: colors.textSecondary, marginTop: spacing.xs }]}>
-          {DISCLAIMER_TEXT}
-        </Text>
       </View>
     </Surface>
   );
@@ -71,10 +74,16 @@ const styles = StyleSheet.create({
   },
   textWrap: {
     flex: 1,
+    minWidth: 0,
+  },
+  heading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   contextNotes: {
     gap: spacing.xs,
-    marginBottom: spacing.sm,
+    marginTop: spacing.xs,
   },
   contextRow: {
     flexDirection: 'row',

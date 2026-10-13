@@ -5,6 +5,7 @@ import { OutputSchema, parseAndValidate } from '../validation/json-output.valida
 import { DisclosureSummaryDraft } from './summary.task';
 import { PersonaAnalysisDraft } from './persona-interpretation.task';
 import { EARNINGS_BASIS_GUIDE } from './earnings-basis.constant';
+import { humanizerKoPrompt } from './humanizer-ko.prompt';
 
 export interface PositionThesisInput {
   rcpNo: string;
@@ -26,7 +27,7 @@ const SYSTEM_PROMPT =
   '이 결과는 참고 정보일 뿐이며 최종 매수/주문 결정은 별도 시스템이 내린다. ' +
   '추측·과장 금지. 반드시 JSON만 출력한다. ' +
   // W9: 실적 판정 기준(전년동기 대비/자사 전망) 명시 — 시장 기대치 대비로 오인 금지
-  EARNINGS_BASIS_GUIDE;
+  EARNINGS_BASIS_GUIDE + humanizerKoPrompt('position-thesis');
 
 const OUTPUT_SCHEMA: OutputSchema = {
   initialThesis: { type: 'string' },

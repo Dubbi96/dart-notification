@@ -3,6 +3,7 @@ import { TaskRunResult, TaskParseFailureError } from '../types/ai-analyst.types'
 import { LlmClient } from '../llm/llm-client';
 import { OutputSchema, parseAndValidate } from '../validation/json-output.validator';
 import { buildExcerpt } from '../input/build-minimal-input';
+import { humanizerKoPrompt } from '../tasks/humanizer-ko.prompt';
 
 /** 등락 방향. */
 export type PriceMoveDirection = 'UP' | 'DOWN';
@@ -66,7 +67,7 @@ const SYSTEM_PROMPT =
   '★반드시 설명(원인 해석)만 한다: 매수/매도/보유 권고·목표가·투자의견·점수·주문 언급을 절대 하지 마라. ' +
   '통계가 없으면(표본 부족) 통계 근거 없이 공시 내용만으로 신중히 해석하고 caveat 에 명시하라. ' +
   '공시가 등락을 설명하지 못하면 eventLinkage 를 WEAK/UNCLEAR 로 두고 아는 척하지 마라(상관≠인과). ' +
-  '추측·과장 금지. 반드시 JSON만 출력한다.';
+  '추측·과장 금지. 반드시 JSON만 출력한다.' + humanizerKoPrompt('price-move-reasoning');
 
 const OUTPUT_SCHEMA: OutputSchema = {
   cause: { type: 'string' },

@@ -45,7 +45,7 @@ describe('RecordAosBacktestRunService', () => {
 });
 
 function record(): CanonicalAosBacktestRecord {
-  const metrics = {
+  const metrics: CanonicalAosBacktestRecord['metrics'] = {
     totalReturn: 1,
     annualizedReturn: 1,
     winRate: 100,
@@ -71,7 +71,7 @@ function record(): CanonicalAosBacktestRecord {
       recentPeriodConsistent: true,
     },
     passedGate: true,
-  } as const;
+  };
   return {
     replayKey: 'aos-backtest:receipt-1',
     runType: 'VERSIONED_EVALUATOR',
@@ -86,7 +86,7 @@ function record(): CanonicalAosBacktestRecord {
     endDate: '2025-12-31',
     initialCapital: 10_000_000,
     strategy: { initialCapital: 10_000_000 } as CanonicalAosBacktestRecord['strategy'],
-    costs: { commissionRate: 0, taxRate: 0, slippageRate: 0 },
+    costs: { commissionRate: 0, taxRate: 0, slippagePct: 0 },
     metrics,
     windows: [
       {

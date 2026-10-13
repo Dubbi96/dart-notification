@@ -61,7 +61,7 @@ jobs:
         run: npm test
 
   mobile-regression:
-    name: 모바일 회귀(tsc + lint + Android 번들)
+    name: 모바일 회귀(tsc + 보안 패치 + Jest + Android 번들)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -75,8 +75,14 @@ jobs:
           cache-dependency-path: mobile/package-lock.json
       - name: 의존성 설치
         run: npm ci --legacy-peer-deps
+      - name: 의존성 보안 패치 회귀 (공식 수정판 및 검증용 백포트)
+        run: npm run test:dependency-security
       - name: 타입체크 (tsc --noEmit 0)
         run: npm run typecheck
+      - name: 테스트 타입체크
+        run: npx tsc -p tsconfig.test.json --noEmit
+      - name: 모바일 전체 회귀
+        run: npm test -- --runInBand --silent --forceExit
       - name: Lint (errors 0)
         run: npm run lint
       - name: Android 번들 (expo export)

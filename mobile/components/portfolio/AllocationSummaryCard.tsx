@@ -1,16 +1,27 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { HelpButton } from '@components/common/HelpButton';
 import { useTheme } from '@theme';
 import { radius, spacing } from '@theme/spacing';
 
 import type { AosAllocationSummary } from '@app-types/allocation.types';
+import type { InfoSheetSection } from '@components/common/InfoSheet';
 
 interface Props {
   summary: AosAllocationSummary;
 }
 
 const LABELS = { SPGI: 'SPGI', VTI: 'VTI', SYSTEM_TRADING: '시스템' } as const;
+const HELP_SECTIONS: InfoSheetSection[] = [
+  {
+    heading: '배분 계획',
+    body: '시스템 트레이딩에서 결산한 확정이익을 나누는 계획입니다. 항목별 비중과 금액은 승인된 계획을 기준으로 표시합니다.',
+  },
+  {
+    heading: '자금 분리와 실행 범위',
+    body: '장기투자(SPGI·VTI)와 시스템 트레이딩 자금은 분리합니다. 이 화면은 계획 조회용이며 송금·환전·매수를 자동 실행하지 않습니다.',
+  },
+];
 
 export function AllocationSummaryCard({ summary }: Props) {
   const { colors, typography: typo } = useTheme();
@@ -21,23 +32,18 @@ export function AllocationSummaryCard({ summary }: Props) {
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.titleRow}>
         <View style={styles.flex}>
-          <Text style={[typo.h3, { color: colors.text }]}>확정이익 배분</Text>
-          <Text style={[typo.small, { color: colors.textSecondary }]}>
-            50 · 30 · 20 계획 · 조회 전용
+          <Text style={[typo.h2, { color: colors.text }]}>확정이익 배분</Text>
+          <Text style={[typo.caption, { color: colors.textSecondary }]}>
+            조회 전용 · 자동 이체·매수 없음
           </Text>
         </View>
-        <Feather name="pie-chart" size={20} color={colors.primary} />
+        <HelpButton title="확정이익 배분" sections={HELP_SECTIONS} />
       </View>
       {latest ? (
         <>
           <View style={styles.amountRow}>
-            <Text style={[typo.small, { color: colors.textSecondary }]}>최근 승인 배분액</Text>
-            <Text
-              style={[typo.h2, styles.amount, { color: colors.text }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.75}
-            >
+            <Text style={[typo.caption, { color: colors.textSecondary }]}>최근 승인 배분액</Text>
+            <Text style={[typo.h2, styles.amount, { color: colors.text }]}>
               {Math.round(Number(latest.distributableProfit)).toLocaleString('ko-KR')}원
             </Text>
           </View>
@@ -47,32 +53,36 @@ export function AllocationSummaryCard({ summary }: Props) {
               .map((item) => (
                 <View
                   key={item.destination}
-                  style={[styles.item, { backgroundColor: colors.background }]}
+                  style={[styles.item, { borderTopColor: colors.border }]}
                 >
-                  <Text style={[typo.caption, { color: colors.textTertiary }]} numberOfLines={1}>
+                  <Text style={[typo.caption, { color: colors.textSecondary }]}>
                     {LABELS[item.destination]} {Math.round(Number(item.weight) * 100)}%
                   </Text>
-                  <Text
-                    style={[typo.small, styles.itemAmount, { color: colors.text }]}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.72}
-                  >
+                  <Text style={[typo.bodyMedium, styles.itemAmount, { color: colors.text }]}>
                     {Math.round(Number(item.amount)).toLocaleString('ko-KR')}원
                   </Text>
                 </View>
               ))}
           </View>
-          <Text style={[typo.caption, styles.basis, { color: colors.textTertiary }]}>
-            승인 {formatPeriod(latest.periodStart, latest.periodEnd)} · 송금·환전·매수 자동 실행
-            없음
+          <Text style={[typo.caption, { color: colors.textSecondary }]}>
+            배분 기간 {formatPeriod(latest.periodStart, latest.periodEnd)}
           </Text>
         </>
       ) : (
-        <Text style={[typo.small, styles.empty, { color: colors.textSecondary }]}>
-          활성 정책 v{summary.policy?.version} · 승인된 배분 계획 없음
-        </Text>
+        <View style={styles.amountRow}>
+          <Text style={[typo.caption, styles.empty, { color: colors.textSecondary }]}>
+            정책 v{summary.policy?.version} · 승인된 계획 없음
+          </Text>
+          <Text style={[typo.caption, { color: colors.text }]}>
+            SPGI {Math.round(Number(summary.policy?.spgiWeight) * 100)}% · VTI{' '}
+            {Math.round(Number(summary.policy?.vtiWeight) * 100)}% · 시스템{' '}
+            {Math.round(Number(summary.policy?.systemTradingWeight) * 100)}%
+          </Text>
+        </View>
       )}
+      <Text style={[typo.caption, { color: colors.textSecondary }]}>
+        장기자금으로 트레이딩 손실 자동 보전 금지
+      </Text>
     </View>
   );
 }
@@ -94,13 +104,12 @@ function rank(destination: string): number {
 
 const styles = StyleSheet.create({
   card: { borderRadius: radius.lg, borderWidth: 1, padding: spacing.base, gap: spacing.md },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
   flex: { flex: 1, minWidth: 0 },
   amountRow: { gap: spacing.xs },
   amount: { flexShrink: 1 },
-  itemGrid: { flexDirection: 'row', gap: spacing.xs },
-  item: { flex: 1, minWidth: 0, borderRadius: radius.md, padding: spacing.sm },
+  itemGrid: { gap: spacing.sm },
+  item: { minWidth: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.sm },
   itemAmount: { fontWeight: '700', marginTop: spacing.xs },
-  basis: { lineHeight: 18 },
   empty: { paddingVertical: spacing.xs },
 });

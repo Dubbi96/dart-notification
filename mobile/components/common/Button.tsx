@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
-  TouchableOpacity,
+  Pressable,
   Text,
   StyleSheet,
   ActivityIndicator,
@@ -8,6 +8,7 @@ import {
   type TextStyle,
 } from 'react-native';
 import { useTheme } from '@theme';
+import { palette } from '@theme/colors';
 import { radius, spacing } from '@theme/spacing';
 
 interface ButtonProps {
@@ -33,7 +34,10 @@ export function Button({
   textStyle,
   fullWidth = false,
 }: ButtonProps) {
-  const { colors, typography } = useTheme();
+  const { colors, typography, isDark } = useTheme();
+  const [focused, setFocused] = useState(false);
+  const accent = isDark ? colors.primary : colors.primaryDark;
+  const inactive = disabled || loading;
 
   const containerStyles: ViewStyle[] = [
     styles.base,
@@ -48,67 +52,90 @@ export function Button({
   // makeTypography 스케일 경로에 태운다(전역 allowFontScaling=false 체계의 유일한 확대 경로).
   // fontWeight는 기존 시각(600) 유지를 위해 styles.label로 고정 — scale 1.0에서 시각 변화 없음.
   const labelTypo =
-    size === 'sm' ? typography.captionMedium : size === 'lg' ? typography.h3 : typography.bodyMedium;
+    size === 'sm'
+      ? typography.captionMedium
+      : size === 'lg'
+        ? typography.h3
+        : typography.bodyMedium;
 
-  const labelStyles: TextStyle[] = [styles.label, { fontSize: labelTypo.fontSize }];
+  const labelStyles: TextStyle[] = [labelTypo, styles.label];
 
   switch (variant) {
     case 'primary':
       containerStyles.push({
-        backgroundColor: disabled ? colors.textTertiary : colors.primary,
+        backgroundColor: disabled ? colors.surfaceSecondary : accent,
       });
-      labelStyles.push({ color: colors.primaryForeground });
+      labelStyles.push({ color: disabled ? colors.textSecondary : colors.primaryForeground });
       break;
     case 'secondary':
       containerStyles.push({ backgroundColor: colors.primaryLight });
-      labelStyles.push({ color: colors.primary });
+      labelStyles.push({ color: disabled ? colors.textSecondary : colors.primaryDark });
       break;
     case 'outline':
       containerStyles.push({
         backgroundColor: 'transparent',
         borderWidth: 1.5,
-        borderColor: disabled ? colors.textTertiary : colors.primary,
+        borderColor: disabled ? colors.textTertiary : accent,
       });
-      labelStyles.push({ color: disabled ? colors.textTertiary : colors.primary });
+      labelStyles.push({ color: disabled ? colors.textSecondary : colors.primaryDark });
       break;
     case 'ghost':
       containerStyles.push({ backgroundColor: 'transparent' });
-      labelStyles.push({ color: colors.primary });
+      labelStyles.push({ color: disabled ? colors.textSecondary : colors.primaryDark });
       break;
   }
 
   if (fullWidth) containerStyles.push({ width: '100%' });
 
   return (
-    <TouchableOpacity
-      style={[containerStyles, style]}
+    <Pressable
+      style={({ pressed }) => [
+        containerStyles,
+        style,
+        pressed &&
+          !inactive && {
+            backgroundColor:
+              variant === 'primary'
+                ? isDark
+                  ? colors.primaryDark
+                  : palette.teal800
+                : colors.primaryLight,
+          },
+        focused && [styles.focused, { borderColor: colors.text }],
+      ]}
       onPress={onPress}
-      disabled={disabled || loading}
-      activeOpacity={0.7}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      disabled={inactive}
       accessibilityRole="button"
       // loading 중엔 자식이 ActivityIndicator뿐이라 title 기반 라벨로 스크린리더 무음을 방지한다.
       accessibilityLabel={title}
-      accessibilityState={{ disabled: disabled || loading, busy: loading }}
+      accessibilityState={{ disabled: inactive, busy: loading }}
     >
       {loading ? (
         <ActivityIndicator
-          color={variant === 'primary' ? colors.primaryForeground : colors.primary}
+          color={variant === 'primary' && !disabled ? colors.primaryForeground : colors.primaryDark}
           size="small"
         />
       ) : (
         <Text style={[labelStyles, textStyle]}>{title}</Text>
       )}
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   base: {
+    minHeight: 48,
+    minWidth: 48,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
   },
   label: {
     fontWeight: '600',
+    textAlign: 'center',
+    flexShrink: 1,
   },
+  focused: { borderWidth: 2 },
 });

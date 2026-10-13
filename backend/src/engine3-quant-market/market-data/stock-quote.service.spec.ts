@@ -23,6 +23,7 @@ describe('buildQuote (순수 합성)', () => {
     expect(q!.tradeDate).toBe('20260603');
     expect(q!.corpCode).toBe('C1');
     expect(q!.sparkline).toEqual([100, 110, 121]);
+    expect(q).toMatchObject({ fetchedAt: null, marketObservedAt: null, freshnessMaxAgeMs: null });
   });
 
   it('실시간이 있으면 현재가 우선, 직전 기준은 최신 일봉 종가', () => {
@@ -60,6 +61,21 @@ describe('buildQuote (순수 합성)', () => {
     const q = buildQuote('005930', rowsAsc, 0);
     expect(q!.source).toBe('DAILY');
     expect(q!.price).toBe(121);
+  });
+
+  it.each([NaN, Infinity, -Infinity])('유한하지 않은 현재가 %s는 일봉으로 폴백한다', (price) => {
+    expect(buildQuote('005930', rowsAsc, price)).toMatchObject({ source: 'DAILY', price: 121 });
+  });
+
+  it('수집시각을 거래소 체결시각으로 오인하지 않는다', () => {
+    const fetchedAt = Date.parse('2026-10-13T01:00:00.000Z');
+    expect(buildQuote('005930', rowsAsc, 130, fetchedAt)).toMatchObject({
+      fetchedAt: '2026-10-13T01:00:00.000Z',
+      marketObservedAt: null,
+      freshnessMaxAgeMs: 5 * 60_000,
+    });
+    expect(buildQuote('005930', rowsAsc, 130)!.fetchedAt).toBeNull();
+    expect(buildQuote('005930', rowsAsc, 130, 1e20)!.fetchedAt).toBeNull();
   });
 });
 
@@ -169,6 +185,8 @@ describe('StockQuoteService.getQuotes', () => {
     const result = await service.getQuotes(['005930'], NOW);
     expect(result['005930']!.source).toBe('REALTIME');
     expect(result['005930']!.price).toBe(130);
+    expect(result['005930']!.fetchedAt).toBe(new Date(NOW).toISOString());
+    expect(result['005930']!.marketObservedAt).toBeNull();
   });
 
   it('오래된 실시간 캐시는 무시하고 일봉 폴백', async () => {
@@ -187,6 +205,8 @@ describe('StockQuoteService.getQuotes', () => {
     const result = await service.getQuotes(['005930'], NOW);
     expect(result['005930']!.source).toBe('DAILY');
     expect(result['005930']!.price).toBe(121);
+    expect(result['005930']!.fetchedAt).toBeNull();
+    expect(result['005930']!.freshnessMaxAgeMs).toBeNull();
   });
 
   it('잘못된 종목코드(비6자리)·중복은 정규화로 제거, 빈 입력은 쿼리 미실행', async () => {

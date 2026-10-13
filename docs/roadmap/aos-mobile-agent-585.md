@@ -25,7 +25,22 @@
 
 검증: Mobile **44 suites / 324 tests / 5 snapshots**, 앱 및 테스트 TypeScript, Android export **6,182 modules / 약 13MB Hermes** 통과. 알림 옵트인 가드 45/45, 설정 접근성 가드 30/30 통과. 전체 lint는 오류 0이며 기존 경고는 남아 있다. Jest는 기존 미종료 handle 때문에 `--forceExit`로 종료했다. 잠금 파일·패키지 선언·보안 예외는 바꾸지 않았다. 보안 게이트는 여전히 고유 high advisory 4건으로 실패하므로 정식 출시 완료가 아니다.
 
-390px dark/기본, 320px light/1.5배의 합성 Web 미리보기에서 도움말과 접기/펼치기·줄바꿈을 검수했다. [캡처와 검수 경계](../qa/aos-585/README.md)에 기록했다. 사용자 후속 메시지로 휴대전화 검수가 허용돼 USB 연결과 설치 **1.0.4(6)**을 확인했다. 최신 UI는 이 설치본에 없으므로 preview 채널 업데이트와 별도 APK 중 적용 방식을 확인 요청했다. 이 시점에는 새 OTA·APK·운영 배포를 하지 않았다.
+390px dark/기본, 320px light/1.5배의 합성 Web 미리보기에서 도움말과 접기/펼치기·줄바꿈을 검수했다. [캡처와 검수 경계](../qa/aos-585/README.md)에 기록했다. 사용자 후속 메시지로 휴대전화 검수가 허용돼 USB 연결과 설치 **1.0.4(6)**을 확인했다.
+
+### 승인된 preview 게시 — 2026-10-13 11:23 KST
+
+사용자가 보안 차단 4건과 같은 preview/runtime 설치에 대한 배포 범위를 확인한 뒤 '내부 preview 업데이트 후 휴대전화 검수'를 승인했다.
+
+- source: `9fd15835219b068ddf54c1679ee076c9ee25434b` (clean).
+- channel / branch: `preview` / `preview`, platform: Android, runtime: `1.0.4`.
+- group: `a1820deb-fee7-4e32-b5fc-ae56198edc7b`, update: `01a13312-7210-79af-a529-e85775a82528`.
+- 게시 시각: 2026-10-13 11:23:29 KST. EAS 조회에서 최신 preview group 일치를 확인했다.
+- 첫 업로드는 `ECONNRESET`으로 중단됐다. 최신 group이 이전 값임을 확인한 뒤 같은 검증 번들을 재전송해 성공했다. 새 자산은 없고 Android bundle 1개를 올렸다.
+- `--environment preview`와 승인된 API URL을 명시했다. 게시 Hermes에 해당 API URL이 있고 임시 localhost 검수 API는 없음을 확인했다. package/lock/native 설정 변경은 없다.
+- production / oci / play, runtime `1.0.3`, Backend, DB, 실주문은 변경하지 않았다. 새 APK가 아니라 기존 `1.0.4(6)`용 OTA다.
+- GitHub `9fd158352` CI: Mobile·Backend·Operator·gitleaks 통과, 보안 감사 실패(기존 advisory 4건). 정식 출시·병합은 보류한다.
+
+휴대전화는 1080×2340 / density 450 / 시스템 font scale 1.0이다. 공시온 시작 후 잠금 화면으로 전환되어 사용자에게 직접 잠금 해제를 요청했다. 이 시점에는 새 UI의 실기기 적용·도움말·큰 글자 검증을 완료로 표시하지 않는다. 앱 데이터 삭제나 운영 설정 변경은 하지 않았다.
 
 ## 작업 범위와 계획 확인
 

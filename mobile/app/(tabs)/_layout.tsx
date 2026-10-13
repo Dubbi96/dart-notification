@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, type ColorValue } from 'react-native';
+import { Text, type ColorValue, type TextStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -53,6 +53,22 @@ export default function TabLayout() {
   ).length;
   const bottomPadding = Math.max(insets.bottom, spacing.sm);
   const tabContentHeight = TAB_BAR_CONTENT_HEIGHT + typo.caption.lineHeight - 20;
+  const unreadBadge = formatUnreadBadge(unreadCount);
+  const positionBadge = violatedCount > 0 ? violatedCount : undefined;
+  const badgeHeight = Math.max(20, typo.small.lineHeight);
+  // 내장 배지의 31dp 아이콘 폭/고정 높이에 글자만 커지지 않도록 배지도 함께 확장한다.
+  const badgeStyle = (label: string | number | undefined): TextStyle => ({
+    backgroundColor: colors.error,
+    fontSize: typo.small.fontSize,
+    fontVariant: ['tabular-nums'],
+    width: Math.max(
+      badgeHeight,
+      Math.ceil(String(label ?? '').length * typo.small.fontSize * 0.75) + spacing.sm,
+    ),
+    height: badgeHeight,
+    lineHeight: badgeHeight,
+    borderRadius: badgeHeight / 2,
+  });
 
   return (
     <Tabs
@@ -70,6 +86,8 @@ export default function TabLayout() {
           height: tabContentHeight + bottomPadding,
         },
         tabBarLabelPosition: 'below-icon',
+        // 배지의 Animated.Text는 전역 Text 래퍼 밖에 있어 OS 배율 중복 적용을 명시적으로 막는다.
+        tabBarAllowFontScaling: false,
       }}
     >
       <Tabs.Screen
@@ -91,8 +109,8 @@ export default function TabLayout() {
           tabBarLabel: ({ color }) => (
             <TabLabel label="포지션" color={color} fontSize={typo.caption.fontSize} />
           ),
-          tabBarBadge: violatedCount > 0 ? violatedCount : undefined,
-          tabBarBadgeStyle: { backgroundColor: colors.error, fontSize: typo.small.fontSize },
+          tabBarBadge: positionBadge,
+          tabBarBadgeStyle: badgeStyle(positionBadge),
         }}
       />
       <Tabs.Screen
@@ -103,8 +121,8 @@ export default function TabLayout() {
           tabBarLabel: ({ color }) => (
             <TabLabel label="알림" color={color} fontSize={typo.caption.fontSize} />
           ),
-          tabBarBadge: formatUnreadBadge(unreadCount),
-          tabBarBadgeStyle: { backgroundColor: colors.error, fontSize: typo.small.fontSize },
+          tabBarBadge: unreadBadge,
+          tabBarBadgeStyle: badgeStyle(unreadBadge),
         }}
       />
       <Tabs.Screen

@@ -57,6 +57,11 @@ describe.each(['light', 'dark'] as const)('%s 하단 탭 배지', (scheme) => {
       expect(style.lineHeight).toBe(style.height);
       expect(style.borderRadius).toBe(Number(style.height) / 2);
       expect(style.fontVariant).toEqual(['tabular-nums']);
+      expect(style.end).toBe(-3 - (Number(style.width) - 20) / 2);
+      expect(style.top).toBe(-Number(style.height) / 2);
+      expect(style.transform).toBeUndefined();
+      // 31dp 아이콘 영역 중앙에서 배지 오른쪽 끝까지. 320dp/4탭 경계를 넘지 않는다.
+      expect(31 / 2 - Number(style.end)).toBeLessThanOrEqual(320 / 4 / 2);
       expect(Number(style.width)).toBeGreaterThanOrEqual(
         Math.ceil(String(options.tabBarBadge).length * fontSize * 0.75) + 8,
       );

@@ -57,18 +57,24 @@ export default function TabLayout() {
   const positionBadge = violatedCount > 0 ? violatedCount : undefined;
   const badgeHeight = Math.max(20, typo.small.lineHeight);
   // 내장 배지의 31dp 아이콘 폭/고정 높이에 글자만 커지지 않도록 배지도 함께 확장한다.
-  const badgeStyle = (label: string | number | undefined): TextStyle => ({
-    backgroundColor: colors.error,
-    fontSize: typo.small.fontSize,
-    fontVariant: ['tabular-nums'],
-    width: Math.max(
+  const badgeStyle = (label: string | number | undefined): TextStyle => {
+    const width = Math.max(
       badgeHeight,
       Math.ceil(String(label ?? '').length * typo.small.fontSize * 0.75) + spacing.sm,
-    ),
-    height: badgeHeight,
-    lineHeight: badgeHeight,
-    borderRadius: badgeHeight / 2,
-  });
+    );
+    return {
+      backgroundColor: colors.error,
+      fontSize: typo.small.fontSize,
+      fontVariant: ['tabular-nums'],
+      width,
+      height: badgeHeight,
+      lineHeight: badgeHeight,
+      borderRadius: badgeHeight / 2,
+      // 기본 20dp 배지의 우상단 중심을 유지한다. transform은 내장 애니메이션에 맡긴다.
+      end: -3 - (width - 20) / 2,
+      top: -badgeHeight / 2,
+    };
+  };
 
   return (
     <Tabs

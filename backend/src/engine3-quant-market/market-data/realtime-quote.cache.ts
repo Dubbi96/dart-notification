@@ -51,7 +51,10 @@ export class RealtimeQuoteCache {
   ): RealtimeQuote | null {
     const q = this.quotes.get(corpCode);
     if (!q) return null;
-    if (nowMs - q.fetchedAtMs > maxAgeMs) return null; // stale → 실시간 없음
+    if (!Number.isFinite(q.price) || q.price <= 0) return null;
+    const ageMs = nowMs - q.fetchedAtMs;
+    // 비정상 시계·미래 수집시각을 '신선함'으로 처리하지 않는다(모든 캐시 소비자 공통).
+    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > maxAgeMs) return null;
     return q;
   }
 

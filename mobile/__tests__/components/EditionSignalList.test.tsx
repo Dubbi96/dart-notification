@@ -233,4 +233,41 @@ describe('components/signals/EditionSignalList', () => {
     );
     expect(queryByText('지난 판단 · 현재 시세와 다를 수 있어요')).toBeNull();
   });
+
+  it.each([true, false])('현재 통제 안내는 오늘=%s 에디션일 때만 표시한다', (isToday) => {
+    const notice = '현재 계정에는 통제 상태 조회 권한이 없어요.';
+    const original = mockUseDeviceRuleDecision.getMockImplementation()!;
+    mockUseDeviceRuleDecision.mockImplementation((...args) => ({
+      ...original(...args),
+      controlNotice: notice,
+    }));
+    mockUseEdition.mockReturnValue(
+      editionResult({
+        data: {
+          items: [
+            {
+              id: 's1',
+              corpCode: '00126380',
+              corpName: '삼성전자',
+              buyScore: 80,
+              grade: 'BUY',
+              riskFlags: [],
+              createdAt: '2026-07-17T10:00:00Z',
+            },
+          ],
+          meta: { date: '20260717', isToday, isEmpty: false },
+        },
+      }),
+    );
+    const { queryByTestId, queryByText } = render(
+      <EditionSignalList date="20260717" todayDate="20260717" onSelectDate={jest.fn()} />,
+    );
+    if (isToday) {
+      expect(queryByTestId('edition-control-notice')).toBeTruthy();
+      expect(queryByText(notice)).toBeTruthy();
+    } else {
+      expect(queryByTestId('edition-control-notice')).toBeNull();
+      expect(queryByText(notice)).toBeNull();
+    }
+  });
 });

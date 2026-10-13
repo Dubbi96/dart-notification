@@ -41,8 +41,9 @@ describe('AOS realized-profit allocation', () => {
       'AOS_ALLOCATION_WHOLE_KRW_REQUIRED',
     ],
   ])('손실·0원·유보액 오류는 계획을 만들지 않는다', (input, code) => {
+    expect(() => calculateAllocationAmounts(input)).toThrow(AosAllocationDomainError);
     expect(() => calculateAllocationAmounts(input)).toThrow(
-      expect.objectContaining<AosAllocationDomainError>({ code }),
+      expect.objectContaining<Pick<AosAllocationDomainError, 'code'>>({ code }),
     );
   });
 

@@ -64,7 +64,9 @@ function EditionSignalListBase({
 
   // 과거 에디션(오늘 아님 · 미래 아님) → 지난 판단 배너 + muted. 신호가 있을 때만 배너 노출
   // (빈 과거 에디션은 4분기 카피가 사유를 이미 고지 — 배너 중복 회피).
-  const isPast = !!meta && !meta.isToday && meta.emptyReason !== 'FUTURE';
+  const isPast =
+    (!!meta && !meta.isToday && meta.emptyReason !== 'FUTURE') ||
+    deviceDecision.data?.decisions.some((decision) => decision.scope === 'HISTORICAL') === true;
   const showBanner = isPast && items.length > 0;
 
   const handlePress = useCallback((signal: TradingSignal) => {
@@ -188,7 +190,7 @@ function EditionSignalListBase({
         data={items}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={[styles.listContent, showBanner && styles.mutedContent]}
+        contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={false}
         initialNumToRender={8}
@@ -198,7 +200,23 @@ function EditionSignalListBase({
         onRefresh={handleRefresh}
         ListHeaderComponent={
           deviceDecision.data ? (
-            <EditionDecisionSummary decision={deviceDecision.data} historical={isPast} />
+            <View style={styles.header}>
+              <EditionDecisionSummary decision={deviceDecision.data} historical={isPast} />
+              {!isPast && deviceDecision.controlNotice ? (
+                <View
+                  testID="edition-control-notice"
+                  style={[
+                    styles.controlNotice,
+                    { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+                  ]}
+                >
+                  <Feather name="lock" size={16} color={colors.textSecondary} />
+                  <Text style={[typo.small, styles.bannerText, { color: colors.textSecondary }]}>
+                    {deviceDecision.controlNotice}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           ) : null
         }
         ListEmptyComponent={
@@ -250,6 +268,17 @@ const styles = StyleSheet.create({
   bannerText: {
     flex: 1,
   },
+  header: {
+    gap: spacing.md,
+  },
+  controlNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
   cachedReceipt: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -263,6 +292,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   resetBtn: {
+    minHeight: 48,
+    justifyContent: 'center',
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.md,
     borderRadius: radius.full,
@@ -272,10 +303,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
     flexGrow: 1,
-  },
-  // 과거 에디션 카드 muted(정본 §3) — 지난 판단임을 시각적으로 낮춤(배너는 full opacity 유지).
-  mutedContent: {
-    opacity: 0.85,
   },
   disclaimer: {
     marginTop: spacing.lg,

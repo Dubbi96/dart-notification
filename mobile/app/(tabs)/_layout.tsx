@@ -14,7 +14,7 @@ import { SHOW_TRADING } from '@utils/tradingVisibility';
 
 export { ErrorFallback as ErrorBoundary } from '@components/common/ErrorFallback';
 
-const TAB_BAR_CONTENT_HEIGHT = 54;
+const TAB_BAR_CONTENT_HEIGHT = 64;
 
 function TabLabel({
   label,
@@ -80,11 +80,11 @@ export default function TabLayout() {
       <Tabs.Screen
         name="portfolio/index"
         options={{
-          title: '포트폴리오',
+          title: '포지션',
           href: SHOW_TRADING ? undefined : null,
           tabBarIcon: ({ color, size }) => <Feather name="briefcase" size={size} color={color} />,
           tabBarLabel: ({ color }) => (
-            <TabLabel label="포트폴리오" color={color} fontSize={typo.small.fontSize} />
+            <TabLabel label="포지션" color={color} fontSize={typo.small.fontSize} />
           ),
           tabBarBadge: violatedCount > 0 ? violatedCount : undefined,
           tabBarBadgeStyle: { backgroundColor: colors.error, fontSize: typo.small.fontSize },

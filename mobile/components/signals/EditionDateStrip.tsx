@@ -3,6 +3,8 @@ import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { formatEditionChipLabel } from '@utils/editionDisplay';
+import { useReducedMotion } from '@hooks/useReducedMotion';
+import { useHaptics } from '@hooks/useHaptics';
 
 import type { DailyEditionSummary } from '@app-types/signal.types';
 
@@ -49,7 +51,10 @@ function EditionDateStripBase({
   onSelect,
   unreadDates,
 }: EditionDateStripProps) {
-  const { colors, typography: typo } = useTheme();
+  const { colors, typography: typo, isDark } = useTheme();
+  const reducedMotion = useReducedMotion();
+  const haptics = useHaptics();
+  const selectionColor = isDark ? colors.primary : colors.primaryDark;
   const listRef = useRef<FlatList<StripChip>>(null);
 
   const chips = useMemo<StripChip[]>(() => {
@@ -79,11 +84,11 @@ function EditionDateStripBase({
       listRef.current?.scrollToIndex({
         index: selectedIndex,
         viewPosition: 0.5,
-        animated: true,
+        animated: !reducedMotion,
       });
     }, 0);
     return () => clearTimeout(id);
-  }, [selectedIndex]);
+  }, [selectedIndex, reducedMotion]);
 
   const getItemLayout = useCallback(
     (_data: ArrayLike<StripChip> | null | undefined, index: number) => ({
@@ -114,14 +119,14 @@ function EditionDateStripBase({
       return (
         <TouchableOpacity
           activeOpacity={0.8}
-          onPress={() => onSelect(item.date)}
+          onPress={() => { if (!isSelected) { haptics.light(); onSelect(item.date); } }}
           // testID: 날짜 스트립 칩 앵커(DAR-542 스모크 ② — 에디션 날짜 스트립 탭). 개별 칩은
           // index 로 구분(Maestro tapOn id+index). 선택 상태는 accessibilityState.selected 로 노출.
           testID="edition-date-chip"
           style={[
             styles.chip,
             isSelected
-              ? { backgroundColor: colors.primary, borderColor: colors.primary }
+              ? { backgroundColor: selectionColor, borderColor: selectionColor }
               : { backgroundColor: colors.surface, borderColor: colors.borderLight },
           ]}
           accessibilityRole="button"
@@ -187,7 +192,7 @@ function EditionDateStripBase({
         </TouchableOpacity>
       );
     },
-    [colors, typo, todayDate, selectedDate, onSelect, unreadDates],
+    [colors, typo, todayDate, selectedDate, onSelect, unreadDates, selectionColor, haptics],
   );
 
   if (chips.length === 0) return null;
@@ -216,7 +221,7 @@ function EditionDateStripBase({
         onScrollToIndexFailed={(info) => {
           listRef.current?.scrollToOffset({
             offset: ITEM_WIDTH * info.index,
-            animated: true,
+            animated: !reducedMotion,
           });
         }}
       />

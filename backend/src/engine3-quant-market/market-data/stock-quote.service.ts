@@ -1,6 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { RealtimeQuoteCache } from './realtime-quote.cache';
+import { DEFAULT_REALTIME_MAX_AGE_MS, RealtimeQuoteCache } from './realtime-quote.cache';
 import { KisApiService, KisMinuteCandle } from './kis-api.service';
 import { hhmmFromTs, tradeDateFromTs } from './minute-timestamp';
 
@@ -42,6 +42,12 @@ export interface StockQuote {
   tradeDate: string | null;
   /** 가격 출처 — 'REALTIME'(KIS 신선) | 'DAILY'(일봉 종가). */
   source: 'REALTIME' | 'DAILY';
+  /** KIS 응답을 수집한 시각. 거래소 체결시각이 아니며 일봉/미상은 null. */
+  fetchedAt: string | null;
+  /** 현재 adapter는 거래소 체결시각을 제공하지 않는다. 수집시각으로 대체하지 않는다. */
+  marketObservedAt: null;
+  /** 캐시 신선도 상한. 체결 가능성이나 거래소 데이터의 최신성을 보증하지 않는다. */
+  freshnessMaxAgeMs: number | null;
   /** 최근 종가 스파크라인(오래된→최신, 최대 5개). */
   sparkline: number[];
 }
@@ -72,6 +78,7 @@ export function buildQuote(
   stockCode: string,
   dailyRowsAsc: Array<{ corpCode: string; tradeDate: string; closePrice: number }>,
   realtimePrice: number | null,
+  realtimeFetchedAtMs?: number,
 ): StockQuote | null {
   if (dailyRowsAsc.length === 0) {
     // 일봉이 없으면 실시간만으로는 corpCode/기준일을 신뢰할 수 없어 미표시 처리.
@@ -82,7 +89,8 @@ export function buildQuote(
   const prevDaily =
     dailyRowsAsc.length >= 2 ? dailyRowsAsc[dailyRowsAsc.length - 2] : null;
 
-  const useRealtime = realtimePrice !== null && realtimePrice > 0;
+  const useRealtime = realtimePrice !== null && Number.isFinite(realtimePrice) && realtimePrice > 0;
+  const collectedAt = new Date(realtimeFetchedAtMs ?? NaN);
   const price = useRealtime ? realtimePrice! : latest.closePrice;
   // 실시간이면 직전 기준 = 최신 일봉 종가(직전 세션), 일봉이면 그 전일 종가.
   const previousClose = useRealtime
@@ -108,6 +116,12 @@ export function buildQuote(
     changePercent,
     tradeDate: latest.tradeDate,
     source: useRealtime ? 'REALTIME' : 'DAILY',
+    fetchedAt:
+      useRealtime && Number.isFinite(collectedAt.getTime())
+        ? collectedAt.toISOString()
+        : null,
+    marketObservedAt: null,
+    freshnessMaxAgeMs: useRealtime ? DEFAULT_REALTIME_MAX_AGE_MS : null,
     sparkline,
   };
 }
@@ -273,7 +287,7 @@ export class StockQuoteService {
         corpCode && this.realtimeCache
           ? this.realtimeCache.getFresh(corpCode, nowMs)
           : null;
-      result[code] = buildQuote(code, asc, realtime ? realtime.price : null);
+      result[code] = buildQuote(code, asc, realtime ? realtime.price : null, realtime?.fetchedAtMs);
     }
 
     return result;

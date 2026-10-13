@@ -3,7 +3,7 @@ import { render } from '@testing-library/react-native';
 
 import UpcomingEventsScreen from '../../app/upcoming-events/index';
 
-const mockRedirect = jest.fn(() => null);
+const mockRedirect = jest.fn((_props: { href: string }) => null);
 
 jest.mock('expo-router', () => ({
   Redirect: (props: { href: string }) => mockRedirect(props),

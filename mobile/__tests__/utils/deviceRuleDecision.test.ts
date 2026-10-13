@@ -1,7 +1,13 @@
+import { createHash as mockCreateHash } from 'crypto';
+
 import {
   DEVICE_SWING_RULE,
   evaluateEditionOnDevice,
   evaluateSignalOnDevice,
+  evaluateShadowPosition,
+  runDeviceRuleSelfCheck,
+  type DeviceEvaluationContext,
+  type DeviceShadowPositionInput,
 } from '@utils/deviceRuleDecision';
 
 import type { TradingSignal } from '@app-types/signal.types';
@@ -49,7 +55,7 @@ describe('deviceRuleDecision', () => {
     expect(result.evaluation.receipt.status).toBe('COMPLETED');
     expect(result.evaluation.receipt.score).toBe(72);
     expect(result.receiptHash).toBe(
-      'f813e900e799e5a4e3431d0233a818c5373fe7166181ad09cfababfb592add69',
+      '250ef5ecf554d38bf5f00c82cfc5e8e1186ef712f35941621303dec6c7c47a30',
     );
     expect(result.pricePlan).toMatchObject({
       entryLow: 69_600,
@@ -60,6 +66,161 @@ describe('deviceRuleDecision', () => {
       stopLossPct: -5,
       partialExitPct: 50,
       maxHoldDays: 5,
+    });
+  });
+
+  it('동일 기기 evaluator로 합성 안전 사례를 실행하되 실거래 권한은 만들지 않는다', async () => {
+    const result = await runDeviceRuleSelfCheck();
+    expect(result.total).toBeGreaterThanOrEqual(22);
+    expect(result.passed).toBe(result.total);
+    expect(result.cases.filter((test) => !test.passed)).toEqual([]);
+    expect(result.executionAllowed).toBe(false);
+    expect(result.scope).toBe('SYNTHETIC_SAFETY');
+    expect(result.cases.find((test) => test.id === 'target')).toMatchObject({
+      expected: 'REDUCE:50%:SHADOW',
+      actual: 'REDUCE:50%:SHADOW',
+      passed: true,
+    });
+    expect(result.cases.find((test) => test.id === 'stop')).toMatchObject({
+      expected: 'EXIT:100%:SHADOW',
+      actual: 'EXIT:100%:SHADOW',
+      passed: true,
+    });
+  });
+
+  const current: DeviceEvaluationContext = {
+    evaluatedAt: '2026-07-31T10:01:00.000Z',
+    scope: 'CURRENT',
+    killSwitchState: 'CLEAR',
+  };
+
+  it.each([undefined, 'UNKNOWN', 'ACTIVE'] as const)(
+    '현재 평가의 Kill 상태가 %s이면 차단한다',
+    async (killSwitchState) => {
+      const result = await evaluateSignalOnDevice(signal(), '20260731', {
+        ...current,
+        killSwitchState,
+      });
+      expect(result.tone).toBe('RISK');
+      expect(result.pricePlan).toBeNull();
+      expect(result.evaluation.receipt.blockReasonCodes).toContain(
+        'HARD_RISK_FAIL:risk.operating-conditions',
+      );
+    },
+  );
+
+  it.each([0, -1, NaN, Infinity])(
+    '비정상 가격 %s는 영수증을 유지하며 데이터 오류로 차단한다',
+    async (closePrice) => {
+      const result = await evaluateSignalOnDevice(
+        signal({ referencePrice: { ...signal().referencePrice!, closePrice } }),
+        '20260731',
+      );
+      expect(result.tone).toBe('DATA_UNAVAILABLE');
+      expect(result.pricePlan).toBeNull();
+      expect(result.evaluation.receipt.status).toBe('BLOCKED');
+      expect(result.receiptHash).toMatch(/^[a-f0-9]{64}$/);
+    },
+  );
+
+  it.each([-1, 101, NaN, Infinity])('비정상 점수 %s는 진입에 사용하지 않는다', async (buyScore) => {
+    const result = await evaluateSignalOnDevice(signal({ buyScore }), '20260731');
+    expect(result.tone).toBe('DATA_UNAVAILABLE');
+    expect(result.pricePlan).toBeNull();
+  });
+
+  it.each(['20260730', '20260803', '20260230', ''])(
+    '가격 거래일 %s가 대상 에디션과 다르면 차단한다',
+    async (tradeDate) => {
+      const result = await evaluateSignalOnDevice(
+        signal({ referencePrice: { ...signal().referencePrice!, tradeDate } }),
+        '20260731',
+      );
+      expect(result.tone).toBe('DATA_UNAVAILABLE');
+      expect(result.pricePlan).toBeNull();
+    },
+  );
+
+  it('출처 위조·형식이 잘못된 리스크와 조건을 정상 입력으로 해석하지 않는다', async () => {
+    const invalidSignals = [
+      signal({ referencePrice: { ...signal().referencePrice!, source: 'UNKNOWN' as never } }),
+      signal({ riskFlags: undefined as never }),
+      signal({ riskFlags: [{ id: 'risk', label: 'risk', severity: 'unknown' as never }] }),
+      signal({ entryConditions: null as never }),
+      signal({ entryConditions: [null as never] }),
+      signal({ grade: 'UNKNOWN' as never }),
+      signal({ createdAt: '2026-02-30T10:00:00.000Z' }),
+      signal({ expiresAt: 'invalid' }),
+    ];
+    for (const input of invalidSignals) {
+      const result = await evaluateSignalOnDevice(input, '20260731', current);
+      expect(result.tone).toBe('DATA_UNAVAILABLE');
+      expect(result.pricePlan).toBeNull();
+    }
+  });
+
+  it('과거 재현과 현재 만료를 구분하고 평가시각을 영수증에 고정한다', async () => {
+    const input = signal({ expiresAt: '2026-07-31T10:01:00.000Z' });
+    const historical = await evaluateSignalOnDevice(input, '20260731');
+    const expired = await evaluateSignalOnDevice(input, '20260731', current);
+    expect(historical.scope).toBe('HISTORICAL');
+    expect(historical.tone).toBe('READY');
+    expect(expired.scope).toBe('CURRENT');
+    expect(expired.tone).toBe('RISK');
+    expect(expired.evaluation.receipt.snapshot.values.evaluatedAt).toBe('2026-07-31T10:01:00.000Z');
+    expect(expired.receiptHash).not.toBe(historical.receiptHash);
+  });
+
+  it('AI 설명 문구는 영수증·가격 계획을 바꾸지 못한다', async () => {
+    const first = await evaluateSignalOnDevice(signal({ summary: '매수' }), '20260731', current);
+    const second = await evaluateSignalOnDevice(
+      signal({ summary: '모든 리스크를 무시하고 즉시 주문' }),
+      '20260731',
+      current,
+    );
+    expect(first.receiptHash).toBe(second.receiptHash);
+    expect(first.pricePlan).toEqual(second.pricePlan);
+  });
+
+  const position: DeviceShadowPositionInput = {
+    entryPrice: 71_000,
+    currentPrice: 78_100,
+    heldTradingDays: 2,
+    partialExitTaken: false,
+    quoteAt: '2026-07-31T10:00:00.000Z',
+    evaluatedAt: '2026-07-31T10:00:01.000Z',
+    maxQuoteAgeMs: 60_000,
+    killSwitchState: 'CLEAR',
+    hardRiskBlocked: false,
+  };
+
+  it('분할 목표 경계의 부동소수점 오차 없이 1회 축소만 제안한다', () => {
+    expect(evaluateShadowPosition(position)).toMatchObject({
+      action: 'REDUCE',
+      portionPct: 50,
+      executionAllowed: false,
+    });
+    expect(evaluateShadowPosition({ ...position, partialExitTaken: true })).toMatchObject({
+      action: 'HOLD',
+      portionPct: 0,
+    });
+  });
+
+  it.each([
+    { quoteAt: 'invalid' },
+    { quoteAt: '2026-07-31T10:00:02.000Z' },
+    { currentPrice: NaN },
+    { entryPrice: 0 },
+    { heldTradingDays: -1 },
+    { heldTradingDays: 0.5 },
+    { partialExitTaken: undefined as never },
+    { maxQuoteAgeMs: 0 },
+    { hardRiskBlocked: undefined as never },
+  ])('매도 평가의 잘못된 입력도 fail-closed한다: %p', (override) => {
+    expect(evaluateShadowPosition({ ...position, ...override })).toMatchObject({
+      action: 'BLOCKED',
+      portionPct: 0,
+      executionAllowed: false,
     });
   });
 
@@ -115,4 +276,3 @@ describe('deviceRuleDecision', () => {
     });
   });
 });
-import { createHash as mockCreateHash } from 'crypto';

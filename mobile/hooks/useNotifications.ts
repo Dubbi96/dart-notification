@@ -131,6 +131,16 @@ export function useMarkAsRead() {
   });
 }
 
+// DAR-568: 알림 탭 진입 시 seen 마커 갱신 — 탭바·홈 헤더 배지(unreadCount, useUnreadCount)가
+// "마지막 방문 이후 신규"만 세도록 기준점을 옮긴다. 행별 isRead/하이라이트는 건드리지 않는다.
+export function useMarkSeen() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: notificationService.markSeen,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+  });
+}
+
 export function useMarkAllAsRead() {
   const queryClient = useQueryClient();
   return useMutation({

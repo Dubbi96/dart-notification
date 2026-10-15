@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
-import { router, useScrollToTop, type Href } from 'expo-router';
+import { router, useFocusEffect, useScrollToTop, type Href } from 'expo-router';
 import { useTheme, MAX_CHIP_FONT_SCALE } from '@theme';
 import { spacing, radius } from '@theme/spacing';
 import { useAuthStore } from '@stores/authStore';
@@ -22,7 +22,12 @@ import { emptyStateCopy } from '@components/common/emptyStateCopy';
 import { guestPromptCopy } from '@components/common/guestPromptCopy';
 import { useSnackbar } from '@components/common/SnackbarProvider';
 import { snackbarCopy, SNACKBAR_DURATION } from '@components/common/snackbarCopy';
-import { useNotifications, useMarkAsRead, useMarkAllAsRead } from '@hooks/useNotifications';
+import {
+  useNotifications,
+  useMarkAsRead,
+  useMarkAllAsRead,
+  useMarkSeen,
+} from '@hooks/useNotifications';
 import { getTypeLabel } from '@utils/disclosureType';
 import { resolveDeepLink } from '@utils/deeplink';
 import { stripSourceEmoji } from '@utils/notificationSource';
@@ -288,12 +293,30 @@ export default function NotificationsScreen() {
   } = useNotifications({ enabled: isAuthenticated, category: selectedCategory ?? undefined });
   const markAsRead = useMarkAsRead();
   const markAllAsRead = useMarkAllAsRead();
+  const markSeen = useMarkSeen();
+
+  // DAR-568: 탭 진입마다 seen 마커 갱신 — 탭바·홈 배지(useUnreadCount)가 "마지막 방문 이후
+  // 신규"만 세도록 기준점을 옮긴다. 성공 시 훅이 ['notifications']를 invalidate해 이 화면의
+  // unreadCount(세그먼트 칩)도 함께 갱신된다. 행별 isRead/하이라이트는 이 호출로 바뀌지 않는다.
+  const { mutate: markSeenMutate } = markSeen;
+  useFocusEffect(
+    useCallback(() => {
+      if (isAuthenticated) markSeenMutate();
+    }, [isAuthenticated, markSeenMutate]),
+  );
 
   const notifications = useMemo(() => data?.pages.flatMap((page) => page.data) ?? [], [data]);
 
   const unreadCount = data?.pages[0]?.meta.unreadCount ?? 0;
   // DAR-430: 카테고리별 미읽음 — 세그먼트 점 배지용(전체 기준, 현재 필터와 무관).
   const unreadByCategory = data?.pages[0]?.meta.unreadByCategory ?? {};
+  // DAR-568: unreadCount(위)는 seen 기준("마지막 방문 이후 신규")이라 탭 진입 즉시 0이 된다 —
+  // '모두 읽음' 은 isRead 행을 대상으로 하는 별개 동작이므로 로드된 행의 실제 isRead 여부로
+  // 판단한다(과거 페이지 미로드분은 미포함 — 목록 스크롤 로드에 따라 점진 정확해짐).
+  const unreadRowCount = useMemo(
+    () => notifications.filter((n) => !n.isRead).length,
+    [notifications],
+  );
 
   const handleSelectCategory = useCallback((key: SegmentKey) => setSelectedCategory(key), []);
 
@@ -319,8 +342,8 @@ export default function NotificationsScreen() {
   // UXR-16(D-2): 낙관적 갱신(훅 onMutate)으로 행·배지는 즉시 반영되고,
   // 성공 스낵바는 서버 확인 후(onSuccess), 실패 시 훅이 롤백 + 여기서 실패 스낵바 안내.
   const handleMarkAllAsRead = useCallback(() => {
-    if (unreadCount === 0) return;
-    const count = unreadCount;
+    if (unreadRowCount === 0) return;
+    const count = unreadRowCount;
     markAllAsRead.mutate(undefined, {
       onSuccess: () =>
         showSnackbar(snackbarCopy.allNotificationsRead(count), {
@@ -328,7 +351,7 @@ export default function NotificationsScreen() {
         }),
       onError: () => showSnackbar(MARK_ALL_READ_FAILED_COPY, { duration: SNACKBAR_DURATION.error }),
     });
-  }, [unreadCount, markAllAsRead, showSnackbar]);
+  }, [unreadRowCount, markAllAsRead, showSnackbar]);
 
   const renderItem = useCallback(
     ({ item }: { item: Notification }) => (
@@ -429,13 +452,13 @@ export default function NotificationsScreen() {
       </ScrollView>
 
       <View style={styles.subHeader}>
-        {unreadCount > 0 && (
+        {unreadRowCount > 0 && (
           <View style={[styles.unreadBadge, { backgroundColor: colors.primary }]}>
             <Text
               style={[typo.small, { color: colors.primaryForeground, fontWeight: '600' }]}
               maxFontSizeMultiplier={MAX_CHIP_FONT_SCALE}
             >
-              {unreadCount}개 안 읽음
+              {unreadRowCount}개 안 읽음
             </Text>
           </View>
         )}
@@ -443,15 +466,15 @@ export default function NotificationsScreen() {
         <TouchableOpacity
           onPress={handleMarkAllAsRead}
           hitSlop={12}
-          disabled={unreadCount === 0}
+          disabled={unreadRowCount === 0}
           accessibilityRole="button"
           accessibilityLabel="모든 알림 읽음으로 표시"
-          accessibilityState={{ disabled: unreadCount === 0 }}
+          accessibilityState={{ disabled: unreadRowCount === 0 }}
         >
           <Text
             style={[
               typo.captionMedium,
-              { color: unreadCount === 0 ? colors.textTertiary : colors.primary },
+              { color: unreadRowCount === 0 ? colors.textTertiary : colors.primary },
             ]}
           >
             모두 읽음
